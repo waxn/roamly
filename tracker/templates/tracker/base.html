@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Roamly{% endblock %}</title>
+    {% load static %}
+    <link rel="icon" type="image/svg+xml" href="{% static 'tracker/Roamlylogomark.svg' %}">
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css" />
     <style>
         :root {
@@ -269,7 +271,9 @@
 <body>
     {% if user.is_authenticated %}
     <nav class="navbar">
-        <a href="{% url 'tracker:map' %}" class="navbar-brand">Roamly</a>
+        <a href="{% url 'tracker:map' %}" class="navbar-brand">
+            <img src="{% static 'tracker/Roamlylogofull.svg' %}" alt="Roamly" height="28">
+        </a>
         <ul class="navbar-nav">
             <li><a href="{% url 'tracker:map' %}" class="{% if request.resolver_match.url_name == 'map' %}active{% endif %}">Map</a></li>
             <li><a href="{% url 'tracker:data' %}" class="{% if request.resolver_match.url_name == 'data' %}active{% endif %}">Data</a></li>
