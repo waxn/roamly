@@ -77,8 +77,20 @@
             <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1rem;">
                 Geocode location points that don't have city/country data yet. Uses OpenStreetMap Nominatim (rate limited to 1 req/sec).
             </p>
-            <button class="btn btn-primary" onclick="startGeocoding()">Start Geocoding</button>
+            <button class="btn btn-primary" id="geocode-btn" onclick="startGeocoding()">Start Geocoding</button>
             <div id="geocode-status" style="margin-top: 0.75rem; font-size: 0.8125rem; display: none;"></div>
+        </div>
+
+        <!-- Preferences -->
+        <div class="card">
+            <div class="card-header">Preferences</div>
+            <div class="form-group">
+                <label>Speed Unit</label>
+                <select id="speed-unit" class="form-control" style="width: auto;" onchange="saveSpeedUnit(this.value)">
+                    <option value="kmh">km/h</option>
+                    <option value="mph">mi/h</option>
+                </select>
+            </div>
         </div>
 
         <!-- Data Management -->
@@ -107,6 +119,38 @@
                 </div>
                 <div id="import-status" style="font-size: 0.8125rem; color: var(--text-muted);"></div>
             </div>
+        </div>
+
+        <!-- GPSLogger Setup -->
+        <div class="card" style="grid-column: 1 / -1;">
+            <div class="card-header">GPSLogger for Android Setup</div>
+            <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1rem;">
+                <a href="https://gpslogger.app" target="_blank" style="color: var(--primary);">GPSLogger</a> is a free, open-source Android app for logging GPS data. Here's how to set it up with Roamly:
+            </p>
+            <ol style="font-size: 0.8125rem; color: var(--text-muted); padding-left: 1.25rem; line-height: 1.8;">
+                <li>Install <strong style="color: var(--text);">GPSLogger</strong> from <a href="https://f-droid.org/packages/com.mendhak.gpslogger/" target="_blank" style="color: var(--primary);">F-Droid</a> or <a href="https://play.google.com/store/apps/details?id=com.mendhak.gpslogger" target="_blank" style="color: var(--primary);">Google Play</a></li>
+                <li>Create an API key above and copy it</li>
+                <li>In GPSLogger, tap the <strong style="color: var(--text);">three-dot menu</strong> and go to <strong style="color: var(--text);">Logging Details</strong>
+                    <ul style="margin-top: 0.25rem;">
+                        <li>Enable <strong style="color: var(--text);">Log to custom URL</strong></li>
+                    </ul>
+                </li>
+                <li>Tap <strong style="color: var(--text);">Log to custom URL</strong> to configure:
+                    <ul style="margin-top: 0.25rem;">
+                        <li><strong style="color: var(--text);">URL:</strong> <code style="background: var(--bg); padding: 2px 6px; border-radius: 4px;">{{ request.scheme }}://{{ request.get_host }}/api/push/</code></li>
+                        <li><strong style="color: var(--text);">HTTP Method:</strong> POST</li>
+                        <li><strong style="color: var(--text);">HTTP Body:</strong>
+                            <code style="background: var(--bg); padding: 2px 6px; border-radius: 4px; display: block; margin-top: 0.25rem; word-break: break-all;">{"device_id":"android","latitude":%LAT,"longitude":%LON,"altitude":%ALT,"speed":%SPD,"accuracy":%ACC,"battery":%BATT,"timestamp":"%TIME"}</code>
+                        </li>
+                        <li><strong style="color: var(--text);">HTTP Headers:</strong>
+                            <code style="background: var(--bg); padding: 2px 6px; border-radius: 4px; display: block; margin-top: 0.25rem;">Authorization: Bearer YOUR_API_KEY</code>
+                            <code style="background: var(--bg); padding: 2px 6px; border-radius: 4px; display: block; margin-top: 0.25rem;">Content-Type: application/json</code>
+                        </li>
+                    </ul>
+                </li>
+                <li>Go back, tap <strong style="color: var(--text);">Performance</strong>, and set your logging interval (e.g. 60 seconds)</li>
+                <li>Tap the <strong style="color: var(--text);">Start</strong> button to begin logging</li>
+            </ol>
         </div>
 
         <!-- API Usage -->
@@ -170,8 +214,11 @@ function deleteApiKey(id) {
 
 function startGeocoding() {
     const statusEl = document.getElementById('geocode-status');
+    const btn = document.getElementById('geocode-btn');
     statusEl.style.display = 'block';
     statusEl.innerHTML = '<span class="spinner"></span> Starting...';
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
 
     fetch('/api/geocode/', {
         method: 'POST',
@@ -181,15 +228,24 @@ function startGeocoding() {
     .then(data => {
         if (data.status === 'nothing_to_geocode') {
             statusEl.textContent = 'All locations are already geocoded.';
+            btn.disabled = false;
+            btn.style.opacity = '';
             return;
         }
-        statusEl.innerHTML = `<span class="spinner"></span> Geocoding ${data.total} locations...`;
+        if (data.status === 'already_running') {
+            statusEl.innerHTML = `<span class="spinner"></span> ${data.processed}/${data.total} processed (${data.errors} errors)`;
+        } else {
+            statusEl.innerHTML = `<span class="spinner"></span> Geocoding ${data.total} locations...`;
+        }
         pollGeocodingStatus();
     });
 }
 
 function pollGeocodingStatus() {
     const statusEl = document.getElementById('geocode-status');
+    const btn = document.getElementById('geocode-btn');
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
     const interval = setInterval(() => {
         fetch('/api/geocode/status/')
         .then(r => r.json())
@@ -199,12 +255,34 @@ function pollGeocodingStatus() {
             } else if (data.status === 'completed') {
                 statusEl.textContent = `Done! ${data.processed}/${data.total} geocoded (${data.errors} errors)`;
                 clearInterval(interval);
+                btn.disabled = false;
+                btn.style.opacity = '';
             } else {
                 clearInterval(interval);
+                btn.disabled = false;
+                btn.style.opacity = '';
             }
         });
     }, 2000);
 }
+
+// Check geocoding status on page load
+fetch('/api/geocode/status/')
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'running') {
+            const statusEl = document.getElementById('geocode-status');
+            statusEl.style.display = 'block';
+            statusEl.innerHTML = `<span class="spinner"></span> ${data.processed}/${data.total} processed (${data.errors} errors)`;
+            pollGeocodingStatus();
+        }
+    });
+
+// Speed unit preference
+function saveSpeedUnit(unit) {
+    localStorage.setItem('roamly_speed_unit', unit);
+}
+document.getElementById('speed-unit').value = localStorage.getItem('roamly_speed_unit') || 'kmh';
 
 function importFile(input, type) {
     const file = input.files[0];

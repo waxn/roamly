@@ -53,6 +53,12 @@
 
 {% block extra_js %}
 <script>
+function formatSpeed(speedMs) {
+    const unit = localStorage.getItem('roamly_speed_unit') || 'kmh';
+    if (unit === 'mph') return (speedMs * 2.23694).toFixed(1) + ' mi/h';
+    return (speedMs * 3.6).toFixed(1) + ' km/h';
+}
+
 function loadData() {
     const device = document.getElementById('data-device').value;
     const range = document.getElementById('data-range').value;
@@ -84,7 +90,7 @@ function loadData() {
                         <td>${loc.city || '-'}</td>
                         <td>${loc.state || '-'}</td>
                         <td>${loc.country_code || '-'}</td>
-                        <td>${loc.speed ? (loc.speed * 3.6).toFixed(1) + ' km/h' : '-'}</td>
+                        <td>${loc.speed ? formatSpeed(loc.speed) : '-'}</td>
                         <td>${loc.battery ? loc.battery + '%' : '-'}</td>
                         <td style="color:var(--text-muted)">${ts.toLocaleString()}</td>
                     </tr>`);

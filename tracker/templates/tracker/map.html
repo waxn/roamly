@@ -274,7 +274,11 @@ function setupLayers() {
         if (props.city) html += `${props.city}`;
         if (props.state) html += `, ${props.state}`;
         if (props.country) html += `<br>${props.country}`;
-        if (props.speed) html += `<br>Speed: ${(props.speed * 3.6).toFixed(1)} km/h`;
+        if (props.speed) {
+            const unit = localStorage.getItem('roamly_speed_unit') || 'kmh';
+            const spd = unit === 'mph' ? (props.speed * 2.23694).toFixed(1) + ' mi/h' : (props.speed * 3.6).toFixed(1) + ' km/h';
+            html += `<br>Speed: ${spd}`;
+        }
         if (props.battery) html += `<br>Battery: ${props.battery}%`;
 
         new maplibregl.Popup({ offset: 10 })

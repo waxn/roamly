@@ -26,6 +26,7 @@ urlpatterns = [
     # Stats API
     path('api/stats/', views.stats_api, name='stats_api'),
     path('api/visits/', views.visits_api, name='visits_api'),
+    path('api/distance/', views.distance_api, name='distance_api'),
 
     # Trips API
     path('api/trips/', views.trips_api, name='trips_api'),

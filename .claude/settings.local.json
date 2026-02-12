@@ -3,7 +3,8 @@
     "allow": [
       "Bash(docker compose build:*)",
       "Bash(python3:*)",
-      "Bash(docker compose:*)"
+      "Bash(docker compose:*)",
+      "Bash(DJANGO_SETTINGS_MODULE=roamly.settings python:*)"
     ]
   }
 }

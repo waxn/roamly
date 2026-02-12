@@ -2,7 +2,9 @@ import csv
 import io
 import json
 import logging
+import math
 import urllib.request
+from collections import defaultdict
 from datetime import datetime, timedelta
 
 from django.contrib import messages
@@ -403,9 +405,30 @@ def locations_geojson_api(request):
 
 @login_required
 def stats_api(request):
-    """Overall statistics."""
+    """Overall statistics with time filtering."""
     device_id = request.GET.get("device_id")
+    all_time = request.GET.get("all")
+    start_date = request.GET.get("start_date")
+    end_date = request.GET.get("end_date")
+
     locations = Location.objects.filter(device__user=request.user)
+
+    if start_date and end_date:
+        try:
+            start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
+            end = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
+            if timezone.is_naive(start):
+                start = timezone.make_aware(start)
+            if timezone.is_naive(end):
+                end = timezone.make_aware(end)
+            locations = locations.filter(timestamp__gte=start, timestamp__lte=end)
+        except (ValueError, TypeError):
+            pass
+    elif not all_time:
+        hours = int(request.GET.get("hours", 24))
+        since = timezone.now() - timedelta(hours=hours)
+        locations = locations.filter(timestamp__gte=since)
+
     if device_id:
         locations = locations.filter(device__device_id=device_id)
 
@@ -426,6 +449,73 @@ def stats_api(request):
         "devices": devices,
         "first_location": first.isoformat() if first else None,
         "last_location": last.isoformat() if last else None,
+    })
+
+
+def _haversine_km(lat1, lon1, lat2, lon2):
+    """Calculate distance between two points in km using haversine formula."""
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+@login_required
+def distance_api(request):
+    """Daily distance travelled, computed from sequential location points."""
+    device_id = request.GET.get("device_id")
+    all_time = request.GET.get("all")
+    start_date = request.GET.get("start_date")
+    end_date = request.GET.get("end_date")
+
+    locations = Location.objects.filter(device__user=request.user)
+
+    if start_date and end_date:
+        try:
+            start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
+            end = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
+            if timezone.is_naive(start):
+                start = timezone.make_aware(start)
+            if timezone.is_naive(end):
+                end = timezone.make_aware(end)
+            locations = locations.filter(timestamp__gte=start, timestamp__lte=end)
+        except (ValueError, TypeError):
+            pass
+    elif not all_time:
+        hours = int(request.GET.get("hours", 24))
+        since = timezone.now() - timedelta(hours=hours)
+        locations = locations.filter(timestamp__gte=since)
+
+    if device_id:
+        locations = locations.filter(device__device_id=device_id)
+
+    locations = locations.order_by('device', 'timestamp').values_list(
+        'device_id', 'latitude', 'longitude', 'timestamp'
+    )[:50000]
+
+    daily_km = defaultdict(float)
+    total_km = 0.0
+    prev = {}  # per-device previous point
+
+    for dev_id, lat, lon, ts in locations:
+        day = ts.strftime('%Y-%m-%d')
+        if dev_id in prev:
+            p_lat, p_lon, p_ts = prev[dev_id]
+            # Skip if gap > 2 hours (likely separate trips, not continuous travel)
+            if (ts - p_ts).total_seconds() <= 7200:
+                d = _haversine_km(p_lat, p_lon, lat, lon)
+                # Skip unreasonable jumps (> 500 km between consecutive points)
+                if d <= 500:
+                    daily_km[day] += d
+                    total_km += d
+        prev[dev_id] = (lat, lon, ts)
+
+    days = sorted(daily_km.keys())
+    return JsonResponse({
+        "days": days,
+        "distances": [round(daily_km[d], 2) for d in days],
+        "total_km": round(total_km, 2),
     })
 
 
