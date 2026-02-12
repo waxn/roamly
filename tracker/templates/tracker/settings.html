@@ -223,11 +223,16 @@ function importFile(input, type) {
     })
     .then(r => r.json())
     .then(data => {
-        statusEl.textContent = `Imported ${data.imported} locations (${data.errors} errors)`;
+        let msg = `Imported ${data.imported} locations (${data.errors} errors)`;
+        if (data.first_error) {
+            msg += `\nFirst error: ${data.first_error}`;
+        }
+        statusEl.textContent = msg;
+        statusEl.style.whiteSpace = 'pre-wrap';
         input.value = '';
     })
-    .catch(() => {
-        statusEl.textContent = 'Import failed';
+    .catch((err) => {
+        statusEl.textContent = `Import failed: ${err}`;
     });
 }
 </script>

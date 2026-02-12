@@ -655,6 +655,83 @@ def export_gpx(request):
     return response
 
 
+def _safe_float(value):
+    """Convert a value to float, returning None for empty/invalid values."""
+    if value is None:
+        return None
+    value = str(value).strip()
+    if not value:
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _get_csv_field(row, *candidates):
+    """Get a field from a CSV row, trying multiple possible column names."""
+    for name in candidates:
+        val = row.get(name)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+        # Try case-insensitive match
+        for key in row:
+            if key and key.strip().lower() == name.lower():
+                val = row[key]
+                if val is not None and str(val).strip():
+                    return str(val).strip()
+    return None
+
+
+def _parse_timestamp(value):
+    """Parse a timestamp string in various formats."""
+    if not value:
+        return None
+    value = str(value).strip()
+    if not value:
+        return None
+
+    # Try ISO format first
+    for fmt_value in [value, value.replace('Z', '+00:00')]:
+        try:
+            ts = datetime.fromisoformat(fmt_value)
+            if timezone.is_naive(ts):
+                ts = timezone.make_aware(ts)
+            return ts
+        except (ValueError, TypeError):
+            pass
+
+    # Try common formats
+    for fmt in [
+        '%Y-%m-%d %H:%M:%S',
+        '%Y-%m-%dT%H:%M:%S',
+        '%Y-%m-%d %H:%M:%S%z',
+        '%Y-%m-%dT%H:%M:%S%z',
+        '%Y/%m/%d %H:%M:%S',
+        '%m/%d/%Y %H:%M:%S',
+        '%d/%m/%Y %H:%M:%S',
+        '%Y-%m-%d',
+    ]:
+        try:
+            ts = datetime.strptime(value, fmt)
+            if timezone.is_naive(ts):
+                ts = timezone.make_aware(ts)
+            return ts
+        except (ValueError, TypeError):
+            pass
+
+    # Try unix timestamp
+    try:
+        ts_float = float(value)
+        if ts_float > 1e12:  # milliseconds
+            ts_float /= 1000
+        return datetime.fromtimestamp(ts_float, tz=timezone.utc)
+    except (ValueError, TypeError, OverflowError, OSError):
+        pass
+
+    return None
+
+
 @login_required
 @csrf_exempt
 @require_http_methods(["POST"])
@@ -664,48 +741,83 @@ def import_csv(request):
     if not f:
         return JsonResponse({"error": "No file uploaded"}, status=400)
 
-    decoded = f.read().decode('utf-8')
+    try:
+        decoded = f.read().decode('utf-8-sig')  # utf-8-sig handles BOM
+    except UnicodeDecodeError:
+        f.seek(0)
+        decoded = f.read().decode('latin-1')
+
     reader = csv.DictReader(io.StringIO(decoded))
     count = 0
     errors = 0
+    first_error = None
 
     for row in reader:
         try:
-            device_id = row.get('device', 'import')
+            device_id = (
+                _get_csv_field(row, 'device', 'device_id', 'deviceId', 'Device') or 'import'
+            )
             device, _ = Device.objects.get_or_create(
                 user=request.user, device_id=device_id,
                 defaults={'name': device_id}
             )
-            ts = row.get('timestamp')
-            if ts:
-                ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-                if timezone.is_naive(ts):
-                    ts = timezone.make_aware(ts)
-            else:
+
+            lat = _safe_float(
+                _get_csv_field(row, 'latitude', 'lat', 'Latitude', 'Lat')
+            )
+            lon = _safe_float(
+                _get_csv_field(row, 'longitude', 'lng', 'lon', 'long',
+                               'Longitude', 'Lng', 'Lon', 'Long')
+            )
+
+            if lat is None or lon is None:
+                raise ValueError(
+                    f"Missing lat/lon. Columns found: {list(row.keys())}"
+                )
+
+            ts_raw = _get_csv_field(
+                row, 'timestamp', 'time', 'datetime', 'date', 'created_at',
+                'Timestamp', 'Time', 'DateTime', 'Date'
+            )
+            ts = _parse_timestamp(ts_raw)
+            if ts is None:
                 ts = timezone.now()
 
             Location.objects.get_or_create(
                 device=device,
-                latitude=float(row['latitude']),
-                longitude=float(row['longitude']),
+                latitude=lat,
+                longitude=lon,
                 timestamp=ts,
                 defaults={
-                    'altitude': float(row['altitude']) if row.get('altitude') else None,
-                    'accuracy': float(row['accuracy']) if row.get('accuracy') else None,
-                    'speed': float(row['speed']) if row.get('speed') else None,
-                    'battery': float(row['battery']) if row.get('battery') else None,
-                    'city': row.get('city', ''),
-                    'state': row.get('state', ''),
-                    'country': row.get('country', ''),
-                    'country_code': row.get('country_code', ''),
+                    'altitude': _safe_float(
+                        _get_csv_field(row, 'altitude', 'alt', 'elevation', 'ele')
+                    ),
+                    'accuracy': _safe_float(
+                        _get_csv_field(row, 'accuracy', 'acc', 'hdop')
+                    ),
+                    'speed': _safe_float(
+                        _get_csv_field(row, 'speed', 'vel', 'velocity')
+                    ),
+                    'battery': _safe_float(
+                        _get_csv_field(row, 'battery', 'batt', 'battery_level')
+                    ),
+                    'city': _get_csv_field(row, 'city', 'City') or '',
+                    'state': _get_csv_field(row, 'state', 'State', 'province', 'region') or '',
+                    'country': _get_csv_field(row, 'country', 'Country') or '',
+                    'country_code': _get_csv_field(row, 'country_code', 'countryCode', 'cc') or '',
                 }
             )
             count += 1
         except Exception as e:
             errors += 1
-            logger.warning(f"CSV import error: {e}")
+            if first_error is None:
+                first_error = str(e)
+            logger.warning(f"CSV import error on row {count + errors}: {e}")
 
-    return JsonResponse({"status": "ok", "imported": count, "errors": errors})
+    result = {"status": "ok", "imported": count, "errors": errors}
+    if first_error and errors > 0:
+        result["first_error"] = first_error
+    return JsonResponse(result)
 
 
 @login_required
@@ -718,12 +830,17 @@ def import_gpx(request):
         return JsonResponse({"error": "No file uploaded"}, status=400)
 
     import xml.etree.ElementTree as ET
-    content = f.read().decode('utf-8')
+
+    try:
+        content = f.read().decode('utf-8-sig')
+    except UnicodeDecodeError:
+        f.seek(0)
+        content = f.read().decode('latin-1')
 
     try:
         root = ET.fromstring(content)
-    except ET.ParseError:
-        return JsonResponse({"error": "Invalid GPX XML"}, status=400)
+    except ET.ParseError as e:
+        return JsonResponse({"error": f"Invalid GPX XML: {e}"}, status=400)
 
     ns = {'gpx': 'http://www.topografix.com/GPX/1/1'}
     device_id = request.POST.get('device_id', 'gpx-import')
@@ -734,29 +851,40 @@ def import_gpx(request):
 
     count = 0
     errors = 0
+    first_error = None
 
-    # Try both namespaced and non-namespaced
+    # Try both namespaced and non-namespaced, also wpts
     trkpts = root.findall('.//gpx:trkpt', ns)
     if not trkpts:
         trkpts = root.findall('.//{http://www.topografix.com/GPX/1/1}trkpt')
     if not trkpts:
         trkpts = root.findall('.//trkpt')
+    # Also try waypoints
+    wpts = root.findall('.//gpx:wpt', ns)
+    if not wpts:
+        wpts = root.findall('.//{http://www.topografix.com/GPX/1/1}wpt')
+    if not wpts:
+        wpts = root.findall('.//wpt')
+    trkpts = list(trkpts) + list(wpts)
+
+    if not trkpts:
+        return JsonResponse({
+            "error": "No track points or waypoints found in GPX file",
+            "imported": 0, "errors": 0,
+        }, status=400)
 
     for pt in trkpts:
         try:
             lat = float(pt.get('lat'))
             lon = float(pt.get('lon'))
 
-            # Try to find time element
             time_el = (
                 pt.find('gpx:time', ns) or
                 pt.find('{http://www.topografix.com/GPX/1/1}time') or
                 pt.find('time')
             )
             if time_el is not None and time_el.text:
-                ts = datetime.fromisoformat(time_el.text.replace('Z', '+00:00'))
-                if timezone.is_naive(ts):
-                    ts = timezone.make_aware(ts)
+                ts = _parse_timestamp(time_el.text)
             else:
                 ts = timezone.now()
 
@@ -774,9 +902,14 @@ def import_gpx(request):
             count += 1
         except Exception as e:
             errors += 1
+            if first_error is None:
+                first_error = str(e)
             logger.warning(f"GPX import error: {e}")
 
-    return JsonResponse({"status": "ok", "imported": count, "errors": errors})
+    result = {"status": "ok", "imported": count, "errors": errors}
+    if first_error and errors > 0:
+        result["first_error"] = first_error
+    return JsonResponse(result)
 
 
 # ---------------------------------------------------------------------------
