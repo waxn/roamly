@@ -1,0 +1,65 @@
+{% extends "tracker/base.html" %}
+{% block title %}Stats - Roamly{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Statistics</h1>
+    </div>
+
+    <div class="grid grid-4" id="stats-grid">
+        <div class="card" style="text-align: center;">
+            <div class="stat-value" id="stat-points">-</div>
+            <div class="stat-label">Total Points</div>
+        </div>
+        <div class="card" style="text-align: center;">
+            <div class="stat-value" id="stat-countries">-</div>
+            <div class="stat-label">Countries</div>
+        </div>
+        <div class="card" style="text-align: center;">
+            <div class="stat-value" id="stat-cities">-</div>
+            <div class="stat-label">Cities</div>
+        </div>
+        <div class="card" style="text-align: center;">
+            <div class="stat-value" id="stat-devices">-</div>
+            <div class="stat-label">Devices</div>
+        </div>
+    </div>
+
+    <div class="grid grid-2">
+        <div class="card">
+            <div class="card-header">Timeline</div>
+            <div id="timeline-info" style="font-size: 0.875rem; color: var(--text-muted);">Loading...</div>
+        </div>
+        <div class="card">
+            <div class="card-header">States / Regions</div>
+            <div id="stat-states" style="font-size: 0.875rem; color: var(--text-muted);">-</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+fetch('/api/stats/')
+    .then(r => r.json())
+    .then(data => {
+        document.getElementById('stat-points').textContent = data.total_points.toLocaleString();
+        document.getElementById('stat-countries').textContent = data.countries;
+        document.getElementById('stat-cities').textContent = data.cities;
+        document.getElementById('stat-devices').textContent = data.devices;
+        document.getElementById('stat-states').textContent = `${data.states} states/regions visited`;
+
+        let timeline = '';
+        if (data.first_location) {
+            const first = new Date(data.first_location);
+            const last = new Date(data.last_location);
+            const days = Math.ceil((last - first) / (1000 * 60 * 60 * 24));
+            timeline = `First: ${first.toLocaleDateString()}<br>Last: ${last.toLocaleDateString()}<br>Span: ${days} days`;
+        } else {
+            timeline = 'No data yet';
+        }
+        document.getElementById('timeline-info').innerHTML = timeline;
+    });
+</script>
+{% endblock %}

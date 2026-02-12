@@ -1,0 +1,49 @@
+from django.urls import path
+from . import views
+
+app_name = 'tracker'
+
+urlpatterns = [
+    # Pages
+    path('', views.landing_view, name='landing'),
+    path('map/', views.map_view, name='map'),
+    path('data/', views.data_table, name='data'),
+    path('stats/', views.stats_view, name='stats'),
+    path('visits/', views.visits_view, name='visits'),
+    path('trips/', views.trips_view, name='trips'),
+    path('settings/', views.settings_view, name='settings'),
+
+    # Auth
+    path('login/', views.login_view, name='login'),
+    path('signup/', views.signup_view, name='signup'),
+    path('logout/', views.logout_view, name='logout'),
+
+    # Location API
+    path('api/push/', views.push_location, name='push_location'),
+    path('api/locations/', views.locations_api, name='locations_api'),
+    path('api/locations/geojson/', views.locations_geojson_api, name='locations_geojson'),
+
+    # Stats API
+    path('api/stats/', views.stats_api, name='stats_api'),
+    path('api/visits/', views.visits_api, name='visits_api'),
+
+    # Trips API
+    path('api/trips/', views.trips_api, name='trips_api'),
+    path('api/trips/create/', views.create_trip, name='create_trip'),
+    path('api/trips/<int:trip_id>/', views.trip_detail, name='trip_detail'),
+    path('api/trips/<int:trip_id>/delete/', views.delete_trip, name='delete_trip'),
+
+    # Geocoding
+    path('api/geocode/', views.geocode_api, name='geocode_api'),
+    path('api/geocode/status/', views.geocode_status, name='geocode_status'),
+
+    # Export/Import
+    path('api/export/csv/', views.export_csv, name='export_csv'),
+    path('api/export/gpx/', views.export_gpx, name='export_gpx'),
+    path('api/import/csv/', views.import_csv, name='import_csv'),
+    path('api/import/gpx/', views.import_gpx, name='import_gpx'),
+
+    # API Keys
+    path('api/keys/create/', views.create_api_key, name='create_api_key'),
+    path('api/keys/<int:key_id>/delete/', views.delete_api_key, name='delete_api_key'),
+]

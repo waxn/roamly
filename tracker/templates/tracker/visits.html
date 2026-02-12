@@ -1,0 +1,139 @@
+{% extends "tracker/base.html" %}
+{% block title %}Visits - Roamly{% endblock %}
+
+{% block extra_css %}
+.tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px;
+    margin-bottom: 1rem;
+    width: fit-content;
+}
+.tab-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    padding: 6px 16px;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    cursor: pointer;
+}
+.tab-btn.active {
+    background: var(--primary);
+    color: #fff;
+}
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Visits</h1>
+    </div>
+
+    <div class="tabs">
+        <button class="tab-btn active" data-tab="countries">Countries</button>
+        <button class="tab-btn" data-tab="states">States</button>
+        <button class="tab-btn" data-tab="cities">Cities</button>
+    </div>
+
+    <div id="tab-countries" class="tab-content active">
+        <div class="card">
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr><th>Country</th><th>Code</th><th>Cities</th><th>States</th><th>Points</th></tr>
+                    </thead>
+                    <tbody id="countries-table"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab-states" class="tab-content">
+        <div class="card">
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr><th>State / Region</th><th>Country</th><th>Cities</th><th>Points</th></tr>
+                    </thead>
+                    <tbody id="states-table"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab-cities" class="tab-content">
+        <div class="card">
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr><th>City</th><th>State</th><th>Country</th><th>Visits</th><th>First Seen</th><th>Last Seen</th></tr>
+                    </thead>
+                    <tbody id="cities-table"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Tabs
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+    });
+});
+
+fetch('/api/visits/')
+    .then(r => r.json())
+    .then(data => {
+        // Countries
+        const countriesHtml = data.countries.map(c =>
+            `<tr>
+                <td>${c.country}</td>
+                <td><code>${c.country_code}</code></td>
+                <td>${c.city_count}</td>
+                <td>${c.state_count}</td>
+                <td>${c.location_count.toLocaleString()}</td>
+            </tr>`
+        ).join('');
+        document.getElementById('countries-table').innerHTML = countriesHtml || '<tr><td colspan="5" style="color:var(--text-muted)">No data</td></tr>';
+
+        // States
+        const statesHtml = data.states.map(s =>
+            `<tr>
+                <td>${s.state}</td>
+                <td>${s.country}</td>
+                <td>${s.city_count}</td>
+                <td>${s.location_count.toLocaleString()}</td>
+            </tr>`
+        ).join('');
+        document.getElementById('states-table').innerHTML = statesHtml || '<tr><td colspan="4" style="color:var(--text-muted)">No data</td></tr>';
+
+        // Cities
+        const citiesHtml = data.cities.map(c => {
+            const first = c.first_seen ? new Date(c.first_seen).toLocaleDateString() : '-';
+            const last = c.last_seen ? new Date(c.last_seen).toLocaleDateString() : '-';
+            return `<tr>
+                <td>${c.city}</td>
+                <td>${c.state}</td>
+                <td>${c.country}</td>
+                <td>${c.visit_count.toLocaleString()}</td>
+                <td style="color:var(--text-muted)">${first}</td>
+                <td style="color:var(--text-muted)">${last}</td>
+            </tr>`;
+        }).join('');
+        document.getElementById('cities-table').innerHTML = citiesHtml || '<tr><td colspan="6" style="color:var(--text-muted)">No data</td></tr>';
+    });
+</script>
+{% endblock %}

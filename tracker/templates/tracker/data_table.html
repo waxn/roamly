@@ -1,0 +1,104 @@
+{% extends "tracker/base.html" %}
+{% block title %}Data - Roamly{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <h1>Location Data</h1>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <select id="data-device" class="form-control" style="width: auto;">
+                <option value="">All devices</option>
+                {% for device in devices %}
+                <option value="{{ device.device_id }}">{{ device.name|default:device.device_id }}</option>
+                {% endfor %}
+            </select>
+            <select id="data-range" class="form-control" style="width: auto;">
+                <option value="24">Last 24h</option>
+                <option value="72">Last 3 days</option>
+                <option value="168">Last week</option>
+                <option value="720">Last 30 days</option>
+                <option value="all">All time</option>
+            </select>
+            <button class="btn btn-primary btn-sm" onclick="loadData()">Load</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Device</th>
+                        <th>Latitude</th>
+                        <th>Longitude</th>
+                        <th>City</th>
+                        <th>State</th>
+                        <th>Country</th>
+                        <th>Speed</th>
+                        <th>Battery</th>
+                        <th>Timestamp</th>
+                    </tr>
+                </thead>
+                <tbody id="data-table-body">
+                    <tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                        <span class="spinner"></span> Loading...
+                    </td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div id="data-info" style="margin-top: 0.75rem; font-size: 0.8125rem; color: var(--text-muted);"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function loadData() {
+    const device = document.getElementById('data-device').value;
+    const range = document.getElementById('data-range').value;
+    const params = new URLSearchParams({ limit: 1000 });
+
+    if (range === 'all') {
+        params.set('all', '1');
+    } else {
+        params.set('hours', range);
+    }
+    if (device) params.set('device_id', device);
+
+    document.getElementById('data-table-body').innerHTML =
+        '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:2rem;"><span class="spinner"></span> Loading...</td></tr>';
+
+    fetch(`/api/locations/?${params}`)
+        .then(r => r.json())
+        .then(data => {
+            let rows = [];
+            let total = 0;
+            data.devices.forEach(dev => {
+                dev.locations.forEach(loc => {
+                    total++;
+                    const ts = new Date(loc.timestamp);
+                    rows.push(`<tr>
+                        <td>${dev.name}</td>
+                        <td>${loc.lat.toFixed(5)}</td>
+                        <td>${loc.lng.toFixed(5)}</td>
+                        <td>${loc.city || '-'}</td>
+                        <td>${loc.state || '-'}</td>
+                        <td>${loc.country_code || '-'}</td>
+                        <td>${loc.speed ? (loc.speed * 3.6).toFixed(1) + ' km/h' : '-'}</td>
+                        <td>${loc.battery ? loc.battery + '%' : '-'}</td>
+                        <td style="color:var(--text-muted)">${ts.toLocaleString()}</td>
+                    </tr>`);
+                });
+            });
+
+            document.getElementById('data-table-body').innerHTML = rows.join('') ||
+                '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">No data</td></tr>';
+            document.getElementById('data-info').textContent = `Showing ${total} location points`;
+        });
+}
+
+loadData();
+document.getElementById('data-device').addEventListener('change', loadData);
+document.getElementById('data-range').addEventListener('change', loadData);
+</script>
+{% endblock %}
