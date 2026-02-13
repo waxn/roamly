@@ -25,12 +25,12 @@
                 </select>
             </div>
             <div class="form-group">
-                <label>Start Date/Time</label>
-                <input type="datetime-local" id="trip-start" class="form-control">
+                <label>Start Date</label>
+                <input type="date" id="trip-start" class="form-control" required>
             </div>
             <div class="form-group">
-                <label>End Date/Time</label>
-                <input type="datetime-local" id="trip-end" class="form-control">
+                <label>End Date</label>
+                <input type="date" id="trip-end" class="form-control" required>
             </div>
         </div>
         <div class="form-group">
@@ -103,11 +103,17 @@ function loadTrips() {
 }
 
 function createTrip() {
+    const startVal = document.getElementById('trip-start').value;
+    const endVal = document.getElementById('trip-end').value;
+    if (!startVal || !endVal) {
+        alert('Please fill in both start and end date/time.');
+        return;
+    }
     const body = {
         name: document.getElementById('trip-name').value,
         device_id: document.getElementById('trip-device').value,
-        start_time: document.getElementById('trip-start').value,
-        end_time: document.getElementById('trip-end').value,
+        start_time: startVal,
+        end_time: endVal,
         description: document.getElementById('trip-description').value,
     };
 

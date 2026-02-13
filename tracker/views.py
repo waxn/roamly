@@ -604,8 +604,15 @@ def create_trip(request):
         return JsonResponse({"error": "Device not found"}, status=404)
 
     try:
-        start = datetime.fromisoformat(data['start_time'].replace('Z', '+00:00'))
-        end = datetime.fromisoformat(data['end_time'].replace('Z', '+00:00'))
+        start_raw = data.get('start_time', '').strip()
+        end_raw = data.get('end_time', '').strip()
+        if not start_raw or not end_raw:
+            return JsonResponse({"error": "Start and end dates are required"}, status=400)
+        start = datetime.fromisoformat(start_raw.replace('Z', '+00:00'))
+        end = datetime.fromisoformat(end_raw.replace('Z', '+00:00'))
+        # Date-only inputs produce midnight; set end to end of day
+        if 'T' not in end_raw:
+            end = end.replace(hour=23, minute=59, second=59)
         if timezone.is_naive(start):
             start = timezone.make_aware(start)
         if timezone.is_naive(end):
