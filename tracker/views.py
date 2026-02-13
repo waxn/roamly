@@ -841,10 +841,11 @@ def import_csv(request):
     count = 0
     errors = 0
     first_error = None
+    override_device_id = request.POST.get('device_id', '').strip()
 
     for row in reader:
         try:
-            device_id = (
+            device_id = override_device_id or (
                 _get_csv_field(row, 'device', 'device_id', 'deviceId', 'Device') or 'import'
             )
             device, _ = Device.objects.get_or_create(

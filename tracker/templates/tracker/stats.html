@@ -169,7 +169,7 @@ function drawChart(days, distancesKm) {
 
     if (!days.length) {
         ctx.fillStyle = '#8b8fa3';
-        ctx.font = '13px -apple-system, sans-serif';
+        ctx.font = '13px Space Grotesk, sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText('No distance data in this range', W / 2, H / 2);
         return;
@@ -185,7 +185,7 @@ function drawChart(days, distancesKm) {
     ctx.strokeStyle = '#2d3040';
     ctx.lineWidth = 1;
     ctx.fillStyle = '#8b8fa3';
-    ctx.font = '11px -apple-system, sans-serif';
+    ctx.font = '11px Space Grotesk, sans-serif';
     ctx.textAlign = 'right';
 
     for (let i = 0; i <= gridLines; i++) {
@@ -200,7 +200,7 @@ function drawChart(days, distancesKm) {
 
     // Unit label
     ctx.fillStyle = '#8b8fa3';
-    ctx.font = '10px -apple-system, sans-serif';
+    ctx.font = '10px Space Grotesk, sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText(imperial ? 'mi' : 'km', pad.left - 8, pad.top - 6);
 
@@ -226,7 +226,7 @@ function drawChart(days, distancesKm) {
 
     // X-axis labels
     ctx.fillStyle = '#8b8fa3';
-    ctx.font = '10px -apple-system, sans-serif';
+    ctx.font = '10px Space Grotesk, sans-serif';
     ctx.textAlign = 'center';
 
     const maxLabels = Math.floor(cW / 60);
