@@ -303,6 +303,7 @@ def locations_api(request):
     device_id = request.GET.get("device_id")
     all_time = request.GET.get("all")
     limit = min(int(request.GET.get("limit", 5000)), 50000)
+    offset = int(request.GET.get("offset", 0))
     start_date = request.GET.get("start_date")
     end_date = request.GET.get("end_date")
     min_lng = request.GET.get("min_lng")
@@ -346,7 +347,7 @@ def locations_api(request):
         except (ValueError, TypeError):
             pass
 
-    locations = locations.select_related('device').order_by('timestamp')[:limit]
+    locations = locations.select_related('device').order_by('timestamp')[offset:offset + limit]
 
     devices_data = {}
     for loc in locations:

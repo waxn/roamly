@@ -46,23 +46,37 @@
                 </tbody>
             </table>
         </div>
-        <div id="data-info" style="margin-top: 0.75rem; font-size: 0.8125rem; color: var(--text-muted);"></div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem;">
+            <div id="data-info" style="font-size: 0.8125rem; color: var(--text-muted);"></div>
+            <button id="load-more-btn" class="btn btn-outline btn-sm" onclick="loadMore()" style="display: none;">Load More</button>
+        </div>
     </div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
+let currentOffset = 0;
+let totalLoaded = 0;
+const LIMIT = 1000;
+
 function formatSpeed(speedMs) {
     const unit = localStorage.getItem('roamly_speed_unit') || 'kmh';
     if (unit === 'mph') return (speedMs * 2.23694).toFixed(1) + ' mi/h';
     return (speedMs * 3.6).toFixed(1) + ' km/h';
 }
 
-function loadData() {
+function loadData(append = false) {
     const device = document.getElementById('data-device').value;
     const range = document.getElementById('data-range').value;
-    const params = new URLSearchParams({ limit: 1000 });
+    const params = new URLSearchParams({ limit: LIMIT });
+
+    if (!append) {
+        currentOffset = 0;
+        totalLoaded = 0;
+    }
+    
+    params.set('offset', currentOffset);
 
     if (range === 'all') {
         params.set('all', '1');
@@ -71,17 +85,23 @@ function loadData() {
     }
     if (device) params.set('device_id', device);
 
-    document.getElementById('data-table-body').innerHTML =
-        '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:2rem;"><span class="spinner"></span> Loading...</td></tr>';
+    if (!append) {
+        document.getElementById('data-table-body').innerHTML =
+            '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:2rem;"><span class="spinner"></span> Loading...</td></tr>';
+    }
+    
+    const loadMoreBtn = document.getElementById('load-more-btn');
+    loadMoreBtn.disabled = true;
+    loadMoreBtn.innerHTML = '<span class="spinner"></span> Loading...';
 
     fetch(`/api/locations/?${params}`)
         .then(r => r.json())
         .then(data => {
             let rows = [];
-            let total = 0;
+            let count = 0;
             data.devices.forEach(dev => {
                 dev.locations.forEach(loc => {
-                    total++;
+                    count++;
                     const ts = new Date(loc.timestamp);
                     rows.push(`<tr>
                         <td>${dev.name}</td>
@@ -97,14 +117,36 @@ function loadData() {
                 });
             });
 
-            document.getElementById('data-table-body').innerHTML = rows.join('') ||
-                '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">No data</td></tr>';
-            document.getElementById('data-info').textContent = `Showing ${total} location points`;
+            if (append) {
+                const tbody = document.getElementById('data-table-body');
+                tbody.insertAdjacentHTML('beforeend', rows.join(''));
+            } else {
+                document.getElementById('data-table-body').innerHTML = rows.join('') ||
+                    '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">No data</td></tr>';
+            }
+            
+            totalLoaded += count;
+            currentOffset += count;
+            
+            document.getElementById('data-info').textContent = `Showing ${totalLoaded} location points`;
+            
+            // Show/hide load more button
+            if (count >= LIMIT) {
+                loadMoreBtn.style.display = 'block';
+                loadMoreBtn.disabled = false;
+                loadMoreBtn.textContent = 'Load More';
+            } else {
+                loadMoreBtn.style.display = 'none';
+            }
         });
 }
 
+function loadMore() {
+    loadData(true);
+}
+
 loadData();
-document.getElementById('data-device').addEventListener('change', loadData);
-document.getElementById('data-range').addEventListener('change', loadData);
+document.getElementById('data-device').addEventListener('change', () => loadData(false));
+document.getElementById('data-range').addEventListener('change', () => loadData(false));
 </script>
 {% endblock %}
