@@ -37,6 +37,7 @@ services:
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
       - DATABASE_URL=postgis://roamly:${POSTGRES_PASSWORD:-roamly_secret}@db:5432/roamly
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-http://localhost,http://127.0.0.1}
 
 volumes:
   postgis_data:
