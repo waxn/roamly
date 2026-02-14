@@ -9,7 +9,7 @@
 
     <div class="grid grid-2">
         <!-- API Keys -->
-        <div class="card">
+        <div class="card" style="grid-column: span 2;">
             <div class="card-header">API Keys</div>
             <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1rem;">
                 Use API keys to push location data from mobile apps like OwnTracks.
@@ -72,16 +72,6 @@
             </table>
         </div>
 
-        <!-- Geocoding -->
-        <div class="card">
-            <div class="card-header">Reverse Geocoding</div>
-            <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1rem;">
-                Geocode location points that don't have city/country data yet. Uses OpenStreetMap Nominatim (rate limited to 1 req/sec).
-            </p>
-            <button class="btn btn-primary" id="geocode-btn" onclick="startGeocoding()">Start Geocoding</button>
-            <div id="geocode-status" style="margin-top: 0.75rem; font-size: 0.8125rem; display: none;"></div>
-        </div>
-
         <!-- Preferences -->
         <div class="card">
             <div class="card-header">Preferences</div>
@@ -124,6 +114,16 @@
                 </p>
                 <div id="import-status" style="font-size: 0.8125rem; color: var(--text-muted);"></div>
             </div>
+        </div>
+
+        <!-- Geocoding -->
+        <div class="card">
+            <div class="card-header">Reverse Geocoding</div>
+            <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1rem;">
+                Geocode location points that don't have city/country data yet. Uses OpenStreetMap Nominatim (rate limited to 1 req/sec).
+            </p>
+            <button class="btn btn-primary" id="geocode-btn" onclick="startGeocoding()">Start Geocoding</button>
+            <div id="geocode-status" style="margin-top: 0.75rem; font-size: 0.8125rem; display: none;"></div>
         </div>
 
         <!-- GPSLogger Setup -->

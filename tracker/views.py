@@ -111,9 +111,8 @@ def get_api_key_user(request):
 # ---------------------------------------------------------------------------
 
 def landing_view(request):
-    if request.user.is_authenticated:
-        return redirect('tracker:map')
-    return redirect('tracker:login')
+    """Landing page - show marketing page for non-authenticated users."""
+    return render(request, 'tracker/landing.html')
 
 
 def login_view(request):
