@@ -33,6 +33,10 @@ urlpatterns = [
     path('api/trips/create/', views.create_trip, name='create_trip'),
     path('api/trips/<int:trip_id>/', views.trip_detail, name='trip_detail'),
     path('api/trips/<int:trip_id>/delete/', views.delete_trip, name='delete_trip'),
+    path('api/trips/<int:trip_id>/update/', views.update_trip, name='update_trip'),
+    path('api/trips/<int:trip_id>/places/create/', views.create_trip_place, name='create_trip_place'),
+    path('api/trips/<int:trip_id>/places/<int:place_id>/update/', views.update_trip_place, name='update_trip_place'),
+    path('api/trips/<int:trip_id>/places/<int:place_id>/delete/', views.delete_trip_place, name='delete_trip_place'),
 
     # Geocoding
     path('api/geocode/', views.geocode_api, name='geocode_api'),

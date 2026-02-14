@@ -139,6 +139,7 @@ class TripPlace(models.Model):
     name = models.CharField(max_length=200)
     latitude = models.FloatField()
     longitude = models.FloatField()
+    radius = models.FloatField(default=100, help_text="Radius in meters")
     notes = models.TextField(blank=True)
     visited_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

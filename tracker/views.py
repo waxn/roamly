@@ -642,15 +642,65 @@ def create_trip(request):
     return JsonResponse({"status": "ok", "trip_id": trip.id})
 
 
+def _calculate_time_spent(trip_locations, place_lat, place_lng, place_radius_m):
+    """Calculate time spent near a place based on location points within radius."""
+    nearby_timestamps = []
+    for loc in trip_locations:
+        dist_km = _haversine_km(loc.latitude, loc.longitude, place_lat, place_lng)
+        if dist_km * 1000 <= place_radius_m:
+            nearby_timestamps.append(loc.timestamp)
+
+    if len(nearby_timestamps) < 2:
+        return len(nearby_timestamps) * 60  # 1 min per single point
+
+    nearby_timestamps.sort()
+    total_seconds = 0
+    for i in range(1, len(nearby_timestamps)):
+        gap = (nearby_timestamps[i] - nearby_timestamps[i - 1]).total_seconds()
+        if gap <= 7200:  # skip gaps > 2 hours
+            total_seconds += gap
+    return int(total_seconds)
+
+
+def _format_duration(seconds):
+    """Format seconds into human-readable duration."""
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes}m"
+    hours = minutes // 60
+    remaining_min = minutes % 60
+    if hours < 24:
+        return f"{hours}h {remaining_min}m" if remaining_min else f"{hours}h"
+    days = hours // 24
+    remaining_hours = hours % 24
+    return f"{days}d {remaining_hours}h" if remaining_hours else f"{days}d"
+
+
 @login_required
 def trip_detail(request, trip_id):
     trip = get_object_or_404(Trip, id=trip_id, device__user=request.user)
-    locations = trip.locations
+    locations = list(trip.locations)
     locs = [{
         "lat": l.latitude, "lng": l.longitude,
         "timestamp": l.timestamp.isoformat(),
         "city": l.city, "country": l.country,
     } for l in locations]
+
+    places = []
+    for place in trip.places.all():
+        time_spent_s = _calculate_time_spent(locations, place.latitude, place.longitude, place.radius)
+        places.append({
+            "id": place.id,
+            "name": place.name,
+            "latitude": place.latitude,
+            "longitude": place.longitude,
+            "radius": place.radius,
+            "notes": place.notes,
+            "time_spent": time_spent_s,
+            "time_spent_display": _format_duration(time_spent_s),
+        })
 
     return JsonResponse({
         "id": trip.id,
@@ -659,6 +709,7 @@ def trip_detail(request, trip_id):
         "start_time": trip.start_time.isoformat(),
         "end_time": trip.end_time.isoformat(),
         "locations": locs,
+        "places": places,
     })
 
 
@@ -668,6 +719,112 @@ def trip_detail(request, trip_id):
 def delete_trip(request, trip_id):
     trip = get_object_or_404(Trip, id=trip_id, device__user=request.user)
     trip.delete()
+    return JsonResponse({"status": "ok"})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def update_trip(request, trip_id):
+    trip = get_object_or_404(Trip, id=trip_id, device__user=request.user)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    if 'description' in data:
+        trip.description = data['description']
+    if 'name' in data:
+        trip.name = data['name']
+    trip.save()
+    return JsonResponse({"status": "ok"})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def create_trip_place(request, trip_id):
+    trip = get_object_or_404(Trip, id=trip_id, device__user=request.user)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    lat = data.get('latitude')
+    lng = data.get('longitude')
+    if lat is None or lng is None:
+        return JsonResponse({"error": "latitude and longitude required"}, status=400)
+
+    place = TripPlace.objects.create(
+        trip=trip,
+        name=data.get('name', 'Untitled Place'),
+        latitude=float(lat),
+        longitude=float(lng),
+        radius=float(data.get('radius', 100)),
+        notes=data.get('notes', ''),
+    )
+
+    locations = list(trip.locations)
+    time_spent_s = _calculate_time_spent(locations, place.latitude, place.longitude, place.radius)
+
+    return JsonResponse({
+        "status": "ok",
+        "place": {
+            "id": place.id,
+            "name": place.name,
+            "latitude": place.latitude,
+            "longitude": place.longitude,
+            "radius": place.radius,
+            "notes": place.notes,
+            "time_spent": time_spent_s,
+            "time_spent_display": _format_duration(time_spent_s),
+        }
+    })
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def update_trip_place(request, trip_id, place_id):
+    trip = get_object_or_404(Trip, id=trip_id, device__user=request.user)
+    place = get_object_or_404(TripPlace, id=place_id, trip=trip)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    if 'name' in data:
+        place.name = data['name']
+    if 'notes' in data:
+        place.notes = data['notes']
+    if 'radius' in data:
+        place.radius = float(data['radius'])
+    place.save()
+
+    locations = list(trip.locations)
+    time_spent_s = _calculate_time_spent(locations, place.latitude, place.longitude, place.radius)
+
+    return JsonResponse({
+        "status": "ok",
+        "place": {
+            "id": place.id,
+            "name": place.name,
+            "latitude": place.latitude,
+            "longitude": place.longitude,
+            "radius": place.radius,
+            "notes": place.notes,
+            "time_spent": time_spent_s,
+            "time_spent_display": _format_duration(time_spent_s),
+        }
+    })
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST", "DELETE"])
+def delete_trip_place(request, trip_id, place_id):
+    trip = get_object_or_404(Trip, id=trip_id, device__user=request.user)
+    place = get_object_or_404(TripPlace, id=place_id, trip=trip)
+    place.delete()
     return JsonResponse({"status": "ok"})
 
 
