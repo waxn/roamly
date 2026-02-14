@@ -6,6 +6,11 @@
     <title>Roamly - Own Your Location Data</title>
     {% load static %}
     <link rel="icon" type="image/x-icon" href="{% static 'tracker/roamlymark.ico' %}">
+    <link rel="manifest" href="{% static 'tracker/manifest.json' %}">
+    <meta name="theme-color" content="#0f1117">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="{% static 'tracker/icon-192.png' %}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -237,6 +242,23 @@
             font-size: 0.875rem;
         }
 
+        .footer a {
+            color: var(--text-muted);
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            color: var(--text);
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+        }
+
         /* Buttons */
         .btn {
             display: inline-flex;
@@ -413,6 +435,37 @@
         </div>
     </section>
 
+    <!-- Setup Section -->
+    <section class="features">
+        <div class="features-container">
+            <div class="section-header">
+                <h2>quick start setup</h2>
+                <p>get roamly running in minutes</p>
+            </div>
+            
+            <div style="max-width: 900px; margin: 0 auto; background: var(--bg); border: 1px solid var(--border); border-radius: 16px; padding: 2.5rem; margin-bottom: 2rem;">
+                <h3 style="margin-bottom: 1.5rem; font-size: 1.25rem; color: var(--primary);">docker (recommended)</h3>
+                <pre style="background: var(--bg-input); padding: 1.5rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0; border: 1px solid var(--border); font-size: 0.9rem; line-height: 1.6;"><code>git clone https://github.com/waxn/roamly.git
+cd roamly
+docker-compose up -d</code></pre>
+                <p style="color: var(--text-muted); font-size: 0.95rem;">access at <code style="background: var(--bg-input); padding: 0.25rem 0.5rem; border-radius: 4px; color: var(--primary);">localhost:8001</code></p>
+            </div>
+
+            <div style="max-width: 900px; margin: 0 auto; background: var(--bg); border: 1px solid var(--border); border-radius: 16px; padding: 2.5rem;">
+                <h3 style="margin-bottom: 1.5rem; font-size: 1.25rem; color: var(--primary);">manual installation</h3>
+                <ol style="color: var(--text); font-size: 0.95rem; line-height: 1.8; padding-left: 1.5rem;">
+                    <li>Install Python 3.12+ and PostgreSQL</li>
+                    <li><code style="background: var(--bg-input); padding: 0.25rem 0.5rem; border-radius: 4px;">pip install -r requirements.txt</code></li>
+                    <li>Set <code style="background: var(--bg-input); padding: 0.25rem 0.5rem; border-radius: 4px;">DATABASE_URL</code> environment variable</li>
+                    <li><code style="background: var(--bg-input); padding: 0.25rem 0.5rem; border-radius: 4px;">python manage.py migrate</code></li>
+                    <li><code style="background: var(--bg-input); padding: 0.25rem 0.5rem; border-radius: 4px;">python manage.py createsuperuser</code></li>
+                    <li><code style="background: var(--bg-input); padding: 0.25rem 0.5rem; border-radius: 4px;">python manage.py runserver</code> or use gunicorn</li>
+                </ol>
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 1rem;"><strong>Optional:</strong> Install PostGIS for advanced spatial features. <a href="{% url 'tracker:docs' %}" style="color: var(--primary); text-decoration: none;">view full docs →</a></p>
+            </div>
+        </div>
+    </section>
+
     <!-- CTA Section -->
     <section class="cta">
         <h2>ready to start your journey?</h2>
@@ -422,12 +475,25 @@
             {% if not user.is_authenticated %}
                 <a href="{% url 'tracker:login' %}" class="btn btn-outline">sign in</a>
             {% endif %}
+            <a href="{% url 'tracker:docs' %}" class="btn btn-outline">read documentation →</a>
         </div>
     </section>
 
     <!-- Footer -->
     <footer class="footer">
+        <div class="footer-links">
+            <a href="https://github.com/waxn/roamly">github</a>
+            <span>&middot;</span>
+            <a href="{% url 'tracker:terms' %}">terms of service</a>
+            <span>&middot;</span>
+            <a href="{% url 'tracker:privacy' %}">privacy policy</a>
+        </div>
         <p>roamly &copy; 2026 • self-hosted location tracking • built with privacy in mind</p>
     </footer>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        }
+    </script>
 </body>
 </html>

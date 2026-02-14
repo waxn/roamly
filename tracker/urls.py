@@ -4,8 +4,14 @@ from . import views
 app_name = 'tracker'
 
 urlpatterns = [
+    # PWA
+    path('sw.js', views.service_worker, name='service_worker'),
+
     # Pages
     path('', views.landing_view, name='landing'),
+    path('docs/', views.docs_view, name='docs'),
+    path('terms/', views.terms_view, name='terms'),
+    path('privacy/', views.privacy_view, name='privacy'),
     path('map/', views.map_view, name='map'),
     path('data/', views.data_table, name='data'),
     path('stats/', views.stats_view, name='stats'),

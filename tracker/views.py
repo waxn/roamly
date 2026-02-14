@@ -17,6 +17,8 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
+from django.contrib.staticfiles import finders
+
 from .forms import SignUpForm, APIKeyForm, TripForm
 from .models import Device, Location, APIKey, Trip, TripPlace
 from .geocoding_tasks import GeocodingTask, get_active_task, cleanup_old_tasks
@@ -30,6 +32,19 @@ try:
 except Exception:
     HAS_POSTGIS = False
     Polygon = None
+
+
+# ---------------------------------------------------------------------------
+# PWA Service Worker
+# ---------------------------------------------------------------------------
+
+def service_worker(request):
+    sw_path = finders.find('tracker/sw.js')
+    with open(sw_path) as f:
+        response = HttpResponse(f.read(), content_type='application/javascript')
+    response['Service-Worker-Allowed'] = '/'
+    response['Cache-Control'] = 'no-cache'
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +128,19 @@ def get_api_key_user(request):
 def landing_view(request):
     """Landing page - show marketing page for non-authenticated users."""
     return render(request, 'tracker/landing.html')
+
+
+def docs_view(request):
+    """Documentation page - tutorials, setup guides, and API reference."""
+    return render(request, 'tracker/docs.html')
+
+
+def terms_view(request):
+    return render(request, 'tracker/terms.html')
+
+
+def privacy_view(request):
+    return render(request, 'tracker/privacy.html')
 
 
 def login_view(request):

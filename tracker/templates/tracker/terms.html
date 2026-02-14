@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roamly - Terms of Service</title>
+    {% load static %}
+    <link rel="icon" type="image/x-icon" href="{% static 'tracker/roamlymark.ico' %}">
+    <link rel="manifest" href="{% static 'tracker/manifest.json' %}">
+    <meta name="theme-color" content="#0f1117">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0f1117;
+            --bg-card: #1a1d27;
+            --bg-input: #252830;
+            --border: #2d3040;
+            --text: #e4e6eb;
+            --text-muted: #8b8fa3;
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Space Grotesk', sans-serif; }
+
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            text-transform: lowercase;
+            font-weight: 700;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        .navbar {
+            background: rgba(15, 17, 23, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border);
+            padding: 0 2rem;
+            height: 64px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+        }
+
+        .navbar-brand {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+        }
+
+        .navbar-brand img {
+            height: 48px;
+            filter: brightness(0) invert(1);
+        }
+
+        .content {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2rem;
+        }
+
+        .content h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            color: var(--primary);
+        }
+
+        .content .updated {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-bottom: 2.5rem;
+        }
+
+        .content h2 {
+            font-size: 1.25rem;
+            margin-top: 2rem;
+            margin-bottom: 0.75rem;
+            color: var(--text);
+        }
+
+        .content p, .content li {
+            color: var(--text-muted);
+            line-height: 1.8;
+            font-size: 0.95rem;
+            font-weight: 400;
+        }
+
+        .content ul {
+            padding-left: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .content li {
+            margin-bottom: 0.25rem;
+        }
+
+        .content p {
+            margin-bottom: 1rem;
+        }
+
+        .content a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        .content a:hover {
+            text-decoration: underline;
+        }
+
+        .footer {
+            background: var(--bg-card);
+            border-top: 1px solid var(--border);
+            padding: 2rem;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        .footer a {
+            color: var(--text-muted);
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            color: var(--text);
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        @media (max-width: 768px) {
+            .navbar { padding: 0 1rem; }
+            .content { padding: 2rem 1rem; }
+            .content h1 { font-size: 2rem; }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <a href="{% url 'tracker:landing' %}" class="navbar-brand">
+            <img src="{% static 'tracker/roamly.svg' %}" alt="Roamly">
+        </a>
+    </nav>
+
+    <div class="content">
+        <h1>terms of service</h1>
+        <p class="updated">last updated: february 2026</p>
+
+        <h2>1. acceptance of terms</h2>
+        <p>by accessing or using roamly, you agree to be bound by these terms of service. if you do not agree to these terms, please do not use the service.</p>
+
+        <h2>2. description of service</h2>
+        <p>roamly is an open-source, self-hosted location tracking application. it allows users to record, store, and visualize their location data on their own infrastructure.</p>
+
+        <h2>3. user accounts</h2>
+        <p>you are responsible for maintaining the security of your account and password. the instance operator is not liable for any loss or damage from your failure to maintain the security of your account.</p>
+
+        <h2>4. your data</h2>
+        <ul>
+            <li>you retain full ownership of all location data you submit to roamly.</li>
+            <li>your data is stored on the server where this instance is hosted.</li>
+            <li>you can export or delete your data at any time through the application settings.</li>
+            <li>the instance operator may have access to data stored on the server.</li>
+        </ul>
+
+        <h2>5. acceptable use</h2>
+        <p>you agree not to:</p>
+        <ul>
+            <li>use the service for any unlawful purpose.</li>
+            <li>attempt to gain unauthorized access to other users' data.</li>
+            <li>interfere with or disrupt the service or servers.</li>
+            <li>upload malicious data or attempt to exploit the api.</li>
+        </ul>
+
+        <h2>6. open source</h2>
+        <p>roamly is open-source software licensed under the terms available in the <a href="https://github.com/waxn/roamly">project repository</a>. you are free to self-host, modify, and redistribute the software in accordance with its license.</p>
+
+        <h2>7. disclaimer</h2>
+        <p>the service is provided "as is" without warranties of any kind. the developers and instance operators are not liable for any damages arising from the use of the service.</p>
+
+        <h2>8. changes to terms</h2>
+        <p>these terms may be updated from time to time. continued use of the service after changes constitutes acceptance of the updated terms.</p>
+
+        <h2>9. contact</h2>
+        <p>for questions about these terms, please open an issue on the <a href="https://github.com/waxn/roamly">github repository</a>.</p>
+    </div>
+
+    <footer class="footer">
+        <div class="footer-links">
+            <a href="https://github.com/waxn/roamly">github</a>
+            <span>&middot;</span>
+            <a href="{% url 'tracker:terms' %}">terms of service</a>
+            <span>&middot;</span>
+            <a href="{% url 'tracker:privacy' %}">privacy policy</a>
+        </div>
+    </footer>
+</body>
+</html>

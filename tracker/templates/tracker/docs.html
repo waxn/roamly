@@ -1,0 +1,1545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roamly Documentation - Location Tracking Guides & Tutorials</title>
+    {% load static %}
+    <link rel="icon" type="image/x-icon" href="{% static 'tracker/roamlymark.ico' %}">
+    <link rel="manifest" href="{% static 'tracker/manifest.json' %}">
+    <meta name="theme-color" content="#0f1117">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0f1117;
+            --bg-card: #1a1d27;
+            --bg-input: #252830;
+            --border: #2d3040;
+            --text: #e4e6eb;
+            --text-muted: #8b8fa3;
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --success: #22c55e;
+            --warning: #f59e0b;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Space Grotesk', sans-serif; }
+        
+        html { scroll-behavior: smooth; }
+        
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        /* Navigation */
+        .navbar {
+            background: rgba(15, 17, 23, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border);
+            padding: 0 2rem;
+            height: 64px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+        }
+        
+        .navbar-brand {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+            text-decoration: none;
+        }
+        
+        .navbar-actions {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        /* Layout */
+        .docs-container {
+            display: flex;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background: var(--bg-card);
+            border-right: 1px solid var(--border);
+            padding: 2rem 1.5rem;
+            position: sticky;
+            top: 64px;
+            max-height: calc(100vh - 64px);
+            overflow-y: auto;
+        }
+
+        .sidebar-section {
+            margin-bottom: 2rem;
+        }
+
+        .sidebar-title {
+            font-size: 0.875rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.75rem;
+            padding-left: 0.5rem;
+        }
+
+        .sidebar-link {
+            display: block;
+            padding: 0.625rem 0.75rem;
+            color: var(--text-muted);
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            transition: all 0.2s;
+            border-left: 2px solid transparent;
+        }
+
+        .sidebar-link:hover {
+            color: var(--primary);
+            background: rgba(59, 130, 246, 0.1);
+            border-left-color: var(--primary);
+        }
+
+        .sidebar-link.active {
+            color: var(--primary);
+            background: rgba(59, 130, 246, 0.1);
+            border-left-color: var(--primary);
+        }
+
+        /* Main Content */
+        .content {
+            flex: 1;
+            padding: 3rem;
+            min-height: calc(100vh - 64px);
+        }
+
+        .section {
+            display: none;
+            max-width: 900px;
+        }
+
+        .section.active {
+            display: block;
+        }
+
+        .section h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            color: var(--primary);
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 1rem;
+        }
+
+        .section h2 {
+            font-size: 1.75rem;
+            margin: 2rem 0 1rem;
+            color: var(--text);
+        }
+
+        .section h3 {
+            font-size: 1.25rem;
+            margin: 1.5rem 0 0.75rem;
+            color: var(--text);
+        }
+
+        .section p, .section li {
+            line-height: 1.8;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+            font-size: 1rem;
+        }
+
+        .section ul, .section ol {
+            margin-left: 2rem;
+            margin-bottom: 1rem;
+        }
+
+        .section li {
+            margin-bottom: 0.5rem;
+        }
+
+        .section code {
+            background: var(--bg-input);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            color: var(--primary);
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .section pre {
+            background: var(--bg-input);
+            padding: 1.5rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 1rem 0;
+            border: 1px solid var(--border);
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+
+        .section pre code {
+            background: none;
+            padding: 0;
+            color: var(--text);
+        }
+
+        .info-box, .warning-box, .success-box {
+            padding: 1.25rem;
+            border-radius: 8px;
+            margin: 1.5rem 0;
+            border-left: 4px solid;
+        }
+
+        .info-box {
+            background: rgba(59, 130, 246, 0.1);
+            border-left-color: var(--primary);
+            color: var(--text);
+        }
+
+        .warning-box {
+            background: rgba(245, 158, 11, 0.1);
+            border-left-color: var(--warning);
+            color: var(--text);
+        }
+
+        .success-box {
+            background: rgba(34, 197, 94, 0.1);
+            border-left-color: var(--success);
+            color: var(--text);
+        }
+
+        .table-wrapper {
+            overflow-x: auto;
+            margin: 1.5rem 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.95rem;
+        }
+
+        th {
+            background: var(--bg-card);
+            padding: 1rem;
+            text-align: left;
+            font-weight: 600;
+            border: 1px solid var(--border);
+            color: var(--primary);
+        }
+
+        td {
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+        }
+
+        tr:hover {
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            background: var(--primary);
+            color: #fff;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.2s;
+            margin: 0.5rem 0.5rem 0.5rem 0;
+        }
+
+        .btn:hover {
+            background: var(--primary-hover);
+            transform: translateY(-2px);
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+
+        .btn-outline:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            background: rgba(59, 130, 246, 0.2);
+            color: var(--primary);
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-right: 0.5rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .docs-container {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+                max-height: none;
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+                position: static;
+            }
+
+            .content {
+                padding: 2rem;
+            }
+
+            .section h1 {
+                font-size: 2rem;
+            }
+
+            .section h2 {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <a href="{% url 'tracker:landing' %}" class="navbar-brand">roamly</a>
+        <div class="navbar-actions">
+            {% if user.is_authenticated %}
+                <a href="{% url 'tracker:map' %}" class="btn" style="padding: 0.5rem 1rem; font-size: 0.95rem;">go to app →</a>
+            {% else %}
+                <a href="{% url 'tracker:login' %}" class="btn btn-outline" style="padding: 0.5rem 1rem; font-size: 0.95rem;">login</a>
+                <a href="{% url 'tracker:signup' %}" class="btn" style="padding: 0.5rem 1rem; font-size: 0.95rem;">get started</a>
+            {% endif %}
+        </div>
+    </nav>
+
+    <div class="docs-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-section">
+                <div class="sidebar-title">getting started</div>
+                <a href="#introduction" class="sidebar-link active" onclick="showSection('introduction')">introduction</a>
+                <a href="#quick-start" class="sidebar-link" onclick="showSection('quick-start')">quick start</a>
+                <a href="#system-requirements" class="sidebar-link" onclick="showSection('system-requirements')">system requirements</a>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-title">installation</div>
+                <a href="#docker-setup" class="sidebar-link" onclick="showSection('docker-setup')">docker</a>
+                <a href="#manual-install" class="sidebar-link" onclick="showSection('manual-install')">manual installation</a>
+                <a href="#database-config" class="sidebar-link" onclick="showSection('database-config')">database</a>
+                <a href="#environment-variables" class="sidebar-link" onclick="showSection('environment-variables')">environment</a>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-title">configuration</div>
+                <a href="#postgis-setup" class="sidebar-link" onclick="showSection('postgis-setup')">postgis spatial</a>
+                <a href="#security" class="sidebar-link" onclick="showSection('security')">security</a>
+                <a href="#reverse-geocoding" class="sidebar-link" onclick="showSection('reverse-geocoding')">geocoding</a>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-title">tutorials</div>
+                <a href="#mobile-setup" class="sidebar-link" onclick="showSection('mobile-setup')">mobile setup</a>
+                <a href="#owntracks" class="sidebar-link" onclick="showSection('owntracks')">owntracks integration</a>
+                <a href="#api-guide" class="sidebar-link" onclick="showSection('api-guide')">api guide</a>
+                <a href="#trips-tutorial" class="sidebar-link" onclick="showSection('trips-tutorial')">managing trips</a>
+                <a href="#data-export" class="sidebar-link" onclick="showSection('data-export')">export & import</a>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-title">reference</div>
+                <a href="#architecture" class="sidebar-link" onclick="showSection('architecture')">architecture</a>
+                <a href="#api-reference" class="sidebar-link" onclick="showSection('api-reference')">api reference</a>
+                <a href="#troubleshooting" class="sidebar-link" onclick="showSection('troubleshooting')">troubleshooting</a>
+                <a href="#faq" class="sidebar-link" onclick="showSection('faq')">faq</a>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="content">
+
+            <!-- Introduction -->
+            <section id="introduction" class="section active">
+                <h1>roamly documentation</h1>
+                <p>Welcome to Roamly! This comprehensive guide covers installation, configuration, usage, and advanced features.</p>
+
+                <h2>what is roamly?</h2>
+                <p>Roamly is a privacy-first, self-hosted location tracking platform. Track your device locations, visualize journeys on interactive maps, analyze travel patterns, and maintain complete control over your data. No third-party tracking companies, no data selling—just you and your server.</p>
+
+                <h2>key features</h2>
+                <ul>
+                    <li><strong>Multi-device tracking:</strong> Track multiple phones, tablets, or other devices from a single account</li>
+                    <li><strong>Interactive maps:</strong> Visualize your location history on beautiful, responsive maps</li>
+                    <li><strong>Trip management:</strong> Create named trips and organize locations by journey</li>
+                    <li><strong>Visit detection:</strong> Automatically identify places you visit frequently</li>
+                    <li><strong>Statistics:</strong> Comprehensive travel analytics—distance, countries/cities visited, time spent</li>
+                    <li><strong>API key authentication:</strong> Securely push locations from mobile apps via API keys</li>
+                    <li><strong>Export/Import:</strong> Full data portability via CSV and GPX formats</li>
+                    <li><strong>Reverse geocoding:</strong> Automatic conversion of coordinates to readable place names</li>
+                    <li><strong>PostGIS spatial support:</strong> Optional advanced geospatial queries</li>
+                    <li><strong>OwnTracks integration:</strong> Works natively with OwnTracks and compatible apps</li>
+                </ul>
+
+                <h2>technology stack</h2>
+                <ul>
+                    <li><strong>Backend:</strong> Django 5.0+, Python 3.12+</li>
+                    <li><strong>Databases:</strong> PostgreSQL (recommended) + PostGIS, SQLite (fallback)</li>
+                    <li><strong>Server:</strong> Gunicorn WSGI application server</li>
+                    <li><strong>Frontend:</strong> HTML5, JavaScript, Leaflet.js map library</li>
+                    <li><strong>Containerization:</strong> Docker & Docker Compose (optional)</li>
+                </ul>
+            </section>
+
+            <!-- Quick Start -->
+            <section id="quick-start" class="section">
+                <h1>quick start</h1>
+                <p>Get Roamly running in minutes using Docker (recommended).</p>
+
+                <h2>using docker (easiest)</h2>
+                <div class="success-box">
+                    <strong>Recommended approach:</strong> Docker handles all dependencies and configuration automatically.
+                </div>
+
+                <p><strong>Prerequisites:</strong> Docker and Docker Compose installed</p>
+
+                <pre><code># Clone the repository
+git clone https://github.com/your-org/roamly.git
+cd roamly
+
+# Start services
+docker-compose up -d
+
+# Create superuser for Django admin
+docker-compose exec web python manage.py createsuperuser
+
+# Access the app
+# Web: http://localhost:8001
+# Database: localhost:5433</code></pre>
+
+                <p><strong>That's it!</strong> Roamly is now running. Visit <code>http://localhost:8001</code>, sign up, and start tracking.</p>
+
+                <h2>without docker</h2>
+                <ol>
+                    <li>Install Python 3.12+ and PostgreSQL</li>
+                    <li>Clone and enter the directory</li>
+                    <li>Create a virtual environment: <code>python -m venv venv && source venv/bin/activate</code></li>
+                    <li>Install dependencies: <code>pip install -r requirements.txt</code></li>
+                    <li>Configure your database (see Database Configuration section)</li>
+                    <li>Run migrations: <code>python manage.py migrate</code></li>
+                    <li>Create superuser: <code>python manage.py createsuperuser</code></li>
+                    <li>Run: <code>python manage.py runserver</code> (development) or use gunicorn for production</li>
+                </ol>
+            </section>
+
+            <!-- System Requirements -->
+            <section id="system-requirements" class="section">
+                <h1>system requirements</h1>
+
+                <h2>minimum (sqlite, local development)</h2>
+                <ul>
+                    <li>Python 3.12 or higher</li>
+                    <li>2 GB RAM</li>
+                    <li>100 MB disk space</li>
+                    <li>Any OS: Linux, macOS, Windows</li>
+                </ul>
+
+                <h2>recommended (production with postgresql)</h2>
+                <ul>
+                    <li>Python 3.12 or higher</li>
+                    <li>PostgreSQL 13+ or PostGIS 16+</li>
+                    <li>4 GB+ RAM</li>
+                    <li>Sufficient disk for location history (typically 1-10 GB)</li>
+                    <li>Linux server (Ubuntu, Debian, CentOS)</li>
+                    <li>Reverse proxy (nginx, Apache) for HTTPS</li>
+                </ul>
+
+                <h2>browser support</h2>
+                <ul>
+                    <li>Chrome/Chromium 90+</li>
+                    <li>Firefox 88+</li>
+                    <li>Safari 14+</li>
+                    <li>Edge 90+</li>
+                </ul>
+            </section>
+
+            <!-- Docker Setup -->
+            <section id="docker-setup" class="section">
+                <h1>docker installation</h1>
+
+                <h2>initial setup</h2>
+                <pre><code>git clone https://github.com/your-org/roamly.git
+cd roamly
+docker-compose up -d</code></pre>
+
+                <h2>first time setup</h2>
+                <pre><code># Run migrations
+docker-compose exec web python manage.py migrate
+
+# Create admin user
+docker-compose exec web python manage.py createsuperuser
+
+# Collect static files (if not auto-collected)
+docker-compose exec web python manage.py collectstatic --noinput</code></pre>
+
+                <h2>accessing the application</h2>
+                <ul>
+                    <li><strong>Application:</strong> http://localhost:8001</li>
+                    <li><strong>Django admin:</strong> http://localhost:8001/admin</li>
+                    <li><strong>Database:</strong> localhost:5433 (user: roamly)</li>
+                </ul>
+
+                <h2>useful docker commands</h2>
+                <pre><code># View logs
+docker-compose logs -f web
+
+# Stop services
+docker-compose down
+
+# Rebuild after code changes
+docker-compose down && docker-compose up -d --build
+
+# Open database shell
+docker-compose exec db psql -U roamly -d roamly
+
+# Create backup of database
+docker-compose exec db pg_dump -U roamly roamly > backup.sql
+
+# Restore from backup
+docker-compose exec -T db psql -U roamly roamly < backup.sql</code></pre>
+
+                <h2>environment variables</h2>
+                <p>Create a <code>.env</code> file in the root directory:</p>
+                <pre><code>DEBUG=False
+SECRET_KEY=your-secret-key-here-change-in-production
+POSTGRES_PASSWORD=secure-password-here
+ALLOWED_HOSTS=yourdomain.com,www.yourdomain.com
+DATABASE_URL=postgis://roamly:secure-password@db:5432/roamly</code></pre>
+            </section>
+
+            <!-- Manual Installation -->
+            <section id="manual-install" class="section">
+                <h1>manual installation</h1>
+
+                <h2>step 1: install dependencies</h2>
+                <pre><code># Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install python3.12 python3.12-venv postgresql postgresql-contrib
+sudo apt-get install binutils libproj-dev gdal-bin libgdal-dev libgeos-dev
+
+# macOS
+brew install python@3.12 postgresql gdal
+
+# Windows: Use WSL or download installers</code></pre>
+
+                <h2>step 2: clone and setup python</h2>
+                <pre><code>git clone https://github.com/your-org/roamly.git
+cd roamly
+
+# Create virtual environment
+python3.12 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install Python packages
+pip install --upgrade pip
+pip install -r requirements.txt</code></pre>
+
+                <h2>step 3: setup database</h2>
+                <pre><code># Create PostgreSQL user and database
+sudo -u postgres createuser -P roamly    # Enter password when prompted
+sudo -u postgres createdb -O roamly roamly
+
+# Generate DATABASE_URL
+export DATABASE_URL="postgresql://roamly:your_password@localhost:5432/roamly"
+
+# Run migrations
+python manage.py migrate
+
+# Create superuser
+python manage.py createsuperuser</code></pre>
+
+                <h2>step 4: run the application</h2>
+                <p><strong>Development (local testing):</strong></p>
+                <pre><code>python manage.py runserver</code></pre>
+
+                <p><strong>Production (with gunicorn):</strong></p>
+                <pre><code>pip install gunicorn
+gunicorn roamly.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 300</code></pre>
+
+                <h2>step 5: configure reverse proxy (nginx)</h2>
+                <pre><code>server {
+    listen 80;
+    server_name yourdomain.com;
+
+    client_max_body_size 100M;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /static/ {
+        alias /path/to/roamly/staticfiles/;
+    }
+}</code></pre>
+            </section>
+
+            <!-- Database Configuration -->
+            <section id="database-config" class="section">
+                <h1>database configuration</h1>
+
+                <h2>postgresql (recommended)</h2>
+                <p>PostgreSQL provides better performance and optional spatial indexes with PostGIS.</p>
+
+                <pre><code># .env or environment variables
+DATABASE_URL=postgresql://username:password@localhost:5432/roamly</code></pre>
+
+                <p><strong>Setup steps:</strong></p>
+                <ol>
+                    <li>Install PostgreSQL: <code>sudo apt-get install postgresql</code></li>
+                    <li>Create user: <code>sudo -u postgres createuser -P roamly</code></li>
+                    <li>Create database: <code>sudo -u postgres createdb -O roamly roamly</code></li>
+                    <li>Set <code>DATABASE_URL</code> environment variable</li>
+                    <li>Run: <code>python manage.py migrate</code></li>
+                </ol>
+
+                <h2>sqlite (simple development)</h2>
+                <p>SQLite is built into Python. No configuration needed—just run migrations.</p>
+                <pre><code>python manage.py migrate</code></pre>
+                <p>Data is stored in <code>db.sqlite3</code> in the project root.</p>
+
+                <h2>switching databases</h2>
+                <p>Roamly auto-detects your database based on <code>DATABASE_URL</code>. Unset it to use SQLite:</p>
+                <pre><code>unset DATABASE_URL
+python manage.py migrate  # Now uses SQLite</code></pre>
+            </section>
+
+            <!-- Environment Variables -->
+            <section id="environment-variables" class="section">
+                <h1>environment variables</h1>
+
+                <div class="table-wrapper">
+                    <table>
+                        <tr>
+                            <th>Variable</th>
+                            <th>Usage</th>
+                            <th>Default</th>
+                            <th>Example</th>
+                        </tr>
+                        <tr>
+                            <td><code>DEBUG</code></td>
+                            <td>Enable debug mode (dev only)</td>
+                            <td><code>True</code></td>
+                            <td><code>False</code></td>
+                        </tr>
+                        <tr>
+                            <td><code>SECRET_KEY</code></td>
+                            <td>Django secret key (change in production!)</td>
+                            <td><code>django-insecure-...</code></td>
+                            <td><code>your-secure-key-here</code></td>
+                        </tr>
+                        <tr>
+                            <td><code>DATABASE_URL</code></td>
+                            <td>Database connection string</td>
+                            <td>SQLite (db.sqlite3)</td>
+                            <td><code>postgresql://user:pass@host:5432/db</code></td>
+                        </tr>
+                        <tr>
+                            <td><code>ALLOWED_HOSTS</code></td>
+                            <td>Comma-separated allowed domains</td>
+                            <td><code>localhost,127.0.0.1</code></td>
+                            <td><code>example.com,www.example.com</code></td>
+                        </tr>
+                        <tr>
+                            <td><code>POSTGRES_PASSWORD</code></td>
+                            <td>PostgreSQL password (Docker)</td>
+                            <td><code>roamly_secret</code></td>
+                            <td><code>your-db-password</code></td>
+                        </tr>
+                    </table>
+                </div>
+
+                <h2>setting variables</h2>
+                <p><strong>Using .env file (Docker):</strong></p>
+                <pre><code>cp .env.example .env
+# Edit .env with your values
+docker-compose up -d</code></pre>
+
+                <p><strong>Using shell exports (manual):</strong></p>
+                <pre><code>export DEBUG=False
+export SECRET_KEY="your-secret-key-here"
+export DATABASE_URL="postgresql://..."
+python manage.py runserver</code></pre>
+
+                <p><strong>Using .env file with python-dotenv:</strong></p>
+                <pre><code>pip install python-dotenv
+# Create .env file, then load it at app startup</code></pre>
+            </section>
+
+            <!-- PostGIS Setup -->
+            <section id="postgis-setup" class="section">
+                <h1>postgis spatial setup</h1>
+
+                <div class="info-box">
+                    PostGIS is optional but recommended for advanced spatial queries and efficient distance calculations.
+                </div>
+
+                <h2>why postgis?</h2>
+                <ul>
+                    <li>Spatial indexing for faster queries</li>
+                    <li>Advanced geographic functions</li>
+                    <li>Better performance with large datasets</li>
+                    <li>Support for complex geospatial operations</li>
+                </ul>
+
+                <h2>installation</h2>
+                <p><strong>Using Docker (automatic):</strong></p>
+                <p>The default <code>docker-compose.yml</code> includes PostGIS. Just use the provided setup.</p>
+
+                <p><strong>Manual Ubuntu/Debian:</strong></p>
+                <pre><code>sudo apt-get install postgresql postgresql-contrib postgis postgresql-postgis
+
+# Connect to database
+sudo -u postgres psql -d roamly
+
+# Enable PostGIS extension
+CREATE EXTENSION postgis;
+SELECT PostGIS_version();
+
+# Verify spatial features
+SELECT st_astext(st_point(0,0));</code></pre>
+
+                <h2>configuration</h2>
+                <p>Roamly automatically detects PostGIS via the <code>postgis</code> backend. Ensure your <code>DATABASE_URL</code> uses the PostGIS engine:</p>
+                <pre><code>DATABASE_URL=postgis://user:password@localhost:5432/roamly</code></pre>
+
+                <p>Or for Docker:</p>
+                <pre><code>DATABASE_URL=postgis://roamly:password@db:5432/roamly</code></pre>
+
+                <h2>verify installation</h2>
+                <p>Check the Django admin to see if spatial fields are recognized:</p>
+                <pre><code>python manage.py shell
+from tracker.models import Location
+print(Location._meta.get_fields())
+# Should show location field as PointField if PostGIS is active</code></pre>
+            </section>
+
+            <!-- Security -->
+            <section id="security" class="section">
+                <h1>security configuration</h1>
+
+                <h2>essential for production</h2>
+                <ul>
+                    <li>Set <code>DEBUG=False</code></li>
+                    <li>Change <code>SECRET_KEY</code> to a secure random value</li>
+                    <li>Set <code>ALLOWED_HOSTS</code> to your domain</li>
+                    <li>Use HTTPS via reverse proxy (nginx with Let's Encrypt)</li>
+                    <li>Set strong PostgreSQL password</li>
+                    <li>Regularly update dependencies: <code>pip list --outdated</code></li>
+                </ul>
+
+                <h2>generate secure secret key</h2>
+                <pre><code>python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"</code></pre>
+
+                <h2>nginx with https</h2>
+                <pre><code>server {
+    listen 80;
+    server_name yourdomain.com;
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name yourdomain.com;
+
+    ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
+
+    client_max_body_size 100M;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /static/ {
+        alias /path/to/staticfiles/;
+    }
+}</code></pre>
+
+                <h2>certbot for let's encrypt</h2>
+                <pre><code>sudo apt-get install certbot python3-certbot-nginx
+
+# Get SSL certificate
+sudo certbot certonly --nginx -d yourdomain.com
+
+# Auto-renewal
+sudo systemctl enable certbot.timer
+sudo systemctl start certbot.timer</code></pre>
+
+                <h2>api key management</h2>
+                <ul>
+                    <li>Rotate API keys regularly</li>
+                    <li>Deactivate unused keys</li>
+                    <li>Use different keys for different devices</li>
+                    <li>Never commit API keys to version control</li>
+                </ul>
+            </section>
+
+            <!-- Reverse Geocoding -->
+            <section id="reverse-geocoding" class="section">
+                <h1>reverse geocoding</h1>
+
+                <h2>overview</h2>
+                <p>Reverse geocoding converts latitude/longitude coordinates into readable addresses and place names. Roamly uses OpenStreetMap's free Nominatim service.</p>
+
+                <h2>how it works</h2>
+                <ol>
+                    <li>Location data is received via API push</li>
+                    <li>Coordinates are queued for geocoding</li>
+                    <li>Background task fetches place name from Nominatim</li>
+                    <li>City, state, country, and place name are stored with location</li>
+                    <li>UI displays readable addresses instead of coordinates</li>
+                </ol>
+
+                <h2>configuration</h2>
+                <p>Geocoding is automatic—no configuration needed. Roamly respects Nominatim's rate limits and caches results.</p>
+
+                <div class="warning-box">
+                    <strong>Important:</strong> Nominatim ToS requires a User-Agent header. Roamly includes this automatically. Do not change the request headers.
+                </div>
+
+                <h2>nominatim rate limits</h2>
+                <ul>
+                    <li>Max 1 request per second</li>
+                    <li>Max 50,000 requests per day</li>
+                    <li>Results are cached to minimize requests</li>
+                </ul>
+
+                <h2>see geocoding status</h2>
+                <p>Check the geocoding background task status via Settings → Geocoding Status in the web UI.</p>
+            </section>
+
+            <!-- Mobile Setup -->
+            <section id="mobile-setup" class="section">
+                <h1>mobile device setup</h1>
+
+                <h2>general requirements</h2>
+                <ul>
+                    <li>Android 6.0+ or iOS 12.0+</li>
+                    <li>Location permission enabled</li>
+                    <li>Network connectivity (WiFi or mobile data)</li>
+                    <li>API key from Roamly (create in Settings)</li>
+                </ul>
+
+                <h2>getting your api key</h2>
+                <ol>
+                    <li>Log into Roamly web interface</li>
+                    <li>Go to Settings → API Keys</li>
+                    <li>Click "Create API Key"</li>
+                    <li>Give it a name (e.g., "iPhone", "Samsung Galaxy")</li>
+                    <li>Copy the generated key—you won't see it again</li>
+                </ol>
+
+                <h2>supported apps</h2>
+                <div class="info-box">
+                    <strong>Recommended:</strong> OwnTracks is the easiest to set up and has great privacy controls.
+                </div>
+
+                <ul>
+                    <li><strong>OwnTracks</strong> - Full-featured, privacy-first tracking app</li>
+                    <li><strong>GPX Trackers</strong> - Apps that export GPX files</li>
+                    <li><strong>Custom apps</strong> - Use the standard HTTP API</li>
+                </ul>
+            </section>
+
+            <!-- OwnTracks Integration -->
+            <section id="owntracks" class="section">
+                <h1>owntracks integration</h1>
+
+                <h2>what is owntracks?</h2>
+                <p>OwnTracks is a free, open-source app available on iOS and Android that sends your location to your own server. Perfect for Roamly.</p>
+
+                <h2>installation</h2>
+                <ul>
+                    <li><strong>iOS:</strong> <a href="https://apps.apple.com/app/owntracks/id692424691" target="_blank" class="link">App Store</a></li>
+                    <li><strong>Android:</strong> <a href="https://play.google.com/store/apps/details?id=org.owntracks.android" target="_blank" class="link">Google Play</a> or <a href="https://f-droid.org/packages/org.owntracks.android/" target="_blank" class="link">F-Droid</a></li>
+                </ul>
+
+                <h2>configuration steps</h2>
+                <ol>
+                    <li><strong>Create API Key in Roamly:</strong> Settings → API Keys → Create</li>
+                    <li><strong>Open OwnTracks app</strong></li>
+                    <li><strong>Go to Preferences/Settings</strong></li>
+                    <li><strong>Select "HTTP" mode</strong> (not MQTT)</li>
+                    <li><strong>Configure HTTP endpoint:</strong>
+                        <ul>
+                            <li>Server: <code>https://yourdomain.com/api/push/</code></li>
+                            <li>Port: <code>443</code></li>
+                            <li>Authorization: <code>None</code></li>
+                        </ul>
+                    </li>
+                    <li><strong>In custom headers or URL params, add API key:</strong>
+                        <ul>
+                            <li>Header: <code>Authorization: Bearer YOUR_API_KEY</code></li>
+                            <li>OR URL param: <code>?api_key=YOUR_API_KEY</code></li>
+                        </ul>
+                    </li>
+                    <li><strong>Enable location tracking</strong></li>
+                    <li><strong>Test:</strong> Force a manual publish in OwnTracks (Settings → Publish)</li>
+                </ol>
+
+                <h2>owntracks features in roamly</h2>
+                <ul>
+                    <li>Automatic location updates (configurable interval)</li>
+                    <li>Battery optimization</li>
+                    <li>WiFi-only mode option</li>
+                    <li>Geofencing support (comes through as waypoints)</li>
+                    <li>Full payload support—all device data captured</li>
+                </ul>
+
+                <h2>troubleshooting owntracks</h2>
+                <p><strong>Locations not appearing?</strong></p>
+                <ul>
+                    <li>Check API key is correct (copy/paste, no spaces)</li>
+                    <li>Verify server URL is correct and HTTPS accessible</li>
+                    <li>Check that location permission is granted to OwnTracks</li>
+                    <li>Force OwnTracks to reconnect: Toggle HTTP mode off/on</li>
+                    <li>Check Roamly server logs for errors</li>
+                </ul>
+            </section>
+
+            <!-- API Guide -->
+            <section id="api-guide" class="section">
+                <h1>api guide</h1>
+
+                <h2>authentication</h2>
+                <p>All requests require an API key. Pass it via:</p>
+                <ul>
+                    <li><code>Authorization: Bearer YOUR_API_KEY</code> header</li>
+                    <li>URL parameter: <code>?api_key=YOUR_API_KEY</code></li>
+                    <li>POST body JSON: <code>{"api_key": "YOUR_API_KEY", ...}</code></li>
+                </ul>
+
+                <h2>push location</h2>
+                <pre><code>POST /api/push/
+Authorization: Bearer YOUR_API_KEY
+Content-Type: application/json
+
+{
+  "device_id": "iphone",
+  "latitude": 40.7128,
+  "longitude": -74.0060,
+  "timestamp": "2024-01-15T12:30:00Z",
+  "altitude": 10.5,
+  "accuracy": 5.0,
+  "speed": 2.3,
+  "battery": 85.0
+}
+
+Response:
+{
+  "status": "ok",
+  "location_id": 12345,
+  "device": "iphone"
+}</code></pre>
+
+                <h2>get locations</h2>
+                <pre><code>GET /api/locations/?hours=24&limit=1000&device_id=iphone
+Authorization: Bearer YOUR_API_KEY
+
+Response:
+{
+  "devices": [
+    {
+      "device_id": "iphone",
+      "name": "iPhone",
+      "locations": [
+        {
+          "lat": 40.7128,
+          "lng": -74.0060,
+          "timestamp": "2024-01-15T12:30:00Z",
+          "city": "New York",
+          "country": "United States",
+          ...
+        }
+      ]
+    }
+  ]
+}</code></pre>
+
+                <h2>get statistics</h2>
+                <pre><code>GET /api/stats/?hours=24
+Authorization: Bearer YOUR_API_KEY
+
+Response:
+{
+  "total_points": 240,
+  "countries": 1,
+  "cities": 3,
+  "states": 1,
+  "devices": 1,
+  "first_location": "2024-01-14T12:30:00Z",
+  "last_location": "2024-01-15T12:30:00Z"
+}</code></pre>
+
+                <h2>query parameters</h2>
+                <div class="table-wrapper">
+                    <table>
+                        <tr>
+                            <th>Parameter</th>
+                            <th>Description</th>
+                            <th>Example</th>
+                        </tr>
+                        <tr>
+                            <td><code>hours</code></td>
+                            <td>Hours of history (default: 24)</td>
+                            <td><code>?hours=168</code> (7 days)</td>
+                        </tr>
+                        <tr>
+                            <td><code>all</code></td>
+                            <td>All time data (ignore hours)</td>
+                            <td><code>?all=1</code></td>
+                        </tr>
+                        <tr>
+                            <td><code>device_id</code></td>
+                            <td>Filter by device</td>
+                            <td><code>?device_id=iphone</code></td>
+                        </tr>
+                        <tr>
+                            <td><code>start_date</code></td>
+                            <td>Start date (ISO format)</td>
+                            <td><code>?start_date=2024-01-01</code></td>
+                        </tr>
+                        <tr>
+                            <td><code>end_date</code></td>
+                            <td>End date (ISO format)</td>
+                            <td><code>?end_date=2024-01-31</code></td>
+                        </tr>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Trips Tutorial -->
+            <section id="trips-tutorial" class="section">
+                <h1>managing trips</h1>
+
+                <h2>what is a trip?</h2>
+                <p>A trip is a named collection of locations within a specific time frame. Perfect for organizing your journeys—vacations, business trips, road trips, daily commutes.</p>
+
+                <h2>creating a trip</h2>
+                <ol>
+                    <li>Go to Trips page in the web interface</li>
+                    <li>Click "Create Trip"</li>
+                    <li>Enter trip name (e.g., "European Vacation")</li>
+                    <li>Select device and date range</li>
+                    <li>Add optional description</li>
+                    <li>Click "Create"</li>
+                </ol>
+
+                <h2>adding places to a trip</h2>
+                <ol>
+                    <li>Open a trip</li>
+                    <li>Click "Add Place"</li>
+                    <li>Search for place or click on map</li>
+                    <li>Set radius (detection threshold in meters)</li>
+                    <li>Add notes (optional)</li>
+                    <li>Click "Save Place"</li>
+                </ol>
+
+                <h2>viewing trip statistics</h2>
+                <ul>
+                    <li><strong>Map view:</strong> See all locations and places on an interactive map</li>
+                    <li><strong>Timeline:</strong> Sequential view of locations during trip</li>
+                    <li><strong>Statistics:</strong> Distance traveled, locations count, time spent</li>
+                </ul>
+
+                <h2>trip features</h2>
+                <ul>
+                    <li>Automatic visit detection (was I at place X?)</li>
+                    <li>Distance calculation between points</li>
+                    <li>Edit trip details after creation</li>
+                    <li>Export trip as GPX file</li>
+                    <li>Delete trips (data remains in main history)</li>
+                </ul>
+            </section>
+
+            <!-- Data Export & Import -->
+            <section id="data-export" class="section">
+                <h1>export and import data</h1>
+
+                <h2>exporting your data</h2>
+                <p>Access exports from the Settings page. Your data is yours—export it anytime in open formats.</p>
+
+                <h3>csv export</h3>
+                <p>Structured data format compatible with spreadsheet apps and databases.</p>
+                <pre><code>Columns: device_id, latitude, longitude, timestamp, altitude, accuracy,
+speed, battery, city, state, country, country_code, place_name</code></pre>
+
+                <h3>gpx export</h3>
+                <p>Standard GPS Exchange format for use with mapping software and GPS devices.</p>
+                <pre><code>Includes all waypoints with metadata. Compatible with:
+- Google Earth
+- QGIS
+- Garmin BaseCamp
+- Most GPS software</code></pre>
+
+                <h2>importing data</h2>
+                <p>Import location history from other services or devices.</p>
+
+                <h3>from google location history</h3>
+                <ol>
+                    <li>Go to <a href="https://takeout.google.com/" target="_blank">Google Takeout</a></li>
+                    <li>Select "Location History" (only this data)</li>
+                    <li>Download the JSON file</li>
+                    <li>In Roamly, Settings → Import → Upload JSON file</li>
+                </ol>
+
+                <h3>from gpx files</h3>
+                <ol>
+                    <li>Get GPX files from any GPS app or service</li>
+                    <li>In Roamly, Settings → Import GPX</li>
+                    <li>Upload one or multiple .gpx files</li>
+                    <li>Roamly extracts waypoints and creates locations</li>
+                </ol>
+
+                <h3>from csv</h3>
+                <ol>
+                    <li>Format CSV with columns: latitude, longitude, timestamp</li>
+                    <li>Optional: altitude, accuracy, device_id</li>
+                    <li>In Roamly, Settings → Import CSV</li>
+                    <li>Upload and map columns</li>
+                </ol>
+
+                <h2>data portability</h2>
+                <p>You retain full ownership of your location data. Export anytime, migrate to another service, or archive for personal records.</p>
+
+                <div class="success-box">
+                    <strong>Privacy guarantee:</strong> Your server, your data, your rules. We don't access, log, or analyze user location data.
+                </div>
+            </section>
+
+            <!-- Architecture -->
+            <section id="architecture" class="section">
+                <h1>architecture overview</h1>
+
+                <h2>system design</h2>
+                <pre><code>┌─────────────────────────────────────────────────────┐
+│                   Roamly System                       │
+├─────────────────────────────────────────────────────┤
+│                                                       │
+│  ┌──────────────┐      ┌──────────────┐            │
+│  │ Mobile Apps  │──→   │  Roamly API  │            │
+│  │(OwnTracks)   │  HTTP│  /api/push   │            │
+│  └──────────────┘      └─────────┬────┘            │
+│                                   │                 │
+│                      ┌────────────▼─────────────┐  │
+│                      │   Django Web Server      │  │
+│                      │ ├ Views (map, stats)     │  │
+│                      │ ├ API endpoints          │  │
+│                      │ └ Authentication         │  │
+│                      └────────────┬─────────────┘  │
+│                                   │                 │
+│                      ┌────────────▼─────────────┐  │
+│                      │   PostgreSQL + PostGIS   │  │
+│                      │ ├ Location points        │  │
+│                      │ ├ Trips & Places         │  │
+│                      │ └ Spatial indexes        │  │
+│                      └──────────────────────────┘  │
+│                                                    │
+│  ┌─────────────────────────────────────────────┐ │
+│  │ Background Tasks                            │ │
+│  │ ├ Reverse Geocoding (Nominatim API)        │ │
+│  │ ├ Visit Detection                           │ │
+│  │ └ Stats Calculation                         │ │
+│  └─────────────────────────────────────────────┘ │
+│                                                    │
+└─────────────────────────────────────────────────────┘</code></pre>
+
+                <h2>components</h2>
+                <ul>
+                    <li><strong>Frontend:</strong> HTML5 with Leaflet.js for mapping</li>
+                    <li><strong>Backend:</strong> Django application server</li>
+                    <li><strong>Database:</strong> PostgreSQL with optional PostGIS for spatial data</li>
+                    <li><strong>Geolocation:</strong> OpenStreetMap Nominatim for place names</li>
+                    <li><strong>Containerization:</strong> Docker for easy deployment</li>
+                </ul>
+
+                <h2>data flow</h2>
+                <ol>
+                    <li>Mobile app (OwnTracks, etc.) pushes location via HTTPS</li>
+                    <li>API validates API key and device</li>
+                    <li>Location data stored in PostgreSQL</li>
+                    <li>Background task reverse-geocodes coordinates</li>
+                    <li>Web UI queries database for visualization</li>
+                    <li>User views map, statistics, trips</li>
+                </ol>
+
+                <h2>scalability</h2>
+                <ul>
+                    <li><strong>Single location:</strong> SQLite, single server</li>
+                    <li><strong>Personal/small team:</strong> PostgreSQL on single server</li>
+                    <li><strong>Large scale:</strong> PostgreSQL with PostGIS, replicas, CDN</li>
+                    <li><strong>High volume:</strong> Load balancing with multiple app servers</li>
+                </ul>
+            </section>
+
+            <!-- API Reference -->
+            <section id="api-reference" class="section">
+                <h1>complete api reference</h1>
+
+                <h2>endpoints summary</h2>
+                <div class="table-wrapper">
+                    <table>
+                        <tr>
+                            <th>Method</th>
+                            <th>Endpoint</th>
+                            <th>Description</th>
+                            <th>Auth</th>
+                        </tr>
+                        <tr>
+                            <td>POST</td>
+                            <td>/api/push/</td>
+                            <td>Push location from device</td>
+                            <td>API Key</td>
+                        </tr>
+                        <tr>
+                            <td>GET</td>
+                            <td>/api/locations/</td>
+                            <td>Get locations (JSON)</td>
+                            <td>Login</td>
+                        </tr>
+                        <tr>
+                            <td>GET</td>
+                            <td>/api/locations/geojson/</td>
+                            <td>Get locations (GeoJSON)</td>
+                            <td>Login</td>
+                        </tr>
+                        <tr>
+                            <td>GET</td>
+                            <td>/api/stats/</td>
+                            <td>Get statistics</td>
+                            <td>Login</td>
+                        </tr>
+                        <tr>
+                            <td>GET</td>
+                            <td>/api/visits/</td>
+                            <td>Get visited places</td>
+                            <td>Login</td>
+                        </tr>
+                        <tr>
+                            <td>GET</td>
+                            <td>/api/distance/</td>
+                            <td>Get distance traveled</td>
+                            <td>Login</td>
+                        </tr>
+                        <tr>
+                            <td>GET</td>
+                            <td>/api/trips/</td>
+                            <td>List trips</td>
+                            <td>Login</td>
+                        </tr>
+                        <tr>
+                            <td>POST</td>
+                            <td>/api/trips/create/</td>
+                            <td>Create new trip</td>
+                            <td>Login</td>
+                        </tr>
+                        <tr>
+                            <td>POST</td>
+                            <td>/api/export/csv/</td>
+                            <td>Export as CSV</td>
+                            <td>Login</td>
+                        </tr>
+                        <tr>
+                            <td>POST</td>
+                            <td>/api/export/gpx/</td>
+                            <td>Export as GPX</td>
+                            <td>Login</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <h2>location payload format</h2>
+                <pre><code>{
+  "device_id": "string",           // Required
+  "latitude": number,              // Required
+  "longitude": number,             // Required
+  "timestamp": "ISO 8601",         // Optional (defaults to now)
+  "altitude": number,              // Optional (meters)
+  "accuracy": number,              // Optional (meters)
+  "speed": number,                 // Optional (m/s)
+  "battery": number                // Optional (0-100)
+}</code></pre>
+
+                <h2>owntracks format support</h2>
+                <p>Roamly also accepts OwnTracks native format:</p>
+                <pre><code>{
+  "_type": "location",
+  "tid": "device_id",
+  "lat": latitude,
+  "lon": longitude,
+  "tst": unix_timestamp,
+  "alt": altitude,
+  "acc": accuracy,
+  "vel": speed,
+  "batt": battery
+}</code></pre>
+            </section>
+
+            <!-- Troubleshooting -->
+            <section id="troubleshooting" class="section">
+                <h1>troubleshooting</h1>
+
+                <h2>docker won't start</h2>
+                <p><strong>Issue:</strong> <code>docker-compose up -d</code> fails</p>
+                <p><strong>Solutions:</strong></p>
+                <ul>
+                    <li>Check Docker is installed: <code>docker --version</code></li>
+                    <li>Check Docker daemon is running: <code>sudo systemctl start docker</code></li>
+                    <li>View logs: <code>docker-compose logs web</code></li>
+                    <li>Verify port 8001 is free: <code>sudo lsof -i :8001</code></li>
+                </ul>
+
+                <h2>database connection error</h2>
+                <p><strong>Issue:</strong> <code>OperationalError: FATAL: role "roamly" does not exist</code></p>
+                <p><strong>Solutions:</strong></p>
+                <ul>
+                    <li>Create PostgreSQL user: <code>sudo -u postgres createuser -P roamly</code></li>
+                    <li>Create database: <code>sudo -u postgres createdb -O roamly roamly</code></li>
+                    <li>Set <code>DATABASE_URL</code> environment variable correctly</li>
+                    <li>Verify credentials: <code>psql -U roamly -d roamly -h localhost</code></li>
+                </ul>
+
+                <h2>locations not appearing</h2>
+                <p><strong>Issue:</strong> Pushed locations from mobile app don't show in web UI</p>
+                <p><strong>Solutions:</strong></p>
+                <ul>
+                    <li>Verify API key is copied correctly (no spaces)</li>
+                    <li>Check API key is marked "active" in Settings</li>
+                    <li>Test push manually: <code>curl -X POST https://yourdomain.com/api/push/ \
+  -H "Authorization: Bearer YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"device_id":"test","latitude":40.7,"longitude":-74.0}'</code></li>
+                    <li>View server logs: <code>docker-compose logs -f web</code></li>
+                    <li>Check OwnTracks settings (server URL, bearer token format)</li>
+                </ul>
+
+                <h2>reverse geocoding not working</h2>
+                <p><strong>Issue:</strong> Locations don't have city/country names</p>
+                <p><strong>Solutions:</strong></p>
+                <ul>
+                    <li>Nominatim may be rate-limited. Wait a few minutes.</li>
+                    <li>Check geocoding status: Settings → Geocoding Status</li>
+                    <li>Verify internet connectivity on server</li>
+                    <li>Check firewall allows outbound HTTPS (port 443)</li>
+                </ul>
+
+                <h2>high memory usage</h2>
+                <p><strong>Issue:</strong> Server uses excessive RAM</p>
+                <p><strong>Solutions:</strong></p>
+                <ul>
+                    <li>Limit gunicorn workers: <code>--workers 2</code> instead of 3+</li>
+                    <li>Check for memory leaks in logs</li>
+                    <li>Reduce location history kept (archive old data)</li>
+                    <li>Upgrade server RAM if needed</li>
+                </ul>
+
+                <h2>ssl certificate errors</h2>
+                <p><strong>Issue:</strong> HTTPS connections fail</p>
+                <p><strong>Solutions:</strong></p>
+                <ul>
+                    <li>Verify cert exists: <code>ls /etc/letsencrypt/live/yourdomain.com/</code></li>
+                    <li>Renew cert: <code>sudo certbot renew</code></li>
+                    <li>Check certificate expiry: <code>openssl x509 -in /path/to/cert -noout -dates</code></li>
+                    <li>Verify nginx config: <code>sudo nginx -t</code></li>
+                </ul>
+
+                <h2>migrationerrors after update</h2>
+                <p><strong>Issue:</strong> Migrations fail after code update</p>
+                <p><strong>Solutions:</strong></p>
+                <ul>
+                    <li>View migration status: <code>python manage.py showmigrations</code></li>
+                    <li>Run all pending migrations: <code>python manage.py migrate</code></li>
+                    <li>Rollback to previous migration if needed: <code>python manage.py migrate tracker 0001</code></li>
+                </ul>
+            </section>
+
+            <!-- FAQ -->
+            <section id="faq" class="section">
+                <h1>frequently asked questions</h1>
+
+                <h2>general</h2>
+
+                <h3>is roamly truly private?</h3>
+                <p>Yes. Roamly runs entirely on your server. No telemetry, no tracking, no data sharing. Your location data never leaves your infrastructure unless you explicitly export it.</p>
+
+                <h3>can i host roamly for multiple people?</h3>
+                <p>Yes! Each user gets an account with their own API keys and view. Perfect for families or teams sharing a server.</p>
+
+                <h3>what happens if i stop tracking?</h3>
+                <p>Your data remains in the database. You can start again anytime—no data loss.</p>
+
+                <h3>how much data can roamly store?</h3>
+                <p>Theoretically unlimited (depends on disk space). A typical smartphone generates 1-2 MB of location data per year. Roamly efficiently indexes and queries this data.</p>
+
+                <h2>installation & setup</h2>
+
+                <h3>do i need a domain?</h3>
+                <p>For production (HTTPS), yes. Use a free domain from Freenom or similar if needed. Or use a dynamic DNS service if your IP changes.</p>
+
+                <h3>is docker required?</h3>
+                <p>No, but recommended. Manual installation works fine if you're comfortable with command line.</p>
+
+                <h3>can i run this on raspberry pi?</h3>
+                <p>Yes! Roamly works on low-power devices. Use SQLite for the database on small devices.</p>
+
+                <h3>what's the minimum postgres version?</h3>
+                <p>PostgreSQL 12+. For PostGIS features, PostGIS 3.0+.</p>
+
+                <h2>mobile & tracking</h2>
+
+                <h3>what's the best interval for sending locations?</h3>
+                <p>Depends on your needs:
+                <ul>
+                    <li>5-10 min: Detailed tracking, higher battery drain</li>
+                    <li>30 min: Good balance</li>
+                    <li>1 hour+: Minimal battery impact</li>
+                </ul>
+                OwnTracks lets you set custom intervals.</p>
+
+                <h3>does tracking work offline?</h3>
+                <p>Most apps buffer locations and send when connection returns. OwnTracks does this automatically.</p>
+
+                <h3>how much battery does tracking use?</h3>
+                <p>Depends on GPS frequency. With OwnTracks at 30-min intervals, expect 10-20% extra battery drain.</p>
+
+                <h3>can i track without owntracks?</h3>
+                <p>Yes! Any app that sends HTTPS POST requests works. The location API accepts standard JSON format.</p>
+
+                <h2>data & privacy</h2>
+
+                <h3>can i share my location with others?</h3>
+                <p>Not built-in, but you can:
+                <ul>
+                    <li>Export data and share files</li>
+                    <li>Show specific trips/maps to others</li>
+                    <li>Create a separate account for shared devices</li>
+                </ul>
+                </p>
+
+                <h3>how do i delete my data?</h3>
+                <p>User data can be deleted via account deletion or by removing locations in Django admin. Deleting your account removes all personal info.</p>
+
+                <h3>is my data encrypted at rest?</h3>
+                <p>Database encryption depends on your PostgreSQL setup. Enable it with:
+                <code>--with-openssl</code> flag during PostgreSQL build.
+                </p>
+
+                <h3>does roamly call external services?</h3>
+                <p>Only Nominatim (OpenStreetMap) for reverse geocoding. All requests include a proper User-Agent and respect ToS and rate limits.</p>
+
+                <h2>performance & scaling</h2>
+
+                <h3>how many locations can roamly handle?</h3>
+                <p>Millions easily. PostgreSQL with proper indexing handles billions of points. Performance depends on query complexity.</p>
+
+                <h3>what's the recommended hardware?</h3>
+                <p><strong>Small (up to 100K locations):</strong> 2GB RAM, 10GB disk
+                <br><strong>Medium (up to 10M locations):</strong> 4GB RAM, 100GB disk, SSD recommended
+                <br><strong>Large (10M+ locations):</strong> 8GB+ RAM, NVMe SSD, dedicated PostgreSQL server</p>
+
+                <h3>how do i back up my data?</h3>
+                <pre><code>docker-compose exec db pg_dump -U roamly roamly > backup.sql
+# Or for manual PostgreSQL:
+pg_dump roamly -U roamly > backup.sql</code></pre>
+
+                <h3>can i migrate from one server to another?</h3>
+                <p>Yes! Export database with pg_dump, restore on new server, copy staticfiles folder.</p>
+
+                <h2>development & customization</h2>
+
+                <h3>is the source code available?</h3>
+                <p>Yes, Roamly is open source. Modify and extend it for your needs.</p>
+
+                <h3>can i add custom features?</h3>
+                <p>Absolutely. The codebase is modular. Common customizations:
+                <ul>
+                    <li>Custom map tiles or overlays</li>
+                    <li>Additional statistics or analytics</li>
+                    <li>Integration with other services</li>
+                    <li>Custom authentication</li>
+                </ul>
+                </p>
+
+                <h3>how do i contribute?</h3>
+                <p>Fork the repository, make improvements, submit a pull request. All contributions welcome!</p>
+            </section>
+
+        </main>
+    </div>
+
+    <script>
+        // Sidebar navigation
+        function showSection(sectionId) {
+            // Hide all sections
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            
+            // Show selected section
+            const section = document.getElementById(sectionId);
+            if (section) {
+                section.classList.add('active');
+                section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+
+            // Update sidebar highlighting
+            document.querySelectorAll('.sidebar-link').forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href') === '#' + sectionId) {
+                    link.classList.add('active');
+                }
+            });
+        }
+
+        // Navigate to section from URL hash
+        window.addEventListener('hashchange', () => {
+            const hash = window.location.hash.substr(1);
+            if (hash) showSection(hash);
+        });
+
+        // Handle initial load with hash
+        if (window.location.hash) {
+            const hash = window.location.hash.substr(1);
+            showSection(hash);
+        }
+    </script>
+</body>
+</html>

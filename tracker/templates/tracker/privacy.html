@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roamly - Privacy Policy</title>
+    {% load static %}
+    <link rel="icon" type="image/x-icon" href="{% static 'tracker/roamlymark.ico' %}">
+    <link rel="manifest" href="{% static 'tracker/manifest.json' %}">
+    <meta name="theme-color" content="#0f1117">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0f1117;
+            --bg-card: #1a1d27;
+            --bg-input: #252830;
+            --border: #2d3040;
+            --text: #e4e6eb;
+            --text-muted: #8b8fa3;
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Space Grotesk', sans-serif; }
+
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            text-transform: lowercase;
+            font-weight: 700;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        .navbar {
+            background: rgba(15, 17, 23, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border);
+            padding: 0 2rem;
+            height: 64px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+        }
+
+        .navbar-brand {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+        }
+
+        .navbar-brand img {
+            height: 48px;
+            filter: brightness(0) invert(1);
+        }
+
+        .content {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 3rem 2rem;
+        }
+
+        .content h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            color: var(--primary);
+        }
+
+        .content .updated {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-bottom: 2.5rem;
+        }
+
+        .content h2 {
+            font-size: 1.25rem;
+            margin-top: 2rem;
+            margin-bottom: 0.75rem;
+            color: var(--text);
+        }
+
+        .content p, .content li {
+            color: var(--text-muted);
+            line-height: 1.8;
+            font-size: 0.95rem;
+            font-weight: 400;
+        }
+
+        .content ul {
+            padding-left: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .content li {
+            margin-bottom: 0.25rem;
+        }
+
+        .content p {
+            margin-bottom: 1rem;
+        }
+
+        .content a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        .content a:hover {
+            text-decoration: underline;
+        }
+
+        .footer {
+            background: var(--bg-card);
+            border-top: 1px solid var(--border);
+            padding: 2rem;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        .footer a {
+            color: var(--text-muted);
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            color: var(--text);
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        @media (max-width: 768px) {
+            .navbar { padding: 0 1rem; }
+            .content { padding: 2rem 1rem; }
+            .content h1 { font-size: 2rem; }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <a href="{% url 'tracker:landing' %}" class="navbar-brand">
+            <img src="{% static 'tracker/roamly.svg' %}" alt="Roamly">
+        </a>
+    </nav>
+
+    <div class="content">
+        <h1>privacy policy</h1>
+        <p class="updated">last updated: february 2026</p>
+
+        <h2>1. overview</h2>
+        <p>roamly is a self-hosted, open-source location tracking application. this privacy policy explains how your data is handled when using a roamly instance.</p>
+
+        <h2>2. data collection</h2>
+        <p>roamly collects only the data you explicitly provide:</p>
+        <ul>
+            <li><strong>account information:</strong> username and password (hashed) for authentication.</li>
+            <li><strong>location data:</strong> gps coordinates, timestamps, altitude, speed, and battery level sent from your tracking device.</li>
+            <li><strong>trip data:</strong> trip names, dates, and associated places you create.</li>
+        </ul>
+
+        <h2>3. data storage</h2>
+        <ul>
+            <li>all data is stored on the server where this roamly instance is hosted.</li>
+            <li>no data is sent to roamly developers or any third party by the application itself.</li>
+            <li>the instance operator is responsible for securing the server and database.</li>
+        </ul>
+
+        <h2>4. third-party services</h2>
+        <p>roamly may use the following external services:</p>
+        <ul>
+            <li><strong>map tiles:</strong> map imagery is loaded from tile providers (e.g., openstreetmap). your browser sends requests to these providers, which may log ip addresses.</li>
+            <li><strong>reverse geocoding:</strong> when enabled, coordinates are sent to openstreetmap's nominatim service to resolve place names.</li>
+        </ul>
+
+        <h2>5. data control</h2>
+        <p>you have full control over your data:</p>
+        <ul>
+            <li>export all your data at any time in csv or gpx format.</li>
+            <li>delete individual location records or your entire account.</li>
+            <li>the application does not prevent you from accessing or removing your data.</li>
+        </ul>
+
+        <h2>6. cookies</h2>
+        <p>roamly uses session cookies for authentication only. no tracking cookies or analytics are used by the application.</p>
+
+        <h2>7. self-hosted instances</h2>
+        <p>since roamly is self-hosted, the privacy practices of each instance depend on its operator. this policy covers the application's default behavior. instance operators may have additional policies.</p>
+
+        <h2>8. changes to this policy</h2>
+        <p>this policy may be updated as the application evolves. changes will be reflected in the "last updated" date above.</p>
+
+        <h2>9. contact</h2>
+        <p>for privacy concerns, please open an issue on the <a href="https://github.com/waxn/roamly">github repository</a> or contact the operator of this instance.</p>
+    </div>
+
+    <footer class="footer">
+        <div class="footer-links">
+            <a href="https://github.com/waxn/roamly">github</a>
+            <span>&middot;</span>
+            <a href="{% url 'tracker:terms' %}">terms of service</a>
+            <span>&middot;</span>
+            <a href="{% url 'tracker:privacy' %}">privacy policy</a>
+        </div>
+    </footer>
+</body>
+</html>
