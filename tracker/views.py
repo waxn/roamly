@@ -214,8 +214,13 @@ def push_location(request):
     else:
         try:
             data = json.loads(request.body.decode('utf-8'))
-        except json.JSONDecodeError:
-            return JsonResponse({"error": "Invalid JSON"}, status=400)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            # Fallback to form-encoded POST data
+            if request.POST:
+                data = dict(request.POST)
+                data = {k: v[0] if isinstance(v, list) and len(v) == 1 else v for k, v in data.items()}
+            else:
+                return JsonResponse({"error": "Invalid JSON"}, status=400)
 
     # Detect format
     if data.get("_type") == "location":
@@ -234,8 +239,14 @@ def push_location(request):
         latitude = data.get("latitude")
         longitude = data.get("longitude")
         timestamp = data.get("timestamp")
-        if timestamp and isinstance(timestamp, str):
-            timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        if timestamp:
+            if isinstance(timestamp, (int, float)):
+                timestamp = datetime.fromtimestamp(int(timestamp), tz=timezone.utc)
+            elif isinstance(timestamp, str):
+                try:
+                    timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                except ValueError:
+                    timestamp = datetime.fromtimestamp(int(timestamp), tz=timezone.utc)
         altitude = data.get("altitude")
         accuracy = data.get("accuracy")
         speed = data.get("speed")

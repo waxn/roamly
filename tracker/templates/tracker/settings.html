@@ -20,19 +20,20 @@
                 <button class="btn btn-primary btn-sm" onclick="createApiKey()">Create Key</button>
             </div>
 
-            <div id="new-key-display" style="display: none;" class="alert alert-success">
-                <strong>New API Key:</strong> <code id="new-key-value" style="word-break: break-all;"></code>
-                <br><small>Copy this key now - it won't be shown again.</small>
-            </div>
-
             <table>
                 <thead>
-                    <tr><th>Name</th><th>Last Used</th><th>Status</th><th></th></tr>
+                    <tr><th>Name</th><th>Key</th><th>Last Used</th><th>Status</th><th></th></tr>
                 </thead>
                 <tbody id="api-keys-list">
                     {% for key in api_keys %}
                     <tr id="key-{{ key.id }}">
                         <td>{{ key.name }}</td>
+                        <td>
+                            <div style="display: flex; align-items: center; gap: 0.25rem;">
+                                <code id="key-val-{{ key.id }}" style="font-size: 0.7rem; color: var(--text-muted); word-break: break-all; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ key.key }}</code>
+                                <button class="btn btn-outline btn-sm" style="padding: 0.15rem 0.35rem; font-size: 0.7rem;" onclick="copyKey('{{ key.key }}')" title="Copy">Copy</button>
+                            </div>
+                        </td>
                         <td style="color: var(--text-muted);">{{ key.last_used|default:"Never" }}</td>
                         <td>
                             {% if key.is_active %}
@@ -44,7 +45,7 @@
                         <td><button class="btn btn-danger btn-sm" onclick="deleteApiKey({{ key.id }})">Delete</button></td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="4" style="color: var(--text-muted);">No API keys yet</td></tr>
+                    <tr><td colspan="5" style="color: var(--text-muted);">No API keys yet</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -144,10 +145,9 @@
                         <li><strong style="color: var(--text);">URL:</strong> <code style="background: var(--bg); padding: 2px 6px; border-radius: 4px;">{{ request.scheme }}://{{ request.get_host }}/api/push/</code></li>
                         <li><strong style="color: var(--text);">HTTP Method:</strong> POST</li>
                         <li><strong style="color: var(--text);">HTTP Body:</strong>
-                            <code style="background: var(--bg); padding: 2px 6px; border-radius: 4px; display: block; margin-top: 0.25rem; word-break: break-all;">{"device_id":"android","latitude":%LAT,"longitude":%LON,"altitude":%ALT,"speed":%SPD,"accuracy":%ACC,"battery":%BATT,"timestamp":"%TIME"}</code>
+                            <code style="background: var(--bg); padding: 2px 6px; border-radius: 4px; display: block; margin-top: 0.25rem; word-break: break-all;">{"api_key":"YOUR_API_KEY","device_id":"%SER","latitude":%LAT,"longitude":%LON,"altitude":%ALT,"speed":%SPD,"accuracy":%ACC,"battery":%BATT,"timestamp":"%TIME"}</code>
                         </li>
                         <li><strong style="color: var(--text);">HTTP Headers:</strong>
-                            <code style="background: var(--bg); padding: 2px 6px; border-radius: 4px; display: block; margin-top: 0.25rem;">Authorization: Bearer YOUR_API_KEY</code>
                             <code style="background: var(--bg); padding: 2px 6px; border-radius: 4px; display: block; margin-top: 0.25rem;">Content-Type: application/json</code>
                         </li>
                     </ul>
@@ -164,7 +164,12 @@
                 Push location data using any HTTP client. Example:
             </p>
             <pre style="background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; font-size: 0.8125rem; overflow-x: auto; color: var(--text-muted);">
-# Standard format
+# API key in JSON body
+curl -X POST {{ request.scheme }}://{{ request.get_host }}/api/push/ \
+  -H "Content-Type: application/json" \
+  -d '{"api_key": "YOUR_API_KEY", "device_id": "my-phone", "latitude": 45.5, "longitude": -122.6}'
+
+# API key in header
 curl -X POST {{ request.scheme }}://{{ request.get_host }}/api/push/ \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
@@ -182,6 +187,13 @@ curl -X POST {{ request.scheme }}://{{ request.get_host }}/api/push/ \
 
 {% block extra_js %}
 <script>
+function copyKey(key) {
+    navigator.clipboard.writeText(key).then(() => {
+        event.target.textContent = 'Copied!';
+        setTimeout(() => { event.target.textContent = 'Copy'; }, 1500);
+    });
+}
+
 function createApiKey() {
     const name = document.getElementById('key-name').value || 'My Device';
     const formData = new FormData();
@@ -195,11 +207,8 @@ function createApiKey() {
     .then(r => r.json())
     .then(data => {
         if (data.key) {
-            document.getElementById('new-key-display').style.display = 'block';
-            document.getElementById('new-key-value').textContent = data.key;
             document.getElementById('key-name').value = '';
-            // Reload to show the new key in the table
-            setTimeout(() => location.reload(), 2000);
+            location.reload();
         }
     });
 }

@@ -36,7 +36,7 @@ services:
       - DEBUG=${DEBUG:-False}
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
       - DATABASE_URL=postgis://roamly:${POSTGRES_PASSWORD:-roamly_secret}@db:5432/roamly
-      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
 
 volumes:
   postgis_data:
