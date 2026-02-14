@@ -30,7 +30,7 @@
                         <td>{{ key.name }}</td>
                         <td>
                             <div style="display: flex; align-items: center; gap: 0.25rem;">
-                                <code id="key-val-{{ key.id }}" style="font-size: 0.7rem; color: var(--text-muted); word-break: break-all; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ key.key }}</code>
+                                <code id="key-val-{{ key.id }}" style="font-size: 0.7rem; color: var(--text-muted); word-break: break-all; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'Space Grotesk', sans-serif;">{{ key.key }}</code>
                                 <button class="btn btn-outline btn-sm" style="padding: 0.15rem 0.35rem; font-size: 0.7rem;" onclick="copyKey('{{ key.key }}')" title="Copy">Copy</button>
                             </div>
                         </td>
@@ -62,7 +62,7 @@
                     {% for device in devices %}
                     <tr>
                         <td>{{ device.name|default:device.device_id }}</td>
-                        <td style="color: var(--text-muted);"><code>{{ device.device_id }}</code></td>
+                        <td style="color: var(--text-muted);"><code style="font-family: 'Space Grotesk', sans-serif;">{{ device.device_id }}</code></td>
                         <td style="color: var(--text-muted);">{{ device.created_at|date:"M d, Y" }}</td>
                     </tr>
                     {% empty %}
@@ -141,13 +141,13 @@
                 </li>
                 <li>Tap <strong style="color: var(--text);">Log to custom URL</strong> to configure:
                     <ul style="margin-top: 0.25rem;">
-                        <li><strong style="color: var(--text);">URL:</strong> <code style="background: var(--bg); padding: 2px 6px; border-radius: 4px;">{{ request.scheme }}://{{ request.get_host }}/api/push/</code></li>
+                        <li><strong style="color: var(--text);">URL:</strong> <code style="background: var(--bg); padding: 2px 6px; border-radius: 4px; font-family: 'Space Grotesk', sans-serif;">{{ request.scheme }}://{{ request.get_host }}/api/push/</code></li>
                         <li><strong style="color: var(--text);">HTTP Method:</strong> POST</li>
                         <li><strong style="color: var(--text);">HTTP Body:</strong>
-                            <code style="background: var(--bg); padding: 2px 6px; border-radius: 4px; display: block; margin-top: 0.25rem; word-break: break-all;">{"api_key":"YOUR_API_KEY","device_id":"%SER","latitude":%LAT,"longitude":%LON,"altitude":%ALT,"speed":%SPD,"accuracy":%ACC,"battery":%BATT,"timestamp":"%TIME"}</code>
+                            <code style="background: var(--bg); padding: 2px 6px; border-radius: 4px; display: block; margin-top: 0.25rem; word-break: break-all; font-family: 'Space Grotesk', sans-serif;">{"api_key":"YOUR_API_KEY","device_id":"%SER","latitude":%LAT,"longitude":%LON,"altitude":%ALT,"speed":%SPD,"accuracy":%ACC,"battery":%BATT,"timestamp":"%TIME"}</code>
                         </li>
                         <li><strong style="color: var(--text);">HTTP Headers:</strong>
-                            <code style="background: var(--bg); padding: 2px 6px; border-radius: 4px; display: block; margin-top: 0.25rem;">Content-Type: application/json</code>
+                            <code style="background: var(--bg); padding: 2px 6px; border-radius: 4px; display: block; margin-top: 0.25rem; font-family: 'Space Grotesk', sans-serif;">Content-Type: application/json</code>
                         </li>
                     </ul>
                 </li>
