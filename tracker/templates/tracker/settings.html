@@ -99,18 +99,17 @@
             <div>
                 <h4 style="font-size: 0.875rem; margin-bottom: 0.5rem;">Import</h4>
                 <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap;">
-                    <input type="text" id="import-device" class="form-control" placeholder="Device name (optional)" style="width: 180px;">
                     <label class="btn btn-outline btn-sm" style="cursor: pointer;">
                         Import CSV
-                        <input type="file" accept=".csv" multiple style="display: none;" onchange="importFiles(this, 'csv')">
+                        <input type="file" accept=".csv" multiple style="display: none;" onchange="selectFilesToImport(this, 'csv')">
                     </label>
                     <label class="btn btn-outline btn-sm" style="cursor: pointer;">
                         Import GPX
-                        <input type="file" accept=".gpx" multiple style="display: none;" onchange="importFiles(this, 'gpx')">
+                        <input type="file" accept=".gpx" multiple style="display: none;" onchange="selectFilesToImport(this, 'gpx')">
                     </label>
                 </div>
                 <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem;">
-                    Select multiple files at once. Device name applies to all files.
+                    Select files to import. You'll be asked to choose a device for the imported locations.
                 </p>
                 <div id="import-status" style="font-size: 0.8125rem; color: var(--text-muted);"></div>
             </div>
@@ -180,6 +179,38 @@ curl -X POST {{ request.scheme }}://{{ request.get_host }}/api/push/ \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"_type": "location", "lat": 45.5, "lon": -122.6, "tst": 1234567890, "tid": "phone"}'</pre>
+        </div>
+    </div>
+</div>
+
+<!-- Device Chooser Modal -->
+<div id="device-chooser-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;" onclick="if(event.target === this) closeDeviceChooser();">
+    <div class="card" style="max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto;">
+        <div class="card-header">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span>Choose Device</span>
+                <button onclick="closeDeviceChooser()" style="background:none; border:none; font-size:1.5rem; cursor:pointer; color:var(--text-muted);">&times;</button>
+            </div>
+        </div>
+        <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1rem;">
+            Select an existing device or create a new one for the imported locations.
+        </p>
+        
+        <div style="margin-bottom: 1.5rem;">
+            <h4 style="font-size: 0.875rem; margin-bottom: 0.75rem;">Create New Device</h4>
+            <div style="display: flex; gap: 0.5rem;">
+                <input type="text" id="new-device-name" class="form-control" placeholder="New device name" style="flex: 1;" onkeypress="if(event.key === 'Enter') importWithNewDevice();">
+                <button class="btn btn-primary btn-sm" onclick="importWithNewDevice()">Import</button>
+            </div>
+        </div>
+        
+        <div>
+            <h4 style="font-size: 0.875rem; margin-bottom: 0.75rem;">Or Select Existing Device</h4>
+            <div id="existing-devices-list" style="max-height: 300px; overflow-y: auto;">
+                <div style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                    <span class="spinner"></span> Loading devices...
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -297,12 +328,98 @@ function saveSpeedUnit(unit) {
 }
 document.getElementById('speed-unit').value = localStorage.getItem('roamly_speed_unit') || 'kmh';
 
-async function importFiles(input, type) {
+// Import with device chooser
+let pendingImportFiles = [];
+let pendingImportType = '';
+
+function selectFilesToImport(input, type) {
     const files = Array.from(input.files);
     if (!files.length) return;
+    
+    pendingImportFiles = files;
+    pendingImportType = type;
+    input.value = ''; // Clear input so same files can be selected again
+    
+    showDeviceChooser();
+}
 
+function showDeviceChooser() {
+    const modal = document.getElementById('device-chooser-modal');
+    modal.style.display = 'flex';
+    document.getElementById('new-device-name').value = '';
+    loadExistingDevices();
+}
+
+function closeDeviceChooser() {
+    const modal = document.getElementById('device-chooser-modal');
+    modal.style.display = 'none';
+    pendingImportFiles = [];
+    pendingImportType = '';
+}
+
+function loadExistingDevices() {
+    const listEl = document.getElementById('existing-devices-list');
+    listEl.innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--text-muted);"><span class="spinner"></span> Loading devices...</div>';
+    
+    fetch('/api/devices/')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.devices || data.devices.length === 0) {
+                listEl.innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--text-muted);">No existing devices. Create a new one above.</div>';
+                return;
+            }
+            
+            listEl.innerHTML = '';
+            data.devices.forEach(device => {
+                const div = document.createElement('div');
+                div.className = 'device-option';
+                div.style.cssText = 'padding: 0.75rem; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 0.5rem; cursor: pointer; transition: all 0.2s;';
+                div.onmouseover = function() { this.style.background='var(--bg)'; this.style.borderColor='var(--primary)'; };
+                div.onmouseout = function() { this.style.background=''; this.style.borderColor='var(--border)'; };
+                div.onclick = () => importWithExistingDevice(device.device_id);
+                
+                const nameDiv = document.createElement('div');
+                nameDiv.style.fontWeight = '500';
+                nameDiv.textContent = device.name;
+                
+                const idDiv = document.createElement('div');
+                idDiv.style.cssText = 'font-size: 0.75rem; color: var(--text-muted);';
+                idDiv.textContent = 'ID: ' + device.device_id;
+                
+                div.appendChild(nameDiv);
+                div.appendChild(idDiv);
+                listEl.appendChild(div);
+            });
+        })
+        .catch(err => {
+            listEl.innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--danger);">Error loading devices</div>';
+        });
+}
+
+function importWithNewDevice() {
+    const deviceName = document.getElementById('new-device-name').value.trim();
+    if (!deviceName) {
+        alert('Please enter a device name');
+        return;
+    }
+    // Save files before closing modal
+    const files = [...pendingImportFiles];
+    const type = pendingImportType;
+    closeDeviceChooser();
+    executeImport(deviceName, files, type);
+}
+
+function importWithExistingDevice(deviceId) {
+    // Save files before closing modal
+    const files = [...pendingImportFiles];
+    const type = pendingImportType;
+    closeDeviceChooser();
+    executeImport(deviceId, files, type);
+}
+
+async function executeImport(deviceId, files, type) {
     const statusEl = document.getElementById('import-status');
-    const deviceId = document.getElementById('import-device').value.trim();
+    
     let totalImported = 0;
     let totalErrors = 0;
     let firstError = null;
@@ -312,7 +429,7 @@ async function importFiles(input, type) {
 
         const formData = new FormData();
         formData.append('file', files[i]);
-        if (deviceId) formData.append('device_id', deviceId);
+        formData.append('device_id', deviceId);
 
         try {
             const resp = await fetch(`/api/import/${type}/`, {
@@ -330,11 +447,13 @@ async function importFiles(input, type) {
         }
     }
 
-    let msg = `Imported ${totalImported} locations from ${files.length} file(s) (${totalErrors} errors)`;
+    let msg = `Imported ${totalImported} locations from ${files.length} file(s) to device "${deviceId}" (${totalErrors} errors)`;
     if (firstError) msg += `\nFirst error: ${firstError}`;
     statusEl.textContent = msg;
     statusEl.style.whiteSpace = 'pre-wrap';
-    input.value = '';
+    
+    // Refresh page to show new device if created
+    setTimeout(() => location.reload(), 2000);
 }
 </script>
 {% endblock %}

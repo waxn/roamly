@@ -1041,3 +1041,23 @@ def delete_api_key(request, key_id):
     api_key = get_object_or_404(APIKey, id=key_id, user=request.user)
     api_key.delete()
     return JsonResponse({"status": "ok"})
+
+
+# ---------------------------------------------------------------------------
+# Devices Management
+# ---------------------------------------------------------------------------
+
+@login_required
+def devices_api(request):
+    """Get list of user's devices."""
+    devices = Device.objects.filter(user=request.user).order_by('-created_at')
+    return JsonResponse({
+        "devices": [
+            {
+                "id": d.id,
+                "device_id": d.device_id,
+                "name": d.name or d.device_id,
+            }
+            for d in devices
+        ]
+    })
