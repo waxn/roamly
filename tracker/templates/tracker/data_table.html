@@ -28,15 +28,15 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Device</th>
-                        <th>Latitude</th>
-                        <th>Longitude</th>
-                        <th>City</th>
-                        <th>State</th>
-                        <th>Country</th>
-                        <th>Speed</th>
-                        <th>Battery</th>
-                        <th>Timestamp</th>
+                        <th class="sortable" data-key="device" onclick="sortBy('device')">Device <span class="sort-arrow"></span></th>
+                        <th class="sortable" data-key="lat" onclick="sortBy('lat')">Latitude <span class="sort-arrow"></span></th>
+                        <th class="sortable" data-key="lng" onclick="sortBy('lng')">Longitude <span class="sort-arrow"></span></th>
+                        <th class="sortable" data-key="city" onclick="sortBy('city')">City <span class="sort-arrow"></span></th>
+                        <th class="sortable" data-key="state" onclick="sortBy('state')">State <span class="sort-arrow"></span></th>
+                        <th class="sortable" data-key="country_code" onclick="sortBy('country_code')">Country <span class="sort-arrow"></span></th>
+                        <th class="sortable" data-key="speed" onclick="sortBy('speed')">Speed <span class="sort-arrow"></span></th>
+                        <th class="sortable" data-key="battery" onclick="sortBy('battery')">Battery <span class="sort-arrow"></span></th>
+                        <th class="sortable active-sort" data-key="timestamp" onclick="sortBy('timestamp')">Timestamp <span class="sort-arrow">&#9660;</span></th>
                         <th></th>
                     </tr>
                 </thead>
@@ -55,16 +55,81 @@
 </div>
 {% endblock %}
 
+{% block extra_css %}
+<style>
+    th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+    th.sortable:hover { color: var(--primary); }
+    th.sortable .sort-arrow { font-size: 0.7em; opacity: 0.3; }
+    th.sortable.active-sort .sort-arrow { opacity: 1; }
+</style>
+{% endblock %}
+
 {% block extra_js %}
 <script>
 let currentOffset = 0;
-let totalLoaded = 0;
 const LIMIT = 1000;
+let allRows = [];
+let sortKey = 'timestamp';
+let sortDir = 'desc';
 
 function formatSpeed(speedMs) {
     const unit = localStorage.getItem('roamly_speed_unit') || 'kmh';
     if (unit === 'mph') return (speedMs * 2.23694).toFixed(1) + ' mi/h';
     return (speedMs * 3.6).toFixed(1) + ' km/h';
+}
+
+function renderRows() {
+    const sorted = [...allRows];
+    sorted.sort((a, b) => {
+        let va = a[sortKey], vb = b[sortKey];
+        if (va == null) va = '';
+        if (vb == null) vb = '';
+        if (typeof va === 'string') {
+            const cmp = va.localeCompare(vb, undefined, {sensitivity: 'base'});
+            return sortDir === 'asc' ? cmp : -cmp;
+        }
+        return sortDir === 'asc' ? va - vb : vb - va;
+    });
+
+    const html = sorted.map(r => `<tr id="loc-${r.id}">
+        <td>${r.device}</td>
+        <td>${r.lat.toFixed(5)}</td>
+        <td>${r.lng.toFixed(5)}</td>
+        <td>${r.city || '-'}</td>
+        <td>${r.state || '-'}</td>
+        <td>${r.country_code || '-'}</td>
+        <td>${r.speed ? formatSpeed(r.speed) : '-'}</td>
+        <td>${r.battery ? r.battery + '%' : '-'}</td>
+        <td style="color:var(--text-muted)">${new Date(r.timestamp).toLocaleString()}</td>
+        <td><button onclick="deleteLocation(${r.id})" class="btn-icon" title="Delete point" style="color:var(--text-muted);cursor:pointer;background:none;border:none;padding:0.25rem;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        </button></td>
+    </tr>`).join('');
+
+    document.getElementById('data-table-body').innerHTML = html ||
+        '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);">No data</td></tr>';
+
+    // Update sort arrows
+    document.querySelectorAll('th.sortable').forEach(th => {
+        const arrow = th.querySelector('.sort-arrow');
+        if (th.dataset.key === sortKey) {
+            th.classList.add('active-sort');
+            arrow.innerHTML = sortDir === 'asc' ? '&#9650;' : '&#9660;';
+        } else {
+            th.classList.remove('active-sort');
+            arrow.innerHTML = '';
+        }
+    });
+}
+
+function sortBy(key) {
+    if (sortKey === key) {
+        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+        sortKey = key;
+        sortDir = 'asc';
+    }
+    renderRows();
 }
 
 function loadData(append = false) {
@@ -74,9 +139,9 @@ function loadData(append = false) {
 
     if (!append) {
         currentOffset = 0;
-        totalLoaded = 0;
+        allRows = [];
     }
-    
+
     params.set('offset', currentOffset);
 
     if (range === 'all') {
@@ -90,7 +155,7 @@ function loadData(append = false) {
         document.getElementById('data-table-body').innerHTML =
             '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:2rem;"><span class="spinner"></span> Loading...</td></tr>';
     }
-    
+
     const loadMoreBtn = document.getElementById('load-more-btn');
     loadMoreBtn.disabled = true;
     loadMoreBtn.innerHTML = '<span class="spinner"></span> Loading...';
@@ -98,43 +163,29 @@ function loadData(append = false) {
     fetch(`/api/locations/?${params}`)
         .then(r => r.json())
         .then(data => {
-            let rows = [];
             let count = 0;
             data.devices.forEach(dev => {
                 dev.locations.forEach(loc => {
                     count++;
-                    const ts = new Date(loc.timestamp);
-                    rows.push(`<tr id="loc-${loc.id}">
-                        <td>${dev.name}</td>
-                        <td>${loc.lat.toFixed(5)}</td>
-                        <td>${loc.lng.toFixed(5)}</td>
-                        <td>${loc.city || '-'}</td>
-                        <td>${loc.state || '-'}</td>
-                        <td>${loc.country_code || '-'}</td>
-                        <td>${loc.speed ? formatSpeed(loc.speed) : '-'}</td>
-                        <td>${loc.battery ? loc.battery + '%' : '-'}</td>
-                        <td style="color:var(--text-muted)">${ts.toLocaleString()}</td>
-                        <td><button onclick="deleteLocation(${loc.id})" class="btn-icon" title="Delete point" style="color:var(--text-muted);cursor:pointer;background:none;border:none;padding:0.25rem;">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                        </button></td>
-                    </tr>`);
+                    allRows.push({
+                        id: loc.id,
+                        device: dev.name,
+                        lat: loc.lat,
+                        lng: loc.lng,
+                        city: loc.city,
+                        state: loc.state,
+                        country_code: loc.country_code,
+                        speed: loc.speed,
+                        battery: loc.battery,
+                        timestamp: new Date(loc.timestamp).getTime(),
+                    });
                 });
             });
 
-            if (append) {
-                const tbody = document.getElementById('data-table-body');
-                tbody.insertAdjacentHTML('beforeend', rows.join(''));
-            } else {
-                document.getElementById('data-table-body').innerHTML = rows.join('') ||
-                    '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);">No data</td></tr>';
-            }
-            
-            totalLoaded += count;
             currentOffset += count;
-            
-            document.getElementById('data-info').textContent = `Showing ${totalLoaded} location points`;
-            
-            // Show/hide load more button
+            renderRows();
+            document.getElementById('data-info').textContent = `Showing ${allRows.length} location points`;
+
             if (count >= LIMIT) {
                 loadMoreBtn.style.display = 'block';
                 loadMoreBtn.disabled = false;
@@ -156,10 +207,9 @@ function deleteLocation(id) {
         headers: {'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]')?.value || '{{ csrf_token }}'}
     }).then(r => {
         if (r.ok) {
-            const row = document.getElementById(`loc-${id}`);
-            if (row) row.remove();
-            totalLoaded--;
-            document.getElementById('data-info').textContent = `Showing ${totalLoaded} location points`;
+            allRows = allRows.filter(r => r.id !== id);
+            renderRows();
+            document.getElementById('data-info').textContent = `Showing ${allRows.length} location points`;
         }
     });
 }
