@@ -28,6 +28,10 @@
 }
 .tab-content { display: none; }
 .tab-content.active { display: block; }
+th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+th.sortable:hover { color: var(--primary); }
+th.sortable .sort-arrow { font-size: 0.7em; opacity: 0.3; }
+th.sortable.active-sort .sort-arrow { opacity: 1; }
 {% endblock %}
 
 {% block content %}
@@ -47,7 +51,14 @@
             <div class="table-responsive">
                 <table>
                     <thead>
-                        <tr><th>Country</th><th>Code</th><th>Cities</th><th>States</th><th>Points</th><th>Time Spent</th></tr>
+                        <tr>
+                            <th class="sortable" data-table="countries" data-key="country" onclick="sortTable('countries','country')">Country <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-table="countries" data-key="country_code" onclick="sortTable('countries','country_code')">Code <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-table="countries" data-key="city_count" onclick="sortTable('countries','city_count')">Cities <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-table="countries" data-key="state_count" onclick="sortTable('countries','state_count')">States <span class="sort-arrow"></span></th>
+                            <th class="sortable active-sort" data-table="countries" data-key="location_count" onclick="sortTable('countries','location_count')">Points <span class="sort-arrow">&#9660;</span></th>
+                            <th class="sortable" data-table="countries" data-key="time_spent" onclick="sortTable('countries','time_spent')">Time Spent <span class="sort-arrow"></span></th>
+                        </tr>
                     </thead>
                     <tbody id="countries-table"></tbody>
                 </table>
@@ -60,7 +71,13 @@
             <div class="table-responsive">
                 <table>
                     <thead>
-                        <tr><th>State / Region</th><th>Country</th><th>Cities</th><th>Points</th><th>Time Spent</th></tr>
+                        <tr>
+                            <th class="sortable" data-table="states" data-key="state" onclick="sortTable('states','state')">State / Region <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-table="states" data-key="country" onclick="sortTable('states','country')">Country <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-table="states" data-key="city_count" onclick="sortTable('states','city_count')">Cities <span class="sort-arrow"></span></th>
+                            <th class="sortable active-sort" data-table="states" data-key="location_count" onclick="sortTable('states','location_count')">Points <span class="sort-arrow">&#9660;</span></th>
+                            <th class="sortable" data-table="states" data-key="time_spent" onclick="sortTable('states','time_spent')">Time Spent <span class="sort-arrow"></span></th>
+                        </tr>
                     </thead>
                     <tbody id="states-table"></tbody>
                 </table>
@@ -73,7 +90,15 @@
             <div class="table-responsive">
                 <table>
                     <thead>
-                        <tr><th>City</th><th>State</th><th>Country</th><th>Visits</th><th>First Seen</th><th>Last Seen</th><th>Time Spent</th></tr>
+                        <tr>
+                            <th class="sortable" data-table="cities" data-key="city" onclick="sortTable('cities','city')">City <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-table="cities" data-key="state" onclick="sortTable('cities','state')">State <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-table="cities" data-key="country" onclick="sortTable('cities','country')">Country <span class="sort-arrow"></span></th>
+                            <th class="sortable active-sort" data-table="cities" data-key="visit_count" onclick="sortTable('cities','visit_count')">Visits <span class="sort-arrow">&#9660;</span></th>
+                            <th class="sortable" data-table="cities" data-key="first_seen" onclick="sortTable('cities','first_seen')">First Seen <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-table="cities" data-key="last_seen" onclick="sortTable('cities','last_seen')">Last Seen <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-table="cities" data-key="time_spent" onclick="sortTable('cities','time_spent')">Time Spent <span class="sort-arrow"></span></th>
+                        </tr>
                     </thead>
                     <tbody id="cities-table"></tbody>
                 </table>
@@ -106,36 +131,87 @@ function formatDuration(seconds) {
     return `${m}m`;
 }
 
-fetch('/api/visits/')
-    .then(r => r.json())
-    .then(data => {
-        // Countries
-        const countriesHtml = data.countries.map(c =>
-            `<tr>
-                <td>${c.country}</td>
-                <td><code>${c.country_code}</code></td>
-                <td>${c.city_count}</td>
-                <td>${c.state_count}</td>
-                <td>${c.location_count.toLocaleString()}</td>
-                <td style="white-space:nowrap">${formatDuration(c.time_spent)}</td>
-            </tr>`
-        ).join('');
-        document.getElementById('countries-table').innerHTML = countriesHtml || '<tr><td colspan="6" style="color:var(--text-muted)">No data</td></tr>';
+// Store raw data and sort state per table
+const tableData = { countries: [], states: [], cities: [] };
+const sortState = {
+    countries: { key: 'location_count', dir: 'desc' },
+    states:    { key: 'location_count', dir: 'desc' },
+    cities:    { key: 'visit_count', dir: 'desc' },
+};
 
-        // States
-        const statesHtml = data.states.map(s =>
-            `<tr>
-                <td>${s.state}</td>
-                <td>${s.country}</td>
-                <td>${s.city_count}</td>
-                <td>${s.location_count.toLocaleString()}</td>
-                <td style="white-space:nowrap">${formatDuration(s.time_spent)}</td>
-            </tr>`
-        ).join('');
-        document.getElementById('states-table').innerHTML = statesHtml || '<tr><td colspan="5" style="color:var(--text-muted)">No data</td></tr>';
+const colSpans = { countries: 6, states: 5, cities: 7 };
 
-        // Cities
-        const citiesHtml = data.cities.map(c => {
+function sortTable(table, key) {
+    const s = sortState[table];
+    if (s.key === key) {
+        s.dir = s.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+        s.key = key;
+        s.dir = 'asc';
+    }
+    renderTable(table);
+}
+
+function updateArrows(table) {
+    const s = sortState[table];
+    document.querySelectorAll(`th.sortable[data-table="${table}"]`).forEach(th => {
+        const arrow = th.querySelector('.sort-arrow');
+        if (th.dataset.key === s.key) {
+            th.classList.add('active-sort');
+            arrow.innerHTML = s.dir === 'asc' ? '&#9650;' : '&#9660;';
+        } else {
+            th.classList.remove('active-sort');
+            arrow.innerHTML = '';
+        }
+    });
+}
+
+function sortedData(table) {
+    const s = sortState[table];
+    const rows = [...tableData[table]];
+    rows.sort((a, b) => {
+        let va = a[s.key], vb = b[s.key];
+        if (va == null) va = '';
+        if (vb == null) vb = '';
+        if (typeof va === 'string') {
+            const cmp = va.localeCompare(vb, undefined, { sensitivity: 'base' });
+            return s.dir === 'asc' ? cmp : -cmp;
+        }
+        return s.dir === 'asc' ? va - vb : vb - va;
+    });
+    return rows;
+}
+
+function renderTable(table) {
+    const rows = sortedData(table);
+    const tbody = document.getElementById(`${table}-table`);
+
+    if (!rows.length) {
+        tbody.innerHTML = `<tr><td colspan="${colSpans[table]}" style="color:var(--text-muted)">No data</td></tr>`;
+        updateArrows(table);
+        return;
+    }
+
+    let html = '';
+    if (table === 'countries') {
+        html = rows.map(c => `<tr>
+            <td>${c.country}</td>
+            <td><code>${c.country_code}</code></td>
+            <td>${c.city_count}</td>
+            <td>${c.state_count}</td>
+            <td>${c.location_count.toLocaleString()}</td>
+            <td style="white-space:nowrap">${formatDuration(c.time_spent)}</td>
+        </tr>`).join('');
+    } else if (table === 'states') {
+        html = rows.map(s => `<tr>
+            <td>${s.state}</td>
+            <td>${s.country}</td>
+            <td>${s.city_count}</td>
+            <td>${s.location_count.toLocaleString()}</td>
+            <td style="white-space:nowrap">${formatDuration(s.time_spent)}</td>
+        </tr>`).join('');
+    } else {
+        html = rows.map(c => {
             const first = c.first_seen ? new Date(c.first_seen).toLocaleDateString() : '-';
             const last = c.last_seen ? new Date(c.last_seen).toLocaleDateString() : '-';
             return `<tr>
@@ -148,7 +224,35 @@ fetch('/api/visits/')
                 <td style="white-space:nowrap">${formatDuration(c.time_spent)}</td>
             </tr>`;
         }).join('');
-        document.getElementById('cities-table').innerHTML = citiesHtml || '<tr><td colspan="7" style="color:var(--text-muted)">No data</td></tr>';
+    }
+
+    tbody.innerHTML = html;
+    updateArrows(table);
+}
+
+// Pre-process date fields to numeric for sorting
+function prepCities(cities) {
+    return cities.map(c => ({
+        ...c,
+        first_seen_ts: c.first_seen ? new Date(c.first_seen).getTime() : 0,
+        last_seen_ts: c.last_seen ? new Date(c.last_seen).getTime() : 0,
+    }));
+}
+
+fetch('/api/visits/')
+    .then(r => r.json())
+    .then(data => {
+        tableData.countries = data.countries;
+        tableData.states = data.states;
+        // Add numeric timestamps for sorting dates
+        tableData.cities = data.cities.map(c => ({
+            ...c,
+            first_seen: c.first_seen || '',
+            last_seen: c.last_seen || '',
+        }));
+        renderTable('countries');
+        renderTable('states');
+        renderTable('cities');
     });
 </script>
 {% endblock %}
