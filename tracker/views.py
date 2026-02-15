@@ -387,6 +387,7 @@ def locations_api(request):
                 "locations": [],
             }
         devices_data[did]["locations"].append({
+            "id": loc.id,
             "lat": loc.latitude,
             "lng": loc.longitude,
             "timestamp": loc.timestamp.isoformat(),
@@ -1279,6 +1280,19 @@ def delete_location_data(request):
 
     count, _ = locations.delete()
     return JsonResponse({"status": "ok", "deleted": count})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def delete_location(request, location_id):
+    """Delete a single location point."""
+    deleted, _ = Location.objects.filter(
+        id=location_id, device__user=request.user
+    ).delete()
+    if not deleted:
+        return JsonResponse({"error": "Not found"}, status=404)
+    return JsonResponse({"status": "ok"})
 
 
 @login_required

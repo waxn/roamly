@@ -37,10 +37,11 @@
                         <th>Speed</th>
                         <th>Battery</th>
                         <th>Timestamp</th>
+                        <th></th>
                     </tr>
                 </thead>
                 <tbody id="data-table-body">
-                    <tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                    <tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 2rem;">
                         <span class="spinner"></span> Loading...
                     </td></tr>
                 </tbody>
@@ -87,7 +88,7 @@ function loadData(append = false) {
 
     if (!append) {
         document.getElementById('data-table-body').innerHTML =
-            '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:2rem;"><span class="spinner"></span> Loading...</td></tr>';
+            '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:2rem;"><span class="spinner"></span> Loading...</td></tr>';
     }
     
     const loadMoreBtn = document.getElementById('load-more-btn');
@@ -103,7 +104,7 @@ function loadData(append = false) {
                 dev.locations.forEach(loc => {
                     count++;
                     const ts = new Date(loc.timestamp);
-                    rows.push(`<tr>
+                    rows.push(`<tr id="loc-${loc.id}">
                         <td>${dev.name}</td>
                         <td>${loc.lat.toFixed(5)}</td>
                         <td>${loc.lng.toFixed(5)}</td>
@@ -113,6 +114,9 @@ function loadData(append = false) {
                         <td>${loc.speed ? formatSpeed(loc.speed) : '-'}</td>
                         <td>${loc.battery ? loc.battery + '%' : '-'}</td>
                         <td style="color:var(--text-muted)">${ts.toLocaleString()}</td>
+                        <td><button onclick="deleteLocation(${loc.id})" class="btn-icon" title="Delete point" style="color:var(--text-muted);cursor:pointer;background:none;border:none;padding:0.25rem;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                        </button></td>
                     </tr>`);
                 });
             });
@@ -122,7 +126,7 @@ function loadData(append = false) {
                 tbody.insertAdjacentHTML('beforeend', rows.join(''));
             } else {
                 document.getElementById('data-table-body').innerHTML = rows.join('') ||
-                    '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">No data</td></tr>';
+                    '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);">No data</td></tr>';
             }
             
             totalLoaded += count;
@@ -143,6 +147,21 @@ function loadData(append = false) {
 
 function loadMore() {
     loadData(true);
+}
+
+function deleteLocation(id) {
+    if (!confirm('Delete this location point?')) return;
+    fetch(`/api/locations/${id}/delete/`, {
+        method: 'DELETE',
+        headers: {'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]')?.value || '{{ csrf_token }}'}
+    }).then(r => {
+        if (r.ok) {
+            const row = document.getElementById(`loc-${id}`);
+            if (row) row.remove();
+            totalLoaded--;
+            document.getElementById('data-info').textContent = `Showing ${totalLoaded} location points`;
+        }
+    });
 }
 
 loadData();

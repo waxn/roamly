@@ -62,6 +62,7 @@ urlpatterns = [
     path('api/devices/', views.devices_api, name='devices_api'),
 
     # Account
+    path('api/locations/<int:location_id>/delete/', views.delete_location, name='delete_location'),
     path('api/account/delete-data/', views.delete_location_data, name='delete_location_data'),
     path('api/account/delete/', views.delete_account, name='delete_account'),
 ]
