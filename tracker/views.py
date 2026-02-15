@@ -61,7 +61,7 @@ def reverse_geocode(lat, lon):
             f'?lat={lat}&lon={lon}&format=json&zoom=10&addressdetails=1'
         )
         headers = {
-            'User-Agent': 'Roamly/0.5.0 (self-hosted location tracker)',
+            'User-Agent': 'Roamly/0.5.1 (self-hosted location tracker)',
             'Accept-Language': 'en',
         }
         req = urllib.request.Request(url, headers=headers)
