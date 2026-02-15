@@ -28,6 +28,7 @@ urlpatterns = [
     path('api/push/', views.push_location, name='push_location'),
     path('api/locations/', views.locations_api, name='locations_api'),
     path('api/locations/geojson/', views.locations_geojson_api, name='locations_geojson'),
+    path('api/tiles/<int:z>/<int:x>/<int:y>.pbf', views.vector_tile, name='vector_tile'),
 
     # Stats API
     path('api/stats/', views.stats_api, name='stats_api'),

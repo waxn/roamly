@@ -181,6 +181,26 @@ const mapStyles = {
 };
 
 const deviceColors = ['#3b82f6', '#22c55e', '#ef4444', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
+const HAS_POSTGIS = {{ has_postgis|yesno:"true,false" }};
+const USE_VECTOR_TILES = HAS_POSTGIS && localStorage.getItem('roamly_map_renderer') !== 'classic';
+
+// Deterministic color from device_id string
+function deviceColor(id) {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) hash = ((hash << 5) - hash + id.charCodeAt(i)) | 0;
+    return deviceColors[Math.abs(hash) % deviceColors.length];
+}
+
+// Build device color match expression for MapLibre style
+function deviceColorExpr() {
+    const options = document.getElementById('device-filter').options;
+    const expr = ['match', ['get', 'device_id']];
+    for (let i = 1; i < options.length; i++) {
+        expr.push(options[i].value, deviceColor(options[i].value));
+    }
+    expr.push('#3b82f6'); // fallback
+    return expr;
+}
 
 // Apply default time range from preferences
 const defaultTimeRange = localStorage.getItem('roamly_default_time_range') || '24';
@@ -202,11 +222,125 @@ document.querySelectorAll('.style-btn').forEach(btn => {
         btn.classList.add('active');
         const styleName = btn.dataset.style;
         map.setStyle(mapStyles[styleName]);
-        map.once('styledata', () => setupLayers());
+        map.once('styledata', () => {
+            if (USE_VECTOR_TILES) setupVectorLayers();
+            else setupGeoJSONLayers();
+        });
     });
 });
 
-function setupLayers() {
+// ── Shared popup builder ──
+function showPointPopup(props, coords) {
+    const ts = new Date(USE_VECTOR_TILES ? props.ts * 1000 : props.timestamp);
+    let html = `<strong>${props.device_name || props.device_id || 'Unknown'}</strong><br>`;
+    html += `<span style="color: var(--text-muted)">${ts.toLocaleString()}</span><br>`;
+    if (props.city) html += `${props.city}`;
+    if (props.state) html += `, ${props.state}`;
+    if (props.country) html += `<br>${props.country}`;
+    if (props.speed) {
+        const unit = localStorage.getItem('roamly_speed_unit') || 'kmh';
+        const spd = unit === 'mph' ? (props.speed * 2.23694).toFixed(1) + ' mi/h' : (props.speed * 3.6).toFixed(1) + ' km/h';
+        html += `<br>Speed: ${spd}`;
+    }
+    if (props.battery) html += `<br>Battery: ${props.battery}%`;
+
+    new maplibregl.Popup({ offset: 10 })
+        .setLngLat(coords)
+        .setHTML(html)
+        .addTo(map);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Vector Tile path (PostGIS)
+// ═══════════════════════════════════════════════════════════════════
+
+function buildFilterParams() {
+    const timeRange = document.getElementById('time-range').value;
+    const deviceId = document.getElementById('device-filter').value;
+    const startDate = document.getElementById('start-date').value;
+    const endDate = document.getElementById('end-date').value;
+    const params = new URLSearchParams();
+
+    if (startDate && endDate) {
+        params.set('start_date', startDate);
+        params.set('end_date', endDate);
+    } else if (timeRange === 'all') {
+        params.set('all', '1');
+    } else {
+        params.set('hours', timeRange);
+    }
+
+    if (deviceId) params.set('device_id', deviceId);
+    return params.toString();
+}
+
+function buildTileUrl() {
+    const qs = buildFilterParams();
+    return window.location.origin + `/api/tiles/{z}/{x}/{y}.pbf` + (qs ? `?${qs}` : '');
+}
+
+function setupVectorLayers() {
+    if (map.getSource('locations')) return;
+
+    const colorExpr = deviceColorExpr();
+
+    map.addSource('locations', {
+        type: 'vector',
+        tiles: [buildTileUrl()],
+        minzoom: 0,
+        maxzoom: 16,
+    });
+
+    // Trail lines
+    map.addLayer({
+        id: 'trail-lines',
+        type: 'line',
+        source: 'locations',
+        'source-layer': 'trails',
+        paint: {
+            'line-color': colorExpr,
+            'line-width': 2,
+            'line-opacity': 0.6
+        }
+    });
+
+    // Points
+    map.addLayer({
+        id: 'points',
+        type: 'circle',
+        source: 'locations',
+        'source-layer': 'locations',
+        paint: {
+            'circle-color': colorExpr,
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 2, 8, 4, 14, 7, 18, 10],
+            'circle-stroke-width': 1.5,
+            'circle-stroke-color': 'rgba(255,255,255,0.5)'
+        }
+    });
+
+    // Click handler
+    map.on('click', 'points', (e) => {
+        showPointPopup(e.features[0].properties, e.features[0].geometry.coordinates.slice());
+    });
+    map.on('mouseenter', 'points', () => map.getCanvas().style.cursor = 'pointer');
+    map.on('mouseleave', 'points', () => map.getCanvas().style.cursor = '');
+
+    document.getElementById('map-info').textContent = 'Vector tiles';
+}
+
+function reloadTiles() {
+    if (!map.getSource('locations')) return;
+    // Remove layers and source, re-add with new filter URL
+    ['points', 'trail-lines'].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+    map.removeSource('locations');
+    setupVectorLayers();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// GeoJSON fallback path (SQLite)
+// ═══════════════════════════════════════════════════════════════════
+
+function setupGeoJSONLayers() {
     if (map.getSource('locations')) return;
 
     map.addSource('locations', {
@@ -217,7 +351,6 @@ function setupLayers() {
         clusterRadius: parseInt(localStorage.getItem('roamly_cluster_radius') || '50')
     });
 
-    // Cluster circles
     map.addLayer({
         id: 'clusters',
         type: 'circle',
@@ -232,20 +365,15 @@ function setupLayers() {
         }
     });
 
-    // Cluster count labels
     map.addLayer({
         id: 'cluster-count',
         type: 'symbol',
         source: 'locations',
         filter: ['has', 'point_count'],
-        layout: {
-            'text-field': '{point_count_abbreviated}',
-            'text-size': 12
-        },
+        layout: { 'text-field': '{point_count_abbreviated}', 'text-size': 12 },
         paint: { 'text-color': '#ffffff' }
     });
 
-    // Individual points
     map.addLayer({
         id: 'points',
         type: 'circle',
@@ -259,7 +387,6 @@ function setupLayers() {
         }
     });
 
-    // Line layer for trails
     map.addSource('trails', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] }
@@ -269,14 +396,9 @@ function setupLayers() {
         id: 'trail-lines',
         type: 'line',
         source: 'trails',
-        paint: {
-            'line-color': ['get', 'color'],
-            'line-width': 2,
-            'line-opacity': 0.6
-        }
+        paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.6 }
     }, 'clusters');
 
-    // Click handlers
     map.on('click', 'clusters', (e) => {
         const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
         const clusterId = features[0].properties.cluster_id;
@@ -287,25 +409,7 @@ function setupLayers() {
     });
 
     map.on('click', 'points', (e) => {
-        const props = e.features[0].properties;
-        const coords = e.features[0].geometry.coordinates.slice();
-        const ts = new Date(props.timestamp);
-        let html = `<strong>${props.device_name || 'Unknown'}</strong><br>`;
-        html += `<span style="color: var(--text-muted)">${ts.toLocaleString()}</span><br>`;
-        if (props.city) html += `${props.city}`;
-        if (props.state) html += `, ${props.state}`;
-        if (props.country) html += `<br>${props.country}`;
-        if (props.speed) {
-            const unit = localStorage.getItem('roamly_speed_unit') || 'kmh';
-            const spd = unit === 'mph' ? (props.speed * 2.23694).toFixed(1) + ' mi/h' : (props.speed * 3.6).toFixed(1) + ' km/h';
-            html += `<br>Speed: ${spd}`;
-        }
-        if (props.battery) html += `<br>Battery: ${props.battery}%`;
-
-        new maplibregl.Popup({ offset: 10 })
-            .setLngLat(coords)
-            .setHTML(html)
-            .addTo(map);
+        showPointPopup(e.features[0].properties, e.features[0].geometry.coordinates.slice());
     });
 
     map.on('mouseenter', 'clusters', () => map.getCanvas().style.cursor = 'pointer');
@@ -318,12 +422,7 @@ let loadTimeout = null;
 let totalPoints = 0;
 
 function loadLocations() {
-    const timeRange = document.getElementById('time-range').value;
-    const deviceId = document.getElementById('device-filter').value;
-    const startDate = document.getElementById('start-date').value;
-    const endDate = document.getElementById('end-date').value;
     const bounds = map.getBounds();
-
     const params = new URLSearchParams({
         min_lng: bounds.getWest(),
         min_lat: bounds.getSouth(),
@@ -332,16 +431,8 @@ function loadLocations() {
         limit: parseInt(localStorage.getItem('roamly_point_limit') || '5000'),
     });
 
-    if (startDate && endDate) {
-        params.set('start_date', startDate);
-        params.set('end_date', endDate);
-    } else if (timeRange === 'all') {
-        params.set('all', '1');
-    } else {
-        params.set('hours', timeRange);
-    }
-
-    if (deviceId) params.set('device_id', deviceId);
+    const qs = buildFilterParams();
+    if (qs) qs.split('&').forEach(p => { const [k, v] = p.split('='); params.set(k, v); });
 
     document.getElementById('map-info').textContent = 'Loading...';
 
@@ -386,7 +477,6 @@ function loadLocations() {
             document.getElementById('map-info').textContent =
                 `${totalPoints.toLocaleString()} points from ${data.devices.length} device(s)`;
 
-            // Auto-fit on first load if we have data
             if (features.length > 0 && !window._hasAutoFit) {
                 const lngs = features.map(f => f.geometry.coordinates[0]);
                 const lats = features.map(f => f.geometry.coordinates[1]);
@@ -403,21 +493,34 @@ function loadLocations() {
         });
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// Init + filter handlers
+// ═══════════════════════════════════════════════════════════════════
+
 map.on('load', () => {
-    setupLayers();
-    loadLocations();
+    if (USE_VECTOR_TILES) {
+        setupVectorLayers();
+    } else {
+        setupGeoJSONLayers();
+        loadLocations();
+    }
 });
 
-map.on('moveend', () => {
-    clearTimeout(loadTimeout);
-    loadTimeout = setTimeout(loadLocations, 400);
-});
+if (!USE_VECTOR_TILES) {
+    map.on('moveend', () => {
+        clearTimeout(loadTimeout);
+        loadTimeout = setTimeout(loadLocations, 400);
+    });
+}
 
-// Filter change handlers
 ['time-range', 'device-filter'].forEach(id => {
     document.getElementById(id).addEventListener('change', () => {
-        window._hasAutoFit = false;
-        loadLocations();
+        if (USE_VECTOR_TILES) {
+            reloadTiles();
+        } else {
+            window._hasAutoFit = false;
+            loadLocations();
+        }
     });
 });
 
@@ -427,8 +530,8 @@ map.on('moveend', () => {
         const e = document.getElementById('end-date').value;
         if (s && e) {
             document.getElementById('time-range').value = 'all';
-            window._hasAutoFit = false;
-            loadLocations();
+            if (USE_VECTOR_TILES) reloadTiles();
+            else { window._hasAutoFit = false; loadLocations(); }
         }
     });
 });
