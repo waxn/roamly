@@ -5,7 +5,7 @@ import logging
 import math
 import urllib.request
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
@@ -256,7 +256,7 @@ def push_location(request):
         longitude = data.get("lon")
         timestamp = data.get("tst")
         if timestamp:
-            timestamp = datetime.fromtimestamp(int(timestamp), tz=timezone.utc)
+            timestamp = datetime.fromtimestamp(int(timestamp), tz=dt_timezone.utc)
         altitude = data.get("alt")
         accuracy = data.get("acc")
         speed = data.get("vel")
@@ -268,12 +268,12 @@ def push_location(request):
         timestamp = data.get("timestamp")
         if timestamp:
             if isinstance(timestamp, (int, float)):
-                timestamp = datetime.fromtimestamp(int(timestamp), tz=timezone.utc)
+                timestamp = datetime.fromtimestamp(int(timestamp), tz=dt_timezone.utc)
             elif isinstance(timestamp, str):
                 try:
                     timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
                 except ValueError:
-                    timestamp = datetime.fromtimestamp(int(timestamp), tz=timezone.utc)
+                    timestamp = datetime.fromtimestamp(int(timestamp), tz=dt_timezone.utc)
         altitude = data.get("altitude")
         accuracy = data.get("accuracy")
         speed = data.get("speed")
@@ -1019,7 +1019,7 @@ def _parse_timestamp(value):
         ts_float = float(value)
         if ts_float > 1e12:  # milliseconds
             ts_float /= 1000
-        return datetime.fromtimestamp(ts_float, tz=timezone.utc)
+        return datetime.fromtimestamp(ts_float, tz=dt_timezone.utc)
     except (ValueError, TypeError, OverflowError, OSError):
         pass
 
