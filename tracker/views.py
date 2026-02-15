@@ -375,7 +375,7 @@ def locations_api(request):
         except (ValueError, TypeError):
             pass
 
-    locations = locations.select_related('device').order_by('timestamp')[offset:offset + limit]
+    locations = locations.select_related('device').order_by('-timestamp')[offset:offset + limit]
 
     devices_data = {}
     for loc in locations:
