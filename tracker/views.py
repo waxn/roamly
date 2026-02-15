@@ -1247,3 +1247,41 @@ def devices_api(request):
             for d in devices
         ]
     })
+
+
+# ---------------------------------------------------------------------------
+# Account / Danger Zone
+# ---------------------------------------------------------------------------
+
+@login_required
+@require_http_methods(["POST"])
+def delete_location_data(request):
+    """Delete location data for the authenticated user within a time range."""
+    try:
+        body = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    range_val = body.get("range", "all")
+    locations = Location.objects.filter(device__user=request.user)
+
+    if range_val != "all":
+        try:
+            days = int(range_val)
+        except (ValueError, TypeError):
+            return JsonResponse({"error": "Invalid range"}, status=400)
+        cutoff = timezone.now() - timedelta(days=days)
+        locations = locations.filter(timestamp__gte=cutoff)
+
+    count, _ = locations.delete()
+    return JsonResponse({"status": "ok", "deleted": count})
+
+
+@login_required
+@require_http_methods(["POST"])
+def delete_account(request):
+    """Delete the user's account and all associated data."""
+    user = request.user
+    logout(request)
+    user.delete()
+    return JsonResponse({"status": "ok"})

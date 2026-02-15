@@ -156,6 +156,37 @@
             </ol>
         </div>
 
+        <!-- Danger Zone -->
+        <div class="card" style="grid-column: 1 / -1; border: 1px solid var(--danger);">
+            <div class="card-header" style="color: var(--danger);">Danger Zone</div>
+
+            <div style="margin-bottom: 1.5rem;">
+                <h4 style="font-size: 0.875rem; margin-bottom: 0.5rem;">Delete Location Data</h4>
+                <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+                    Permanently delete your location data. This cannot be undone.
+                </p>
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                    <select id="delete-range" class="form-control" style="width: auto;">
+                        <option value="7">Last 7 days</option>
+                        <option value="30">Last 30 days</option>
+                        <option value="90">Last 90 days</option>
+                        <option value="365">Last year</option>
+                        <option value="all">All time</option>
+                    </select>
+                    <button class="btn btn-danger btn-sm" onclick="deleteLocationData()">Delete Data</button>
+                </div>
+                <div id="delete-data-status" style="font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.5rem;"></div>
+            </div>
+
+            <div style="border-top: 1px solid var(--border); padding-top: 1.5rem;">
+                <h4 style="font-size: 0.875rem; margin-bottom: 0.5rem;">Delete Account</h4>
+                <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+                    Permanently delete your account and all associated data including devices, locations, trips, and API keys. This cannot be undone.
+                </p>
+                <button class="btn btn-danger btn-sm" onclick="deleteAccount()">Delete Account</button>
+            </div>
+        </div>
+
         <!-- API Usage -->
         <div class="card" style="grid-column: 1 / -1;">
             <div class="card-header">API Usage</div>
@@ -454,6 +485,60 @@ async function executeImport(deviceId, files, type) {
     
     // Refresh page to show new device if created
     setTimeout(() => location.reload(), 2000);
+}
+
+function deleteLocationData() {
+    const range = document.getElementById('delete-range').value;
+    const label = document.getElementById('delete-range').selectedOptions[0].text;
+    if (!confirm(`Delete all location data for "${label}"? This cannot be undone.`)) return;
+
+    const statusEl = document.getElementById('delete-data-status');
+    statusEl.innerHTML = '<span class="spinner"></span> Deleting...';
+
+    fetch('/api/account/delete-data/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ range: range })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = data.error;
+        } else {
+            statusEl.style.color = 'var(--success)';
+            statusEl.textContent = `Deleted ${data.deleted} location(s).`;
+        }
+    })
+    .catch(() => {
+        statusEl.style.color = 'var(--danger)';
+        statusEl.textContent = 'Something went wrong.';
+    });
+}
+
+function deleteAccount() {
+    if (!confirm('Are you sure you want to delete your account? All your data will be permanently removed. This cannot be undone.')) return;
+    if (!confirm('This is your last chance. Delete your account?')) return;
+
+    fetch('/api/account/delete/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'ok') {
+            window.location.href = '/';
+        }
+    })
+    .catch(() => {
+        alert('Something went wrong. Please try again.');
+    });
 }
 </script>
 {% endblock %}
