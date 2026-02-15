@@ -494,22 +494,15 @@ def vector_tile(request, z, x, y):
     WITH bounds AS (
         SELECT ST_TileEnvelope(%(z)s, %(x)s, %(y)s) AS geom
     ),
-    ordered_pts AS (
-        SELECT l.location, l.timestamp, d.device_id, d.id AS d_pk
+    lines AS (
+        SELECT d.device_id,
+               ST_MakeLine(ST_Transform(l.location::geometry, 3857) ORDER BY l.timestamp) AS geom
         FROM tracker_location l
         JOIN tracker_device d ON l.device_id = d.id
-        CROSS JOIN bounds
         WHERE d.user_id = %(user_id)s
           AND l.location IS NOT NULL
-          AND ST_Intersects(l.location::geometry, ST_Transform(bounds.geom, 4326))
               {filter_clause}
-        ORDER BY d.device_id, l.timestamp
-    ),
-    lines AS (
-        SELECT device_id,
-               ST_MakeLine(ST_Transform(location::geometry, 3857) ORDER BY timestamp) AS geom
-        FROM ordered_pts
-        GROUP BY device_id, d_pk
+        GROUP BY d.device_id, d.id
         HAVING COUNT(*) > 1
     ),
     mvtgeom AS (

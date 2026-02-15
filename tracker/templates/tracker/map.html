@@ -299,8 +299,8 @@ function setupVectorLayers() {
         'source-layer': 'trails',
         paint: {
             'line-color': colorExpr,
-            'line-width': 2,
-            'line-opacity': 0.6
+            'line-width': ['interpolate', ['linear'], ['zoom'], 2, 1.5, 8, 3, 14, 4],
+            'line-opacity': 0.7
         }
     });
 
@@ -328,12 +328,35 @@ function setupVectorLayers() {
     document.getElementById('map-info').textContent = 'Vector tiles';
 }
 
-function reloadTiles() {
+function reloadTiles(autoFit) {
     if (!map.getSource('locations')) return;
-    // Remove layers and source, re-add with new filter URL
     ['points', 'trail-lines'].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
     map.removeSource('locations');
     setupVectorLayers();
+    if (autoFit) fitToData();
+}
+
+function fitToData() {
+    // Fetch a sample of points (no bbox) to compute bounds for auto-zoom
+    const params = new URLSearchParams({ limit: 200 });
+    const qs = buildFilterParams();
+    if (qs) qs.split('&').forEach(p => { const [k, v] = p.split('='); params.set(k, v); });
+
+    fetch(`/api/locations/?${params}`)
+        .then(r => r.json())
+        .then(data => {
+            const lats = [], lngs = [];
+            data.devices.forEach(d => d.locations.forEach(loc => {
+                lats.push(loc.lat);
+                lngs.push(loc.lng);
+            }));
+            if (lats.length > 0) {
+                map.fitBounds([
+                    [Math.min(...lngs), Math.min(...lats)],
+                    [Math.max(...lngs), Math.max(...lats)]
+                ], { padding: 50, maxZoom: 15 });
+            }
+        });
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -500,6 +523,7 @@ function loadLocations() {
 map.on('load', () => {
     if (USE_VECTOR_TILES) {
         setupVectorLayers();
+        fitToData();
     } else {
         setupGeoJSONLayers();
         loadLocations();
@@ -516,7 +540,7 @@ if (!USE_VECTOR_TILES) {
 ['time-range', 'device-filter'].forEach(id => {
     document.getElementById(id).addEventListener('change', () => {
         if (USE_VECTOR_TILES) {
-            reloadTiles();
+            reloadTiles(true);
         } else {
             window._hasAutoFit = false;
             loadLocations();
@@ -530,7 +554,7 @@ if (!USE_VECTOR_TILES) {
         const e = document.getElementById('end-date').value;
         if (s && e) {
             document.getElementById('time-range').value = 'all';
-            if (USE_VECTOR_TILES) reloadTiles();
+            if (USE_VECTOR_TILES) reloadTiles(true);
             else { window._hasAutoFit = false; loadLocations(); }
         }
     });
