@@ -121,7 +121,10 @@
             <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1rem;">
                 Geocode location points that don't have city/country data yet. Uses OpenStreetMap Nominatim (rate limited to 1 req/sec).
             </p>
-            <button class="btn btn-primary" id="geocode-btn" onclick="startGeocoding()">Start Geocoding</button>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <button class="btn btn-primary" id="geocode-btn" onclick="startGeocoding()">Start Geocoding</button>
+                <button class="btn btn-outline" id="geocode-stop-btn" onclick="stopGeocoding()" style="display: none;">Stop</button>
+            </div>
             <div id="geocode-status" style="margin-top: 0.75rem; font-size: 0.8125rem; display: none;"></div>
         </div>
 
@@ -287,13 +290,36 @@ function deleteApiKey(id) {
     });
 }
 
+function setGeocodingUI(running) {
+    const btn = document.getElementById('geocode-btn');
+    const stopBtn = document.getElementById('geocode-stop-btn');
+    btn.disabled = running;
+    btn.style.opacity = running ? '0.5' : '';
+    stopBtn.style.display = running ? 'inline-block' : 'none';
+}
+
+function formatEta(processed, total) {
+    const remaining = total - processed;
+    if (remaining <= 0 || processed === 0) return '';
+    const secs = Math.round(remaining * 1.1);
+    if (secs < 60) return `~${secs}s left`;
+    if (secs < 3600) return `~${Math.round(secs / 60)}m left`;
+    const h = Math.floor(secs / 3600);
+    const m = Math.round((secs % 3600) / 60);
+    return `~${h}h ${m}m left`;
+}
+
+function geocodeProgress(data) {
+    const pct = data.total ? Math.round(data.processed / data.total * 100) : 0;
+    const eta = formatEta(data.processed, data.total);
+    return `<span class="spinner"></span> ${data.processed.toLocaleString()}/${data.total.toLocaleString()} (${pct}%) geocoded, ${data.errors} errors${eta ? ' — ' + eta : ''}`;
+}
+
 function startGeocoding() {
     const statusEl = document.getElementById('geocode-status');
-    const btn = document.getElementById('geocode-btn');
     statusEl.style.display = 'block';
     statusEl.innerHTML = '<span class="spinner"></span> Starting...';
-    btn.disabled = true;
-    btn.style.opacity = '0.5';
+    setGeocodingUI(true);
 
     fetch('/api/geocode/', {
         method: 'POST',
@@ -303,52 +329,61 @@ function startGeocoding() {
     .then(data => {
         if (data.status === 'nothing_to_geocode') {
             statusEl.textContent = 'All locations are already geocoded.';
-            btn.disabled = false;
-            btn.style.opacity = '';
+            setGeocodingUI(false);
             return;
         }
         if (data.status === 'already_running') {
-            statusEl.innerHTML = `<span class="spinner"></span> ${data.processed}/${data.total} processed (${data.errors} errors)`;
+            statusEl.innerHTML = geocodeProgress(data);
         } else {
-            statusEl.innerHTML = `<span class="spinner"></span> Geocoding ${data.total} locations...`;
+            statusEl.innerHTML = `<span class="spinner"></span> Geocoding ${data.total.toLocaleString()} locations...`;
         }
         pollGeocodingStatus();
     });
 }
 
+function stopGeocoding() {
+    const statusEl = document.getElementById('geocode-status');
+    document.getElementById('geocode-stop-btn').disabled = true;
+    statusEl.innerHTML = '<span class="spinner"></span> Stopping...';
+    fetch('/api/geocode/stop/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+    });
+}
+
 function pollGeocodingStatus() {
     const statusEl = document.getElementById('geocode-status');
-    const btn = document.getElementById('geocode-btn');
-    btn.disabled = true;
-    btn.style.opacity = '0.5';
+    setGeocodingUI(true);
     const interval = setInterval(() => {
         fetch('/api/geocode/status/')
         .then(r => r.json())
         .then(data => {
             if (data.status === 'running') {
-                statusEl.innerHTML = `<span class="spinner"></span> ${data.processed}/${data.total} processed (${data.errors} errors)`;
+                statusEl.innerHTML = geocodeProgress(data);
             } else if (data.status === 'completed') {
-                statusEl.textContent = `Done! ${data.processed}/${data.total} geocoded (${data.errors} errors)`;
+                statusEl.textContent = `Done! ${data.processed.toLocaleString()}/${data.total.toLocaleString()} geocoded (${data.errors} errors)`;
                 clearInterval(interval);
-                btn.disabled = false;
-                btn.style.opacity = '';
+                setGeocodingUI(false);
+            } else if (data.status === 'stopped') {
+                statusEl.textContent = `Stopped. ${data.processed.toLocaleString()}/${data.total.toLocaleString()} geocoded (${data.errors} errors)`;
+                clearInterval(interval);
+                setGeocodingUI(false);
             } else {
                 clearInterval(interval);
-                btn.disabled = false;
-                btn.style.opacity = '';
+                setGeocodingUI(false);
             }
         });
     }, 2000);
 }
 
-// Check geocoding status on page load
+// Resume UI if task is already running on page load
 fetch('/api/geocode/status/')
     .then(r => r.json())
     .then(data => {
         if (data.status === 'running') {
             const statusEl = document.getElementById('geocode-status');
             statusEl.style.display = 'block';
-            statusEl.innerHTML = `<span class="spinner"></span> ${data.processed}/${data.total} processed (${data.errors} errors)`;
+            statusEl.innerHTML = geocodeProgress(data);
             pollGeocodingStatus();
         }
     });

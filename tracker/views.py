@@ -21,7 +21,7 @@ from django.contrib.staticfiles import finders
 
 from .forms import SignUpForm, APIKeyForm, TripForm
 from .models import Device, Location, APIKey, Trip, TripPlace
-from .geocoding_tasks import GeocodingTask, get_active_task, cleanup_old_tasks
+from .geocoding_tasks import GeocodingTask, get_active_task, stop_active_task, cleanup_old_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -865,7 +865,7 @@ def delete_trip_place(request, trip_id, place_id):
 @csrf_exempt
 @require_http_methods(["POST"])
 def geocode_api(request):
-    """Start batch geocoding of un-geocoded locations."""
+    """Start batch geocoding of all un-geocoded locations."""
     cleanup_old_tasks(request.user.id)
 
     existing = get_active_task(request.user.id)
@@ -874,17 +874,14 @@ def geocode_api(request):
         if info['status'] == 'running':
             return JsonResponse({"status": "already_running", **info})
 
-    locations = list(
-        Location.objects.filter(device__user=request.user, city='')
-        .order_by('-timestamp')[:500]
-    )
+    total = Location.objects.filter(device__user=request.user, city='').count()
 
-    if not locations:
+    if not total:
         return JsonResponse({"status": "nothing_to_geocode", "total": 0})
 
     task = GeocodingTask(request.user.id)
-    task_id = task.run(locations)
-    return JsonResponse({"status": "started", "task_id": task_id, "total": len(locations)})
+    task_id = task.run(total)
+    return JsonResponse({"status": "started", "task_id": task_id, "total": total})
 
 
 @login_required
@@ -894,6 +891,16 @@ def geocode_status(request):
         _, info = result
         return JsonResponse(info)
     return JsonResponse({"status": "idle"})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def geocode_stop(request):
+    """Stop a running geocoding task."""
+    if stop_active_task(request.user.id):
+        return JsonResponse({"status": "stopping"})
+    return JsonResponse({"status": "no_active_task"})
 
 
 # ---------------------------------------------------------------------------

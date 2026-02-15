@@ -47,6 +47,7 @@ urlpatterns = [
     # Geocoding
     path('api/geocode/', views.geocode_api, name='geocode_api'),
     path('api/geocode/status/', views.geocode_status, name='geocode_status'),
+    path('api/geocode/stop/', views.geocode_stop, name='geocode_stop'),
 
     # Export/Import
     path('api/export/csv/', views.export_csv, name='export_csv'),
