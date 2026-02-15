@@ -299,7 +299,7 @@ function setupVectorLayers() {
         'source-layer': 'trails',
         paint: {
             'line-color': colorExpr,
-            'line-width': ['interpolate', ['linear'], ['zoom'], 2, 1.5, 8, 3, 14, 4],
+            'line-width': ['interpolate', ['linear'], ['zoom'], 0, 4, 5, 3.5, 10, 3, 16, 2.5],
             'line-opacity': 0.7
         }
     });
@@ -312,7 +312,7 @@ function setupVectorLayers() {
         'source-layer': 'locations',
         paint: {
             'circle-color': colorExpr,
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 2, 8, 4, 14, 7, 18, 10],
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 0, 6, 5, 5, 10, 4, 14, 7, 18, 10],
             'circle-stroke-width': 1.5,
             'circle-stroke-color': 'rgba(255,255,255,0.5)'
         }
