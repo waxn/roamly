@@ -1136,7 +1136,12 @@ def import_gpx(request):
     except ET.ParseError as e:
         return JsonResponse({"error": f"Invalid GPX XML: {e}"}, status=400)
 
-    ns = {'gpx': 'http://www.topografix.com/GPX/1/1'}
+    # Detect namespace from root element (supports GPX 1.0 and 1.1)
+    root_tag = root.tag
+    gpx_ns = ''
+    if root_tag.startswith('{'):
+        gpx_ns = root_tag.split('}')[0] + '}'
+
     device_id = request.POST.get('device_id', 'gpx-import')
     device, _ = Device.objects.get_or_create(
         user=request.user, device_id=device_id,
@@ -1147,23 +1152,30 @@ def import_gpx(request):
     errors = 0
     first_error = None
 
-    # Try both namespaced and non-namespaced, also wpts
-    trkpts = root.findall('.//gpx:trkpt', ns)
-    if not trkpts:
-        trkpts = root.findall('.//{http://www.topografix.com/GPX/1/1}trkpt')
-    if not trkpts:
-        trkpts = root.findall('.//trkpt')
-    # Also try waypoints
-    wpts = root.findall('.//gpx:wpt', ns)
-    if not wpts:
-        wpts = root.findall('.//{http://www.topografix.com/GPX/1/1}wpt')
-    if not wpts:
-        wpts = root.findall('.//wpt')
-    trkpts = list(trkpts) + list(wpts)
+    def _find_points(tag):
+        """Find elements by tag, trying detected namespace then bare tag."""
+        if gpx_ns:
+            pts = root.findall(f'.//{gpx_ns}{tag}')
+            if pts:
+                return pts
+        return root.findall(f'.//{tag}')
+
+    def _find_child(parent, tag):
+        """Find child element, trying detected namespace then bare tag."""
+        if gpx_ns:
+            el = parent.find(f'{gpx_ns}{tag}')
+            if el is not None:
+                return el
+        return parent.find(tag)
+
+    # Collect track points, route points, and waypoints
+    trkpts = list(_find_points('trkpt'))
+    trkpts += list(_find_points('rtept'))
+    trkpts += list(_find_points('wpt'))
 
     if not trkpts:
         return JsonResponse({
-            "error": "No track points or waypoints found in GPX file",
+            "error": "No track points, route points, or waypoints found in GPX file",
             "imported": 0, "errors": 0,
         }, status=400)
 
@@ -1172,21 +1184,13 @@ def import_gpx(request):
             lat = float(pt.get('lat'))
             lon = float(pt.get('lon'))
 
-            time_el = (
-                pt.find('gpx:time', ns) or
-                pt.find('{http://www.topografix.com/GPX/1/1}time') or
-                pt.find('time')
-            )
+            time_el = _find_child(pt, 'time')
             if time_el is not None and time_el.text:
                 ts = _parse_timestamp(time_el.text)
             else:
                 ts = timezone.now()
 
-            ele_el = (
-                pt.find('gpx:ele', ns) or
-                pt.find('{http://www.topografix.com/GPX/1/1}ele') or
-                pt.find('ele')
-            )
+            ele_el = _find_child(pt, 'ele')
             alt = float(ele_el.text) if ele_el is not None and ele_el.text else None
 
             Location.objects.get_or_create(
