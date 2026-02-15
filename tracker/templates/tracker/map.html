@@ -108,7 +108,7 @@
         <select id="time-range">
             <option value="1">Last hour</option>
             <option value="6">Last 6 hours</option>
-            <option value="24" selected>Last 24 hours</option>
+            <option value="24">Last 24 hours</option>
             <option value="72">Last 3 days</option>
             <option value="168">Last week</option>
             <option value="720">Last 30 days</option>
@@ -182,6 +182,10 @@ const mapStyles = {
 
 const deviceColors = ['#3b82f6', '#22c55e', '#ef4444', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
 
+// Apply default time range from preferences
+const defaultTimeRange = localStorage.getItem('roamly_default_time_range') || '24';
+document.getElementById('time-range').value = defaultTimeRange;
+
 const map = new maplibregl.Map({
     container: 'map',
     style: mapStyles['Streets'],
@@ -210,7 +214,7 @@ function setupLayers() {
         data: { type: 'FeatureCollection', features: [] },
         cluster: true,
         clusterMaxZoom: 14,
-        clusterRadius: 50
+        clusterRadius: parseInt(localStorage.getItem('roamly_cluster_radius') || '50')
     });
 
     // Cluster circles
@@ -325,7 +329,7 @@ function loadLocations() {
         min_lat: bounds.getSouth(),
         max_lng: bounds.getEast(),
         max_lat: bounds.getNorth(),
-        limit: map.getZoom() < 5 ? 2000 : 5000,
+        limit: parseInt(localStorage.getItem('roamly_point_limit') || '5000'),
     });
 
     if (startDate && endDate) {

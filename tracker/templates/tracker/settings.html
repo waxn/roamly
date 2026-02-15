@@ -75,12 +75,57 @@
         <!-- Preferences -->
         <div class="card">
             <div class="card-header">Preferences</div>
+
+            <div class="form-group">
+                <label>Theme</label>
+                <select id="theme-select" class="form-control" style="width: auto;" onchange="saveTheme(this.value)">
+                    <option value="dark">Dark</option>
+                    <option value="light">Light</option>
+                </select>
+            </div>
+
             <div class="form-group">
                 <label>Speed Unit</label>
                 <select id="speed-unit" class="form-control" style="width: auto;" onchange="saveSpeedUnit(this.value)">
                     <option value="kmh">km/h</option>
                     <option value="mph">mi/h</option>
                 </select>
+            </div>
+
+            <div class="form-group">
+                <label>Default Map Time Range</label>
+                <select id="default-time-range" class="form-control" style="width: auto;" onchange="savePref('roamly_default_time_range', this.value)">
+                    <option value="24">Last 24 hours</option>
+                    <option value="72">Last 3 days</option>
+                    <option value="168">Last 7 days</option>
+                    <option value="720">Last 30 days</option>
+                    <option value="all">All time</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Map Point Limit</label>
+                <select id="point-limit" class="form-control" style="width: auto;" onchange="savePref('roamly_point_limit', this.value)">
+                    <option value="2000">2,000 (faster)</option>
+                    <option value="5000">5,000 (default)</option>
+                    <option value="10000">10,000</option>
+                    <option value="25000">25,000 (slower)</option>
+                </select>
+                <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">
+                    Max points loaded on the map at once. Higher values may affect performance.
+                </p>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+                <label>Cluster Radius</label>
+                <select id="cluster-radius" class="form-control" style="width: auto;" onchange="savePref('roamly_cluster_radius', this.value)">
+                    <option value="30">30px (tight)</option>
+                    <option value="50">50px (default)</option>
+                    <option value="80">80px (spread)</option>
+                </select>
+                <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">
+                    How aggressively nearby points are grouped into clusters.
+                </p>
             </div>
         </div>
 
@@ -388,11 +433,29 @@ fetch('/api/geocode/status/')
         }
     });
 
+// Theme
+function saveTheme(theme) {
+    localStorage.setItem('roamly_theme', theme);
+    document.documentElement.setAttribute('data-theme', theme);
+    const logo = document.querySelector('.navbar-logo');
+    if (logo) logo.style.filter = theme === 'light' ? 'brightness(0)' : 'brightness(0) invert(1)';
+    document.querySelector('meta[name="theme-color"]').content = theme === 'light' ? '#f5f5f7' : '#0f1117';
+}
+document.getElementById('theme-select').value = localStorage.getItem('roamly_theme') || 'dark';
+
 // Speed unit preference
 function saveSpeedUnit(unit) {
     localStorage.setItem('roamly_speed_unit', unit);
 }
 document.getElementById('speed-unit').value = localStorage.getItem('roamly_speed_unit') || 'kmh';
+
+// Generic preference save + init
+function savePref(key, value) {
+    localStorage.setItem(key, value);
+}
+document.getElementById('default-time-range').value = localStorage.getItem('roamly_default_time_range') || '24';
+document.getElementById('point-limit').value = localStorage.getItem('roamly_point_limit') || '5000';
+document.getElementById('cluster-radius').value = localStorage.getItem('roamly_cluster_radius') || '50';
 
 // Import with device chooser
 let pendingImportFiles = [];
