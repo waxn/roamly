@@ -21,7 +21,7 @@ from django.contrib.staticfiles import finders
 
 from .forms import SignUpForm, APIKeyForm, TripForm
 from .models import Device, Location, APIKey, Trip, TripPlace
-from .geocoding_tasks import GeocodingTask, get_active_task, stop_active_task, cleanup_old_tasks
+from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding
 
 logger = logging.getLogger(__name__)
 
@@ -866,31 +866,23 @@ def delete_trip_place(request, trip_id, place_id):
 @require_http_methods(["POST"])
 def geocode_api(request):
     """Start batch geocoding of all un-geocoded locations."""
-    cleanup_old_tasks(request.user.id)
-
-    existing = get_active_task(request.user.id)
-    if existing:
-        _, info = existing
-        if info['status'] == 'running':
-            return JsonResponse({"status": "already_running", **info})
-
     total = Location.objects.filter(device__user=request.user, city='').count()
 
     if not total:
         return JsonResponse({"status": "nothing_to_geocode", "total": 0})
 
-    task = GeocodingTask(request.user.id)
-    task_id = task.run(total)
-    return JsonResponse({"status": "started", "task_id": task_id, "total": total})
+    job = start_geocoding(request.user.id, total)
+    return JsonResponse({
+        "status": "started",
+        "total": job.total,
+        "processed": job.processed,
+        "errors": job.errors,
+    })
 
 
 @login_required
 def geocode_status(request):
-    result = get_active_task(request.user.id)
-    if result:
-        _, info = result
-        return JsonResponse(info)
-    return JsonResponse({"status": "idle"})
+    return JsonResponse(get_geocoding_status(request.user.id))
 
 
 @login_required
@@ -898,8 +890,8 @@ def geocode_status(request):
 @require_http_methods(["POST"])
 def geocode_stop(request):
     """Stop a running geocoding task."""
-    if stop_active_task(request.user.id):
-        return JsonResponse({"status": "stopping"})
+    if stop_geocoding(request.user.id):
+        return JsonResponse({"status": "stopped"})
     return JsonResponse({"status": "no_active_task"})
 
 

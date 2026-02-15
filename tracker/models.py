@@ -133,6 +133,25 @@ class Trip(models.Model):
         return self.name
 
 
+class GeocodingJob(models.Model):
+    """Persistent state for background geocoding tasks."""
+    STATUS_CHOICES = [
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('stopped', 'Stopped'),
+    ]
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='geocoding_job')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='running')
+    processed = models.IntegerField(default=0)
+    errors = models.IntegerField(default=0)
+    total = models.IntegerField(default=0)
+    started_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Geocoding {self.user.username}: {self.processed}/{self.total}"
+
+
 class TripPlace(models.Model):
     """Marked waypoint within a trip."""
     trip = models.ForeignKey(Trip, on_delete=models.CASCADE, related_name='places')

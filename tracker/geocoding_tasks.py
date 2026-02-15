@@ -5,54 +5,52 @@ from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
-_active_tasks = {}
+# In-memory reference to the running thread so we can check if it's alive
+_running_threads = {}
 
 BATCH_SIZE = 500
+UPDATE_INTERVAL = 10  # Save progress to DB every N points
 
 
-class GeocodingTask:
-    """Background task to geocode all un-geocoded locations with rate limiting."""
+def _geocode_worker(user_id):
+    """Worker that geocodes all un-geocoded locations for a user."""
+    from .views import reverse_geocode
+    from .models import Location, GeocodingJob
 
-    def __init__(self, user_id):
-        self.user_id = user_id
-        self.task_id = f"geocode_{user_id}_{int(time.time())}"
-        self.processed = 0
-        self.errors = 0
-        self.total = 0
-        self.status = 'pending'
-        self.started_at = None
-        self.completed_at = None
-        self._stop = False
+    processed = 0
+    errors = 0
 
-    def run(self, total):
-        self.total = total
-        self.status = 'running'
-        self.started_at = timezone.now()
-        _active_tasks[self.user_id] = self
-        thread = threading.Thread(target=self._process)
-        thread.daemon = True
-        thread.start()
-        return self.task_id
+    try:
+        while True:
+            # Check if we should stop
+            try:
+                job = GeocodingJob.objects.get(user_id=user_id)
+            except GeocodingJob.DoesNotExist:
+                break
+            if job.status != 'running':
+                break
 
-    def stop(self):
-        self._stop = True
-
-    def _process(self):
-        from .views import reverse_geocode
-        from .models import Location, Device
-
-        while not self._stop:
             batch = list(
                 Location.objects.filter(
-                    device__user_id=self.user_id, city=''
+                    device__user_id=user_id, city=''
                 ).order_by('-timestamp')[:BATCH_SIZE]
             )
             if not batch:
                 break
 
             for loc in batch:
-                if self._stop:
-                    break
+                # Re-check stop flag periodically
+                if processed > 0 and processed % UPDATE_INTERVAL == 0:
+                    try:
+                        job.refresh_from_db()
+                        if job.status != 'running':
+                            break
+                        job.processed = processed
+                        job.errors = errors
+                        job.save(update_fields=['processed', 'errors', 'updated_at'])
+                    except GeocodingJob.DoesNotExist:
+                        break
+
                 try:
                     result = reverse_geocode(loc.latitude, loc.longitude)
                     if result:
@@ -65,42 +63,118 @@ class GeocodingTask:
                             'city', 'state', 'country',
                             'country_code', 'place_name',
                         ])
-                        self.processed += 1
+                        processed += 1
                     else:
-                        self.errors += 1
+                        errors += 1
                 except Exception as e:
                     logger.error(f"Geocoding error: {e}")
-                    self.errors += 1
+                    errors += 1
+
                 time.sleep(1.1)
 
-        self.status = 'stopped' if self._stop else 'completed'
-        self.completed_at = timezone.now()
-        logger.info(
-            f"Geocoding {self.status}: {self.processed}/{self.total} succeeded"
-        )
+            # Check if inner loop broke due to stop
+            try:
+                job.refresh_from_db()
+                if job.status != 'running':
+                    break
+            except GeocodingJob.DoesNotExist:
+                break
+
+    finally:
+        # Final save
+        try:
+            job = GeocodingJob.objects.get(user_id=user_id)
+            job.processed = processed
+            job.errors = errors
+            if job.status == 'running':
+                job.status = 'completed'
+            job.save(update_fields=['processed', 'errors', 'status', 'updated_at'])
+        except GeocodingJob.DoesNotExist:
+            pass
+
+        _running_threads.pop(user_id, None)
+        logger.info(f"Geocoding done for user {user_id}: {processed} processed, {errors} errors")
 
 
-def get_active_task(user_id):
-    task = _active_tasks.get(user_id)
-    if task:
-        return task, {
-            'status': task.status,
-            'processed': task.processed,
-            'errors': task.errors,
-            'total': task.total,
-        }
-    return None
+def start_geocoding(user_id, total):
+    """Start (or resume) geocoding for a user. Returns the job."""
+    from .models import GeocodingJob
+
+    # Clean up any finished job
+    GeocodingJob.objects.filter(
+        user_id=user_id, status__in=['completed', 'stopped']
+    ).delete()
+
+    # Create or get running job
+    job, created = GeocodingJob.objects.get_or_create(
+        user_id=user_id,
+        defaults={'status': 'running', 'total': total},
+    )
+
+    if not created:
+        # Job row exists — already running?
+        if job.status == 'running' and _is_thread_alive(user_id):
+            return job
+        # Stale job (server restarted) — reset and restart
+        job.status = 'running'
+        job.total = total
+        job.processed = 0
+        job.errors = 0
+        job.save()
+
+    _start_thread(user_id)
+    return job
 
 
-def stop_active_task(user_id):
-    task = _active_tasks.get(user_id)
-    if task and task.status == 'running':
-        task.stop()
+def _is_thread_alive(user_id):
+    thread = _running_threads.get(user_id)
+    return thread is not None and thread.is_alive()
+
+
+def _start_thread(user_id):
+    thread = threading.Thread(target=_geocode_worker, args=(user_id,), daemon=True)
+    _running_threads[user_id] = thread
+    thread.start()
+
+
+def get_status(user_id):
+    """Get geocoding status for a user. Auto-resumes stale tasks."""
+    from .models import GeocodingJob, Location
+
+    try:
+        job = GeocodingJob.objects.get(user_id=user_id)
+    except GeocodingJob.DoesNotExist:
+        return {'status': 'idle'}
+
+    # If DB says running but thread is dead, the server restarted — auto-resume
+    if job.status == 'running' and not _is_thread_alive(user_id):
+        remaining = Location.objects.filter(
+            device__user_id=user_id, city=''
+        ).count()
+        if remaining > 0:
+            job.total = job.processed + remaining
+            job.save(update_fields=['total'])
+            _start_thread(user_id)
+        else:
+            job.status = 'completed'
+            job.save(update_fields=['status'])
+
+    return {
+        'status': job.status,
+        'processed': job.processed,
+        'errors': job.errors,
+        'total': job.total,
+    }
+
+
+def stop_geocoding(user_id):
+    """Signal the geocoding task to stop."""
+    from .models import GeocodingJob
+
+    try:
+        job = GeocodingJob.objects.get(user_id=user_id, status='running')
+        job.status = 'stopped'
+        job.save(update_fields=['status'])
         return True
-    return False
-
-
-def cleanup_old_tasks(user_id):
-    task = _active_tasks.get(user_id)
-    if task and task.status in ('completed', 'stopped'):
-        del _active_tasks[user_id]
+    except GeocodingJob.DoesNotExist:
+        return False
