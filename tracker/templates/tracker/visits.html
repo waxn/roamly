@@ -47,7 +47,7 @@
             <div class="table-responsive">
                 <table>
                     <thead>
-                        <tr><th>Country</th><th>Code</th><th>Cities</th><th>States</th><th>Points</th></tr>
+                        <tr><th>Country</th><th>Code</th><th>Cities</th><th>States</th><th>Points</th><th>Time Spent</th></tr>
                     </thead>
                     <tbody id="countries-table"></tbody>
                 </table>
@@ -60,7 +60,7 @@
             <div class="table-responsive">
                 <table>
                     <thead>
-                        <tr><th>State / Region</th><th>Country</th><th>Cities</th><th>Points</th></tr>
+                        <tr><th>State / Region</th><th>Country</th><th>Cities</th><th>Points</th><th>Time Spent</th></tr>
                     </thead>
                     <tbody id="states-table"></tbody>
                 </table>
@@ -73,7 +73,7 @@
             <div class="table-responsive">
                 <table>
                     <thead>
-                        <tr><th>City</th><th>State</th><th>Country</th><th>Visits</th><th>First Seen</th><th>Last Seen</th></tr>
+                        <tr><th>City</th><th>State</th><th>Country</th><th>Visits</th><th>First Seen</th><th>Last Seen</th><th>Time Spent</th></tr>
                     </thead>
                     <tbody id="cities-table"></tbody>
                 </table>
@@ -95,6 +95,17 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     });
 });
 
+function formatDuration(seconds) {
+    if (!seconds) return '-';
+    if (seconds < 60) return `${seconds}s`;
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+}
+
 fetch('/api/visits/')
     .then(r => r.json())
     .then(data => {
@@ -106,9 +117,10 @@ fetch('/api/visits/')
                 <td>${c.city_count}</td>
                 <td>${c.state_count}</td>
                 <td>${c.location_count.toLocaleString()}</td>
+                <td style="white-space:nowrap">${formatDuration(c.time_spent)}</td>
             </tr>`
         ).join('');
-        document.getElementById('countries-table').innerHTML = countriesHtml || '<tr><td colspan="5" style="color:var(--text-muted)">No data</td></tr>';
+        document.getElementById('countries-table').innerHTML = countriesHtml || '<tr><td colspan="6" style="color:var(--text-muted)">No data</td></tr>';
 
         // States
         const statesHtml = data.states.map(s =>
@@ -117,9 +129,10 @@ fetch('/api/visits/')
                 <td>${s.country}</td>
                 <td>${s.city_count}</td>
                 <td>${s.location_count.toLocaleString()}</td>
+                <td style="white-space:nowrap">${formatDuration(s.time_spent)}</td>
             </tr>`
         ).join('');
-        document.getElementById('states-table').innerHTML = statesHtml || '<tr><td colspan="4" style="color:var(--text-muted)">No data</td></tr>';
+        document.getElementById('states-table').innerHTML = statesHtml || '<tr><td colspan="5" style="color:var(--text-muted)">No data</td></tr>';
 
         // Cities
         const citiesHtml = data.cities.map(c => {
@@ -132,9 +145,10 @@ fetch('/api/visits/')
                 <td>${c.visit_count.toLocaleString()}</td>
                 <td style="color:var(--text-muted)">${first}</td>
                 <td style="color:var(--text-muted)">${last}</td>
+                <td style="white-space:nowrap">${formatDuration(c.time_spent)}</td>
             </tr>`;
         }).join('');
-        document.getElementById('cities-table').innerHTML = citiesHtml || '<tr><td colspan="6" style="color:var(--text-muted)">No data</td></tr>';
+        document.getElementById('cities-table').innerHTML = citiesHtml || '<tr><td colspan="7" style="color:var(--text-muted)">No data</td></tr>';
     });
 </script>
 {% endblock %}

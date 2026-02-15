@@ -600,6 +600,41 @@ def visits_api(request):
         "location_count": s['count'], "city_count": s['city_count'],
     } for s in state_stats if s['state']]
 
+    # Time spent per city/state/country
+    # Attribute gap between consecutive points to the first point's location
+    MAX_GAP = 3600  # Cap at 1 hour to avoid idle/overnight skew
+    time_city = defaultdict(float)
+    time_state = defaultdict(float)
+    time_country = defaultdict(float)
+
+    points = locations.order_by('timestamp').values_list(
+        'timestamp', 'city', 'state', 'country', 'country_code',
+    )
+    prev = None
+    for ts, city, state_val, country_val, cc in points.iterator():
+        if prev:
+            gap = min((ts - prev[0]).total_seconds(), MAX_GAP)
+            if gap > 0:
+                if prev[1]:
+                    time_city[(prev[1], prev[2], prev[3], prev[4])] += gap
+                if prev[2]:
+                    time_state[(prev[2], prev[3])] += gap
+                if prev[3]:
+                    time_country[prev[3]] += gap
+        prev = (ts, city, state_val, country_val, cc)
+
+    # Attach time_spent to existing result lists
+    for c in cities:
+        key = (c['city'], c['state'], c['country'], c['country_code'])
+        c['time_spent'] = round(time_city.get(key, 0))
+
+    for s in states:
+        key = (s['state'], s['country'])
+        s['time_spent'] = round(time_state.get(key, 0))
+
+    for c in countries:
+        c['time_spent'] = round(time_country.get(c['country'], 0))
+
     return JsonResponse({"cities": cities, "states": states, "countries": countries})
 
 
