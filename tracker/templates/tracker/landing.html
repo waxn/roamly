@@ -30,6 +30,8 @@
 
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Space Grotesk', sans-serif; }
         
+        html { height: 100%; }
+        
         body {
             font-family: 'Space Grotesk', sans-serif;
             text-transform: lowercase;
@@ -38,6 +40,8 @@
             color: var(--text);
             min-height: 100vh;
             overflow-x: hidden;
+            display: flex;
+            flex-direction: column;
         }
 
         /* Navigation */
@@ -240,6 +244,7 @@
             text-align: center;
             color: var(--text-muted);
             font-size: 0.875rem;
+            margin-top: auto;
         }
 
         .footer a {
@@ -488,7 +493,7 @@ docker-compose up -d</code></pre>
             <span>&middot;</span>
             <a href="{% url 'tracker:privacy' %}">privacy policy</a>
         </div>
-        <p>roamly v0.4.1 &copy; 2026 • self-hosted location tracking • built with privacy in mind</p>
+        <p>roamly v0.5.0 &copy; 2026 • self-hosted location tracking • built with privacy in mind</p>
     </footer>
     <script>
         if ('serviceWorker' in navigator) {
