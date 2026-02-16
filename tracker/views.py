@@ -18,7 +18,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from django.core.cache import cache
-from django.db import connection
+from django.core.serializers.json import DjangoJSONEncoder
+from django.db import connection, transaction
 from django.contrib.staticfiles import finders
 
 from .forms import SignUpForm, APIKeyForm, TripForm
@@ -1110,6 +1111,246 @@ def export_gpx(request):
     response = HttpResponse('\n'.join(gpx_lines), content_type='application/gpx+xml')
     response['Content-Disposition'] = 'attachment; filename="roamly_export.gpx"'
     return response
+
+
+@login_required
+def export_backup(request):
+    """Export all user data as a single JSON backup file."""
+    user = request.user
+    devices = Device.objects.filter(user=user)
+    locations = Location.objects.filter(device__user=user).select_related('device').order_by('timestamp')
+    trips = Trip.objects.filter(device__user=user).select_related('device')
+    trip_places = TripPlace.objects.filter(trip__device__user=user).select_related('trip', 'trip__device')
+    api_keys = APIKey.objects.filter(user=user)
+
+    data = {
+        'meta': {
+            'version': 1,
+            'exported_at': timezone.now().isoformat(),
+            'username': user.username,
+        },
+        'devices': [
+            {'device_id': d.device_id, 'name': d.name}
+            for d in devices
+        ],
+        'locations': [
+            {
+                'device_id': loc.device.device_id,
+                'latitude': loc.latitude,
+                'longitude': loc.longitude,
+                'altitude': loc.altitude,
+                'accuracy': loc.accuracy,
+                'speed': loc.speed,
+                'battery': loc.battery,
+                'timestamp': loc.timestamp,
+                'city': loc.city,
+                'state': loc.state,
+                'country': loc.country,
+                'country_code': loc.country_code,
+                'place_name': loc.place_name,
+            }
+            for loc in locations
+        ],
+        'trips': [
+            {
+                'device_id': t.device.device_id,
+                'name': t.name,
+                'description': t.description,
+                'start_time': t.start_time,
+                'end_time': t.end_time,
+            }
+            for t in trips
+        ],
+        'trip_places': [
+            {
+                'trip_name': tp.trip.name,
+                'trip_device_id': tp.trip.device.device_id,
+                'trip_start_time': tp.trip.start_time,
+                'name': tp.name,
+                'latitude': tp.latitude,
+                'longitude': tp.longitude,
+                'radius': tp.radius,
+                'notes': tp.notes,
+                'visited_at': tp.visited_at,
+            }
+            for tp in trip_places
+        ],
+        'api_keys': [
+            {
+                'name': k.name,
+                'key': k.key,
+                'is_active': k.is_active,
+                'created_at': k.created_at,
+            }
+            for k in api_keys
+        ],
+    }
+
+    filename = f'roamly_backup_{timezone.now().strftime("%Y-%m-%d")}.json'
+    response = HttpResponse(
+        json.dumps(data, cls=DjangoJSONEncoder, indent=2),
+        content_type='application/json',
+    )
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def restore_backup(request):
+    """Restore user data from a JSON backup file."""
+    f = request.FILES.get('file')
+    if not f:
+        return JsonResponse({'error': 'No file uploaded'}, status=400)
+
+    try:
+        data = json.loads(f.read().decode('utf-8-sig'))
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        return JsonResponse({'error': f'Invalid JSON file: {e}'}, status=400)
+
+    meta = data.get('meta', {})
+    if 'version' not in meta:
+        return JsonResponse({'error': 'Not a valid Roamly backup file (missing meta.version)'}, status=400)
+
+    user = request.user
+    counts = {'devices': 0, 'locations': 0, 'trips': 0, 'trip_places': 0, 'api_keys': 0}
+    errors = 0
+
+    try:
+        with transaction.atomic():
+            # Restore devices (small count, get_or_create is fine)
+            device_map = {}
+            all_device_ids = set()
+            for loc in data.get('locations', []):
+                all_device_ids.add(loc.get('device_id', ''))
+            for t in data.get('trips', []):
+                all_device_ids.add(t.get('device_id', ''))
+            for d in data.get('devices', []):
+                all_device_ids.add(d.get('device_id', ''))
+            all_device_ids.discard('')
+
+            device_names = {d['device_id']: d.get('name', d['device_id']) for d in data.get('devices', [])}
+            for device_id in all_device_ids:
+                device, created = Device.objects.get_or_create(
+                    user=user, device_id=device_id,
+                    defaults={'name': device_names.get(device_id, device_id)}
+                )
+                device_map[device_id] = device
+                if created:
+                    counts['devices'] += 1
+
+            # Restore locations using bulk_create with ignore_conflicts
+            BATCH_SIZE = 1000
+            loc_batch = []
+            loc_total = 0
+            for loc in data.get('locations', []):
+                try:
+                    device = device_map.get(loc.get('device_id'))
+                    if not device:
+                        errors += 1
+                        continue
+                    ts = _parse_timestamp(loc['timestamp'])
+                    loc_batch.append(Location(
+                        device=device,
+                        latitude=loc['latitude'],
+                        longitude=loc['longitude'],
+                        timestamp=ts,
+                        altitude=loc.get('altitude'),
+                        accuracy=loc.get('accuracy'),
+                        speed=loc.get('speed'),
+                        battery=loc.get('battery'),
+                        city=loc.get('city', ''),
+                        state=loc.get('state', ''),
+                        country=loc.get('country', ''),
+                        country_code=loc.get('country_code', ''),
+                        place_name=loc.get('place_name', ''),
+                    ))
+                    if len(loc_batch) >= BATCH_SIZE:
+                        created = Location.objects.bulk_create(loc_batch, ignore_conflicts=True)
+                        loc_total += len(created)
+                        loc_batch = []
+                except Exception as e:
+                    errors += 1
+                    logger.warning(f"Backup restore location error: {e}")
+            if loc_batch:
+                created = Location.objects.bulk_create(loc_batch, ignore_conflicts=True)
+                loc_total += len(created)
+            counts['locations'] = loc_total
+
+            # Restore trips (small count, get_or_create is fine)
+            trip_map = {}
+            for t in data.get('trips', []):
+                try:
+                    device = device_map.get(t.get('device_id'))
+                    if not device:
+                        errors += 1
+                        continue
+                    start = _parse_timestamp(t['start_time'])
+                    end = _parse_timestamp(t['end_time'])
+                    trip, created = Trip.objects.get_or_create(
+                        device=device,
+                        name=t['name'],
+                        start_time=start,
+                        defaults={
+                            'description': t.get('description', ''),
+                            'end_time': end,
+                        }
+                    )
+                    trip_key = (t['device_id'], t['name'], str(start))
+                    trip_map[trip_key] = trip
+                    if created:
+                        counts['trips'] += 1
+                except Exception as e:
+                    errors += 1
+                    logger.warning(f"Backup restore trip error: {e}")
+
+            # Restore trip places
+            for tp in data.get('trip_places', []):
+                try:
+                    trip_key = (tp['trip_device_id'], tp['trip_name'], str(_parse_timestamp(tp['trip_start_time'])))
+                    trip = trip_map.get(trip_key)
+                    if not trip:
+                        errors += 1
+                        continue
+                    _, created = TripPlace.objects.get_or_create(
+                        trip=trip,
+                        name=tp['name'],
+                        latitude=tp['latitude'],
+                        longitude=tp['longitude'],
+                        defaults={
+                            'radius': tp.get('radius', 100),
+                            'notes': tp.get('notes', ''),
+                            'visited_at': _parse_timestamp(tp['visited_at']) if tp.get('visited_at') else None,
+                        }
+                    )
+                    if created:
+                        counts['trip_places'] += 1
+                except Exception as e:
+                    errors += 1
+                    logger.warning(f"Backup restore trip place error: {e}")
+
+            # Restore API keys
+            for k in data.get('api_keys', []):
+                try:
+                    _, created = APIKey.objects.get_or_create(
+                        user=user, key=k['key'],
+                        defaults={
+                            'name': k.get('name', 'Restored Key'),
+                            'is_active': k.get('is_active', True),
+                        }
+                    )
+                    if created:
+                        counts['api_keys'] += 1
+                except Exception as e:
+                    errors += 1
+                    logger.warning(f"Backup restore API key error: {e}")
+
+    except Exception as e:
+        logger.error(f"Backup restore failed: {e}")
+        return JsonResponse({'error': f'Restore failed: {e}'}, status=500)
+
+    return JsonResponse({'status': 'ok', 'restored': counts, 'errors': errors})
 
 
 def _safe_float(value):

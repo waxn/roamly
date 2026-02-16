@@ -209,6 +209,21 @@
             <div class="card-header">Data Management</div>
 
             <div style="margin-bottom: 1rem;">
+                <h4 style="font-size: 0.875rem; margin-bottom: 0.5rem;">Full Backup</h4>
+                <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+                    Download or restore a complete backup of all your data — locations, trips, devices, and API keys.
+                </p>
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                    <a href="/api/export/backup/" class="btn btn-primary btn-sm">Download Backup</a>
+                    <label class="btn btn-outline btn-sm" style="cursor: pointer;">
+                        Restore Backup
+                        <input type="file" accept=".json" style="display: none;" onchange="restoreBackup(this)">
+                    </label>
+                </div>
+                <div id="restore-status" style="font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.5rem;"></div>
+            </div>
+
+            <div style="margin-bottom: 1rem; border-top: 1px solid var(--border); padding-top: 1rem;">
                 <h4 style="font-size: 0.875rem; margin-bottom: 0.5rem;">Export</h4>
                 <div style="display: flex; gap: 0.5rem;">
                     <a href="/api/export/csv/" class="btn btn-outline btn-sm">Export CSV</a>
@@ -498,15 +513,16 @@ function pollGeocodingStatus() {
 
 // Resume UI if task is already running on page load
 fetch('/api/geocode/status/')
-    .then(r => r.json())
+    .then(r => { if (r.ok) return r.json(); })
     .then(data => {
-        if (data.status === 'running') {
+        if (data && data.status === 'running') {
             const statusEl = document.getElementById('geocode-status');
             statusEl.style.display = 'block';
             statusEl.innerHTML = geocodeProgress(data);
             pollGeocodingStatus();
         }
-    });
+    })
+    .catch(() => {});
 
 // Theme
 function saveTheme(theme) {
@@ -678,6 +694,55 @@ async function executeImport(deviceId, files, type) {
     
     // Refresh page to show new device if created
     setTimeout(() => location.reload(), 2000);
+}
+
+async function restoreBackup(input) {
+    const file = input.files[0];
+    if (!file) return;
+    input.value = '';
+
+    if (!confirm('Restore from backup? Existing data will not be deleted — only missing items will be added.')) return;
+
+    const statusEl = document.getElementById('restore-status');
+    statusEl.innerHTML = '<span class="spinner"></span> Restoring backup...';
+    statusEl.style.color = 'var(--text-muted)';
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const resp = await fetch('/api/import/backup/', {
+            method: 'POST',
+            headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+            body: formData
+        });
+        if (!resp.ok) {
+            const text = await resp.text();
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = `Server error (${resp.status}): ${text.substring(0, 200)}`;
+            return;
+        }
+        const data = await resp.json();
+        if (data.error) {
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = data.error;
+            return;
+        }
+        const r = data.restored;
+        const parts = [];
+        if (r.devices) parts.push(`${r.devices} device(s)`);
+        if (r.locations) parts.push(`${r.locations} location(s)`);
+        if (r.trips) parts.push(`${r.trips} trip(s)`);
+        if (r.trip_places) parts.push(`${r.trip_places} place(s)`);
+        if (r.api_keys) parts.push(`${r.api_keys} API key(s)`);
+        statusEl.style.color = 'var(--success)';
+        statusEl.textContent = parts.length
+            ? `Restored ${parts.join(', ')}${data.errors ? ` (${data.errors} errors)` : ''}`
+            : 'Nothing new to restore — all data already exists.';
+    } catch (err) {
+        statusEl.style.color = 'var(--danger)';
+        statusEl.textContent = 'Error: ' + err.message;
+    }
 }
 
 function deleteLocationData() {

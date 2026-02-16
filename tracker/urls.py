@@ -53,8 +53,10 @@ urlpatterns = [
     # Export/Import
     path('api/export/csv/', views.export_csv, name='export_csv'),
     path('api/export/gpx/', views.export_gpx, name='export_gpx'),
+    path('api/export/backup/', views.export_backup, name='export_backup'),
     path('api/import/csv/', views.import_csv, name='import_csv'),
     path('api/import/gpx/', views.import_gpx, name='import_gpx'),
+    path('api/import/backup/', views.restore_backup, name='restore_backup'),
 
     # API Keys
     path('api/keys/create/', views.create_api_key, name='create_api_key'),
