@@ -56,7 +56,7 @@
             <div class="card-header">Devices</div>
             <table>
                 <thead>
-                    <tr><th>Name</th><th>Device ID</th><th>Added</th></tr>
+                    <tr><th>Name</th><th>Device ID</th><th>Added</th><th>Color</th></tr>
                 </thead>
                 <tbody>
                     {% for device in devices %}
@@ -64,9 +64,10 @@
                         <td>{{ device.name|default:device.device_id }}</td>
                         <td style="color: var(--text-muted);"><code style="font-family: 'Space Grotesk', sans-serif;">{{ device.device_id }}</code></td>
                         <td style="color: var(--text-muted);">{{ device.created_at|date:"M d, Y" }}</td>
+                        <td><input type="color" class="device-color-picker" data-device-id="{{ device.device_id }}" onchange="saveDeviceColor('{{ device.device_id }}', this.value)" style="width: 32px; height: 24px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: none; cursor: pointer;"></td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="3" style="color: var(--text-muted);">No devices yet</td></tr>
+                    <tr><td colspan="4" style="color: var(--text-muted);">No devices yet</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -387,6 +388,28 @@ curl -X POST {{ request.scheme }}://{{ request.get_host }}/api/push/ \
 
 {% block extra_js %}
 <script>
+// Device colors
+const deviceColors = ['#3b82f6','#22c55e','#ef4444','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#f97316'];
+function deviceColorHash(id) {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) hash = ((hash << 5) - hash + id.charCodeAt(i)) | 0;
+    return deviceColors[Math.abs(hash) % deviceColors.length];
+}
+function getDeviceColors() {
+    try { return JSON.parse(localStorage.getItem('roamly_device_colors') || '{}'); } catch { return {}; }
+}
+function saveDeviceColor(deviceId, color) {
+    const colors = getDeviceColors();
+    colors[deviceId] = color;
+    localStorage.setItem('roamly_device_colors', JSON.stringify(colors));
+}
+// Init color pickers with saved or default colors
+document.querySelectorAll('.device-color-picker').forEach(picker => {
+    const id = picker.dataset.deviceId;
+    const saved = getDeviceColors();
+    picker.value = saved[id] || deviceColorHash(id);
+});
+
 function copyKey(key) {
     navigator.clipboard.writeText(key).then(() => {
         event.target.textContent = 'Copied!';

@@ -184,8 +184,13 @@ const deviceColors = ['#3b82f6', '#22c55e', '#ef4444', '#f59e0b', '#8b5cf6', '#e
 const HAS_POSTGIS = {{ has_postgis|yesno:"true,false" }};
 const USE_VECTOR_TILES = HAS_POSTGIS && localStorage.getItem('roamly_map_renderer') !== 'classic';
 
-// Deterministic color from device_id string
+// Custom device colors from settings, falling back to deterministic hash
+function getDeviceColors() {
+    try { return JSON.parse(localStorage.getItem('roamly_device_colors') || '{}'); } catch { return {}; }
+}
+const _customDeviceColors = getDeviceColors();
 function deviceColor(id) {
+    if (_customDeviceColors[id]) return _customDeviceColors[id];
     let hash = 0;
     for (let i = 0; i < id.length; i++) hash = ((hash << 5) - hash + id.charCodeAt(i)) | 0;
     return deviceColors[Math.abs(hash) % deviceColors.length];
