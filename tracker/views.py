@@ -30,11 +30,12 @@ logger = logging.getLogger(__name__)
 
 # Check for PostGIS
 try:
-    from django.contrib.gis.geos import Polygon
+    from django.contrib.gis.geos import Polygon, Point
     HAS_POSTGIS = True
 except Exception:
     HAS_POSTGIS = False
     Polygon = None
+    Point = None
 
 
 # ---------------------------------------------------------------------------
@@ -1251,7 +1252,7 @@ def restore_backup(request):
                         errors += 1
                         continue
                     ts = _parse_timestamp(loc['timestamp'])
-                    loc_batch.append(Location(
+                    loc_obj = Location(
                         device=device,
                         latitude=loc['latitude'],
                         longitude=loc['longitude'],
@@ -1265,7 +1266,10 @@ def restore_backup(request):
                         country=loc.get('country', ''),
                         country_code=loc.get('country_code', ''),
                         place_name=loc.get('place_name', ''),
-                    ))
+                    )
+                    if HAS_POSTGIS and Point:
+                        loc_obj.location = Point(float(loc['longitude']), float(loc['latitude']), srid=4326)
+                    loc_batch.append(loc_obj)
                     if len(loc_batch) >= BATCH_SIZE:
                         created = Location.objects.bulk_create(loc_batch, ignore_conflicts=True)
                         loc_total += len(created)
