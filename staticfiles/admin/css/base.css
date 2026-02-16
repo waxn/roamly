@@ -57,7 +57,6 @@ html[data-theme="light"],
     --object-tools-hover-bg: var(--close-button-hover-bg);
 
     --font-family-primary:
-        "Space Grotesk",
         "Segoe UI",
         system-ui,
         Roboto,

@@ -18,6 +18,9 @@ media/
 .env
 .env.*
 
+# Docker data
+data/
+
 # Logs and local data
 *.log
 *.pot
