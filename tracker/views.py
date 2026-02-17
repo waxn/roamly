@@ -3,6 +3,7 @@ import io
 import json
 import logging
 import math
+import urllib.parse
 import urllib.request
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone as dt_timezone
@@ -10,7 +11,8 @@ from datetime import datetime, timedelta, timezone as dt_timezone
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, Min, Max, Avg
+from django.db.models import Count, Min, Max, Avg, Q
+from django.db.models.functions import TruncDate
 from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
@@ -23,8 +25,9 @@ from django.db import connection, transaction
 from django.contrib.staticfiles import finders
 
 from .forms import SignUpForm, APIKeyForm, TripForm
-from .models import Device, Location, APIKey, Trip, TripPlace
+from .models import Device, Location, APIKey, Trip, TripPlace, POI
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding
+from .poi_tasks import start_poi_download, get_poi_status, stop_poi_download
 
 logger = logging.getLogger(__name__)
 
@@ -1711,3 +1714,191 @@ def delete_account(request):
     logout(request)
     user.delete()
     return JsonResponse({"status": "ok"})
+
+
+# ---------------------------------------------------------------------------
+# Search
+# ---------------------------------------------------------------------------
+
+def _search_local_pois(query, user_locations_qs, radius_m=150):
+    """Search the local POI table and match against user's location history."""
+    matching_pois = POI.objects.filter(name__icontains=query)
+
+    results = []
+    for poi in matching_pois.iterator():
+        nearby = _find_nearby_locations(
+            user_locations_qs, poi.latitude, poi.longitude, radius_m
+        )
+        if nearby.exists():
+            day_data = _group_by_day(nearby)
+            # Filter out days where dwell time is under 5 minutes
+            day_data = [d for d in day_data if d['time_spent'] >= 300]
+            if not day_data:
+                continue
+            display = f"{poi.name}, {poi.address}" if poi.address else poi.name
+            results.append({
+                'place_name': display,
+                'lat': poi.latitude,
+                'lng': poi.longitude,
+                'days': day_data,
+                'total_points': sum(d['count'] for d in day_data),
+            })
+    return results
+
+
+def _find_nearby_locations(base_qs, lat, lng, radius_m):
+    """Filter a Location queryset to points within radius_m of (lat, lng)."""
+    if HAS_POSTGIS and Point:
+        from django.contrib.gis.measure import D
+        ref = Point(lng, lat, srid=4326)
+        return base_qs.filter(location__distance_lte=(ref, D(m=radius_m)))
+    else:
+        delta = radius_m / 111000.0
+        return base_qs.filter(
+            latitude__gte=lat - delta, latitude__lte=lat + delta,
+            longitude__gte=lng - delta, longitude__lte=lng + delta,
+        )
+
+
+def _calc_dwell_time(qs, max_gap=600):
+    """Calculate dwell time from a queryset, only summing gaps under max_gap seconds.
+
+    If consecutive points are more than max_gap apart, that gap is excluded
+    (the user likely left and came back). Default max_gap is 10 minutes.
+    """
+    timestamps = list(qs.order_by('timestamp').values_list('timestamp', flat=True))
+    if len(timestamps) < 2:
+        return 0
+    total = 0
+    for i in range(1, len(timestamps)):
+        gap = (timestamps[i] - timestamps[i - 1]).total_seconds()
+        if gap <= max_gap:
+            total += gap
+    return int(total)
+
+
+def _group_by_day(qs):
+    """Group a Location queryset by date, returning summary dicts."""
+    days = qs.annotate(
+        day=TruncDate('timestamp')
+    ).values('day').annotate(
+        count=Count('id'),
+        first_ts=Min('timestamp'),
+        last_ts=Max('timestamp'),
+    ).order_by('-day')[:100]
+
+    result = []
+    for d in days:
+        day_str = d['day'].isoformat()
+        day_locs = qs.filter(timestamp__date=d['day'])
+        cities = list(
+            day_locs.exclude(city='')
+            .values_list('city', 'state').distinct()[:5]
+        )
+        devices = list(
+            day_locs.values_list('device__name', flat=True).distinct()[:5]
+        )
+        time_spent = _calc_dwell_time(day_locs)
+
+        result.append({
+            'date': day_str,
+            'count': d['count'],
+            'first_ts': d['first_ts'].isoformat() if d['first_ts'] else None,
+            'last_ts': d['last_ts'].isoformat() if d['last_ts'] else None,
+            'time_spent': time_spent,
+            'cities': [{'city': c[0], 'state': c[1]} for c in cities],
+            'devices': [name for name in devices if name],
+        })
+    return result
+
+
+@login_required
+def search_view(request):
+    return render(request, 'tracker/search.html')
+
+
+@login_required
+def search_api(request):
+    """Search location history by text, current location, or place name."""
+    mode = request.GET.get('mode', 'text')
+    q = request.GET.get('q', '').strip()
+    locations = Location.objects.filter(device__user=request.user)
+
+    if mode == 'here':
+        try:
+            lat = float(request.GET['lat'])
+            lng = float(request.GET['lng'])
+        except (KeyError, ValueError):
+            return JsonResponse({'error': 'lat and lng required'}, status=400)
+        radius_m = float(request.GET.get('radius', 100))
+        nearby = _find_nearby_locations(locations, lat, lng, radius_m)
+        days = _group_by_day(nearby)
+        return JsonResponse({
+            'mode': 'here',
+            'results': days,
+            'total_days': len(days),
+            'total_points': sum(d['count'] for d in days),
+        })
+
+    if not q:
+        return JsonResponse({'error': 'q parameter required'}, status=400)
+
+    if mode == 'place':
+        poi_count = POI.objects.count()
+        if poi_count == 0:
+            return JsonResponse({
+                'mode': 'place',
+                'query': q,
+                'results': [],
+                'needs_download': True,
+                'places_checked': 0,
+            })
+        results = _search_local_pois(q, locations)
+        return JsonResponse({
+            'mode': 'place',
+            'query': q,
+            'results': results,
+            'places_checked': POI.objects.filter(name__icontains=q).count(),
+        })
+
+    # Default: text mode
+    filtered = locations.filter(
+        Q(city__icontains=q) | Q(state__icontains=q) | Q(place_name__icontains=q)
+    )
+    days = _group_by_day(filtered)
+    return JsonResponse({
+        'mode': 'text',
+        'query': q,
+        'results': days,
+        'total_days': len(days),
+        'total_points': sum(d['count'] for d in days),
+    })
+
+
+# ---------------------------------------------------------------------------
+# POI Download
+# ---------------------------------------------------------------------------
+
+@login_required
+@require_http_methods(["POST"])
+def poi_download_api(request):
+    """Start downloading POIs for the user's travel area."""
+    job = start_poi_download(request.user.id)
+    return JsonResponse({
+        'status': job.status,
+        'total': job.total,
+    })
+
+
+@login_required
+def poi_status_api(request):
+    """Check POI download status."""
+    return JsonResponse(get_poi_status(request.user.id))
+
+
+@login_required
+@require_http_methods(["POST"])
+def poi_stop_api(request):
+    """Stop a running POI download."""
+    stopped = stop_poi_download(request.user.id)
+    return JsonResponse({'stopped': stopped})

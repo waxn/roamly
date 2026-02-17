@@ -525,6 +525,16 @@ function loadLocations() {
 // Init + filter handlers
 // ═══════════════════════════════════════════════════════════════════
 
+// Read URL params for date pre-fill (used by search page links)
+(function() {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get('start') && p.get('end')) {
+        document.getElementById('start-date').value = p.get('start');
+        document.getElementById('end-date').value = p.get('end');
+        document.getElementById('time-range').value = 'all';
+    }
+})();
+
 map.on('load', () => {
     if (USE_VECTOR_TILES) {
         setupVectorLayers();

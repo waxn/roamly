@@ -16,6 +16,7 @@ urlpatterns = [
     path('data/', views.data_table, name='data'),
     path('stats/', views.stats_view, name='stats'),
     path('visits/', views.visits_view, name='visits'),
+    path('search/', views.search_view, name='search'),
     path('trips/', views.trips_view, name='trips'),
     path('settings/', views.settings_view, name='settings'),
 
@@ -34,6 +35,7 @@ urlpatterns = [
     path('api/stats/', views.stats_api, name='stats_api'),
     path('api/visits/', views.visits_api, name='visits_api'),
     path('api/distance/', views.distance_api, name='distance_api'),
+    path('api/search/', views.search_api, name='search_api'),
 
     # Trips API
     path('api/trips/', views.trips_api, name='trips_api'),
@@ -49,6 +51,11 @@ urlpatterns = [
     path('api/geocode/', views.geocode_api, name='geocode_api'),
     path('api/geocode/status/', views.geocode_status, name='geocode_status'),
     path('api/geocode/stop/', views.geocode_stop, name='geocode_stop'),
+
+    # POI Download
+    path('api/poi/download/', views.poi_download_api, name='poi_download'),
+    path('api/poi/status/', views.poi_status_api, name='poi_status'),
+    path('api/poi/stop/', views.poi_stop_api, name='poi_stop'),
 
     # Export/Import
     path('api/export/csv/', views.export_csv, name='export_csv'),

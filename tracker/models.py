@@ -152,6 +152,44 @@ class GeocodingJob(models.Model):
         return f"Geocoding {self.user.username}: {self.processed}/{self.total}"
 
 
+class POI(models.Model):
+    """Locally cached point of interest from OpenStreetMap."""
+    name = models.CharField(max_length=300, db_index=True)
+    latitude = models.FloatField()
+    longitude = models.FloatField()
+    category = models.CharField(max_length=100, blank=True)  # shop, amenity, aeroway, etc.
+    address = models.CharField(max_length=500, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['latitude', 'longitude']),
+        ]
+        # Prevent exact duplicates
+        unique_together = ['name', 'latitude', 'longitude']
+
+    def __str__(self):
+        return self.name
+
+
+class POIDownloadJob(models.Model):
+    """Persistent state for background POI download tasks."""
+    STATUS_CHOICES = [
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('stopped', 'Stopped'),
+    ]
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='poi_job')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='running')
+    processed = models.IntegerField(default=0)
+    total = models.IntegerField(default=0)
+    pois_added = models.IntegerField(default=0)
+    started_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"POI Download {self.user.username}: {self.processed}/{self.total}"
+
+
 class TripPlace(models.Model):
     """Marked waypoint within a trip."""
     trip = models.ForeignKey(Trip, on_delete=models.CASCADE, related_name='places')
