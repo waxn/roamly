@@ -309,6 +309,10 @@
                         <option value="monthly" {% if backup_config.interval == 'monthly' %}selected{% endif %}>Monthly</option>
                     </select>
                 </div>
+                <div>
+                    <label style="font-size: 0.8125rem; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Max Backups to Keep</label>
+                    <input type="number" id="backup-max-backups" class="form-control" placeholder="0 = unlimited" min="0" value="{{ backup_config.max_backups|default:'0' }}">
+                </div>
             </div>
 
             <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
@@ -874,6 +878,7 @@ function getBackupFields() {
         prefix: document.getElementById('backup-prefix').value,
         region: document.getElementById('backup-region').value,
         interval: document.getElementById('backup-interval').value,
+        max_backups: parseInt(document.getElementById('backup-max-backups').value) || 0,
     };
 }
 

@@ -1922,6 +1922,7 @@ def backup_config_api(request):
                 'prefix': config.prefix,
                 'region': config.region,
                 'interval': config.interval,
+                'max_backups': config.max_backups,
             })
         except BackupConfig.DoesNotExist:
             return JsonResponse({'configured': False})
@@ -1938,6 +1939,7 @@ def backup_config_api(request):
     prefix = data.get('prefix', 'roamly-backups/').strip()
     region = data.get('region', 'auto').strip()
     interval = data.get('interval', 'disabled')
+    max_backups = max(0, int(data.get('max_backups', 0)))
 
     if not endpoint_url or not bucket_name or not access_key:
         return JsonResponse({'error': 'Endpoint URL, bucket name, and access key are required'}, status=400)
@@ -1955,6 +1957,7 @@ def backup_config_api(request):
             'prefix': prefix,
             'region': region,
             'interval': interval,
+            'max_backups': max_backups,
         }
     )
 
@@ -1968,6 +1971,7 @@ def backup_config_api(request):
         config.prefix = prefix
         config.region = region
         config.interval = interval
+        config.max_backups = max_backups
         config.save()
 
     return JsonResponse({'status': 'ok'})

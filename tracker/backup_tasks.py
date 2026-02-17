@@ -125,6 +125,28 @@ def test_s3_connection(config):
         return False, str(e)
 
 
+def _prune_old_backups(client, config, username):
+    """Delete oldest backups beyond max_backups limit."""
+    try:
+        prefix = f"{config.prefix}{username}/"
+        response = client.list_objects_v2(Bucket=config.bucket_name, Prefix=prefix)
+        objects = response.get('Contents', [])
+        # Only consider .json backup files
+        backups = [o for o in objects if o['Key'].endswith('.json')]
+        if len(backups) <= config.max_backups:
+            return
+        # Sort by last modified, oldest first
+        backups.sort(key=lambda o: o['LastModified'])
+        to_delete = backups[:len(backups) - config.max_backups]
+        client.delete_objects(
+            Bucket=config.bucket_name,
+            Delete={'Objects': [{'Key': o['Key']} for o in to_delete]},
+        )
+        logger.info(f"Pruned {len(to_delete)} old backup(s) for {username}")
+    except Exception as e:
+        logger.warning(f"Failed to prune old backups for {username}: {e}")
+
+
 def _run_backup(user_id):
     """Generate and upload a backup for a user."""
     from .models import BackupConfig
@@ -161,6 +183,10 @@ def _run_backup(user_id):
         config.save(update_fields=['last_backup_at', 'last_backup_status', 'last_backup_error', 'last_backup_size'])
 
         logger.info(f"Backup completed for {user.username}: {len(backup_bytes)} bytes -> {filename}")
+
+        # Prune old backups if max_backups is set
+        if config.max_backups > 0:
+            _prune_old_backups(client, config, user.username)
     except Exception as e:
         logger.error(f"Backup failed for user {user_id}: {e}")
         try:
