@@ -525,13 +525,21 @@ function loadLocations() {
 // Init + filter handlers
 // ═══════════════════════════════════════════════════════════════════
 
-// Read URL params for date pre-fill (used by search page links)
+// Read URL params for date pre-fill and zoom target (used by search page links)
 (function() {
     const p = new URLSearchParams(window.location.search);
     if (p.get('start') && p.get('end')) {
         document.getElementById('start-date').value = p.get('start');
         document.getElementById('end-date').value = p.get('end');
         document.getElementById('time-range').value = 'all';
+    }
+    if (p.get('lat') && p.get('lng')) {
+        const lat = parseFloat(p.get('lat'));
+        const lng = parseFloat(p.get('lng'));
+        const zoom = parseInt(p.get('zoom') || '16');
+        map.once('load', () => {
+            setTimeout(() => map.flyTo({ center: [lng, lat], zoom: zoom }), 500);
+        });
     }
 })();
 

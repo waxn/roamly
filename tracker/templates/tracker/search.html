@@ -380,7 +380,7 @@ function renderPlaceResults(data) {
         for (const day of place.days) {
             const d = new Date(day.date + 'T00:00:00');
             const dateStr = d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-            const mapUrl = `/map/?start=${day.date}&end=${day.date}`;
+            const mapUrl = `/map/?start=${day.date}&end=${day.date}&lat=${place.lat}&lng=${place.lng}&zoom=16`;
             html += `<tr onclick="window.location='${mapUrl}'" style="cursor:pointer;" title="view on map">
                 <td style="white-space:nowrap"><a href="${mapUrl}" style="color:var(--primary);text-decoration:none;">${dateStr}</a></td>
                 <td>${day.count}</td>
