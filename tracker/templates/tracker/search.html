@@ -331,8 +331,8 @@ function renderLocationTable(rows) {
     for (const r of rows) {
         const d = new Date(r.date + 'T00:00:00');
         const dateStr = d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-        const cityStr = r.cities.map(c => c.city + (c.state ? ', ' + c.state : '')).join('; ') || '-';
-        const deviceStr = r.devices.join(', ') || '-';
+        const cityStr = [...new Set(r.cities.map(c => c.city + (c.state ? ', ' + c.state : '')))].join('; ') || '-';
+        const deviceStr = [...new Set(r.devices)].join(', ') || '-';
         const mapUrl = `/map/?start=${r.date}&end=${r.date}`;
         html += `<tr onclick="window.location='${mapUrl}'" style="cursor:pointer;" title="view on map">
             <td style="white-space:nowrap"><a href="${mapUrl}" style="color:var(--primary);text-decoration:none;">${dateStr}</a></td>

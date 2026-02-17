@@ -680,7 +680,7 @@ def distance_api(request):
             if (ts - p_ts).total_seconds() <= 7200:
                 d = _haversine_km(p_lat, p_lon, lat, lon)
                 # Skip unreasonable jumps (> 500 km between consecutive points)
-                if d <= 500:
+                if 0.03 <= d <= 500:
                     daily_km[day] += d
                     total_km += d
         prev[dev_id] = (lat, lon, ts)
