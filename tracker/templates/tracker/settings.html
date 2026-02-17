@@ -268,6 +268,66 @@
             <div id="geocode-status" style="margin-top: 0.75rem; font-size: 0.8125rem; display: none;"></div>
         </div>
 
+        <!-- Automatic Backups -->
+        <div class="card" style="grid-column: 1 / -1;">
+            <div class="card-header">Automatic Backups</div>
+            <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1rem;">
+                Automatically back up all your data to any S3-compatible storage (AWS S3, Backblaze B2, Cloudflare R2, MinIO, Wasabi, etc.).
+            </p>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; margin-bottom: 1rem;">
+                <div>
+                    <label style="font-size: 0.8125rem; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Endpoint URL</label>
+                    <input type="url" id="backup-endpoint" class="form-control" placeholder="https://s3.amazonaws.com" value="{{ backup_config.endpoint_url|default:'' }}">
+                </div>
+                <div>
+                    <label style="font-size: 0.8125rem; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Bucket Name</label>
+                    <input type="text" id="backup-bucket" class="form-control" placeholder="my-backups" value="{{ backup_config.bucket_name|default:'' }}">
+                </div>
+                <div>
+                    <label style="font-size: 0.8125rem; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Access Key</label>
+                    <input type="text" id="backup-access-key" class="form-control" placeholder="Access key ID" value="{{ backup_config.access_key|default:'' }}">
+                </div>
+                <div>
+                    <label style="font-size: 0.8125rem; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Secret Key</label>
+                    <input type="password" id="backup-secret-key" class="form-control" placeholder="Secret access key" value="{% if backup_config.secret_key %}••••••••{% endif %}">
+                </div>
+                <div>
+                    <label style="font-size: 0.8125rem; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Path Prefix</label>
+                    <input type="text" id="backup-prefix" class="form-control" placeholder="roamly-backups/" value="{{ backup_config.prefix|default:'roamly-backups/' }}">
+                </div>
+                <div>
+                    <label style="font-size: 0.8125rem; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Region</label>
+                    <input type="text" id="backup-region" class="form-control" placeholder="auto" value="{{ backup_config.region|default:'auto' }}">
+                </div>
+                <div>
+                    <label style="font-size: 0.8125rem; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Schedule</label>
+                    <select id="backup-interval" class="form-control">
+                        <option value="disabled" {% if backup_config.interval == 'disabled' or not backup_config %}selected{% endif %}>Disabled</option>
+                        <option value="daily" {% if backup_config.interval == 'daily' %}selected{% endif %}>Daily</option>
+                        <option value="weekly" {% if backup_config.interval == 'weekly' %}selected{% endif %}>Weekly</option>
+                        <option value="monthly" {% if backup_config.interval == 'monthly' %}selected{% endif %}>Monthly</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <button class="btn btn-outline btn-sm" onclick="testBackupConnection()">Test Connection</button>
+                <button class="btn btn-primary btn-sm" onclick="saveBackupConfig()">Save</button>
+                <button class="btn btn-outline btn-sm" onclick="runBackupNow()" {% if not backup_config %}disabled{% endif %} id="backup-now-btn">Backup Now</button>
+            </div>
+
+            <div id="backup-status" style="font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.75rem;">
+                {% if backup_config.last_backup_status == 'success' %}
+                    Last backup: {{ backup_config.last_backup_at }} ({{ backup_config.last_backup_size|filesizeformat }})
+                {% elif backup_config.last_backup_status == 'failed' %}
+                    <span style="color: var(--danger);">Last backup failed: {{ backup_config.last_backup_error }}</span>
+                {% elif backup_config.last_backup_status == 'running' %}
+                    <span class="spinner"></span> Backup in progress...
+                {% endif %}
+            </div>
+        </div>
+
         <!-- GPSLogger Setup -->
         <div class="card" style="grid-column: 1 / -1;">
             <div class="card-header">GPSLogger for Android Setup</div>
@@ -803,6 +863,145 @@ function deleteLocationData() {
         statusEl.textContent = 'Something went wrong.';
     });
 }
+
+// Automatic Backups
+function getBackupFields() {
+    return {
+        endpoint_url: document.getElementById('backup-endpoint').value,
+        bucket_name: document.getElementById('backup-bucket').value,
+        access_key: document.getElementById('backup-access-key').value,
+        secret_key: document.getElementById('backup-secret-key').value,
+        prefix: document.getElementById('backup-prefix').value,
+        region: document.getElementById('backup-region').value,
+        interval: document.getElementById('backup-interval').value,
+    };
+}
+
+function testBackupConnection() {
+    const statusEl = document.getElementById('backup-status');
+    statusEl.innerHTML = '<span class="spinner"></span> Testing connection...';
+    statusEl.style.color = 'var(--text-muted)';
+
+    fetch('/api/backup/test/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' },
+        body: JSON.stringify(getBackupFields())
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'ok') {
+            statusEl.style.color = 'var(--success)';
+            statusEl.textContent = 'Connection successful!';
+        } else {
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = 'Connection failed: ' + (data.error || 'Unknown error');
+        }
+    })
+    .catch(err => {
+        statusEl.style.color = 'var(--danger)';
+        statusEl.textContent = 'Error: ' + err.message;
+    });
+}
+
+function saveBackupConfig() {
+    const statusEl = document.getElementById('backup-status');
+    statusEl.innerHTML = '<span class="spinner"></span> Saving...';
+    statusEl.style.color = 'var(--text-muted)';
+
+    fetch('/api/backup/config/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' },
+        body: JSON.stringify(getBackupFields())
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'ok') {
+            statusEl.style.color = 'var(--success)';
+            statusEl.textContent = 'Configuration saved.';
+            document.getElementById('backup-now-btn').disabled = false;
+        } else {
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = data.error || 'Failed to save.';
+        }
+    })
+    .catch(err => {
+        statusEl.style.color = 'var(--danger)';
+        statusEl.textContent = 'Error: ' + err.message;
+    });
+}
+
+function runBackupNow() {
+    const statusEl = document.getElementById('backup-status');
+    statusEl.innerHTML = '<span class="spinner"></span> Starting backup...';
+    statusEl.style.color = 'var(--text-muted)';
+
+    fetch('/api/backup/now/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = data.error;
+            return;
+        }
+        if (data.status === 'already_running') {
+            statusEl.innerHTML = '<span class="spinner"></span> Backup already in progress...';
+        } else {
+            statusEl.innerHTML = '<span class="spinner"></span> Backup in progress...';
+        }
+        pollBackupStatus();
+    })
+    .catch(err => {
+        statusEl.style.color = 'var(--danger)';
+        statusEl.textContent = 'Error: ' + err.message;
+    });
+}
+
+function pollBackupStatus() {
+    const statusEl = document.getElementById('backup-status');
+    const interval = setInterval(() => {
+        fetch('/api/backup/status/')
+        .then(r => r.json())
+        .then(data => {
+            if (data.last_backup_status === 'running') {
+                statusEl.innerHTML = '<span class="spinner"></span> Backup in progress...';
+            } else if (data.last_backup_status === 'success') {
+                const size = data.last_backup_size ? ` (${formatBytes(data.last_backup_size)})` : '';
+                const time = data.last_backup_at ? new Date(data.last_backup_at).toLocaleString() : '';
+                statusEl.style.color = 'var(--success)';
+                statusEl.textContent = `Backup completed${time ? ' at ' + time : ''}${size}`;
+                clearInterval(interval);
+            } else if (data.last_backup_status === 'failed') {
+                statusEl.style.color = 'var(--danger)';
+                statusEl.textContent = 'Backup failed: ' + (data.last_backup_error || 'Unknown error');
+                clearInterval(interval);
+            } else {
+                clearInterval(interval);
+            }
+        })
+        .catch(() => clearInterval(interval));
+    }, 3000);
+}
+
+function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+// Check if a backup is currently running on page load
+fetch('/api/backup/status/')
+    .then(r => { if (r.ok) return r.json(); })
+    .then(data => {
+        if (data && data.last_backup_status === 'running') {
+            const statusEl = document.getElementById('backup-status');
+            statusEl.innerHTML = '<span class="spinner"></span> Backup in progress...';
+            pollBackupStatus();
+        }
+    })
+    .catch(() => {});
 
 function deleteAccount() {
     if (!confirm('Are you sure you want to delete your account? All your data will be permanently removed. This cannot be undone.')) return;

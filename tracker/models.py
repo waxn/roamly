@@ -69,10 +69,10 @@ if HAS_POSTGIS and gis_models:
         class Meta:
             ordering = ['-timestamp']
             indexes = [
-                models.Index(fields=['device', '-timestamp']),
-                models.Index(fields=['city']),
-                models.Index(fields=['country']),
-                models.Index(fields=['timestamp']),
+                models.Index(fields=['device', '-timestamp'], name='tracker_loc_device__idx'),
+                models.Index(fields=['city'], name='tracker_loc_city_idx'),
+                models.Index(fields=['country'], name='tracker_loc_country_idx'),
+                models.Index(fields=['timestamp'], name='tracker_loc_timesta_idx'),
             ]
             unique_together = ['device', 'latitude', 'longitude', 'timestamp']
 
@@ -162,7 +162,7 @@ class POI(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=['latitude', 'longitude']),
+            models.Index(fields=['latitude', 'longitude'], name='tracker_poi_latitud_idx'),
         ]
         # Prevent exact duplicates
         unique_together = ['name', 'latitude', 'longitude']
@@ -188,6 +188,37 @@ class POIDownloadJob(models.Model):
 
     def __str__(self):
         return f"POI Download {self.user.username}: {self.processed}/{self.total}"
+
+
+class BackupConfig(models.Model):
+    """S3-compatible automatic backup configuration."""
+    INTERVAL_CHOICES = [
+        ('disabled', 'Disabled'),
+        ('daily', 'Daily'),
+        ('weekly', 'Weekly'),
+        ('monthly', 'Monthly'),
+    ]
+    STATUS_CHOICES = [
+        ('never', 'Never'),
+        ('success', 'Success'),
+        ('failed', 'Failed'),
+        ('running', 'Running'),
+    ]
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='backup_config')
+    endpoint_url = models.URLField(max_length=500)
+    bucket_name = models.CharField(max_length=200)
+    access_key = models.CharField(max_length=200)
+    secret_key = models.CharField(max_length=200)
+    prefix = models.CharField(max_length=200, default='roamly-backups/', blank=True)
+    region = models.CharField(max_length=100, default='auto', blank=True)
+    interval = models.CharField(max_length=20, choices=INTERVAL_CHOICES, default='disabled')
+    last_backup_at = models.DateTimeField(null=True, blank=True)
+    last_backup_status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='never')
+    last_backup_error = models.TextField(blank=True)
+    last_backup_size = models.IntegerField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Backup config for {self.user.username}"
 
 
 class TripPlace(models.Model):

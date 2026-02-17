@@ -25,9 +25,10 @@ from django.db import connection, transaction
 from django.contrib.staticfiles import finders
 
 from .forms import SignUpForm, APIKeyForm, TripForm
-from .models import Device, Location, APIKey, Trip, TripPlace, POI
+from .models import Device, Location, APIKey, Trip, TripPlace, POI, BackupConfig
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding
 from .poi_tasks import start_poi_download, get_poi_status, stop_poi_download
+from .backup_tasks import test_s3_connection, run_backup_now, get_backup_status
 
 logger = logging.getLogger(__name__)
 
@@ -224,11 +225,13 @@ def settings_view(request):
     api_keys = APIKey.objects.filter(user=request.user)
     devices = Device.objects.filter(user=request.user)
     form = APIKeyForm()
+    backup_config = BackupConfig.objects.filter(user=request.user).first()
     return render(request, 'tracker/settings.html', {
         'api_keys': api_keys,
         'devices': devices,
         'form': form,
         'has_postgis': HAS_POSTGIS,
+        'backup_config': backup_config,
     })
 
 
@@ -1897,3 +1900,130 @@ def poi_stop_api(request):
     """Stop a running POI download."""
     stopped = stop_poi_download(request.user.id)
     return JsonResponse({'stopped': stopped})
+
+
+# ---------------------------------------------------------------------------
+# Automatic Backups (S3-compatible)
+# ---------------------------------------------------------------------------
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def backup_config_api(request):
+    """Get or save S3 backup configuration."""
+    if request.method == 'GET':
+        try:
+            config = BackupConfig.objects.get(user=request.user)
+            return JsonResponse({
+                'configured': True,
+                'endpoint_url': config.endpoint_url,
+                'bucket_name': config.bucket_name,
+                'access_key': config.access_key,
+                'secret_key': '••••••••' if config.secret_key else '',
+                'prefix': config.prefix,
+                'region': config.region,
+                'interval': config.interval,
+            })
+        except BackupConfig.DoesNotExist:
+            return JsonResponse({'configured': False})
+
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    endpoint_url = data.get('endpoint_url', '').strip()
+    bucket_name = data.get('bucket_name', '').strip()
+    access_key = data.get('access_key', '').strip()
+    secret_key = data.get('secret_key', '').strip()
+    prefix = data.get('prefix', 'roamly-backups/').strip()
+    region = data.get('region', 'auto').strip()
+    interval = data.get('interval', 'disabled')
+
+    if not endpoint_url or not bucket_name or not access_key:
+        return JsonResponse({'error': 'Endpoint URL, bucket name, and access key are required'}, status=400)
+
+    if interval not in ('disabled', 'daily', 'weekly', 'monthly'):
+        return JsonResponse({'error': 'Invalid interval'}, status=400)
+
+    config, created = BackupConfig.objects.get_or_create(
+        user=request.user,
+        defaults={
+            'endpoint_url': endpoint_url,
+            'bucket_name': bucket_name,
+            'access_key': access_key,
+            'secret_key': secret_key,
+            'prefix': prefix,
+            'region': region,
+            'interval': interval,
+        }
+    )
+
+    if not created:
+        config.endpoint_url = endpoint_url
+        config.bucket_name = bucket_name
+        config.access_key = access_key
+        # Only update secret if it's not the masked placeholder
+        if secret_key and secret_key != '••••••••':
+            config.secret_key = secret_key
+        config.prefix = prefix
+        config.region = region
+        config.interval = interval
+        config.save()
+
+    return JsonResponse({'status': 'ok'})
+
+
+@login_required
+@require_http_methods(["POST"])
+def backup_test_api(request):
+    """Test S3 connection with the saved or provided credentials."""
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    # Build a temporary config-like object for testing
+    config = BackupConfig(user=request.user)
+    config.endpoint_url = data.get('endpoint_url', '').strip()
+    config.bucket_name = data.get('bucket_name', '').strip()
+    config.access_key = data.get('access_key', '').strip()
+    config.prefix = data.get('prefix', 'roamly-backups/').strip()
+    config.region = data.get('region', 'auto').strip()
+
+    secret_key = data.get('secret_key', '').strip()
+    if secret_key == '••••••••':
+        # Use the saved secret key
+        try:
+            saved = BackupConfig.objects.get(user=request.user)
+            config.secret_key = saved.secret_key
+        except BackupConfig.DoesNotExist:
+            return JsonResponse({'error': 'No saved secret key — please enter one'}, status=400)
+    else:
+        config.secret_key = secret_key
+
+    if not config.endpoint_url or not config.bucket_name or not config.access_key or not config.secret_key:
+        return JsonResponse({'error': 'All connection fields are required'}, status=400)
+
+    success, error = test_s3_connection(config)
+    if success:
+        return JsonResponse({'status': 'ok'})
+    return JsonResponse({'error': error}, status=400)
+
+
+@login_required
+@require_http_methods(["POST"])
+def backup_now_api(request):
+    """Trigger an immediate backup."""
+    try:
+        BackupConfig.objects.get(user=request.user)
+    except BackupConfig.DoesNotExist:
+        return JsonResponse({'error': 'No backup configuration found. Save your S3 settings first.'}, status=400)
+
+    result = run_backup_now(request.user.id)
+    return JsonResponse({'status': result})
+
+
+@login_required
+def backup_status_api(request):
+    """Get backup status."""
+    return JsonResponse(get_backup_status(request.user.id))

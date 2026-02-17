@@ -57,6 +57,12 @@ urlpatterns = [
     path('api/poi/status/', views.poi_status_api, name='poi_status'),
     path('api/poi/stop/', views.poi_stop_api, name='poi_stop'),
 
+    # Automatic Backups
+    path('api/backup/config/', views.backup_config_api, name='backup_config'),
+    path('api/backup/test/', views.backup_test_api, name='backup_test'),
+    path('api/backup/now/', views.backup_now_api, name='backup_now'),
+    path('api/backup/status/', views.backup_status_api, name='backup_status'),
+
     # Export/Import
     path('api/export/csv/', views.export_csv, name='export_csv'),
     path('api/export/gpx/', views.export_gpx, name='export_gpx'),
