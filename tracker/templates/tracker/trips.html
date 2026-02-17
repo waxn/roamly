@@ -6,6 +6,19 @@
 .trip-card { cursor: pointer; transition: border-color 0.15s; }
 .trip-card:hover { border-color: var(--primary); }
 
+.edit-name-btn {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    padding: 0.25rem; border-radius: 4px; display: flex; align-items: center;
+    transition: color 0.15s;
+}
+.edit-name-btn:hover { color: var(--primary); }
+.edit-name-input {
+    background: var(--surface); border: 1px solid var(--primary); color: var(--text);
+    font-family: inherit; font-size: inherit; font-weight: inherit;
+    padding: 0.125rem 0.375rem; border-radius: 4px; width: 100%;
+    text-transform: lowercase;
+}
+
 /* Full-screen trip view */
 .trip-fullscreen {
     display: none;
@@ -345,7 +358,12 @@
     <div class="trip-sidebar" id="trip-sidebar">
         <div class="sidebar-header">
             <div>
-                <h2 id="sidebar-trip-name"></h2>
+                <div style="display:flex;align-items:center;gap:0.5rem;">
+                    <h2 id="sidebar-trip-name"></h2>
+                    <button class="edit-name-btn" onclick="startEditTripName()" title="edit name">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                    </button>
+                </div>
                 <div class="trip-dates" id="sidebar-trip-dates"></div>
             </div>
         </div>
@@ -753,6 +771,42 @@ function saveNotes() {
     })
     .catch(() => {
         document.getElementById('notes-status').textContent = 'error saving';
+    });
+}
+
+// ─── Sidebar: Edit Trip Name ─────────────────────────────────
+
+function startEditTripName() {
+    const h2 = document.getElementById('sidebar-trip-name');
+    const btn = document.querySelector('.edit-name-btn');
+    const currentName = h2.textContent;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'edit-name-input';
+    input.value = currentName;
+    h2.textContent = '';
+    h2.appendChild(input);
+    btn.style.display = 'none';
+    input.focus();
+    input.select();
+
+    function save() {
+        const newName = input.value.trim() || currentName;
+        h2.textContent = newName;
+        btn.style.display = '';
+        if (newName !== currentName) {
+            fetch(`/api/trips/${currentTripId}/update/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                body: JSON.stringify({ name: newName })
+            });
+        }
+    }
+
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { input.value = currentName; input.blur(); }
     });
 }
 

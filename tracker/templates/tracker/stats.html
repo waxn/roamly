@@ -28,6 +28,21 @@
     width: 100%;
     height: 100%;
 }
+.chart-tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.325rem 0.5rem;
+    font-size: 0.75rem;
+    font-family: 'Space Grotesk', sans-serif;
+    color: var(--text);
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 10;
+}
 {% endblock %}
 
 {% block content %}
@@ -73,6 +88,7 @@
             <div class="card-header">Distance Travelled</div>
             <div class="chart-container">
                 <canvas id="distance-chart"></canvas>
+                <div class="chart-tooltip" id="chart-tooltip"></div>
             </div>
         </div>
         <div class="card">
@@ -150,6 +166,52 @@ function loadStats() {
         });
 }
 
+let chartBars = [];
+
+function groupDays(days, distancesKm) {
+    const count = days.length;
+    if (count <= 31) return { labels: days, values: distancesKm, sublabels: null };
+
+    // Pick bucket size: weekly for <=90 days, monthly beyond
+    const useMonthly = count > 90;
+    const buckets = new Map();
+
+    for (let i = 0; i < count; i++) {
+        let key;
+        if (useMonthly) {
+            key = days[i].slice(0, 7); // YYYY-MM
+        } else {
+            // Week starting Monday
+            const d = new Date(days[i] + 'T00:00:00');
+            const day = d.getDay();
+            const mon = new Date(d);
+            mon.setDate(d.getDate() - ((day + 6) % 7));
+            key = mon.toISOString().slice(0, 10);
+        }
+        if (!buckets.has(key)) buckets.set(key, { total: 0, days: 0, first: days[i], last: days[i] });
+        const b = buckets.get(key);
+        b.total += distancesKm[i];
+        b.days++;
+        b.last = days[i];
+    }
+
+    const labels = [];
+    const values = [];
+    const sublabels = [];
+    for (const [key, b] of buckets) {
+        labels.push(key);
+        values.push(b.total);
+        if (useMonthly) {
+            const [y, m] = key.split('-');
+            sublabels.push({ label: `${m}/${y}`, range: `${b.first} – ${b.last}`, days: b.days });
+        } else {
+            const p = b.first.split('-');
+            sublabels.push({ label: `${p[1]}/${p[2]}`, range: `${b.first} – ${b.last}`, days: b.days });
+        }
+    }
+    return { labels, values, sublabels };
+}
+
 function drawChart(days, distancesKm) {
     const canvas = document.getElementById('distance-chart');
     const ctx = canvas.getContext('2d');
@@ -167,6 +229,7 @@ function drawChart(days, distancesKm) {
     const cH = H - pad.top - pad.bottom;
 
     ctx.clearRect(0, 0, W, H);
+    chartBars = [];
 
     if (!days.length) {
         ctx.fillStyle = '#8b8fa3';
@@ -177,7 +240,12 @@ function drawChart(days, distancesKm) {
     }
 
     const imperial = isImperial();
-    const values = distancesKm.map(d => imperial ? d * 0.621371 : d);
+    const grouped = groupDays(days, distancesKm);
+    const isGrouped = grouped.sublabels !== null;
+    const rawValues = grouped.values;
+    const values = rawValues.map(d => imperial ? d * 0.621371 : d);
+    const n = values.length;
+
     const maxVal = Math.max(...values, 0.1);
     const niceMax = Math.ceil(maxVal / (maxVal > 100 ? 50 : maxVal > 10 ? 5 : 1)) * (maxVal > 100 ? 50 : maxVal > 10 ? 5 : 1);
 
@@ -206,14 +274,14 @@ function drawChart(days, distancesKm) {
     ctx.fillText(imperial ? 'mi' : 'km', pad.left - 8, pad.top - 6);
 
     // Bars
-    const barGap = Math.max(1, Math.floor(cW / days.length * 0.15));
-    const barW = Math.max(2, (cW / days.length) - barGap);
+    const barGap = Math.max(1, Math.floor(cW / n * 0.15));
+    const barW = Math.max(2, (cW / n) - barGap);
 
     const gradient = ctx.createLinearGradient(0, pad.top, 0, pad.top + cH);
     gradient.addColorStop(0, '#3b82f6');
     gradient.addColorStop(1, '#1d4ed8');
 
-    for (let i = 0; i < days.length; i++) {
+    for (let i = 0; i < n; i++) {
         const x = pad.left + (i * (barW + barGap)) + barGap / 2;
         const barH = (values[i] / niceMax) * cH;
         const y = pad.top + cH - barH;
@@ -223,6 +291,17 @@ function drawChart(days, distancesKm) {
         const r = Math.min(3, barW / 2);
         ctx.roundRect(x, y, barW, barH, [r, r, 0, 0]);
         ctx.fill();
+
+        // Build tooltip text
+        let tip;
+        const dist = formatDistance(rawValues[i]);
+        if (isGrouped) {
+            const s = grouped.sublabels[i];
+            tip = `${s.range}\n${dist} (${s.days} day${s.days !== 1 ? 's' : ''})`;
+        } else {
+            tip = `${grouped.labels[i]}\n${dist}`;
+        }
+        chartBars.push({ x, y, w: barW, h: barH, tip });
     }
 
     // X-axis labels
@@ -231,16 +310,59 @@ function drawChart(days, distancesKm) {
     ctx.textAlign = 'center';
 
     const maxLabels = Math.floor(cW / 60);
-    const step = Math.max(1, Math.ceil(days.length / maxLabels));
+    const step = Math.max(1, Math.ceil(n / maxLabels));
 
-    for (let i = 0; i < days.length; i += step) {
+    for (let i = 0; i < n; i += step) {
         const x = pad.left + (i * (barW + barGap)) + barW / 2;
         const y = H - pad.bottom + 16;
-        const parts = days[i].split('-');
-        const label = `${parts[1]}/${parts[2]}`;
-        ctx.fillText(label, x, y);
+        if (isGrouped) {
+            ctx.fillText(grouped.sublabels[i].label, x, y);
+        } else {
+            const parts = grouped.labels[i].split('-');
+            ctx.fillText(`${parts[1]}/${parts[2]}`, x, y);
+        }
     }
 }
+
+// Tooltip handling
+(function() {
+    const canvas = document.getElementById('distance-chart');
+    const tooltip = document.getElementById('chart-tooltip');
+    const container = canvas.parentElement;
+
+    canvas.addEventListener('mousemove', function(e) {
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+
+        let hit = null;
+        for (const bar of chartBars) {
+            if (mx >= bar.x && mx <= bar.x + bar.w && my >= bar.y && my <= bar.y + bar.h) {
+                hit = bar;
+                break;
+            }
+        }
+
+        if (hit) {
+            tooltip.innerHTML = hit.tip.replace('\n', '<br>');
+            tooltip.style.opacity = '1';
+            // Position tooltip above the bar
+            let tx = hit.x + hit.w / 2;
+            let ty = hit.y - 8;
+            // Adjust if near edges
+            tooltip.style.left = tx + 'px';
+            tooltip.style.bottom = (rect.height - ty) + 'px';
+            tooltip.style.top = '';
+            tooltip.style.transform = 'translateX(-50%)';
+        } else {
+            tooltip.style.opacity = '0';
+        }
+    });
+
+    canvas.addEventListener('mouseleave', function() {
+        tooltip.style.opacity = '0';
+    });
+})();
 
 // Event listeners
 document.getElementById('stats-range').addEventListener('change', () => {
