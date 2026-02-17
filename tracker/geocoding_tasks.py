@@ -1,6 +1,8 @@
 import time
 import threading
 import logging
+from collections import defaultdict
+
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -8,71 +10,71 @@ logger = logging.getLogger(__name__)
 # In-memory reference to the running thread so we can check if it's alive
 _running_threads = {}
 
-BATCH_SIZE = 500
-UPDATE_INTERVAL = 10  # Save progress to DB every N points
+# Round to 3 decimal places ≈ ~111m grid cells
+GRID_PRECISION = 3
+
+
+def _build_clusters(user_id):
+    """Load all un-geocoded coordinates and group into spatial clusters.
+    Returns list of (representative_lat, representative_lon, [location_ids]).
+    Uses values_list to keep memory low.
+    """
+    from .models import Location
+
+    rows = (
+        Location.objects.filter(device__user_id=user_id, city='')
+        .values_list('id', 'latitude', 'longitude')
+    )
+
+    grid = defaultdict(list)
+    rep = {}  # grid_key -> (lat, lon) of first point
+    for loc_id, lat, lon in rows:
+        key = (round(lat, GRID_PRECISION), round(lon, GRID_PRECISION))
+        grid[key].append(loc_id)
+        if key not in rep:
+            rep[key] = (lat, lon)
+
+    clusters = []
+    for key, loc_ids in grid.items():
+        lat, lon = rep[key]
+        clusters.append((lat, lon, loc_ids))
+
+    return clusters
 
 
 def _geocode_worker(user_id):
-    """Worker that geocodes all un-geocoded locations for a user."""
+    """Worker that geocodes all un-geocoded locations for a user using spatial clustering."""
     from .views import reverse_geocode
     from .models import Location, GeocodingJob
 
-    processed = 0
+    points_done = 0
     errors = 0
 
     try:
-        while True:
-            # Check if we should stop
-            try:
-                job = GeocodingJob.objects.get(user_id=user_id)
-            except GeocodingJob.DoesNotExist:
-                break
-            if job.status != 'running':
-                break
+        # Build all clusters upfront
+        clusters = _build_clusters(user_id)
+        if not clusters:
+            return
 
-            batch = list(
-                Location.objects.filter(
-                    device__user_id=user_id, city=''
-                ).order_by('-timestamp')[:BATCH_SIZE]
-            )
-            if not batch:
-                break
+        total_clusters = len(clusters)
+        total_points = sum(len(ids) for _, _, ids in clusters)
 
-            for loc in batch:
-                # Re-check stop flag periodically
-                if processed > 0 and processed % UPDATE_INTERVAL == 0:
-                    try:
-                        job.refresh_from_db()
-                        if job.status != 'running':
-                            break
-                        job.processed = processed
-                        job.errors = errors
-                        job.save(update_fields=['processed', 'errors', 'updated_at'])
-                    except GeocodingJob.DoesNotExist:
-                        break
+        try:
+            job = GeocodingJob.objects.get(user_id=user_id)
+            job.total = total_clusters
+            job.processed = 0
+            job.errors = 0
+            job.save(update_fields=['total', 'processed', 'errors', 'updated_at'])
+        except GeocodingJob.DoesNotExist:
+            return
 
-                try:
-                    result = reverse_geocode(loc.latitude, loc.longitude)
-                    if result:
-                        loc.city = result['city']
-                        loc.state = result['state']
-                        loc.country = result['country']
-                        loc.country_code = result['country_code']
-                        loc.place_name = result['place_name']
-                        loc.save(update_fields=[
-                            'city', 'state', 'country',
-                            'country_code', 'place_name',
-                        ])
-                        processed += 1
-                    else:
-                        errors += 1
-                except Exception as e:
-                    logger.error(f"Geocoding error: {e}")
-                    errors += 1
+        logger.info(
+            f"Geocoding user {user_id}: {total_points} points in "
+            f"{total_clusters} clusters"
+        )
 
-                time.sleep(1.1)
-
-            # Check if inner loop broke due to stop
+        for i, (lat, lon, loc_ids) in enumerate(clusters):
+            # Check stop flag
             try:
                 job.refresh_from_db()
                 if job.status != 'running':
@@ -80,23 +82,48 @@ def _geocode_worker(user_id):
             except GeocodingJob.DoesNotExist:
                 break
 
+            try:
+                result = reverse_geocode(lat, lon)
+
+                if result:
+                    Location.objects.filter(id__in=loc_ids).update(
+                        city=result['city'],
+                        state=result['state'],
+                        country=result['country'],
+                        country_code=result['country_code'],
+                        place_name=result['place_name'],
+                    )
+                    points_done += len(loc_ids)
+                else:
+                    errors += 1
+            except Exception as e:
+                logger.error(f"Geocoding error: {e}")
+                errors += 1
+
+            # Update progress after every cluster
+            job.processed = i + 1
+            job.errors = errors
+            job.save(update_fields=['processed', 'errors', 'updated_at'])
+
+            time.sleep(1.1)
+
     finally:
-        # Final save
         try:
             job = GeocodingJob.objects.get(user_id=user_id)
-            job.processed = processed
-            job.errors = errors
             if job.status == 'running':
                 job.status = 'completed'
-            job.save(update_fields=['processed', 'errors', 'status', 'updated_at'])
+            job.save(update_fields=['status', 'updated_at'])
         except GeocodingJob.DoesNotExist:
             pass
 
         _running_threads.pop(user_id, None)
-        logger.info(f"Geocoding done for user {user_id}: {processed} processed, {errors} errors")
+        logger.info(
+            f"Geocoding done for user {user_id}: {points_done} points, "
+            f"{errors} errors, {job.processed}/{job.total} clusters"
+        )
 
 
-def start_geocoding(user_id, total):
+def start_geocoding(user_id, total_points):
     """Start (or resume) geocoding for a user. Returns the job."""
     from .models import GeocodingJob
 
@@ -105,19 +132,17 @@ def start_geocoding(user_id, total):
         user_id=user_id, status__in=['completed', 'stopped']
     ).delete()
 
-    # Create or get running job
+    # Create or get running job (total will be updated to cluster count by worker)
     job, created = GeocodingJob.objects.get_or_create(
         user_id=user_id,
-        defaults={'status': 'running', 'total': total},
+        defaults={'status': 'running', 'total': 0},
     )
 
     if not created:
-        # Job row exists — already running?
         if job.status == 'running' and _is_thread_alive(user_id):
             return job
-        # Stale job (server restarted) — reset and restart
         job.status = 'running'
-        job.total = total
+        job.total = 0
         job.processed = 0
         job.errors = 0
         job.save()
@@ -152,8 +177,6 @@ def get_status(user_id):
             device__user_id=user_id, city=''
         ).count()
         if remaining > 0:
-            job.total = job.processed + remaining
-            job.save(update_fields=['total'])
             _start_thread(user_id)
         else:
             job.status = 'completed'

@@ -439,7 +439,7 @@
                     <li><strong>trip management</strong> — organize locations into named trips with places and time-spent tracking</li>
                     <li><strong>visit analytics</strong> — see which cities, states, and countries you've visited with time spent at each</li>
                     <li><strong>distance tracking</strong> — daily distance calculations with canvas-based charts</li>
-                    <li><strong>reverse geocoding</strong> — automatic conversion of coordinates to place names via openstreetmap nominatim</li>
+                    <li><strong>reverse geocoding</strong> — automatic conversion of coordinates to place names via openstreetmap nominatim with spatial clustering</li>
                     <li><strong>import & export</strong> — full data portability with csv, gpx, and json backup formats</li>
                     <li><strong>automatic s3 backups</strong> — scheduled backups to any s3-compatible storage with configurable retention</li>
                     <li><strong>owntracks compatible</strong> — native support for owntracks http mode</li>
@@ -578,7 +578,7 @@ docker compose exec -T db psql -U roamly roamly < backup.sql</code></pre>
                     <span class="step-number">5</span>
                     <div class="step-content">
                         <h4>run geocoding</h4>
-                        <p>go to <strong>settings</strong> and click <strong>start geocoding</strong> to convert your location coordinates into city/country names. this runs in the background and respects nominatim rate limits.</p>
+                        <p>go to <strong>settings</strong> and click <strong>start geocoding</strong> to convert your location coordinates into city/country names. this runs in the background using spatial clustering to minimize api calls.</p>
                     </div>
                 </div>
 
@@ -977,16 +977,19 @@ print(response.json())</code></pre>
                     <li><strong>background batch:</strong> for bulk imports or failed geocoding attempts, you can run a background job from <strong>settings</strong></li>
                 </ul>
 
+                <h2>spatial clustering</h2>
+                <p>to work around nominatim's rate limit (1 request per second), roamly groups nearby points into spatial clusters (~111m grid). all points in the same cluster share a single geocode result. this dramatically reduces api calls — for example, 100,000 points concentrated in a few cities might only need a few thousand requests instead of 100,000.</p>
+
                 <h2>running background geocoding</h2>
                 <ol>
                     <li>go to <strong>settings</strong></li>
                     <li>click <strong>start geocoding</strong></li>
-                    <li>roamly processes un-geocoded locations in batches of 500, with a 1.1-second pause between requests (to respect nominatim rate limits)</li>
+                    <li>roamly clusters nearby points and geocodes one representative per cluster, then applies the result to all points in that cluster</li>
                     <li>progress is shown live — you can refresh to check, or click <strong>stop</strong> to pause</li>
                 </ol>
 
                 <div class="info-box">
-                    <strong>rate limits:</strong> nominatim allows 1 request per second. roamly throttles automatically. for 10,000 un-geocoded locations, expect about 3 hours of processing time.
+                    <strong>performance:</strong> actual speed depends on how clustered your data is. dense urban data (many points per area) will be much faster than sparse travel data. the progress bar shows points processed, not api calls made.
                 </div>
 
                 <h2>what gets stored</h2>
@@ -1591,7 +1594,7 @@ docker compose up -d --build</code></pre>
 │                                                          │
 │  ┌───────────────────────────────────────────────────┐  │
 │  │  background threads                                │  │
-│  │  • reverse geocoding (nominatim, 1 req/sec)        │  │
+│  │  • reverse geocoding (nominatim, clustered)          │  │
 │  │  • s3 backup scheduler (checks every 15 min)       │  │
 │  │  • auto-resume stale jobs on startup               │  │
 │  └───────────────────────────────────────────────────┘  │
