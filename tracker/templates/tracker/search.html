@@ -34,27 +34,6 @@
     color: var(--text-muted);
     margin: 0 0 1rem 0;
 }
-.search-controls {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 1rem;
-}
-.mode-btn {
-    background: none;
-    border: 1px solid var(--border);
-    color: var(--text-muted);
-    padding: 4px 12px;
-    border-radius: 6px;
-    font-size: 0.8125rem;
-    font-family: 'Space Grotesk', sans-serif;
-    cursor: pointer;
-}
-.mode-btn.active {
-    background: var(--primary);
-    color: #fff;
-    border-color: var(--primary);
-}
 .search-summary {
     font-size: 0.875rem;
     color: var(--text-muted);
@@ -134,11 +113,6 @@ table tbody tr[onclick]:hover {
         try a city or state name, "here" for your current location, or a place like "walmart"
     </p>
 
-    <div class="search-controls" id="search-controls" style="display:none;">
-        <button class="mode-btn active" id="btn-text" onclick="setMode('text')">location name</button>
-        <button class="mode-btn" id="btn-place" onclick="setMode('place')">search as place</button>
-    </div>
-
     <div id="search-loading" style="display:none; text-align:center; padding:2rem; color:var(--text-muted);">
         <span class="spinner"></span> searching...
     </div>
@@ -212,36 +186,21 @@ checkPoiStatus();
 
 // --- Search ---
 let debounceTimer = null;
-let currentMode = 'text';
 const input = document.getElementById('search-input');
-const controls = document.getElementById('search-controls');
 const loading = document.getElementById('search-loading');
 const results = document.getElementById('search-results');
-
-function setMode(mode) {
-    currentMode = mode;
-    document.getElementById('btn-text').classList.toggle('active', mode === 'text');
-    document.getElementById('btn-place').classList.toggle('active', mode === 'place');
-    const q = input.value.trim();
-    if (q.length >= 2 && q.toLowerCase() !== 'here') {
-        performSearch(q);
-    }
-}
 
 input.addEventListener('input', () => {
     clearTimeout(debounceTimer);
     const q = input.value.trim();
     if (q.length < 2) {
         results.innerHTML = '';
-        controls.style.display = 'none';
         return;
     }
     if (q.toLowerCase() === 'here') {
-        controls.style.display = 'none';
         debounceTimer = setTimeout(() => searchHere(), 300);
         return;
     }
-    controls.style.display = 'flex';
     debounceTimer = setTimeout(() => performSearch(q), 400);
 });
 
@@ -272,7 +231,7 @@ async function searchHere() {
         const resp = await fetch(url);
         const data = await resp.json();
         loading.style.display = 'none';
-        renderResults(data);
+        renderHereResults(data);
     } catch (e) {
         loading.style.display = 'none';
         results.innerHTML = '<div class="card no-results">could not get your location. please enable location access.</div>';
@@ -283,11 +242,8 @@ async function performSearch(query) {
     loading.style.display = 'block';
     loading.innerHTML = '<span class="spinner"></span> searching...';
     results.innerHTML = '';
-    const url = currentMode === 'place'
-        ? `/api/search/?mode=place&q=${encodeURIComponent(query)}`
-        : `/api/search/?mode=text&q=${encodeURIComponent(query)}`;
     try {
-        const resp = await fetch(url);
+        const resp = await fetch(`/api/search/?q=${encodeURIComponent(query)}`);
         const data = await resp.json();
         loading.style.display = 'none';
         if (data.error) {
@@ -312,28 +268,66 @@ function formatDuration(seconds) {
     return `${m}m`;
 }
 
-function renderResults(data) {
-    if (data.error) {
-        results.innerHTML = `<div class="card no-results">${data.error}</div>`;
-        return;
-    }
-
-    if (data.mode === 'place') {
-        renderPlaceResults(data);
-        return;
-    }
-
+function renderHereResults(data) {
     const rows = data.results || [];
     if (!rows.length) {
         results.innerHTML = '<div class="card no-results">no results found</div>';
         return;
     }
-
     let html = `<div class="search-summary">${data.total_days} day${data.total_days !== 1 ? 's' : ''} found &middot; ${data.total_points.toLocaleString()} points</div>`;
-    html += '<div class="card"><div class="table-responsive"><table>';
+    html += renderLocationTable(rows);
+    results.innerHTML = html;
+}
+
+function renderResults(data) {
+    const locRows = data.location_results || [];
+    const places = data.place_results || [];
+    let html = '';
+
+    if (!locRows.length && !places.length) {
+        let msg = 'no results found';
+        if (data.needs_download) {
+            msg += '<br><small style="font-size:0.8125rem;">download place data above to also search stores, restaurants, airports, and more</small>';
+        }
+        results.innerHTML = `<div class="card no-results">${msg}</div>`;
+        return;
+    }
+
+    // Location/city results
+    if (locRows.length) {
+        html += `<div class="search-summary">${data.total_days} day${data.total_days !== 1 ? 's' : ''} in matching locations &middot; ${data.total_points.toLocaleString()} points</div>`;
+        html += renderLocationTable(locRows);
+    }
+
+    // Place results
+    if (places.length) {
+        html += `<div class="search-summary" style="margin-top:1.5rem;">${places.length} matching place${places.length !== 1 ? 's' : ''} visited</div>`;
+        for (const place of places) {
+            html += '<div class="card place-card">';
+            html += `<div class="place-card-header">${place.place_name} <small>${place.total_points} point${place.total_points !== 1 ? 's' : ''}</small></div>`;
+            html += '<div class="table-responsive"><table>';
+            html += '<thead><tr><th>date</th><th>points</th><th>time spent</th></tr></thead><tbody>';
+            for (const day of place.days) {
+                const d = new Date(day.date + 'T00:00:00');
+                const dateStr = d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+                const mapUrl = `/map/?start=${day.date}&end=${day.date}&lat=${place.lat}&lng=${place.lng}&zoom=16`;
+                html += `<tr onclick="window.location='${mapUrl}'" style="cursor:pointer;" title="view on map">
+                    <td style="white-space:nowrap"><a href="${mapUrl}" style="color:var(--primary);text-decoration:none;">${dateStr}</a></td>
+                    <td>${day.count}</td>
+                    <td style="white-space:nowrap">${formatDuration(day.time_spent)}</td>
+                </tr>`;
+            }
+            html += '</tbody></table></div></div>';
+        }
+    }
+
+    results.innerHTML = html;
+}
+
+function renderLocationTable(rows) {
+    let html = '<div class="card"><div class="table-responsive"><table>';
     html += '<thead><tr><th>date</th><th>location</th><th>points</th><th>time spent</th><th>device</th></tr></thead>';
     html += '<tbody>';
-
     for (const r of rows) {
         const d = new Date(r.date + 'T00:00:00');
         const dateStr = d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
@@ -348,48 +342,8 @@ function renderResults(data) {
             <td style="color:var(--text-muted)">${deviceStr}</td>
         </tr>`;
     }
-
     html += '</tbody></table></div></div>';
-    results.innerHTML = html;
-}
-
-function renderPlaceResults(data) {
-    const places = data.results || [];
-    const checked = data.places_checked || 0;
-
-    if (data.needs_download) {
-        results.innerHTML = '<div class="card no-results">place data not downloaded yet — click "download places" above to index nearby stores, restaurants, airports, and more</div>';
-        return;
-    }
-
-    if (!places.length) {
-        let msg = 'no matching places found in your history';
-        if (checked > 0) {
-            msg += `<br><small style="font-size:0.8125rem;">found ${checked} "${data.query || ''}" location${checked !== 1 ? 's' : ''} in the database, but none were within 150m of your recorded points</small>`;
-        }
-        results.innerHTML = `<div class="card no-results">${msg}</div>`;
-        return;
-    }
-
-    let html = `<div class="search-summary">${places.length} place${places.length !== 1 ? 's' : ''} found</div>`;
-    for (const place of places) {
-        html += '<div class="card place-card">';
-        html += `<div class="place-card-header">${place.place_name} <small>${place.total_points} point${place.total_points !== 1 ? 's' : ''}</small></div>`;
-        html += '<div class="table-responsive"><table>';
-        html += '<thead><tr><th>date</th><th>points</th><th>time spent</th></tr></thead><tbody>';
-        for (const day of place.days) {
-            const d = new Date(day.date + 'T00:00:00');
-            const dateStr = d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-            const mapUrl = `/map/?start=${day.date}&end=${day.date}&lat=${place.lat}&lng=${place.lng}&zoom=16`;
-            html += `<tr onclick="window.location='${mapUrl}'" style="cursor:pointer;" title="view on map">
-                <td style="white-space:nowrap"><a href="${mapUrl}" style="color:var(--primary);text-decoration:none;">${dateStr}</a></td>
-                <td>${day.count}</td>
-                <td style="white-space:nowrap">${formatDuration(day.time_spent)}</td>
-            </tr>`;
-        }
-        html += '</tbody></table></div></div>';
-    }
-    results.innerHTML = html;
+    return html;
 }
 </script>
 {% endblock %}

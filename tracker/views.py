@@ -1843,35 +1843,30 @@ def search_api(request):
     if not q:
         return JsonResponse({'error': 'q parameter required'}, status=400)
 
-    if mode == 'place':
-        poi_count = POI.objects.count()
-        if poi_count == 0:
-            return JsonResponse({
-                'mode': 'place',
-                'query': q,
-                'results': [],
-                'needs_download': True,
-                'places_checked': 0,
-            })
-        results = _search_local_pois(q, locations)
-        return JsonResponse({
-            'mode': 'place',
-            'query': q,
-            'results': results,
-            'places_checked': POI.objects.filter(name__icontains=q).count(),
-        })
-
-    # Default: text mode
+    # Location name results (city/state/place_name matches)
     filtered = locations.filter(
         Q(city__icontains=q) | Q(state__icontains=q) | Q(place_name__icontains=q)
     )
     days = _group_by_day(filtered)
+
+    # Place results (from local POI database)
+    place_results = []
+    needs_download = False
+    places_checked = 0
+    if POI.objects.count() > 0:
+        place_results = _search_local_pois(q, locations)
+        places_checked = POI.objects.filter(name__icontains=q).count()
+    else:
+        needs_download = True
+
     return JsonResponse({
-        'mode': 'text',
         'query': q,
-        'results': days,
+        'location_results': days,
         'total_days': len(days),
         'total_points': sum(d['count'] for d in days),
+        'place_results': place_results,
+        'places_checked': places_checked,
+        'needs_download': needs_download,
     })
 
 
