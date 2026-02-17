@@ -213,6 +213,7 @@
                 <h4 style="font-size: 0.875rem; margin-bottom: 0.5rem;">Full Backup</h4>
                 <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem;">
                     Download or restore a complete backup of all your data — locations, trips, devices, and API keys.
+                    Indexed locations are not included, as they can be redownloaded at any time.
                 </p>
                 <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                     <a href="/api/export/backup/" class="btn btn-primary btn-sm">Download Backup</a>
@@ -226,6 +227,9 @@
 
             <div style="margin-bottom: 1rem; border-top: 1px solid var(--border); padding-top: 1rem;">
                 <h4 style="font-size: 0.875rem; margin-bottom: 0.5rem;">Export</h4>
+                <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+                    Exports locations only — trips, devices, and other data are not included.
+                </p>
                 <div style="display: flex; gap: 0.5rem;">
                     <a href="/api/export/csv/" class="btn btn-outline btn-sm">Export CSV</a>
                     <a href="/api/export/gpx/" class="btn btn-outline btn-sm">Export GPX</a>
