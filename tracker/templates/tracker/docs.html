@@ -405,6 +405,7 @@
                 <a href="#trips-tutorial" class="sidebar-link" onclick="showSection('trips-tutorial')">managing trips</a>
                 <a href="#data-management" class="sidebar-link" onclick="showSection('data-management')">import & export</a>
                 <a href="#geocoding" class="sidebar-link" onclick="showSection('geocoding')">geocoding</a>
+                <a href="#backups" class="sidebar-link" onclick="showSection('backups')">automatic backups</a>
             </div>
 
             <div class="sidebar-section">
@@ -440,6 +441,7 @@
                     <li><strong>distance tracking</strong> — daily distance calculations with canvas-based charts</li>
                     <li><strong>reverse geocoding</strong> — automatic conversion of coordinates to place names via openstreetmap nominatim</li>
                     <li><strong>import & export</strong> — full data portability with csv, gpx, and json backup formats</li>
+                    <li><strong>automatic s3 backups</strong> — scheduled backups to any s3-compatible storage with configurable retention</li>
                     <li><strong>owntracks compatible</strong> — native support for owntracks http mode</li>
                     <li><strong>api key auth</strong> — secure api keys for each device, manageable from the web ui</li>
                     <li><strong>pwa support</strong> — installable as a progressive web app with offline capabilities</li>
@@ -998,6 +1000,113 @@ print(response.json())</code></pre>
                 </ul>
             </section>
 
+            <!-- Automatic Backups -->
+            <section id="backups" class="section">
+                <h1>automatic backups</h1>
+                <p>roamly can automatically back up all your data to any s3-compatible storage provider — aws s3, backblaze b2, cloudflare r2, minio, wasabi, or any service that speaks the s3 api.</p>
+
+                <h2>supported providers</h2>
+                <div class="table-wrapper">
+                    <table>
+                        <tr>
+                            <th>provider</th>
+                            <th>endpoint url</th>
+                        </tr>
+                        <tr>
+                            <td>aws s3</td>
+                            <td><code>https://s3.amazonaws.com</code> (or regional, e.g. <code>https://s3.us-east-1.amazonaws.com</code>)</td>
+                        </tr>
+                        <tr>
+                            <td>backblaze b2</td>
+                            <td><code>https://s3.us-west-000.backblazeb2.com</code> (check your bucket region)</td>
+                        </tr>
+                        <tr>
+                            <td>cloudflare r2</td>
+                            <td><code>https://&lt;account-id&gt;.r2.cloudflarestorage.com</code></td>
+                        </tr>
+                        <tr>
+                            <td>minio</td>
+                            <td><code>http://your-minio-server:9000</code></td>
+                        </tr>
+                        <tr>
+                            <td>wasabi</td>
+                            <td><code>https://s3.wasabisys.com</code> (or regional)</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <h2>setting up automatic backups</h2>
+
+                <div class="step">
+                    <span class="step-number">1</span>
+                    <div class="step-content">
+                        <h4>create a bucket</h4>
+                        <p>create a bucket in your s3 provider's dashboard. note the bucket name, endpoint url, and region.</p>
+                    </div>
+                </div>
+
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <div class="step-content">
+                        <h4>get access credentials</h4>
+                        <p>create an access key and secret key with read/write permissions for the bucket. most providers have an "application keys" or "iam" section for this.</p>
+                    </div>
+                </div>
+
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <div class="step-content">
+                        <h4>configure in roamly</h4>
+                        <p>go to <strong>settings → automatic backups</strong> and fill in:</p>
+                        <ul>
+                            <li><strong>endpoint url</strong> — your provider's s3 endpoint</li>
+                            <li><strong>bucket name</strong> — the bucket you created</li>
+                            <li><strong>access key</strong> and <strong>secret key</strong> — your credentials</li>
+                            <li><strong>path prefix</strong> — folder path inside the bucket (default: <code>roamly-backups/</code>)</li>
+                            <li><strong>region</strong> — bucket region (default: <code>auto</code>)</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="step">
+                    <span class="step-number">4</span>
+                    <div class="step-content">
+                        <h4>test the connection</h4>
+                        <p>click <strong>test connection</strong> to verify your credentials. roamly uploads and deletes a small test file to confirm everything works.</p>
+                    </div>
+                </div>
+
+                <div class="step">
+                    <span class="step-number">5</span>
+                    <div class="step-content">
+                        <h4>set a schedule</h4>
+                        <p>choose a backup interval: <strong>daily</strong>, <strong>weekly</strong>, or <strong>monthly</strong>. click <strong>save</strong>. backups will run automatically in the background.</p>
+                    </div>
+                </div>
+
+                <h2>backup retention</h2>
+                <p>set <strong>max backups to keep</strong> to automatically delete older backups when the limit is exceeded. set to <code>0</code> for unlimited retention. after each successful backup, roamly lists all backup files in your bucket prefix and removes the oldest ones beyond the limit.</p>
+
+                <h2>manual backups</h2>
+                <p>click <strong>backup now</strong> to trigger an immediate backup at any time. the backup runs in the background — you can see progress and status in the settings page.</p>
+
+                <h2>backup format</h2>
+                <p>backups use the same json format as the manual export. each backup file contains all your devices, locations, trips, places, and api keys. files are named:</p>
+                <pre><code>{prefix}{username}/backup_{YYYY-MM-DD_HHmmss}.json</code></pre>
+                <p>for example: <code>roamly-backups/alice/backup_2026-02-17_143022.json</code></p>
+
+                <h2>restoring from an s3 backup</h2>
+                <ol>
+                    <li>download the backup json file from your s3 bucket</li>
+                    <li>go to <strong>settings → import → restore from backup</strong></li>
+                    <li>upload the json file — roamly restores everything in an atomic transaction</li>
+                </ol>
+
+                <div class="info-box">
+                    <strong>tip:</strong> the backup scheduler checks every 15 minutes whether a backup is due. so a "daily" backup won't run at exactly the same time each day, but within a 15-minute window of when the interval elapses.
+                </div>
+            </section>
+
             <!-- Reverse Proxy -->
             <section id="reverse-proxy" class="section">
                 <h1>reverse proxy</h1>
@@ -1317,6 +1426,48 @@ docker compose up -d --build</code></pre>
                     </table>
                 </div>
 
+                <h2>backups</h2>
+                <div class="table-wrapper">
+                    <table>
+                        <tr>
+                            <th>method</th>
+                            <th>endpoint</th>
+                            <th>auth</th>
+                            <th>description</th>
+                        </tr>
+                        <tr>
+                            <td><span class="badge badge-get">GET</span></td>
+                            <td><code>/api/backup/config/</code></td>
+                            <td>session</td>
+                            <td>get current s3 backup configuration</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge badge-post">POST</span></td>
+                            <td><code>/api/backup/config/</code></td>
+                            <td>session</td>
+                            <td>save s3 backup configuration and schedule</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge badge-post">POST</span></td>
+                            <td><code>/api/backup/test/</code></td>
+                            <td>session</td>
+                            <td>test s3 connection with provided credentials</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge badge-post">POST</span></td>
+                            <td><code>/api/backup/now/</code></td>
+                            <td>session</td>
+                            <td>trigger an immediate backup</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge badge-get">GET</span></td>
+                            <td><code>/api/backup/status/</code></td>
+                            <td>session</td>
+                            <td>get last backup status, time, and size</td>
+                        </tr>
+                    </table>
+                </div>
+
                 <h2>api keys & devices</h2>
                 <div class="table-wrapper">
                     <table>
@@ -1441,6 +1592,7 @@ docker compose up -d --build</code></pre>
 │  ┌───────────────────────────────────────────────────┐  │
 │  │  background threads                                │  │
 │  │  • reverse geocoding (nominatim, 1 req/sec)        │  │
+│  │  • s3 backup scheduler (checks every 15 min)       │  │
 │  │  • auto-resume stale jobs on startup               │  │
 │  └───────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────┘</code></pre>
@@ -1452,7 +1604,9 @@ docker compose up -d --build</code></pre>
 │   ├── location    — lat/lng/point, timestamp, geocoded fields
 │   └── trip        — name, start/end time
 │       └── tripplace  — named waypoint with radius
-└── geocodingjob    — one per user, tracks batch progress</code></pre>
+├── geocodingjob    — one per user, tracks batch progress
+├── poidownloadjob  — one per user, tracks poi download progress
+└── backupconfig    — s3 credentials, schedule, retention limit</code></pre>
 
                 <h2>vector tiles</h2>
                 <p>the map uses postgis-generated <a href="https://docs.mapbox.com/data/tilesets/guides/vector-tiles-introduction/" target="_blank" style="color: var(--primary);">mapbox vector tiles</a> for fast rendering. instead of sending thousands of geojson points to the browser, the server generates compact binary tiles on-demand using <code>ST_AsMVT()</code>. each tile contains two layers:</p>
