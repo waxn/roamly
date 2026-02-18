@@ -1,40 +1,64 @@
 """Register GeocodingJob, POI, POIDownloadJob, and BackupConfig models.
 
-Some of these tables may already exist in the database (created outside
-migrations or by partial migration runs). We use RunPython to only create
-tables that don't yet exist.
+Uses CREATE TABLE IF NOT EXISTS so it's safe to run on databases where
+the tables were already created outside migrations.
 """
 import django.db.models.deletion
 from django.conf import settings
-from django.db import connection, migrations, models
+from django.db import migrations, models
 
 
-def create_missing_tables(apps, schema_editor):
-    """Create only tables that don't already exist in the database."""
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
-        )
-        existing = {row[0] for row in cursor.fetchall()}
+CREATE_TABLES_SQL = """
+CREATE TABLE IF NOT EXISTS tracker_geocodingjob (
+    id bigserial PRIMARY KEY,
+    status varchar(20) NOT NULL DEFAULT 'running',
+    processed integer NOT NULL DEFAULT 0,
+    errors integer NOT NULL DEFAULT 0,
+    total integer NOT NULL DEFAULT 0,
+    started_at timestamptz NOT NULL DEFAULT NOW(),
+    updated_at timestamptz NOT NULL DEFAULT NOW(),
+    user_id integer NOT NULL UNIQUE REFERENCES auth_user(id) ON DELETE CASCADE
+);
 
-    models_to_check = [
-        'tracker_geocodingjob',
-        'tracker_poi',
-        'tracker_poidownloadjob',
-        'tracker_backupconfig',
-    ]
-    model_names = {
-        'tracker_geocodingjob': 'GeocodingJob',
-        'tracker_poi': 'POI',
-        'tracker_poidownloadjob': 'POIDownloadJob',
-        'tracker_backupconfig': 'BackupConfig',
-    }
+CREATE TABLE IF NOT EXISTS tracker_poi (
+    id bigserial PRIMARY KEY,
+    name varchar(300) NOT NULL,
+    latitude double precision NOT NULL,
+    longitude double precision NOT NULL,
+    category varchar(100) NOT NULL DEFAULT '',
+    address varchar(500) NOT NULL DEFAULT '',
+    UNIQUE (name, latitude, longitude)
+);
+CREATE INDEX IF NOT EXISTS tracker_poi_latitud_idx ON tracker_poi (latitude, longitude);
+CREATE INDEX IF NOT EXISTS tracker_poi_name_idx ON tracker_poi (name);
 
-    for table_name in models_to_check:
-        if table_name not in existing:
-            model = apps.get_model('tracker', model_names[table_name])
-            with schema_editor.connection.schema_editor() as editor:
-                editor.create_model(model)
+CREATE TABLE IF NOT EXISTS tracker_poidownloadjob (
+    id bigserial PRIMARY KEY,
+    status varchar(20) NOT NULL DEFAULT 'running',
+    processed integer NOT NULL DEFAULT 0,
+    total integer NOT NULL DEFAULT 0,
+    pois_added integer NOT NULL DEFAULT 0,
+    started_at timestamptz NOT NULL DEFAULT NOW(),
+    updated_at timestamptz NOT NULL DEFAULT NOW(),
+    user_id integer NOT NULL UNIQUE REFERENCES auth_user(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS tracker_backupconfig (
+    id bigserial PRIMARY KEY,
+    endpoint_url varchar(500) NOT NULL,
+    bucket_name varchar(200) NOT NULL,
+    access_key varchar(200) NOT NULL,
+    secret_key varchar(200) NOT NULL,
+    prefix varchar(200) NOT NULL DEFAULT 'roamly-backups/',
+    region varchar(100) NOT NULL DEFAULT 'auto',
+    interval varchar(20) NOT NULL DEFAULT 'disabled',
+    last_backup_at timestamptz,
+    last_backup_status varchar(20) NOT NULL DEFAULT 'never',
+    last_backup_error text NOT NULL DEFAULT '',
+    last_backup_size integer,
+    user_id integer NOT NULL UNIQUE REFERENCES auth_user(id) ON DELETE CASCADE
+);
+"""
 
 
 class Migration(migrations.Migration):
@@ -45,7 +69,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Register all models in Django's migration state
         migrations.SeparateDatabaseAndState(
             state_operations=[
                 migrations.CreateModel(
@@ -109,8 +132,7 @@ class Migration(migrations.Migration):
                 ),
             ],
             database_operations=[
-                # Use RunPython to only create tables that don't already exist
-                migrations.RunPython(create_missing_tables, migrations.RunPython.noop),
+                migrations.RunSQL(CREATE_TABLES_SQL, migrations.RunSQL.noop),
             ],
         ),
     ]
