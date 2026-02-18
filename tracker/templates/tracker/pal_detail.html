@@ -3,16 +3,26 @@
 
 {% block extra_css %}
 <style>
+.pal-page + div { display: none; } /* hide footer */
 .pal-page {
-    position: fixed;
-    top: 56px; left: 0; right: 0; bottom: 0;
     display: flex;
-    z-index: 100;
+    flex-direction: row;
+    height: calc(100vh - 56px - var(--bottom-nav-height));
+    width: 100%;
+    overflow: hidden;
 }
-.pal-map-area { flex: 2; position: relative; min-width: 0; }
-.pal-map-area #pal-map { width: 100%; height: 100%; }
+.pal-map-area {
+    flex: 1;
+    position: relative;
+    min-width: 0;
+}
+.pal-map-area #pal-map {
+    width: 100%;
+    height: 100%;
+}
 .pal-sidebar {
-    flex: 1; min-width: 320px; max-width: 420px;
+    width: 380px; min-width: 320px; max-width: 420px;
+    flex-shrink: 0;
     background: var(--bg-card);
     border-left: 1px solid var(--border);
     display: flex; flex-direction: column;
@@ -129,9 +139,9 @@
 }
 .lightbox img { max-width: 90%; max-height: 90%; object-fit: contain; border-radius: 8px; }
 @media (max-width: 768px) {
-    .pal-page { flex-direction: column; top: 0; bottom: 64px; }
+    .pal-page { flex-direction: column; }
     .pal-map-area { height: 40vh; flex: none; }
-    .pal-sidebar { max-width: none; min-width: 0; flex: 1; }
+    .pal-sidebar { max-width: none; min-width: 0; width: auto; flex: 1; border-left: none; border-top: 1px solid var(--border); }
 }
 </style>
 {% endblock %}
@@ -193,6 +203,8 @@ palMap = new maplibregl.Map({
     zoom: 2,
 });
 palMap.addControl(new maplibregl.NavigationControl(), 'bottom-right');
+// Force resize after layout settles
+setTimeout(() => palMap.resize(), 100);
 
 // --- Tabs ---
 function switchTab(tab, btn) {
