@@ -1,4 +1,5 @@
 import io
+import uuid
 from PIL import Image
 from django.core.files.uploadedfile import InMemoryUploadedFile
 
@@ -22,8 +23,9 @@ def resize_image(image_field, max_size, quality=85):
     img.save(buffer, format='JPEG', quality=quality)
     buffer.seek(0)
 
+    filename = f'{uuid.uuid4().hex[:12]}_{max_size}.jpg'
     return InMemoryUploadedFile(
-        buffer, 'ImageField', f'resized_{max_size}.jpg',
+        buffer, 'ImageField', filename,
         'image/jpeg', buffer.getbuffer().nbytes, None
     )
 
@@ -41,8 +43,9 @@ def resize_photo(image_field, max_width=1200, thumb_size=300, quality=85):
     full_buf = io.BytesIO()
     img.save(full_buf, format='JPEG', quality=quality)
     full_buf.seek(0)
+    uid = uuid.uuid4().hex[:12]
     full_file = InMemoryUploadedFile(
-        full_buf, 'ImageField', 'photo.jpg',
+        full_buf, 'ImageField', f'{uid}.jpg',
         'image/jpeg', full_buf.getbuffer().nbytes, None
     )
 
@@ -53,7 +56,7 @@ def resize_photo(image_field, max_width=1200, thumb_size=300, quality=85):
     thumb.save(thumb_buf, format='JPEG', quality=80)
     thumb_buf.seek(0)
     thumb_file = InMemoryUploadedFile(
-        thumb_buf, 'ImageField', 'thumb.jpg',
+        thumb_buf, 'ImageField', f'{uid}_thumb.jpg',
         'image/jpeg', thumb_buf.getbuffer().nbytes, None
     )
 
