@@ -157,31 +157,42 @@ function loadStats() {
             document.getElementById('timeline-info').innerHTML = timeline;
         });
 
-    fetch(`/api/distance/?${params}`)
+    const distParams = new URLSearchParams(params.toString());
+    const range = document.getElementById('stats-range').value;
+    if (range === '24') distParams.set('granularity', 'hourly');
+    fetch(`/api/distance/?${distParams}`)
         .then(r => r.json())
         .then(data => {
             document.getElementById('stat-distance').textContent = formatDistance(data.total_km);
             document.getElementById('stat-distance-label').textContent = isImperial() ? 'Total Miles' : 'Total Kilometres';
-            drawChart(data.days, data.distances);
+            drawChart(data.days, data.distances, range);
         });
 }
 
 let chartBars = [];
 
-function groupDays(days, distancesKm) {
-    const count = days.length;
-    if (count <= 31) return { labels: days, values: distancesKm, sublabels: null };
+function groupDays(days, distancesKm, range) {
+    // Determine grouping based on selected range:
+    // 24h = hourly (data already hourly from API), 72h/168h/720h = daily,
+    // 2160h/8760h = weekly, all = monthly
+    let mode;
+    if (range === '24') mode = 'hourly';
+    else if (range === '72' || range === '168' || range === '720') mode = 'daily';
+    else if (range === '2160' || range === '8760') mode = 'weekly';
+    else mode = 'monthly';
 
-    // Pick bucket size: weekly for <=90 days, monthly beyond
-    const useMonthly = count > 90;
+    // For hourly and daily, no further grouping needed
+    if (mode === 'hourly' || mode === 'daily') {
+        return { labels: days, values: distancesKm, sublabels: null, mode };
+    }
+
     const buckets = new Map();
-
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < days.length; i++) {
         let key;
-        if (useMonthly) {
+        if (mode === 'monthly') {
             key = days[i].slice(0, 7); // YYYY-MM
         } else {
-            // Week starting Monday
+            // Weekly: bucket by Monday of that week
             const d = new Date(days[i] + 'T00:00:00');
             const day = d.getDay();
             const mon = new Date(d);
@@ -201,7 +212,7 @@ function groupDays(days, distancesKm) {
     for (const [key, b] of buckets) {
         labels.push(key);
         values.push(b.total);
-        if (useMonthly) {
+        if (mode === 'monthly') {
             const [y, m] = key.split('-');
             sublabels.push({ label: `${m}/${y}`, range: `${b.first} – ${b.last}`, days: b.days });
         } else {
@@ -209,10 +220,10 @@ function groupDays(days, distancesKm) {
             sublabels.push({ label: `${p[1]}/${p[2]}`, range: `${b.first} – ${b.last}`, days: b.days });
         }
     }
-    return { labels, values, sublabels };
+    return { labels, values, sublabels, mode };
 }
 
-function drawChart(days, distancesKm) {
+function drawChart(days, distancesKm, range) {
     const canvas = document.getElementById('distance-chart');
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
@@ -240,7 +251,7 @@ function drawChart(days, distancesKm) {
     }
 
     const imperial = isImperial();
-    const grouped = groupDays(days, distancesKm);
+    const grouped = groupDays(days, distancesKm, range || '168');
     const isGrouped = grouped.sublabels !== null;
     const rawValues = grouped.values;
     const values = rawValues.map(d => imperial ? d * 0.621371 : d);
@@ -298,6 +309,10 @@ function drawChart(days, distancesKm) {
         if (isGrouped) {
             const s = grouped.sublabels[i];
             tip = `${s.range}\n${dist} (${s.days} day${s.days !== 1 ? 's' : ''})`;
+        } else if (grouped.mode === 'hourly') {
+            // Label like "14:00" from "2026-02-18 14"
+            const hour = grouped.labels[i].slice(11);
+            tip = `${grouped.labels[i].slice(0, 10)} ${hour}:00–${hour}:59\n${dist}`;
         } else {
             tip = `${grouped.labels[i]}\n${dist}`;
         }
@@ -317,6 +332,9 @@ function drawChart(days, distancesKm) {
         const y = H - pad.bottom + 16;
         if (isGrouped) {
             ctx.fillText(grouped.sublabels[i].label, x, y);
+        } else if (grouped.mode === 'hourly') {
+            const hour = grouped.labels[i].slice(11);
+            ctx.fillText(`${hour}:00`, x, y);
         } else {
             const parts = grouped.labels[i].split('-');
             ctx.fillText(`${parts[1]}/${parts[2]}`, x, y);
@@ -389,9 +407,12 @@ window.addEventListener('resize', () => {
     resizeTimer = setTimeout(() => {
         // Re-fetch to redraw chart
         const params = getFilterParams();
-        fetch(`/api/distance/?${params}`)
+        const range = document.getElementById('stats-range').value;
+        const distParams = new URLSearchParams(params.toString());
+        if (range === '24') distParams.set('granularity', 'hourly');
+        fetch(`/api/distance/?${distParams}`)
             .then(r => r.json())
-            .then(data => drawChart(data.days, data.distances));
+            .then(data => drawChart(data.days, data.distances, range));
     }, 200);
 });
 

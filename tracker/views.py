@@ -671,12 +671,16 @@ def distance_api(request):
         'device_id', 'latitude', 'longitude', 'timestamp'
     )[:50000]
 
-    daily_km = defaultdict(float)
+    granularity = request.GET.get("granularity", "daily")
+    bucket_km = defaultdict(float)
     total_km = 0.0
     prev = {}  # per-device previous point
 
     for dev_id, lat, lon, ts in locations:
-        day = ts.strftime('%Y-%m-%d')
+        if granularity == "hourly":
+            key = ts.strftime('%Y-%m-%d %H')
+        else:
+            key = ts.strftime('%Y-%m-%d')
         if dev_id in prev:
             p_lat, p_lon, p_ts = prev[dev_id]
             # Skip if gap > 2 hours (likely separate trips, not continuous travel)
@@ -684,14 +688,14 @@ def distance_api(request):
                 d = _haversine_km(p_lat, p_lon, lat, lon)
                 # Skip unreasonable jumps (> 500 km between consecutive points)
                 if 0.03 <= d <= 500:
-                    daily_km[day] += d
+                    bucket_km[key] += d
                     total_km += d
         prev[dev_id] = (lat, lon, ts)
 
-    days = sorted(daily_km.keys())
+    keys = sorted(bucket_km.keys())
     return JsonResponse({
-        "days": days,
-        "distances": [round(daily_km[d], 2) for d in days],
+        "days": keys,
+        "distances": [round(bucket_km[k], 2) for k in keys],
         "total_km": round(total_km, 2),
     })
 
