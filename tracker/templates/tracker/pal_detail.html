@@ -1,0 +1,771 @@
+{% extends "tracker/base.html" %}
+{% block title %}pal - roamly{% endblock %}
+
+{% block extra_css %}
+<style>
+.pal-page {
+    position: fixed;
+    top: 56px; left: 0; right: 0; bottom: 0;
+    display: flex;
+    z-index: 100;
+}
+.pal-map-area { flex: 2; position: relative; min-width: 0; }
+.pal-map-area #pal-map { width: 100%; height: 100%; }
+.pal-sidebar {
+    flex: 1; min-width: 320px; max-width: 420px;
+    background: var(--bg-card);
+    border-left: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+}
+.pal-sidebar-header {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.pal-sidebar-header h2 { font-size: 1.125rem; margin: 0; }
+.pal-sidebar-header .pal-dates { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.125rem; }
+.pal-tabs {
+    display: flex; border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.pal-tab {
+    flex: 1; padding: 0.625rem; text-align: center;
+    background: none; border: none; border-bottom: 2px solid transparent;
+    color: var(--text-muted); cursor: pointer;
+    font-family: 'Space Grotesk', sans-serif; font-weight: 600;
+    font-size: 0.8125rem; text-transform: lowercase;
+}
+.pal-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+.pal-timeline { flex: 1; overflow-y: auto; padding: 1rem 1.25rem; }
+.pal-avatar {
+    width: 36px; height: 36px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.8rem; font-weight: 700; color: #fff;
+    overflow: hidden; flex-shrink: 0;
+}
+.pal-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.pal-avatar-sm { width: 28px; height: 28px; font-size: 0.7rem; }
+.blurb-card {
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 10px; padding: 0.875rem; margin-bottom: 0.75rem;
+    transition: border-color 0.15s;
+}
+.blurb-card:hover { border-color: var(--primary); }
+.blurb-header { display: flex; align-items: center; gap: 0.625rem; margin-bottom: 0.5rem; }
+.blurb-author { font-weight: 600; font-size: 0.875rem; }
+.blurb-time { font-size: 0.6875rem; color: var(--text-muted); }
+.blurb-text { font-size: 0.875rem; margin-top: 0.375rem; line-height: 1.4; white-space: pre-wrap; }
+.blurb-photos { display: flex; gap: 4px; margin-top: 0.5rem; overflow-x: auto; }
+.blurb-photos img { height: 80px; border-radius: 6px; object-fit: cover; cursor: pointer; }
+.blurb-actions { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; display: flex; gap: 1rem; }
+.blurb-actions span { cursor: pointer; }
+.blurb-actions span:hover { color: var(--primary); }
+.milestone-card {
+    background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.2);
+    border-radius: 10px; padding: 0.75rem 0.875rem; margin-bottom: 0.75rem;
+    display: flex; align-items: center; gap: 0.75rem;
+}
+.milestone-emoji { font-size: 1.5rem; }
+.milestone-title { font-weight: 600; font-size: 0.875rem; }
+.milestone-desc { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.125rem; }
+.milestone-date { font-size: 0.6875rem; color: var(--text-muted); }
+.pal-compose {
+    border-top: 1px solid var(--border);
+    padding: 0.75rem 1.25rem;
+    background: var(--bg-card);
+    flex-shrink: 0;
+}
+.compose-row { display: flex; gap: 0.5rem; }
+.compose-input {
+    flex: 1; padding: 0.5rem 0.75rem;
+    border-radius: 8px; border: 1px solid var(--border);
+    background: var(--bg-input); color: var(--text);
+    font-family: 'Space Grotesk', sans-serif; font-size: 0.8125rem;
+    outline: none; resize: none;
+}
+.compose-input:focus { border-color: var(--primary); }
+.members-panel { padding: 1rem 1.25rem; overflow-y: auto; flex: 1; }
+.member-row {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.625rem 0; border-bottom: 1px solid var(--border);
+}
+.member-row:last-child { border-bottom: none; }
+.settings-panel { padding: 1rem 1.25rem; overflow-y: auto; flex: 1; }
+.pal-map-marker {
+    width: 40px; height: 40px; border-radius: 50%;
+    border: 3px solid var(--primary);
+    overflow: hidden; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; color: #fff; font-size: 0.9rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.pal-map-marker img { width: 100%; height: 100%; object-fit: cover; }
+.blurb-map-marker {
+    width: 28px; height: 28px; border-radius: 50%;
+    border: 2px solid #22c55e;
+    overflow: hidden; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; color: #fff; font-size: 0.65rem;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+.blurb-map-marker img { width: 100%; height: 100%; object-fit: cover; }
+.pal-back-btn {
+    position: absolute; top: 12px; left: 12px; z-index: 10;
+    background: var(--bg-card); border: 1px solid var(--border);
+    color: var(--text); padding: 8px 14px; border-radius: 8px;
+    cursor: pointer; font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700; font-size: 0.875rem; text-transform: lowercase;
+}
+.pal-back-btn:hover { border-color: var(--primary); }
+.comment-section { margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+.comment-item { display: flex; gap: 0.5rem; padding: 0.25rem 0; font-size: 0.8125rem; }
+.comment-input-row { display: flex; gap: 0.5rem; margin-top: 0.375rem; }
+.lightbox {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.9); z-index: 10000;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+}
+.lightbox img { max-width: 90%; max-height: 90%; object-fit: contain; border-radius: 8px; }
+@media (max-width: 768px) {
+    .pal-page { flex-direction: column; top: 0; bottom: 64px; }
+    .pal-map-area { height: 40vh; flex: none; }
+    .pal-sidebar { max-width: none; min-width: 0; flex: 1; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pal-page">
+    <div class="pal-map-area">
+        <button class="pal-back-btn" onclick="location.href='/pals/'">&larr; back</button>
+        <div id="pal-map"></div>
+    </div>
+    <div class="pal-sidebar">
+        <div class="pal-sidebar-header">
+            <h2 id="pal-name">loading...</h2>
+            <div class="pal-dates" id="pal-dates"></div>
+        </div>
+        <div class="pal-tabs" id="pal-tabs">
+            <button class="pal-tab active" onclick="switchTab('timeline', this)">timeline</button>
+            <button class="pal-tab" onclick="switchTab('members', this)">members</button>
+            <button class="pal-tab" id="settings-tab-btn" onclick="switchTab('settings', this)">settings</button>
+        </div>
+        <div id="tab-timeline" class="pal-timeline"></div>
+        <div class="pal-compose" id="compose-bar"></div>
+        <div id="tab-members" class="members-panel" style="display:none;"></div>
+        <div id="tab-settings" class="settings-panel" style="display:none;"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const csrfToken = '{{ csrf_token }}';
+const palId = {{ pal_id }};
+const isPublic = {% if is_public %}true{% else %}false{% endif %};
+const publicSlug = '{{ public_slug }}';
+const currentUsername = '{{ user.username }}';
+let palMap = null;
+let palData = null;
+let memberMarkers = {};
+let blurbMarkers = [];
+let currentBlurbText = '';
+let placingBlurb = false;
+
+// API base path
+const apiBase = isPublic ? `/api/pal/${publicSlug}` : `/api/pals/${palId}`;
+const detailUrl = isPublic ? `${apiBase}/detail/` : `${apiBase}/`;
+
+// --- Map Init ---
+const darkStyle = {
+    version: 8,
+    glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+    sources: { 'carto': { type: 'raster', tiles: ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'], tileSize: 256 }},
+    layers: [{ id: 'carto', type: 'raster', source: 'carto' }]
+};
+
+palMap = new maplibregl.Map({
+    container: 'pal-map',
+    style: darkStyle,
+    center: [0, 20],
+    zoom: 2,
+});
+palMap.addControl(new maplibregl.NavigationControl(), 'bottom-right');
+
+// --- Tabs ---
+function switchTab(tab, btn) {
+    document.querySelectorAll('.pal-tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-timeline').style.display = tab === 'timeline' ? '' : 'none';
+    document.getElementById('tab-members').style.display = tab === 'members' ? '' : 'none';
+    document.getElementById('tab-settings').style.display = tab === 'settings' ? '' : 'none';
+    document.getElementById('compose-bar').style.display = tab === 'timeline' && !isPublic ? '' : 'none';
+}
+
+// --- Avatar Helper ---
+function renderAvatar(avatar, cls) {
+    if (avatar.type === 'image') return `<div class="${cls}"><img src="${avatar.url}"></div>`;
+    return `<div class="${cls}" style="background:${avatar.color}">${avatar.initials}</div>`;
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// --- Load PAL Detail ---
+function loadPalDetail() {
+    fetch(detailUrl)
+        .then(r => r.json())
+        .then(data => {
+            palData = data;
+            document.getElementById('pal-name').textContent = data.name;
+            const sd = new Date(data.start_date + 'T00:00:00').toLocaleDateString();
+            const ed = new Date(data.end_date + 'T00:00:00').toLocaleDateString();
+            document.getElementById('pal-dates').textContent = `${sd} — ${ed}`;
+
+            if (isPublic) {
+                document.getElementById('compose-bar').style.display = 'none';
+                document.getElementById('settings-tab-btn').style.display = 'none';
+            }
+
+            renderMembersTab();
+            renderSettingsTab();
+            loadTimeline();
+            loadMemberLocations();
+        });
+}
+
+// --- Members Tab ---
+function renderMembersTab() {
+    const container = document.getElementById('tab-members');
+    let html = '';
+
+    if (palData.role === 'creator' && !isPublic) {
+        html += `<div style="margin-bottom:1rem;">
+            <div style="display:flex;gap:0.5rem;">
+                <input type="text" id="add-member-input" class="compose-input" placeholder="username" style="flex:1;">
+                <button class="btn btn-primary btn-sm" onclick="addMember()">add</button>
+            </div>
+        </div>`;
+    }
+
+    html += palData.members.map(m => {
+        const avatar = renderAvatar(m.avatar, 'pal-avatar');
+        const removeBtn = palData.role === 'creator' && m.role !== 'creator' && !isPublic
+            ? `<button class="btn btn-outline btn-sm" style="margin-left:auto;font-size:0.7rem;padding:0.2rem 0.5rem;" onclick="event.stopPropagation();removeMember(${m.user_id})">remove</button>`
+            : '';
+        return `<div class="member-row">
+            ${avatar}
+            <div>
+                <div style="font-weight:600;font-size:0.875rem;">${m.username}</div>
+                <div style="font-size:0.75rem;color:var(--text-muted);">${m.role}</div>
+            </div>
+            ${removeBtn}
+        </div>`;
+    }).join('');
+
+    container.innerHTML = html;
+}
+
+function addMember() {
+    const input = document.getElementById('add-member-input');
+    const username = input.value.trim();
+    if (!username) return;
+    fetch(`/api/pals/${palId}/members/add/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ username })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'ok') {
+            palData.members.push(data.member);
+            renderMembersTab();
+            input.value = '';
+        } else {
+            alert(data.error || 'Error');
+        }
+    });
+}
+
+function removeMember(userId) {
+    if (!confirm('Remove this member?')) return;
+    fetch(`/api/pals/${palId}/members/${userId}/remove/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrfToken }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'ok') {
+            palData.members = palData.members.filter(m => m.user_id !== userId);
+            renderMembersTab();
+        }
+    });
+}
+
+// --- Settings Tab ---
+function renderSettingsTab() {
+    const container = document.getElementById('tab-settings');
+    if (isPublic || palData.role !== 'creator') {
+        container.innerHTML = '<div style="color:var(--text-muted);font-size:0.875rem;">Only the pal creator can change settings.</div>';
+        return;
+    }
+    const publicUrl = palData.public_url ? `${window.location.origin}${palData.public_url}` : '';
+    container.innerHTML = `
+        <div style="margin-bottom:1.5rem;">
+            <div style="font-weight:600;font-size:0.875rem;margin-bottom:0.5rem;">public link</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem;">
+                <span style="font-size:0.8125rem;color:var(--text-muted);">${palData.is_public ? 'public' : 'private'}</span>
+                <button class="btn btn-outline btn-sm" onclick="togglePublic()">${palData.is_public ? 'make private' : 'make public'}</button>
+            </div>
+            ${publicUrl ? `<div style="font-size:0.75rem;word-break:break-all;color:var(--primary);cursor:pointer;" onclick="navigator.clipboard.writeText('${publicUrl}');this.textContent='copied!';setTimeout(()=>this.textContent='${publicUrl}',1500)">${publicUrl}</div>` : ''}
+        </div>
+        <div style="border-top:1px solid var(--border);padding-top:1rem;">
+            <button class="btn btn-danger btn-sm" onclick="if(confirm('Delete this pal and all its content?')) deletePal()">delete pal</button>
+        </div>
+    `;
+}
+
+function togglePublic() {
+    fetch(`/api/pals/${palId}/toggle-public/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrfToken }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'ok') {
+            palData.is_public = data.is_public;
+            palData.public_url = data.public_url;
+            renderSettingsTab();
+        }
+    });
+}
+
+function deletePal() {
+    fetch(`/api/pals/${palId}/delete/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrfToken }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'ok') location.href = '/pals/';
+    });
+}
+
+// --- Member Locations on Map ---
+function loadMemberLocations() {
+    fetch(`${apiBase}/locations/`)
+        .then(r => r.json())
+        .then(data => {
+            const bounds = new maplibregl.LngLatBounds();
+            let hasBounds = false;
+
+            palMap.on('load', () => {
+                Object.entries(data.members).forEach(([username, info]) => {
+                    if (info.locations.length === 0) return;
+                    const coords = info.locations.map(l => [l.lng, l.lat]);
+                    const color = info.avatar.type === 'initials' ? info.avatar.color : '#3b82f6';
+
+                    // Route line
+                    if (palMap.getSource(`route-${username}`)) palMap.removeLayer(`route-${username}`);
+                    palMap.addSource(`route-${username}`, {
+                        type: 'geojson',
+                        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }}
+                    });
+                    palMap.addLayer({
+                        id: `route-${username}`,
+                        type: 'line',
+                        source: `route-${username}`,
+                        paint: { 'line-color': color, 'line-width': 3, 'line-opacity': 0.6 }
+                    });
+
+                    // Marker at latest position
+                    const latest = info.locations[info.locations.length - 1];
+                    const el = document.createElement('div');
+                    el.className = 'pal-map-marker';
+                    if (info.avatar.type === 'image') {
+                        el.innerHTML = `<img src="${info.avatar.url}" alt="${username}">`;
+                    } else {
+                        el.style.background = info.avatar.color;
+                        el.textContent = info.avatar.initials;
+                    }
+                    el.title = username;
+
+                    const marker = new maplibregl.Marker({ element: el })
+                        .setLngLat([latest.lng, latest.lat])
+                        .addTo(palMap);
+                    memberMarkers[username] = marker;
+
+                    coords.forEach(c => { bounds.extend(c); hasBounds = true; });
+                });
+
+                if (hasBounds) palMap.fitBounds(bounds, { padding: 60, maxZoom: 15 });
+            });
+
+            // If map already loaded
+            if (palMap.loaded()) palMap.fire('load');
+        });
+}
+
+// --- Timeline ---
+function loadTimeline() {
+    fetch(`${apiBase}/timeline/`)
+        .then(r => r.json())
+        .then(data => {
+            renderTimeline(data.events);
+            addBlurbMarkers(data.events.filter(e => e.type === 'blurb'));
+        });
+}
+
+function renderTimeline(events) {
+    const container = document.getElementById('tab-timeline');
+    if (events.length === 0) {
+        container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:2rem;">no posts yet. share an update to get started!</div>';
+        resetCompose();
+        return;
+    }
+    container.innerHTML = events.map(ev => {
+        if (ev.type === 'blurb') return renderBlurb(ev);
+        if (ev.type === 'milestone') return renderMilestone(ev);
+        return '';
+    }).join('');
+    resetCompose();
+}
+
+function renderBlurb(b) {
+    const avatar = renderAvatar(b.avatar, 'pal-avatar');
+    const time = new Date(b.created_at).toLocaleString();
+    const photos = b.photos.length ? `<div class="blurb-photos">${b.photos.map(p =>
+        `<img src="${p.thumb}" onclick="event.stopPropagation();viewPhoto('${p.url}')" alt="photo">`
+    ).join('')}</div>` : '';
+    const commentsLabel = b.comment_count > 0
+        ? `${b.comment_count} comment${b.comment_count > 1 ? 's' : ''}`
+        : 'comment';
+    const deleteBtn = (!isPublic && (b.author === currentUsername || palData.role === 'creator'))
+        ? `<span onclick="event.stopPropagation();deleteBlurb(${b.id})">delete</span>` : '';
+    const flyBtn = `<span onclick="event.stopPropagation();flyToBlurb(${b.latitude}, ${b.longitude})">show on map</span>`;
+
+    return `<div class="blurb-card" id="blurb-${b.id}">
+        <div class="blurb-header">
+            ${avatar}
+            <div>
+                <div class="blurb-author">${b.author}</div>
+                <div class="blurb-time">${time}${b.location_name ? ' &middot; ' + escapeHtml(b.location_name) : ''}</div>
+            </div>
+        </div>
+        <div class="blurb-text">${escapeHtml(b.text)}</div>
+        ${photos}
+        <div class="blurb-actions">
+            <span onclick="event.stopPropagation();toggleComments(${b.id})">${commentsLabel}</span>
+            ${flyBtn}
+            ${deleteBtn}
+        </div>
+        <div id="comments-${b.id}" class="comment-section" style="display:none;"></div>
+    </div>`;
+}
+
+function renderMilestone(m) {
+    const d = new Date(m.date).toLocaleDateString();
+    const deleteBtn = (!isPublic && (m.author === currentUsername || palData.role === 'creator'))
+        ? `<span style="font-size:0.7rem;color:var(--text-muted);cursor:pointer;margin-left:auto;" onclick="deleteMilestone(${m.id})">delete</span>` : '';
+    return `<div class="milestone-card" id="milestone-${m.id}">
+        <div class="milestone-emoji">${m.emoji}</div>
+        <div style="flex:1;">
+            <div class="milestone-title">${escapeHtml(m.title)}</div>
+            ${m.description ? `<div class="milestone-desc">${escapeHtml(m.description)}</div>` : ''}
+            <div class="milestone-date">${d} &middot; ${m.author}</div>
+        </div>
+        ${deleteBtn}
+    </div>`;
+}
+
+// --- Blurb Markers on Map ---
+function addBlurbMarkers(blurbs) {
+    blurbMarkers.forEach(m => m.remove());
+    blurbMarkers = [];
+    blurbs.forEach(b => {
+        const el = document.createElement('div');
+        el.className = 'blurb-map-marker';
+        if (b.avatar.type === 'image') {
+            el.innerHTML = `<img src="${b.avatar.url}">`;
+        } else {
+            el.style.background = b.avatar.color;
+            el.textContent = b.avatar.initials;
+        }
+        el.onclick = () => {
+            const card = document.getElementById(`blurb-${b.id}`);
+            if (card) {
+                // Switch to timeline tab
+                document.querySelectorAll('.pal-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.pal-tab')[0].classList.add('active');
+                document.getElementById('tab-timeline').style.display = '';
+                document.getElementById('tab-members').style.display = 'none';
+                document.getElementById('tab-settings').style.display = 'none';
+                document.getElementById('compose-bar').style.display = isPublic ? 'none' : '';
+                card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                card.style.borderColor = 'var(--primary)';
+                setTimeout(() => card.style.borderColor = '', 2000);
+            }
+        };
+        const marker = new maplibregl.Marker({ element: el })
+            .setLngLat([b.longitude, b.latitude])
+            .addTo(palMap);
+        blurbMarkers.push(marker);
+    });
+}
+
+function flyToBlurb(lat, lng) {
+    palMap.flyTo({ center: [lng, lat], zoom: 14 });
+}
+
+// --- Compose ---
+function resetCompose() {
+    if (isPublic) {
+        document.getElementById('compose-bar').style.display = 'none';
+        return;
+    }
+    placingBlurb = false;
+    document.getElementById('compose-bar').innerHTML = `
+        <div style="display:flex;gap:0.5rem;margin-bottom:0.5rem;">
+            <button class="btn btn-primary btn-sm" style="flex:1;" onclick="startBlurbCompose()">new post</button>
+            <button class="btn btn-outline btn-sm" style="flex:1;" onclick="startMilestoneCompose()">new milestone</button>
+        </div>
+    `;
+}
+
+function startBlurbCompose() {
+    placingBlurb = true;
+    palMap.getCanvas().style.cursor = 'crosshair';
+    document.getElementById('compose-bar').innerHTML = `
+        <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.5rem;">click on the map to set location</div>
+        <textarea class="compose-input" id="blurb-text" rows="2" placeholder="what's happening?" style="width:100%;margin-bottom:0.5rem;"></textarea>
+        <input type="text" id="blurb-location-name" class="compose-input" placeholder="location name (optional)" style="width:100%;margin-bottom:0.5rem;">
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
+            <span id="blurb-coords" style="font-size:0.75rem;color:var(--text-muted);">no location set</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
+            <label class="btn btn-outline btn-sm" style="cursor:pointer;">
+                + photos
+                <input type="file" accept="image/*" multiple id="blurb-photos" style="display:none;" onchange="previewPhotos(this)">
+            </label>
+            <div id="photo-previews" style="display:flex;gap:4px;overflow-x:auto;"></div>
+        </div>
+        <input type="hidden" id="blurb-lat" value="">
+        <input type="hidden" id="blurb-lng" value="">
+        <div class="compose-row">
+            <button class="btn btn-primary btn-sm" onclick="submitBlurb()">post</button>
+            <button class="btn btn-outline btn-sm" onclick="cancelCompose()">cancel</button>
+        </div>
+    `;
+
+    // Map click handler
+    const clickHandler = (e) => {
+        document.getElementById('blurb-lat').value = e.lngLat.lat;
+        document.getElementById('blurb-lng').value = e.lngLat.lng;
+        document.getElementById('blurb-coords').textContent = `${e.lngLat.lat.toFixed(4)}, ${e.lngLat.lng.toFixed(4)}`;
+        palMap.getCanvas().style.cursor = '';
+    };
+    palMap.once('click', clickHandler);
+    window._blurbClickHandler = clickHandler;
+}
+
+function previewPhotos(input) {
+    const container = document.getElementById('photo-previews');
+    container.innerHTML = '';
+    const files = Array.from(input.files).slice(0, 5);
+    files.forEach(f => {
+        const url = URL.createObjectURL(f);
+        container.innerHTML += `<img src="${url}" style="height:40px;border-radius:4px;object-fit:cover;">`;
+    });
+}
+
+function submitBlurb() {
+    const lat = document.getElementById('blurb-lat').value;
+    const lng = document.getElementById('blurb-lng').value;
+    const text = document.getElementById('blurb-text').value.trim();
+    if (!text) { alert('Write something first'); return; }
+    if (!lat || !lng) { alert('Click on the map to set a location'); return; }
+
+    const formData = new FormData();
+    formData.append('text', text);
+    formData.append('latitude', lat);
+    formData.append('longitude', lng);
+    formData.append('location_name', document.getElementById('blurb-location-name').value);
+
+    const photos = document.getElementById('blurb-photos').files;
+    for (let i = 0; i < Math.min(photos.length, 5); i++) {
+        formData.append('photos', photos[i]);
+    }
+
+    fetch(`/api/pals/${palId}/blurbs/create/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrfToken },
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'ok') {
+            cancelCompose();
+            loadTimeline();
+        } else {
+            alert(data.error || 'Error');
+        }
+    });
+}
+
+function cancelCompose() {
+    placingBlurb = false;
+    palMap.getCanvas().style.cursor = '';
+    resetCompose();
+}
+
+function deleteBlurb(blurbId) {
+    if (!confirm('Delete this post?')) return;
+    fetch(`/api/pals/${palId}/blurbs/${blurbId}/delete/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrfToken }
+    })
+    .then(r => r.json())
+    .then(data => { if (data.status === 'ok') loadTimeline(); });
+}
+
+// --- Milestone Compose ---
+function startMilestoneCompose() {
+    document.getElementById('compose-bar').innerHTML = `
+        <div style="font-size:0.8125rem;font-weight:600;margin-bottom:0.5rem;">new milestone</div>
+        <input type="text" id="ms-title" class="compose-input" placeholder="title" style="width:100%;margin-bottom:0.5rem;">
+        <input type="text" id="ms-desc" class="compose-input" placeholder="description (optional)" style="width:100%;margin-bottom:0.5rem;">
+        <div style="display:flex;gap:0.5rem;margin-bottom:0.5rem;">
+            <input type="datetime-local" id="ms-date" class="compose-input" style="flex:1;">
+            <input type="text" id="ms-emoji" class="compose-input" value="🏁" style="width:50px;text-align:center;" maxlength="4">
+        </div>
+        <div class="compose-row">
+            <button class="btn btn-primary btn-sm" onclick="submitMilestone()">create</button>
+            <button class="btn btn-outline btn-sm" onclick="cancelCompose()">cancel</button>
+        </div>
+    `;
+}
+
+function submitMilestone() {
+    const title = document.getElementById('ms-title').value.trim();
+    const dateVal = document.getElementById('ms-date').value;
+    if (!title || !dateVal) { alert('Title and date required'); return; }
+
+    fetch(`/api/pals/${palId}/milestones/create/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({
+            title,
+            description: document.getElementById('ms-desc').value,
+            emoji: document.getElementById('ms-emoji').value || '🏁',
+            date: dateVal,
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'ok') {
+            cancelCompose();
+            loadTimeline();
+        } else {
+            alert(data.error || 'Error');
+        }
+    });
+}
+
+function deleteMilestone(milestoneId) {
+    if (!confirm('Delete this milestone?')) return;
+    fetch(`/api/pals/${palId}/milestones/${milestoneId}/delete/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrfToken }
+    })
+    .then(r => r.json())
+    .then(data => { if (data.status === 'ok') loadTimeline(); });
+}
+
+// --- Comments ---
+function toggleComments(blurbId) {
+    const container = document.getElementById(`comments-${blurbId}`);
+    if (container.style.display === 'none') {
+        container.style.display = 'block';
+        loadComments(blurbId);
+    } else {
+        container.style.display = 'none';
+    }
+}
+
+function loadComments(blurbId) {
+    const url = isPublic
+        ? `${apiBase}/blurbs/${blurbId}/comments/`
+        : `/api/pals/${palId}/blurbs/${blurbId}/comments/`;
+
+    // For public view, comments API may not exist; handle gracefully
+    fetch(url)
+        .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+        .then(data => {
+            const container = document.getElementById(`comments-${blurbId}`);
+            let html = data.comments.map(c => {
+                const avatar = renderAvatar(c.avatar, 'pal-avatar-sm');
+                const delBtn = (!isPublic && (c.author === currentUsername || palData.role === 'creator'))
+                    ? ` <span style="color:var(--text-muted);cursor:pointer;font-size:0.7rem;" onclick="deleteComment(${c.id})">&times;</span>` : '';
+                return `<div class="comment-item">
+                    ${avatar}
+                    <div><span style="font-weight:600;">${c.author}</span> ${escapeHtml(c.text)}${delBtn}</div>
+                </div>`;
+            }).join('');
+
+            if (!isPublic) {
+                html += `<div class="comment-input-row">
+                    <input type="text" class="compose-input" id="comment-input-${blurbId}" placeholder="write a comment..." style="font-size:0.8125rem;padding:0.375rem 0.5rem;" onkeypress="if(event.key==='Enter')submitComment(${blurbId})">
+                    <button class="btn btn-primary btn-sm" onclick="submitComment(${blurbId})" style="font-size:0.75rem;">post</button>
+                </div>`;
+            }
+
+            container.innerHTML = html;
+        })
+        .catch(() => {
+            document.getElementById(`comments-${blurbId}`).innerHTML =
+                '<div style="font-size:0.8125rem;color:var(--text-muted);">could not load comments</div>';
+        });
+}
+
+function submitComment(blurbId) {
+    const input = document.getElementById(`comment-input-${blurbId}`);
+    const text = input.value.trim();
+    if (!text) return;
+    fetch(`/api/pals/${palId}/blurbs/${blurbId}/comments/create/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ text })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'ok') loadComments(blurbId);
+    });
+}
+
+function deleteComment(commentId) {
+    fetch(`/api/pals/${palId}/comments/${commentId}/delete/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrfToken }
+    })
+    .then(r => r.json())
+    .then(() => loadTimeline());
+}
+
+// --- Photo Lightbox ---
+function viewPhoto(url) {
+    const lb = document.createElement('div');
+    lb.className = 'lightbox';
+    lb.innerHTML = `<img src="${url}">`;
+    lb.onclick = () => lb.remove();
+    document.body.appendChild(lb);
+}
+
+// --- Init ---
+loadPalDetail();
+</script>
+{% endblock %}

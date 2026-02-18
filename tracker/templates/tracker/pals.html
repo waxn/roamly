@@ -1,0 +1,118 @@
+{% extends "tracker/base.html" %}
+{% block title %}pals - roamly{% endblock %}
+
+{% block extra_css %}
+<style>
+.pal-card { cursor: pointer; transition: border-color 0.15s; margin-bottom: 0.75rem; }
+.pal-card:hover { border-color: var(--primary); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <h1>pals</h1>
+        <button class="btn btn-primary" onclick="showCreatePal()">new pal</button>
+    </div>
+
+    <div id="create-pal-form" class="card" style="display: none; margin-bottom: 1.5rem;">
+        <div class="card-header">create pal</div>
+        <div class="grid grid-2" style="margin-bottom: 1rem;">
+            <div class="form-group">
+                <label>name</label>
+                <input type="text" id="pal-name" class="form-control" placeholder="e.g., euro trip 2026">
+            </div>
+            <div class="form-group">
+                <label>description</label>
+                <input type="text" id="pal-desc" class="form-control" placeholder="optional description">
+            </div>
+            <div class="form-group">
+                <label>start date</label>
+                <input type="date" id="pal-start" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>end date</label>
+                <input type="date" id="pal-end" class="form-control">
+            </div>
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+            <button class="btn btn-primary" onclick="createPal()">create</button>
+            <button class="btn btn-outline" onclick="hideCreatePal()">cancel</button>
+        </div>
+    </div>
+
+    <div id="pals-list">
+        <div style="text-align: center; padding: 2rem; color: var(--text-muted);">
+            <span class="spinner"></span> loading...
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const csrfToken = '{{ csrf_token }}';
+
+function showCreatePal() { document.getElementById('create-pal-form').style.display = 'block'; }
+function hideCreatePal() { document.getElementById('create-pal-form').style.display = 'none'; }
+
+function loadPals() {
+    fetch('/api/pals/')
+        .then(r => r.json())
+        .then(data => {
+            if (data.pals.length === 0) {
+                document.getElementById('pals-list').innerHTML =
+                    '<div class="card" style="text-align:center;color:var(--text-muted);padding:2rem;">no pals yet. create one to share a trip with friends.</div>';
+                return;
+            }
+            const html = data.pals.map(pal => {
+                const start = new Date(pal.start_date + 'T00:00:00').toLocaleDateString();
+                const end = new Date(pal.end_date + 'T00:00:00').toLocaleDateString();
+                return `<div class="card pal-card" onclick="location.href='/pals/${pal.id}/'">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <div>
+                            <strong style="font-size:1.0625rem;">${pal.name}</strong>
+                            <div style="font-size:0.8125rem;color:var(--text-muted);margin-top:0.25rem;">
+                                ${start} &mdash; ${end} &middot; ${pal.member_count} member${pal.member_count !== 1 ? 's' : ''} &middot; ${pal.role}
+                            </div>
+                            ${pal.description ? `<div style="font-size:0.8125rem;color:var(--text-muted);margin-top:0.25rem;">${pal.description}</div>` : ''}
+                        </div>
+                        ${pal.is_public ? '<span class="badge badge-success">public</span>' : ''}
+                    </div>
+                </div>`;
+            }).join('');
+            document.getElementById('pals-list').innerHTML = html;
+        });
+}
+
+function createPal() {
+    const name = document.getElementById('pal-name').value.trim();
+    const startVal = document.getElementById('pal-start').value;
+    const endVal = document.getElementById('pal-end').value;
+    if (!name || !startVal || !endVal) {
+        alert('Please fill in name, start date, and end date.');
+        return;
+    }
+    fetch('/api/pals/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({
+            name: name,
+            description: document.getElementById('pal-desc').value,
+            start_date: startVal,
+            end_date: endVal,
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'ok') {
+            location.href = '/pals/' + data.pal_id + '/';
+        } else {
+            alert(data.error || 'Error creating pal');
+        }
+    });
+}
+
+loadPals();
+</script>
+{% endblock %}

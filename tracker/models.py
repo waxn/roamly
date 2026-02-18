@@ -1,4 +1,5 @@
 import secrets
+import uuid
 from django.db import models
 from django.conf import settings
 from django.contrib.auth.models import User
@@ -235,3 +236,111 @@ class TripPlace(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class UserProfile(models.Model):
+    """Extended user profile for profile pictures."""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    profile_picture = models.ImageField(upload_to='profiles/', null=True, blank=True)
+    profile_picture_thumbnail = models.ImageField(upload_to='profiles/thumbs/', null=True, blank=True)
+
+    def __str__(self):
+        return f"Profile: {self.user.username}"
+
+
+class Pal(models.Model):
+    """A shared group trip (PAL) with a defined date range."""
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    creator = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_pals')
+    public_slug = models.SlugField(max_length=64, unique=True, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.name
+
+
+class PalMember(models.Model):
+    """Membership in a PAL."""
+    ROLE_CHOICES = [
+        ('creator', 'Creator'),
+        ('member', 'Member'),
+    ]
+    pal = models.ForeignKey(Pal, on_delete=models.CASCADE, related_name='members')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='pal_memberships')
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='member')
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['pal', 'user']
+
+    def __str__(self):
+        return f"{self.user.username} in {self.pal.name}"
+
+
+class PalBlurb(models.Model):
+    """User-posted text + location entry in a PAL timeline."""
+    pal = models.ForeignKey(Pal, on_delete=models.CASCADE, related_name='blurbs')
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='pal_blurbs')
+    text = models.TextField()
+    latitude = models.FloatField()
+    longitude = models.FloatField()
+    location_name = models.CharField(max_length=300, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"Blurb by {self.author.username} in {self.pal.name}"
+
+
+class PalBlurbPhoto(models.Model):
+    """Photo attached to a PAL blurb. Max 5 per blurb."""
+    blurb = models.ForeignKey(PalBlurb, on_delete=models.CASCADE, related_name='photos')
+    image = models.ImageField(upload_to='pals/blurbs/')
+    thumbnail = models.ImageField(upload_to='pals/blurbs/thumbs/', null=True, blank=True)
+    order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['order']
+
+    def __str__(self):
+        return f"Photo {self.order} on blurb {self.blurb_id}"
+
+
+class PalMilestone(models.Model):
+    """Milestone event in a PAL timeline."""
+    pal = models.ForeignKey(Pal, on_delete=models.CASCADE, related_name='milestones')
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='pal_milestones')
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    emoji = models.CharField(max_length=10, blank=True, default='\U0001f3c1')
+    date = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['date']
+
+    def __str__(self):
+        return f"Milestone: {self.title}"
+
+
+class PalComment(models.Model):
+    """Comment on a PAL blurb."""
+    blurb = models.ForeignKey(PalBlurb, on_delete=models.CASCADE, related_name='comments')
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='pal_comments')
+    text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"Comment by {self.author.username}"

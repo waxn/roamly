@@ -1,5 +1,8 @@
 from django.contrib import admin
-from .models import APIKey, Device, Location, Trip, TripPlace
+from .models import (
+    APIKey, Device, Location, Trip, TripPlace,
+    UserProfile, Pal, PalMember, PalBlurb, PalBlurbPhoto, PalMilestone, PalComment,
+)
 
 
 @admin.register(APIKey)
@@ -29,3 +32,38 @@ class TripAdmin(admin.ModelAdmin):
 @admin.register(TripPlace)
 class TripPlaceAdmin(admin.ModelAdmin):
     list_display = ('name', 'trip', 'latitude', 'longitude')
+
+
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+    list_display = ('user',)
+
+
+@admin.register(Pal)
+class PalAdmin(admin.ModelAdmin):
+    list_display = ('name', 'creator', 'start_date', 'end_date', 'public_slug')
+
+
+@admin.register(PalMember)
+class PalMemberAdmin(admin.ModelAdmin):
+    list_display = ('pal', 'user', 'role', 'joined_at')
+
+
+@admin.register(PalBlurb)
+class PalBlurbAdmin(admin.ModelAdmin):
+    list_display = ('pal', 'author', 'location_name', 'created_at')
+
+
+@admin.register(PalBlurbPhoto)
+class PalBlurbPhotoAdmin(admin.ModelAdmin):
+    list_display = ('blurb', 'order', 'created_at')
+
+
+@admin.register(PalMilestone)
+class PalMilestoneAdmin(admin.ModelAdmin):
+    list_display = ('pal', 'title', 'date', 'author')
+
+
+@admin.register(PalComment)
+class PalCommentAdmin(admin.ModelAdmin):
+    list_display = ('blurb', 'author', 'created_at')

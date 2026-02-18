@@ -3,10 +3,11 @@ import io
 import json
 import logging
 import math
+import uuid
 import urllib.parse
 import urllib.request
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone as dt_timezone
+from datetime import datetime, date, time as dt_time, timedelta, timezone as dt_timezone
 
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
@@ -25,7 +26,11 @@ from django.db import connection, transaction
 from django.contrib.staticfiles import finders
 
 from .forms import SignUpForm, APIKeyForm, TripForm
-from .models import Device, Location, APIKey, Trip, TripPlace, POI, BackupConfig
+from .models import (
+    Device, Location, APIKey, Trip, TripPlace, POI, BackupConfig,
+    UserProfile, Pal, PalMember, PalBlurb, PalBlurbPhoto, PalMilestone, PalComment,
+)
+from .image_utils import resize_image, resize_photo
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding
 from .poi_tasks import start_poi_download, get_poi_status, stop_poi_download
 from .backup_tasks import test_s3_connection, run_backup_now, get_backup_status
@@ -226,6 +231,7 @@ def settings_view(request):
     devices = Device.objects.filter(user=request.user)
     form = APIKeyForm()
     backup_config = BackupConfig.objects.filter(user=request.user).first()
+    UserProfile.objects.get_or_create(user=request.user)
     return render(request, 'tracker/settings.html', {
         'api_keys': api_keys,
         'devices': devices,
@@ -2035,3 +2041,559 @@ def backup_now_api(request):
 def backup_status_api(request):
     """Get backup status."""
     return JsonResponse(get_backup_status(request.user.id))
+
+
+# ---------------------------------------------------------------------------
+# Profile Picture
+# ---------------------------------------------------------------------------
+
+@login_required
+@require_http_methods(["POST"])
+def upload_profile_picture(request):
+    if 'picture' not in request.FILES:
+        return JsonResponse({"error": "No file uploaded"}, status=400)
+    pic = request.FILES['picture']
+    if pic.size > 5 * 1024 * 1024:
+        return JsonResponse({"error": "File too large (max 5MB)"}, status=400)
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if profile.profile_picture:
+        profile.profile_picture.delete(save=False)
+    if profile.profile_picture_thumbnail:
+        profile.profile_picture_thumbnail.delete(save=False)
+    full = resize_image(pic, max_size=300)
+    pic.seek(0)
+    thumb = resize_image(pic, max_size=80)
+    profile.profile_picture = full
+    profile.profile_picture_thumbnail = thumb
+    profile.save()
+    return JsonResponse({
+        "status": "ok",
+        "picture_url": profile.profile_picture.url,
+        "thumbnail_url": profile.profile_picture_thumbnail.url,
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
+def delete_profile_picture(request):
+    try:
+        profile = request.user.profile
+        if profile.profile_picture:
+            profile.profile_picture.delete(save=False)
+        if profile.profile_picture_thumbnail:
+            profile.profile_picture_thumbnail.delete(save=False)
+        profile.profile_picture = None
+        profile.profile_picture_thumbnail = None
+        profile.save()
+    except UserProfile.DoesNotExist:
+        pass
+    return JsonResponse({"status": "ok"})
+
+
+# ---------------------------------------------------------------------------
+# PAL (Shared Group Trips)
+# ---------------------------------------------------------------------------
+
+def _get_user_avatar(user):
+    """Return avatar data for a user."""
+    try:
+        profile = user.profile
+        if profile.profile_picture_thumbnail:
+            return {
+                'type': 'image',
+                'url': profile.profile_picture_thumbnail.url,
+                'full_url': profile.profile_picture.url if profile.profile_picture else None,
+            }
+    except UserProfile.DoesNotExist:
+        pass
+    colors = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316']
+    color = colors[hash(user.username) % len(colors)]
+    initials = user.username[:2].upper()
+    return {'type': 'initials', 'initials': initials, 'color': color}
+
+
+@login_required
+def pals_view(request):
+    return render(request, 'tracker/pals.html')
+
+
+@login_required
+def pal_detail_view(request, pal_id):
+    pal = get_object_or_404(Pal, id=pal_id)
+    if not PalMember.objects.filter(pal=pal, user=request.user).exists():
+        return redirect('tracker:pals')
+    return render(request, 'tracker/pal_detail.html', {
+        'pal_id': pal_id,
+        'is_public': False,
+        'public_slug': '',
+    })
+
+
+def pal_public_view(request, slug):
+    pal = get_object_or_404(Pal, public_slug=slug)
+    return render(request, 'tracker/pal_detail.html', {
+        'pal_id': pal.id,
+        'is_public': True,
+        'public_slug': slug,
+    })
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def pals_api(request):
+    if request.method == 'GET':
+        memberships = PalMember.objects.filter(user=request.user).select_related('pal', 'pal__creator')
+        pals = []
+        for m in memberships:
+            p = m.pal
+            pals.append({
+                'id': p.id,
+                'name': p.name,
+                'description': p.description,
+                'start_date': p.start_date.isoformat(),
+                'end_date': p.end_date.isoformat(),
+                'creator': p.creator.username,
+                'is_public': bool(p.public_slug),
+                'member_count': p.members.count(),
+                'role': m.role,
+            })
+        return JsonResponse({'pals': pals})
+
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    name = data.get('name', '').strip()
+    if not name:
+        return JsonResponse({"error": "Name is required"}, status=400)
+    start_date = data.get('start_date')
+    end_date = data.get('end_date')
+    if not start_date or not end_date:
+        return JsonResponse({"error": "Start and end dates required"}, status=400)
+    try:
+        sd = date.fromisoformat(start_date)
+        ed = date.fromisoformat(end_date)
+    except ValueError:
+        return JsonResponse({"error": "Invalid date format"}, status=400)
+    pal = Pal.objects.create(
+        name=name,
+        description=data.get('description', ''),
+        start_date=sd,
+        end_date=ed,
+        creator=request.user,
+    )
+    PalMember.objects.create(pal=pal, user=request.user, role='creator')
+    return JsonResponse({"status": "ok", "pal_id": pal.id})
+
+
+@login_required
+def pal_detail_api(request, pal_id):
+    pal = get_object_or_404(Pal, id=pal_id)
+    membership = PalMember.objects.filter(pal=pal, user=request.user).first()
+    if not membership:
+        return JsonResponse({"error": "Not a member"}, status=403)
+    members = []
+    for m in pal.members.select_related('user'):
+        members.append({
+            'user_id': m.user.id,
+            'username': m.user.username,
+            'role': m.role,
+            'joined_at': m.joined_at.isoformat(),
+            'avatar': _get_user_avatar(m.user),
+        })
+    return JsonResponse({
+        'id': pal.id,
+        'name': pal.name,
+        'description': pal.description,
+        'start_date': pal.start_date.isoformat(),
+        'end_date': pal.end_date.isoformat(),
+        'creator': pal.creator.username,
+        'is_public': bool(pal.public_slug),
+        'public_url': f'/pal/{pal.public_slug}/' if pal.public_slug else None,
+        'members': members,
+        'role': membership.role,
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
+def pal_update(request, pal_id):
+    pal = get_object_or_404(Pal, id=pal_id, creator=request.user)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    if 'name' in data:
+        pal.name = data['name'].strip()
+    if 'description' in data:
+        pal.description = data['description']
+    if 'start_date' in data:
+        pal.start_date = date.fromisoformat(data['start_date'])
+    if 'end_date' in data:
+        pal.end_date = date.fromisoformat(data['end_date'])
+    pal.save()
+    return JsonResponse({"status": "ok"})
+
+
+@login_required
+@require_http_methods(["POST"])
+def pal_delete(request, pal_id):
+    pal = get_object_or_404(Pal, id=pal_id, creator=request.user)
+    pal.delete()
+    return JsonResponse({"status": "ok"})
+
+
+@login_required
+@require_http_methods(["POST"])
+def pal_toggle_public(request, pal_id):
+    pal = get_object_or_404(Pal, id=pal_id, creator=request.user)
+    if pal.public_slug:
+        pal.public_slug = None
+    else:
+        pal.public_slug = uuid.uuid4().hex[:12]
+    pal.save()
+    return JsonResponse({
+        "status": "ok",
+        "is_public": bool(pal.public_slug),
+        "public_url": f'/pal/{pal.public_slug}/' if pal.public_slug else None,
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
+def pal_add_member(request, pal_id):
+    pal = get_object_or_404(Pal, id=pal_id, creator=request.user)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    username = data.get('username', '').strip()
+    if not username:
+        return JsonResponse({"error": "Username required"}, status=400)
+    from django.contrib.auth.models import User as AuthUser
+    try:
+        target = AuthUser.objects.get(username=username)
+    except AuthUser.DoesNotExist:
+        return JsonResponse({"error": "User not found"}, status=404)
+    if PalMember.objects.filter(pal=pal, user=target).exists():
+        return JsonResponse({"error": "Already a member"}, status=400)
+    PalMember.objects.create(pal=pal, user=target, role='member')
+    return JsonResponse({
+        "status": "ok",
+        "member": {
+            "user_id": target.id,
+            "username": target.username,
+            "role": "member",
+            "avatar": _get_user_avatar(target),
+        }
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
+def pal_remove_member(request, pal_id, user_id):
+    pal = get_object_or_404(Pal, id=pal_id, creator=request.user)
+    if user_id == request.user.id:
+        return JsonResponse({"error": "Cannot remove yourself"}, status=400)
+    membership = get_object_or_404(PalMember, pal=pal, user_id=user_id)
+    membership.delete()
+    return JsonResponse({"status": "ok"})
+
+
+@login_required
+def pal_locations_api(request, pal_id):
+    """Get all member location tracks within PAL date range."""
+    pal = get_object_or_404(Pal, id=pal_id)
+    if not PalMember.objects.filter(pal=pal, user=request.user).exists():
+        return JsonResponse({"error": "Not a member"}, status=403)
+    start_dt = timezone.make_aware(datetime.combine(pal.start_date, dt_time.min))
+    end_dt = timezone.make_aware(datetime.combine(pal.end_date, dt_time(23, 59, 59)))
+    result = {}
+    for m in pal.members.select_related('user'):
+        devices = Device.objects.filter(user=m.user)
+        locations = list(Location.objects.filter(
+            device__in=devices,
+            timestamp__gte=start_dt,
+            timestamp__lte=end_dt,
+        ).order_by('timestamp').values_list('latitude', 'longitude', 'timestamp', named=True))
+        if len(locations) > 500:
+            step = len(locations) // 500
+            locations = locations[::step]
+        result[m.user.username] = {
+            'avatar': _get_user_avatar(m.user),
+            'locations': [
+                {'lat': loc.latitude, 'lng': loc.longitude, 'ts': loc.timestamp.isoformat()}
+                for loc in locations
+            ]
+        }
+    return JsonResponse({'members': result})
+
+
+@login_required
+def pal_timeline_api(request, pal_id):
+    """Combined blurbs + milestones in chronological order."""
+    pal = get_object_or_404(Pal, id=pal_id)
+    if not PalMember.objects.filter(pal=pal, user=request.user).exists():
+        return JsonResponse({"error": "Not a member"}, status=403)
+    page = int(request.GET.get('page', 1))
+    per_page = 50
+    events = []
+    for b in pal.blurbs.select_related('author').prefetch_related('photos', 'comments'):
+        events.append({
+            'type': 'blurb',
+            'id': b.id,
+            'author': b.author.username,
+            'author_id': b.author.id,
+            'avatar': _get_user_avatar(b.author),
+            'text': b.text,
+            'latitude': b.latitude,
+            'longitude': b.longitude,
+            'location_name': b.location_name,
+            'photos': [{'id': p.id, 'url': p.image.url, 'thumb': p.thumbnail.url if p.thumbnail else p.image.url} for p in b.photos.all()],
+            'comment_count': b.comments.count(),
+            'created_at': b.created_at.isoformat(),
+            'sort_key': b.created_at.isoformat(),
+        })
+    for m in pal.milestones.select_related('author'):
+        events.append({
+            'type': 'milestone',
+            'id': m.id,
+            'author': m.author.username,
+            'author_id': m.author.id,
+            'title': m.title,
+            'description': m.description,
+            'emoji': m.emoji,
+            'date': m.date.isoformat(),
+            'created_at': m.created_at.isoformat(),
+            'sort_key': m.date.isoformat(),
+        })
+    events.sort(key=lambda e: e['sort_key'])
+    total = len(events)
+    start = (page - 1) * per_page
+    events = events[start:start + per_page]
+    return JsonResponse({'events': events, 'page': page, 'has_more': start + per_page < total})
+
+
+@login_required
+@require_http_methods(["POST"])
+def pal_create_blurb(request, pal_id):
+    pal = get_object_or_404(Pal, id=pal_id)
+    if not PalMember.objects.filter(pal=pal, user=request.user).exists():
+        return JsonResponse({"error": "Not a member"}, status=403)
+    text = request.POST.get('text', '').strip()
+    if not text:
+        return JsonResponse({"error": "Text is required"}, status=400)
+    lat = request.POST.get('latitude')
+    lng = request.POST.get('longitude')
+    if not lat or not lng:
+        return JsonResponse({"error": "Location is required"}, status=400)
+    blurb = PalBlurb.objects.create(
+        pal=pal, author=request.user, text=text,
+        latitude=float(lat), longitude=float(lng),
+        location_name=request.POST.get('location_name', ''),
+    )
+    photos = request.FILES.getlist('photos')
+    for i, photo_file in enumerate(photos[:5]):
+        if photo_file.size > 10 * 1024 * 1024:
+            continue
+        full_file, thumb_file = resize_photo(photo_file)
+        PalBlurbPhoto.objects.create(blurb=blurb, image=full_file, thumbnail=thumb_file, order=i)
+    return JsonResponse({"status": "ok", "blurb_id": blurb.id})
+
+
+@login_required
+@require_http_methods(["POST"])
+def pal_delete_blurb(request, pal_id, blurb_id):
+    pal = get_object_or_404(Pal, id=pal_id)
+    blurb = get_object_or_404(PalBlurb, id=blurb_id, pal=pal)
+    if blurb.author != request.user and pal.creator != request.user:
+        return JsonResponse({"error": "Permission denied"}, status=403)
+    blurb.delete()
+    return JsonResponse({"status": "ok"})
+
+
+@login_required
+@require_http_methods(["POST"])
+def pal_create_milestone(request, pal_id):
+    pal = get_object_or_404(Pal, id=pal_id)
+    if not PalMember.objects.filter(pal=pal, user=request.user).exists():
+        return JsonResponse({"error": "Not a member"}, status=403)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    title = data.get('title', '').strip()
+    if not title:
+        return JsonResponse({"error": "Title required"}, status=400)
+    date_str = data.get('date')
+    if not date_str:
+        return JsonResponse({"error": "Date required"}, status=400)
+    milestone_dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+    if timezone.is_naive(milestone_dt):
+        milestone_dt = timezone.make_aware(milestone_dt)
+    milestone = PalMilestone.objects.create(
+        pal=pal, author=request.user, title=title,
+        description=data.get('description', ''),
+        emoji=data.get('emoji', '\U0001f3c1'),
+        date=milestone_dt,
+    )
+    return JsonResponse({"status": "ok", "milestone_id": milestone.id})
+
+
+@login_required
+@require_http_methods(["POST"])
+def pal_delete_milestone(request, pal_id, milestone_id):
+    pal = get_object_or_404(Pal, id=pal_id)
+    milestone = get_object_or_404(PalMilestone, id=milestone_id, pal=pal)
+    if milestone.author != request.user and pal.creator != request.user:
+        return JsonResponse({"error": "Permission denied"}, status=403)
+    milestone.delete()
+    return JsonResponse({"status": "ok"})
+
+
+@login_required
+def pal_blurb_comments(request, pal_id, blurb_id):
+    pal = get_object_or_404(Pal, id=pal_id)
+    if not PalMember.objects.filter(pal=pal, user=request.user).exists():
+        return JsonResponse({"error": "Not a member"}, status=403)
+    blurb = get_object_or_404(PalBlurb, id=blurb_id, pal=pal)
+    comments = [{
+        'id': c.id,
+        'author': c.author.username,
+        'author_id': c.author.id,
+        'avatar': _get_user_avatar(c.author),
+        'text': c.text,
+        'created_at': c.created_at.isoformat(),
+    } for c in blurb.comments.select_related('author')]
+    return JsonResponse({'comments': comments})
+
+
+@login_required
+@require_http_methods(["POST"])
+def pal_create_comment(request, pal_id, blurb_id):
+    pal = get_object_or_404(Pal, id=pal_id)
+    if not PalMember.objects.filter(pal=pal, user=request.user).exists():
+        return JsonResponse({"error": "Not a member"}, status=403)
+    blurb = get_object_or_404(PalBlurb, id=blurb_id, pal=pal)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    text = data.get('text', '').strip()
+    if not text:
+        return JsonResponse({"error": "Text required"}, status=400)
+    comment = PalComment.objects.create(blurb=blurb, author=request.user, text=text)
+    return JsonResponse({
+        "status": "ok",
+        "comment": {
+            'id': comment.id,
+            'author': comment.author.username,
+            'avatar': _get_user_avatar(comment.author),
+            'text': comment.text,
+            'created_at': comment.created_at.isoformat(),
+        }
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
+def pal_delete_comment(request, pal_id, comment_id):
+    pal = get_object_or_404(Pal, id=pal_id)
+    comment = get_object_or_404(PalComment, id=comment_id, blurb__pal=pal)
+    if comment.author != request.user and pal.creator != request.user:
+        return JsonResponse({"error": "Permission denied"}, status=403)
+    comment.delete()
+    return JsonResponse({"status": "ok"})
+
+
+# ---------------------------------------------------------------------------
+# Public PAL API (no auth required for public PALs)
+# ---------------------------------------------------------------------------
+
+def pal_public_detail_api(request, slug):
+    pal = get_object_or_404(Pal, public_slug=slug)
+    members = []
+    for m in pal.members.select_related('user'):
+        members.append({
+            'user_id': m.user.id,
+            'username': m.user.username,
+            'role': m.role,
+            'avatar': _get_user_avatar(m.user),
+        })
+    return JsonResponse({
+        'id': pal.id,
+        'name': pal.name,
+        'description': pal.description,
+        'start_date': pal.start_date.isoformat(),
+        'end_date': pal.end_date.isoformat(),
+        'creator': pal.creator.username,
+        'is_public': True,
+        'members': members,
+        'role': 'viewer',
+    })
+
+
+def pal_public_timeline_api(request, slug):
+    pal = get_object_or_404(Pal, public_slug=slug)
+    page = int(request.GET.get('page', 1))
+    per_page = 50
+    events = []
+    for b in pal.blurbs.select_related('author').prefetch_related('photos', 'comments'):
+        events.append({
+            'type': 'blurb',
+            'id': b.id,
+            'author': b.author.username,
+            'author_id': b.author.id,
+            'avatar': _get_user_avatar(b.author),
+            'text': b.text,
+            'latitude': b.latitude,
+            'longitude': b.longitude,
+            'location_name': b.location_name,
+            'photos': [{'id': p.id, 'url': p.image.url, 'thumb': p.thumbnail.url if p.thumbnail else p.image.url} for p in b.photos.all()],
+            'comment_count': b.comments.count(),
+            'created_at': b.created_at.isoformat(),
+            'sort_key': b.created_at.isoformat(),
+        })
+    for m in pal.milestones.select_related('author'):
+        events.append({
+            'type': 'milestone',
+            'id': m.id,
+            'author': m.author.username,
+            'author_id': m.author.id,
+            'title': m.title,
+            'description': m.description,
+            'emoji': m.emoji,
+            'date': m.date.isoformat(),
+            'created_at': m.created_at.isoformat(),
+            'sort_key': m.date.isoformat(),
+        })
+    events.sort(key=lambda e: e['sort_key'])
+    total = len(events)
+    start = (page - 1) * per_page
+    events = events[start:start + per_page]
+    return JsonResponse({'events': events, 'page': page, 'has_more': start + per_page < total})
+
+
+def pal_public_locations_api(request, slug):
+    pal = get_object_or_404(Pal, public_slug=slug)
+    start_dt = timezone.make_aware(datetime.combine(pal.start_date, dt_time.min))
+    end_dt = timezone.make_aware(datetime.combine(pal.end_date, dt_time(23, 59, 59)))
+    result = {}
+    for m in pal.members.select_related('user'):
+        devices = Device.objects.filter(user=m.user)
+        locations = list(Location.objects.filter(
+            device__in=devices,
+            timestamp__gte=start_dt,
+            timestamp__lte=end_dt,
+        ).order_by('timestamp').values_list('latitude', 'longitude', 'timestamp', named=True))
+        if len(locations) > 500:
+            step = len(locations) // 500
+            locations = locations[::step]
+        result[m.user.username] = {
+            'avatar': _get_user_avatar(m.user),
+            'locations': [
+                {'lat': loc.latitude, 'lng': loc.longitude, 'ts': loc.timestamp.isoformat()}
+                for loc in locations
+            ]
+        }
+    return JsonResponse({'members': result})

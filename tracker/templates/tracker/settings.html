@@ -8,6 +8,32 @@
     </div>
 
     <div class="grid grid-2">
+        <!-- Profile Picture -->
+        <div class="card" style="grid-column: span 2;">
+            <div class="card-header">Profile Picture</div>
+            <div style="display: flex; align-items: center; gap: 1.5rem;">
+                <div id="profile-pic-preview" style="width: 80px; height: 80px; border-radius: 50%; overflow: hidden; background: var(--bg-input); display: flex; align-items: center; justify-content: center; font-size: 2rem; color: var(--primary); flex-shrink: 0;">
+                    {% if user.profile.profile_picture %}
+                        <img src="{{ user.profile.profile_picture.url }}" style="width: 100%; height: 100%; object-fit: cover;">
+                    {% else %}
+                        {{ user.username|make_list|first|upper }}
+                    {% endif %}
+                </div>
+                <div>
+                    <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+                        Upload a profile picture. It will appear on PAL maps and timelines.
+                    </p>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <label class="btn btn-primary btn-sm" style="cursor: pointer;">
+                            Upload
+                            <input type="file" accept="image/*" id="profile-pic-input" style="display: none;" onchange="uploadProfilePicture(this)">
+                        </label>
+                        <button class="btn btn-outline btn-sm" onclick="deleteProfilePicture()">Remove</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- API Keys -->
         <div class="card" style="grid-column: span 2;">
             <div class="card-header">API Keys</div>
@@ -461,6 +487,41 @@ curl -X POST {{ request.scheme }}://{{ request.get_host }}/api/push/ \
 
 {% block extra_js %}
 <script>
+// Profile picture
+function uploadProfilePicture(input) {
+    if (!input.files[0]) return;
+    const formData = new FormData();
+    formData.append('picture', input.files[0]);
+    fetch('/api/profile/picture/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'ok') {
+            document.getElementById('profile-pic-preview').innerHTML =
+                `<img src="${data.picture_url}" style="width:100%;height:100%;object-fit:cover;">`;
+        } else {
+            alert(data.error || 'Upload failed');
+        }
+    });
+}
+
+function deleteProfilePicture() {
+    fetch('/api/profile/picture/delete/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'ok') {
+            const initial = '{{ user.username }}'[0].toUpperCase();
+            document.getElementById('profile-pic-preview').innerHTML = initial;
+        }
+    });
+}
+
 // Device colors
 const deviceColors = ['#3b82f6','#22c55e','#ef4444','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#f97316'];
 function deviceColorHash(id) {
