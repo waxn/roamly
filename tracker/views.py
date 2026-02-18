@@ -2403,6 +2403,28 @@ def pal_create_blurb(request, pal_id):
 
 @login_required
 @require_http_methods(["POST"])
+def pal_update_blurb(request, pal_id, blurb_id):
+    pal = get_object_or_404(Pal, id=pal_id)
+    blurb = get_object_or_404(PalBlurb, id=blurb_id, pal=pal)
+    if blurb.author != request.user and pal.creator != request.user:
+        return JsonResponse({"error": "Permission denied"}, status=403)
+    text = request.POST.get('text', '').strip()
+    if text:
+        blurb.text = text
+    lat = request.POST.get('latitude')
+    lng = request.POST.get('longitude')
+    if lat and lng:
+        blurb.latitude = float(lat)
+        blurb.longitude = float(lng)
+    location_name = request.POST.get('location_name')
+    if location_name is not None:
+        blurb.location_name = location_name
+    blurb.save()
+    return JsonResponse({"status": "ok"})
+
+
+@login_required
+@require_http_methods(["POST"])
 def pal_delete_blurb(request, pal_id, blurb_id):
     pal = get_object_or_404(Pal, id=pal_id)
     blurb = get_object_or_404(PalBlurb, id=blurb_id, pal=pal)
@@ -2451,20 +2473,38 @@ def pal_delete_milestone(request, pal_id, milestone_id):
     return JsonResponse({"status": "ok"})
 
 
+def _serialize_comment(c):
+    """Serialize a PalComment for JSON response."""
+    if c.author:
+        return {
+            'id': c.id,
+            'author': c.author.username,
+            'author_id': c.author.id,
+            'avatar': _get_user_avatar(c.author),
+            'is_guest': False,
+            'text': c.text,
+            'created_at': c.created_at.isoformat(),
+        }
+    name = c.guest_name or 'guest'
+    initial = name[0].upper() if name else 'G'
+    return {
+        'id': c.id,
+        'author': name,
+        'author_id': None,
+        'avatar': {'type': 'initials', 'initials': initial, 'color': '#6b7280'},
+        'is_guest': True,
+        'text': c.text,
+        'created_at': c.created_at.isoformat(),
+    }
+
+
 @login_required
 def pal_blurb_comments(request, pal_id, blurb_id):
     pal = get_object_or_404(Pal, id=pal_id)
     if not PalMember.objects.filter(pal=pal, user=request.user).exists():
         return JsonResponse({"error": "Not a member"}, status=403)
     blurb = get_object_or_404(PalBlurb, id=blurb_id, pal=pal)
-    comments = [{
-        'id': c.id,
-        'author': c.author.username,
-        'author_id': c.author.id,
-        'avatar': _get_user_avatar(c.author),
-        'text': c.text,
-        'created_at': c.created_at.isoformat(),
-    } for c in blurb.comments.select_related('author')]
+    comments = [_serialize_comment(c) for c in blurb.comments.select_related('author')]
     return JsonResponse({'comments': comments})
 
 
@@ -2483,16 +2523,7 @@ def pal_create_comment(request, pal_id, blurb_id):
     if not text:
         return JsonResponse({"error": "Text required"}, status=400)
     comment = PalComment.objects.create(blurb=blurb, author=request.user, text=text)
-    return JsonResponse({
-        "status": "ok",
-        "comment": {
-            'id': comment.id,
-            'author': comment.author.username,
-            'avatar': _get_user_avatar(comment.author),
-            'text': comment.text,
-            'created_at': comment.created_at.isoformat(),
-        }
-    })
+    return JsonResponse({"status": "ok", "comment": _serialize_comment(comment)})
 
 
 @login_required
@@ -2597,3 +2628,31 @@ def pal_public_locations_api(request, slug):
             ]
         }
     return JsonResponse({'members': result})
+
+
+def pal_public_comments_api(request, slug, blurb_id):
+    pal = get_object_or_404(Pal, public_slug=slug)
+    blurb = get_object_or_404(PalBlurb, id=blurb_id, pal=pal)
+    comments = [_serialize_comment(c) for c in blurb.comments.select_related('author')]
+    return JsonResponse({'comments': comments})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def pal_public_create_comment(request, slug, blurb_id):
+    pal = get_object_or_404(Pal, public_slug=slug)
+    blurb = get_object_or_404(PalBlurb, id=blurb_id, pal=pal)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    text = data.get('text', '').strip()
+    name = data.get('name', '').strip()
+    if not text:
+        return JsonResponse({"error": "Text required"}, status=400)
+    if not name:
+        return JsonResponse({"error": "Name required"}, status=400)
+    if len(name) > 100:
+        return JsonResponse({"error": "Name too long"}, status=400)
+    comment = PalComment.objects.create(blurb=blurb, author=None, guest_name=name, text=text)
+    return JsonResponse({"status": "ok", "comment": _serialize_comment(comment)})

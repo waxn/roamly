@@ -103,6 +103,7 @@ urlpatterns = [
     path('api/pals/<int:pal_id>/locations/', views.pal_locations_api, name='pal_locations_api'),
     path('api/pals/<int:pal_id>/timeline/', views.pal_timeline_api, name='pal_timeline_api'),
     path('api/pals/<int:pal_id>/blurbs/create/', views.pal_create_blurb, name='pal_create_blurb'),
+    path('api/pals/<int:pal_id>/blurbs/<int:blurb_id>/update/', views.pal_update_blurb, name='pal_update_blurb'),
     path('api/pals/<int:pal_id>/blurbs/<int:blurb_id>/delete/', views.pal_delete_blurb, name='pal_delete_blurb'),
     path('api/pals/<int:pal_id>/blurbs/<int:blurb_id>/comments/', views.pal_blurb_comments, name='pal_blurb_comments'),
     path('api/pals/<int:pal_id>/blurbs/<int:blurb_id>/comments/create/', views.pal_create_comment, name='pal_create_comment'),
@@ -114,4 +115,6 @@ urlpatterns = [
     path('api/pal/<slug:slug>/detail/', views.pal_public_detail_api, name='pal_public_detail_api'),
     path('api/pal/<slug:slug>/timeline/', views.pal_public_timeline_api, name='pal_public_timeline_api'),
     path('api/pal/<slug:slug>/locations/', views.pal_public_locations_api, name='pal_public_locations_api'),
+    path('api/pal/<slug:slug>/blurbs/<int:blurb_id>/comments/', views.pal_public_comments_api, name='pal_public_comments_api'),
+    path('api/pal/<slug:slug>/blurbs/<int:blurb_id>/comments/create/', views.pal_public_create_comment, name='pal_public_create_comment'),
 ]

@@ -335,7 +335,8 @@ class PalMilestone(models.Model):
 class PalComment(models.Model):
     """Comment on a PAL blurb."""
     blurb = models.ForeignKey(PalBlurb, on_delete=models.CASCADE, related_name='comments')
-    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='pal_comments')
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='pal_comments', null=True, blank=True)
+    guest_name = models.CharField(max_length=100, blank=True)
     text = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -343,4 +344,4 @@ class PalComment(models.Model):
         ordering = ['created_at']
 
     def __str__(self):
-        return f"Comment by {self.author.username}"
+        return f"Comment by {self.author.username if self.author else self.guest_name}"

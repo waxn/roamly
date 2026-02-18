@@ -181,6 +181,7 @@ let palMap = null;
 let palData = null;
 let memberMarkers = {};
 let blurbMarkers = [];
+let blurbDataMap = {}; // id -> blurb data for editing
 let currentBlurbText = '';
 let placingBlurb = false;
 
@@ -440,8 +441,9 @@ function renderTimeline(events) {
         resetCompose();
         return;
     }
+    blurbDataMap = {};
     container.innerHTML = events.map(ev => {
-        if (ev.type === 'blurb') return renderBlurb(ev);
+        if (ev.type === 'blurb') { blurbDataMap[ev.id] = ev; return renderBlurb(ev); }
         if (ev.type === 'milestone') return renderMilestone(ev);
         return '';
     }).join('');
@@ -457,8 +459,11 @@ function renderBlurb(b) {
     const commentsLabel = b.comment_count > 0
         ? `${b.comment_count} comment${b.comment_count > 1 ? 's' : ''}`
         : 'comment';
-    const deleteBtn = (!isPublic && (b.author === currentUsername || palData.role === 'creator'))
+    const canEdit = !isPublic && (b.author === currentUsername || palData.role === 'creator');
+    const deleteBtn = canEdit
         ? `<span onclick="event.stopPropagation();deleteBlurb(${b.id})">delete</span>` : '';
+    const editBtn = canEdit
+        ? `<span onclick="event.stopPropagation();startEditBlurb(${b.id})">edit</span>` : '';
     const flyBtn = `<span onclick="event.stopPropagation();flyToBlurb(${b.latitude}, ${b.longitude})">show on map</span>`;
 
     return `<div class="blurb-card" id="blurb-${b.id}">
@@ -474,6 +479,7 @@ function renderBlurb(b) {
         <div class="blurb-actions">
             <span onclick="event.stopPropagation();toggleComments(${b.id})">${commentsLabel}</span>
             ${flyBtn}
+            ${editBtn}
             ${deleteBtn}
         </div>
         <div id="comments-${b.id}" class="comment-section" style="display:none;"></div>
@@ -558,6 +564,7 @@ function startBlurbCompose() {
         <input type="text" id="blurb-location-name" class="compose-input" placeholder="location name (optional)" style="width:100%;margin-bottom:0.5rem;">
         <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
             <span id="blurb-coords" style="font-size:0.75rem;color:var(--text-muted);">no location set</span>
+            <span onclick="rePickLocation()" style="cursor:pointer;font-size:0.75rem;color:var(--primary);display:none;" id="repick-btn" title="change location">&#9998;</span>
         </div>
         <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
             <label class="btn btn-outline btn-sm" style="cursor:pointer;">
@@ -573,16 +580,25 @@ function startBlurbCompose() {
             <button class="btn btn-outline btn-sm" onclick="cancelCompose()">cancel</button>
         </div>
     `;
+    listenForMapClick();
+}
 
-    // Map click handler
+function listenForMapClick() {
+    palMap.getCanvas().style.cursor = 'crosshair';
     const clickHandler = (e) => {
         document.getElementById('blurb-lat').value = e.lngLat.lat;
         document.getElementById('blurb-lng').value = e.lngLat.lng;
         document.getElementById('blurb-coords').textContent = `${e.lngLat.lat.toFixed(4)}, ${e.lngLat.lng.toFixed(4)}`;
+        const repickBtn = document.getElementById('repick-btn');
+        if (repickBtn) repickBtn.style.display = '';
         palMap.getCanvas().style.cursor = '';
     };
     palMap.once('click', clickHandler);
     window._blurbClickHandler = clickHandler;
+}
+
+function rePickLocation() {
+    listenForMapClick();
 }
 
 function previewPhotos(input) {
@@ -643,6 +659,55 @@ function deleteBlurb(blurbId) {
     })
     .then(r => r.json())
     .then(data => { if (data.status === 'ok') loadTimeline(); });
+}
+
+function startEditBlurb(blurbId) {
+    const b = blurbDataMap[blurbId];
+    if (!b) return;
+    const card = document.getElementById(`blurb-${blurbId}`);
+    if (!card) return;
+    card.innerHTML = `
+        <textarea class="compose-input" id="edit-text-${blurbId}" rows="2" style="width:100%;margin-bottom:0.5rem;">${escapeHtml(b.text)}</textarea>
+        <input type="text" id="edit-locname-${blurbId}" class="compose-input" placeholder="location name" value="${escapeHtml(b.location_name || '')}" style="width:100%;margin-bottom:0.5rem;">
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
+            <span id="edit-coords-${blurbId}" style="font-size:0.75rem;color:var(--text-muted);">${b.latitude.toFixed(4)}, ${b.longitude.toFixed(4)}</span>
+            <span onclick="rePickEditLocation(${blurbId})" style="cursor:pointer;font-size:0.75rem;color:var(--primary);" title="change location">&#9998;</span>
+        </div>
+        <input type="hidden" id="edit-lat-${blurbId}" value="${b.latitude}">
+        <input type="hidden" id="edit-lng-${blurbId}" value="${b.longitude}">
+        <div class="compose-row">
+            <button class="btn btn-primary btn-sm" onclick="submitEditBlurb(${blurbId})">save</button>
+            <button class="btn btn-outline btn-sm" onclick="loadTimeline()">cancel</button>
+        </div>
+    `;
+}
+
+function rePickEditLocation(blurbId) {
+    palMap.getCanvas().style.cursor = 'crosshair';
+    palMap.once('click', (e) => {
+        document.getElementById(`edit-lat-${blurbId}`).value = e.lngLat.lat;
+        document.getElementById(`edit-lng-${blurbId}`).value = e.lngLat.lng;
+        document.getElementById(`edit-coords-${blurbId}`).textContent = `${e.lngLat.lat.toFixed(4)}, ${e.lngLat.lng.toFixed(4)}`;
+        palMap.getCanvas().style.cursor = '';
+    });
+}
+
+function submitEditBlurb(blurbId) {
+    const formData = new FormData();
+    formData.append('text', document.getElementById(`edit-text-${blurbId}`).value);
+    formData.append('latitude', document.getElementById(`edit-lat-${blurbId}`).value);
+    formData.append('longitude', document.getElementById(`edit-lng-${blurbId}`).value);
+    formData.append('location_name', document.getElementById(`edit-locname-${blurbId}`).value);
+    fetch(`/api/pals/${palId}/blurbs/${blurbId}/update/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrfToken },
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'ok') loadTimeline();
+        else alert(data.error || 'Error');
+    });
 }
 
 // --- Milestone Compose ---
@@ -714,7 +779,6 @@ function loadComments(blurbId) {
         ? `${apiBase}/blurbs/${blurbId}/comments/`
         : `/api/pals/${palId}/blurbs/${blurbId}/comments/`;
 
-    // For public view, comments API may not exist; handle gracefully
     fetch(url)
         .then(r => { if (!r.ok) throw new Error(); return r.json(); })
         .then(data => {
@@ -725,11 +789,19 @@ function loadComments(blurbId) {
                     ? ` <span style="color:var(--text-muted);cursor:pointer;font-size:0.7rem;" onclick="deleteComment(${c.id})">&times;</span>` : '';
                 return `<div class="comment-item">
                     ${avatar}
-                    <div><span style="font-weight:600;">${c.author}</span> ${escapeHtml(c.text)}${delBtn}</div>
+                    <div><span style="font-weight:600;">${escapeHtml(c.author)}</span> ${escapeHtml(c.text)}${delBtn}</div>
                 </div>`;
             }).join('');
 
-            if (!isPublic) {
+            if (isPublic) {
+                // Public: guest name + comment input
+                const savedName = localStorage.getItem('pal_guest_name') || '';
+                html += `<div class="comment-input-row" style="flex-wrap:wrap;">
+                    <input type="text" class="compose-input" id="guest-name-${blurbId}" placeholder="your name" value="${escapeHtml(savedName)}" style="font-size:0.8125rem;padding:0.375rem 0.5rem;width:100px;flex-shrink:0;">
+                    <input type="text" class="compose-input" id="comment-input-${blurbId}" placeholder="write a comment..." style="font-size:0.8125rem;padding:0.375rem 0.5rem;flex:1;" onkeypress="if(event.key==='Enter')submitPublicComment(${blurbId})">
+                    <button class="btn btn-primary btn-sm" onclick="submitPublicComment(${blurbId})" style="font-size:0.75rem;">post</button>
+                </div>`;
+            } else {
                 html += `<div class="comment-input-row">
                     <input type="text" class="compose-input" id="comment-input-${blurbId}" placeholder="write a comment..." style="font-size:0.8125rem;padding:0.375rem 0.5rem;" onkeypress="if(event.key==='Enter')submitComment(${blurbId})">
                     <button class="btn btn-primary btn-sm" onclick="submitComment(${blurbId})" style="font-size:0.75rem;">post</button>
@@ -756,6 +828,26 @@ function submitComment(blurbId) {
     .then(r => r.json())
     .then(data => {
         if (data.status === 'ok') loadComments(blurbId);
+    });
+}
+
+function submitPublicComment(blurbId) {
+    const nameInput = document.getElementById(`guest-name-${blurbId}`);
+    const textInput = document.getElementById(`comment-input-${blurbId}`);
+    const name = nameInput.value.trim();
+    const text = textInput.value.trim();
+    if (!name) { alert('Please enter your name'); nameInput.focus(); return; }
+    if (!text) return;
+    localStorage.setItem('pal_guest_name', name);
+    fetch(`${apiBase}/blurbs/${blurbId}/comments/create/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, text })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'ok') loadComments(blurbId);
+        else alert(data.error || 'Error');
     });
 }
 
