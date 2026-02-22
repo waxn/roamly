@@ -233,8 +233,13 @@ def _backup_scheduler_loop():
 
                 # Check if backup is due
                 if config.last_backup_at is None or (now - config.last_backup_at) >= delta:
-                    logger.info(f"Scheduled backup starting for {config.user.username}")
-                    run_backup_now(config.user_id)
+                    # Atomically claim the backup slot to prevent duplicate runs across workers
+                    claimed = BackupConfig.objects.filter(pk=config.pk).exclude(
+                        last_backup_status='running'
+                    ).update(last_backup_status='running', last_backup_error='')
+                    if claimed:
+                        logger.info(f"Scheduled backup starting for {config.user.username}")
+                        run_backup_now(config.user_id)
 
         except Exception as e:
             logger.error(f"Backup scheduler error: {e}")
