@@ -590,7 +590,7 @@ docker compose exec -T db psql -U roamly roamly < backup.sql</code></pre>
             <!-- Environment / Configuration -->
             <section id="environment" class="section">
                 <h1>configuration</h1>
-                <p>roamly is configured through environment variables. you can set these in a <code>.env</code> file in the project root, or pass them directly in your <code>docker-compose.yml</code> override.</p>
+                <p>roamly is configured through environment variables. you can set these in a <code>.env</code> file in the project root, or set them directly in your hosting platform (e.g. portainer stack environment variables). no domain names are hardcoded — all host and csrf configuration must be provided via environment variables.</p>
 
                 <h2>environment variables</h2>
                 <div class="table-wrapper">
@@ -617,12 +617,12 @@ docker compose exec -T db psql -U roamly roamly < backup.sql</code></pre>
                         </tr>
                         <tr>
                             <td><code>ALLOWED_HOSTS</code></td>
-                            <td>comma-separated list of hostnames the server accepts requests for.</td>
-                            <td><code>*</code></td>
+                            <td>comma-separated list of hostnames the server accepts requests for. <strong>must be set to your domain in production.</strong></td>
+                            <td><code>localhost,127.0.0.1</code></td>
                         </tr>
                         <tr>
                             <td><code>CSRF_TRUSTED_ORIGINS</code></td>
-                            <td>comma-separated urls trusted for csrf. required when behind a reverse proxy.</td>
+                            <td>comma-separated urls (with protocol) trusted for csrf. <strong>must include your domain's https url in production.</strong></td>
                             <td><code>http://localhost,http://127.0.0.1</code></td>
                         </tr>
                         <tr>
@@ -635,11 +635,18 @@ docker compose exec -T db psql -U roamly roamly < backup.sql</code></pre>
 
                 <h2>example .env file</h2>
                 <pre><code># production .env file
+# copy .env.example to .env and fill in these values
+# or set them as environment variables in portainer / your hosting platform
+
+DEBUG=False
 SECRET_KEY=your-random-secret-key-at-least-50-chars
 POSTGRES_PASSWORD=a-strong-database-password
+
+# comma-separated, no protocol
 ALLOWED_HOSTS=roamly.yourdomain.com
-CSRF_TRUSTED_ORIGINS=https://roamly.yourdomain.com
-DEBUG=False</code></pre>
+
+# comma-separated, include protocol — add all domains you host on
+CSRF_TRUSTED_ORIGINS=https://roamly.yourdomain.com</code></pre>
 
                 <div class="warning-box">
                     <strong>important:</strong> always change <code>SECRET_KEY</code> and <code>POSTGRES_PASSWORD</code> before exposing roamly to the internet. the defaults are insecure placeholders.
