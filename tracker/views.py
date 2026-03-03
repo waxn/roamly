@@ -14,7 +14,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Min, Max, Avg, Q
 from django.db.models.functions import TruncDate
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -1130,85 +1130,70 @@ def export_gpx(request):
     return response
 
 
+def _stream_backup_json(user):
+    """Generator that yields JSON chunks for a streaming backup response.
+    Streams locations row-by-row via queryset iterator to avoid loading the
+    entire dataset into memory — critical for large datasets behind a proxy."""
+    encoder = DjangoJSONEncoder()
+
+    meta = {'version': 1, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    devices = [{'device_id': d.device_id, 'name': d.name}
+               for d in Device.objects.filter(user=user)]
+    trips = [
+        {'device_id': t.device.device_id, 'name': t.name, 'description': t.description,
+         'start_time': t.start_time, 'end_time': t.end_time}
+        for t in Trip.objects.filter(device__user=user).select_related('device')
+    ]
+    trip_places = [
+        {'trip_name': tp.trip.name, 'trip_device_id': tp.trip.device.device_id,
+         'trip_start_time': tp.trip.start_time, 'name': tp.name,
+         'latitude': tp.latitude, 'longitude': tp.longitude, 'radius': tp.radius,
+         'notes': tp.notes, 'visited_at': tp.visited_at}
+        for tp in TripPlace.objects.filter(trip__device__user=user).select_related('trip', 'trip__device')
+    ]
+    api_keys = [
+        {'name': k.name, 'key': k.key, 'is_active': k.is_active, 'created_at': k.created_at}
+        for k in APIKey.objects.filter(user=user)
+    ]
+
+    yield '{"meta":' + encoder.encode(meta) + ','
+    yield '"devices":' + encoder.encode(devices) + ','
+    yield '"trips":' + encoder.encode(trips) + ','
+    yield '"trip_places":' + encoder.encode(trip_places) + ','
+    yield '"api_keys":' + encoder.encode(api_keys) + ','
+
+    # Stream locations one-by-one to avoid OOM on large datasets
+    yield '"locations":['
+    first = True
+    qs = (Location.objects.filter(device__user=user)
+          .select_related('device').order_by('timestamp').iterator(chunk_size=2000))
+    for loc in qs:
+        if not first:
+            yield ','
+        first = False
+        yield encoder.encode({
+            'device_id': loc.device.device_id,
+            'latitude': loc.latitude, 'longitude': loc.longitude,
+            'altitude': loc.altitude, 'accuracy': loc.accuracy,
+            'speed': loc.speed, 'battery': loc.battery,
+            'timestamp': loc.timestamp,
+            'city': loc.city, 'state': loc.state,
+            'country': loc.country, 'country_code': loc.country_code,
+            'place_name': loc.place_name,
+        })
+    yield ']}'
+
+
 @login_required
 def export_backup(request):
-    """Export all user data as a single JSON backup file."""
-    user = request.user
-    devices = Device.objects.filter(user=user)
-    locations = Location.objects.filter(device__user=user).select_related('device').order_by('timestamp')
-    trips = Trip.objects.filter(device__user=user).select_related('device')
-    trip_places = TripPlace.objects.filter(trip__device__user=user).select_related('trip', 'trip__device')
-    api_keys = APIKey.objects.filter(user=user)
-
-    data = {
-        'meta': {
-            'version': 1,
-            'exported_at': timezone.now().isoformat(),
-            'username': user.username,
-        },
-        'devices': [
-            {'device_id': d.device_id, 'name': d.name}
-            for d in devices
-        ],
-        'locations': [
-            {
-                'device_id': loc.device.device_id,
-                'latitude': loc.latitude,
-                'longitude': loc.longitude,
-                'altitude': loc.altitude,
-                'accuracy': loc.accuracy,
-                'speed': loc.speed,
-                'battery': loc.battery,
-                'timestamp': loc.timestamp,
-                'city': loc.city,
-                'state': loc.state,
-                'country': loc.country,
-                'country_code': loc.country_code,
-                'place_name': loc.place_name,
-            }
-            for loc in locations
-        ],
-        'trips': [
-            {
-                'device_id': t.device.device_id,
-                'name': t.name,
-                'description': t.description,
-                'start_time': t.start_time,
-                'end_time': t.end_time,
-            }
-            for t in trips
-        ],
-        'trip_places': [
-            {
-                'trip_name': tp.trip.name,
-                'trip_device_id': tp.trip.device.device_id,
-                'trip_start_time': tp.trip.start_time,
-                'name': tp.name,
-                'latitude': tp.latitude,
-                'longitude': tp.longitude,
-                'radius': tp.radius,
-                'notes': tp.notes,
-                'visited_at': tp.visited_at,
-            }
-            for tp in trip_places
-        ],
-        'api_keys': [
-            {
-                'name': k.name,
-                'key': k.key,
-                'is_active': k.is_active,
-                'created_at': k.created_at,
-            }
-            for k in api_keys
-        ],
-    }
-
+    """Export all user data as a streaming JSON backup file."""
     filename = f'roamly_backup_{timezone.now().strftime("%Y-%m-%d")}.json'
-    response = HttpResponse(
-        json.dumps(data, cls=DjangoJSONEncoder, indent=2),
+    response = StreamingHttpResponse(
+        _stream_backup_json(request.user),
         content_type='application/json',
     )
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response['X-Accel-Buffering'] = 'no'  # disable nginx proxy buffering
     return response
 
 
