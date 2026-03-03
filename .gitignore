@@ -16,7 +16,6 @@ media/
 
 # Environment/config
 .env
-.env.*
 
 # Docker data
 data/
