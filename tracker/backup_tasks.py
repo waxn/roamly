@@ -100,12 +100,17 @@ def _build_backup_json(user):
 def _get_s3_client(config):
     """Create a boto3 S3 client from a BackupConfig."""
     import boto3
+    from botocore.config import Config
     return boto3.client(
         's3',
         endpoint_url=config.endpoint_url,
         aws_access_key_id=config.access_key,
         aws_secret_access_key=config.secret_key,
         region_name=config.region or 'auto',
+        config=Config(
+            signature_version='s3v4',
+            s3={'addressing_style': 'path'},
+        ),
     )
 
 

@@ -2,6 +2,7 @@ import time
 import threading
 import logging
 from collections import defaultdict
+from datetime import timedelta
 
 from django.utils import timezone
 
@@ -171,16 +172,21 @@ def get_status(user_id):
     except GeocodingJob.DoesNotExist:
         return {'status': 'idle'}
 
-    # If DB says running but thread is dead, the server restarted — auto-resume
+    # If DB says running but this worker has no thread, check if another worker
+    # is actively processing (updated_at refreshed within the last 30s). Only
+    # auto-resume if the job is truly stale to avoid spawning duplicate threads
+    # across multiple Gunicorn workers.
     if job.status == 'running' and not _is_thread_alive(user_id):
-        remaining = Location.objects.filter(
-            device__user_id=user_id, city=''
-        ).count()
-        if remaining > 0:
-            _start_thread(user_id)
-        else:
-            job.status = 'completed'
-            job.save(update_fields=['status'])
+        stale = (timezone.now() - job.updated_at).total_seconds() > 30
+        if stale:
+            remaining = Location.objects.filter(
+                device__user_id=user_id, city=''
+            ).count()
+            if remaining > 0:
+                _start_thread(user_id)
+            else:
+                job.status = 'completed'
+                job.save(update_fields=['status'])
 
     return {
         'status': job.status,
