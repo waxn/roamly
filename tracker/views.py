@@ -33,7 +33,7 @@ from .models import (
 from .image_utils import resize_image, resize_photo
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding
 from .poi_tasks import start_poi_download, get_poi_status, stop_poi_download
-from .backup_tasks import test_s3_connection, run_backup_now, get_backup_status, stop_backup_now
+from .backup_tasks import test_s3_connection, run_backup_now, get_backup_status, stop_backup_now, _build_pals_data
 
 logger = logging.getLogger(__name__)
 
@@ -1136,7 +1136,7 @@ def _stream_backup_json(user):
     entire dataset into memory — critical for large datasets behind a proxy."""
     encoder = DjangoJSONEncoder()
 
-    meta = {'version': 1, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 2, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     trips = [
@@ -1156,11 +1156,14 @@ def _stream_backup_json(user):
         for k in APIKey.objects.filter(user=user)
     ]
 
+    pals = _build_pals_data(user)
+
     yield '{"meta":' + encoder.encode(meta) + ','
     yield '"devices":' + encoder.encode(devices) + ','
     yield '"trips":' + encoder.encode(trips) + ','
     yield '"trip_places":' + encoder.encode(trip_places) + ','
     yield '"api_keys":' + encoder.encode(api_keys) + ','
+    yield '"pals":' + encoder.encode(pals) + ','
 
     # Stream locations one-by-one to avoid OOM on large datasets
     yield '"locations":['
@@ -1216,7 +1219,7 @@ def restore_backup(request):
         return JsonResponse({'error': 'Not a valid Roamly backup file (missing meta.version)'}, status=400)
 
     user = request.user
-    counts = {'devices': 0, 'locations': 0, 'trips': 0, 'trip_places': 0, 'api_keys': 0}
+    counts = {'devices': 0, 'locations': 0, 'trips': 0, 'trip_places': 0, 'api_keys': 0, 'pals': 0}
     errors = 0
 
     try:
@@ -1350,6 +1353,97 @@ def restore_backup(request):
                 except Exception as e:
                     errors += 1
                     logger.warning(f"Backup restore API key error: {e}")
+
+            # Restore pals
+            from django.contrib.auth import get_user_model
+            AuthUser = get_user_model()
+            import datetime
+
+            for pal_data in data.get('pals', []):
+                try:
+                    start_date = datetime.date.fromisoformat(str(pal_data['start_date'])[:10])
+                    end_date = datetime.date.fromisoformat(str(pal_data['end_date'])[:10])
+                    pal, pal_created = Pal.objects.get_or_create(
+                        creator=user,
+                        name=pal_data['name'],
+                        start_date=start_date,
+                        defaults={
+                            'description': pal_data.get('description', ''),
+                            'end_date': end_date,
+                            'public_slug': pal_data.get('public_slug'),
+                        }
+                    )
+                    if pal_created:
+                        counts['pals'] += 1
+
+                    # Members
+                    for m in pal_data.get('members', []):
+                        try:
+                            member_user = AuthUser.objects.get(username=m['username'])
+                            PalMember.objects.get_or_create(
+                                pal=pal, user=member_user,
+                                defaults={'role': m.get('role', 'member')}
+                            )
+                        except AuthUser.DoesNotExist:
+                            pass
+
+                    # Blurbs (only on new pals to avoid duplicates)
+                    if pal_created:
+                        for b in pal_data.get('blurbs', []):
+                            try:
+                                try:
+                                    blurb_author = AuthUser.objects.get(username=b['author_username'])
+                                except AuthUser.DoesNotExist:
+                                    blurb_author = user
+                                blurb = PalBlurb.objects.create(
+                                    pal=pal,
+                                    author=blurb_author,
+                                    text=b.get('text', ''),
+                                    latitude=b['latitude'],
+                                    longitude=b['longitude'],
+                                    location_name=b.get('location_name', ''),
+                                )
+                                for c in b.get('comments', []):
+                                    try:
+                                        comment_author = None
+                                        if c.get('author_username'):
+                                            try:
+                                                comment_author = AuthUser.objects.get(username=c['author_username'])
+                                            except AuthUser.DoesNotExist:
+                                                pass
+                                        PalComment.objects.create(
+                                            blurb=blurb,
+                                            author=comment_author,
+                                            guest_name=c.get('guest_name', ''),
+                                            text=c['text'],
+                                        )
+                                    except Exception:
+                                        pass
+                            except Exception as e:
+                                errors += 1
+                                logger.warning(f"Backup restore blurb error: {e}")
+
+                        for m in pal_data.get('milestones', []):
+                            try:
+                                try:
+                                    milestone_author = AuthUser.objects.get(username=m['author_username'])
+                                except AuthUser.DoesNotExist:
+                                    milestone_author = user
+                                PalMilestone.objects.create(
+                                    pal=pal,
+                                    author=milestone_author,
+                                    title=m['title'],
+                                    description=m.get('description', ''),
+                                    emoji=m.get('emoji', '🏁'),
+                                    date=_parse_timestamp(m['date']),
+                                )
+                            except Exception as e:
+                                errors += 1
+                                logger.warning(f"Backup restore milestone error: {e}")
+
+                except Exception as e:
+                    errors += 1
+                    logger.warning(f"Backup restore pal error: {e}")
 
     except Exception as e:
         logger.error(f"Backup restore failed: {e}")

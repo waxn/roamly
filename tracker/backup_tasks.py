@@ -22,6 +22,75 @@ INTERVAL_DELTAS = {
 }
 
 
+def _build_pals_data(user):
+    """Build serializable pals data for a user's backup (pals they created)."""
+    from .models import Pal
+
+    pals = (
+        Pal.objects.filter(creator=user)
+        .prefetch_related(
+            'members__user',
+            'blurbs__author',
+            'blurbs__photos',
+            'blurbs__comments__author',
+            'milestones__author',
+        )
+    )
+
+    result = []
+    for pal in pals:
+        blurbs = []
+        for b in pal.blurbs.all():
+            blurbs.append({
+                'author_username': b.author.username,
+                'text': b.text,
+                'latitude': b.latitude,
+                'longitude': b.longitude,
+                'location_name': b.location_name,
+                'created_at': b.created_at,
+                'photos': [
+                    {'image': p.image.name, 'order': p.order}
+                    for p in b.photos.all()
+                ],
+                'comments': [
+                    {
+                        'author_username': c.author.username if c.author else None,
+                        'guest_name': c.guest_name,
+                        'text': c.text,
+                        'created_at': c.created_at,
+                    }
+                    for c in b.comments.all()
+                ],
+            })
+
+        result.append({
+            'name': pal.name,
+            'description': pal.description,
+            'start_date': pal.start_date,
+            'end_date': pal.end_date,
+            'public_slug': pal.public_slug,
+            'created_at': pal.created_at,
+            'members': [
+                {'username': m.user.username, 'role': m.role}
+                for m in pal.members.all()
+            ],
+            'blurbs': blurbs,
+            'milestones': [
+                {
+                    'author_username': m.author.username,
+                    'title': m.title,
+                    'description': m.description,
+                    'emoji': m.emoji,
+                    'date': m.date,
+                    'created_at': m.created_at,
+                }
+                for m in pal.milestones.all()
+            ],
+        })
+
+    return result
+
+
 def _build_backup_json(user):
     """Build the backup JSON data dict for a user (same format as export_backup view)."""
     from .models import Device, Location, Trip, TripPlace, APIKey
@@ -34,7 +103,7 @@ def _build_backup_json(user):
 
     data = {
         'meta': {
-            'version': 1,
+            'version': 2,
             'exported_at': timezone.now().isoformat(),
             'username': user.username,
         },
@@ -93,6 +162,7 @@ def _build_backup_json(user):
             }
             for k in api_keys
         ],
+        'pals': _build_pals_data(user),
     }
     return json.dumps(data, cls=DjangoJSONEncoder, indent=2)
 
