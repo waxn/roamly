@@ -182,6 +182,8 @@ def _get_s3_client(config):
         config=Config(
             signature_version='s3v4',
             s3={'addressing_style': 'path'},
+            connect_timeout=30,
+            read_timeout=120,
         ),
     )
 
@@ -236,7 +238,8 @@ def _run_backup(user_id):
 
     config.last_backup_status = 'running'
     config.last_backup_error = ''
-    config.save(update_fields=['last_backup_status', 'last_backup_error'])
+    config.last_backup_started_at = timezone.now()
+    config.save(update_fields=['last_backup_status', 'last_backup_error', 'last_backup_started_at'])
 
     try:
         user = config.user
@@ -360,6 +363,8 @@ def _get_image_s3_client(config):
         config=Config(
             signature_version='s3v4',
             s3={'addressing_style': 'path'},
+            connect_timeout=30,
+            read_timeout=120,
         ),
     )
 
@@ -483,6 +488,18 @@ def get_backup_status(user_id):
         return {'configured': False}
 
     is_running = user_id in _backup_threads and _backup_threads[user_id].is_alive()
+
+    # Auto-clear stale "running" status: if no thread is alive and it's been
+    # more than 10 minutes since the backup started, mark it as failed.
+    if config.last_backup_status == 'running' and not is_running:
+        stale = (
+            config.last_backup_started_at is None or
+            (timezone.now() - config.last_backup_started_at).total_seconds() > 600
+        )
+        if stale:
+            config.last_backup_status = 'failed'
+            config.last_backup_error = 'Backup process was interrupted (timed out or server restarted)'
+            config.save(update_fields=['last_backup_status', 'last_backup_error'])
 
     return {
         'configured': True,

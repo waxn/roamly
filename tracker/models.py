@@ -213,6 +213,7 @@ class BackupConfig(models.Model):
     prefix = models.CharField(max_length=200, default='roamly-backups/', blank=True)
     region = models.CharField(max_length=100, default='auto', blank=True)
     interval = models.CharField(max_length=20, choices=INTERVAL_CHOICES, default='disabled')
+    last_backup_started_at = models.DateTimeField(null=True, blank=True)
     last_backup_at = models.DateTimeField(null=True, blank=True)
     last_backup_status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='never')
     last_backup_error = models.TextField(blank=True)
