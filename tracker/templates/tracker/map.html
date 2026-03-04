@@ -100,6 +100,33 @@
     font-weight: 700 !important;
     text-transform: lowercase !important;
 }
+
+#map-loading-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 5px;
+    z-index: 20;
+    overflow: hidden;
+    display: none;
+    pointer-events: none;
+}
+#map-loading-bar.active { display: block; }
+#map-loading-bar::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -60%;
+    width: 60%;
+    height: 100%;
+    background: var(--primary, #3b82f6);
+    animation: loading-sweep 1.4s infinite cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes loading-sweep {
+    0% { left: -60%; }
+    100% { left: 160%; }
+}
 {% endblock %}
 
 {% block content %}
@@ -130,7 +157,8 @@
         <button class="style-btn" data-style="Satellite">Satellite</button>
     </div>
 
-    <div class="map-info" id="map-info">Loading...</div>
+    <div id="map-loading-bar"></div>
+    <div class="map-info" id="map-info">loading...</div>
 
     <div id="map"></div>
 </div>
@@ -179,6 +207,14 @@ const mapStyles = {
         layers: [{ id: 'esri', type: 'raster', source: 'esri' }]
     }
 };
+
+function showMapLoading(label) {
+    document.getElementById('map-loading-bar').classList.add('active');
+    document.getElementById('map-info').textContent = label || 'loading...';
+}
+function hideMapLoading() {
+    document.getElementById('map-loading-bar').classList.remove('active');
+}
 
 const deviceColors = ['#3b82f6', '#22c55e', '#ef4444', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
 const HAS_POSTGIS = {{ has_postgis|yesno:"true,false" }};
@@ -287,6 +323,7 @@ function buildTileUrl() {
 function setupVectorLayers() {
     if (map.getSource('locations')) return;
 
+    showMapLoading('loading tiles...');
     const colorExpr = deviceColorExpr();
 
     map.addSource('locations', {
@@ -330,11 +367,12 @@ function setupVectorLayers() {
     map.on('mouseenter', 'points', () => map.getCanvas().style.cursor = 'pointer');
     map.on('mouseleave', 'points', () => map.getCanvas().style.cursor = '');
 
-    document.getElementById('map-info').textContent = 'Vector tiles';
+    // loading bar hidden by idle event listener below
 }
 
 function reloadTiles(autoFit) {
     if (!map.getSource('locations')) return;
+    showMapLoading('loading tiles...');
     ['points', 'trail-lines'].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
     map.removeSource('locations');
     setupVectorLayers();
@@ -462,7 +500,7 @@ function loadLocations() {
     const qs = buildFilterParams();
     if (qs) qs.split('&').forEach(p => { const [k, v] = p.split('='); params.set(k, v); });
 
-    document.getElementById('map-info').textContent = 'Loading...';
+    showMapLoading();
 
     fetch(`/api/locations/?${params}`)
         .then(r => r.json())
@@ -502,6 +540,7 @@ function loadLocations() {
                 map.getSource('trails').setData({ type: 'FeatureCollection', features: trailFeatures });
             }
 
+            hideMapLoading();
             document.getElementById('map-info').textContent =
                 `${totalPoints.toLocaleString()} points from ${data.devices.length} device(s)`;
 
@@ -516,7 +555,8 @@ function loadLocations() {
             }
         })
         .catch(err => {
-            document.getElementById('map-info').textContent = 'Error loading data';
+            hideMapLoading();
+            document.getElementById('map-info').textContent = 'error loading data';
             console.error(err);
         });
 }
@@ -545,6 +585,12 @@ function loadLocations() {
 
 map.on('load', () => {
     if (USE_VECTOR_TILES) {
+        // Show loading bar while vector tiles render; hide when map is fully idle
+        map.on('dataloading', () => showMapLoading('loading tiles...'));
+        map.on('idle', () => {
+            hideMapLoading();
+            document.getElementById('map-info').textContent = 'vector tiles';
+        });
         setupVectorLayers();
         fitToData();
     } else {
