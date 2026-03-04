@@ -166,7 +166,7 @@ def _build_backup_json(user):
         ],
         'pals': _build_pals_data(user),
     }
-    return json.dumps(data, cls=DjangoJSONEncoder, indent=2)
+    return json.dumps(data, cls=DjangoJSONEncoder)
 
 
 def _get_s3_client(config):
