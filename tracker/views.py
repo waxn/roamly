@@ -2178,8 +2178,6 @@ def image_backup_now_api(request):
         config = BackupConfig.objects.get(user=request.user)
     except BackupConfig.DoesNotExist:
         return JsonResponse({'error': 'No backup configuration found. Save your S3 settings first.'}, status=400)
-    if not config.image_backup_enabled:
-        return JsonResponse({'error': 'Image backup is not enabled.'}, status=400)
     result = run_image_backup_now(request.user.id)
     return JsonResponse({'status': result})
 
