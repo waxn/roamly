@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import threading
 import logging
 import time
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 _scheduler_thread = None
 _backup_threads = {}  # user_id -> thread
+_image_backup_threads = {}  # user_id -> thread
 
 SCHEDULER_CHECK_INTERVAL = 900  # 15 minutes
 
@@ -341,6 +343,134 @@ def stop_backup_now(user_id):
         user_id=user_id, last_backup_status='running'
     ).update(last_backup_status='stopped', last_backup_error='Manually stopped')
     return updated > 0
+
+
+def _get_image_s3_client(config):
+    """Get S3 client for image backup — same creds or separate, depending on config."""
+    if config.image_use_same_creds:
+        return _get_s3_client(config)
+    import boto3
+    from botocore.config import Config
+    return boto3.client(
+        's3',
+        endpoint_url=config.image_endpoint_url,
+        aws_access_key_id=config.image_access_key,
+        aws_secret_access_key=config.image_secret_key,
+        region_name=config.image_region or 'auto',
+        config=Config(
+            signature_version='s3v4',
+            s3={'addressing_style': 'path'},
+        ),
+    )
+
+
+def _get_user_media_files(user):
+    """Collect all media file paths (relative to MEDIA_ROOT) belonging to a user."""
+    from .models import UserProfile, PalBlurbPhoto
+
+    files = []
+
+    try:
+        profile = UserProfile.objects.get(user=user)
+        if profile.profile_picture:
+            files.append(profile.profile_picture.name)
+        if profile.profile_picture_thumbnail:
+            files.append(profile.profile_picture_thumbnail.name)
+    except UserProfile.DoesNotExist:
+        pass
+
+    for photo in PalBlurbPhoto.objects.filter(blurb__pal__creator=user):
+        if photo.image:
+            files.append(photo.image.name)
+        if photo.thumbnail:
+            files.append(photo.thumbnail.name)
+
+    return files
+
+
+def _run_image_backup(user_id):
+    """Upload all user media files to S3."""
+    from .models import BackupConfig
+    from django.conf import settings
+
+    try:
+        config = BackupConfig.objects.select_related('user').get(user_id=user_id)
+    except BackupConfig.DoesNotExist:
+        return
+
+    config.last_image_backup_status = 'running'
+    config.last_image_backup_error = ''
+    config.save(update_fields=['last_image_backup_status', 'last_image_backup_error'])
+
+    try:
+        user = config.user
+        client = _get_image_s3_client(config)
+        bucket = config.bucket_name if config.image_use_same_creds else config.image_bucket_name
+
+        media_files = _get_user_media_files(user)
+        total_size = 0
+
+        for relative_path in media_files:
+            abs_path = os.path.join(settings.MEDIA_ROOT, relative_path)
+            if not os.path.exists(abs_path):
+                continue
+            s3_key = f"{config.image_prefix}{user.username}/{relative_path}"
+            with open(abs_path, 'rb') as f:
+                client.put_object(Bucket=bucket, Key=s3_key, Body=f.read())
+            total_size += os.path.getsize(abs_path)
+
+        config.last_image_backup_at = timezone.now()
+        config.last_image_backup_status = 'success'
+        config.last_image_backup_error = ''
+        config.last_image_backup_size = total_size
+        config.save(update_fields=[
+            'last_image_backup_at', 'last_image_backup_status',
+            'last_image_backup_error', 'last_image_backup_size',
+        ])
+        logger.info(f"Image backup completed for {user.username}: {len(media_files)} files, {total_size} bytes")
+
+    except Exception as e:
+        logger.error(f"Image backup failed for user {user_id}: {e}")
+        try:
+            config.refresh_from_db()
+            config.last_image_backup_status = 'failed'
+            config.last_image_backup_error = str(e)[:500]
+            config.save(update_fields=['last_image_backup_status', 'last_image_backup_error'])
+        except Exception:
+            pass
+    finally:
+        _image_backup_threads.pop(user_id, None)
+
+
+def run_image_backup_now(user_id):
+    """Trigger an immediate image backup in a background thread."""
+    if user_id in _image_backup_threads and _image_backup_threads[user_id].is_alive():
+        return 'already_running'
+    thread = threading.Thread(target=_run_image_backup, args=(user_id,), daemon=True)
+    _image_backup_threads[user_id] = thread
+    thread.start()
+    return 'started'
+
+
+def get_image_backup_status(user_id):
+    """Get image backup status for a user."""
+    from .models import BackupConfig
+
+    try:
+        config = BackupConfig.objects.get(user_id=user_id)
+    except BackupConfig.DoesNotExist:
+        return {'configured': False}
+
+    is_running = user_id in _image_backup_threads and _image_backup_threads[user_id].is_alive()
+
+    return {
+        'configured': True,
+        'enabled': config.image_backup_enabled,
+        'last_image_backup_at': config.last_image_backup_at.isoformat() if config.last_image_backup_at else None,
+        'last_image_backup_status': 'running' if is_running else config.last_image_backup_status,
+        'last_image_backup_error': config.last_image_backup_error,
+        'last_image_backup_size': config.last_image_backup_size,
+    }
 
 
 def get_backup_status(user_id):

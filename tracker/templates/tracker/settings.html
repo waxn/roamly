@@ -362,6 +362,67 @@
                     <button class="btn btn-outline btn-sm" onclick="stopBackupNow()" style="margin-left: 0.5rem;">Stop</button>
                 {% endif %}
             </div>
+
+            <!-- Image Backup -->
+            <hr style="border-color: var(--border); margin: 1.25rem 0;">
+            <div style="font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem;">image backup</div>
+            <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.75rem;">Back up profile pictures and pal photos to S3. Images are stored under the path prefix below.</p>
+
+            <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; cursor: pointer; margin-bottom: 0.75rem;">
+                <input type="checkbox" id="image-backup-enabled" onchange="toggleImageBackup()" {% if backup_config.image_backup_enabled %}checked{% endif %}>
+                Enable image backup
+            </label>
+
+            <div id="image-backup-options" style="{% if not backup_config.image_backup_enabled %}display:none;{% endif %}">
+                <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; cursor: pointer; margin-bottom: 0.75rem;">
+                    <input type="checkbox" id="image-use-same-creds" onchange="toggleImageCreds()" {% if not backup_config or backup_config.image_use_same_creds %}checked{% endif %}>
+                    Use same S3 credentials as data backup
+                </label>
+
+                <div id="image-separate-creds" style="{% if not backup_config or backup_config.image_use_same_creds %}display:none;{% endif %}">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; margin-bottom: 0.75rem;">
+                        <div>
+                            <label style="font-size: 0.75rem; color: var(--text-muted);">endpoint url</label>
+                            <input type="url" id="image-endpoint" class="form-control" placeholder="https://..." value="{{ backup_config.image_endpoint_url|default:'' }}">
+                        </div>
+                        <div>
+                            <label style="font-size: 0.75rem; color: var(--text-muted);">bucket name</label>
+                            <input type="text" id="image-bucket" class="form-control" placeholder="my-images" value="{{ backup_config.image_bucket_name|default:'' }}">
+                        </div>
+                        <div>
+                            <label style="font-size: 0.75rem; color: var(--text-muted);">access key</label>
+                            <input type="text" id="image-access-key" class="form-control" placeholder="Access key ID" value="{{ backup_config.image_access_key|default:'' }}">
+                        </div>
+                        <div>
+                            <label style="font-size: 0.75rem; color: var(--text-muted);">secret key</label>
+                            <input type="password" id="image-secret-key" class="form-control" placeholder="Secret access key" value="{% if backup_config.image_secret_key %}••••••••{% endif %}">
+                        </div>
+                        <div>
+                            <label style="font-size: 0.75rem; color: var(--text-muted);">region</label>
+                            <input type="text" id="image-region" class="form-control" placeholder="auto" value="{{ backup_config.image_region|default:'auto' }}">
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 0.75rem;">
+                    <label style="font-size: 0.75rem; color: var(--text-muted);">path prefix</label>
+                    <input type="text" id="image-prefix" class="form-control" style="max-width: 300px;" placeholder="roamly-media/" value="{{ backup_config.image_prefix|default:'roamly-media/' }}">
+                </div>
+
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                    <button class="btn btn-outline btn-sm" onclick="runImageBackupNow()" {% if not backup_config %}disabled{% endif %} id="image-backup-now-btn">Backup Images Now</button>
+                </div>
+
+                <div id="image-backup-status" style="font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.75rem;">
+                    {% if backup_config.last_image_backup_status == 'success' %}
+                        Last image backup: {{ backup_config.last_image_backup_at }} ({{ backup_config.last_image_backup_size|filesizeformat }})
+                    {% elif backup_config.last_image_backup_status == 'failed' %}
+                        <span style="color: var(--danger);">Last image backup failed: {{ backup_config.last_image_backup_error }}</span>
+                    {% elif backup_config.last_image_backup_status == 'running' %}
+                        <span class="spinner"></span> Image backup in progress...
+                    {% endif %}
+                </div>
+            </div>
         </div>
 
         <!-- GPSLogger Setup -->
@@ -946,6 +1007,7 @@ function deleteLocationData() {
 
 // Automatic Backups
 function getBackupFields() {
+    const sameCreds = document.getElementById('image-use-same-creds')?.checked ?? true;
     return {
         endpoint_url: document.getElementById('backup-endpoint').value,
         bucket_name: document.getElementById('backup-bucket').value,
@@ -955,7 +1017,75 @@ function getBackupFields() {
         region: document.getElementById('backup-region').value,
         interval: document.getElementById('backup-interval').value,
         max_backups: parseInt(document.getElementById('backup-max-backups').value) || 0,
+        image_backup_enabled: document.getElementById('image-backup-enabled')?.checked ?? false,
+        image_use_same_creds: sameCreds,
+        image_endpoint_url: sameCreds ? '' : (document.getElementById('image-endpoint')?.value || ''),
+        image_bucket_name: sameCreds ? '' : (document.getElementById('image-bucket')?.value || ''),
+        image_access_key: sameCreds ? '' : (document.getElementById('image-access-key')?.value || ''),
+        image_secret_key: sameCreds ? '' : (document.getElementById('image-secret-key')?.value || ''),
+        image_prefix: document.getElementById('image-prefix')?.value || 'roamly-media/',
+        image_region: sameCreds ? 'auto' : (document.getElementById('image-region')?.value || 'auto'),
     };
+}
+
+function toggleImageBackup() {
+    const enabled = document.getElementById('image-backup-enabled').checked;
+    document.getElementById('image-backup-options').style.display = enabled ? '' : 'none';
+}
+
+function toggleImageCreds() {
+    const same = document.getElementById('image-use-same-creds').checked;
+    document.getElementById('image-separate-creds').style.display = same ? 'none' : '';
+}
+
+function runImageBackupNow() {
+    const statusEl = document.getElementById('image-backup-status');
+    statusEl.innerHTML = '<span class="spinner"></span> Starting image backup...';
+    statusEl.style.color = 'var(--text-muted)';
+    fetch('/api/backup/image/now/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = data.error;
+            return;
+        }
+        statusEl.innerHTML = '<span class="spinner"></span> Image backup in progress...';
+        pollImageBackupStatus();
+    })
+    .catch(err => {
+        statusEl.style.color = 'var(--danger)';
+        statusEl.textContent = 'Error: ' + err.message;
+    });
+}
+
+function pollImageBackupStatus() {
+    const statusEl = document.getElementById('image-backup-status');
+    const interval = setInterval(() => {
+        fetch('/api/backup/image/status/')
+        .then(r => r.json())
+        .then(data => {
+            if (data.last_image_backup_status === 'running') {
+                statusEl.innerHTML = '<span class="spinner"></span> Image backup in progress...';
+            } else if (data.last_image_backup_status === 'success') {
+                const size = data.last_image_backup_size ? ` (${formatBytes(data.last_image_backup_size)})` : '';
+                const time = data.last_image_backup_at ? new Date(data.last_image_backup_at).toLocaleString() : '';
+                statusEl.style.color = 'var(--success)';
+                statusEl.textContent = `Image backup completed${time ? ' at ' + time : ''}${size}`;
+                clearInterval(interval);
+            } else if (data.last_image_backup_status === 'failed') {
+                statusEl.style.color = 'var(--danger)';
+                statusEl.textContent = 'Image backup failed: ' + (data.last_image_backup_error || 'Unknown error');
+                clearInterval(interval);
+            } else {
+                clearInterval(interval);
+            }
+        })
+        .catch(() => clearInterval(interval));
+    }, 3000);
 }
 
 function testBackupConnection() {
@@ -1097,6 +1227,19 @@ fetch('/api/backup/status/')
             const statusEl = document.getElementById('backup-status');
             statusEl.innerHTML = '<span class="spinner"></span> Backup in progress... <button class="btn btn-outline btn-sm" onclick="stopBackupNow()" style="margin-left:0.5rem;">Stop</button>';
             pollBackupStatus();
+        }
+    })
+    .catch(() => {});
+
+fetch('/api/backup/image/status/')
+    .then(r => { if (r.ok) return r.json(); })
+    .then(data => {
+        if (data && data.last_image_backup_status === 'running') {
+            const statusEl = document.getElementById('image-backup-status');
+            if (statusEl) {
+                statusEl.innerHTML = '<span class="spinner"></span> Image backup in progress...';
+                pollImageBackupStatus();
+            }
         }
     })
     .catch(() => {});

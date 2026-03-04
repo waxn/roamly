@@ -33,7 +33,10 @@ from .models import (
 from .image_utils import resize_image, resize_photo
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding
 from .poi_tasks import start_poi_download, get_poi_status, stop_poi_download
-from .backup_tasks import test_s3_connection, run_backup_now, get_backup_status, stop_backup_now, _build_pals_data
+from .backup_tasks import (
+    test_s3_connection, run_backup_now, get_backup_status, stop_backup_now,
+    run_image_backup_now, get_image_backup_status, _build_pals_data,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -2012,6 +2015,14 @@ def backup_config_api(request):
                 'region': config.region,
                 'interval': config.interval,
                 'max_backups': config.max_backups,
+                'image_backup_enabled': config.image_backup_enabled,
+                'image_use_same_creds': config.image_use_same_creds,
+                'image_endpoint_url': config.image_endpoint_url,
+                'image_bucket_name': config.image_bucket_name,
+                'image_access_key': config.image_access_key,
+                'image_secret_key': '••••••••' if config.image_secret_key else '',
+                'image_prefix': config.image_prefix,
+                'image_region': config.image_region,
             })
         except BackupConfig.DoesNotExist:
             return JsonResponse({'configured': False})
@@ -2050,6 +2061,16 @@ def backup_config_api(request):
         }
     )
 
+    # Image backup fields
+    image_backup_enabled = data.get('image_backup_enabled', False)
+    image_use_same_creds = data.get('image_use_same_creds', True)
+    image_endpoint_url = data.get('image_endpoint_url', '').strip()
+    image_bucket_name = data.get('image_bucket_name', '').strip()
+    image_access_key = data.get('image_access_key', '').strip()
+    image_secret_key = data.get('image_secret_key', '').strip()
+    image_prefix = data.get('image_prefix', 'roamly-media/').strip()
+    image_region = data.get('image_region', 'auto').strip()
+
     if not created:
         config.endpoint_url = endpoint_url
         config.bucket_name = bucket_name
@@ -2061,6 +2082,25 @@ def backup_config_api(request):
         config.region = region
         config.interval = interval
         config.max_backups = max_backups
+        config.image_backup_enabled = image_backup_enabled
+        config.image_use_same_creds = image_use_same_creds
+        config.image_endpoint_url = image_endpoint_url
+        config.image_bucket_name = image_bucket_name
+        config.image_access_key = image_access_key
+        if image_secret_key and image_secret_key != '••••••••':
+            config.image_secret_key = image_secret_key
+        config.image_prefix = image_prefix
+        config.image_region = image_region
+        config.save()
+    else:
+        config.image_backup_enabled = image_backup_enabled
+        config.image_use_same_creds = image_use_same_creds
+        config.image_endpoint_url = image_endpoint_url
+        config.image_bucket_name = image_bucket_name
+        config.image_access_key = image_access_key
+        config.image_secret_key = image_secret_key
+        config.image_prefix = image_prefix
+        config.image_region = image_region
         config.save()
 
     return JsonResponse({'status': 'ok'})
@@ -2128,6 +2168,26 @@ def backup_stop_api(request):
     """Force-stop a running backup."""
     stopped = stop_backup_now(request.user.id)
     return JsonResponse({'stopped': stopped})
+
+
+@login_required
+@require_POST
+def image_backup_now_api(request):
+    """Trigger an immediate image backup."""
+    try:
+        config = BackupConfig.objects.get(user=request.user)
+    except BackupConfig.DoesNotExist:
+        return JsonResponse({'error': 'No backup configuration found. Save your S3 settings first.'}, status=400)
+    if not config.image_backup_enabled:
+        return JsonResponse({'error': 'Image backup is not enabled.'}, status=400)
+    result = run_image_backup_now(request.user.id)
+    return JsonResponse({'status': result})
+
+
+@login_required
+def image_backup_status_api(request):
+    """Get image backup status."""
+    return JsonResponse(get_image_backup_status(request.user.id))
 
 
 # ---------------------------------------------------------------------------

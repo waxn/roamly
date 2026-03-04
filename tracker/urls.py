@@ -63,6 +63,8 @@ urlpatterns = [
     path('api/backup/now/', views.backup_now_api, name='backup_now'),
     path('api/backup/status/', views.backup_status_api, name='backup_status'),
     path('api/backup/stop/', views.backup_stop_api, name='backup_stop'),
+    path('api/backup/image/now/', views.image_backup_now_api, name='image_backup_now'),
+    path('api/backup/image/status/', views.image_backup_status_api, name='image_backup_status'),
 
     # Export/Import
     path('api/export/csv/', views.export_csv, name='export_csv'),

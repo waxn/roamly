@@ -219,6 +219,20 @@ class BackupConfig(models.Model):
     last_backup_size = models.IntegerField(null=True, blank=True)
     max_backups = models.IntegerField(default=0, help_text="Max backups to keep (0 = unlimited)")
 
+    # Image backup
+    image_backup_enabled = models.BooleanField(default=False)
+    image_use_same_creds = models.BooleanField(default=True)
+    image_endpoint_url = models.URLField(max_length=500, blank=True, default='')
+    image_bucket_name = models.CharField(max_length=200, blank=True, default='')
+    image_access_key = models.CharField(max_length=200, blank=True, default='')
+    image_secret_key = models.CharField(max_length=200, blank=True, default='')
+    image_prefix = models.CharField(max_length=200, blank=True, default='roamly-media/')
+    image_region = models.CharField(max_length=100, blank=True, default='auto')
+    last_image_backup_at = models.DateTimeField(null=True, blank=True)
+    last_image_backup_status = models.CharField(max_length=20, blank=True, default='')
+    last_image_backup_error = models.TextField(blank=True, default='')
+    last_image_backup_size = models.BigIntegerField(null=True, blank=True)
+
     def __str__(self):
         return f"Backup config for {self.user.username}"
 
