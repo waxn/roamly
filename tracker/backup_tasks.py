@@ -263,6 +263,16 @@ def start_backup_scheduler():
     logger.info("Backup scheduler started")
 
 
+def stop_backup_now(user_id):
+    """Force-stop a running backup by resetting its status."""
+    from .models import BackupConfig
+
+    updated = BackupConfig.objects.filter(
+        user_id=user_id, last_backup_status='running'
+    ).update(last_backup_status='stopped', last_backup_error='Manually stopped')
+    return updated > 0
+
+
 def get_backup_status(user_id):
     """Get the current backup status for a user."""
     from .models import BackupConfig

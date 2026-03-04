@@ -359,6 +359,7 @@
                     <span style="color: var(--danger);">Last backup failed: {{ backup_config.last_backup_error }}</span>
                 {% elif backup_config.last_backup_status == 'running' %}
                     <span class="spinner"></span> Backup in progress...
+                    <button class="btn btn-outline btn-sm" onclick="stopBackupNow()" style="margin-left: 0.5rem;">Stop</button>
                 {% endif %}
             </div>
         </div>
@@ -1027,9 +1028,9 @@ function runBackupNow() {
             return;
         }
         if (data.status === 'already_running') {
-            statusEl.innerHTML = '<span class="spinner"></span> Backup already in progress...';
+            statusEl.innerHTML = '<span class="spinner"></span> Backup already in progress... <button class="btn btn-outline btn-sm" onclick="stopBackupNow()" style="margin-left:0.5rem;">Stop</button>';
         } else {
-            statusEl.innerHTML = '<span class="spinner"></span> Backup in progress...';
+            statusEl.innerHTML = '<span class="spinner"></span> Backup in progress... <button class="btn btn-outline btn-sm" onclick="stopBackupNow()" style="margin-left:0.5rem;">Stop</button>';
         }
         pollBackupStatus();
     })
@@ -1046,7 +1047,7 @@ function pollBackupStatus() {
         .then(r => r.json())
         .then(data => {
             if (data.last_backup_status === 'running') {
-                statusEl.innerHTML = '<span class="spinner"></span> Backup in progress...';
+                statusEl.innerHTML = '<span class="spinner"></span> Backup in progress... <button class="btn btn-outline btn-sm" onclick="stopBackupNow()" style="margin-left:0.5rem;">Stop</button>';
             } else if (data.last_backup_status === 'success') {
                 const size = data.last_backup_size ? ` (${formatBytes(data.last_backup_size)})` : '';
                 const time = data.last_backup_at ? new Date(data.last_backup_at).toLocaleString() : '';
@@ -1065,6 +1066,23 @@ function pollBackupStatus() {
     }, 3000);
 }
 
+function stopBackupNow() {
+    const statusEl = document.getElementById('backup-status');
+    fetch('/api/backup/stop/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+    })
+    .then(r => r.json())
+    .then(() => {
+        statusEl.style.color = 'var(--text-muted)';
+        statusEl.textContent = 'Backup stopped.';
+    })
+    .catch(err => {
+        statusEl.style.color = 'var(--danger)';
+        statusEl.textContent = 'Error: ' + err.message;
+    });
+}
+
 function formatBytes(bytes) {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
@@ -1077,7 +1095,7 @@ fetch('/api/backup/status/')
     .then(data => {
         if (data && data.last_backup_status === 'running') {
             const statusEl = document.getElementById('backup-status');
-            statusEl.innerHTML = '<span class="spinner"></span> Backup in progress...';
+            statusEl.innerHTML = '<span class="spinner"></span> Backup in progress... <button class="btn btn-outline btn-sm" onclick="stopBackupNow()" style="margin-left:0.5rem;">Stop</button>';
             pollBackupStatus();
         }
     })

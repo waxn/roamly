@@ -18,7 +18,7 @@ from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_http_methods
+from django.views.decorators.http import require_http_methods, require_POST
 
 from django.core.cache import cache
 from django.core.serializers.json import DjangoJSONEncoder
@@ -33,7 +33,7 @@ from .models import (
 from .image_utils import resize_image, resize_photo
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding
 from .poi_tasks import start_poi_download, get_poi_status, stop_poi_download
-from .backup_tasks import test_s3_connection, run_backup_now, get_backup_status
+from .backup_tasks import test_s3_connection, run_backup_now, get_backup_status, stop_backup_now
 
 logger = logging.getLogger(__name__)
 
@@ -2026,6 +2026,14 @@ def backup_now_api(request):
 def backup_status_api(request):
     """Get backup status."""
     return JsonResponse(get_backup_status(request.user.id))
+
+
+@login_required
+@require_POST
+def backup_stop_api(request):
+    """Force-stop a running backup."""
+    stopped = stop_backup_now(request.user.id)
+    return JsonResponse({'stopped': stopped})
 
 
 # ---------------------------------------------------------------------------
