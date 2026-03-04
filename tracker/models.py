@@ -217,7 +217,8 @@ class BackupConfig(models.Model):
     last_backup_at = models.DateTimeField(null=True, blank=True)
     last_backup_status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='never')
     last_backup_error = models.TextField(blank=True)
-    last_backup_size = models.IntegerField(null=True, blank=True)
+    last_backup_size = models.BigIntegerField(null=True, blank=True)
+    last_backup_bytes_uploaded = models.BigIntegerField(null=True, blank=True)
     max_backups = models.IntegerField(default=0, help_text="Max backups to keep (0 = unlimited)")
 
     # Image backup

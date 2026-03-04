@@ -237,30 +237,65 @@ def _run_backup(user_id):
         return
 
     config.last_backup_status = 'running'
-    config.last_backup_error = ''
+    config.last_backup_error = 'building'
     config.last_backup_started_at = timezone.now()
-    config.save(update_fields=['last_backup_status', 'last_backup_error', 'last_backup_started_at'])
+    config.last_backup_bytes_uploaded = 0
+    config.last_backup_size = None
+    config.save(update_fields=[
+        'last_backup_status', 'last_backup_error', 'last_backup_started_at',
+        'last_backup_bytes_uploaded', 'last_backup_size',
+    ])
 
     try:
         user = config.user
+
+        # Phase 1: build JSON
         backup_json = _build_backup_json(user)
         backup_bytes = backup_json.encode('utf-8')
+        total = len(backup_bytes)
+
+        # Store total so the UI can show X / Y progress
+        config.last_backup_error = 'uploading'
+        config.last_backup_size = total
+        config.last_backup_bytes_uploaded = 0
+        config.save(update_fields=['last_backup_error', 'last_backup_size', 'last_backup_bytes_uploaded'])
 
         filename = f"{config.prefix}{user.username}/backup_{timezone.now().strftime('%Y-%m-%d_%H%M%S')}.json"
 
+        # Phase 2: upload with progress callback (updates DB every ~2 MB)
+        _uploaded = [0]
+        _last_saved = [0]
+        UPDATE_EVERY = 2 * 1024 * 1024  # 2 MB
+
+        def _progress(bytes_transferred):
+            _uploaded[0] += bytes_transferred
+            if _uploaded[0] - _last_saved[0] >= UPDATE_EVERY:
+                _last_saved[0] = _uploaded[0]
+                try:
+                    BackupConfig.objects.filter(pk=config.pk).update(
+                        last_backup_bytes_uploaded=_uploaded[0]
+                    )
+                except Exception:
+                    pass
+
         client = _get_s3_client(config)
-        client.put_object(
-            Bucket=config.bucket_name,
-            Key=filename,
-            Body=backup_bytes,
-            ContentType='application/json',
+        client.upload_fileobj(
+            io.BytesIO(backup_bytes),
+            config.bucket_name,
+            filename,
+            ExtraArgs={'ContentType': 'application/json'},
+            Callback=_progress,
         )
 
         config.last_backup_at = timezone.now()
         config.last_backup_status = 'success'
         config.last_backup_error = ''
-        config.last_backup_size = len(backup_bytes)
-        config.save(update_fields=['last_backup_at', 'last_backup_status', 'last_backup_error', 'last_backup_size'])
+        config.last_backup_size = total
+        config.last_backup_bytes_uploaded = total
+        config.save(update_fields=[
+            'last_backup_at', 'last_backup_status', 'last_backup_error',
+            'last_backup_size', 'last_backup_bytes_uploaded',
+        ])
 
         logger.info(f"Backup completed for {user.username}: {len(backup_bytes)} bytes -> {filename}")
 
@@ -501,11 +536,16 @@ def get_backup_status(user_id):
             config.last_backup_error = 'Backup process was interrupted (timed out or server restarted)'
             config.save(update_fields=['last_backup_status', 'last_backup_error'])
 
+    # Re-read progress fields fresh from DB (written by upload callback)
+    config.refresh_from_db(fields=['last_backup_bytes_uploaded', 'last_backup_size', 'last_backup_error'])
+
     return {
         'configured': True,
         'interval': config.interval,
         'last_backup_at': config.last_backup_at.isoformat() if config.last_backup_at else None,
         'last_backup_status': 'running' if is_running else config.last_backup_status,
-        'last_backup_error': config.last_backup_error,
+        'last_backup_phase': config.last_backup_error if is_running else '',
+        'last_backup_bytes_uploaded': config.last_backup_bytes_uploaded,
         'last_backup_size': config.last_backup_size,
+        'last_backup_error': config.last_backup_error if not is_running else '',
     }

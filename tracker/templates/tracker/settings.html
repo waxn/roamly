@@ -1177,7 +1177,21 @@ function pollBackupStatus() {
         .then(r => r.json())
         .then(data => {
             if (data.last_backup_status === 'running') {
-                statusEl.innerHTML = '<span class="spinner"></span> Backup in progress... <button class="btn btn-outline btn-sm" onclick="stopBackupNow()" style="margin-left:0.5rem;">Stop</button>';
+                const phase = data.last_backup_phase || '';
+                let msg = '';
+                if (phase === 'building') {
+                    msg = 'Building backup...';
+                } else if (phase === 'uploading' || data.last_backup_bytes_uploaded > 0) {
+                    const uploaded = data.last_backup_bytes_uploaded || 0;
+                    const total = data.last_backup_size || 0;
+                    const pct = total > 0 ? Math.round(uploaded / total * 100) : 0;
+                    msg = total > 0
+                        ? `Uploading: ${formatBytes(uploaded)} / ${formatBytes(total)} (${pct}%)`
+                        : `Uploading: ${formatBytes(uploaded)}`;
+                } else {
+                    msg = 'Backup in progress...';
+                }
+                statusEl.innerHTML = `<span class="spinner"></span> ${msg} <button class="btn btn-outline btn-sm" onclick="stopBackupNow()" style="margin-left:0.5rem;">Stop</button>`;
             } else if (data.last_backup_status === 'success') {
                 const size = data.last_backup_size ? ` (${formatBytes(data.last_backup_size)})` : '';
                 const time = data.last_backup_at ? new Date(data.last_backup_at).toLocaleString() : '';
@@ -1226,6 +1240,7 @@ fetch('/api/backup/status/')
         if (data && data.last_backup_status === 'running') {
             const statusEl = document.getElementById('backup-status');
             statusEl.innerHTML = '<span class="spinner"></span> Backup in progress... <button class="btn btn-outline btn-sm" onclick="stopBackupNow()" style="margin-left:0.5rem;">Stop</button>';
+            statusEl.style.color = 'var(--text-muted)';
             pollBackupStatus();
         }
     })
