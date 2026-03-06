@@ -35,9 +35,6 @@ services:
       - ./media:/app/media
     ports:
       - "8001:8000"
-    depends_on:
-      db:
-        condition: service_healthy
     environment:
       - DEBUG=${DEBUG:-True}
       - SECRET_KEY=${SECRET_KEY:-django-insecure-change-me-in-production}
