@@ -1,0 +1,168 @@
+{% extends "tracker/base.html" %}
+{% block title %}{{ trip.name }} - Roamly{% endblock %}
+
+{% block extra_css %}
+.trip-public-layout { display: flex; height: calc(100vh - 60px); }
+.trip-public-map { flex: 1; position: relative; min-width: 0; }
+#public-map { width: 100%; height: 100%; }
+.trip-public-sidebar {
+    width: 360px; background: var(--bg-card); border-left: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow-y: auto;
+}
+.tps-header { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
+.tps-header h2 { font-size: 1.125rem; font-weight: 700; margin: 0; }
+.tps-header .trip-dates { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
+.tps-section { border-bottom: 1px solid var(--border); padding: 0.75rem 1.25rem; }
+.tps-section h3 { font-size: 0.8125rem; font-weight: 700; text-transform: lowercase; margin: 0 0 0.5rem; color: var(--text-muted); }
+.timeline-event {
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+    padding: 0.75rem; margin-bottom: 0.625rem;
+}
+.timeline-event-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.375rem; }
+.timeline-avatar {
+    width: 24px; height: 24px; border-radius: 50%; background: var(--primary);
+    color: #fff; display: flex; align-items: center; justify-content: center;
+    font-size: 0.625rem; font-weight: 700; flex-shrink: 0;
+}
+.timeline-author { font-size: 0.8125rem; font-weight: 600; }
+.timeline-time { font-size: 0.6875rem; color: var(--text-muted); margin-left: auto; }
+.timeline-text { font-size: 0.8125rem; line-height: 1.4; white-space: pre-wrap; }
+.timeline-photos { display: flex; gap: 4px; margin-top: 0.5rem; flex-wrap: wrap; }
+.timeline-photos img { width: 72px; height: 72px; object-fit: cover; border-radius: 4px; cursor: pointer; }
+.milestone-event {
+    background: rgba(59,130,246,0.07); border: 1px solid rgba(59,130,246,0.25);
+    border-radius: 8px; padding: 0.625rem 0.75rem; margin-bottom: 0.625rem;
+    display: flex; align-items: flex-start; gap: 0.5rem;
+}
+.milestone-emoji { font-size: 1.375rem; flex-shrink: 0; }
+.milestone-title { font-size: 0.875rem; font-weight: 600; }
+.milestone-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.125rem; }
+.milestone-date { font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.125rem; }
+.member-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; font-size: 0.8125rem; }
+@media (max-width: 768px) {
+    .trip-public-layout { flex-direction: column; }
+    .trip-public-map { height: 45vh; }
+    .trip-public-sidebar { width: 100%; }
+}
+{% endblock %}
+
+{% block content %}
+<div class="trip-public-layout">
+    <div class="trip-public-map">
+        <div id="public-map"></div>
+    </div>
+    <div class="trip-public-sidebar">
+        <div class="tps-header">
+            <h2 id="pub-trip-name">{{ trip.name }}</h2>
+            <div class="trip-dates" id="pub-trip-dates"></div>
+            {% if trip.description %}
+            <div style="font-size:0.8125rem;color:var(--text-muted);margin-top:0.375rem;">{{ trip.description }}</div>
+            {% endif %}
+        </div>
+
+        <div class="tps-section" id="pub-members-section" style="display:none;">
+            <h3>members</h3>
+            <div id="pub-members-list"></div>
+        </div>
+
+        <div class="tps-section">
+            <h3>timeline</h3>
+            <div id="pub-timeline-list">
+                <div style="color:var(--text-muted);font-size:0.8125rem;">loading...</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const SLUG = '{{ slug }}';
+
+const mapStyles = {
+    Streets: {
+        version: 8, glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+        sources: { osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256 }},
+        layers: [{ id: 'osm', type: 'raster', source: 'osm' }]
+    }
+};
+
+const map = new maplibregl.Map({
+    container: 'public-map', style: mapStyles.Streets, center: [0, 20], zoom: 2
+});
+map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
+
+function escHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+map.on('load', () => {
+    fetch(`/api/trip/${SLUG}/detail/`)
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('pub-trip-name').textContent = data.name;
+            const start = new Date(data.start_time).toLocaleDateString();
+            const end = new Date(data.end_time).toLocaleDateString();
+            document.getElementById('pub-trip-dates').textContent = `${start} – ${end} · ${data.locations.length} points`;
+
+            if (data.members && data.members.length) {
+                document.getElementById('pub-members-section').style.display = '';
+                document.getElementById('pub-members-list').innerHTML = data.members.map(m =>
+                    `<div class="member-item"><div class="timeline-avatar">${m.username.charAt(0).toUpperCase()}</div> ${escHtml(m.username)} <span style="color:var(--text-muted);font-size:0.6875rem;">(${m.role})</span></div>`
+                ).join('');
+            }
+
+            if (data.locations.length) {
+                const coords = data.locations.map(l => [l.lng, l.lat]);
+                map.addSource('trip-line', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }}});
+                map.addLayer({ id: 'trip-line', type: 'line', source: 'trip-line', paint: { 'line-color': '#3b82f6', 'line-width': 3, 'line-opacity': 0.8 }});
+                const features = data.locations.map(l => ({
+                    type: 'Feature', geometry: { type: 'Point', coordinates: [l.lng, l.lat] }, properties: l
+                }));
+                map.addSource('trip-points', { type: 'geojson', data: { type: 'FeatureCollection', features }});
+                map.addLayer({ id: 'trip-points', type: 'circle', source: 'trip-points',
+                    paint: { 'circle-color': '#3b82f6', 'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 2, 12, 4], 'circle-stroke-width': 1, 'circle-stroke-color': 'rgba(255,255,255,0.6)' }
+                });
+                const lngs = coords.map(c => c[0]), lats = coords.map(c => c[1]);
+                map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 60 });
+            }
+        });
+
+    fetch(`/api/trip/${SLUG}/timeline/`)
+        .then(r => r.json())
+        .then(data => {
+            const list = document.getElementById('pub-timeline-list');
+            if (!data.events.length) {
+                list.innerHTML = '<div style="color:var(--text-muted);font-size:0.8125rem;">no timeline events yet</div>';
+                return;
+            }
+            list.innerHTML = data.events.map(ev => {
+                if (ev.type === 'milestone') {
+                    return `<div class="milestone-event">
+                        <div class="milestone-emoji">${ev.emoji}</div>
+                        <div>
+                            <div class="milestone-title">${escHtml(ev.title)}</div>
+                            ${ev.description ? `<div class="milestone-desc">${escHtml(ev.description)}</div>` : ''}
+                            <div class="milestone-date">${new Date(ev.date).toLocaleDateString()}</div>
+                        </div>
+                    </div>`;
+                }
+                const photos = (ev.photos || []).map(p =>
+                    `<img src="${p.thumb}" onclick="window.open('${p.url}','_blank')" alt="">`
+                ).join('');
+                return `<div class="timeline-event">
+                    <div class="timeline-event-header">
+                        <div class="timeline-avatar">${ev.author.charAt(0).toUpperCase()}</div>
+                        <span class="timeline-author">${escHtml(ev.author)}</span>
+                        <span class="timeline-time">${new Date(ev.created_at).toLocaleString()}</span>
+                    </div>
+                    <div class="timeline-text">${escHtml(ev.text)}</div>
+                    ${ev.location_name ? `<div style="font-size:0.6875rem;color:var(--text-muted);margin-top:0.25rem;">📍 ${escHtml(ev.location_name)}</div>` : ''}
+                    ${photos ? `<div class="timeline-photos">${photos}</div>` : ''}
+                </div>`;
+            }).join('');
+        });
+});
+</script>
+{% endblock %}

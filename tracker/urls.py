@@ -37,6 +37,9 @@ urlpatterns = [
     path('api/distance/', views.distance_api, name='distance_api'),
     path('api/search/', views.search_api, name='search_api'),
 
+    # Trips pages
+    path('trip/<slug:slug>/', views.trip_public_view, name='trip_public'),
+
     # Trips API
     path('api/trips/', views.trips_api, name='trips_api'),
     path('api/trips/create/', views.create_trip, name='create_trip'),
@@ -46,6 +49,21 @@ urlpatterns = [
     path('api/trips/<int:trip_id>/places/create/', views.create_trip_place, name='create_trip_place'),
     path('api/trips/<int:trip_id>/places/<int:place_id>/update/', views.update_trip_place, name='update_trip_place'),
     path('api/trips/<int:trip_id>/places/<int:place_id>/delete/', views.delete_trip_place, name='delete_trip_place'),
+    path('api/trips/<int:trip_id>/members/add/', views.trip_add_member, name='trip_add_member'),
+    path('api/trips/<int:trip_id>/members/<int:user_id>/remove/', views.trip_remove_member, name='trip_remove_member'),
+    path('api/trips/<int:trip_id>/toggle-public/', views.trip_toggle_public, name='trip_toggle_public'),
+    path('api/trips/<int:trip_id>/timeline/', views.trip_timeline_api, name='trip_timeline_api'),
+    path('api/trips/<int:trip_id>/blurbs/create/', views.trip_create_blurb, name='trip_create_blurb'),
+    path('api/trips/<int:trip_id>/blurbs/<int:blurb_id>/delete/', views.trip_delete_blurb, name='trip_delete_blurb'),
+    path('api/trips/<int:trip_id>/blurbs/<int:blurb_id>/comments/', views.trip_blurb_comments, name='trip_blurb_comments'),
+    path('api/trips/<int:trip_id>/blurbs/<int:blurb_id>/comments/create/', views.trip_create_comment, name='trip_create_comment'),
+    path('api/trips/<int:trip_id>/comments/<int:comment_id>/delete/', views.trip_delete_comment, name='trip_delete_comment'),
+    path('api/trips/<int:trip_id>/milestones/create/', views.trip_create_milestone, name='trip_create_milestone'),
+    path('api/trips/<int:trip_id>/milestones/<int:milestone_id>/delete/', views.trip_delete_milestone, name='trip_delete_milestone'),
+    path('api/trips/<int:trip_id>/visits/', views.trip_visits_api, name='trip_visits_api'),
+    # Public trip API
+    path('api/trip/<slug:slug>/detail/', views.trip_public_detail_api, name='trip_public_detail_api'),
+    path('api/trip/<slug:slug>/timeline/', views.trip_public_timeline_api, name='trip_public_timeline_api'),
 
     # Geocoding
     path('api/geocode/', views.geocode_api, name='geocode_api'),

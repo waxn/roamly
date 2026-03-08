@@ -257,6 +257,170 @@
     color: var(--text-muted);
 }
 
+/* Timeline */
+.timeline-event {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem;
+    margin-bottom: 0.625rem;
+}
+.timeline-event-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.375rem;
+}
+.timeline-avatar {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--primary); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.625rem; font-weight: 700; flex-shrink: 0;
+    overflow: hidden;
+}
+.timeline-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.timeline-author { font-size: 0.8125rem; font-weight: 600; }
+.timeline-time { font-size: 0.6875rem; color: var(--text-muted); margin-left: auto; }
+.timeline-text { font-size: 0.8125rem; line-height: 1.4; white-space: pre-wrap; }
+.timeline-location { font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.25rem; }
+.timeline-photos {
+    display: flex; gap: 4px; margin-top: 0.5rem; flex-wrap: wrap;
+}
+.timeline-photos img {
+    width: 72px; height: 72px; object-fit: cover; border-radius: 4px; cursor: pointer;
+}
+.timeline-actions {
+    display: flex; align-items: center; gap: 0.5rem; margin-top: 0.375rem;
+}
+.timeline-comment-btn {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    font-size: 0.75rem; font-family: 'Space Grotesk', sans-serif; padding: 2px 0;
+}
+.timeline-comment-btn:hover { color: var(--primary); }
+.timeline-delete-btn {
+    background: none; border: none; color: var(--danger); cursor: pointer;
+    font-size: 0.75rem; font-family: 'Space Grotesk', sans-serif; padding: 2px 0;
+    margin-left: auto;
+}
+.timeline-delete-btn:hover { opacity: 0.75; }
+.milestone-event {
+    background: rgba(59,130,246,0.07);
+    border: 1px solid rgba(59,130,246,0.25);
+    border-radius: 8px; padding: 0.625rem 0.75rem; margin-bottom: 0.625rem;
+    display: flex; align-items: flex-start; gap: 0.5rem;
+}
+.milestone-emoji { font-size: 1.375rem; line-height: 1; flex-shrink: 0; }
+.milestone-title { font-size: 0.875rem; font-weight: 600; }
+.milestone-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.125rem; }
+.milestone-date { font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.125rem; }
+.comment-item {
+    display: flex; gap: 0.375rem; margin-top: 0.375rem; font-size: 0.75rem;
+}
+.comment-author { font-weight: 600; flex-shrink: 0; }
+.comment-text { color: var(--text-muted); }
+.comments-area { margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+.add-comment-row { display: flex; gap: 0.375rem; margin-top: 0.375rem; }
+.add-comment-row input {
+    flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); font-family: 'Space Grotesk', sans-serif; font-size: 0.75rem;
+    padding: 0.25rem 0.5rem; outline: none;
+}
+.add-comment-row input:focus { border-color: var(--primary); }
+.add-comment-row button {
+    background: var(--primary); border: none; color: #fff; border-radius: 6px;
+    font-family: 'Space Grotesk', sans-serif; font-size: 0.75rem; font-weight: 700;
+    padding: 0.25rem 0.5rem; cursor: pointer; text-transform: lowercase;
+}
+
+/* Compose */
+.compose-area {
+    border-top: 1px solid var(--border);
+    padding: 0.75rem 1.25rem;
+}
+.compose-textarea {
+    width: 100%; min-height: 64px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); font-family: 'Space Grotesk', sans-serif; font-size: 0.8125rem;
+    padding: 0.5rem 0.75rem; resize: vertical; outline: none;
+}
+.compose-textarea:focus { border-color: var(--primary); }
+.compose-row { display: flex; gap: 0.5rem; margin-top: 0.5rem; align-items: center; flex-wrap: wrap; }
+.compose-location { font-size: 0.75rem; color: var(--text-muted); flex: 1; }
+.compose-photo-label {
+    background: none; border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text-muted); font-family: 'Space Grotesk', sans-serif; font-size: 0.75rem;
+    font-weight: 700; padding: 0.25rem 0.5rem; cursor: pointer; text-transform: lowercase;
+}
+.compose-photo-label:hover { border-color: var(--primary); color: var(--primary); }
+.compose-photo-preview { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 0.375rem; }
+.compose-photo-preview img { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; }
+
+/* Members */
+.member-item {
+    display: flex; align-items: center; gap: 0.625rem;
+    padding: 0.375rem 0; border-bottom: 1px solid var(--border);
+}
+.member-item:last-child { border-bottom: none; }
+.member-avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--primary); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.6875rem; font-weight: 700; flex-shrink: 0; overflow: hidden;
+}
+.member-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.member-name { font-size: 0.875rem; font-weight: 600; flex: 1; }
+.member-role { font-size: 0.6875rem; color: var(--text-muted); text-transform: lowercase; }
+.member-remove-btn {
+    background: none; border: none; color: var(--danger); cursor: pointer;
+    font-size: 0.6875rem; padding: 2px 6px; border-radius: 4px;
+    font-family: 'Space Grotesk', sans-serif;
+}
+.member-remove-btn:hover { background: rgba(239,68,68,0.15); }
+
+/* Add member */
+.add-member-row { display: flex; gap: 0.5rem; margin-top: 0.625rem; }
+.add-member-row input {
+    flex: 1; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); font-family: 'Space Grotesk', sans-serif; font-size: 0.8125rem;
+    padding: 0.375rem 0.5rem; outline: none;
+}
+.add-member-row input:focus { border-color: var(--primary); }
+
+/* Visits mini table */
+.visits-tabs { display: flex; gap: 4px; margin-bottom: 0.75rem; }
+.visits-tab-btn {
+    background: none; border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text-muted); font-family: 'Space Grotesk', sans-serif;
+    font-size: 0.6875rem; font-weight: 700; padding: 3px 10px; cursor: pointer; text-transform: lowercase;
+}
+.visits-tab-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+.visits-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+.visits-table th { color: var(--text-muted); font-weight: 600; padding: 4px 0; text-align: left; border-bottom: 1px solid var(--border); }
+.visits-table td { padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+
+/* Share link */
+.share-link-box {
+    display: flex; gap: 0.5rem; margin-top: 0.375rem; align-items: center;
+}
+.share-link-box input {
+    flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text-muted); font-family: 'Space Grotesk', sans-serif; font-size: 0.6875rem;
+    padding: 0.25rem 0.5rem; outline: none;
+}
+.copy-link-btn {
+    background: none; border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text-muted); font-family: 'Space Grotesk', sans-serif; font-size: 0.6875rem;
+    font-weight: 700; padding: 0.25rem 0.5rem; cursor: pointer; text-transform: lowercase;
+}
+.copy-link-btn:hover { border-color: var(--primary); color: var(--primary); }
+
+/* Milestone form */
+.milestone-form {
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; margin-top: 0.5rem;
+}
+.milestone-form .form-group { margin-bottom: 0.5rem; }
+.milestone-form label { font-size: 0.75rem; }
+
 /* Style switcher in sidebar */
 .sidebar-style-switcher {
     display: flex;
@@ -379,24 +543,105 @@
             </div>
         </div>
 
+        <!-- Timeline Section -->
+        <div class="sidebar-section">
+            <button class="sidebar-section-toggle collapsed" onclick="toggleSection(this)">
+                Timeline <span class="arrow">&#9660;</span>
+            </button>
+            <div class="sidebar-section-body" style="display:none;">
+                <div id="timeline-list" style="margin-bottom:0.5rem;"></div>
+                <div id="timeline-load-more" style="text-align:center;display:none;">
+                    <button class="btn btn-outline btn-sm" onclick="loadMoreTimeline()">load more</button>
+                </div>
+                <!-- Milestone quick-add -->
+                <div style="margin-top:0.5rem;">
+                    <button class="btn btn-outline btn-sm" style="width:100%" onclick="toggleMilestoneForm()">+ add milestone</button>
+                    <div id="milestone-form" class="milestone-form" style="display:none;">
+                        <div class="form-group">
+                            <label>Emoji</label>
+                            <input type="text" id="ms-emoji" class="form-control" value="🏁" style="max-width:60px;">
+                        </div>
+                        <div class="form-group">
+                            <label>Title</label>
+                            <input type="text" id="ms-title" class="form-control" placeholder="Milestone title">
+                        </div>
+                        <div class="form-group">
+                            <label>Description</label>
+                            <input type="text" id="ms-desc" class="form-control" placeholder="optional...">
+                        </div>
+                        <div class="form-group">
+                            <label>Date</label>
+                            <input type="datetime-local" id="ms-date" class="form-control">
+                        </div>
+                        <div style="display:flex;gap:0.5rem;">
+                            <button class="btn btn-primary btn-sm" onclick="saveMilestone()">save</button>
+                            <button class="btn btn-outline btn-sm" onclick="toggleMilestoneForm()">cancel</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Places Section -->
         <div class="sidebar-section">
-            <button class="sidebar-section-toggle" onclick="toggleSection(this)">
+            <button class="sidebar-section-toggle collapsed" onclick="toggleSection(this)">
                 Places <span class="arrow">&#9660;</span>
             </button>
-            <div class="sidebar-section-body">
+            <div class="sidebar-section-body" style="display:none;">
                 <div id="places-list"></div>
                 <div id="place-form-container"></div>
                 <button class="add-place-btn" id="add-place-btn" onclick="startAddPlace()">+ add place</button>
             </div>
         </div>
 
+        <!-- Visits Section -->
+        <div class="sidebar-section">
+            <button class="sidebar-section-toggle collapsed" onclick="toggleSection(this)" id="visits-section-toggle" data-loaded="0">
+                Visits <span class="arrow">&#9660;</span>
+            </button>
+            <div class="sidebar-section-body" style="display:none;">
+                <div class="visits-tabs">
+                    <button class="visits-tab-btn active" onclick="switchVisitsTab('countries', this)">countries</button>
+                    <button class="visits-tab-btn" onclick="switchVisitsTab('cities', this)">cities</button>
+                </div>
+                <div id="visits-countries-pane">
+                    <table class="visits-table">
+                        <thead><tr><th>Country</th><th>Cities</th><th>Time</th></tr></thead>
+                        <tbody id="visits-countries-body"><tr><td colspan="3" style="color:var(--text-muted)">loading...</td></tr></tbody>
+                    </table>
+                </div>
+                <div id="visits-cities-pane" style="display:none;">
+                    <table class="visits-table">
+                        <thead><tr><th>City</th><th>Country</th><th>Time</th></tr></thead>
+                        <tbody id="visits-cities-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Members Section -->
+        <div class="sidebar-section">
+            <button class="sidebar-section-toggle collapsed" onclick="toggleSection(this)">
+                Members <span class="arrow">&#9660;</span>
+            </button>
+            <div class="sidebar-section-body" style="display:none;">
+                <div id="members-list"></div>
+                <div id="add-member-area" style="display:none;">
+                    <div class="add-member-row">
+                        <input type="text" id="add-member-input" placeholder="username" onkeydown="if(event.key==='Enter')addMember()">
+                        <button class="btn btn-primary btn-sm" onclick="addMember()">add</button>
+                    </div>
+                    <div id="add-member-error" style="color:var(--danger);font-size:0.75rem;margin-top:0.25rem;"></div>
+                </div>
+            </div>
+        </div>
+
         <!-- Options Section -->
         <div class="sidebar-section">
-            <button class="sidebar-section-toggle" onclick="toggleSection(this)">
+            <button class="sidebar-section-toggle collapsed" onclick="toggleSection(this)">
                 Options <span class="arrow">&#9660;</span>
             </button>
-            <div class="sidebar-section-body">
+            <div class="sidebar-section-body" style="display:none;">
                 <div class="option-row">
                     <span class="option-label">Map Style</span>
                     <div class="sidebar-style-switcher">
@@ -405,12 +650,36 @@
                         <button class="sidebar-style-btn" data-style="Satellite" onclick="setMapStyle(this)">Satellite</button>
                     </div>
                 </div>
+                <div class="option-row" style="margin-top: 0.5rem;">
+                    <span class="option-label">Share link</span>
+                    <button id="toggle-public-btn" class="btn btn-outline btn-sm" onclick="togglePublic()">make public</button>
+                </div>
+                <div id="share-link-area" style="display:none; margin-top:0.25rem;">
+                    <div class="share-link-box">
+                        <input type="text" id="share-link-input" readonly onclick="this.select()">
+                        <button class="copy-link-btn" onclick="copyShareLink()">copy</button>
+                    </div>
+                </div>
                 <div class="option-row" style="margin-top: 0.75rem;">
                     <span class="option-label">Delete trip</span>
                     <button class="btn btn-danger btn-sm" onclick="deleteTripFromDetail()">Delete</button>
                 </div>
             </div>
         </div>
+    </div>
+    <!-- Compose blurb area (bottom of sidebar) -->
+    <div class="compose-area" id="compose-area">
+        <textarea class="compose-textarea" id="compose-text" placeholder="add a note to the timeline..."></textarea>
+        <div class="compose-row">
+            <span class="compose-location" id="compose-location-display">no location</span>
+            <button class="btn btn-outline btn-sm" onclick="setComposeLocation()" title="pin to map location">pin</button>
+            <label class="compose-photo-label">
+                📷 photos
+                <input type="file" id="compose-photos" accept="image/*" multiple style="display:none;" onchange="previewPhotos(this)">
+            </label>
+            <button class="btn btn-primary btn-sm" onclick="submitBlurb()">post</button>
+        </div>
+        <div class="compose-photo-preview" id="compose-photo-preview"></div>
     </div>
 </div>
 {% endblock %}
@@ -423,6 +692,11 @@ let currentTripId = null;
 let currentTripData = null;
 let placingMode = false;
 let notesSaveTimeout = null;
+let currentIsCreator = false;
+let timelinePage = 1;
+let timelineHasMore = false;
+let composeLocation = null;
+let visitsLoaded = false;
 
 const mapStyles = {
     'Streets': {
@@ -468,12 +742,16 @@ function loadTrips() {
             const html = data.trips.map(trip => {
                 const start = new Date(trip.start_time).toLocaleDateString();
                 const end = new Date(trip.end_time).toLocaleDateString();
+                const memberBadge = trip.member_count > 1 ? ` &middot; ${trip.member_count} members` : '';
+                const publicBadge = trip.is_public ? ' <span class="badge badge-success" style="font-size:0.6875rem;">public</span>' : '';
                 return `<div class="card trip-card" onclick="openTrip(${trip.id})">
                     <div style="display:flex;justify-content:space-between;align-items:center;">
-                        <div>
-                            <strong>${trip.name}</strong>
+                        <div style="flex:1;min-width:0;">
+                            <div style="display:flex;align-items:center;gap:0.5rem;">
+                                <strong>${trip.name}</strong>${publicBadge}
+                            </div>
                             <div style="font-size:0.8125rem;color:var(--text-muted);margin-top:0.25rem;">
-                                ${start} - ${end} &middot; ${trip.device} &middot; ${trip.location_count} points
+                                ${start} &ndash; ${end} &middot; ${trip.device} &middot; ${trip.location_count} points${memberBadge}
                             </div>
                             ${trip.description ? `<div style="font-size:0.8125rem;color:var(--text-muted);margin-top:0.25rem;">${trip.description}</div>` : ''}
                         </div>
@@ -557,6 +835,9 @@ function closeTrip() {
     currentTripId = null;
     currentTripData = null;
     placingMode = false;
+    composeLocation = null;
+    visitsLoaded = false;
+    timelinePage = 1;
     loadTrips();
 }
 
@@ -565,6 +846,7 @@ function loadTripDetail(id) {
         .then(r => r.json())
         .then(data => {
             currentTripData = data;
+            currentIsCreator = data.is_creator;
 
             // Update sidebar header
             document.getElementById('sidebar-trip-name').textContent = data.name;
@@ -581,6 +863,19 @@ function loadTripDetail(id) {
 
             // Render places
             renderPlaces(data.places || []);
+
+            // Members
+            renderMembers(data.members || []);
+
+            // Sharing
+            renderSharingOptions(data);
+
+            // Reset timeline
+            timelinePage = 1;
+            timelineHasMore = false;
+            visitsLoaded = false;
+            document.getElementById('timeline-list').innerHTML = '';
+            loadTimeline(id, 1);
         });
 }
 
@@ -957,6 +1252,382 @@ function deletePlace(placeId) {
         headers: { 'X-CSRFToken': csrfToken }
     })
     .then(() => loadTripDetail(currentTripId));
+}
+
+// ─── Sidebar: Timeline ───────────────────────────────────────
+
+function loadTimeline(id, page) {
+    fetch(`/api/trips/${id}/timeline/?page=${page}`)
+        .then(r => r.json())
+        .then(data => {
+            timelineHasMore = data.has_more;
+            document.getElementById('timeline-load-more').style.display = data.has_more ? 'block' : 'none';
+            if (!data.events.length && page === 1) {
+                document.getElementById('timeline-list').innerHTML =
+                    '<div style="font-size:0.8125rem;color:var(--text-muted);text-align:center;padding:0.5rem 0;">no posts yet</div>';
+                return;
+            }
+            const html = data.events.map(ev => renderTimelineEvent(ev)).join('');
+            if (page === 1) {
+                document.getElementById('timeline-list').innerHTML = html;
+            } else {
+                document.getElementById('timeline-list').insertAdjacentHTML('beforeend', html);
+            }
+        });
+}
+
+function loadMoreTimeline() {
+    timelinePage++;
+    loadTimeline(currentTripId, timelinePage);
+}
+
+function renderTimelineEvent(ev) {
+    if (ev.type === 'milestone') {
+        const date = new Date(ev.date).toLocaleDateString();
+        const deleteBtn = ev.can_delete ? `<button class="timeline-delete-btn" onclick="deleteMilestone(${ev.id})">&times;</button>` : '';
+        return `<div class="milestone-event">
+            <div class="milestone-emoji">${ev.emoji}</div>
+            <div style="flex:1;">
+                <div class="milestone-title">${escHtml(ev.title)}</div>
+                ${ev.description ? `<div class="milestone-desc">${escHtml(ev.description)}</div>` : ''}
+                <div class="milestone-date">${date}</div>
+            </div>
+            ${deleteBtn}
+        </div>`;
+    }
+    const time = new Date(ev.created_at).toLocaleString();
+    const avatarHtml = ev.avatar
+        ? `<img src="${ev.avatar}" alt="">`
+        : ev.author.charAt(0).toUpperCase();
+    const photos = (ev.photos || []).map(p =>
+        `<img src="${p.thumb}" onclick="window.open('${p.url}','_blank')" alt="">`
+    ).join('');
+    const deleteBtn = ev.can_delete ? `<button class="timeline-delete-btn" onclick="deleteBlurb(${ev.id})">&times;</button>` : '';
+    const locHtml = ev.location_name ? `<div class="timeline-location">📍 ${escHtml(ev.location_name)}</div>` : '';
+    return `<div class="timeline-event" id="blurb-${ev.id}">
+        <div class="timeline-event-header">
+            <div class="timeline-avatar">${avatarHtml}</div>
+            <span class="timeline-author">${escHtml(ev.author)}</span>
+            <span class="timeline-time">${time}</span>
+            ${deleteBtn}
+        </div>
+        <div class="timeline-text">${escHtml(ev.text)}</div>
+        ${locHtml}
+        ${photos ? `<div class="timeline-photos">${photos}</div>` : ''}
+        <div class="timeline-actions">
+            <button class="timeline-comment-btn" onclick="toggleComments(${ev.id}, this)">${ev.comment_count} comment${ev.comment_count !== 1 ? 's' : ''}</button>
+        </div>
+        <div class="comments-area" id="comments-${ev.id}" style="display:none;"></div>
+    </div>`;
+}
+
+function toggleComments(blurbId, btn) {
+    const area = document.getElementById(`comments-${blurbId}`);
+    if (area.style.display === 'none') {
+        area.style.display = 'block';
+        loadComments(blurbId);
+    } else {
+        area.style.display = 'none';
+    }
+}
+
+function loadComments(blurbId) {
+    const area = document.getElementById(`comments-${blurbId}`);
+    fetch(`/api/trips/${currentTripId}/blurbs/${blurbId}/comments/`)
+        .then(r => r.json())
+        .then(data => {
+            const commentsHtml = data.comments.map(c => {
+                const delBtn = c.can_delete ? `<button style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:0.7rem;padding:0 2px;" onclick="deleteComment(${c.id})">&times;</button>` : '';
+                return `<div class="comment-item">
+                    <span class="comment-author">${escHtml(c.author)}</span>
+                    <span class="comment-text">${escHtml(c.text)}</span>
+                    ${delBtn}
+                </div>`;
+            }).join('');
+            area.innerHTML = commentsHtml + `<div class="add-comment-row">
+                <input type="text" id="comment-input-${blurbId}" placeholder="add a comment...">
+                <button onclick="postComment(${blurbId})">post</button>
+            </div>`;
+        });
+}
+
+function postComment(blurbId) {
+    const input = document.getElementById(`comment-input-${blurbId}`);
+    const text = input.value.trim();
+    if (!text) return;
+    fetch(`/api/trips/${currentTripId}/blurbs/${blurbId}/comments/create/`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+        body: JSON.stringify({text})
+    }).then(() => { input.value = ''; loadComments(blurbId); });
+}
+
+function deleteComment(commentId) {
+    if (!confirm('Delete comment?')) return;
+    fetch(`/api/trips/${currentTripId}/comments/${commentId}/delete/`, {
+        method: 'POST', headers: {'X-CSRFToken': csrfToken}
+    }).then(() => loadTimeline(currentTripId, 1));
+}
+
+function deleteBlurb(blurbId) {
+    if (!confirm('Delete this post?')) return;
+    fetch(`/api/trips/${currentTripId}/blurbs/${blurbId}/delete/`, {
+        method: 'POST', headers: {'X-CSRFToken': csrfToken}
+    }).then(() => { timelinePage = 1; loadTimeline(currentTripId, 1); });
+}
+
+function deleteMilestone(milestoneId) {
+    if (!confirm('Delete this milestone?')) return;
+    fetch(`/api/trips/${currentTripId}/milestones/${milestoneId}/delete/`, {
+        method: 'POST', headers: {'X-CSRFToken': csrfToken}
+    }).then(() => { timelinePage = 1; loadTimeline(currentTripId, 1); });
+}
+
+function toggleMilestoneForm() {
+    const form = document.getElementById('milestone-form');
+    form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    if (form.style.display === 'block') {
+        const now = new Date();
+        const local = new Date(now - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        document.getElementById('ms-date').value = local;
+    }
+}
+
+function saveMilestone() {
+    const title = document.getElementById('ms-title').value.trim();
+    if (!title) { alert('Title required'); return; }
+    const body = {
+        title,
+        emoji: document.getElementById('ms-emoji').value || '🏁',
+        description: document.getElementById('ms-desc').value,
+        date: document.getElementById('ms-date').value,
+    };
+    fetch(`/api/trips/${currentTripId}/milestones/create/`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+        body: JSON.stringify(body)
+    }).then(r => r.json()).then(data => {
+        if (data.status === 'ok') {
+            toggleMilestoneForm();
+            document.getElementById('ms-title').value = '';
+            document.getElementById('ms-desc').value = '';
+            timelinePage = 1;
+            loadTimeline(currentTripId, 1);
+        }
+    });
+}
+
+// ─── Compose blurb ───────────────────────────────────────────
+
+function setComposeLocation() {
+    if (!tripMap) return;
+    const center = tripMap.getCenter();
+    composeLocation = { lat: center.lat, lng: center.lng };
+    // Reverse geocode via existing geocode API if available, else just show coords
+    document.getElementById('compose-location-display').textContent =
+        `${center.lat.toFixed(4)}, ${center.lng.toFixed(4)}`;
+}
+
+function previewPhotos(input) {
+    const preview = document.getElementById('compose-photo-preview');
+    preview.innerHTML = '';
+    const files = Array.from(input.files).slice(0, 5);
+    files.forEach(f => {
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(f);
+        preview.appendChild(img);
+    });
+}
+
+function submitBlurb() {
+    const text = document.getElementById('compose-text').value.trim();
+    if (!text) return;
+    const formData = new FormData();
+    formData.append('text', text);
+    if (composeLocation) {
+        formData.append('latitude', composeLocation.lat);
+        formData.append('longitude', composeLocation.lng);
+        formData.append('location_name', document.getElementById('compose-location-display').textContent);
+    }
+    const photosInput = document.getElementById('compose-photos');
+    Array.from(photosInput.files).slice(0, 5).forEach(f => formData.append('photos', f));
+
+    fetch(`/api/trips/${currentTripId}/blurbs/create/`, {
+        method: 'POST',
+        headers: {'X-CSRFToken': csrfToken},
+        body: formData
+    }).then(r => r.json()).then(data => {
+        if (data.status === 'ok') {
+            document.getElementById('compose-text').value = '';
+            composeLocation = null;
+            document.getElementById('compose-location-display').textContent = 'no location';
+            document.getElementById('compose-photo-preview').innerHTML = '';
+            photosInput.value = '';
+            timelinePage = 1;
+            loadTimeline(currentTripId, 1);
+            // Open timeline section if collapsed
+            const toggle = document.querySelector('.sidebar-section-toggle');
+            // find the timeline toggle
+            document.querySelectorAll('.sidebar-section-toggle').forEach(btn => {
+                if (btn.textContent.trim().startsWith('Timeline') && btn.classList.contains('collapsed')) {
+                    btn.classList.remove('collapsed');
+                    const body = btn.nextElementSibling;
+                    if (body) body.style.display = '';
+                }
+            });
+        } else {
+            alert(data.error || 'Error posting');
+        }
+    });
+}
+
+// ─── Members ─────────────────────────────────────────────────
+
+function renderMembers(members) {
+    const addArea = document.getElementById('add-member-area');
+    addArea.style.display = currentIsCreator ? 'block' : 'none';
+
+    const list = document.getElementById('members-list');
+    if (!members.length) {
+        list.innerHTML = '<div style="font-size:0.8125rem;color:var(--text-muted);">no members yet</div>';
+        return;
+    }
+    list.innerHTML = members.map(m => {
+        const avatarHtml = m.avatar
+            ? `<img src="${m.avatar}" alt="">`
+            : m.username.charAt(0).toUpperCase();
+        const removeBtn = currentIsCreator && m.role !== 'creator'
+            ? `<button class="member-remove-btn" onclick="removeMember(${m.user_id})">&times;</button>` : '';
+        return `<div class="member-item">
+            <div class="member-avatar">${avatarHtml}</div>
+            <span class="member-name">${escHtml(m.username)}</span>
+            <span class="member-role">${m.role}</span>
+            ${removeBtn}
+        </div>`;
+    }).join('');
+}
+
+function addMember() {
+    const input = document.getElementById('add-member-input');
+    const username = input.value.trim();
+    if (!username) return;
+    const errEl = document.getElementById('add-member-error');
+    errEl.textContent = '';
+    fetch(`/api/trips/${currentTripId}/members/add/`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+        body: JSON.stringify({username})
+    }).then(r => r.json()).then(data => {
+        if (data.status === 'ok') {
+            input.value = '';
+            loadTripDetail(currentTripId);
+        } else {
+            errEl.textContent = data.error || 'Error';
+        }
+    });
+}
+
+function removeMember(userId) {
+    if (!confirm('Remove this member?')) return;
+    fetch(`/api/trips/${currentTripId}/members/${userId}/remove/`, {
+        method: 'POST', headers: {'X-CSRFToken': csrfToken}
+    }).then(() => loadTripDetail(currentTripId));
+}
+
+// ─── Sharing ─────────────────────────────────────────────────
+
+function renderSharingOptions(data) {
+    const btn = document.getElementById('toggle-public-btn');
+    const linkArea = document.getElementById('share-link-area');
+    const linkInput = document.getElementById('share-link-input');
+    if (!currentIsCreator) {
+        btn.style.display = 'none';
+        if (data.is_public) {
+            linkArea.style.display = 'block';
+            linkInput.value = `${window.location.origin}/trip/${data.public_slug}/`;
+        }
+        return;
+    }
+    btn.style.display = '';
+    if (data.is_public) {
+        btn.textContent = 'make private';
+        btn.classList.remove('btn-outline');
+        btn.classList.add('btn-primary');
+        linkArea.style.display = 'block';
+        linkInput.value = `${window.location.origin}/trip/${data.public_slug}/`;
+    } else {
+        btn.textContent = 'make public';
+        btn.classList.add('btn-outline');
+        btn.classList.remove('btn-primary');
+        linkArea.style.display = 'none';
+    }
+}
+
+function togglePublic() {
+    fetch(`/api/trips/${currentTripId}/toggle-public/`, {
+        method: 'POST', headers: {'X-CSRFToken': csrfToken}
+    }).then(r => r.json()).then(data => {
+        renderSharingOptions({is_public: data.is_public, public_slug: data.public_slug});
+    });
+}
+
+function copyShareLink() {
+    const input = document.getElementById('share-link-input');
+    input.select();
+    navigator.clipboard.writeText(input.value).catch(() => {});
+}
+
+// ─── Visits ──────────────────────────────────────────────────
+
+function switchVisitsTab(tab, btn) {
+    document.querySelectorAll('.visits-tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('visits-countries-pane').style.display = tab === 'countries' ? '' : 'none';
+    document.getElementById('visits-cities-pane').style.display = tab === 'cities' ? '' : 'none';
+}
+
+function loadVisits() {
+    if (visitsLoaded) return;
+    visitsLoaded = true;
+    fetch(`/api/trips/${currentTripId}/visits/`)
+        .then(r => r.json())
+        .then(data => {
+            const countryRows = data.countries.map(c =>
+                `<tr><td>${escHtml(c.country)}</td><td>${c.city_count}</td><td>${formatDuration(c.time_spent)}</td></tr>`
+            ).join('') || '<tr><td colspan="3" style="color:var(--text-muted)">no data</td></tr>';
+            document.getElementById('visits-countries-body').innerHTML = countryRows;
+
+            const cityRows = data.cities.map(c =>
+                `<tr><td>${escHtml(c.city)}</td><td>${escHtml(c.country)}</td><td>${formatDuration(c.time_spent)}</td></tr>`
+            ).join('') || '<tr><td colspan="3" style="color:var(--text-muted)">no data</td></tr>';
+            document.getElementById('visits-cities-body').innerHTML = cityRows;
+        });
+}
+
+// Intercept visits section toggle to lazy-load
+document.getElementById('visits-section-toggle').addEventListener('click', function() {
+    // Give the toggle a moment to open before loading
+    setTimeout(() => {
+        if (!this.classList.contains('collapsed')) {
+            loadVisits();
+        }
+    }, 50);
+});
+
+function formatDuration(seconds) {
+    if (!seconds) return '-';
+    if (seconds < 60) return `${seconds}s`;
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+}
+
+function escHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // ─── Sidebar: Options ────────────────────────────────────────

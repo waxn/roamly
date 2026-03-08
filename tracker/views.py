@@ -29,6 +29,7 @@ from .forms import SignUpForm, APIKeyForm, TripForm
 from .models import (
     Device, Location, APIKey, Trip, TripPlace, POI, BackupConfig,
     UserProfile, Pal, PalMember, PalBlurb, PalBlurbPhoto, PalMilestone, PalComment,
+    TripMember, TripBlurb, TripBlurbPhoto, TripMilestone, TripComment,
 )
 from .image_utils import resize_image, resize_photo
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding
@@ -792,12 +793,34 @@ def visits_api(request):
 # Trips API
 # ---------------------------------------------------------------------------
 
+def _is_trip_member(trip, user):
+    """Return True if user owns the device or is a TripMember."""
+    if trip.device.user == user:
+        return True
+    return TripMember.objects.filter(trip=trip, user=user).exists()
+
+
+def _get_trip_for_user(trip_id, user):
+    """Return trip if user has access, else raise 404."""
+    trip = get_object_or_404(Trip, id=trip_id)
+    if not _is_trip_member(trip, user):
+        from django.http import Http404
+        raise Http404
+    return trip
+
+
 @login_required
 def trips_api(request):
-    trips = Trip.objects.filter(device__user=request.user).select_related('device')
+    # Trips user owns (via device) or is a member of
+    owned_ids = Trip.objects.filter(device__user=request.user).values_list('id', flat=True)
+    member_ids = TripMember.objects.filter(user=request.user).values_list('trip_id', flat=True)
+    all_ids = set(list(owned_ids) + list(member_ids))
+    trips = Trip.objects.filter(id__in=all_ids).select_related('device').order_by('-start_time')
     data = []
     for trip in trips:
         loc_count = trip.locations.count()
+        member_count = trip.members.count()
+        is_creator = trip.device.user == request.user or (trip.creator == request.user)
         data.append({
             "id": trip.id,
             "name": trip.name,
@@ -806,6 +829,9 @@ def trips_api(request):
             "start_time": trip.start_time.isoformat(),
             "end_time": trip.end_time.isoformat(),
             "location_count": loc_count,
+            "member_count": member_count,
+            "is_public": bool(trip.public_slug),
+            "is_creator": is_creator,
         })
     return JsonResponse({"trips": data})
 
@@ -847,11 +873,13 @@ def create_trip(request):
 
     trip = Trip.objects.create(
         device=device,
+        creator=request.user,
         name=data.get('name', 'Untitled Trip'),
         description=data.get('description', ''),
         start_time=start,
         end_time=end,
     )
+    TripMember.objects.create(trip=trip, user=request.user, role='creator')
 
     return JsonResponse({"status": "ok", "trip_id": trip.id})
 
@@ -894,7 +922,7 @@ def _format_duration(seconds):
 
 @login_required
 def trip_detail(request, trip_id):
-    trip = get_object_or_404(Trip, id=trip_id, device__user=request.user)
+    trip = _get_trip_for_user(trip_id, request.user)
     locations = list(trip.locations)
     locs = [{
         "lat": l.latitude, "lng": l.longitude,
@@ -916,6 +944,16 @@ def trip_detail(request, trip_id):
             "time_spent_display": _format_duration(time_spent_s),
         })
 
+    is_creator = trip.device.user == request.user or trip.creator == request.user
+    members = []
+    for m in trip.members.select_related('user'):
+        members.append({
+            "user_id": m.user.id,
+            "username": m.user.username,
+            "role": m.role,
+            "avatar": _get_user_avatar(m.user),
+        })
+
     return JsonResponse({
         "id": trip.id,
         "name": trip.name,
@@ -924,6 +962,10 @@ def trip_detail(request, trip_id):
         "end_time": trip.end_time.isoformat(),
         "locations": locs,
         "places": places,
+        "is_creator": is_creator,
+        "is_public": bool(trip.public_slug),
+        "public_slug": trip.public_slug,
+        "members": members,
     })
 
 
@@ -940,7 +982,7 @@ def delete_trip(request, trip_id):
 @csrf_exempt
 @require_http_methods(["POST"])
 def update_trip(request, trip_id):
-    trip = get_object_or_404(Trip, id=trip_id, device__user=request.user)
+    trip = _get_trip_for_user(trip_id, request.user)
     try:
         data = json.loads(request.body)
     except json.JSONDecodeError:
@@ -957,7 +999,7 @@ def update_trip(request, trip_id):
 @csrf_exempt
 @require_http_methods(["POST"])
 def create_trip_place(request, trip_id):
-    trip = get_object_or_404(Trip, id=trip_id, device__user=request.user)
+    trip = _get_trip_for_user(trip_id, request.user)
     try:
         data = json.loads(request.body)
     except json.JSONDecodeError:
@@ -999,7 +1041,7 @@ def create_trip_place(request, trip_id):
 @csrf_exempt
 @require_http_methods(["POST"])
 def update_trip_place(request, trip_id, place_id):
-    trip = get_object_or_404(Trip, id=trip_id, device__user=request.user)
+    trip = _get_trip_for_user(trip_id, request.user)
     place = get_object_or_404(TripPlace, id=place_id, trip=trip)
     try:
         data = json.loads(request.body)
@@ -1036,10 +1078,359 @@ def update_trip_place(request, trip_id, place_id):
 @csrf_exempt
 @require_http_methods(["POST", "DELETE"])
 def delete_trip_place(request, trip_id, place_id):
-    trip = get_object_or_404(Trip, id=trip_id, device__user=request.user)
+    trip = _get_trip_for_user(trip_id, request.user)
     place = get_object_or_404(TripPlace, id=place_id, trip=trip)
     place.delete()
     return JsonResponse({"status": "ok"})
+
+
+# ---------------------------------------------------------------------------
+# Trip Social API (members, timeline, blurbs, milestones, comments)
+# ---------------------------------------------------------------------------
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_add_member(request, trip_id):
+    trip = get_object_or_404(Trip, id=trip_id, device__user=request.user)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    username = data.get('username', '').strip()
+    if not username:
+        return JsonResponse({"error": "username required"}, status=400)
+    from django.contrib.auth.models import User as AuthUser
+    try:
+        user = AuthUser.objects.get(username=username)
+    except AuthUser.DoesNotExist:
+        return JsonResponse({"error": "User not found"}, status=404)
+    if user == request.user:
+        return JsonResponse({"error": "You are already the creator"}, status=400)
+    member, created = TripMember.objects.get_or_create(trip=trip, user=user, defaults={'role': 'member'})
+    if not created:
+        return JsonResponse({"error": "Already a member"}, status=400)
+    return JsonResponse({"status": "ok", "user_id": user.id, "username": user.username})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_remove_member(request, trip_id, user_id):
+    trip = get_object_or_404(Trip, id=trip_id, device__user=request.user)
+    from django.contrib.auth.models import User as AuthUser
+    user = get_object_or_404(AuthUser, id=user_id)
+    TripMember.objects.filter(trip=trip, user=user).exclude(role='creator').delete()
+    return JsonResponse({"status": "ok"})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_toggle_public(request, trip_id):
+    trip = get_object_or_404(Trip, id=trip_id, device__user=request.user)
+    if trip.public_slug:
+        trip.public_slug = None
+    else:
+        trip.public_slug = str(uuid.uuid4()).replace('-', '')[:32]
+    trip.save()
+    return JsonResponse({"status": "ok", "is_public": bool(trip.public_slug), "public_slug": trip.public_slug})
+
+
+@login_required
+def trip_timeline_api(request, trip_id):
+    trip = _get_trip_for_user(trip_id, request.user)
+    page = int(request.GET.get('page', 1))
+    per_page = 50
+    events = []
+    for b in trip.blurbs.select_related('author').prefetch_related('photos', 'comments'):
+        events.append({
+            'type': 'blurb',
+            'id': b.id,
+            'author': b.author.username,
+            'author_id': b.author.id,
+            'avatar': _get_user_avatar(b.author),
+            'text': b.text,
+            'latitude': b.latitude,
+            'longitude': b.longitude,
+            'location_name': b.location_name,
+            'photos': [{'id': p.id, 'url': p.image.url, 'thumb': p.thumbnail.url if p.thumbnail else p.image.url} for p in b.photos.all()],
+            'comment_count': b.comments.count(),
+            'created_at': b.created_at.isoformat(),
+            'sort_key': b.created_at.isoformat(),
+            'can_delete': b.author == request.user or trip.device.user == request.user,
+        })
+    for m in trip.milestones.select_related('author'):
+        events.append({
+            'type': 'milestone',
+            'id': m.id,
+            'author': m.author.username,
+            'author_id': m.author.id,
+            'title': m.title,
+            'description': m.description,
+            'emoji': m.emoji,
+            'date': m.date.isoformat(),
+            'created_at': m.created_at.isoformat(),
+            'sort_key': m.date.isoformat(),
+            'can_delete': m.author == request.user or trip.device.user == request.user,
+        })
+    events.sort(key=lambda e: e['sort_key'])
+    total = len(events)
+    start = (page - 1) * per_page
+    events = events[start:start + per_page]
+    return JsonResponse({'events': events, 'page': page, 'has_more': start + per_page < total})
+
+
+@login_required
+@require_http_methods(["POST"])
+def trip_create_blurb(request, trip_id):
+    trip = _get_trip_for_user(trip_id, request.user)
+    text = request.POST.get('text', '').strip()
+    if not text:
+        return JsonResponse({"error": "Text is required"}, status=400)
+    lat = request.POST.get('latitude')
+    lng = request.POST.get('longitude')
+    blurb = TripBlurb.objects.create(
+        trip=trip, author=request.user, text=text,
+        latitude=float(lat) if lat else None,
+        longitude=float(lng) if lng else None,
+        location_name=request.POST.get('location_name', ''),
+    )
+    photos = request.FILES.getlist('photos')
+    for i, photo_file in enumerate(photos[:5]):
+        if photo_file.size > 10 * 1024 * 1024:
+            continue
+        full_file, thumb_file = resize_photo(photo_file)
+        TripBlurbPhoto.objects.create(blurb=blurb, image=full_file, thumbnail=thumb_file, order=i)
+    return JsonResponse({"status": "ok", "blurb_id": blurb.id})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_delete_blurb(request, trip_id, blurb_id):
+    trip = _get_trip_for_user(trip_id, request.user)
+    blurb = get_object_or_404(TripBlurb, id=blurb_id, trip=trip)
+    if blurb.author != request.user and trip.device.user != request.user:
+        return JsonResponse({"error": "Permission denied"}, status=403)
+    blurb.delete()
+    return JsonResponse({"status": "ok"})
+
+
+@login_required
+def trip_blurb_comments(request, trip_id, blurb_id):
+    trip = _get_trip_for_user(trip_id, request.user)
+    blurb = get_object_or_404(TripBlurb, id=blurb_id, trip=trip)
+    comments = []
+    for c in blurb.comments.select_related('author'):
+        comments.append({
+            'id': c.id,
+            'author': c.author.username if c.author else c.guest_name,
+            'author_id': c.author.id if c.author else None,
+            'avatar': _get_user_avatar(c.author) if c.author else None,
+            'text': c.text,
+            'created_at': c.created_at.isoformat(),
+            'can_delete': c.author == request.user or trip.device.user == request.user,
+        })
+    return JsonResponse({'comments': comments})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_create_comment(request, trip_id, blurb_id):
+    trip = _get_trip_for_user(trip_id, request.user)
+    blurb = get_object_or_404(TripBlurb, id=blurb_id, trip=trip)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    text = data.get('text', '').strip()
+    if not text:
+        return JsonResponse({"error": "Text required"}, status=400)
+    comment = TripComment.objects.create(blurb=blurb, author=request.user, text=text)
+    return JsonResponse({"status": "ok", "comment_id": comment.id})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_delete_comment(request, trip_id, comment_id):
+    trip = _get_trip_for_user(trip_id, request.user)
+    comment = get_object_or_404(TripComment, id=comment_id, blurb__trip=trip)
+    if comment.author != request.user and trip.device.user != request.user:
+        return JsonResponse({"error": "Permission denied"}, status=403)
+    comment.delete()
+    return JsonResponse({"status": "ok"})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_create_milestone(request, trip_id):
+    trip = _get_trip_for_user(trip_id, request.user)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    title = data.get('title', '').strip()
+    if not title:
+        return JsonResponse({"error": "Title required"}, status=400)
+    date_raw = data.get('date', '').strip()
+    try:
+        date_val = datetime.fromisoformat(date_raw.replace('Z', '+00:00'))
+        if timezone.is_naive(date_val):
+            date_val = timezone.make_aware(date_val)
+    except (ValueError, AttributeError):
+        date_val = timezone.now()
+    milestone = TripMilestone.objects.create(
+        trip=trip, author=request.user,
+        title=title,
+        description=data.get('description', ''),
+        emoji=data.get('emoji', '🏁'),
+        date=date_val,
+    )
+    return JsonResponse({"status": "ok", "milestone_id": milestone.id})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_delete_milestone(request, trip_id, milestone_id):
+    trip = _get_trip_for_user(trip_id, request.user)
+    milestone = get_object_or_404(TripMilestone, id=milestone_id, trip=trip)
+    if milestone.author != request.user and trip.device.user != request.user:
+        return JsonResponse({"error": "Permission denied"}, status=403)
+    milestone.delete()
+    return JsonResponse({"status": "ok"})
+
+
+@login_required
+def trip_visits_api(request, trip_id):
+    """Visit stats (cities/states/countries) scoped to this trip's device and time range."""
+    trip = _get_trip_for_user(trip_id, request.user)
+    locations = Location.objects.filter(
+        device=trip.device,
+        timestamp__gte=trip.start_time,
+        timestamp__lte=trip.end_time,
+    ).exclude(city='')
+
+    city_stats = locations.values('city', 'state', 'country', 'country_code').annotate(
+        count=Count('id'), first_seen=Min('timestamp'), last_seen=Max('timestamp')
+    ).order_by('-count')
+
+    cities = [{
+        "city": s['city'], "state": s['state'],
+        "country": s['country'], "country_code": s['country_code'],
+        "visit_count": s['count'],
+        "first_seen": s['first_seen'].isoformat() if s['first_seen'] else None,
+        "last_seen": s['last_seen'].isoformat() if s['last_seen'] else None,
+    } for s in city_stats]
+
+    country_stats = locations.values('country', 'country_code').annotate(
+        location_count=Count('id'),
+        city_count=Count('city', distinct=True),
+        state_count=Count('state', distinct=True),
+    ).order_by('-location_count')
+
+    countries = [{
+        "country": s['country'], "country_code": s['country_code'],
+        "location_count": s['location_count'],
+        "city_count": s['city_count'], "state_count": s['state_count'],
+    } for s in country_stats]
+
+    state_stats = locations.values('state', 'country').annotate(
+        count=Count('id'), city_count=Count('city', distinct=True)
+    ).order_by('-count')
+
+    states = [{
+        "state": s['state'], "country": s['country'],
+        "location_count": s['count'], "city_count": s['city_count'],
+    } for s in state_stats if s['state']]
+
+    MAX_GAP = 3600
+    time_city = defaultdict(float)
+    time_country = defaultdict(float)
+    points = locations.order_by('timestamp').values_list('timestamp', 'city', 'state', 'country', 'country_code')
+    prev = None
+    for ts, city, state_val, country_val, cc in points.iterator():
+        if prev:
+            gap = min((ts - prev[0]).total_seconds(), MAX_GAP)
+            if gap > 0:
+                if prev[1]:
+                    time_city[(prev[1], prev[2], prev[3], prev[4])] += gap
+                if prev[3]:
+                    time_country[prev[3]] += gap
+        prev = (ts, city, state_val, country_val, cc)
+
+    for c in cities:
+        key = (c['city'], c['state'], c['country'], c['country_code'])
+        c['time_spent'] = round(time_city.get(key, 0))
+    for c in countries:
+        c['time_spent'] = round(time_country.get(c['country'], 0))
+
+    return JsonResponse({"cities": cities, "states": states, "countries": countries})
+
+
+# ---------------------------------------------------------------------------
+# Public Trip API (no auth required)
+# ---------------------------------------------------------------------------
+
+def trip_public_detail_api(request, slug):
+    trip = get_object_or_404(Trip, public_slug=slug)
+    locations = list(trip.locations)
+    locs = [{
+        "lat": l.latitude, "lng": l.longitude,
+        "timestamp": l.timestamp.isoformat(),
+        "city": l.city, "country": l.country,
+    } for l in locations]
+    members = [{"username": m.user.username, "role": m.role} for m in trip.members.select_related('user')]
+    return JsonResponse({
+        "id": trip.id,
+        "name": trip.name,
+        "description": trip.description,
+        "start_time": trip.start_time.isoformat(),
+        "end_time": trip.end_time.isoformat(),
+        "locations": locs,
+        "members": members,
+    })
+
+
+def trip_public_timeline_api(request, slug):
+    trip = get_object_or_404(Trip, public_slug=slug)
+    events = []
+    for b in trip.blurbs.select_related('author').prefetch_related('photos', 'comments'):
+        events.append({
+            'type': 'blurb',
+            'id': b.id,
+            'author': b.author.username,
+            'text': b.text,
+            'latitude': b.latitude,
+            'longitude': b.longitude,
+            'location_name': b.location_name,
+            'photos': [{'id': p.id, 'url': p.image.url, 'thumb': p.thumbnail.url if p.thumbnail else p.image.url} for p in b.photos.all()],
+            'comment_count': b.comments.count(),
+            'created_at': b.created_at.isoformat(),
+            'sort_key': b.created_at.isoformat(),
+        })
+    for m in trip.milestones.select_related('author'):
+        events.append({
+            'type': 'milestone',
+            'id': m.id,
+            'author': m.author.username,
+            'title': m.title,
+            'description': m.description,
+            'emoji': m.emoji,
+            'date': m.date.isoformat(),
+            'sort_key': m.date.isoformat(),
+        })
+    events.sort(key=lambda e: e['sort_key'])
+    return JsonResponse({'events': events})
+
+
+def trip_public_view(request, slug):
+    trip = get_object_or_404(Trip, public_slug=slug)
+    return render(request, 'tracker/trip_public.html', {'trip': trip, 'slug': slug})
 
 
 # ---------------------------------------------------------------------------

@@ -113,10 +113,12 @@ else:
 class Trip(models.Model):
     """Named trip or journey with date range."""
     device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='trips')
+    creator = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_trips')
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     start_time = models.DateTimeField()
     end_time = models.DateTimeField()
+    public_slug = models.SlugField(max_length=64, unique=True, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -252,6 +254,85 @@ class TripPlace(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class TripMember(models.Model):
+    """Membership in a shared trip."""
+    ROLE_CHOICES = [('creator', 'Creator'), ('member', 'Member')]
+    trip = models.ForeignKey(Trip, on_delete=models.CASCADE, related_name='members')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='trip_memberships')
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='member')
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['trip', 'user']
+
+    def __str__(self):
+        return f"{self.user.username} in {self.trip.name}"
+
+
+class TripBlurb(models.Model):
+    """User-posted text + location entry on a trip timeline."""
+    trip = models.ForeignKey(Trip, on_delete=models.CASCADE, related_name='blurbs')
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='trip_blurbs')
+    text = models.TextField()
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+    location_name = models.CharField(max_length=300, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"Blurb by {self.author.username} on {self.trip.name}"
+
+
+class TripBlurbPhoto(models.Model):
+    """Photo attached to a trip blurb. Max 5 per blurb."""
+    blurb = models.ForeignKey(TripBlurb, on_delete=models.CASCADE, related_name='photos')
+    image = models.ImageField(upload_to='trips/blurbs/')
+    thumbnail = models.ImageField(upload_to='trips/blurbs/thumbs/', null=True, blank=True)
+    order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['order']
+
+    def __str__(self):
+        return f"Photo {self.order} on blurb {self.blurb_id}"
+
+
+class TripMilestone(models.Model):
+    """Milestone event on a trip timeline."""
+    trip = models.ForeignKey(Trip, on_delete=models.CASCADE, related_name='milestones')
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='trip_milestones')
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    emoji = models.CharField(max_length=10, blank=True, default='\U0001f3c1')
+    date = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['date']
+
+    def __str__(self):
+        return f"Milestone: {self.title}"
+
+
+class TripComment(models.Model):
+    """Comment on a trip blurb."""
+    blurb = models.ForeignKey(TripBlurb, on_delete=models.CASCADE, related_name='comments')
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='trip_comments', null=True, blank=True)
+    guest_name = models.CharField(max_length=100, blank=True)
+    text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"Comment by {self.author.username if self.author else self.guest_name}"
 
 
 class UserProfile(models.Model):
