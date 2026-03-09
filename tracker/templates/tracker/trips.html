@@ -73,6 +73,29 @@
 }
 .trip-map-hint.active { display: block; }
 
+#trip-map-loading-bar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    z-index: 20;
+    overflow: hidden;
+    display: none;
+    pointer-events: none;
+}
+#trip-map-loading-bar.active { display: block; }
+#trip-map-loading-bar::after {
+    content: '';
+    position: absolute;
+    top: 0; left: -60%;
+    width: 60%; height: 100%;
+    background: var(--primary, #3b82f6);
+    animation: loading-sweep 1.4s infinite cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes loading-sweep {
+    0% { left: -60%; }
+    100% { left: 160%; }
+}
+
 /* Sidebar */
 .trip-sidebar {
     width: 360px;
@@ -336,20 +359,37 @@
 .compose-area {
     border-top: 1px solid var(--border);
     padding: 0.75rem 1.25rem;
+    flex-shrink: 0;
 }
 .compose-textarea {
-    width: 100%; min-height: 64px;
+    width: 100%; min-height: 60px;
     background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
     color: var(--text); font-family: 'Space Grotesk', sans-serif; font-size: 0.8125rem;
-    padding: 0.5rem 0.75rem; resize: vertical; outline: none;
+    padding: 0.5rem 0.75rem; resize: vertical; outline: none; box-sizing: border-box;
 }
 .compose-textarea:focus { border-color: var(--primary); }
-.compose-row { display: flex; gap: 0.5rem; margin-top: 0.5rem; align-items: center; flex-wrap: wrap; }
-.compose-location { font-size: 0.75rem; color: var(--text-muted); flex: 1; }
+.compose-location-row {
+    display: flex; align-items: center; gap: 0.375rem; margin-top: 0.375rem;
+}
+.compose-pin-btn {
+    background: none; border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text-muted); font-size: 0.8125rem; padding: 2px 6px; cursor: pointer;
+    flex-shrink: 0; line-height: 1.4;
+}
+.compose-pin-btn:hover { border-color: var(--primary); color: var(--primary); }
+.compose-pin-btn.placing { border-color: var(--primary); color: var(--primary); background: rgba(59,130,246,0.1); }
+.compose-location-text { font-size: 0.75rem; color: var(--text-muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compose-clear-loc {
+    background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.75rem; padding: 0 2px; display: none;
+}
+.compose-clear-loc:hover { color: var(--danger); }
+.compose-actions {
+    display: flex; align-items: center; gap: 0.5rem; margin-top: 0.375rem;
+}
 .compose-photo-label {
     background: none; border: 1px solid var(--border); border-radius: 6px;
     color: var(--text-muted); font-family: 'Space Grotesk', sans-serif; font-size: 0.75rem;
-    font-weight: 700; padding: 0.25rem 0.5rem; cursor: pointer; text-transform: lowercase;
+    font-weight: 700; padding: 3px 8px; cursor: pointer; text-transform: lowercase;
 }
 .compose-photo-label:hover { border-color: var(--primary); color: var(--primary); }
 .compose-photo-preview { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 0.375rem; }
@@ -516,7 +556,9 @@
 <div id="trip-fullscreen" class="trip-fullscreen">
     <div class="trip-map-area">
         <button class="trip-back-btn" onclick="closeTrip()">&#8592; back</button>
+        <div id="trip-map-loading-bar"></div>
         <div class="trip-map-hint" id="place-hint">click on the map to place a marker</div>
+        <div class="trip-map-hint" id="blurb-pin-hint" style="top:52px;">click on the map to pin location</div>
         <div id="trip-map"></div>
     </div>
     <div class="trip-sidebar" id="trip-sidebar">
@@ -670,16 +712,19 @@
     <!-- Compose blurb area (bottom of sidebar) -->
     <div class="compose-area" id="compose-area">
         <textarea class="compose-textarea" id="compose-text" placeholder="add a note to the timeline..."></textarea>
-        <div class="compose-row">
-            <span class="compose-location" id="compose-location-display">no location</span>
-            <button class="btn btn-outline btn-sm" onclick="setComposeLocation()" title="pin to map location">pin</button>
+        <div class="compose-location-row">
+            <button class="compose-pin-btn" id="compose-pin-btn" onclick="startBlurbPinMode()" title="click to pin on map">✏️</button>
+            <span class="compose-location-text" id="compose-location-display">no location</span>
+            <button class="compose-clear-loc" id="compose-clear-loc" onclick="clearComposeLocation()" title="clear location">&times;</button>
+        </div>
+        <div class="compose-photo-preview" id="compose-photo-preview"></div>
+        <div class="compose-actions">
             <label class="compose-photo-label">
                 📷 photos
                 <input type="file" id="compose-photos" accept="image/*" multiple style="display:none;" onchange="previewPhotos(this)">
             </label>
-            <button class="btn btn-primary btn-sm" onclick="submitBlurb()">post</button>
+            <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="submitBlurb()">post</button>
         </div>
-        <div class="compose-photo-preview" id="compose-photo-preview"></div>
     </div>
 </div>
 {% endblock %}
@@ -697,6 +742,7 @@ let timelinePage = 1;
 let timelineHasMore = false;
 let composeLocation = null;
 let visitsLoaded = false;
+let blurbPlacingMode = false;
 
 const mapStyles = {
     'Streets': {
@@ -815,7 +861,7 @@ function openTrip(id) {
         loadTripDetail(id);
     });
 
-    // Map click handler for placing mode
+    // Map click handler for placing modes
     tripMap.on('click', (e) => {
         if (placingMode) {
             placingMode = false;
@@ -823,6 +869,12 @@ function openTrip(id) {
             document.getElementById('place-hint').classList.remove('active');
             tripMap.getCanvas().style.cursor = '';
             showPlaceForm(e.lngLat.lat, e.lngLat.lng);
+        } else if (blurbPlacingMode) {
+            blurbPlacingMode = false;
+            document.getElementById('compose-pin-btn').classList.remove('placing');
+            document.getElementById('blurb-pin-hint').classList.remove('active');
+            tripMap.getCanvas().style.cursor = '';
+            setBlurbLocation(e.lngLat.lat, e.lngLat.lng);
         }
     });
 }
@@ -835,13 +887,18 @@ function closeTrip() {
     currentTripId = null;
     currentTripData = null;
     placingMode = false;
+    blurbPlacingMode = false;
     composeLocation = null;
     visitsLoaded = false;
     timelinePage = 1;
     loadTrips();
 }
 
+function showTripMapLoading() { document.getElementById('trip-map-loading-bar').classList.add('active'); }
+function hideTripMapLoading() { document.getElementById('trip-map-loading-bar').classList.remove('active'); }
+
 function loadTripDetail(id) {
+    showTripMapLoading();
     fetch(`/api/trips/${id}/`)
         .then(r => r.json())
         .then(data => {
@@ -880,7 +937,7 @@ function loadTripDetail(id) {
 }
 
 function renderTripOnMap(data) {
-    if (!tripMap || !data.locations.length) return;
+    if (!tripMap || !data.locations.length) { hideTripMapLoading(); return; }
 
     // Remove old sources/layers
     ['trip-line', 'trip-points', 'place-circles', 'place-markers'].forEach(id => {
@@ -932,6 +989,8 @@ function renderTripOnMap(data) {
         [Math.min(...lngs), Math.min(...lats)],
         [Math.max(...lngs), Math.max(...lats)]
     ], { padding: 60 });
+
+    tripMap.once('idle', hideTripMapLoading);
 
     // Point click popup
     tripMap.on('click', 'trip-points', (e) => {
@@ -1419,13 +1478,54 @@ function saveMilestone() {
 
 // ─── Compose blurb ───────────────────────────────────────────
 
-function setComposeLocation() {
+function startBlurbPinMode() {
     if (!tripMap) return;
-    const center = tripMap.getCenter();
-    composeLocation = { lat: center.lat, lng: center.lng };
-    // Reverse geocode via existing geocode API if available, else just show coords
-    document.getElementById('compose-location-display').textContent =
-        `${center.lat.toFixed(4)}, ${center.lng.toFixed(4)}`;
+    if (blurbPlacingMode) {
+        // Cancel
+        blurbPlacingMode = false;
+        document.getElementById('compose-pin-btn').classList.remove('placing');
+        document.getElementById('blurb-pin-hint').classList.remove('active');
+        tripMap.getCanvas().style.cursor = '';
+        return;
+    }
+    // Cancel place-marker mode if active
+    if (placingMode) {
+        placingMode = false;
+        document.getElementById('add-place-btn').classList.remove('placing');
+        document.getElementById('place-hint').classList.remove('active');
+    }
+    blurbPlacingMode = true;
+    document.getElementById('compose-pin-btn').classList.add('placing');
+    document.getElementById('blurb-pin-hint').classList.add('active');
+    tripMap.getCanvas().style.cursor = 'crosshair';
+}
+
+function setBlurbLocation(lat, lng) {
+    composeLocation = { lat, lng };
+    document.getElementById('compose-location-display').textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    document.getElementById('compose-clear-loc').style.display = '';
+
+    // Show a small marker on the map
+    if (tripMap.getLayer('blurb-pin')) tripMap.removeLayer('blurb-pin');
+    if (tripMap.getSource('blurb-pin')) tripMap.removeSource('blurb-pin');
+    tripMap.addSource('blurb-pin', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] } }
+    });
+    tripMap.addLayer({
+        id: 'blurb-pin', type: 'circle', source: 'blurb-pin',
+        paint: { 'circle-color': '#a855f7', 'circle-radius': 8, 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' }
+    });
+}
+
+function clearComposeLocation() {
+    composeLocation = null;
+    document.getElementById('compose-location-display').textContent = 'no location';
+    document.getElementById('compose-clear-loc').style.display = 'none';
+    if (tripMap) {
+        if (tripMap.getLayer('blurb-pin')) tripMap.removeLayer('blurb-pin');
+        if (tripMap.getSource('blurb-pin')) tripMap.removeSource('blurb-pin');
+    }
 }
 
 function previewPhotos(input) {
@@ -1459,8 +1559,7 @@ function submitBlurb() {
     }).then(r => r.json()).then(data => {
         if (data.status === 'ok') {
             document.getElementById('compose-text').value = '';
-            composeLocation = null;
-            document.getElementById('compose-location-display').textContent = 'no location';
+            clearComposeLocation();
             document.getElementById('compose-photo-preview').innerHTML = '';
             photosInput.value = '';
             timelinePage = 1;
@@ -1640,6 +1739,10 @@ function setMapStyle(btn) {
         tripMap.setStyle(mapStyles[currentMapStyle]);
         tripMap.once('styledata', () => {
             if (currentTripData) renderTripOnMap(currentTripData);
+            // Restore blurb pin if it was set
+            if (composeLocation) {
+                setBlurbLocation(composeLocation.lat, composeLocation.lng);
+            }
         });
     }
 }
