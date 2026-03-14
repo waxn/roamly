@@ -124,8 +124,7 @@ private fun TripCard(trip: TripResponse, onClick: () -> Unit, onDelete: () -> Un
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("${trip.locationCount} points", style = MaterialTheme.typography.labelSmall)
-                    Text("${"%.1f".format(trip.distanceKm)} km", style = MaterialTheme.typography.labelSmall)
-                    Text("${trip.members.size + 1} member${if (trip.members.size != 0) "s" else ""}", style = MaterialTheme.typography.labelSmall)
+                    Text("${trip.memberCount} member${if (trip.memberCount != 1) "s" else ""}", style = MaterialTheme.typography.labelSmall)
                 }
             }
             Spacer(Modifier.width(8.dp))

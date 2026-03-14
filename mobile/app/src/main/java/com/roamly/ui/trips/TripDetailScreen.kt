@@ -42,8 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.roamly.data.api.BlurbResponse
-import com.roamly.data.api.MilestoneResponse
+import com.roamly.data.api.TimelineEvent
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -93,11 +92,11 @@ fun TripDetailScreen(
                                     Text(dateRange, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 Text(
-                                    "${trip.members.size + 1} members · ${trip.locationCount} points · ${"%.1f".format(trip.distanceKm)} km",
+                                    "${trip.memberCount} members · ${trip.locationCount} points",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                                if (trip.publicSlug != null) {
+                                if (trip.isPublic) {
                                     Text("Public", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                 }
                                 HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
@@ -105,35 +104,18 @@ fun TripDetailScreen(
                         }
                     }
 
-                    // Milestones
-                    if (state.milestones.isNotEmpty()) {
-                        item {
-                            Text(
-                                "Milestones",
-                                style = MaterialTheme.typography.titleSmall,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                            )
-                        }
-                        items(state.milestones) { milestone ->
-                            MilestoneItem(milestone)
+                    // Timeline events
+                    if (state.events.isNotEmpty()) {
+                        items(state.events) { event ->
+                            if (event.type == "milestone") {
+                                MilestoneItem(event)
+                            } else {
+                                BlurbItem(event, onDelete = { viewModel.deleteBlurb(event.id) })
+                            }
                         }
                     }
 
-                    // Timeline blurbs
-                    if (state.blurbs.isNotEmpty()) {
-                        item {
-                            Text(
-                                "Updates",
-                                style = MaterialTheme.typography.titleSmall,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                            )
-                        }
-                        items(state.blurbs) { blurb ->
-                            BlurbItem(blurb, onDelete = { viewModel.deleteBlurb(blurb.id) })
-                        }
-                    }
-
-                    if (state.blurbs.isEmpty() && state.milestones.isEmpty() && !state.isLoading) {
+                    if (state.events.isEmpty() && !state.isLoading) {
                         item {
                             Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                                 Text("No updates yet. Tap + to add one.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -154,7 +136,7 @@ fun TripDetailScreen(
 }
 
 @Composable
-private fun BlurbItem(blurb: BlurbResponse, onDelete: () -> Unit) {
+private fun BlurbItem(event: TimelineEvent, onDelete: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -167,27 +149,27 @@ private fun BlurbItem(blurb: BlurbResponse, onDelete: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text(blurb.author.username, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    Text(blurb.createdAt.take(10), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(event.author, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(event.createdAt?.take(10) ?: "", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 IconButton(onClick = onDelete) {
                     Icon(Icons.Filled.Delete, "Delete", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             Spacer(Modifier.height(4.dp))
-            Text(blurb.text, style = MaterialTheme.typography.bodyMedium)
-            blurb.locationName?.let {
+            event.text?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            event.locationName?.let {
                 Text("📍 $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (blurb.commentCount > 0) {
-                Text("${blurb.commentCount} comment${if (blurb.commentCount > 1) "s" else ""}", style = MaterialTheme.typography.labelSmall)
+            if (event.commentCount > 0) {
+                Text("${event.commentCount} comment${if (event.commentCount > 1) "s" else ""}", style = MaterialTheme.typography.labelSmall)
             }
         }
     }
 }
 
 @Composable
-private fun MilestoneItem(milestone: MilestoneResponse) {
+private fun MilestoneItem(event: TimelineEvent) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -195,11 +177,11 @@ private fun MilestoneItem(milestone: MilestoneResponse) {
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
     ) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(milestone.emoji ?: "🏆", style = MaterialTheme.typography.headlineMedium)
+            Text(event.emoji ?: "🏆", style = MaterialTheme.typography.headlineMedium)
             Column(modifier = Modifier.padding(start = 12.dp)) {
-                Text(milestone.title, style = MaterialTheme.typography.titleSmall)
-                milestone.description?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                Text(milestone.date, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                Text(event.title ?: "", style = MaterialTheme.typography.titleSmall)
+                event.description?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                Text(event.date ?: "", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
             }
         }
     }

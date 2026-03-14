@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -41,7 +42,7 @@ fun LoginScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val isLoggedIn by viewModel.isLoggedIn.collectAsState()
-    var showApiKey by remember { mutableStateOf(false) }
+    var showPassword by remember { mutableStateOf(false) }
 
     LaunchedEffect(isLoggedIn) {
         if (isLoggedIn) onLoggedIn()
@@ -56,7 +57,11 @@ fun LoginScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text("Roamly", style = MaterialTheme.typography.displaySmall)
-        Text("Location Tracker", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            "Sign in to your server",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
 
         Spacer(Modifier.height(40.dp))
 
@@ -73,20 +78,10 @@ fun LoginScreen(
         Spacer(Modifier.height(16.dp))
 
         OutlinedTextField(
-            value = state.apiKey,
-            onValueChange = viewModel::onApiKeyChange,
-            label = { Text("API Key") },
-            placeholder = { Text("Paste your API key here") },
-            visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            trailingIcon = {
-                IconButton(onClick = { showApiKey = !showApiKey }) {
-                    Icon(
-                        imageVector = if (showApiKey) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                        contentDescription = if (showApiKey) "Hide" else "Show"
-                    )
-                }
-            },
+            value = state.username,
+            onValueChange = viewModel::onUsernameChange,
+            label = { Text("Username") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
@@ -94,39 +89,44 @@ fun LoginScreen(
         Spacer(Modifier.height(16.dp))
 
         OutlinedTextField(
-            value = state.deviceName,
-            onValueChange = viewModel::onDeviceNameChange,
-            label = { Text("Device Name") },
-            placeholder = { Text("My Android") },
+            value = state.password,
+            onValueChange = viewModel::onPasswordChange,
+            label = { Text("Password") },
+            visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            trailingIcon = {
+                IconButton(onClick = { showPassword = !showPassword }) {
+                    Icon(
+                        imageVector = if (showPassword) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                        contentDescription = if (showPassword) "Hide password" else "Show password"
+                    )
+                }
+            },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
 
         if (state.error != null) {
             Spacer(Modifier.height(12.dp))
-            Text(state.error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            Text(
+                state.error!!,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall
+            )
         }
 
         Spacer(Modifier.height(24.dp))
 
         Button(
-            onClick = viewModel::save,
+            onClick = viewModel::login,
             enabled = !state.isLoading,
             modifier = Modifier.fillMaxWidth()
         ) {
             if (state.isLoading) {
-                CircularProgressIndicator(modifier = Modifier.height(20.dp))
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
             } else {
-                Text("Connect")
+                Text("Sign In")
             }
         }
-
-        Spacer(Modifier.height(16.dp))
-
-        Text(
-            text = "Create an API key in the Roamly web interface under Settings → API Keys",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }

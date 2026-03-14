@@ -2,8 +2,7 @@ package com.roamly.ui.trips
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.roamly.data.api.BlurbResponse
-import com.roamly.data.api.MilestoneResponse
+import com.roamly.data.api.TimelineEvent
 import com.roamly.data.api.TripResponse
 import com.roamly.data.repository.Result
 import com.roamly.data.repository.TripRepository
@@ -16,8 +15,7 @@ import javax.inject.Inject
 
 data class TripDetailUiState(
     val trip: TripResponse? = null,
-    val blurbs: List<BlurbResponse> = emptyList(),
-    val milestones: List<MilestoneResponse> = emptyList(),
+    val events: List<TimelineEvent> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
     val showBlurbDialog: Boolean = false
@@ -42,9 +40,7 @@ class TripDetailViewModel @Inject constructor(
                 is Result.Error -> _uiState.update { it.copy(error = r.message, isLoading = false) }
             }
             when (val r = repository.getTimeline(id)) {
-                is Result.Success -> _uiState.update {
-                    it.copy(blurbs = r.data.blurbs, milestones = r.data.milestones)
-                }
+                is Result.Success -> _uiState.update { it.copy(events = r.data.events) }
                 is Result.Error -> {}
             }
         }
@@ -59,7 +55,7 @@ class TripDetailViewModel @Inject constructor(
             when (val r = repository.createBlurb(tripId, text)) {
                 is Result.Success -> {
                     _uiState.update { state ->
-                        state.copy(blurbs = listOf(r.data) + state.blurbs, showBlurbDialog = false)
+                        state.copy(events = listOf(r.data) + state.events, showBlurbDialog = false)
                     }
                 }
                 is Result.Error -> _uiState.update { it.copy(error = r.message) }
@@ -70,7 +66,7 @@ class TripDetailViewModel @Inject constructor(
     fun deleteBlurb(blurbId: Int) {
         viewModelScope.launch {
             repository.deleteBlurb(tripId, blurbId)
-            _uiState.update { it.copy(blurbs = it.blurbs.filter { b -> b.id != blurbId }) }
+            _uiState.update { it.copy(events = it.events.filter { e -> !(e.type == "blurb" && e.id == blurbId) }) }
         }
     }
 

@@ -92,7 +92,7 @@ private fun PalCard(pal: PalResponse, onClick: () -> Unit) {
                     Text(dateRange, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text(
-                    "${pal.members.size + 1} members · by ${pal.creator.username}",
+                    "${pal.memberCount} members${pal.creator?.let { " · by $it" } ?: ""}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

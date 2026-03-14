@@ -41,8 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.roamly.data.api.BlurbResponse
-import com.roamly.data.api.MilestoneResponse
+import com.roamly.data.api.TimelineEvent
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -86,45 +85,26 @@ fun PalDetailScreen(
                                     Text(dateRange, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 Text(
-                                    "${pal.members.size + 1} members · created by ${pal.creator.username}",
+                                    "${pal.memberCount} members${pal.creator?.let { " · created by $it" } ?: ""}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                                // Members list
-                                if (pal.members.isNotEmpty()) {
-                                    Spacer(Modifier.height(8.dp))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        pal.members.forEach { member ->
-                                            Text(
-                                                "@${member.user.username}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
-                                    }
-                                }
                                 HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
                             }
                         }
                     }
 
-                    if (state.milestones.isNotEmpty()) {
-                        item {
-                            Text("Milestones", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                        }
-                        items(state.milestones) { PalMilestoneItem(it) }
-                    }
-
-                    if (state.blurbs.isNotEmpty()) {
-                        item {
-                            Text("Updates", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                        }
-                        items(state.blurbs) { blurb ->
-                            PalBlurbItem(blurb, onDelete = { viewModel.deleteBlurb(blurb.id) })
+                    if (state.events.isNotEmpty()) {
+                        items(state.events) { event ->
+                            if (event.type == "milestone") {
+                                PalMilestoneItem(event)
+                            } else {
+                                PalBlurbItem(event, onDelete = { viewModel.deleteBlurb(event.id) })
+                            }
                         }
                     }
 
-                    if (state.blurbs.isEmpty() && state.milestones.isEmpty() && !state.isLoading) {
+                    if (state.events.isEmpty() && !state.isLoading) {
                         item {
                             Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                                 Text("No updates yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -157,7 +137,7 @@ fun PalDetailScreen(
 }
 
 @Composable
-private fun PalBlurbItem(blurb: BlurbResponse, onDelete: () -> Unit) {
+private fun PalBlurbItem(event: TimelineEvent, onDelete: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(
@@ -166,16 +146,16 @@ private fun PalBlurbItem(blurb: BlurbResponse, onDelete: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text(blurb.author.username, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    Text(blurb.createdAt.take(10), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(event.author, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(event.createdAt?.take(10) ?: "", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 IconButton(onClick = onDelete) {
                     Icon(Icons.Filled.Delete, "Delete", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             Spacer(Modifier.height(4.dp))
-            Text(blurb.text, style = MaterialTheme.typography.bodyMedium)
-            blurb.locationName?.let {
+            event.text?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            event.locationName?.let {
                 Text("📍 $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -183,17 +163,17 @@ private fun PalBlurbItem(blurb: BlurbResponse, onDelete: () -> Unit) {
 }
 
 @Composable
-private fun PalMilestoneItem(milestone: MilestoneResponse) {
+private fun PalMilestoneItem(event: TimelineEvent) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
     ) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(milestone.emoji ?: "🏆", style = MaterialTheme.typography.headlineMedium)
+            Text(event.emoji ?: "🏆", style = MaterialTheme.typography.headlineMedium)
             Column(modifier = Modifier.padding(start = 12.dp)) {
-                Text(milestone.title, style = MaterialTheme.typography.titleSmall)
-                milestone.description?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                Text(milestone.date, style = MaterialTheme.typography.labelSmall)
+                Text(event.title ?: "", style = MaterialTheme.typography.titleSmall)
+                event.description?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                Text(event.date ?: "", style = MaterialTheme.typography.labelSmall)
             }
         }
     }

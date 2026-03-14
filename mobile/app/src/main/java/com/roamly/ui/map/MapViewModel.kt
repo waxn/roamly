@@ -2,7 +2,7 @@ package com.roamly.ui.map
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.roamly.data.api.LocationResponse
+import com.roamly.data.api.LocationPoint
 import com.roamly.data.api.StatsResponse
 import com.roamly.data.repository.LocationRepository
 import com.roamly.data.repository.Result
@@ -14,7 +14,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class MapUiState(
-    val locations: List<LocationResponse> = emptyList(),
+    val locations: List<LocationPoint> = emptyList(),
     val stats: StatsResponse? = null,
     val isLoading: Boolean = false,
     val error: String? = null
@@ -32,11 +32,14 @@ class MapViewModel @Inject constructor(
         loadLocations()
     }
 
-    fun loadLocations(limit: Int = 1000) {
+    fun loadLocations() {
         _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
-            when (val result = locationRepository.getLocations(limit = limit)) {
-                is Result.Success -> _uiState.update { it.copy(locations = result.data.locations, isLoading = false) }
+            when (val result = locationRepository.getLocations()) {
+                is Result.Success -> {
+                    val allPoints = result.data.devices.flatMap { it.locations }
+                    _uiState.update { it.copy(locations = allPoints, isLoading = false) }
+                }
                 is Result.Error -> _uiState.update { it.copy(error = result.message, isLoading = false) }
             }
             when (val result = locationRepository.getStats()) {

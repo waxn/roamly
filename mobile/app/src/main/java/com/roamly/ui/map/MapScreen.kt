@@ -53,7 +53,7 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
 
                     // Draw location trail as polyline
                     val sorted = state.locations.sortedBy { it.timestamp }
-                    val points = sorted.map { GeoPoint(it.latitude, it.longitude) }
+                    val points = sorted.map { GeoPoint(it.lat, it.lng) }
 
                     val polyline = Polyline().apply {
                         setPoints(points)
@@ -66,7 +66,7 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
 
                     // Center on most recent location
                     val last = sorted.last()
-                    mapView.controller.animateTo(GeoPoint(last.latitude, last.longitude))
+                    mapView.controller.animateTo(GeoPoint(last.lat, last.lng))
                     mapView.controller.setZoom(12.0)
                     mapView.invalidate()
                 }
@@ -91,13 +91,11 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text("Your Journey", style = MaterialTheme.typography.titleSmall)
                     Row(modifier = Modifier.padding(top = 4.dp)) {
-                        StatChip("${stats.totalLocations}", "Points")
+                        StatChip("${stats.totalPoints}", "Points")
                         Spacer(Modifier.width(12.dp))
-                        StatChip("${"%.0f".format(stats.totalDistanceKm)} km", "Distance")
+                        StatChip("${stats.countries}", "Countries")
                         Spacer(Modifier.width(12.dp))
-                        StatChip("${stats.countriesVisited}", "Countries")
-                        Spacer(Modifier.width(12.dp))
-                        StatChip("${stats.citiesVisited}", "Cities")
+                        StatChip("${stats.cities}", "Cities")
                     }
                 }
             }
