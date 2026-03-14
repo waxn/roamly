@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Roamly</string>
+    <string name="channel_tracking_name">Location Tracking</string>
+    <string name="channel_tracking_description">Shown while Roamly is tracking your location</string>
+</resources>
