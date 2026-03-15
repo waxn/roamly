@@ -2,9 +2,9 @@ package com.roamly.ui
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -25,24 +25,24 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.roamly.ui.auth.AuthViewModel
 import com.roamly.ui.auth.LoginScreen
+import com.roamly.ui.groups.GroupsScreen
 import com.roamly.ui.map.MapScreen
 import com.roamly.ui.pals.PalDetailScreen
-import com.roamly.ui.pals.PalsScreen
 import com.roamly.ui.settings.SettingsScreen
+import com.roamly.ui.stats.StatsScreen
 import com.roamly.ui.trips.TripDetailScreen
-import com.roamly.ui.trips.TripsScreen
 
 sealed class Screen(val route: String, val label: String) {
     object Map : Screen("map", "Map")
-    object Trips : Screen("trips", "Trips")
-    object Pals : Screen("pals", "Pals")
+    object Groups : Screen("groups", "Groups")
+    object Stats : Screen("stats", "Stats")
     object Settings : Screen("settings", "Settings")
     object Login : Screen("login", "Login")
     object TripDetail : Screen("trips/{tripId}", "Trip")
     object PalDetail : Screen("pals/{palId}", "Pal")
 }
 
-private val bottomNavItems = listOf(Screen.Map, Screen.Trips, Screen.Pals, Screen.Settings)
+private val bottomNavItems = listOf(Screen.Map, Screen.Groups, Screen.Stats, Screen.Settings)
 
 @Composable
 fun RoamlyNavHost() {
@@ -52,7 +52,9 @@ fun RoamlyNavHost() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
-    val showBottomBar = currentDestination?.route != Screen.Login.route
+    val showBottomBar = currentDestination?.route != Screen.Login.route &&
+            currentDestination?.route != Screen.TripDetail.route &&
+            currentDestination?.route != Screen.PalDetail.route
 
     Scaffold(
         bottomBar = {
@@ -64,8 +66,8 @@ fun RoamlyNavHost() {
                                 Icon(
                                     imageVector = when (screen) {
                                         Screen.Map -> Icons.Filled.Map
-                                        Screen.Trips -> Icons.Filled.Route
-                                        Screen.Pals -> Icons.Filled.People
+                                        Screen.Groups -> Icons.Filled.People
+                                        Screen.Stats -> Icons.Filled.BarChart
                                         else -> Icons.Filled.Settings
                                     },
                                     contentDescription = screen.label
@@ -102,8 +104,11 @@ fun RoamlyNavHost() {
                 )
             }
             composable(Screen.Map.route) { MapScreen() }
-            composable(Screen.Trips.route) {
-                TripsScreen(onTripClick = { id -> navController.navigate("trips/$id") })
+            composable(Screen.Groups.route) {
+                GroupsScreen(
+                    onTripClick = { id -> navController.navigate("trips/$id") },
+                    onPalClick = { id -> navController.navigate("pals/$id") }
+                )
             }
             composable(
                 route = Screen.TripDetail.route,
@@ -114,9 +119,6 @@ fun RoamlyNavHost() {
                     onBack = { navController.popBackStack() }
                 )
             }
-            composable(Screen.Pals.route) {
-                PalsScreen(onPalClick = { id -> navController.navigate("pals/$id") })
-            }
             composable(
                 route = Screen.PalDetail.route,
                 arguments = listOf(navArgument("palId") { type = NavType.IntType })
@@ -126,6 +128,7 @@ fun RoamlyNavHost() {
                     onBack = { navController.popBackStack() }
                 )
             }
+            composable(Screen.Stats.route) { StatsScreen() }
             composable(Screen.Settings.route) {
                 SettingsScreen(
                     onLoggedOut = {

@@ -15,7 +15,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -26,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,43 +52,17 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
-            // Tracking
-            SectionHeader("Location Tracking")
+            // Appearance
+            SectionHeader("Appearance")
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Track Location", style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        if (state.trackingEnabled) "Currently tracking" else "Not tracking",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (state.trackingEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text("Dark Mode", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                 Switch(
-                    checked = state.trackingEnabled,
-                    onCheckedChange = viewModel::setTrackingEnabled
+                    checked = state.darkMode,
+                    onCheckedChange = viewModel::setDarkMode
                 )
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            Text(
-                "Update interval: ${state.trackingIntervalSeconds}s",
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Slider(
-                value = state.trackingIntervalSeconds.toFloat(),
-                onValueChange = { viewModel.setTrackingInterval(it.roundToInt()) },
-                valueRange = 5f..300f,
-                steps = 58, // ~5s steps
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Text("5s", style = MaterialTheme.typography.labelSmall)
-                Spacer(Modifier.weight(1f))
-                Text("5min", style = MaterialTheme.typography.labelSmall)
             }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
