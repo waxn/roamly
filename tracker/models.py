@@ -10,9 +10,11 @@ HAS_POSTGIS = 'postgis' in settings.DATABASES.get('default', {}).get('ENGINE', '
 
 if HAS_POSTGIS:
     from django.contrib.gis.db import models as gis_models
+    from django.contrib.gis.db.models import GistIndex
     from django.contrib.gis.geos import Point
 else:
     gis_models = None
+    GistIndex = None
     Point = None
 
 
@@ -74,6 +76,7 @@ if HAS_POSTGIS and gis_models:
                 models.Index(fields=['city'], name='tracker_loc_city_idx'),
                 models.Index(fields=['country'], name='tracker_loc_country_idx'),
                 models.Index(fields=['timestamp'], name='tracker_loc_timesta_idx'),
+                GistIndex(fields=['location'], name='tracker_loc_location_gist'),
             ]
             unique_together = ['device', 'latitude', 'longitude', 'timestamp']
 

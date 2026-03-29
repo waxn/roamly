@@ -447,6 +447,8 @@ def vector_tile(request, z, x, y):
 
     params = {"z": z, "x": x, "y": y, "user_id": request.user.id}
     extra_where = []
+    # Historical tiles (not recent) can be cached much longer
+    cache_ttl = 30
 
     if start_date and end_date:
         try:
@@ -459,9 +461,15 @@ def vector_tile(request, z, x, y):
             extra_where.append("AND l.timestamp >= %(ts_start)s AND l.timestamp <= %(ts_end)s")
             params["ts_start"] = start
             params["ts_end"] = end_dt
+            # Historical date ranges don't change — cache for 1 hour
+            if end_dt < timezone.now() - timedelta(hours=1):
+                cache_ttl = 3600
         except (ValueError, TypeError):
             pass
-    elif not all_time:
+    elif all_time:
+        # All-time tiles are expensive but stable — cache for 5 minutes
+        cache_ttl = 300
+    else:
         h = int(hours)
         since = timezone.now() - timedelta(hours=h)
         extra_where.append("AND l.timestamp >= %(since)s")
@@ -478,7 +486,7 @@ def vector_tile(request, z, x, y):
     cached = cache.get(cache_key)
     if cached is not None:
         response = HttpResponse(cached, content_type="application/x-protobuf")
-        response["Cache-Control"] = "public, max-age=30"
+        response["Cache-Control"] = f"public, max-age={cache_ttl}"
         return response
 
     combined_sql = f"""
@@ -552,7 +560,7 @@ def vector_tile(request, z, x, y):
     if not tile_data:
         return HttpResponse(status=204)
 
-    cache.set(cache_key, tile_data, timeout=30)
+    cache.set(cache_key, tile_data, timeout=cache_ttl)
 
     response = HttpResponse(tile_data, content_type="application/x-protobuf")
     response["Cache-Control"] = "public, max-age=30"
