@@ -27,8 +27,7 @@ services:
       - 1.1.1.1
       - 8.8.8.8
     command: >
-      sh -c "python manage.py makemigrations --noinput &&
-             python manage.py migrate --noinput &&
+      sh -c "python manage.py migrate --noinput &&
              python manage.py collectstatic --noinput &&
              gunicorn roamly.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 300"
     volumes:
