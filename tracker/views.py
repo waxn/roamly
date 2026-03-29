@@ -477,11 +477,12 @@ def vector_tile(request, z, x, y):
         response["Cache-Control"] = "public, max-age=30"
         return response
 
-    points_sql = f"""
+    combined_sql = f"""
     WITH bounds AS (
-        SELECT ST_TileEnvelope(%(z)s, %(x)s, %(y)s) AS geom
+        SELECT ST_TileEnvelope(%(z)s, %(x)s, %(y)s) AS geom,
+               ST_Transform(ST_TileEnvelope(%(z)s, %(x)s, %(y)s), 4326) AS geom_4326
     ),
-    mvtgeom AS (
+    pts AS (
         SELECT
             ST_AsMVTGeom(
                 ST_Transform(l.location::geometry, 3857),
@@ -501,43 +502,46 @@ def vector_tile(request, z, x, y):
         CROSS JOIN bounds
         WHERE d.user_id = %(user_id)s
           AND l.location IS NOT NULL
-          AND ST_Intersects(l.location::geometry, ST_Transform(bounds.geom, 4326))
+          AND l.location::geometry && bounds.geom_4326
+          AND ST_Intersects(l.location::geometry, bounds.geom_4326)
               {filter_clause}
         LIMIT 100000
-    )
-    SELECT ST_AsMVT(mvtgeom.*, 'locations') FROM mvtgeom;
-    """
-
-    trails_sql = f"""
-    WITH bounds AS (
-        SELECT ST_TileEnvelope(%(z)s, %(x)s, %(y)s) AS geom
     ),
-    lines AS (
-        SELECT d.device_id,
-               ST_MakeLine(ST_Transform(l.location::geometry, 3857) ORDER BY l.timestamp) AS geom
+    trail_pts AS (
+        SELECT d.device_id, d.id AS device_pk,
+               ST_Transform(l.location::geometry, 3857) AS geom_3857,
+               l.timestamp
         FROM tracker_location l
         JOIN tracker_device d ON l.device_id = d.id
+        CROSS JOIN bounds
         WHERE d.user_id = %(user_id)s
           AND l.location IS NOT NULL
+          AND l.location::geometry && ST_Expand(bounds.geom_4326, 2.0)
               {filter_clause}
-        GROUP BY d.device_id, d.id
+    ),
+    lines AS (
+        SELECT device_id,
+               ST_MakeLine(geom_3857 ORDER BY timestamp) AS geom
+        FROM trail_pts
+        GROUP BY device_id, device_pk
         HAVING COUNT(*) > 1
     ),
-    mvtgeom AS (
+    trail_mvt AS (
         SELECT ST_AsMVTGeom(lines.geom, bounds.geom, 4096, 256, true) AS geom,
                lines.device_id
         FROM lines CROSS JOIN bounds
         WHERE ST_Intersects(lines.geom, bounds.geom)
     )
-    SELECT ST_AsMVT(mvtgeom.*, 'trails') FROM mvtgeom;
+    SELECT
+        (SELECT ST_AsMVT(pts.*, 'locations') FROM pts) AS points_tile,
+        (SELECT ST_AsMVT(trail_mvt.*, 'trails') FROM trail_mvt) AS trails_tile;
     """
 
     with connection.cursor() as cursor:
-        cursor.execute(points_sql, params)
-        points_tile = cursor.fetchone()[0]
-
-        cursor.execute(trails_sql, params)
-        trails_tile = cursor.fetchone()[0]
+        cursor.execute(combined_sql, params)
+        row = cursor.fetchone()
+        points_tile = row[0]
+        trails_tile = row[1]
 
     tile_data = bytes(points_tile) + bytes(trails_tile)
 
