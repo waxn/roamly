@@ -3,6 +3,7 @@ import io
 import json
 import logging
 import math
+import tempfile
 import uuid
 import urllib.parse
 import urllib.request
@@ -14,7 +15,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Min, Max, Avg, Q
 from django.db.models.functions import TruncDate
-from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
+from django.http import FileResponse, JsonResponse, HttpResponse, StreamingHttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -1528,10 +1529,8 @@ def export_gpx(request):
     return response
 
 
-def _stream_backup_json(user):
-    """Generator that yields JSON chunks for a streaming backup response.
-    Streams locations row-by-row via queryset iterator to avoid loading the
-    entire dataset into memory — critical for large datasets behind a proxy."""
+def _write_backup_json(user, f):
+    """Write backup JSON to a file-like object row-by-row to avoid OOM on large datasets."""
     encoder = DjangoJSONEncoder()
 
     meta = {'version': 2, 'exported_at': timezone.now().isoformat(), 'username': user.username}
@@ -1556,23 +1555,22 @@ def _stream_backup_json(user):
 
     pals = _build_pals_data(user)
 
-    yield '{"meta":' + encoder.encode(meta) + ','
-    yield '"devices":' + encoder.encode(devices) + ','
-    yield '"trips":' + encoder.encode(trips) + ','
-    yield '"trip_places":' + encoder.encode(trip_places) + ','
-    yield '"api_keys":' + encoder.encode(api_keys) + ','
-    yield '"pals":' + encoder.encode(pals) + ','
+    f.write(b'{"meta":' + encoder.encode(meta).encode() + b',')
+    f.write(b'"devices":' + encoder.encode(devices).encode() + b',')
+    f.write(b'"trips":' + encoder.encode(trips).encode() + b',')
+    f.write(b'"trip_places":' + encoder.encode(trip_places).encode() + b',')
+    f.write(b'"api_keys":' + encoder.encode(api_keys).encode() + b',')
+    f.write(b'"pals":' + encoder.encode(pals).encode() + b',')
 
-    # Stream locations one-by-one to avoid OOM on large datasets
-    yield '"locations":['
+    f.write(b'"locations":[')
     first = True
     qs = (Location.objects.filter(device__user=user)
           .select_related('device').order_by('timestamp').iterator(chunk_size=2000))
     for loc in qs:
         if not first:
-            yield ','
+            f.write(b',')
         first = False
-        yield encoder.encode({
+        f.write(encoder.encode({
             'device_id': loc.device.device_id,
             'latitude': loc.latitude, 'longitude': loc.longitude,
             'altitude': loc.altitude, 'accuracy': loc.accuracy,
@@ -1581,20 +1579,18 @@ def _stream_backup_json(user):
             'city': loc.city, 'state': loc.state,
             'country': loc.country, 'country_code': loc.country_code,
             'place_name': loc.place_name,
-        })
-    yield ']}'
+        }).encode())
+    f.write(b']}')
 
 
 @login_required
 def export_backup(request):
-    """Export all user data as a streaming JSON backup file."""
+    """Export all user data as a JSON backup file, generated server-side then served."""
     filename = f'roamly_backup_{timezone.now().strftime("%Y-%m-%d")}.json'
-    response = StreamingHttpResponse(
-        _stream_backup_json(request.user),
-        content_type='application/json',
-    )
-    response['Content-Disposition'] = f'attachment; filename="{filename}"'
-    response['X-Accel-Buffering'] = 'no'  # disable nginx proxy buffering
+    tmp = tempfile.TemporaryFile()
+    _write_backup_json(request.user, tmp)
+    tmp.seek(0)
+    response = FileResponse(tmp, content_type='application/json', as_attachment=True, filename=filename)
     return response
 
 
