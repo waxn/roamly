@@ -3,7 +3,9 @@ import io
 import json
 import logging
 import math
+import os
 import tempfile
+import threading
 import uuid
 import urllib.parse
 import urllib.request
@@ -1584,13 +1586,54 @@ def _write_backup_json(user, f):
 
 
 @login_required
-def export_backup(request):
-    """Export all user data as a JSON backup file, generated server-side then served."""
+@require_POST
+def export_backup_start(request):
+    """Start async backup generation, return a job ID to poll."""
+    job_id = str(uuid.uuid4())
+    tmp_path = os.path.join(tempfile.gettempdir(), f'roamly_backup_{job_id}.json')
+    cache.set(f'backup_job:{request.user.id}:{job_id}', 'running', timeout=600)
+
+    user = request.user
+
+    def generate():
+        try:
+            with open(tmp_path, 'wb') as f:
+                _write_backup_json(user, f)
+            cache.set(f'backup_job:{user.id}:{job_id}', 'ready', timeout=600)
+        except Exception as e:
+            logger.error(f'Backup generation failed: {e}')
+            cache.set(f'backup_job:{user.id}:{job_id}', f'error:{e}', timeout=600)
+
+    threading.Thread(target=generate, daemon=True).start()
+    return JsonResponse({'job_id': job_id})
+
+
+@login_required
+def export_backup_status(request, job_id):
+    """Poll backup generation status."""
+    status = cache.get(f'backup_job:{request.user.id}:{job_id}')
+    if status is None:
+        return JsonResponse({'status': 'not_found'}, status=404)
+    if status.startswith('error:'):
+        return JsonResponse({'status': 'error', 'message': status[6:]})
+    return JsonResponse({'status': status})
+
+
+@login_required
+def export_backup_download(request, job_id):
+    """Download a completed backup file."""
+    status = cache.get(f'backup_job:{request.user.id}:{job_id}')
+    if status != 'ready':
+        return HttpResponse('Backup not ready', status=404)
+    tmp_path = os.path.join(tempfile.gettempdir(), f'roamly_backup_{job_id}.json')
+    if not os.path.exists(tmp_path):
+        return HttpResponse('Backup file not found', status=404)
     filename = f'roamly_backup_{timezone.now().strftime("%Y-%m-%d")}.json'
-    tmp = tempfile.TemporaryFile()
-    _write_backup_json(request.user, tmp)
-    tmp.seek(0)
-    response = FileResponse(tmp, content_type='application/json', as_attachment=True, filename=filename)
+    cache.delete(f'backup_job:{request.user.id}:{job_id}')
+    f = open(tmp_path, 'rb')
+    response = FileResponse(f, content_type='application/json', as_attachment=True, filename=filename)
+    # Clean up temp file after response is sent
+    threading.Thread(target=lambda: (f.close() or None) or os.unlink(tmp_path), daemon=True).start()
     return response
 
 

@@ -242,12 +242,13 @@
                     Indexed locations are not included, as they can be redownloaded at any time.
                 </p>
                 <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-                    <a href="/api/export/backup/" class="btn btn-primary btn-sm">Download Backup</a>
+                    <button id="download-backup-btn" class="btn btn-primary btn-sm" onclick="startBackupDownload()">Download Backup</button>
                     <label class="btn btn-outline btn-sm" style="cursor: pointer;">
                         Restore Backup
                         <input type="file" accept=".json" style="display: none;" onchange="restoreBackup(this)">
                     </label>
                 </div>
+                <div id="backup-download-status" style="font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.5rem;"></div>
                 <div id="restore-status" style="font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.5rem;"></div>
             </div>
 
@@ -922,6 +923,42 @@ async function executeImport(deviceId, files, type) {
     
     // Refresh page to show new device if created
     setTimeout(() => location.reload(), 2000);
+}
+
+async function startBackupDownload() {
+    const btn = document.getElementById('download-backup-btn');
+    const status = document.getElementById('backup-download-status');
+    btn.disabled = true;
+    btn.textContent = 'Preparing...';
+    status.textContent = 'Generating backup file, please wait...';
+
+    try {
+        const res = await fetch('/api/export/backup/start/', {method: 'POST', headers: {'X-CSRFToken': '{{ csrf_token }}'}});
+        const {job_id} = await res.json();
+
+        const poll = setInterval(async () => {
+            const s = await fetch(`/api/export/backup/status/${job_id}/`).then(r => r.json());
+            if (s.status === 'ready') {
+                clearInterval(poll);
+                status.textContent = 'Download starting...';
+                window.location.href = `/api/export/backup/download/${job_id}/`;
+                btn.disabled = false;
+                btn.textContent = 'Download Backup';
+                setTimeout(() => status.textContent = '', 3000);
+            } else if (s.status === 'error') {
+                clearInterval(poll);
+                status.style.color = 'var(--danger)';
+                status.textContent = 'Backup failed: ' + s.message;
+                btn.disabled = false;
+                btn.textContent = 'Download Backup';
+            }
+        }, 1500);
+    } catch (e) {
+        status.style.color = 'var(--danger)';
+        status.textContent = 'Failed to start backup.';
+        btn.disabled = false;
+        btn.textContent = 'Download Backup';
+    }
 }
 
 async function restoreBackup(input) {

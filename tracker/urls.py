@@ -87,7 +87,9 @@ urlpatterns = [
     # Export/Import
     path('api/export/csv/', views.export_csv, name='export_csv'),
     path('api/export/gpx/', views.export_gpx, name='export_gpx'),
-    path('api/export/backup/', views.export_backup, name='export_backup'),
+    path('api/export/backup/start/', views.export_backup_start, name='export_backup_start'),
+    path('api/export/backup/status/<str:job_id>/', views.export_backup_status, name='export_backup_status'),
+    path('api/export/backup/download/<str:job_id>/', views.export_backup_download, name='export_backup_download'),
     path('api/import/csv/', views.import_csv, name='import_csv'),
     path('api/import/gpx/', views.import_gpx, name='import_gpx'),
     path('api/import/backup/', views.restore_backup, name='restore_backup'),
