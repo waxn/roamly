@@ -10,8 +10,8 @@ HAS_POSTGIS = 'postgis' in settings.DATABASES.get('default', {}).get('ENGINE', '
 
 if HAS_POSTGIS:
     from django.contrib.gis.db import models as gis_models
-    from django.contrib.gis.db.models import GistIndex
     from django.contrib.gis.geos import Point
+    from django.contrib.postgres.indexes import GistIndex
 else:
     gis_models = None
     GistIndex = None
