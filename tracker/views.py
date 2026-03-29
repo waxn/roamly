@@ -6,6 +6,7 @@ import math
 import os
 import tempfile
 import threading
+import time
 import uuid
 import urllib.parse
 import urllib.request
@@ -1632,8 +1633,13 @@ def export_backup_download(request, job_id):
     cache.delete(f'backup_job:{request.user.id}:{job_id}')
     f = open(tmp_path, 'rb')
     response = FileResponse(f, content_type='application/json', as_attachment=True, filename=filename)
-    # Clean up temp file after response is sent
-    threading.Thread(target=lambda: (f.close() or None) or os.unlink(tmp_path), daemon=True).start()
+    def _cleanup():
+        time.sleep(60)
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+    threading.Thread(target=_cleanup, daemon=True).start()
     return response
 
 
