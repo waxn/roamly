@@ -33,6 +33,7 @@ services:
     volumes:
       - ./staticfiles:/app/staticfiles
       - ./media:/app/media
+      - ./tracker/migrations:/app/tracker/migrations
     ports:
       - "8001:8000"
     environment:
