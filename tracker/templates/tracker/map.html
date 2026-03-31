@@ -334,30 +334,41 @@ function setupVectorLayers() {
         volatile: true,
     });
 
-    // Trail lines
+    // Heatmap at low zoom — client-side, zero server cost
     map.addLayer({
-        id: 'trail-lines',
-        type: 'line',
+        id: 'points-heat',
+        type: 'heatmap',
         source: 'locations',
-        'source-layer': 'trails',
+        'source-layer': 'locations',
+        maxzoom: 11,
         paint: {
-            'line-color': colorExpr,
-            'line-width': ['interpolate', ['linear'], ['zoom'], 0, 4, 5, 3.5, 10, 3, 16, 2.5],
-            'line-opacity': 0.7
+            'heatmap-weight': 1,
+            'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 0.4, 10, 1.5],
+            'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 3, 5, 6, 10, 12],
+            'heatmap-color': [
+                'interpolate', ['linear'], ['heatmap-density'],
+                0, 'rgba(59,130,246,0)',
+                0.2, 'rgba(59,130,246,0.5)',
+                0.6, 'rgba(99,102,241,0.8)',
+                1, 'rgba(239,68,68,1)'
+            ],
+            'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 8, 1, 11, 0],
         }
     });
 
-    // Points
+    // Individual circles at high zoom
     map.addLayer({
         id: 'points',
         type: 'circle',
         source: 'locations',
         'source-layer': 'locations',
+        minzoom: 9,
         paint: {
             'circle-color': colorExpr,
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 0, 6, 5, 5, 10, 4, 14, 7, 18, 10],
-            'circle-stroke-width': 1.5,
-            'circle-stroke-color': 'rgba(255,255,255,0.5)'
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 3, 14, 6, 18, 10],
+            'circle-stroke-width': 1,
+            'circle-stroke-color': 'rgba(255,255,255,0.6)',
+            'circle-opacity': ['interpolate', ['linear'], ['zoom'], 9, 0, 10, 1],
         }
     });
 
@@ -374,7 +385,7 @@ function setupVectorLayers() {
 function reloadTiles(autoFit) {
     if (!map.getSource('locations')) return;
     showMapLoading('loading tiles...');
-    ['points', 'trail-lines'].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+    ['points', 'points-heat'].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
     map.removeSource('locations');
     setupVectorLayers();
     if (autoFit) fitToData();

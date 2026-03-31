@@ -523,23 +523,6 @@ def vector_tile(request, z, x, y):
 
     filter_clause = "\n              ".join(extra_where)
 
-    # Scale point limit and sampling by zoom level — low zoom needs far fewer points
-    if z <= 4:
-        point_limit = 2000
-        sample_mod = 50   # keep 1 in 50 points
-    elif z <= 7:
-        point_limit = 10000
-        sample_mod = 10
-    elif z <= 10:
-        point_limit = 30000
-        sample_mod = 3
-    else:
-        point_limit = 100000
-        sample_mod = 1
-
-    # Trails are expensive and invisible at low zoom — skip them below z8
-    show_trails = z >= 8
-
     # Check cache
     cache_key = f"tile:{request.user.id}:{z}:{x}:{y}:{request.GET.urlencode()}"
     cached = cache.get(cache_key)
@@ -548,28 +531,17 @@ def vector_tile(request, z, x, y):
         response["Cache-Control"] = f"public, max-age={cache_ttl}"
         return response
 
-    sample_clause = f"AND (l.id % {sample_mod}) = 0" if sample_mod > 1 else ""
-
-    points_sql = f"""
+    sql = f"""
     WITH bounds AS (
         SELECT ST_TileEnvelope(%(z)s, %(x)s, %(y)s) AS geom,
                ST_Transform(ST_TileEnvelope(%(z)s, %(x)s, %(y)s), 4326) AS geom_4326
     ),
     pts AS (
         SELECT
-            ST_AsMVTGeom(
-                ST_Transform(l.location::geometry, 3857),
-                bounds.geom, 4096, 256, true
-            ) AS geom,
-            l.id,
-            l.speed,
-            l.battery,
-            l.city,
-            l.state,
-            l.country,
+            ST_AsMVTGeom(ST_Transform(l.location::geometry, 3857), bounds.geom, 4096, 256, true) AS geom,
+            l.id, l.speed, l.battery, l.city, l.state, l.country,
             EXTRACT(EPOCH FROM l.timestamp)::bigint AS ts,
-            d.device_id,
-            COALESCE(d.name, d.device_id) AS device_name
+            d.device_id, COALESCE(d.name, d.device_id) AS device_name
         FROM tracker_location l
         JOIN tracker_device d ON l.device_id = d.id
         CROSS JOIN bounds
@@ -578,63 +550,16 @@ def vector_tile(request, z, x, y):
           AND l.location::geometry && bounds.geom_4326
           AND ST_Intersects(l.location::geometry, bounds.geom_4326)
               {filter_clause}
-              {sample_clause}
-        LIMIT {point_limit}
+        LIMIT 10000
     )
     SELECT ST_AsMVT(pts.*, 'locations') FROM pts;
     """
 
-    trails_sql = f"""
-    WITH bounds AS (
-        SELECT ST_TileEnvelope(%(z)s, %(x)s, %(y)s) AS geom,
-               ST_Transform(ST_TileEnvelope(%(z)s, %(x)s, %(y)s), 4326) AS geom_4326
-    ),
-    trail_pts AS (
-        SELECT d.device_id, d.id AS device_pk,
-               ST_Transform(l.location::geometry, 3857) AS geom_3857,
-               l.timestamp
-        FROM tracker_location l
-        JOIN tracker_device d ON l.device_id = d.id
-        CROSS JOIN bounds
-        WHERE d.user_id = %(user_id)s
-          AND l.location IS NOT NULL
-          AND l.location::geometry && ST_Expand(bounds.geom_4326, 2.0)
-              {filter_clause}
-    ),
-    lines AS (
-        SELECT device_id,
-               ST_SimplifyPreserveTopology(
-                   ST_MakeLine(geom_3857 ORDER BY timestamp),
-                   %(simplify_tolerance)s
-               ) AS geom
-        FROM trail_pts
-        GROUP BY device_id, device_pk
-        HAVING COUNT(*) > 1
-    ),
-    trail_mvt AS (
-        SELECT ST_AsMVTGeom(lines.geom, bounds.geom, 4096, 256, true) AS geom,
-               lines.device_id
-        FROM lines CROSS JOIN bounds
-        WHERE ST_Intersects(lines.geom, bounds.geom)
-    )
-    SELECT ST_AsMVT(trail_mvt.*, 'trails') FROM trail_mvt;
-    """
-
-    # Simplify trails more aggressively at lower zoom (meters in web mercator)
-    simplify_tolerance = max(1, 100000 >> z)
-    params["simplify_tolerance"] = simplify_tolerance
-
     with connection.cursor() as cursor:
-        cursor.execute(points_sql, params)
+        cursor.execute(sql, params)
         points_tile = cursor.fetchone()[0]
 
-        if show_trails:
-            cursor.execute(trails_sql, params)
-            trails_tile = cursor.fetchone()[0]
-        else:
-            trails_tile = b''
-
-    tile_data = bytes(points_tile) + bytes(trails_tile)
+    tile_data = bytes(points_tile)
 
     if not tile_data:
         return HttpResponse(status=204)
