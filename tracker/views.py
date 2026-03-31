@@ -354,6 +354,48 @@ def push_location(request):
 
 
 @login_required
+def locations_bounds_api(request):
+    """Return the bounding box of all user locations matching current filters. Fast — no point data returned."""
+    device_id = request.GET.get('device_id')
+    all_time = request.GET.get('all')
+    start_date = request.GET.get('start_date')
+    end_date = request.GET.get('end_date')
+    hours = request.GET.get('hours', '24')
+
+    qs = Location.objects.filter(device__user=request.user)
+
+    if start_date and end_date:
+        try:
+            start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
+            end_dt = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
+            if timezone.is_naive(start):
+                start = timezone.make_aware(start)
+            if timezone.is_naive(end_dt):
+                end_dt = timezone.make_aware(end_dt)
+            qs = qs.filter(timestamp__gte=start, timestamp__lte=end_dt)
+        except (ValueError, TypeError):
+            pass
+    elif not all_time:
+        qs = qs.filter(timestamp__gte=timezone.now() - timedelta(hours=int(hours)))
+
+    if device_id:
+        qs = qs.filter(device__device_id=device_id)
+
+    agg = qs.aggregate(
+        min_lat=Min('latitude'), max_lat=Max('latitude'),
+        min_lng=Min('longitude'), max_lng=Max('longitude'),
+    )
+
+    if agg['min_lat'] is None:
+        return JsonResponse({'bounds': None})
+
+    return JsonResponse({'bounds': [
+        [agg['min_lng'], agg['min_lat']],
+        [agg['max_lng'], agg['max_lat']],
+    ]})
+
+
+@login_required
 def locations_api(request):
     """Get locations with spatial filtering."""
     device_id = request.GET.get("device_id")

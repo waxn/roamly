@@ -380,24 +380,12 @@ function reloadTiles(autoFit) {
 }
 
 function fitToData() {
-    // Fetch a sample of points (no bbox) to compute bounds for auto-zoom
-    const params = new URLSearchParams({ limit: 200 });
     const qs = buildFilterParams();
-    if (qs) qs.split('&').forEach(p => { const [k, v] = p.split('='); params.set(k, v); });
-
-    fetch(`/api/locations/?${params}`)
+    fetch(`/api/locations/bounds/?${qs}`)
         .then(r => r.json())
         .then(data => {
-            const lats = [], lngs = [];
-            data.devices.forEach(d => d.locations.forEach(loc => {
-                lats.push(loc.lat);
-                lngs.push(loc.lng);
-            }));
-            if (lats.length > 0) {
-                map.fitBounds([
-                    [Math.min(...lngs), Math.min(...lats)],
-                    [Math.max(...lngs), Math.max(...lats)]
-                ], { padding: 50, maxZoom: 15 });
+            if (data.bounds) {
+                map.fitBounds(data.bounds, { padding: 50, maxZoom: 15 });
             }
         });
 }
