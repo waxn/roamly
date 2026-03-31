@@ -523,6 +523,23 @@ def vector_tile(request, z, x, y):
 
     filter_clause = "\n              ".join(extra_where)
 
+    # Scale point limit and sampling by zoom level — low zoom needs far fewer points
+    if z <= 4:
+        point_limit = 2000
+        sample_mod = 50   # keep 1 in 50 points
+    elif z <= 7:
+        point_limit = 10000
+        sample_mod = 10
+    elif z <= 10:
+        point_limit = 30000
+        sample_mod = 3
+    else:
+        point_limit = 100000
+        sample_mod = 1
+
+    # Trails are expensive and invisible at low zoom — skip them below z8
+    show_trails = z >= 8
+
     # Check cache
     cache_key = f"tile:{request.user.id}:{z}:{x}:{y}:{request.GET.urlencode()}"
     cached = cache.get(cache_key)
@@ -531,7 +548,9 @@ def vector_tile(request, z, x, y):
         response["Cache-Control"] = f"public, max-age={cache_ttl}"
         return response
 
-    combined_sql = f"""
+    sample_clause = f"AND (l.id % {sample_mod}) = 0" if sample_mod > 1 else ""
+
+    points_sql = f"""
     WITH bounds AS (
         SELECT ST_TileEnvelope(%(z)s, %(x)s, %(y)s) AS geom,
                ST_Transform(ST_TileEnvelope(%(z)s, %(x)s, %(y)s), 4326) AS geom_4326
@@ -559,7 +578,16 @@ def vector_tile(request, z, x, y):
           AND l.location::geometry && bounds.geom_4326
           AND ST_Intersects(l.location::geometry, bounds.geom_4326)
               {filter_clause}
-        LIMIT 100000
+              {sample_clause}
+        LIMIT {point_limit}
+    )
+    SELECT ST_AsMVT(pts.*, 'locations') FROM pts;
+    """
+
+    trails_sql = f"""
+    WITH bounds AS (
+        SELECT ST_TileEnvelope(%(z)s, %(x)s, %(y)s) AS geom,
+               ST_Transform(ST_TileEnvelope(%(z)s, %(x)s, %(y)s), 4326) AS geom_4326
     ),
     trail_pts AS (
         SELECT d.device_id, d.id AS device_pk,
@@ -575,7 +603,10 @@ def vector_tile(request, z, x, y):
     ),
     lines AS (
         SELECT device_id,
-               ST_MakeLine(geom_3857 ORDER BY timestamp) AS geom
+               ST_SimplifyPreserveTopology(
+                   ST_MakeLine(geom_3857 ORDER BY timestamp),
+                   %(simplify_tolerance)s
+               ) AS geom
         FROM trail_pts
         GROUP BY device_id, device_pk
         HAVING COUNT(*) > 1
@@ -586,16 +617,22 @@ def vector_tile(request, z, x, y):
         FROM lines CROSS JOIN bounds
         WHERE ST_Intersects(lines.geom, bounds.geom)
     )
-    SELECT
-        (SELECT ST_AsMVT(pts.*, 'locations') FROM pts) AS points_tile,
-        (SELECT ST_AsMVT(trail_mvt.*, 'trails') FROM trail_mvt) AS trails_tile;
+    SELECT ST_AsMVT(trail_mvt.*, 'trails') FROM trail_mvt;
     """
 
+    # Simplify trails more aggressively at lower zoom (meters in web mercator)
+    simplify_tolerance = max(1, 100000 >> z)
+    params["simplify_tolerance"] = simplify_tolerance
+
     with connection.cursor() as cursor:
-        cursor.execute(combined_sql, params)
-        row = cursor.fetchone()
-        points_tile = row[0]
-        trails_tile = row[1]
+        cursor.execute(points_sql, params)
+        points_tile = cursor.fetchone()[0]
+
+        if show_trails:
+            cursor.execute(trails_sql, params)
+            trails_tile = cursor.fetchone()[0]
+        else:
+            trails_tile = b''
 
     tile_data = bytes(points_tile) + bytes(trails_tile)
 
@@ -605,7 +642,7 @@ def vector_tile(request, z, x, y):
     cache.set(cache_key, tile_data, timeout=cache_ttl)
 
     response = HttpResponse(tile_data, content_type="application/x-protobuf")
-    response["Cache-Control"] = "public, max-age=30"
+    response["Cache-Control"] = f"public, max-age={cache_ttl}"
     return response
 
 
