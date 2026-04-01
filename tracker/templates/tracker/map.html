@@ -386,6 +386,7 @@ function reloadTiles(autoFit) {
     if (!map.getSource('locations')) return;
     showMapLoading('loading tiles...');
     ['points', 'points-heat'].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+    seedTiles();
     map.removeSource('locations');
     setupVectorLayers();
     if (autoFit) fitToData();
@@ -583,6 +584,11 @@ function loadLocations() {
     }
 })();
 
+function seedTiles() {
+    const qs = buildFilterParams();
+    fetch(`/api/tiles/seed/?${qs}`, {method: 'POST', headers: {'X-CSRFToken': '{{ csrf_token }}'}});
+}
+
 map.on('load', () => {
     if (USE_VECTOR_TILES) {
         // Show loading bar while vector tiles render; hide when map is fully idle
@@ -593,6 +599,7 @@ map.on('load', () => {
         });
         setupVectorLayers();
         fitToData();
+        seedTiles();
     } else {
         setupGeoJSONLayers();
         loadLocations();
