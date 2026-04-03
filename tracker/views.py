@@ -594,6 +594,19 @@ def vector_tile(request, z, x, y):
         response["Cache-Control"] = f"public, max-age={cache_ttl}"
         return response
 
+    # At low zoom, sample rows so coverage stays even across the tile rather than
+    # hitting a hard limit and leaving gaps. Higher zoom = less sampling needed.
+    if z <= 4:
+        sample_mod = 20
+    elif z <= 6:
+        sample_mod = 8
+    elif z <= 8:
+        sample_mod = 3
+    else:
+        sample_mod = 1
+
+    sample_clause = f"AND (l.id % {sample_mod}) = 0" if sample_mod > 1 else ""
+
     sql = f"""
     WITH bounds AS (
         SELECT ST_TileEnvelope(%(z)s, %(x)s, %(y)s) AS geom,
@@ -613,7 +626,8 @@ def vector_tile(request, z, x, y):
           AND l.location::geometry && bounds.geom_4326
           AND ST_Intersects(l.location::geometry, bounds.geom_4326)
               {filter_clause}
-        LIMIT 10000
+              {sample_clause}
+        LIMIT 50000
     )
     SELECT ST_AsMVT(pts.*, 'locations') FROM pts;
     """
