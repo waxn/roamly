@@ -171,6 +171,23 @@ function loadStats() {
 
 let chartBars = [];
 
+// Advance a 'YYYY-MM-DD' string by N days without timezone issues
+function addDays(dateStr, n) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d + n));
+    return dt.toISOString().slice(0, 10);
+}
+
+// Advance a 'YYYY-MM-DD HH' string by N hours without timezone issues
+function addHours(key, n) {
+    const dateStr = key.slice(0, 10);
+    const hour = parseInt(key.slice(11), 10) + n;
+    const days = Math.floor(hour / 24);
+    const h = hour % 24;
+    const newDate = days > 0 ? addDays(dateStr, days) : dateStr;
+    return newDate + ' ' + String(h).padStart(2, '0');
+}
+
 function groupDays(days, distancesKm, range) {
     // 24h = hourly, 72h = 3-hour blocks, 168h/720h = daily,
     // 2160h = 3-day groups, 8760h/all = monthly
@@ -181,24 +198,57 @@ function groupDays(days, distancesKm, range) {
     else if (range === '2160') mode = '3day';
     else mode = 'monthly';
 
-    if (mode === 'hourly' || mode === 'daily') {
-        return { labels: days, values: distancesKm, sublabels: null, mode };
+    // Compute fill boundaries. For ranged views always span the full period to now
+    // so bars appear even when there's no data at the edges.
+    const now = new Date();
+    const hours = (!isNaN(parseInt(range))) ? parseInt(range) : null;
+    const rangeStartTs = hours ? new Date(now - hours * 3600000) : null;
+
+    // UTC date/hour strings (API keys are UTC)
+    const todayStr = now.toISOString().slice(0, 10);
+    const nowHourKey = now.toISOString().slice(0, 13).replace('T', ' ');
+    const rangeStartDate = rangeStartTs ? rangeStartTs.toISOString().slice(0, 10) : null;
+    const rangeStartHour = rangeStartTs ? rangeStartTs.toISOString().slice(0, 13).replace('T', ' ') : null;
+
+    // For daily/hourly: build map then fill the full window
+    if (mode === 'daily') {
+        const map = new Map(days.map((d, i) => [d, distancesKm[i]]));
+        const filled = [], filledVals = [];
+        const fillStart = rangeStartDate || (days.length ? days[0] : todayStr);
+        const fillEnd = todayStr;
+        for (let d = fillStart; d <= fillEnd; d = addDays(d, 1)) {
+            filled.push(d);
+            filledVals.push(map.get(d) || 0);
+        }
+        return { labels: filled, values: filledVals, sublabels: null, mode };
     }
 
+    if (mode === 'hourly') {
+        const map = new Map(days.map((d, i) => [d, distancesKm[i]]));
+        const filled = [], filledVals = [];
+        const fillStart = rangeStartHour || (days.length ? days[0] : nowHourKey);
+        const fillEnd = nowHourKey;
+        for (let k = fillStart; k <= fillEnd; k = addHours(k, 1)) {
+            filled.push(k);
+            filledVals.push(map.get(k) || 0);
+        }
+        return { labels: filled, values: filledVals, sublabels: null, mode };
+    }
+
+    // Grouped modes: build buckets from data
     const buckets = new Map();
     for (let i = 0; i < days.length; i++) {
         let key;
         if (mode === 'monthly') {
-            key = days[i].slice(0, 7); // YYYY-MM
+            key = days[i].slice(0, 7);
         } else if (mode === '3day') {
-            const d = new Date(days[i] + 'T00:00:00');
-            const epochDays = Math.floor(d.getTime() / (1000 * 60 * 60 * 24));
+            const [y, m, d] = days[i].split('-').map(Number);
+            const epochDays = Math.floor(Date.UTC(y, m - 1, d) / 86400000);
             key = String(Math.floor(epochDays / 3));
-        } else { // 3hourly — days[i] is like '2026-02-18 14'
+        } else { // 3hourly — days[i] like '2026-02-18 14'
             const dateStr = days[i].slice(0, 10);
             const hour = parseInt(days[i].slice(11), 10);
-            const blockStart = Math.floor(hour / 3) * 3;
-            key = dateStr + ' ' + String(blockStart).padStart(2, '0');
+            key = dateStr + ' ' + String(Math.floor(hour / 3) * 3).padStart(2, '0');
         }
         if (!buckets.has(key)) buckets.set(key, { total: 0, count: 0, first: days[i], last: days[i] });
         const b = buckets.get(key);
@@ -207,23 +257,64 @@ function groupDays(days, distancesKm, range) {
         b.last = days[i];
     }
 
-    // For monthly mode, fill in gaps so every month between first and last appears
-    if (mode === 'monthly' && buckets.size > 0) {
-        const sortedKeys = Array.from(buckets.keys()).sort();
-        const [fy, fm] = sortedKeys[0].split('-').map(Number);
-        const [ly, lm] = sortedKeys[sortedKeys.length - 1].split('-').map(Number);
-        let cy = fy, cm = fm;
+    // Determine fill start/end keys for grouped modes
+    let fillFirstKey, fillLastKey;
+    if (mode === 'monthly') {
+        const nowMonthKey = now.toISOString().slice(0, 7);
+        if (rangeStartDate) {
+            fillFirstKey = rangeStartDate.slice(0, 7);
+        } else {
+            const dataKeys = Array.from(buckets.keys()).sort();
+            fillFirstKey = dataKeys.length ? dataKeys[0] : nowMonthKey;
+        }
+        fillLastKey = nowMonthKey;
+    } else if (mode === '3day') {
+        const nowEpochBucket = Math.floor(Math.floor(now.getTime() / 86400000) / 3);
+        if (rangeStartDate) {
+            const [ry, rm, rd] = rangeStartDate.split('-').map(Number);
+            fillFirstKey = String(Math.floor(Math.floor(Date.UTC(ry, rm - 1, rd) / 86400000) / 3));
+        } else {
+            const dataKeys = Array.from(buckets.keys()).sort();
+            fillFirstKey = dataKeys.length ? dataKeys[0] : String(nowEpochBucket);
+        }
+        fillLastKey = String(nowEpochBucket);
+    } else { // 3hourly
+        const nowBlockKey = nowHourKey.slice(0, 10) + ' ' + String(Math.floor(now.getUTCHours() / 3) * 3).padStart(2, '0');
+        if (rangeStartHour) {
+            const rh = parseInt(rangeStartHour.slice(11), 10);
+            fillFirstKey = rangeStartHour.slice(0, 10) + ' ' + String(Math.floor(rh / 3) * 3).padStart(2, '0');
+        } else {
+            const dataKeys = Array.from(buckets.keys()).sort();
+            fillFirstKey = dataKeys.length ? dataKeys[0] : nowBlockKey;
+        }
+        fillLastKey = nowBlockKey;
+    }
+
+    // Fill gaps across the full window
+    if (mode === 'monthly') {
+        let [cy, cm] = fillFirstKey.split('-').map(Number);
+        const [ly, lm] = fillLastKey.split('-').map(Number);
         while (cy < ly || (cy === ly && cm <= lm)) {
             const k = `${cy}-${String(cm).padStart(2,'0')}`;
             if (!buckets.has(k)) buckets.set(k, { total: 0, count: 0, first: k, last: k });
-            cm++;
-            if (cm > 12) { cm = 1; cy++; }
+            if (++cm > 12) { cm = 1; cy++; }
+        }
+    } else if (mode === '3day') {
+        for (let k = parseInt(fillFirstKey); k <= parseInt(fillLastKey); k++) {
+            const sk = String(k);
+            if (!buckets.has(sk)) {
+                const d = new Date(k * 3 * 86400000);
+                const ds = d.toISOString().slice(0, 10);
+                buckets.set(sk, { total: 0, count: 0, first: ds, last: ds });
+            }
+        }
+    } else { // 3hourly
+        for (let k = fillFirstKey; k <= fillLastKey; k = addHours(k, 3)) {
+            if (!buckets.has(k)) buckets.set(k, { total: 0, count: 0, first: k, last: k });
         }
     }
 
-    const labels = [];
-    const values = [];
-    const sublabels = [];
+    const labels = [], values = [], sublabels = [];
     for (const [key, b] of Array.from(buckets.entries()).sort()) {
         labels.push(key);
         values.push(b.total);
@@ -233,7 +324,7 @@ function groupDays(days, distancesKm, range) {
             sublabels.push({ label: `${monthName} '${y.slice(2)}`, range: b.count > 0 ? `${b.first} – ${b.last}` : key, days: b.count, unit: 'day' });
         } else if (mode === '3day') {
             const p = b.first.split('-');
-            sublabels.push({ label: `${p[1]}/${p[2]}`, range: `${b.first} – ${b.last}`, days: b.count, unit: 'day' });
+            sublabels.push({ label: `${p[1]}/${p[2]}`, range: b.count > 0 ? `${b.first} – ${b.last}` : b.first, days: b.count, unit: 'day' });
         } else { // 3hourly
             const blockStart = parseInt(key.slice(11), 10);
             const blockEnd = blockStart + 2;
