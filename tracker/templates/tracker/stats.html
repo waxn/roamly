@@ -159,7 +159,7 @@ function loadStats() {
 
     const distParams = new URLSearchParams(params.toString());
     const range = document.getElementById('stats-range').value;
-    if (range === '24') distParams.set('granularity', 'hourly');
+    if (range === '24' || range === '72') distParams.set('granularity', 'hourly');
     fetch(`/api/distance/?${distParams}`)
         .then(r => r.json())
         .then(data => {
@@ -172,16 +172,15 @@ function loadStats() {
 let chartBars = [];
 
 function groupDays(days, distancesKm, range) {
-    // Determine grouping based on selected range:
-    // 24h = hourly (data already hourly from API), 72h/168h/720h = daily,
-    // 2160h/8760h = weekly, all = monthly
+    // 24h = hourly, 72h = 3-hour blocks, 168h/720h = daily,
+    // 2160h = 3-day groups, 8760h/all = monthly
     let mode;
     if (range === '24') mode = 'hourly';
-    else if (range === '72' || range === '168' || range === '720') mode = 'daily';
-    else if (range === '2160' || range === '8760') mode = 'weekly';
+    else if (range === '72') mode = '3hourly';
+    else if (range === '168' || range === '720') mode = 'daily';
+    else if (range === '2160') mode = '3day';
     else mode = 'monthly';
 
-    // For hourly and daily, no further grouping needed
     if (mode === 'hourly' || mode === 'daily') {
         return { labels: days, values: distancesKm, sublabels: null, mode };
     }
@@ -191,33 +190,59 @@ function groupDays(days, distancesKm, range) {
         let key;
         if (mode === 'monthly') {
             key = days[i].slice(0, 7); // YYYY-MM
-        } else {
-            // Weekly: bucket by Monday of that week
+        } else if (mode === '3day') {
             const d = new Date(days[i] + 'T00:00:00');
-            const day = d.getDay();
-            const mon = new Date(d);
-            mon.setDate(d.getDate() - ((day + 6) % 7));
-            key = mon.toISOString().slice(0, 10);
+            const epochDays = Math.floor(d.getTime() / (1000 * 60 * 60 * 24));
+            key = String(Math.floor(epochDays / 3));
+        } else { // 3hourly — days[i] is like '2026-02-18 14'
+            const dateStr = days[i].slice(0, 10);
+            const hour = parseInt(days[i].slice(11), 10);
+            const blockStart = Math.floor(hour / 3) * 3;
+            key = dateStr + ' ' + String(blockStart).padStart(2, '0');
         }
-        if (!buckets.has(key)) buckets.set(key, { total: 0, days: 0, first: days[i], last: days[i] });
+        if (!buckets.has(key)) buckets.set(key, { total: 0, count: 0, first: days[i], last: days[i] });
         const b = buckets.get(key);
         b.total += distancesKm[i];
-        b.days++;
+        b.count++;
         b.last = days[i];
+    }
+
+    // For monthly mode, fill in gaps so every month between first and last appears
+    if (mode === 'monthly' && buckets.size > 0) {
+        const sortedKeys = Array.from(buckets.keys()).sort();
+        const [fy, fm] = sortedKeys[0].split('-').map(Number);
+        const [ly, lm] = sortedKeys[sortedKeys.length - 1].split('-').map(Number);
+        let cy = fy, cm = fm;
+        while (cy < ly || (cy === ly && cm <= lm)) {
+            const k = `${cy}-${String(cm).padStart(2,'0')}`;
+            if (!buckets.has(k)) buckets.set(k, { total: 0, count: 0, first: k, last: k });
+            cm++;
+            if (cm > 12) { cm = 1; cy++; }
+        }
     }
 
     const labels = [];
     const values = [];
     const sublabels = [];
-    for (const [key, b] of buckets) {
+    for (const [key, b] of Array.from(buckets.entries()).sort()) {
         labels.push(key);
         values.push(b.total);
         if (mode === 'monthly') {
             const [y, m] = key.split('-');
-            sublabels.push({ label: `${m}/${y}`, range: `${b.first} – ${b.last}`, days: b.days });
-        } else {
+            const monthName = new Date(parseInt(y), parseInt(m) - 1).toLocaleString('default', { month: 'short' });
+            sublabels.push({ label: `${monthName} '${y.slice(2)}`, range: b.count > 0 ? `${b.first} – ${b.last}` : key, days: b.count, unit: 'day' });
+        } else if (mode === '3day') {
             const p = b.first.split('-');
-            sublabels.push({ label: `${p[1]}/${p[2]}`, range: `${b.first} – ${b.last}`, days: b.days });
+            sublabels.push({ label: `${p[1]}/${p[2]}`, range: `${b.first} – ${b.last}`, days: b.count, unit: 'day' });
+        } else { // 3hourly
+            const blockStart = parseInt(key.slice(11), 10);
+            const blockEnd = blockStart + 2;
+            const dateStr = key.slice(0, 10);
+            sublabels.push({
+                label: `${String(blockStart).padStart(2,'0')}:00`,
+                range: `${dateStr} ${String(blockStart).padStart(2,'0')}:00–${String(blockEnd).padStart(2,'0')}:59`,
+                days: b.count, unit: 'hr'
+            });
         }
     }
     return { labels, values, sublabels, mode };
@@ -308,7 +333,7 @@ function drawChart(days, distancesKm, range) {
         const dist = formatDistance(rawValues[i]);
         if (isGrouped) {
             const s = grouped.sublabels[i];
-            tip = `${s.range}\n${dist} (${s.days} day${s.days !== 1 ? 's' : ''})`;
+            tip = `${s.range}\n${dist} (${s.days} ${s.unit}${s.days !== 1 ? 's' : ''})`;
         } else if (grouped.mode === 'hourly') {
             // Label like "14:00" from "2026-02-18 14"
             const hour = grouped.labels[i].slice(11);
@@ -409,7 +434,7 @@ window.addEventListener('resize', () => {
         const params = getFilterParams();
         const range = document.getElementById('stats-range').value;
         const distParams = new URLSearchParams(params.toString());
-        if (range === '24') distParams.set('granularity', 'hourly');
+        if (range === '24' || range === '72') distParams.set('granularity', 'hourly');
         fetch(`/api/distance/?${distParams}`)
             .then(r => r.json())
             .then(data => drawChart(data.days, data.distances, range));
