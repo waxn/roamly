@@ -432,7 +432,23 @@ function drawChart(days, distancesKm, range) {
         } else {
             tip = `${grouped.labels[i]}\n${dist}`;
         }
-        chartBars.push({ x, y, w: barW, h: barH, tip });
+        // Compute map URL date range for this bar
+        let mapStart, mapEnd;
+        if (isGrouped) {
+            const s = grouped.sublabels[i];
+            const rangeStr = s.range || '';
+            const parts = rangeStr.split(' – ');
+            mapStart = parts[0].slice(0, 10);
+            mapEnd = parts[parts.length - 1].slice(0, 10);
+        } else if (grouped.mode === 'hourly') {
+            mapStart = grouped.labels[i].slice(0, 10);
+            mapEnd = mapStart;
+        } else {
+            mapStart = grouped.labels[i];
+            mapEnd = grouped.labels[i];
+        }
+        const mapUrl = `/map/?start=${mapStart}&end=${mapEnd}`;
+        chartBars.push({ x, y, w: barW, h: barH, tip, mapUrl });
     }
 
     // X-axis labels
@@ -480,6 +496,7 @@ function drawChart(days, distancesKm, range) {
         if (hit) {
             tooltip.innerHTML = hit.tip.replace('\n', '<br>');
             tooltip.style.opacity = '1';
+            canvas.style.cursor = 'pointer';
             // Position tooltip above the bar
             let tx = hit.x + hit.w / 2;
             let ty = hit.y - 8;
@@ -490,11 +507,28 @@ function drawChart(days, distancesKm, range) {
             tooltip.style.transform = 'translateX(-50%)';
         } else {
             tooltip.style.opacity = '0';
+            canvas.style.cursor = '';
         }
     });
 
     canvas.addEventListener('mouseleave', function() {
         tooltip.style.opacity = '0';
+        canvas.style.cursor = '';
+    });
+
+    canvas.addEventListener('click', function(e) {
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+
+        for (const bar of chartBars) {
+            const hitY = bar.h > 0 ? bar.y : bar.y - 8;
+            const hitH = bar.h > 0 ? bar.h : 16;
+            if (mx >= bar.x && mx <= bar.x + bar.w && my >= hitY && my <= hitY + hitH) {
+                window.location.href = bar.mapUrl;
+                break;
+            }
+        }
     });
 })();
 
