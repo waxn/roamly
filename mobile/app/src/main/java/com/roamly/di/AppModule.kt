@@ -111,4 +111,24 @@ object AppModule {
     @Provides
     @Singleton
     fun provideRoamlyApi(retrofit: Retrofit): RoamlyApi = retrofit.create(RoamlyApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideAuthRepository(api: RoamlyApi, prefs: com.roamly.data.prefs.UserPreferences): com.roamly.data.repository.AuthRepository =
+        com.roamly.data.repository.AuthRepository(api, prefs)
+
+    @Provides
+    @Singleton
+    fun provideLocationRepository(api: RoamlyApi): com.roamly.data.repository.LocationRepository =
+        com.roamly.data.repository.LocationRepository(api)
+
+    @Provides
+    @Singleton
+    fun provideTripRepository(api: RoamlyApi, prefs: com.roamly.data.prefs.UserPreferences): com.roamly.data.repository.TripRepository =
+        com.roamly.data.repository.TripRepository(api, prefs)
+
+    @Provides
+    @Singleton
+    fun providePalRepository(api: RoamlyApi): com.roamly.data.repository.PalRepository =
+        com.roamly.data.repository.PalRepository(api)
 }

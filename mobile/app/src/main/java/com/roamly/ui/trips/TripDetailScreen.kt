@@ -149,7 +149,7 @@ private fun BlurbItem(event: TimelineEvent, onDelete: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text(event.author, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(event.author ?: "", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     Text(event.createdAt?.take(10) ?: "", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 IconButton(onClick = onDelete) {
@@ -160,9 +160,6 @@ private fun BlurbItem(event: TimelineEvent, onDelete: () -> Unit) {
             event.text?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             event.locationName?.let {
                 Text("📍 $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (event.commentCount > 0) {
-                Text("${event.commentCount} comment${if (event.commentCount > 1) "s" else ""}", style = MaterialTheme.typography.labelSmall)
             }
         }
     }
