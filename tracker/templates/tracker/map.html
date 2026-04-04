@@ -331,16 +331,14 @@ function setupVectorLayers() {
         tiles: [buildTileUrl()],
         minzoom: 0,
         maxzoom: 16,
-        volatile: true,
     });
 
-    // Heatmap at low zoom — client-side, zero server cost
+    // Heatmap at all zoom levels
     map.addLayer({
         id: 'points-heat',
         type: 'heatmap',
         source: 'locations',
         'source-layer': 'locations',
-        maxzoom: 11,
         paint: {
             'heatmap-weight': 1,
             'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 0.4, 10, 1.5],
@@ -356,7 +354,7 @@ function setupVectorLayers() {
         }
     });
 
-    // Individual circles at high zoom
+    // Individual circles fading in at high zoom
     map.addLayer({
         id: 'points',
         type: 'circle',

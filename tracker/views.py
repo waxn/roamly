@@ -594,30 +594,36 @@ def vector_tile(request, z, x, y):
         response["Cache-Control"] = f"public, max-age={cache_ttl}"
         return response
 
-    # At low zoom, sample rows so coverage stays even across the tile rather than
-    # hitting a hard limit and leaving gaps. Higher zoom = less sampling needed.
+    # Spatial thinning via ST_SnapToGrid — keeps one point per grid cell so
+    # coverage is always uniform with no gaps. Grid shrinks as zoom increases.
     if z <= 4:
-        sample_mod = 20
+        grid_deg = 0.5
     elif z <= 6:
-        sample_mod = 8
+        grid_deg = 0.1
     elif z <= 8:
-        sample_mod = 3
+        grid_deg = 0.02
     else:
-        sample_mod = 1
+        grid_deg = 0.0
 
-    sample_clause = f"AND (l.id % {sample_mod}) = 0" if sample_mod > 1 else ""
+    params["grid_deg"] = grid_deg
+
+    if grid_deg > 0:
+        thinning = f"""
+        DISTINCT ON (ST_SnapToGrid(l.location::geometry, %(grid_deg)s))"""
+        order_clause = f"ORDER BY ST_SnapToGrid(l.location::geometry, %(grid_deg)s), l.id"
+    else:
+        thinning = ""
+        order_clause = ""
 
     sql = f"""
     WITH bounds AS (
         SELECT ST_TileEnvelope(%(z)s, %(x)s, %(y)s) AS geom,
                ST_Transform(ST_TileEnvelope(%(z)s, %(x)s, %(y)s), 4326) AS geom_4326
     ),
-    pts AS (
-        SELECT
-            ST_AsMVTGeom(ST_Transform(l.location::geometry, 3857), bounds.geom, 4096, 256, true) AS geom,
-            l.id, l.speed, l.battery, l.city, l.state, l.country,
-            EXTRACT(EPOCH FROM l.timestamp)::bigint AS ts,
-            d.device_id, COALESCE(d.name, d.device_id) AS device_name
+    thinned AS (
+        SELECT {thinning}
+            l.location, l.id, l.speed, l.battery, l.city, l.state, l.country,
+            l.timestamp, d.device_id, COALESCE(d.name, d.device_id) AS device_name
         FROM tracker_location l
         JOIN tracker_device d ON l.device_id = d.id
         CROSS JOIN bounds
@@ -626,8 +632,16 @@ def vector_tile(request, z, x, y):
           AND l.location::geometry && bounds.geom_4326
           AND ST_Intersects(l.location::geometry, bounds.geom_4326)
               {filter_clause}
-              {sample_clause}
+        {order_clause}
         LIMIT 50000
+    ),
+    pts AS (
+        SELECT
+            ST_AsMVTGeom(ST_Transform(t.location::geometry, 3857), bounds.geom, 4096, 256, true) AS geom,
+            t.id, t.speed, t.battery, t.city, t.state, t.country,
+            EXTRACT(EPOCH FROM t.timestamp)::bigint AS ts,
+            t.device_id, t.device_name
+        FROM thinned t CROSS JOIN bounds
     )
     SELECT ST_AsMVT(pts.*, 'locations') FROM pts;
     """
