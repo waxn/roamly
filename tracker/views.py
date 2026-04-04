@@ -790,7 +790,7 @@ def distance_api(request):
 
     locations = locations.order_by('device', 'timestamp').values_list(
         'device_id', 'latitude', 'longitude', 'timestamp'
-    )[:50000]
+    ).iterator(chunk_size=10000)
 
     granularity = request.GET.get("granularity", "daily")
     bucket_km = defaultdict(float)
