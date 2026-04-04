@@ -114,8 +114,8 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideAuthRepository(api: RoamlyApi, prefs: com.roamly.data.prefs.UserPreferences): com.roamly.data.repository.AuthRepository =
-        com.roamly.data.repository.AuthRepository(api, prefs)
+    fun provideAuthRepository(api: RoamlyApi, prefs: com.roamly.data.prefs.UserPreferences, okHttpClient: OkHttpClient): com.roamly.data.repository.AuthRepository =
+        com.roamly.data.repository.AuthRepository(api, prefs, okHttpClient)
 
     @Provides
     @Singleton

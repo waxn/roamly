@@ -33,7 +33,7 @@ class SettingsViewModel @Inject constructor(
             serverUrl = url ?: "",
             username = username ?: "",
             deviceId = deviceId ?: "",
-            darkMode = darkMode
+            darkMode = darkMode ?: false
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 

@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
@@ -24,7 +25,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            val darkMode by prefs.darkMode.collectAsState(initial = false)
+            val prefDarkMode by prefs.darkMode.collectAsState(initial = null)
+            val systemDark = isSystemInDarkTheme()
+            val darkMode = prefDarkMode ?: systemDark
             RoamlyTheme(darkTheme = darkMode) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     RoamlyNavHost()
