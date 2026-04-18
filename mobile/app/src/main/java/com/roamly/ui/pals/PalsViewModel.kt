@@ -2,6 +2,7 @@ package com.roamly.ui.pals
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.roamly.data.api.CreatePalRequest
 import com.roamly.data.api.PalResponse
 import com.roamly.data.repository.PalRepository
 import com.roamly.data.repository.Result
@@ -15,7 +16,8 @@ import javax.inject.Inject
 data class PalsUiState(
     val pals: List<PalResponse> = emptyList(),
     val isLoading: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val showCreateDialog: Boolean = false,
 )
 
 @HiltViewModel
@@ -34,6 +36,22 @@ class PalsViewModel @Inject constructor(
             when (val result = repository.getPals()) {
                 is Result.Success -> _uiState.update { it.copy(pals = result.data.pals, isLoading = false) }
                 is Result.Error -> _uiState.update { it.copy(error = result.message, isLoading = false) }
+            }
+        }
+    }
+
+    fun showCreateDialog() = _uiState.update { it.copy(showCreateDialog = true) }
+    fun hideCreateDialog() = _uiState.update { it.copy(showCreateDialog = false) }
+
+    fun createPal(name: String, description: String, startDate: String, endDate: String) {
+        if (name.isBlank() || startDate.isBlank() || endDate.isBlank()) return
+        viewModelScope.launch {
+            when (repository.createPal(CreatePalRequest(name, description, startDate, endDate))) {
+                is Result.Success -> {
+                    _uiState.update { it.copy(showCreateDialog = false) }
+                    loadPals()
+                }
+                is Result.Error -> _uiState.update { it.copy(error = "Failed to create") }
             }
         }
     }

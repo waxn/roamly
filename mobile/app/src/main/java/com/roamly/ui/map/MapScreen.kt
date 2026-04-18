@@ -1,6 +1,10 @@
 package com.roamly.ui.map
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Paint
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,7 +19,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -23,24 +29,37 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.google.android.gms.location.LocationServices
+import com.roamly.data.api.LocationPoint
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Polyline
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.roundToInt
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 @Composable
 fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
@@ -56,6 +75,17 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
         }
     }
 
+    // Near-here dialog state
+    var nearHereResult by remember { mutableStateOf<NearHereResult?>(null) }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (granted) checkNearHere(context, state.locations) { nearHereResult = it }
+    }
+
     // Update map overlays whenever locations change (SideEffect runs after every recomposition)
     SideEffect {
         mapView.overlays.clear()
@@ -64,7 +94,7 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
             val points = sorted.map { GeoPoint(it.lat, it.lng) }
             val polyline = Polyline().apply {
                 setPoints(points)
-                outlinePaint.color = android.graphics.Color.parseColor("#1A73E8")
+                outlinePaint.color = android.graphics.Color.parseColor("#3B82F6")
                 outlinePaint.strokeWidth = 4f
                 outlinePaint.strokeJoin = Paint.Join.ROUND
                 outlinePaint.strokeCap = Paint.Cap.ROUND
@@ -108,7 +138,7 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
             }
         }
 
-        // Zoom buttons
+        // Right-side controls: zoom + near-here
         Column(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
@@ -131,6 +161,39 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                     Icon(Icons.Filled.Remove, contentDescription = "Zoom out")
                 }
             }
+        }
+
+        // "Have I been near here?" FAB
+        SmallFloatingActionButton(
+            onClick = {
+                val hasFine = ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.ACCESS_FINE_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+                val hasCoarse = ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.ACCESS_COARSE_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+                if (hasFine || hasCoarse) {
+                    checkNearHere(context, state.locations) { nearHereResult = it }
+                } else {
+                    locationPermissionLauncher.launch(
+                        arrayOf(
+                            Manifest.permission.ACCESS_FINE_LOCATION,
+                            Manifest.permission.ACCESS_COARSE_LOCATION
+                        )
+                    )
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = if (state.stats != null) 120.dp else 16.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
+        ) {
+            Icon(
+                Icons.Filled.MyLocation,
+                contentDescription = "Have I been near here?",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
         }
 
         // Loading indicator
@@ -172,6 +235,108 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
             }
         }
     }
+
+    // Near-here result dialog
+    nearHereResult?.let { result ->
+        AlertDialog(
+            onDismissRequest = { nearHereResult = null },
+            title = { Text("Have you been near here?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    when {
+                        result.withinOneKm > 0 -> {
+                            Text("✅ Yes! You've been within 1 km of here.",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.secondary)
+                            Text("${result.withinOneKm} recorded point${if (result.withinOneKm != 1) "s" else ""} within 1 km",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        result.withinFiveKm > 0 -> {
+                            Text("✅ Yes! You've been within 5 km of here.",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.secondary)
+                            Text("${result.withinFiveKm} point${if (result.withinFiveKm != 1) "s" else ""} within 5 km",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        result.withinTwentyFiveKm > 0 -> {
+                            Text("↗️ Nearby — you've been within 25 km.",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                            Text("${result.withinTwentyFiveKm} point${if (result.withinTwentyFiveKm != 1) "s" else ""} within 25 km",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        else -> {
+                            Text("❌ No records within 25 km of your current location.",
+                                style = MaterialTheme.typography.bodyMedium)
+                            Text("(Based on ${state.locations.size} loaded points for the selected period)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    result.nearestCity?.let {
+                        Text("Nearest logged city: $it",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { nearHereResult = null }) { Text("OK") } }
+        )
+    }
+}
+
+data class NearHereResult(
+    val withinOneKm: Int,
+    val withinFiveKm: Int,
+    val withinTwentyFiveKm: Int,
+    val nearestCity: String?,
+)
+
+private fun checkNearHere(
+    context: android.content.Context,
+    locations: List<LocationPoint>,
+    onResult: (NearHereResult) -> Unit,
+) {
+    val client = LocationServices.getFusedLocationProviderClient(context)
+    try {
+        client.lastLocation.addOnSuccessListener { location ->
+            if (location == null) return@addOnSuccessListener
+            val userLat = location.latitude
+            val userLng = location.longitude
+
+            var within1 = 0
+            var within5 = 0
+            var within25 = 0
+            var nearestCity: String? = null
+            var smallestDist = Double.MAX_VALUE
+
+            for (pt in locations) {
+                val dist = haversineKm(userLat, userLng, pt.lat, pt.lng)
+                if (dist < smallestDist) {
+                    smallestDist = dist
+                    nearestCity = pt.city
+                }
+                if (dist <= 1.0) within1++
+                if (dist <= 5.0) within5++
+                if (dist <= 25.0) within25++
+            }
+
+            onResult(NearHereResult(within1, within5, within25, nearestCity))
+        }
+    } catch (_: SecurityException) { /* permission not granted */ }
+}
+
+/** Haversine great-circle distance in kilometres */
+private fun haversineKm(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
+    val r = 6371.0
+    val dLat = Math.toRadians(lat2 - lat1)
+    val dLng = Math.toRadians(lng2 - lng1)
+    val a = sin(dLat / 2) * sin(dLat / 2) +
+            cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
+            sin(dLng / 2) * sin(dLng / 2)
+    return r * 2 * atan2(sqrt(a), sqrt(1 - a))
 }
 
 @Composable

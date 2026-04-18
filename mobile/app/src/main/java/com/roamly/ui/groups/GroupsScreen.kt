@@ -64,10 +64,13 @@ fun GroupsScreen(
     Scaffold(
         topBar = { TopAppBar(title = { Text("Groups") }) },
         floatingActionButton = {
-            if (selectedTab == 0) {
-                FloatingActionButton(onClick = tripsViewModel::showCreateDialog) {
-                    Icon(Icons.Filled.Add, contentDescription = "New Trip")
+            FloatingActionButton(
+                onClick = {
+                    if (selectedTab == 0) tripsViewModel.showCreateDialog()
+                    else palsViewModel.showCreateDialog()
                 }
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = if (selectedTab == 0) "New Trip" else "New Pal")
             }
         }
     ) { padding ->
@@ -123,7 +126,7 @@ fun GroupsScreen(
                                     Icon(Icons.Filled.People, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Spacer(Modifier.height(8.dp))
                                     Text("No pals yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("Create one in the web app", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("Tap + to create one", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                             else -> LazyColumn {
@@ -156,6 +159,29 @@ fun GroupsScreen(
             },
             confirmButton = { TextButton(onClick = { tripsViewModel.createTrip(name, description) }) { Text("Create") } },
             dismissButton = { TextButton(onClick = tripsViewModel::hideCreateDialog) { Text("Cancel") } }
+        )
+    }
+
+    if (palsState.showCreateDialog) {
+        var name by remember { mutableStateOf("") }
+        var description by remember { mutableStateOf("") }
+        var startDate by remember { mutableStateOf("") }
+        var endDate by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = palsViewModel::hideCreateDialog,
+            title = { Text("New Group Trip") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name *") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = description, onValueChange = { description = it }, label = { Text("Description (optional)") }, modifier = Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(value = startDate, onValueChange = { startDate = it }, label = { Text("Start *") }, placeholder = { Text("YYYY-MM-DD") }, singleLine = true, modifier = Modifier.weight(1f))
+                        OutlinedTextField(value = endDate, onValueChange = { endDate = it }, label = { Text("End *") }, placeholder = { Text("YYYY-MM-DD") }, singleLine = true, modifier = Modifier.weight(1f))
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { palsViewModel.createPal(name, description, startDate, endDate) }) { Text("Create") } },
+            dismissButton = { TextButton(onClick = palsViewModel::hideCreateDialog) { Text("Cancel") } }
         )
     }
 }

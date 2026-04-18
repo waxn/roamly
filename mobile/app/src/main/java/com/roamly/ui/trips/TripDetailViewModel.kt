@@ -2,6 +2,8 @@ package com.roamly.ui.trips
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.roamly.data.api.Comment
+import com.roamly.data.api.CreateMilestoneRequest
 import com.roamly.data.api.TimelineEvent
 import com.roamly.data.api.TripResponse
 import com.roamly.data.repository.Result
@@ -16,9 +18,13 @@ import javax.inject.Inject
 data class TripDetailUiState(
     val trip: TripResponse? = null,
     val events: List<TimelineEvent> = emptyList(),
+    val comments: Map<Int, List<Comment>> = emptyMap(),  // blurbId -> comments
+    val expandedBlurbId: Int? = null,
     val isLoading: Boolean = false,
     val error: String? = null,
-    val showBlurbDialog: Boolean = false
+    val showAddTypeDialog: Boolean = false,
+    val showBlurbDialog: Boolean = false,
+    val showMilestoneDialog: Boolean = false,
 )
 
 @HiltViewModel
@@ -46,17 +52,21 @@ class TripDetailViewModel @Inject constructor(
         }
     }
 
-    fun showBlurbDialog() = _uiState.update { it.copy(showBlurbDialog = true) }
+    // --- FAB / Dialogs ---
+    fun showAddTypeDialog() = _uiState.update { it.copy(showAddTypeDialog = true) }
+    fun hideAddTypeDialog() = _uiState.update { it.copy(showAddTypeDialog = false) }
+    fun showBlurbDialog() = _uiState.update { it.copy(showAddTypeDialog = false, showBlurbDialog = true) }
     fun hideBlurbDialog() = _uiState.update { it.copy(showBlurbDialog = false) }
+    fun showMilestoneDialog() = _uiState.update { it.copy(showAddTypeDialog = false, showMilestoneDialog = true) }
+    fun hideMilestoneDialog() = _uiState.update { it.copy(showMilestoneDialog = false) }
 
+    // --- Blurbs ---
     fun createBlurb(text: String) {
         if (text.isBlank()) return
         viewModelScope.launch {
             when (val r = repository.createBlurb(tripId, text)) {
-                is Result.Success -> {
-                    _uiState.update { state ->
-                        state.copy(events = listOf(r.data) + state.events, showBlurbDialog = false)
-                    }
+                is Result.Success -> _uiState.update { state ->
+                    state.copy(events = listOf(r.data) + state.events, showBlurbDialog = false)
                 }
                 is Result.Error -> _uiState.update { it.copy(error = r.message) }
             }
@@ -70,7 +80,67 @@ class TripDetailViewModel @Inject constructor(
         }
     }
 
+    // --- Milestones ---
+    fun createMilestone(emoji: String, title: String, description: String, date: String) {
+        if (title.isBlank() || date.isBlank()) return
+        viewModelScope.launch {
+            val req = CreateMilestoneRequest(title, description, emoji.ifBlank { "🏁" }, date + "T00:00:00")
+            when (repository.createMilestone(tripId, req)) {
+                is Result.Success -> {
+                    _uiState.update { it.copy(showMilestoneDialog = false) }
+                    load(tripId)
+                }
+                is Result.Error -> _uiState.update { it.copy(error = "Failed to create milestone") }
+            }
+        }
+    }
+
     fun togglePublic() {
         viewModelScope.launch { repository.togglePublic(tripId) }
+    }
+
+    // --- Comments ---
+    fun toggleComments(blurbId: Int) {
+        val current = _uiState.value.expandedBlurbId
+        if (current == blurbId) {
+            _uiState.update { it.copy(expandedBlurbId = null) }
+        } else {
+            _uiState.update { it.copy(expandedBlurbId = blurbId) }
+            if (_uiState.value.comments[blurbId] == null) loadComments(blurbId)
+        }
+    }
+
+    private fun loadComments(blurbId: Int) {
+        viewModelScope.launch {
+            when (val r = repository.getComments(tripId, blurbId)) {
+                is Result.Success -> _uiState.update { state ->
+                    state.copy(comments = state.comments + (blurbId to r.data.comments))
+                }
+                is Result.Error -> {}
+            }
+        }
+    }
+
+    fun createComment(blurbId: Int, text: String) {
+        if (text.isBlank()) return
+        viewModelScope.launch {
+            when (val r = repository.createComment(tripId, blurbId, text)) {
+                is Result.Success -> _uiState.update { state ->
+                    val existing = state.comments[blurbId] ?: emptyList()
+                    state.copy(comments = state.comments + (blurbId to (existing + r.data)))
+                }
+                is Result.Error -> _uiState.update { it.copy(error = r.message) }
+            }
+        }
+    }
+
+    fun deleteComment(blurbId: Int, commentId: Int) {
+        viewModelScope.launch {
+            repository.deleteComment(tripId, commentId)
+            _uiState.update { state ->
+                val updated = (state.comments[blurbId] ?: emptyList()).filter { it.id != commentId }
+                state.copy(comments = state.comments + (blurbId to updated))
+            }
+        }
     }
 }
