@@ -251,7 +251,10 @@ const map = new maplibregl.Map({
     container: 'map',
     style: mapStyles['Streets'],
     center: [0, 20],
-    zoom: 2
+    zoom: 2,
+    // Cap concurrent tile fetches to avoid flooding the 3 gunicorn workers.
+    // Default is 16 which overwhelms sync workers and causes NS_BINDING_ABORTED.
+    maxParallelImageRequests: 6,
 });
 
 map.addControl(new maplibregl.NavigationControl(), 'bottom-right');

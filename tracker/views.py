@@ -499,6 +499,12 @@ def seed_tiles(request):
     if not HAS_POSTGIS:
         return JsonResponse({'error': 'PostGIS required'}, status=400)
 
+    # Skip seeding for large time ranges — too many tiles, would hammer the DB
+    # and starve real tile requests. Let them warm up on-demand instead.
+    hours_param = request.GET.get('hours')
+    if hours_param and int(hours_param) >= 168:
+        return JsonResponse({'status': 'skipped'})
+
     qs_params = request.GET.urlencode()
     user_id = request.user.id
 
@@ -515,14 +521,18 @@ def seed_tiles(request):
     min_lng, max_lng = agg['min_lng'], agg['max_lng']
 
     def do_seed():
-        # Seed zoom levels 2-10 — above z10 there are too many tiles
+        # Seed zoom levels 2-8 only — z9/z10 tile counts grow too large even for
+        # moderate bounding boxes and compete with real requests on limited workers
         tiles_to_seed = []
-        for z in range(2, 11):
+        for z in range(2, 9):
             x0, y1 = _tile_coords(max_lat, min_lng, z)  # top-left
             x1, y0 = _tile_coords(min_lat, max_lng, z)  # bottom-right
             for tx in range(max(0, x0 - 1), x1 + 2):
                 for ty in range(max(0, y0 - 1), y1 + 2):
                     tiles_to_seed.append((z, tx, ty))
+
+        # Hard cap to avoid runaway seeding
+        tiles_to_seed = tiles_to_seed[:500]
 
         from django.test import RequestFactory
         from django.contrib.auth.models import User
@@ -587,6 +597,13 @@ def vector_tile(request, z, x, y):
         since = timezone.now() - timedelta(hours=h)
         extra_where.append("AND l.timestamp >= %(since)s")
         params["since"] = since
+        # Scale cache TTL with time range — large ranges change slowly
+        if h >= 720:
+            cache_ttl = 600   # 10 min for 30-day view
+        elif h >= 168:
+            cache_ttl = 300   # 5 min for 7-day view
+        elif h >= 24:
+            cache_ttl = 120   # 2 min for multi-day views
 
     if device_id:
         extra_where.append("AND d.device_id = %(device_id)s")
