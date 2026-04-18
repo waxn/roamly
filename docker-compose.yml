@@ -1,4 +1,11 @@
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: roamly_redis
+    restart: unless-stopped
+    volumes:
+      - ./data/redis:/data
+
   db:
     profiles: [local]
     image: postgis/postgis:16-3.4
@@ -23,6 +30,8 @@ services:
     build: .
     container_name: roamly_web
     restart: unless-stopped
+    depends_on:
+      - redis
     dns:
       - 1.1.1.1
       - 8.8.8.8
@@ -42,3 +51,4 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
       - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-http://localhost,http://127.0.0.1}
+      - REDIS_URL=redis://redis:6379/1

@@ -45,6 +45,13 @@ from .backup_tasks import (
 
 logger = logging.getLogger(__name__)
 
+
+def _bust_user_cache(user_id):
+    """Increment the per-user cache generation so all cached API responses are invalidated."""
+    key = f"cache_gen:{user_id}"
+    val = (cache.get(key) or 0) + 1
+    cache.set(key, val, timeout=86400 * 30)
+
 # Check for PostGIS
 try:
     from django.contrib.gis.geos import Polygon, Point
@@ -350,6 +357,7 @@ def push_location(request):
     except Exception:
         pass
 
+    _bust_user_cache(user.id)
     return JsonResponse({"status": "ok", "location_id": location.id, "device": str(device_id)})
 
 
@@ -704,6 +712,12 @@ def locations_geojson_api(request):
 @login_required
 def stats_api(request):
     """Overall statistics with time filtering."""
+    gen = cache.get(f"cache_gen:{request.user.id}", 0)
+    cache_key = f"stats:{request.user.id}:{gen}:{request.GET.urlencode()}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached)
+
     device_id = request.GET.get("device_id")
     all_time = request.GET.get("all")
     start_date = request.GET.get("start_date")
@@ -739,7 +753,7 @@ def stats_api(request):
     first = locations.order_by('timestamp').values_list('timestamp', flat=True).first()
     last = locations.order_by('-timestamp').values_list('timestamp', flat=True).first()
 
-    return JsonResponse({
+    result = {
         "total_points": total,
         "countries": countries,
         "cities": cities,
@@ -747,7 +761,9 @@ def stats_api(request):
         "devices": devices,
         "first_location": first.isoformat() if first else None,
         "last_location": last.isoformat() if last else None,
-    })
+    }
+    cache.set(cache_key, result, timeout=600)
+    return JsonResponse(result)
 
 
 def _haversine_km(lat1, lon1, lat2, lon2):
@@ -762,6 +778,12 @@ def _haversine_km(lat1, lon1, lat2, lon2):
 @login_required
 def distance_api(request):
     """Daily distance travelled, computed from sequential location points."""
+    gen = cache.get(f"cache_gen:{request.user.id}", 0)
+    cache_key = f"distance:{request.user.id}:{gen}:{request.GET.urlencode()}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached)
+
     device_id = request.GET.get("device_id")
     all_time = request.GET.get("all")
     start_date = request.GET.get("start_date")
@@ -814,16 +836,24 @@ def distance_api(request):
         prev[dev_id] = (lat, lon, ts)
 
     keys = sorted(bucket_km.keys())
-    return JsonResponse({
+    result = {
         "days": keys,
         "distances": [round(bucket_km[k], 2) for k in keys],
         "total_km": round(total_km, 2),
-    })
+    }
+    cache.set(cache_key, result, timeout=600)
+    return JsonResponse(result)
 
 
 @login_required
 def visits_api(request):
     """Aggregated city/state/country visit statistics."""
+    gen = cache.get(f"cache_gen:{request.user.id}", 0)
+    cache_key = f"visits:{request.user.id}:{gen}:{request.GET.urlencode()}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached)
+
     device_id = request.GET.get("device_id")
     locations = Location.objects.filter(device__user=request.user).exclude(city='')
     if device_id:
@@ -897,7 +927,9 @@ def visits_api(request):
     for c in countries:
         c['time_spent'] = round(time_country.get(c['country'], 0))
 
-    return JsonResponse({"cities": cities, "states": states, "countries": countries})
+    result = {"cities": cities, "states": states, "countries": countries}
+    cache.set(cache_key, result, timeout=600)
+    return JsonResponse(result)
 
 
 # ---------------------------------------------------------------------------
