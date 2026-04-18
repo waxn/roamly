@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -55,28 +56,30 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
         }
     }
 
+    // Update map overlays whenever locations change (SideEffect runs after every recomposition)
+    SideEffect {
+        mapView.overlays.clear()
+        if (state.locations.isNotEmpty()) {
+            val sorted = state.locations.sortedBy { it.timestamp }
+            val points = sorted.map { GeoPoint(it.lat, it.lng) }
+            val polyline = Polyline().apply {
+                setPoints(points)
+                outlinePaint.color = android.graphics.Color.parseColor("#1A73E8")
+                outlinePaint.strokeWidth = 4f
+                outlinePaint.strokeJoin = Paint.Join.ROUND
+                outlinePaint.strokeCap = Paint.Cap.ROUND
+            }
+            mapView.overlays.add(polyline)
+            val last = sorted.last()
+            mapView.controller.animateTo(GeoPoint(last.lat, last.lng))
+            mapView.controller.setZoom(12.0)
+        }
+        mapView.invalidate()
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { mapView },
-            update = { mv ->
-                if (state.locations.isNotEmpty()) {
-                    mv.overlays.clear()
-                    val sorted = state.locations.sortedBy { it.timestamp }
-                    val points = sorted.map { GeoPoint(it.lat, it.lng) }
-                    val polyline = Polyline().apply {
-                        setPoints(points)
-                        outlinePaint.color = android.graphics.Color.parseColor("#1A73E8")
-                        outlinePaint.strokeWidth = 4f
-                        outlinePaint.strokeJoin = Paint.Join.ROUND
-                        outlinePaint.strokeCap = Paint.Cap.ROUND
-                    }
-                    mv.overlays.add(polyline)
-                    val last = sorted.last()
-                    mv.controller.animateTo(GeoPoint(last.lat, last.lng))
-                    mv.controller.setZoom(12.0)
-                    mv.invalidate()
-                }
-            },
             modifier = Modifier.fillMaxSize()
         )
 
