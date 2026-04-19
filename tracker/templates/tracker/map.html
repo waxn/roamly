@@ -443,8 +443,14 @@ function loadDetailedPointsForView() {
     updateDetailControls();
     showMapLoading('loading detailed points...');
 
-    fetch(`/api/locations/?${params.toString()}`)
-        .then(r => r.json())
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    fetch(`/api/locations/?${params.toString()}`, { signal: controller.signal })
+        .then(r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+        })
         .then(data => {
             const features = [];
             (data.devices || []).forEach(device => {
@@ -468,10 +474,15 @@ function loadDetailedPointsForView() {
 
             renderDetailPoints(features);
             hideMapLoading();
+            clearTimeout(timeoutId);
         })
         .catch(err => {
+            clearTimeout(timeoutId);
+            if (err.name !== 'AbortError') {
+                console.error('Failed to load detail points:', err);
+                document.getElementById('map-info').textContent = 'error loading points';
+            }
             hideMapLoading();
-            console.error(err);
         })
         .finally(() => {
             detailLoading = false;
@@ -511,11 +522,11 @@ function renderTrack(devices, autoFit) {
             id: `${srcId}-heat`,
             type: 'heatmap',
             source: srcId,
-            maxzoom: 7,
+            maxzoom: 13,
             paint: {
-                'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 0.4, 7, 1.4],
-                'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 6, 7, 26],
-                'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.75, 7, 0.6],
+                'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 0.4, 13, 1.4],
+                'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 6, 13, 26],
+                'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.75, 11, 0.6, 13, 0.1],
                 'heatmap-color': [
                     'interpolate', ['linear'], ['heatmap-density'],
                     0, 'rgba(33,102,172,0)',
@@ -533,7 +544,7 @@ function renderTrack(devices, autoFit) {
             type: 'circle',
             source: srcId,
             filter: ['==', ['geometry-type'], 'Point'],
-            minzoom: 8,
+            minzoom: 11,
             paint: {
                 'circle-color': color,
                 'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 3.5, 12, 5.5, 16, 8.5],
