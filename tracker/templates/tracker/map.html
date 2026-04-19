@@ -475,6 +475,16 @@ function loadDetailedPointsForView() {
             renderDetailPoints(features);
             hideMapLoading();
             clearTimeout(timeoutId);
+            // Restore normal info display
+            if (lastTrackData.length > 0) {
+                const total = lastTrackData.reduce((s, d) => s + d.total, 0);
+                const shown = lastTrackData.reduce((s, d) => s + d.points.length, 0);
+                const hidden = lastTrackData.reduce((s, d) => s + (d.hidden || 0), 0);
+                const info = total !== shown
+                    ? `${total.toLocaleString()} pts · ${lastTrackData.length} device(s) · showing ${shown.toLocaleString()} (${hidden.toLocaleString()} dense/stationary hidden) + ${features.length.toLocaleString()} detail`
+                    : `${total.toLocaleString()} points · ${lastTrackData.length} device(s) + ${features.length.toLocaleString()} detail`;
+                document.getElementById('map-info').textContent = info;
+            }
         })
         .catch(err => {
             clearTimeout(timeoutId);
