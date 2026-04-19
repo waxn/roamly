@@ -47,6 +47,43 @@
     color: var(--text-muted);
 }
 
+.map-detail-controls {
+    position: absolute;
+    bottom: 24px;
+    right: 12px;
+    z-index: 10;
+    display: none;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 0.75rem;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    text-transform: lowercase;
+    color: var(--text-muted);
+}
+
+.map-detail-controls button {
+    border: 1px solid var(--border);
+    background: var(--primary);
+    color: #fff;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    text-transform: lowercase;
+    padding: 5px 10px;
+    cursor: pointer;
+}
+
+.map-detail-controls button[disabled] {
+    opacity: 0.6;
+    cursor: default;
+}
+
 .style-switcher {
     position: absolute;
     top: 12px;
@@ -159,6 +196,10 @@
 
     <div id="map-loading-bar"></div>
     <div class="map-info" id="map-info">loading...</div>
+    <div class="map-detail-controls" id="map-detail-controls">
+        <span id="map-detail-hint">zoom in to load raw points</span>
+        <button id="map-load-more-btn" type="button">load more points</button>
+    </div>
 
     <div id="map"></div>
 </div>
@@ -217,10 +258,7 @@ function hideMapLoading() {
 }
 
 const deviceColors = ['#3b82f6', '#22c55e', '#ef4444', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
-const HAS_POSTGIS = {{ has_postgis|yesno:"true,false" }};
-const USE_VECTOR_TILES = HAS_POSTGIS && localStorage.getItem('roamly_map_renderer') !== 'classic';
 
-// Custom device colors from settings, falling back to deterministic hash
 function getDeviceColors() {
     try { return JSON.parse(localStorage.getItem('roamly_device_colors') || '{}'); } catch { return {}; }
 }
@@ -232,17 +270,6 @@ function deviceColor(id) {
     return deviceColors[Math.abs(hash) % deviceColors.length];
 }
 
-// Build device color match expression for MapLibre style
-function deviceColorExpr() {
-    const options = document.getElementById('device-filter').options;
-    const expr = ['match', ['get', 'device_id']];
-    for (let i = 1; i < options.length; i++) {
-        expr.push(options[i].value, deviceColor(options[i].value));
-    }
-    expr.push('#3b82f6'); // fallback
-    return expr;
-}
-
 // Apply default time range from preferences
 const defaultTimeRange = localStorage.getItem('roamly_default_time_range') || '24';
 document.getElementById('time-range').value = defaultTimeRange;
@@ -252,59 +279,41 @@ const map = new maplibregl.Map({
     style: mapStyles['Streets'],
     center: [0, 20],
     zoom: 2,
-    // Cap concurrent tile fetches to avoid flooding the 3 gunicorn workers.
-    // Default is 16 which overwhelms sync workers and causes NS_BINDING_ABORTED.
-    maxParallelImageRequests: 6,
 });
 
 map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
-// Style switcher
+// Style switcher — re-render track after style swap
 document.querySelectorAll('.style-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         document.querySelectorAll('.style-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        const styleName = btn.dataset.style;
-        map.setStyle(mapStyles[styleName]);
+        map.setStyle(mapStyles[btn.dataset.style]);
         map.once('styledata', () => {
-            if (USE_VECTOR_TILES) setupVectorLayers();
-            else setupGeoJSONLayers();
+            renderTrack(lastTrackData, false);
+            if (detailFeatures.length > 0) renderDetailPoints(detailFeatures);
         });
     });
 });
 
-// ── Shared popup builder ──
-function showPointPopup(props, coords) {
-    const ts = new Date(USE_VECTOR_TILES ? props.ts * 1000 : props.timestamp);
-    let html = `<strong>${props.device_name || props.device_id || 'Unknown'}</strong><br>`;
-    html += `<span style="color: var(--text-muted)">${ts.toLocaleString()}</span><br>`;
-    if (props.city) html += `${props.city}`;
-    if (props.state) html += `, ${props.state}`;
-    if (props.country) html += `<br>${props.country}`;
-    if (props.speed) {
-        const unit = localStorage.getItem('roamly_speed_unit') || 'kmh';
-        const spd = unit === 'mph' ? (props.speed * 2.23694).toFixed(1) + ' mi/h' : (props.speed * 3.6).toFixed(1) + ' km/h';
-        html += `<br>Speed: ${spd}`;
-    }
-    if (props.battery) html += `<br>Battery: ${props.battery}%`;
-
-    new maplibregl.Popup({ offset: 10 })
-        .setLngLat(coords)
-        .setHTML(html)
-        .addTo(map);
+// ── Popup builder ──
+function showPointPopup(pt, coords) {
+    const ts = new Date(pt.ts * 1000);
+    let html = `<strong>${pt.device_name || 'Unknown'}</strong><br>`;
+    html += `<span style="color:var(--text-muted)">${ts.toLocaleString()}</span>`;
+    if (pt.city)    html += `<br>${pt.city}`;
+    if (pt.state)   html += `, ${pt.state}`;
+    if (pt.country) html += `<br>${pt.country}`;
+    new maplibregl.Popup({ offset: 10 }).setLngLat(coords).setHTML(html).addTo(map);
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// Vector Tile path (PostGIS)
-// ═══════════════════════════════════════════════════════════════════
-
+// ── Filter params ──
 function buildFilterParams() {
     const timeRange = document.getElementById('time-range').value;
-    const deviceId = document.getElementById('device-filter').value;
+    const deviceId  = document.getElementById('device-filter').value;
     const startDate = document.getElementById('start-date').value;
-    const endDate = document.getElementById('end-date').value;
+    const endDate   = document.getElementById('end-date').value;
     const params = new URLSearchParams();
-
     if (startDate && endDate) {
         params.set('start_date', startDate);
         params.set('end_date', endDate);
@@ -313,250 +322,256 @@ function buildFilterParams() {
     } else {
         params.set('hours', timeRange);
     }
-
     if (deviceId) params.set('device_id', deviceId);
     return params.toString();
 }
 
-function buildTileUrl() {
-    const qs = buildFilterParams();
-    return window.location.origin + `/api/tiles/{z}/{x}/{y}.pbf` + (qs ? `?${qs}` : '');
+// ═══════════════════════════════════════════════════════════════════
+// Track rendering — one fetch, draw lines + dots, done.
+// No vector tiles, no per-viewport requests.
+// ═══════════════════════════════════════════════════════════════════
+
+let activeSources = [];   // track IDs currently on the map
+let lastTrackData = [];   // last rendered devices, for style-swap re-render
+let pendingFetch = null;  // AbortController for in-flight request
+let detailFeatures = [];   // on-demand high-resolution points in current view
+
+const DETAIL_MIN_ZOOM = 15;
+const DETAIL_SOURCE_ID = 'detail-points-src';
+const DETAIL_LAYER_ID = 'detail-points-layer';
+let detailLoading = false;
+
+function clearTrackLayers() {
+    activeSources.forEach(id => {
+        [`${id}-line`, `${id}-dots`].forEach(lid => { if (map.getLayer(lid)) map.removeLayer(lid); });
+        if (map.getSource(id)) map.removeSource(id);
+    });
+    activeSources = [];
 }
 
-function setupVectorLayers() {
-    if (map.getSource('locations')) return;
+function updateDetailControls() {
+    const panel = document.getElementById('map-detail-controls');
+    const hint = document.getElementById('map-detail-hint');
+    const btn = document.getElementById('map-load-more-btn');
+    const canLoad = map.getZoom() >= DETAIL_MIN_ZOOM && lastTrackData.length > 0;
 
-    showMapLoading('loading tiles...');
-    const colorExpr = deviceColorExpr();
+    panel.style.display = canLoad ? 'flex' : 'none';
+    if (!canLoad) return;
 
-    map.addSource('locations', {
-        type: 'vector',
-        tiles: [buildTileUrl()],
-        minzoom: 0,
-        maxzoom: 16,
-    });
+    if (detailLoading) {
+        hint.textContent = 'loading raw points in this area...';
+        btn.disabled = true;
+        return;
+    }
 
-    // Heatmap at all zoom levels
-    map.addLayer({
-        id: 'points-heat',
-        type: 'heatmap',
-        source: 'locations',
-        'source-layer': 'locations',
-        paint: {
-            'heatmap-weight': 1,
-            'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 0.4, 10, 1.5],
-            'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 3, 5, 6, 10, 12],
-            'heatmap-color': [
-                'interpolate', ['linear'], ['heatmap-density'],
-                0, 'rgba(59,130,246,0)',
-                0.2, 'rgba(59,130,246,0.5)',
-                0.6, 'rgba(99,102,241,0.8)',
-                1, 'rgba(239,68,68,1)'
-            ],
-            'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 8, 1, 11, 0],
-        }
-    });
-
-    // Individual circles fading in at high zoom
-    map.addLayer({
-        id: 'points',
-        type: 'circle',
-        source: 'locations',
-        'source-layer': 'locations',
-        minzoom: 9,
-        paint: {
-            'circle-color': colorExpr,
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 3, 14, 6, 18, 10],
-            'circle-stroke-width': 1,
-            'circle-stroke-color': 'rgba(255,255,255,0.6)',
-            'circle-opacity': ['interpolate', ['linear'], ['zoom'], 9, 0, 10, 1],
-        }
-    });
-
-    // Click handler
-    map.on('click', 'points', (e) => {
-        showPointPopup(e.features[0].properties, e.features[0].geometry.coordinates.slice());
-    });
-    map.on('mouseenter', 'points', () => map.getCanvas().style.cursor = 'pointer');
-    map.on('mouseleave', 'points', () => map.getCanvas().style.cursor = '');
-
-    // loading bar hidden by idle event listener below
+    btn.disabled = false;
+    if (detailFeatures.length > 0) {
+        hint.textContent = `${detailFeatures.length.toLocaleString()} raw point(s) loaded in this view`;
+    } else {
+        hint.textContent = 'zoomed in: load every point in this visible area';
+    }
 }
 
-function reloadTiles(autoFit) {
-    if (!map.getSource('locations')) return;
-    showMapLoading('loading tiles...');
-    ['points', 'points-heat'].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
-    seedTiles();
-    map.removeSource('locations');
-    setupVectorLayers();
-    if (autoFit) fitToData();
+function clearDetailPoints() {
+    detailFeatures = [];
+    if (map.getLayer(DETAIL_LAYER_ID)) map.removeLayer(DETAIL_LAYER_ID);
+    if (map.getSource(DETAIL_SOURCE_ID)) map.removeSource(DETAIL_SOURCE_ID);
+    updateDetailControls();
 }
 
-function fitToData() {
-    const qs = buildFilterParams();
-    fetch(`/api/locations/bounds/?${qs}`)
-        .then(r => r.json())
-        .then(data => {
-            if (data.bounds) {
-                map.fitBounds(data.bounds, { padding: 50, maxZoom: 15 });
+function renderDetailPoints(features) {
+    detailFeatures = features;
+    const fc = { type: 'FeatureCollection', features };
+
+    if (map.getSource(DETAIL_SOURCE_ID)) {
+        map.getSource(DETAIL_SOURCE_ID).setData(fc);
+    } else {
+        map.addSource(DETAIL_SOURCE_ID, { type: 'geojson', data: fc });
+    }
+
+    if (!map.getLayer(DETAIL_LAYER_ID)) {
+        map.addLayer({
+            id: DETAIL_LAYER_ID,
+            type: 'circle',
+            source: DETAIL_SOURCE_ID,
+            minzoom: DETAIL_MIN_ZOOM,
+            paint: {
+                'circle-color': ['get', 'color'],
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], DETAIL_MIN_ZOOM, 2, 20, 5],
+                'circle-opacity': 0.92,
+                'circle-stroke-width': 0.8,
+                'circle-stroke-color': 'rgba(255,255,255,0.75)',
             }
         });
-}
 
-// ═══════════════════════════════════════════════════════════════════
-// GeoJSON fallback path (SQLite)
-// ═══════════════════════════════════════════════════════════════════
-
-function setupGeoJSONLayers() {
-    if (map.getSource('locations')) return;
-
-    map.addSource('locations', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
-        cluster: true,
-        clusterMaxZoom: 14,
-        clusterRadius: parseInt(localStorage.getItem('roamly_cluster_radius') || '50')
-    });
-
-    map.addLayer({
-        id: 'clusters',
-        type: 'circle',
-        source: 'locations',
-        filter: ['has', 'point_count'],
-        paint: {
-            'circle-color': ['step', ['get', 'point_count'],
-                '#3b82f6', 100, '#f59e0b', 750, '#ef4444'],
-            'circle-radius': ['step', ['get', 'point_count'], 18, 100, 26, 750, 36],
-            'circle-stroke-width': 2,
-            'circle-stroke-color': 'rgba(255,255,255,0.3)'
-        }
-    });
-
-    map.addLayer({
-        id: 'cluster-count',
-        type: 'symbol',
-        source: 'locations',
-        filter: ['has', 'point_count'],
-        layout: { 'text-field': '{point_count_abbreviated}', 'text-size': 12 },
-        paint: { 'text-color': '#ffffff' }
-    });
-
-    map.addLayer({
-        id: 'points',
-        type: 'circle',
-        source: 'locations',
-        filter: ['!', ['has', 'point_count']],
-        paint: {
-            'circle-color': ['get', 'color'],
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 3, 10, 6, 16, 10],
-            'circle-stroke-width': 2,
-            'circle-stroke-color': 'rgba(255,255,255,0.6)'
-        }
-    });
-
-    map.addSource('trails', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] }
-    });
-
-    map.addLayer({
-        id: 'trail-lines',
-        type: 'line',
-        source: 'trails',
-        paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.6 }
-    }, 'clusters');
-
-    map.on('click', 'clusters', (e) => {
-        const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
-        const clusterId = features[0].properties.cluster_id;
-        map.getSource('locations').getClusterExpansionZoom(clusterId, (err, zoom) => {
-            if (err) return;
-            map.easeTo({ center: features[0].geometry.coordinates, zoom });
+        map.on('click', DETAIL_LAYER_ID, e => {
+            const p = e.features[0].properties;
+            const ts = p.timestamp ? new Date(p.timestamp) : null;
+            let html = `<strong>${p.device_name || p.device_id || 'Unknown'}</strong>`;
+            if (ts && !isNaN(ts.getTime())) {
+                html += `<br><span style="color:var(--text-muted)">${ts.toLocaleString()}</span>`;
+            }
+            if (p.city) html += `<br>${p.city}`;
+            if (p.state) html += `, ${p.state}`;
+            if (p.country) html += `<br>${p.country}`;
+            new maplibregl.Popup({ offset: 10 })
+                .setLngLat(e.features[0].geometry.coordinates.slice())
+                .setHTML(html)
+                .addTo(map);
         });
-    });
+        map.on('mouseenter', DETAIL_LAYER_ID, () => map.getCanvas().style.cursor = 'pointer');
+        map.on('mouseleave', DETAIL_LAYER_ID, () => map.getCanvas().style.cursor = '');
+    }
 
-    map.on('click', 'points', (e) => {
-        showPointPopup(e.features[0].properties, e.features[0].geometry.coordinates.slice());
-    });
-
-    map.on('mouseenter', 'clusters', () => map.getCanvas().style.cursor = 'pointer');
-    map.on('mouseleave', 'clusters', () => map.getCanvas().style.cursor = '');
-    map.on('mouseenter', 'points', () => map.getCanvas().style.cursor = 'pointer');
-    map.on('mouseleave', 'points', () => map.getCanvas().style.cursor = '');
+    updateDetailControls();
 }
 
-let loadTimeout = null;
-let totalPoints = 0;
+function loadDetailedPointsForView() {
+    if (detailLoading || map.getZoom() < DETAIL_MIN_ZOOM) return;
 
-function loadLocations() {
-    const bounds = map.getBounds();
-    const params = new URLSearchParams({
-        min_lng: bounds.getWest(),
-        min_lat: bounds.getSouth(),
-        max_lng: bounds.getEast(),
-        max_lat: bounds.getNorth(),
-        limit: parseInt(localStorage.getItem('roamly_point_limit') || '5000'),
-    });
+    const b = map.getBounds();
+    const params = new URLSearchParams(buildFilterParams());
+    params.set('min_lng', b.getWest());
+    params.set('min_lat', b.getSouth());
+    params.set('max_lng', b.getEast());
+    params.set('max_lat', b.getNorth());
+    params.set('limit', '50000');
+    params.set('offset', '0');
 
-    const qs = buildFilterParams();
-    if (qs) qs.split('&').forEach(p => { const [k, v] = p.split('='); params.set(k, v); });
+    detailLoading = true;
+    updateDetailControls();
+    showMapLoading('loading detailed points...');
 
-    showMapLoading();
-
-    fetch(`/api/locations/?${params}`)
+    fetch(`/api/locations/?${params.toString()}`)
         .then(r => r.json())
         .then(data => {
             const features = [];
-            const trailFeatures = [];
-            totalPoints = 0;
-
-            data.devices.forEach((device, i) => {
-                const color = deviceColors[i % deviceColors.length];
-                const lineCoords = [];
-
-                device.locations.forEach(loc => {
+            (data.devices || []).forEach(device => {
+                const color = deviceColor(device.device_id || device.name || 'default');
+                (device.locations || []).forEach(loc => {
                     features.push({
                         type: 'Feature',
                         geometry: { type: 'Point', coordinates: [loc.lng, loc.lat] },
-                        properties: { ...loc, color, device_name: device.name }
+                        properties: {
+                            device_id: device.device_id,
+                            device_name: device.name,
+                            timestamp: loc.timestamp,
+                            city: loc.city,
+                            state: loc.state,
+                            country: loc.country,
+                            color,
+                        }
                     });
-                    lineCoords.push([loc.lng, loc.lat]);
                 });
-
-                totalPoints += device.locations.length;
-
-                if (lineCoords.length > 1) {
-                    trailFeatures.push({
-                        type: 'Feature',
-                        geometry: { type: 'LineString', coordinates: lineCoords },
-                        properties: { color }
-                    });
-                }
             });
 
-            if (map.getSource('locations')) {
-                map.getSource('locations').setData({ type: 'FeatureCollection', features });
-            }
-            if (map.getSource('trails')) {
-                map.getSource('trails').setData({ type: 'FeatureCollection', features: trailFeatures });
-            }
-
+            renderDetailPoints(features);
             hideMapLoading();
-            document.getElementById('map-info').textContent =
-                `${totalPoints.toLocaleString()} points from ${data.devices.length} device(s)`;
-
-            if (features.length > 0 && !window._hasAutoFit) {
-                const lngs = features.map(f => f.geometry.coordinates[0]);
-                const lats = features.map(f => f.geometry.coordinates[1]);
-                map.fitBounds([
-                    [Math.min(...lngs), Math.min(...lats)],
-                    [Math.max(...lngs), Math.max(...lats)]
-                ], { padding: 50, maxZoom: 15 });
-                window._hasAutoFit = true;
-            }
         })
         .catch(err => {
+            hideMapLoading();
+            console.error(err);
+        })
+        .finally(() => {
+            detailLoading = false;
+            updateDetailControls();
+        });
+}
+
+function renderTrack(devices, autoFit) {
+    lastTrackData = devices || [];
+    clearTrackLayers();
+    if (!devices || devices.length === 0) return;
+
+    let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+
+    devices.forEach((device, i) => {
+        const srcId = `track-${i}`;
+        const color = deviceColor(device.id);
+        const coords = device.points.map(p => p.c);
+
+        // Build a single GeoJSON with both the line and individual points
+        const features = [];
+        if (coords.length > 1) {
+            features.push({
+                type: 'Feature',
+                geometry: { type: 'LineString', coordinates: coords },
+                properties: {}
+            });
+        }
+        device.points.forEach(p => {
+            features.push({
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: p.c },
+                properties: { ts: p.ts, city: p.city, state: p.state, country: p.country, device_name: device.name }
+            });
+            if (p.c[0] < minLng) minLng = p.c[0];
+            if (p.c[0] > maxLng) maxLng = p.c[0];
+            if (p.c[1] < minLat) minLat = p.c[1];
+            if (p.c[1] > maxLat) maxLat = p.c[1];
+        });
+
+        map.addSource(srcId, { type: 'geojson', data: { type: 'FeatureCollection', features } });
+        activeSources.push(srcId);
+
+        map.addLayer({
+            id: `${srcId}-line`,
+            type: 'line',
+            source: srcId,
+            filter: ['==', ['geometry-type'], 'LineString'],
+            paint: { 'line-color': color, 'line-width': 2, 'line-opacity': 0.85 }
+        });
+
+        map.addLayer({
+            id: `${srcId}-dots`,
+            type: 'circle',
+            source: srcId,
+            filter: ['==', ['geometry-type'], 'Point'],
+            minzoom: 11,
+            paint: {
+                'circle-color': color,
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 3, 16, 7],
+                'circle-stroke-width': 1,
+                'circle-stroke-color': 'rgba(255,255,255,0.7)',
+            }
+        });
+
+        map.on('click', `${srcId}-dots`, e => {
+            showPointPopup(e.features[0].properties, e.features[0].geometry.coordinates.slice());
+        });
+        map.on('mouseenter', `${srcId}-dots`, () => map.getCanvas().style.cursor = 'pointer');
+        map.on('mouseleave', `${srcId}-dots`, () => map.getCanvas().style.cursor = '');
+    });
+
+    if (autoFit && minLng !== Infinity) {
+        map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 60, maxZoom: 15, duration: 800 });
+    }
+
+    updateDetailControls();
+}
+
+function loadTrack(autoFit) {
+    if (pendingFetch) { pendingFetch.abort(); }
+    pendingFetch = new AbortController();
+
+    showMapLoading('loading...');
+    const qs = buildFilterParams();
+
+    fetch(`/api/track/?${qs}`, { signal: pendingFetch.signal })
+        .then(r => r.json())
+        .then(data => {
+            renderTrack(data.devices, autoFit);
+            hideMapLoading();
+            const total = data.devices.reduce((s, d) => s + d.total, 0);
+            const shown = data.devices.reduce((s, d) => s + d.points.length, 0);
+            const hidden = data.devices.reduce((s, d) => s + (d.hidden || 0), 0);
+            const info = total !== shown
+                ? `${total.toLocaleString()} pts · ${data.devices.length} device(s) · showing ${shown.toLocaleString()} (${hidden.toLocaleString()} dense/stationary hidden)`
+                : `${total.toLocaleString()} points · ${data.devices.length} device(s)`;
+            document.getElementById('map-info').textContent = info;
+        })
+        .catch(err => {
+            if (err.name === 'AbortError') return;
             hideMapLoading();
             document.getElementById('map-info').textContent = 'error loading data';
             console.error(err);
@@ -567,7 +582,7 @@ function loadLocations() {
 // Init + filter handlers
 // ═══════════════════════════════════════════════════════════════════
 
-// Read URL params for date pre-fill and zoom target (used by search page links)
+// URL params: date pre-fill and fly-to (used by search page links)
 (function() {
     const p = new URLSearchParams(window.location.search);
     if (p.get('start') && p.get('end')) {
@@ -579,49 +594,31 @@ function loadLocations() {
         const lat = parseFloat(p.get('lat'));
         const lng = parseFloat(p.get('lng'));
         const zoom = parseInt(p.get('zoom') || '16');
-        map.once('load', () => {
-            setTimeout(() => map.flyTo({ center: [lng, lat], zoom: zoom }), 500);
-        });
+        map.once('load', () => setTimeout(() => map.flyTo({ center: [lng, lat], zoom }), 500));
     }
 })();
 
-function seedTiles() {
-    const qs = buildFilterParams();
-    fetch(`/api/tiles/seed/?${qs}`, {method: 'POST', headers: {'X-CSRFToken': '{{ csrf_token }}'}});
-}
+map.on('load', () => loadTrack(true));
 
-map.on('load', () => {
-    if (USE_VECTOR_TILES) {
-        // Show loading bar while vector tiles render; hide when map is fully idle
-        map.on('dataloading', () => showMapLoading('loading tiles...'));
-        map.on('idle', () => {
-            hideMapLoading();
-            document.getElementById('map-info').textContent = 'vector tiles';
-        });
-        setupVectorLayers();
-        fitToData();
-        seedTiles();
-    } else {
-        setupGeoJSONLayers();
-        loadLocations();
+map.on('zoomend', () => {
+    if (map.getZoom() < DETAIL_MIN_ZOOM && detailFeatures.length > 0) {
+        clearDetailPoints();
+    }
+    updateDetailControls();
+});
+
+map.on('moveend', () => {
+    if (detailFeatures.length > 0) {
+        clearDetailPoints();
     }
 });
 
-if (!USE_VECTOR_TILES) {
-    map.on('moveend', () => {
-        clearTimeout(loadTimeout);
-        loadTimeout = setTimeout(loadLocations, 400);
-    });
-}
+document.getElementById('map-load-more-btn').addEventListener('click', loadDetailedPointsForView);
 
 ['time-range', 'device-filter'].forEach(id => {
     document.getElementById(id).addEventListener('change', () => {
-        if (USE_VECTOR_TILES) {
-            reloadTiles(true);
-        } else {
-            window._hasAutoFit = false;
-            loadLocations();
-        }
+        clearDetailPoints();
+        loadTrack(true);
     });
 });
 
@@ -631,8 +628,8 @@ if (!USE_VECTOR_TILES) {
         const e = document.getElementById('end-date').value;
         if (s && e) {
             document.getElementById('time-range').value = 'all';
-            if (USE_VECTOR_TILES) reloadTiles(true);
-            else { window._hasAutoFit = false; loadLocations(); }
+            clearDetailPoints();
+            loadTrack(true);
         }
     });
 });

@@ -404,6 +404,155 @@ def locations_bounds_api(request):
 
 
 @login_required
+def track_api(request):
+    """Return GPS track as decimated path per device — single request, no tiles.
+
+    Returns at most MAX_POINTS_PER_DEVICE coordinates per device, evenly sampled,
+    so the response is fast regardless of time range. Cached in Redis.
+    """
+    MAX_POINTS = 4000
+    STATIONARY_MIN_INTERVAL_S = 600
+    MOVEMENT_DISTANCE_M = 60
+    MOVEMENT_SPEED_MPS = 1.1
+    STATIONARY_GAP_FORCE_KEEP_S = 1800
+
+    device_id = request.GET.get('device_id')
+    all_time = request.GET.get('all')
+    hours_param = request.GET.get('hours', '24')
+    start_date = request.GET.get('start_date')
+    end_date = request.GET.get('end_date')
+
+    cache_key = f"track:{request.user.id}:{request.GET.urlencode()}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached)
+
+    qs = Location.objects.filter(
+        device__user=request.user,
+        latitude__isnull=False,
+        longitude__isnull=False,
+    ).select_related('device').order_by('device_id', 'timestamp')
+
+    cache_ttl = 60
+
+    if start_date and end_date:
+        try:
+            start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
+            end_dt = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
+            if timezone.is_naive(start):
+                start = timezone.make_aware(start)
+            if timezone.is_naive(end_dt):
+                end_dt = timezone.make_aware(end_dt)
+            qs = qs.filter(timestamp__gte=start, timestamp__lte=end_dt)
+            if end_dt < timezone.now() - timedelta(hours=1):
+                cache_ttl = 3600  # historical range, cache 1 hour
+        except (ValueError, TypeError):
+            pass
+    elif not all_time:
+        h = int(hours_param)
+        qs = qs.filter(timestamp__gte=timezone.now() - timedelta(hours=h))
+        if h >= 720:
+            cache_ttl = 600
+        elif h >= 168:
+            cache_ttl = 300
+        elif h >= 24:
+            cache_ttl = 120
+
+    if device_id:
+        qs = qs.filter(device__device_id=device_id)
+
+    # Group by device, then decimate each device's track independently
+    devices_map = {}
+    for loc in qs.values('latitude', 'longitude', 'timestamp', 'speed', 'city', 'state', 'country',
+                          'device__device_id', 'device__name'):
+        did = loc['device__device_id']
+        if did not in devices_map:
+            devices_map[did] = {
+                'id': did,
+                'name': loc['device__name'] or did,
+                'points': [],
+            }
+        devices_map[did]['points'].append({
+            'c': [loc['longitude'], loc['latitude']],
+            'ts': int(loc['timestamp'].timestamp()),
+            'speed': loc['speed'],
+            'city': loc['city'],
+            'state': loc['state'],
+            'country': loc['country'],
+        })
+
+    result_devices = []
+    for dev in devices_map.values():
+        pts = dev['points']
+        total = len(pts)
+
+        if total <= 2:
+            sampled = pts
+        else:
+            sampled = [pts[0]]
+            last_kept_stationary_ts = pts[0]['ts']
+
+            for i in range(1, total):
+                prev = pts[i - 1]
+                cur = pts[i]
+
+                dt = max(0, cur['ts'] - prev['ts'])
+                dist_m = _haversine_km(prev['c'][1], prev['c'][0], cur['c'][1], cur['c'][0]) * 1000
+                speed_mps = cur.get('speed')
+                if speed_mps is None and dt > 0:
+                    speed_mps = dist_m / dt
+
+                is_moving = (
+                    dist_m >= MOVEMENT_DISTANCE_M
+                    or (speed_mps is not None and speed_mps >= MOVEMENT_SPEED_MPS)
+                )
+
+                if is_moving:
+                    sampled.append(cur)
+                    continue
+
+                if (
+                    cur['ts'] - last_kept_stationary_ts >= STATIONARY_MIN_INTERVAL_S
+                    or dt >= STATIONARY_GAP_FORCE_KEEP_S
+                ):
+                    sampled.append(cur)
+                    last_kept_stationary_ts = cur['ts']
+
+            # Always include the final point so the line ends at the latest fix
+            if sampled[-1] is not pts[-1]:
+                sampled.append(pts[-1])
+
+        if len(sampled) > MAX_POINTS:
+            stride = max(1, len(sampled) // MAX_POINTS)
+            sampled = sampled[::stride]
+            if sampled[-1] is not pts[-1]:
+                sampled.append(pts[-1])
+
+        sampled = [
+            {
+                'c': p['c'],
+                'ts': p['ts'],
+                'city': p['city'],
+                'state': p['state'],
+                'country': p['country'],
+            }
+            for p in sampled
+        ]
+
+        result_devices.append({
+            'id': dev['id'],
+            'name': dev['name'],
+            'total': total,
+            'hidden': max(0, total - len(sampled)),
+            'points': sampled,
+        })
+
+    payload = {'devices': result_devices}
+    cache.set(cache_key, payload, timeout=cache_ttl)
+    return JsonResponse(payload)
+
+
+@login_required
 def locations_api(request):
     """Get locations with spatial filtering."""
     device_id = request.GET.get("device_id")
