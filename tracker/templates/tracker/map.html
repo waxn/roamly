@@ -198,8 +198,8 @@
     <div id="map-loading-bar"></div>
     <div class="map-info" id="map-info">loading...</div>
     <div class="map-detail-controls" id="map-detail-controls">
-        <span id="map-detail-hint">zoom in to load raw points</span>
-        <button id="map-load-more-btn" type="button">load more points</button>
+        <span id="map-detail-hint"></span>
+        <button id="map-load-more-btn" type="button">load all points</button>
     </div>
 
     <div id="map"></div>
@@ -292,7 +292,7 @@ document.querySelectorAll('.style-btn').forEach(btn => {
         map.setStyle(mapStyles[btn.dataset.style]);
         map.once('styledata', () => {
             renderTrack(lastTrackData, false);
-            if (detailFeatures.length > 0) renderDetailPoints(detailFeatures);
+            if (accMap.size > 0) initAccLayers();
         });
     });
 });
@@ -328,19 +328,27 @@ function buildFilterParams() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Track rendering — one fetch, draw heatmap (far) + points (near), done.
-// No vector tiles, no per-viewport requests.
+// Track rendering + accumulated detail points.
+// Points fetched for any zoomed viewport accumulate permanently
+// until filters change. They contribute to both heatmap and dots.
 // ═══════════════════════════════════════════════════════════════════
 
-let activeSources = [];   // track IDs currently on the map
-let lastTrackData = [];   // last rendered devices, for style-swap re-render
-let pendingFetch = null;  // AbortController for in-flight request
-let detailFeatures = [];   // on-demand high-resolution points in current view
+let activeSources = [];   // decimated track source IDs on the map
+let lastTrackData = [];   // for style-swap re-render
+let pendingFetch = null;  // AbortController for track fetch
 
-const DETAIL_MIN_ZOOM = 15;
-const DETAIL_SOURCE_ID = 'detail-points-src';
-const DETAIL_LAYER_ID = 'detail-points-layer';
+const DETAIL_MIN_ZOOM = 8;
+const AUTO_LOAD_LIMIT = 10000;
+const MORE_LOAD_LIMIT = 50000;
+const ACC_SOURCE_ID = 'acc-pts';
+const ACC_HEAT_LAYER = 'acc-pts-heat';
+const ACC_DOTS_LAYER = 'acc-pts-dots';
+
+let accMap = new Map();            // "devId:ts" → Feature, deduped accumulated points
+let fetchedAreas = [];             // {w,s,e,n} bboxes where we have complete data (no limit hit)
 let detailLoading = false;
+let lastViewportHitLimit = false;  // whether last viewport fetch hit the limit
+let moveDebounce = null;
 
 function clearTrackLayers() {
     activeSources.forEach(id => {
@@ -350,85 +358,119 @@ function clearTrackLayers() {
     activeSources = [];
 }
 
+function getAccFC() {
+    return { type: 'FeatureCollection', features: Array.from(accMap.values()) };
+}
+
+function initAccLayers() {
+    if (map.getSource(ACC_SOURCE_ID)) return;
+
+    map.addSource(ACC_SOURCE_ID, { type: 'geojson', data: getAccFC() });
+
+    // Heatmap — same ramp as base track, additively brightens dense areas
+    map.addLayer({
+        id: ACC_HEAT_LAYER,
+        type: 'heatmap',
+        source: ACC_SOURCE_ID,
+        maxzoom: 13,
+        paint: {
+            'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 0.4, 13, 1.4],
+            'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 6, 13, 26],
+            'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.75, 11, 0.6, 13, 0.1],
+            'heatmap-color': [
+                'interpolate', ['linear'], ['heatmap-density'],
+                0, 'rgba(33,102,172,0)',
+                0.2, 'rgb(103,169,207)',
+                0.4, 'rgb(209,229,240)',
+                0.6, 'rgb(253,219,199)',
+                0.8, 'rgb(239,138,98)',
+                1, 'rgb(178,24,43)'
+            ]
+        }
+    });
+
+    // Dots — identical size to base track dots, per-device color
+    map.addLayer({
+        id: ACC_DOTS_LAYER,
+        type: 'circle',
+        source: ACC_SOURCE_ID,
+        minzoom: 8,
+        paint: {
+            'circle-color': ['get', 'color'],
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 3.5, 12, 5.5, 16, 8.5],
+            'circle-stroke-width': 1,
+            'circle-stroke-color': 'rgba(255,255,255,0.7)',
+        }
+    });
+
+    map.on('click', ACC_DOTS_LAYER, e => {
+        const p = e.features[0].properties;
+        const ts = p.timestamp ? new Date(p.timestamp) : null;
+        let html = `<strong>${p.device_name || p.device_id || 'Unknown'}</strong>`;
+        if (ts && !isNaN(ts.getTime())) {
+            html += `<br><span style="color:var(--text-muted)">${ts.toLocaleString()}</span>`;
+        }
+        if (p.city) html += `<br>${p.city}`;
+        if (p.state) html += `, ${p.state}`;
+        if (p.country) html += `<br>${p.country}`;
+        new maplibregl.Popup({ offset: 10 })
+            .setLngLat(e.features[0].geometry.coordinates.slice())
+            .setHTML(html)
+            .addTo(map);
+    });
+    map.on('mouseenter', ACC_DOTS_LAYER, () => map.getCanvas().style.cursor = 'pointer');
+    map.on('mouseleave', ACC_DOTS_LAYER, () => map.getCanvas().style.cursor = '');
+}
+
+function clearAccumulated() {
+    accMap.clear();
+    fetchedAreas = [];
+    lastViewportHitLimit = false;
+    if (map.getLayer(ACC_HEAT_LAYER)) map.removeLayer(ACC_HEAT_LAYER);
+    if (map.getLayer(ACC_DOTS_LAYER)) map.removeLayer(ACC_DOTS_LAYER);
+    if (map.getSource(ACC_SOURCE_ID)) map.removeSource(ACC_SOURCE_ID);
+    updateDetailControls();
+}
+
+function mergeAccFeatures(newFeatures) {
+    newFeatures.forEach(f => {
+        const key = `${f.properties.device_id}:${f.properties.timestamp}`;
+        accMap.set(key, f);
+    });
+    initAccLayers();
+    if (map.getSource(ACC_SOURCE_ID)) {
+        map.getSource(ACC_SOURCE_ID).setData(getAccFC());
+    }
+}
+
 function updateDetailControls() {
     const panel = document.getElementById('map-detail-controls');
     const hint = document.getElementById('map-detail-hint');
     const btn = document.getElementById('map-load-more-btn');
-    const canLoad = map.getZoom() >= DETAIL_MIN_ZOOM && lastTrackData.length > 0;
 
-    panel.style.display = canLoad ? 'flex' : 'none';
-    if (!canLoad) return;
+    const zoom = map.getZoom();
+    const showPanel = zoom >= DETAIL_MIN_ZOOM && lastTrackData.length > 0 && (detailLoading || lastViewportHitLimit);
+    panel.style.display = showPanel ? 'flex' : 'none';
+    if (!showPanel) return;
 
     if (detailLoading) {
-        hint.textContent = 'loading raw points in this area...';
+        hint.textContent = 'loading points...';
         btn.disabled = true;
         return;
     }
 
     btn.disabled = false;
-    if (detailFeatures.length > 0) {
-        hint.textContent = `${detailFeatures.length.toLocaleString()} raw point(s) loaded in this view`;
-    } else {
-        hint.textContent = 'zoomed in: load every point in this visible area';
-    }
+    hint.textContent = `${accMap.size.toLocaleString()} pts loaded · dense area`;
 }
 
-function clearDetailPoints() {
-    detailFeatures = [];
-    if (map.getLayer(DETAIL_LAYER_ID)) map.removeLayer(DETAIL_LAYER_ID);
-    if (map.getSource(DETAIL_SOURCE_ID)) map.removeSource(DETAIL_SOURCE_ID);
-    updateDetailControls();
+function isViewportCovered(b) {
+    const w = b.getWest(), s = b.getSouth(), e = b.getEast(), n = b.getNorth();
+    return fetchedAreas.some(a => a.w <= w && a.s <= s && a.e >= e && a.n >= n);
 }
 
-function renderDetailPoints(features) {
-    detailFeatures = features;
-    const fc = { type: 'FeatureCollection', features };
-
-    if (map.getSource(DETAIL_SOURCE_ID)) {
-        map.getSource(DETAIL_SOURCE_ID).setData(fc);
-    } else {
-        map.addSource(DETAIL_SOURCE_ID, { type: 'geojson', data: fc });
-    }
-
-    if (!map.getLayer(DETAIL_LAYER_ID)) {
-        map.addLayer({
-            id: DETAIL_LAYER_ID,
-            type: 'circle',
-            source: DETAIL_SOURCE_ID,
-            minzoom: DETAIL_MIN_ZOOM,
-            paint: {
-                'circle-color': ['get', 'color'],
-                'circle-radius': ['interpolate', ['linear'], ['zoom'], DETAIL_MIN_ZOOM, 2, 20, 5],
-                'circle-opacity': 0.92,
-                'circle-stroke-width': 0.8,
-                'circle-stroke-color': 'rgba(255,255,255,0.75)',
-            }
-        });
-
-        map.on('click', DETAIL_LAYER_ID, e => {
-            const p = e.features[0].properties;
-            const ts = p.timestamp ? new Date(p.timestamp) : null;
-            let html = `<strong>${p.device_name || p.device_id || 'Unknown'}</strong>`;
-            if (ts && !isNaN(ts.getTime())) {
-                html += `<br><span style="color:var(--text-muted)">${ts.toLocaleString()}</span>`;
-            }
-            if (p.city) html += `<br>${p.city}`;
-            if (p.state) html += `, ${p.state}`;
-            if (p.country) html += `<br>${p.country}`;
-            new maplibregl.Popup({ offset: 10 })
-                .setLngLat(e.features[0].geometry.coordinates.slice())
-                .setHTML(html)
-                .addTo(map);
-        });
-        map.on('mouseenter', DETAIL_LAYER_ID, () => map.getCanvas().style.cursor = 'pointer');
-        map.on('mouseleave', DETAIL_LAYER_ID, () => map.getCanvas().style.cursor = '');
-    }
-
-    updateDetailControls();
-}
-
-function loadDetailedPointsForView() {
-    if (detailLoading || map.getZoom() < DETAIL_MIN_ZOOM) return;
+function loadViewport(limit) {
+    limit = limit || AUTO_LOAD_LIMIT;
+    if (detailLoading || map.getZoom() < DETAIL_MIN_ZOOM || lastTrackData.length === 0) return;
 
     const b = map.getBounds();
     const params = new URLSearchParams(buildFilterParams());
@@ -436,21 +478,18 @@ function loadDetailedPointsForView() {
     params.set('min_lat', b.getSouth());
     params.set('max_lng', b.getEast());
     params.set('max_lat', b.getNorth());
-    params.set('limit', '50000');
+    params.set('limit', limit);
     params.set('offset', '0');
 
     detailLoading = true;
     updateDetailControls();
-    showMapLoading('loading detailed points...');
+    showMapLoading('loading points...');
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     fetch(`/api/locations/?${params.toString()}`, { signal: controller.signal })
-        .then(r => {
-            if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            return r.json();
-        })
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
         .then(data => {
             const features = [];
             (data.devices || []).forEach(device => {
@@ -472,32 +511,42 @@ function loadDetailedPointsForView() {
                 });
             });
 
-            renderDetailPoints(features);
-            hideMapLoading();
-            clearTimeout(timeoutId);
-            // Restore normal info display
-            if (lastTrackData.length > 0) {
-                const total = lastTrackData.reduce((s, d) => s + d.total, 0);
-                const shown = lastTrackData.reduce((s, d) => s + d.points.length, 0);
-                const hidden = lastTrackData.reduce((s, d) => s + (d.hidden || 0), 0);
-                const info = total !== shown
-                    ? `${total.toLocaleString()} pts · ${lastTrackData.length} device(s) · showing ${shown.toLocaleString()} (${hidden.toLocaleString()} dense/stationary hidden) + ${features.length.toLocaleString()} detail`
-                    : `${total.toLocaleString()} points · ${lastTrackData.length} device(s) + ${features.length.toLocaleString()} detail`;
-                document.getElementById('map-info').textContent = info;
+            const hitLim = features.length >= limit * 0.95;
+            lastViewportHitLimit = hitLim;
+            if (!hitLim) {
+                // Complete coverage — record this bbox so we don't re-fetch it
+                fetchedAreas.push({ w: b.getWest(), s: b.getSouth(), e: b.getEast(), n: b.getNorth() });
             }
+
+            mergeAccFeatures(features);
+            clearTimeout(timeoutId);
+            hideMapLoading();
+
+            const total = lastTrackData.reduce((s, d) => s + d.total, 0);
+            document.getElementById('map-info').textContent =
+                `${total.toLocaleString()} pts · ${accMap.size.toLocaleString()} loaded in detail`;
         })
         .catch(err => {
             clearTimeout(timeoutId);
-            if (err.name !== 'AbortError') {
-                console.error('Failed to load detail points:', err);
-                document.getElementById('map-info').textContent = 'error loading points';
-            }
+            if (err.name !== 'AbortError') console.error('Failed to load points:', err);
             hideMapLoading();
         })
         .finally(() => {
             detailLoading = false;
             updateDetailControls();
         });
+}
+
+function maybeLoadViewport() {
+    if (detailLoading || map.getZoom() < DETAIL_MIN_ZOOM || lastTrackData.length === 0) return;
+    const b = map.getBounds();
+    if (isViewportCovered(b)) {
+        // Already have all points for this area — just clear the "load more" prompt
+        lastViewportHitLimit = false;
+        updateDetailControls();
+        return;
+    }
+    loadViewport(AUTO_LOAD_LIMIT);
 }
 
 function renderTrack(devices, autoFit) {
@@ -627,24 +676,25 @@ function loadTrack(autoFit) {
 
 map.on('load', () => loadTrack(true));
 
-map.on('zoomend', () => {
-    if (map.getZoom() < DETAIL_MIN_ZOOM && detailFeatures.length > 0) {
-        clearDetailPoints();
-    }
-    updateDetailControls();
-});
+// Update the "load more" panel visibility when zoom changes
+map.on('zoomend', () => updateDetailControls());
 
+// Auto-load detail points after any map move (pan or zoom), debounced
 map.on('moveend', () => {
-    if (detailFeatures.length > 0) {
-        clearDetailPoints();
-    }
+    if (moveDebounce) clearTimeout(moveDebounce);
+    moveDebounce = setTimeout(() => {
+        moveDebounce = null;
+        maybeLoadViewport();
+    }, 400);
 });
 
-document.getElementById('map-load-more-btn').addEventListener('click', loadDetailedPointsForView);
+document.getElementById('map-load-more-btn').addEventListener('click', () => {
+    loadViewport(MORE_LOAD_LIMIT);
+});
 
 ['time-range', 'device-filter'].forEach(id => {
     document.getElementById(id).addEventListener('change', () => {
-        clearDetailPoints();
+        clearAccumulated();
         loadTrack(true);
     });
 });
@@ -655,7 +705,7 @@ document.getElementById('map-load-more-btn').addEventListener('click', loadDetai
         const e = document.getElementById('end-date').value;
         if (s && e) {
             document.getElementById('time-range').value = 'all';
-            clearDetailPoints();
+            clearAccumulated();
             loadTrack(true);
         }
     });
