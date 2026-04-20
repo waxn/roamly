@@ -55,6 +55,7 @@ import com.google.android.gms.location.LocationServices
 import com.roamly.data.api.LocationPoint
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.XYTileSource
+import org.osmdroid.util.MapTileIndex
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
@@ -82,19 +83,21 @@ private val DarkTiles = XYTileSource(
     arrayOf("https://basemaps.cartocdn.com/dark_all/")
 )
 
-private val SatelliteTiles = XYTileSource(
+private const val SATELLITE_BASE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/"
+
+private val SatelliteTiles = object : XYTileSource(
     "RoamlySatellite",
     1,
     19,
     256,
     ".jpg",
-    arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/")
+    arrayOf(SATELLITE_BASE_URL)
 ) {
     override fun getTileURLString(pMapTileIndex: Long): String {
-        val zoom = org.osmdroid.util.MapTileIndex.getZoom(pMapTileIndex)
-        val x = org.osmdroid.util.MapTileIndex.getX(pMapTileIndex)
-        val y = org.osmdroid.util.MapTileIndex.getY(pMapTileIndex)
-        return "${baseUrl}$zoom/$y/$x$imageFilenameEnding"
+        val zoom = MapTileIndex.getZoom(pMapTileIndex)
+        val x = MapTileIndex.getX(pMapTileIndex)
+        val y = MapTileIndex.getY(pMapTileIndex)
+        return "$SATELLITE_BASE_URL$zoom/$y/$x.jpg"
     }
 }
 
