@@ -52,6 +52,7 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.android.gms.location.LocationServices
 import com.roamly.data.api.LocationPoint
+import com.roamly.data.api.TrackDevice
 import org.osmdroid.config.Configuration
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
@@ -92,9 +93,8 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
     // Update map overlays whenever locations change (SideEffect runs after every recomposition)
     SideEffect {
         mapView.overlays.clear()
-        if (state.locations.isNotEmpty()) {
-            val sorted = state.locations.sortedBy { it.timestamp }
-            val points = sorted.map { GeoPoint(it.lat, it.lng) }
+        val points = pointsForMap(state.trackDevices, state.locations)
+        if (points.isNotEmpty()) {
             val polyline = Polyline().apply {
                 setPoints(points)
                 outlinePaint.color = android.graphics.Color.parseColor("#3B82F6")
@@ -129,28 +129,57 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
         )
 
         // Time period dropdown
-        Surface(
+        Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 12.dp),
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-            shadowElevation = 4.dp
+                .fillMaxWidth()
+                .padding(top = 10.dp),
+            contentAlignment = Alignment.TopCenter
         ) {
-            Box(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-                TextButton(onClick = { showTimeMenu = true }) {
-                    Text("Time: ${state.timePeriod.label}")
-                    Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null)
+            Surface(
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                shadowElevation = 4.dp
+            ) {
+                Box(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                    TextButton(onClick = { showTimeMenu = true }) {
+                        Text("Time: ${state.timePeriod.label}")
+                        Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null)
+                    }
+                    DropdownMenu(expanded = showTimeMenu, onDismissRequest = { showTimeMenu = false }) {
+                        TimePeriod.entries.forEach { period ->
+                            DropdownMenuItem(
+                                text = { Text(period.label) },
+                                onClick = {
+                                    showTimeMenu = false
+                                    viewModel.setTimePeriod(period)
+                                }
+                            )
+                        }
+                    }
                 }
-                DropdownMenu(expanded = showTimeMenu, onDismissRequest = { showTimeMenu = false }) {
-                    TimePeriod.entries.forEach { period ->
-                        DropdownMenuItem(
-                            text = { Text(period.label) },
-                            onClick = {
-                                showTimeMenu = false
-                                viewModel.setTimePeriod(period)
-                            }
-                        )
+            }
+        }
+
+        if (state.detailLimited) {
+            Card(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 64.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Showing reduced points",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    TextButton(onClick = viewModel::loadAllPoints, enabled = !state.isLoadingMore) {
+                        Text(if (state.isLoadingMore) "Loading..." else "Load all points")
                     }
                 }
             }
@@ -309,6 +338,22 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
             confirmButton = { TextButton(onClick = { nearHereResult = null }) { Text("OK") } }
         )
     }
+}
+
+private fun pointsForMap(trackDevices: List<TrackDevice>, locations: List<LocationPoint>): List<GeoPoint> {
+    if (trackDevices.isNotEmpty()) {
+        return trackDevices
+            .flatMap { it.points }
+            .mapNotNull { point ->
+                if (point.coordinates.size < 2) return@mapNotNull null
+                val lng = point.coordinates[0]
+                val lat = point.coordinates[1]
+                GeoPoint(lat, lng)
+            }
+    }
+    return locations
+        .sortedBy { it.timestamp }
+        .map { GeoPoint(it.lat, it.lng) }
 }
 
 data class NearHereResult(
