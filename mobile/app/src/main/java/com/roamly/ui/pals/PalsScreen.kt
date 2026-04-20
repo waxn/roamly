@@ -13,7 +13,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -39,7 +41,17 @@ fun PalsScreen(
     val state by viewModel.uiState.collectAsState()
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Pals") }) }
+        topBar = {
+            TopAppBar(
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.People, contentDescription = null)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Pals")
+                    }
+                }
+            )
+        }
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             when {
@@ -49,7 +61,7 @@ fun PalsScreen(
                         modifier = Modifier.align(Alignment.Center),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Icon(Icons.Filled.People, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(Icons.Filled.People, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.height(8.dp))
                         Text("No group trips yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("Create a Pal in the web app to get started", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -64,11 +76,14 @@ fun PalsScreen(
                 }
             }
             state.error?.let {
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp))
             }
         }
     }
 }
+                                Icon(Icons.Filled.People, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Spacer(Modifier.width(12.dp))
 
 @Composable
 private fun PalCard(pal: PalResponse, onClick: () -> Unit) {
@@ -97,6 +112,7 @@ private fun PalCard(pal: PalResponse, onClick: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

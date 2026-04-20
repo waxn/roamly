@@ -16,6 +16,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -30,6 +31,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.roamly.data.api.CityVisit
 import com.roamly.data.api.CountryVisit
 import com.roamly.data.api.StatsResponse
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.LocationCity
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Place
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,7 +45,17 @@ fun StatsScreen(viewModel: StatsViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Stats") }) }
+        topBar = {
+            TopAppBar(
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.BarChart, contentDescription = null)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Stats")
+                    }
+                }
+            )
+        }
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             if (state.isLoading && state.stats == null) {
@@ -81,42 +99,55 @@ fun StatsScreen(viewModel: StatsViewModel = hiltViewModel()) {
 private fun SummaryCard(stats: StatsResponse) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("Overview", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.BarChart, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text("Overview", style = MaterialTheme.typography.titleMedium)
+            }
             Spacer(Modifier.height(12.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                StatBlock("${stats.totalPoints}", "Points")
-                StatBlock("${stats.countries}", "Countries")
-                StatBlock("${stats.cities}", "Cities")
-                StatBlock("${stats.states}", "States")
+                StatBlock("${stats.totalPoints}", "Points", Icons.Filled.Flag)
+                StatBlock("${stats.countries}", "Countries", Icons.Filled.Public)
+                StatBlock("${stats.cities}", "Cities", Icons.Filled.LocationCity)
+                StatBlock("${stats.states}", "States", Icons.Filled.Place)
             }
             if (stats.firstLocation != null) {
                 Spacer(Modifier.height(8.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f))
+                HorizontalDivider()
                 Spacer(Modifier.height(8.dp))
-                Text(
-                    "Tracking since ${stats.firstLocation.take(10)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.CalendarMonth, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Tracking since ${stats.firstLocation.take(10)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun StatBlock(value: String, label: String) {
+private fun StatBlock(value: String, label: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(6.dp))
+        Text(value, style = MaterialTheme.typography.headlineSmall)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
 private fun SectionHeader(title: String, modifier: Modifier = Modifier) {
-    Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = modifier)
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        Box(modifier = Modifier.size(8.dp))
+        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+    }
 }
 
 @Composable
@@ -125,6 +156,8 @@ private fun CountryRow(country: CountryVisit) {
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        Icon(Icons.Filled.Public, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(country.country, style = MaterialTheme.typography.bodyMedium)
             Text(
@@ -148,6 +181,8 @@ private fun CityRow(city: CityVisit) {
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        Icon(Icons.Filled.Place, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(city.city, style = MaterialTheme.typography.bodyMedium)
             val sub = listOfNotNull(city.state, city.country).joinToString(", ")

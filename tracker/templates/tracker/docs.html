@@ -175,16 +175,27 @@
         }
 
         .sidebar-link {
-            display: block;
+            display: flex;
+            align-items: center;
+            gap: 0.55rem;
             padding: 0.45rem 0.75rem;
             color: var(--text-muted);
             font-size: 0.865rem;
             text-decoration: none;
             border-radius: 6px;
-            transition: all 0.15s;
-            border-left: 2px solid transparent;
+            transition: color 0.15s, background 0.15s;
             line-height: 1.35;
             text-transform: lowercase;
+        }
+
+        .sidebar-link::before {
+            content: '';
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            border: 1.5px solid var(--text-dim);
+            flex-shrink: 0;
+            transition: background 0.15s, border-color 0.15s, transform 0.15s;
         }
 
         .sidebar-link:hover {
@@ -192,10 +203,21 @@
             background: rgba(255,255,255,0.04);
         }
 
+        .sidebar-link:hover::before {
+            border-color: var(--text-muted);
+        }
+
         .sidebar-link.active {
-            color: var(--primary);
-            background: rgba(59,130,246,0.08);
-            border-left-color: var(--primary);
+            color: var(--text);
+            background: rgba(59,130,246,0.1);
+            font-weight: 600;
+        }
+
+        .sidebar-link.active::before {
+            background: var(--primary);
+            border-color: var(--primary);
+            transform: scale(1.2);
+            box-shadow: 0 0 6px rgba(59,130,246,0.5);
         }
 
         /* ── main content ────────────────────────────────── */

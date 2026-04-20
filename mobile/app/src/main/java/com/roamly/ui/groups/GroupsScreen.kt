@@ -18,8 +18,10 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -62,7 +64,17 @@ fun GroupsScreen(
     val palsState by palsViewModel.uiState.collectAsState()
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Groups") }) },
+        topBar = {
+            TopAppBar(
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.People, contentDescription = null)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Groups")
+                    }
+                }
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
@@ -100,7 +112,7 @@ fun GroupsScreen(
                                     modifier = Modifier.align(Alignment.Center),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Icon(Icons.Filled.Route, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Icon(Icons.Filled.Route, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                     Spacer(Modifier.height(8.dp))
                                     Text("No trips yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
@@ -123,7 +135,7 @@ fun GroupsScreen(
                                     modifier = Modifier.align(Alignment.Center),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Icon(Icons.Filled.People, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Icon(Icons.Filled.People, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                     Spacer(Modifier.height(8.dp))
                                     Text("No pals yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text("Tap + to create one", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -189,9 +201,12 @@ fun GroupsScreen(
 @Composable
 private fun TripCard(trip: TripResponse, onClick: () -> Unit, onDelete: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clickable(onClick = onClick)
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Route, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(trip.name, style = MaterialTheme.typography.titleMedium)
                 trip.description?.let {
@@ -205,6 +220,7 @@ private fun TripCard(trip: TripResponse, onClick: () -> Unit, onDelete: () -> Un
                 }
             }
             Spacer(Modifier.width(8.dp))
+            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             IconButton(onClick = onDelete) {
                 Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -215,10 +231,15 @@ private fun TripCard(trip: TripResponse, onClick: () -> Unit, onDelete: () -> Un
 @Composable
 private fun PalCard(pal: PalResponse, onClick: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clickable(onClick = onClick)
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(pal.name, style = MaterialTheme.typography.titleMedium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.People, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(10.dp))
+                Text(pal.name, style = MaterialTheme.typography.titleMedium)
+            }
             pal.description?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
             }

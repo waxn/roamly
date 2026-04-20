@@ -7,24 +7,24 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-// Matched to web CSS variables
-private val Primary        = Color(0xFF3B82F6)   // --primary
-private val Secondary      = Color(0xFF22C55E)   // --success
-private val ErrorRed       = Color(0xFFEF4444)   // --danger
+// Matched to the darker website palette.
+private val Primary        = Color(0xFF3B82F6)
+private val Secondary      = Color(0xFF22C55E)
+private val ErrorRed       = Color(0xFFEF4444)
 
-private val DarkBackground     = Color(0xFF0F1117)   // --bg
-private val DarkSurface        = Color(0xFF1A1D27)   // --bg-card
-private val DarkSurfaceVariant = Color(0xFF252830)   // --bg-input
-private val DarkOnBackground   = Color(0xFFE4E6EB)   // --text
-private val DarkMuted          = Color(0xFF8B8FA3)   // --text-muted
-private val DarkOutline        = Color(0xFF2D3040)   // --border
+private val DarkBackground     = Color(0xFF05070B)
+private val DarkSurface        = Color(0xFF0D1017)
+private val DarkSurfaceVariant = Color(0xFF141A24)
+private val DarkOnBackground   = Color(0xFFE7EAF0)
+private val DarkMuted          = Color(0xFF8A90A6)
+private val DarkOutline        = Color(0xFF202736)
 
-private val LightBackground     = Color(0xFFF5F5F7)
+private val LightBackground     = Color(0xFFF3F4F8)
 private val LightSurface        = Color(0xFFFFFFFF)
-private val LightSurfaceVariant = Color(0xFFE8E8ED)
-private val LightOnBackground   = Color(0xFF1D1D1F)
-private val LightMuted          = Color(0xFF6E6E73)
-private val LightOutline        = Color(0xFFD1D1D6)
+private val LightSurfaceVariant = Color(0xFFE7EAF0)
+private val LightOnBackground   = Color(0xFF171A22)
+private val LightMuted          = Color(0xFF626774)
+private val LightOutline        = Color(0xFFCFD4E1)
 
 private val DarkColors = darkColorScheme(
     primary              = Primary,
@@ -40,8 +40,8 @@ private val DarkColors = darkColorScheme(
     surfaceVariant       = DarkSurfaceVariant,
     onSurfaceVariant     = DarkMuted,
     outline              = DarkOutline,
-    secondaryContainer   = Color(0xFF1A3A2A),
-    onSecondaryContainer = Color(0xFF6EE7A0),
+    secondaryContainer   = Color(0xFF122417),
+    onSecondaryContainer = Color(0xFF8CF0B0),
 )
 
 private val LightColors = lightColorScheme(
@@ -58,8 +58,8 @@ private val LightColors = lightColorScheme(
     surfaceVariant       = LightSurfaceVariant,
     onSurfaceVariant     = LightMuted,
     outline              = LightOutline,
-    secondaryContainer   = Color(0xFFDCFCE7),
-    onSecondaryContainer = Color(0xFF166534),
+    secondaryContainer   = Color(0xFFDFFAE8),
+    onSecondaryContainer = Color(0xFF14532D),
 )
 
 @Composable

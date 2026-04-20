@@ -17,8 +17,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -51,7 +53,17 @@ fun TripsScreen(
     val state by viewModel.uiState.collectAsState()
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Trips") }) },
+        topBar = {
+            TopAppBar(
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Route, contentDescription = null)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Trips")
+                    }
+                }
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = viewModel::showCreateDialog) {
                 Icon(Icons.Filled.Add, contentDescription = "New Trip")
@@ -66,7 +78,7 @@ fun TripsScreen(
                         modifier = Modifier.align(Alignment.Center),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Icon(Icons.Filled.Route, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(Icons.Filled.Route, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.height(8.dp))
                         Text("No trips yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -83,11 +95,18 @@ fun TripsScreen(
                     }
                 }
             }
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             state.error?.let {
                 Text(
                     it,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
+                                    Icon(
+                                        Icons.Filled.Route,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(end = 12.dp)
+                                    )
                 )
             }
         }
@@ -128,6 +147,7 @@ private fun TripCard(trip: TripResponse, onClick: () -> Unit, onDelete: () -> Un
                 }
             }
             Spacer(Modifier.width(8.dp))
+            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             IconButton(onClick = onDelete) {
                 Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }

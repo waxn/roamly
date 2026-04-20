@@ -1,76 +1,367 @@
-{% extends "tracker/base.html" %}
-{% block title %}Sign Up - Roamly{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Up — Roamly</title>
+    {% load static %}
+    <link rel="icon" type="image/x-icon" href="{% static 'tracker/roamlymark.ico' %}">
+    <link rel="manifest" href="{% static 'tracker/manifest.json' %}">
+    <meta name="theme-color" content="#0f1117">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0f1117;
+            --bg-card: #13161e;
+            --bg-input: #1a1d28;
+            --border: #222535;
+            --border-subtle: #191c28;
+            --text: #d8dce8;
+            --text-muted: #757a92;
+            --text-dim: #3f4358;
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --danger: #ef4444;
+        }
 
-{% block extra_css %}
-.auth-page {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 100vh;
-    padding: 1rem;
-}
-.auth-card {
-    width: 100%;
-    max-width: 400px;
-}
-.auth-card h1 {
-    text-align: center;
-    margin-bottom: 0.5rem;
-}
-.auth-card .subtitle {
-    text-align: center;
-    color: var(--text-muted);
-    font-size: 0.875rem;
-    margin-bottom: 1.5rem;
-}
-.auth-footer {
-    text-align: center;
-    margin-top: 1rem;
-    font-size: 0.875rem;
-    color: var(--text-muted);
-}
-.auth-footer a {
-    color: var(--primary);
-    text-decoration: none;
-}
-.form-errors {
-    color: #fca5a5;
-    font-size: 0.8125rem;
-    margin-top: 0.25rem;
-}
-{% endblock %}
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
-{% block content %}
-<div class="auth-page">
-    <div class="auth-card card">
-        <h1 style="color: var(--primary);">Roamly</h1>
-        <p class="subtitle">Create your account</p>
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-transform: lowercase;
+            overflow: hidden;
+        }
+
+        canvas {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0.85;
+            pointer-events: none;
+        }
+
+        .back-link {
+            position: fixed;
+            top: 1.25rem;
+            left: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            color: var(--text-dim);
+            text-decoration: none;
+            font-size: 0.83rem;
+            font-weight: 500;
+            transition: color 0.15s;
+            z-index: 10;
+        }
+
+        .back-link:hover { color: var(--text-muted); }
+
+        .back-link svg {
+            width: 14px;
+            height: 14px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+        }
+
+        .card {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 380px;
+            margin: 1rem;
+            background: rgba(19, 22, 30, 0.88);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 2.25rem 2rem;
+            backdrop-filter: blur(16px);
+            box-shadow: 0 24px 64px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.03);
+        }
+
+        .logo-wrap {
+            text-align: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .logo-wrap img {
+            height: 40px;
+            filter: brightness(0) invert(1);
+        }
+
+        .card-subtitle {
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 0.82rem;
+            margin-bottom: 1.75rem;
+            font-weight: 500;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 0.4rem;
+            letter-spacing: 0.01em;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 0.6rem 0.85rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            color: var(--text);
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 0.9rem;
+            outline: none;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+
+        .form-control:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(59,130,246,0.12);
+        }
+
+        .form-control::placeholder { color: var(--text-dim); }
+
+        .form-errors {
+            color: #fca5a5;
+            font-size: 0.78rem;
+            margin-top: 0.35rem;
+            line-height: 1.4;
+        }
+
+        .form-hint {
+            color: var(--text-dim);
+            font-size: 0.76rem;
+            margin-top: 0.35rem;
+            line-height: 1.4;
+        }
+
+        .form-control.has-error {
+            border-color: rgba(239,68,68,0.5);
+        }
+
+        .btn-submit {
+            width: 100%;
+            margin-top: 0.5rem;
+            padding: 0.7rem;
+            background: var(--primary);
+            color: #fff;
+            border: none;
+            border-radius: 9px;
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 0.9rem;
+            font-weight: 600;
+            text-transform: lowercase;
+            cursor: pointer;
+            transition: background 0.15s, box-shadow 0.15s, transform 0.12s;
+            letter-spacing: 0.01em;
+        }
+
+        .btn-submit:hover {
+            background: var(--primary-hover);
+            box-shadow: 0 0 0 3px rgba(59,130,246,0.22);
+        }
+
+        .btn-submit:active { transform: scale(0.99); }
+
+        .card-footer {
+            margin-top: 1.25rem;
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 0.82rem;
+        }
+
+        .card-footer a {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .card-footer a:hover { text-decoration: underline; }
+
+        .divider {
+            height: 1px;
+            background: var(--border-subtle);
+            margin: 1.5rem 0;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="bg"></canvas>
+
+    <a href="{% url 'tracker:landing' %}" class="back-link">
+        <svg viewBox="0 0 24 24"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+        roamly
+    </a>
+
+    <div class="card">
+        <div class="logo-wrap">
+            <img src="{% static 'tracker/roamly.svg' %}" alt="Roamly">
+        </div>
+        <p class="card-subtitle">create your account</p>
 
         <form method="post">
             {% csrf_token %}
             {% for field in form %}
             <div class="form-group">
                 <label for="{{ field.id_for_label }}">{{ field.label }}</label>
-                <input type="{% if 'password' in field.name %}password{% elif field.name == 'email' %}email{% else %}text{% endif %}"
-                       name="{{ field.html_name }}"
-                       id="{{ field.id_for_label }}"
-                       class="form-control"
-                       {% if field.value %}value="{{ field.value }}"{% endif %}
-                       {% if field.field.required %}required{% endif %}>
+                <input
+                    type="{% if 'password' in field.name %}password{% elif field.name == 'email' %}email{% else %}text{% endif %}"
+                    name="{{ field.html_name }}"
+                    id="{{ field.id_for_label }}"
+                    class="form-control{% if field.errors %} has-error{% endif %}"
+                    {% if field.value %}value="{{ field.value }}"{% endif %}
+                    {% if field.field.required %}required{% endif %}>
                 {% if field.errors %}
-                <div class="form-errors">{{ field.errors.0 }}</div>
+                    <div class="form-errors">{{ field.errors.0 }}</div>
                 {% endif %}
                 {% if field.help_text %}
-                <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">{{ field.help_text }}</div>
+                    <div class="form-hint">{{ field.help_text }}</div>
                 {% endif %}
             </div>
             {% endfor %}
-            <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">Create Account</button>
+            <button type="submit" class="btn-submit">create account →</button>
         </form>
 
-        <div class="auth-footer">
-            Already have an account? <a href="{% url 'tracker:login' %}">Sign in</a>
+        <div class="divider"></div>
+
+        <div class="card-footer">
+            already have an account? <a href="{% url 'tracker:login' %}">sign in</a>
         </div>
     </div>
-</div>
-{% endblock %}
+
+    <script>
+        (function () {
+            const canvas = document.getElementById('bg');
+            const ctx = canvas.getContext('2d');
+            const C = '59,130,246';
+            let W, H, nodes, pings, trackers;
+
+            function resize() {
+                W = canvas.width = window.innerWidth;
+                H = canvas.height = window.innerHeight;
+                init();
+            }
+
+            function init() {
+                const count = Math.max(14, Math.min(Math.floor(W * H / 25000), 36));
+                nodes = Array.from({ length: count }, () => ({
+                    x: Math.random() * W,
+                    y: Math.random() * H,
+                    size: Math.random() > 0.65 ? 2 : 1.3,
+                    baseAlpha: 0.15 + Math.random() * 0.3
+                }));
+                pings = [];
+                trackers = [makeTracker(), makeTracker()];
+            }
+
+            function makeTracker() {
+                const a = nodes[Math.floor(Math.random() * nodes.length)];
+                const b = nodes[Math.floor(Math.random() * nodes.length)];
+                return { x: a.x, y: a.y, tx: b.x, ty: b.y, t: Math.random(), speed: 0.0005 + Math.random() * 0.0007, trail: [] };
+            }
+
+            function pingNode() {
+                if (!nodes || !nodes.length) return;
+                const n = nodes[Math.floor(Math.random() * nodes.length)];
+                pings.push({ x: n.x, y: n.y, r: 0, alpha: 0.6 });
+            }
+
+            function draw() {
+                ctx.clearRect(0, 0, W, H);
+
+                for (let i = 0; i < nodes.length; i++) {
+                    for (let j = i + 1; j < nodes.length; j++) {
+                        const dx = nodes[i].x - nodes[j].x;
+                        const dy = nodes[i].y - nodes[j].y;
+                        const d = Math.sqrt(dx * dx + dy * dy);
+                        if (d < 180) {
+                            ctx.beginPath();
+                            ctx.moveTo(nodes[i].x, nodes[i].y);
+                            ctx.lineTo(nodes[j].x, nodes[j].y);
+                            ctx.strokeStyle = `rgba(${C},${(1 - d / 180) * 0.07})`;
+                            ctx.lineWidth = 0.7;
+                            ctx.stroke();
+                        }
+                    }
+                }
+
+                trackers.forEach(tr => {
+                    tr.t += tr.speed;
+                    if (tr.t >= 1) {
+                        tr.t = 0;
+                        tr.x = tr.tx; tr.y = tr.ty;
+                        const next = nodes[Math.floor(Math.random() * nodes.length)];
+                        tr.tx = next.x; tr.ty = next.y;
+                        tr.trail = [];
+                        pings.push({ x: tr.x, y: tr.y, r: 0, alpha: 0.8 });
+                    }
+                    const cx = tr.x + (tr.tx - tr.x) * tr.t;
+                    const cy = tr.y + (tr.ty - tr.y) * tr.t;
+                    tr.trail.push({ x: cx, y: cy });
+                    if (tr.trail.length > 45) tr.trail.shift();
+                    tr.trail.forEach((pt, i) => {
+                        ctx.beginPath();
+                        ctx.arc(pt.x, pt.y, 1, 0, Math.PI * 2);
+                        ctx.fillStyle = `rgba(${C},${(i / tr.trail.length) * 0.22})`;
+                        ctx.fill();
+                    });
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(${C},0.7)`;
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, 5.5, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(${C},0.1)`;
+                    ctx.fill();
+                });
+
+                nodes.forEach(n => {
+                    ctx.beginPath();
+                    ctx.arc(n.x, n.y, n.size, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(${C},${n.baseAlpha})`;
+                    ctx.fill();
+                });
+
+                pings = pings.filter(p => p.alpha > 0.01);
+                pings.forEach(p => {
+                    p.r += 0.85;
+                    p.alpha *= 0.958;
+                    if (p.r < 52) {
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+                        ctx.strokeStyle = `rgba(${C},${p.alpha * 0.5})`;
+                        ctx.lineWidth = 1.1;
+                        ctx.stroke();
+                    }
+                });
+
+                requestAnimationFrame(draw);
+            }
+
+            resize();
+            draw();
+            setInterval(pingNode, 1600);
+            window.addEventListener('resize', resize);
+        })();
+    </script>
+</body>
+</html>

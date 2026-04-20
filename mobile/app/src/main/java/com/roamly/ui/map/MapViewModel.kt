@@ -18,19 +18,12 @@ enum class TimePeriod(val label: String) {
     WEEK("7D"), MONTH("30D"), THREE_MONTHS("3M"), YEAR("1Y"), ALL("All")
 }
 
-enum class MapLayer(val label: String) {
-    STREETS("Streets"),
-    DARK("Dark"),
-    SATELLITE("Satellite")
-}
-
 data class MapUiState(
     val locations: List<LocationPoint> = emptyList(),
     val stats: StatsResponse? = null,
     val isLoading: Boolean = false,
     val error: String? = null,
-    val timePeriod: TimePeriod = TimePeriod.ALL,
-    val mapLayer: MapLayer = MapLayer.STREETS
+    val timePeriod: TimePeriod = TimePeriod.ALL
 )
 
 @HiltViewModel
@@ -48,10 +41,6 @@ class MapViewModel @Inject constructor(
     fun setTimePeriod(period: TimePeriod) {
         _uiState.update { it.copy(timePeriod = period) }
         loadData()
-    }
-
-    fun setMapLayer(layer: MapLayer) {
-        _uiState.update { it.copy(mapLayer = layer) }
     }
 
     fun loadData() {

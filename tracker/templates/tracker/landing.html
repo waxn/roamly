@@ -307,6 +307,18 @@
             overflow: hidden;
         }
 
+        /* 10 cards: last one fills the empty slot in row 4 */
+        .feature-card:last-child {
+            grid-column: 1 / -1;
+            display: flex;
+            gap: 2.5rem;
+            align-items: center;
+        }
+
+        .feature-card:last-child .feature-desc {
+            max-width: 640px;
+        }
+
         .feature-card {
             background: var(--bg-card);
             padding: 2rem;
@@ -580,6 +592,13 @@
                 grid-template-columns: repeat(2, 1fr);
             }
 
+            .feature-card:last-child {
+                grid-column: span 2;
+                flex-direction: column;
+                gap: 0;
+                align-items: flex-start;
+            }
+
             .setup-layout {
                 grid-template-columns: 1fr;
                 gap: 3rem;
@@ -598,6 +617,13 @@
             .hero h1 { font-size: 2.5rem; }
 
             .features-grid { grid-template-columns: 1fr; }
+
+            .feature-card:last-child {
+                grid-column: span 1;
+                flex-direction: column;
+                gap: 0;
+                align-items: flex-start;
+            }
 
             .strip { gap: 1.5rem; }
 
@@ -717,9 +743,11 @@
                     <p class="feature-desc">coordinates become city/state/country names via openstreetmap nominatim with spatial clustering to stay under rate limits.</p>
                 </div>
                 <div class="feature-card reveal reveal-delay-9">
-                    <div class="feature-num">10</div>
-                    <div class="feature-name">multi-device + pwa</div>
-                    <p class="feature-desc">separate api keys per device, individual tracking, shared account. installable as a pwa. dark and light themes.</p>
+                    <div>
+                        <div class="feature-num">10</div>
+                        <div class="feature-name">multi-device + pwa</div>
+                    </div>
+                    <p class="feature-desc">separate api keys per device, individual tracking on a shared account. installable as a pwa on ios and android. dark and light themes built in.</p>
                 </div>
             </div>
         </div>

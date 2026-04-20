@@ -15,10 +15,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Remove
@@ -54,8 +52,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.android.gms.location.LocationServices
 import com.roamly.data.api.LocationPoint
 import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.tilesource.XYTileSource
-import org.osmdroid.util.MapTileIndex
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
@@ -65,48 +61,6 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-private val StreetsTiles = XYTileSource(
-    "RoamlyStreets",
-    1,
-    19,
-    256,
-    ".png",
-    arrayOf("https://basemaps.cartocdn.com/light_all/")
-)
-
-private val DarkTiles = XYTileSource(
-    "RoamlyDark",
-    1,
-    19,
-    256,
-    ".png",
-    arrayOf("https://basemaps.cartocdn.com/dark_all/")
-)
-
-private const val SATELLITE_BASE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/"
-
-private val SatelliteTiles = object : XYTileSource(
-    "RoamlySatellite",
-    1,
-    19,
-    256,
-    ".jpg",
-    arrayOf(SATELLITE_BASE_URL)
-) {
-    override fun getTileURLString(pMapTileIndex: Long): String {
-        val zoom = MapTileIndex.getZoom(pMapTileIndex)
-        val x = MapTileIndex.getX(pMapTileIndex)
-        val y = MapTileIndex.getY(pMapTileIndex)
-        return "$SATELLITE_BASE_URL$zoom/$y/$x.jpg"
-    }
-}
-
-private fun tileSourceFor(layer: MapLayer) = when (layer) {
-    MapLayer.STREETS -> StreetsTiles
-    MapLayer.DARK -> DarkTiles
-    MapLayer.SATELLITE -> SatelliteTiles
-}
-
 @Composable
 fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
@@ -115,7 +69,7 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
         Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
         Configuration.getInstance().userAgentValue = "Roamly/1.0"
         MapView(context).apply {
-            setTileSource(tileSourceFor(state.mapLayer))
+            setTileSource(org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)
             controller.setZoom(10.0)
             controller.setCenter(GeoPoint(20.0, 0.0))
@@ -135,7 +89,6 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
 
     // Update map overlays whenever locations change (SideEffect runs after every recomposition)
     SideEffect {
-        mapView.setTileSource(tileSourceFor(state.mapLayer))
         mapView.overlays.clear()
         if (state.locations.isNotEmpty()) {
             val sorted = state.locations.sortedBy { it.timestamp }
@@ -193,35 +146,6 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                         selected = state.timePeriod == period,
                         onClick = { viewModel.setTimePeriod(period) },
                         label = { Text(period.label, style = MaterialTheme.typography.labelMedium) }
-                    )
-                }
-            }
-        }
-
-        Surface(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 12.dp, end = 12.dp),
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-            shadowElevation = 4.dp
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Layers,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp)
-                )
-                MapLayer.entries.forEach { layer ->
-                    FilterChip(
-                        selected = state.mapLayer == layer,
-                        onClick = { viewModel.setMapLayer(layer) },
-                        label = { Text(layer.label, style = MaterialTheme.typography.labelMedium) }
                     )
                 }
             }
