@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -76,14 +77,17 @@ fun PalsScreen(
                 }
             }
             state.error?.let {
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp))
+                Text(
+                    it,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(16.dp)
+                )
             }
         }
     }
 }
-                                Icon(Icons.Filled.People, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                Spacer(Modifier.width(12.dp))
 
 @Composable
 private fun PalCard(pal: PalResponse, onClick: () -> Unit) {
@@ -91,12 +95,15 @@ private fun PalCard(pal: PalResponse, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clickable(onClick = onClick)
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            Icon(Icons.Filled.People, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(pal.name, style = MaterialTheme.typography.titleMedium)
                 pal.description?.let {

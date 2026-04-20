@@ -95,18 +95,13 @@ fun TripsScreen(
                     }
                 }
             }
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             state.error?.let {
                 Text(
                     it,
                     color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
-                                    Icon(
-                                        Icons.Filled.Route,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.padding(end = 12.dp)
-                                    )
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(16.dp)
                 )
             }
         }
@@ -126,7 +121,8 @@ private fun TripCard(trip: TripResponse, onClick: () -> Unit, onDelete: () -> Un
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clickable(onClick = onClick)
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
