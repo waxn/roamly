@@ -7,6 +7,9 @@ urlpatterns = [
     # PWA
     path('sw.js', views.service_worker, name='service_worker'),
 
+    # SEO
+    path('robots.txt', views.robots_txt, name='robots_txt'),
+
     # Pages
     path('', views.landing_view, name='landing'),
     path('docs/', views.docs_view, name='docs'),

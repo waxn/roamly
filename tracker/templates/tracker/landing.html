@@ -5,6 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Roamly — Own Your Location Data</title>
     {% load static %}
+    <meta name="description" content="Roamly — private GPS tracking, shared trip journals, and travel analytics. Own your location data. No ads, no data selling.">
+    <link rel="canonical" href="{{ request.scheme }}://{{ request.get_host }}/">
+    <meta name="robots" content="index, follow">
+    <meta property="og:site_name" content="Roamly">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Roamly — Own Your Location Data">
+    <meta property="og:description" content="Private GPS tracking, shared trip journals, and travel analytics. No ads, no data selling.">
+    <meta property="og:url" content="{{ request.scheme }}://{{ request.get_host }}/">
+    <meta property="og:image" content="{{ request.scheme }}://{{ request.get_host }}{% static 'tracker/roamly.png' %}">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Roamly — Own Your Location Data">
+    <meta name="twitter:description" content="Private GPS tracking, shared trip journals, and travel analytics.">
+    <meta name="twitter:image" content="{{ request.scheme }}://{{ request.get_host }}{% static 'tracker/roamly.png' %}">
     <link rel="icon" type="image/x-icon" href="{% static 'tracker/roamlymark.ico' %}">
     <link rel="manifest" href="{% static 'tracker/manifest.json' %}">
     <meta name="theme-color" content="#0f1117">

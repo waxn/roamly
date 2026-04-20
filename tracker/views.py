@@ -171,6 +171,28 @@ def privacy_view(request):
     return render(request, 'tracker/privacy.html')
 
 
+def robots_txt(request):
+    site_url = request.build_absolute_uri('/').rstrip('/')
+    lines = [
+        'User-agent: *',
+        'Disallow: /admin/',
+        'Disallow: /api/',
+        'Disallow: /map/',
+        'Disallow: /data/',
+        'Disallow: /stats/',
+        'Disallow: /visits/',
+        'Disallow: /search/',
+        'Disallow: /trips/',
+        'Disallow: /pals/',
+        'Disallow: /settings/',
+        'Disallow: /login/',
+        'Disallow: /signup/',
+        '',
+        f'Sitemap: {site_url}/sitemap.xml',
+    ]
+    return HttpResponse('\n'.join(lines), content_type='text/plain')
+
+
 def login_view(request):
     if request.user.is_authenticated:
         return redirect('tracker:map')
@@ -1739,7 +1761,13 @@ def trip_public_timeline_api(request, slug):
 
 def trip_public_view(request, slug):
     trip = get_object_or_404(Trip, public_slug=slug)
-    return render(request, 'tracker/trip_public.html', {'trip': trip, 'slug': slug})
+    description = trip.description or f'A trip from {trip.start_time.strftime("%b %d")} to {trip.end_time.strftime("%b %d, %Y")} on Roamly.'
+    return render(request, 'tracker/trip_public.html', {
+        'trip': trip,
+        'slug': slug,
+        'seo_description': description,
+        'seo_canonical': request.build_absolute_uri(),
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -3017,10 +3045,14 @@ def pal_detail_view(request, pal_id):
 
 def pal_public_view(request, slug):
     pal = get_object_or_404(Pal, public_slug=slug)
+    description = pal.description or f'A shared trip on Roamly.'
     return render(request, 'tracker/pal_detail.html', {
         'pal_id': pal.id,
+        'pal': pal,
         'is_public': True,
         'public_slug': slug,
+        'seo_description': description,
+        'seo_canonical': request.build_absolute_uri(),
     })
 
 

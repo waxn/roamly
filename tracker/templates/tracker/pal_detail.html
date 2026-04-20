@@ -1,5 +1,11 @@
 {% extends "tracker/base.html" %}
-{% block title %}pal - roamly{% endblock %}
+{% block title %}{% if pal %}{{ pal.name }} - Roamly{% else %}pal - roamly{% endif %}{% endblock %}
+{% block meta_description %}{% if seo_description %}{{ seo_description }}{% else %}Roamly — private GPS tracking, trip sharing, and travel analytics. Own your location data.{% endif %}{% endblock %}
+{% block og_title %}{% if pal %}{{ pal.name }} - Roamly{% else %}Roamly{% endif %}{% endblock %}
+{% block og_description %}{% if seo_description %}{{ seo_description }}{% else %}Roamly — private GPS tracking, trip sharing, and travel analytics.{% endif %}{% endblock %}
+{% block twitter_title %}{% if pal %}{{ pal.name }} - Roamly{% else %}Roamly{% endif %}{% endblock %}
+{% block twitter_description %}{% if seo_description %}{{ seo_description }}{% else %}Own your location data.{% endif %}{% endblock %}
+{% block robots_meta %}{% if is_public %}index, follow{% else %}noindex, nofollow{% endif %}{% endblock %}
 
 {% block extra_css %}
 <style>

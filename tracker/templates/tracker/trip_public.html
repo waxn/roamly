@@ -1,5 +1,11 @@
 {% extends "tracker/base.html" %}
 {% block title %}{{ trip.name }} - Roamly{% endblock %}
+{% block meta_description %}{{ seo_description }}{% endblock %}
+{% block og_title %}{{ trip.name }} - Roamly{% endblock %}
+{% block og_description %}{{ seo_description }}{% endblock %}
+{% block twitter_title %}{{ trip.name }} - Roamly{% endblock %}
+{% block twitter_description %}{{ seo_description }}{% endblock %}
+{% block robots_meta %}index, follow{% endblock %}
 
 {% block extra_css %}
 .trip-public-layout { display: flex; height: calc(100vh - 60px); }

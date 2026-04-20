@@ -15,6 +15,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.sitemaps',
     'tracker',
 ]
 
@@ -99,6 +100,8 @@ if REDIS_URL:
     }
 else:
     CACHES = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}}
+
+SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
 
 LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/map/'
