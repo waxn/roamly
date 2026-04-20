@@ -5,7 +5,6 @@ import android.content.pm.PackageManager
 import android.graphics.Paint
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,17 +15,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -66,6 +66,7 @@ import kotlin.math.sqrt
 fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    var showTimeMenu by remember { mutableStateOf(false) }
     val mapView = remember {
         Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
         Configuration.getInstance().userAgentValue = "Roamly/1.0"
@@ -127,7 +128,7 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
             modifier = Modifier.fillMaxSize()
         )
 
-        // Time period chips
+        // Time period dropdown
         Surface(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -136,18 +137,21 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
             shadowElevation = 4.dp
         ) {
-            Row(
-                modifier = Modifier
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                TimePeriod.entries.forEach { period ->
-                    FilterChip(
-                        selected = state.timePeriod == period,
-                        onClick = { viewModel.setTimePeriod(period) },
-                        label = { Text(period.label, style = MaterialTheme.typography.labelMedium) }
-                    )
+            Box(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                TextButton(onClick = { showTimeMenu = true }) {
+                    Text("Time: ${state.timePeriod.label}")
+                    Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null)
+                }
+                DropdownMenu(expanded = showTimeMenu, onDismissRequest = { showTimeMenu = false }) {
+                    TimePeriod.entries.forEach { period ->
+                        DropdownMenuItem(
+                            text = { Text(period.label) },
+                            onClick = {
+                                showTimeMenu = false
+                                viewModel.setTimePeriod(period)
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -214,15 +218,11 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
 
         // Loading indicator
         if (state.isLoading) {
-            Column(
+            LinearProgressIndicator(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 70.dp)
-            ) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp))
-                Spacer(Modifier.size(8.dp))
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
-            }
+                    .fillMaxWidth()
+            )
         }
 
         // Stats card

@@ -1,11 +1,12 @@
 package com.roamly.ui
 
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.People
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -72,12 +73,13 @@ fun RoamlyNavHost() {
                             icon = {
                                 Icon(
                                     imageVector = when (screen) {
-                                        Screen.Map -> Icons.Filled.Map
-                                        Screen.Groups -> Icons.Filled.People
-                                        Screen.Stats -> Icons.Filled.BarChart
-                                        else -> Icons.Filled.Settings
+                                        Screen.Map -> Icons.Rounded.Map
+                                        Screen.Groups -> Icons.Rounded.People
+                                        Screen.Stats -> Icons.Rounded.BarChart
+                                        else -> Icons.Rounded.Settings
                                     },
-                                    contentDescription = screen.label
+                                    contentDescription = screen.label,
+                                    modifier = Modifier.size(24.dp)
                                 )
                             },
                             label = { Text(screen.label.lowercase()) },

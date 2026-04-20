@@ -65,7 +65,11 @@ fun TripsScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = viewModel::showCreateDialog) {
+            FloatingActionButton(
+                onClick = viewModel::showCreateDialog,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ) {
                 Icon(Icons.Filled.Add, contentDescription = "New Trip")
             }
         }

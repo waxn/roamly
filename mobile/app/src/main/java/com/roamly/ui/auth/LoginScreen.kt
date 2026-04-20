@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -75,13 +77,17 @@ fun LoginScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .imePadding()
                 .padding(horizontal = 22.dp, vertical = 24.dp),
-            verticalArrangement = Arrangement.Center,
+            verticalArrangement = Arrangement.Top,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Spacer(Modifier.height(56.dp))
+
             Box(
                 modifier = Modifier
-                    .size(92.dp)
+                    .size(76.dp)
                     .clip(MaterialTheme.shapes.large)
                     .background(Color(0x1A3B82F6)),
                 contentAlignment = Alignment.Center
@@ -89,20 +95,20 @@ fun LoginScreen(
                 Image(
                     painter = painterResource(id = R.drawable.roamly_icon),
                     contentDescription = "Roamly",
-                    modifier = Modifier.size(62.dp)
+                    modifier = Modifier.size(48.dp)
                 )
             }
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(14.dp))
 
             Text("roamly", style = MaterialTheme.typography.displaySmall)
             Text(
-                "visualize your travel history",
+                "sign in to your account",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(16.dp))
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
