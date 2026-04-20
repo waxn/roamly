@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -73,8 +74,9 @@ fun RoamlyNavHost() {
                                     contentDescription = screen.label
                                 )
                             },
-                            label = { Text(screen.label) },
+                            label = { Text(screen.label.lowercase()) },
                             selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
+                            colors = NavigationBarItemDefaults.colors(),
                             onClick = {
                                 navController.navigate(screen.route) {
                                     popUpTo(navController.graph.findStartDestination().id) { saveState = true }

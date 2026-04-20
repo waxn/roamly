@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Roamly Documentation - Setup, Tutorials & API Reference</title>
+    <title>Roamly Docs — Setup, API Reference & Tutorials</title>
     {% load static %}
     <link rel="icon" type="image/x-icon" href="{% static 'tracker/roamlymark.ico' %}">
     <link rel="manifest" href="{% static 'tracker/manifest.json' %}">
@@ -14,752 +14,879 @@
     <style>
         :root {
             --bg: #0f1117;
-            --bg-card: #1a1d27;
-            --bg-input: #252830;
-            --border: #2d3040;
-            --text: #e4e6eb;
-            --text-muted: #8b8fa3;
+            --bg-card: #13161e;
+            --bg-input: #1a1d28;
+            --bg-sidebar: #0c0e14;
+            --border: #222535;
+            --border-subtle: #191c28;
+            --text: #d8dce8;
+            --text-muted: #757a92;
+            --text-dim: #3f4358;
             --primary: #3b82f6;
-            --primary-hover: #2563eb;
             --success: #22c55e;
             --warning: #f59e0b;
             --danger: #ef4444;
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Space Grotesk', sans-serif; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
-        html { scroll-behavior: smooth; }
+        html { scroll-behavior: smooth; height: 100%; }
 
         body {
             font-family: 'Space Grotesk', sans-serif;
             background: var(--bg);
             color: var(--text);
-            min-height: 100vh;
+            min-height: 100%;
         }
 
-        /* Navigation */
-        .navbar {
-            background: rgba(15, 17, 23, 0.95);
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid var(--border);
-            padding: 0 2rem;
-            height: 64px;
+        /* ── progress bar ────────────────────────────────── */
+        #progress {
+            position: fixed;
+            top: 0; left: 0;
+            height: 2px;
+            background: var(--primary);
+            z-index: 200;
+            transition: width 0.1s linear;
+            width: 0;
+        }
+
+        /* ── navbar ──────────────────────────────────────── */
+        .nav {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            z-index: 100;
+            height: 56px;
+            background: rgba(12,14,20,0.96);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border-subtle);
             display: flex;
             align-items: center;
-            justify-content: space-between;
-            position: sticky;
-            top: 0;
-            z-index: 1000;
+            padding: 0 1.5rem;
+            gap: 1.5rem;
         }
 
-        .navbar-brand {
-            font-size: 1.5rem;
+        .nav-brand {
+            font-size: 1rem;
             font-weight: 700;
-            color: var(--primary);
+            color: var(--text);
             text-decoration: none;
-        }
-
-        .navbar-actions {
+            text-transform: lowercase;
             display: flex;
-            gap: 1rem;
             align-items: center;
+            gap: 0.5rem;
+            flex-shrink: 0;
         }
 
-        /* Layout */
-        .docs-container {
-            display: flex;
-            max-width: 1400px;
-            margin: 0 auto;
+        .nav-brand img {
+            height: 36px;
+            filter: brightness(0) invert(1);
         }
 
-        /* Sidebar */
-        .sidebar {
-            width: 280px;
-            background: var(--bg-card);
-            border-right: 1px solid var(--border);
-            padding: 2rem 1.5rem;
-            position: sticky;
-            top: 64px;
-            max-height: calc(100vh - 64px);
-            overflow-y: auto;
+        .nav-sep {
+            width: 1px;
+            height: 18px;
+            background: var(--border);
+            flex-shrink: 0;
         }
 
-        .sidebar-section {
-            margin-bottom: 2rem;
-        }
-
-        .sidebar-title {
-            font-size: 0.875rem;
-            font-weight: 700;
+        .nav-label {
             color: var(--text-muted);
+            font-size: 0.85rem;
+            text-transform: lowercase;
+        }
+
+        .nav-actions {
+            margin-left: auto;
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.45rem 1rem;
+            border-radius: 7px;
+            border: none;
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: lowercase;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.16s;
+        }
+
+        .btn-primary { background: var(--primary); color: #fff; }
+        .btn-primary:hover { background: #2563eb; }
+        .btn-ghost { background: transparent; color: var(--text-muted); }
+        .btn-ghost:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text-muted); }
+        .btn-outline:hover { border-color: var(--primary); color: var(--primary); }
+
+        /* ── sidebar toggle (mobile) ─────────────────────── */
+        .sidebar-toggle {
+            display: none;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0.25rem;
+        }
+
+        /* ── layout ──────────────────────────────────────── */
+        .docs-layout {
+            display: flex;
+            margin-top: 56px;
+            min-height: calc(100vh - 56px);
+        }
+
+        /* ── sidebar ─────────────────────────────────────── */
+        .sidebar {
+            width: 260px;
+            flex-shrink: 0;
+            background: var(--bg-sidebar);
+            border-right: 1px solid var(--border-subtle);
+            position: sticky;
+            top: 56px;
+            height: calc(100vh - 56px);
+            overflow-y: auto;
+            padding: 1.5rem 0;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border) transparent;
+        }
+
+        .sidebar::-webkit-scrollbar { width: 4px; }
+        .sidebar::-webkit-scrollbar-track { background: transparent; }
+        .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        .sidebar-group {
+            padding: 0 1rem 1.25rem;
+        }
+
+        .sidebar-group-label {
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            color: var(--text-dim);
             text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 0.75rem;
-            padding-left: 0.5rem;
+            padding: 0 0.5rem;
+            margin-bottom: 0.35rem;
         }
 
         .sidebar-link {
             display: block;
-            padding: 0.625rem 0.75rem;
+            padding: 0.45rem 0.75rem;
             color: var(--text-muted);
+            font-size: 0.865rem;
             text-decoration: none;
             border-radius: 6px;
-            font-size: 0.95rem;
-            transition: all 0.2s;
+            transition: all 0.15s;
             border-left: 2px solid transparent;
+            line-height: 1.35;
+            text-transform: lowercase;
         }
 
         .sidebar-link:hover {
-            color: var(--primary);
-            background: rgba(59, 130, 246, 0.1);
-            border-left-color: var(--primary);
+            color: var(--text);
+            background: rgba(255,255,255,0.04);
         }
 
         .sidebar-link.active {
             color: var(--primary);
-            background: rgba(59, 130, 246, 0.1);
+            background: rgba(59,130,246,0.08);
             border-left-color: var(--primary);
         }
 
-        /* Main Content */
+        /* ── main content ────────────────────────────────── */
         .content {
             flex: 1;
-            padding: 3rem;
-            min-height: calc(100vh - 64px);
+            min-width: 0;
+            padding: 3.5rem 4rem 8rem;
+            max-width: 860px;
         }
 
-        .section {
-            display: none;
-            max-width: 900px;
+        /* ── doc section ─────────────────────────────────── */
+        .doc-section {
+            padding-bottom: 5rem;
+            border-bottom: 1px solid var(--border-subtle);
+            margin-bottom: 5rem;
+            scroll-margin-top: 80px;
         }
 
-        .section.active {
-            display: block;
+        .doc-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
         }
 
-        .section h1 {
-            font-size: 2.5rem;
-            margin-bottom: 1rem;
-            color: var(--primary);
-            border-bottom: 2px solid var(--border);
-            padding-bottom: 1rem;
-        }
-
-        .section h2 {
-            font-size: 1.75rem;
-            margin: 2rem 0 1rem;
+        .doc-section h1 {
+            font-size: 1.9rem;
+            font-weight: 700;
+            letter-spacing: -0.01em;
             color: var(--text);
+            margin-bottom: 0.75rem;
+            text-transform: lowercase;
+            line-height: 1.2;
         }
 
-        .section h3 {
-            font-size: 1.25rem;
-            margin: 1.5rem 0 0.75rem;
-            color: var(--text);
-        }
-
-        .section p, .section li {
-            line-height: 1.8;
+        .doc-section > p:first-of-type {
+            font-size: 1.025rem;
             color: var(--text-muted);
-            margin-bottom: 1rem;
+            line-height: 1.75;
+            margin-bottom: 2rem;
+        }
+
+        .doc-section h2 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: var(--text);
+            margin: 2.5rem 0 0.75rem;
+            text-transform: lowercase;
+            letter-spacing: -0.005em;
+        }
+
+        .doc-section h3 {
             font-size: 1rem;
+            font-weight: 600;
+            color: var(--text);
+            margin: 1.75rem 0 0.6rem;
+            text-transform: lowercase;
         }
 
-        .section ul, .section ol {
-            margin-left: 2rem;
+        .doc-section p {
+            color: var(--text-muted);
+            line-height: 1.75;
             margin-bottom: 1rem;
+            font-size: 0.955rem;
         }
 
-        .section li {
-            margin-bottom: 0.5rem;
+        .doc-section ul, .doc-section ol {
+            color: var(--text-muted);
+            margin: 0 0 1rem 1.25rem;
+            font-size: 0.955rem;
         }
 
-        .section code {
-            background: var(--bg-input);
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
+        .doc-section li {
+            line-height: 1.75;
+            margin-bottom: 0.35rem;
+        }
+
+        .doc-section strong {
+            color: var(--text);
+            font-weight: 600;
+        }
+
+        .doc-section a {
             color: var(--primary);
-            font-family: 'Courier New', monospace;
-            font-size: 0.9em;
+            text-decoration: none;
         }
 
-        .section pre {
+        .doc-section a:hover {
+            text-decoration: underline;
+        }
+
+        /* ── inline code ─────────────────────────────────── */
+        .doc-section code {
             background: var(--bg-input);
-            padding: 1.5rem;
-            border-radius: 8px;
-            overflow-x: auto;
-            margin: 1rem 0;
-            border: 1px solid var(--border);
+            color: #93c5fd;
+            padding: 0.18rem 0.45rem;
+            border-radius: 4px;
             font-family: 'Courier New', monospace;
-            font-size: 0.9rem;
-            line-height: 1.6;
+            font-size: 0.875em;
+            border: 1px solid var(--border-subtle);
         }
 
-        .section pre code {
+        /* ── code blocks ─────────────────────────────────── */
+        .doc-section pre {
+            background: #090b0f;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1.25rem 1.5rem;
+            overflow-x: auto;
+            margin: 1.25rem 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.855rem;
+            line-height: 1.75;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border) transparent;
+        }
+
+        .doc-section pre code {
             background: none;
+            border: none;
             padding: 0;
-            color: var(--text);
+            color: #c9d1e0;
+            font-size: inherit;
         }
 
-        .info-box, .warning-box, .success-box {
-            padding: 1.25rem;
+        /* ── callout boxes ───────────────────────────────── */
+        .callout {
+            display: flex;
+            gap: 0.9rem;
+            padding: 1.1rem 1.25rem;
             border-radius: 8px;
             margin: 1.5rem 0;
-            border-left: 4px solid;
+            font-size: 0.92rem;
+            line-height: 1.65;
+            color: var(--text-muted);
         }
 
-        .info-box {
-            background: rgba(59, 130, 246, 0.1);
-            border-left-color: var(--primary);
-            color: var(--text);
+        .callout-icon {
+            font-size: 1rem;
+            flex-shrink: 0;
+            margin-top: 0.1rem;
         }
 
-        .warning-box {
-            background: rgba(245, 158, 11, 0.1);
-            border-left-color: var(--warning);
-            color: var(--text);
+        .callout.info {
+            background: rgba(59,130,246,0.07);
+            border: 1px solid rgba(59,130,246,0.18);
         }
 
-        .success-box {
-            background: rgba(34, 197, 94, 0.1);
-            border-left-color: var(--success);
-            color: var(--text);
+        .callout.info .callout-icon::before { content: 'ℹ'; color: var(--primary); }
+
+        .callout.warning {
+            background: rgba(245,158,11,0.07);
+            border: 1px solid rgba(245,158,11,0.18);
         }
 
-        .table-wrapper {
+        .callout.warning .callout-icon::before { content: '!'; color: var(--warning); font-weight: 700; }
+
+        .callout.success {
+            background: rgba(34,197,94,0.07);
+            border: 1px solid rgba(34,197,94,0.18);
+        }
+
+        .callout.success .callout-icon::before { content: '✓'; color: var(--success); font-weight: 700; }
+
+        .callout strong { color: var(--text); }
+
+        /* ── tables ──────────────────────────────────────── */
+        .table-wrap {
             overflow-x: auto;
-            margin: 1.5rem 0;
+            margin: 1.25rem 0;
+            border-radius: 8px;
+            border: 1px solid var(--border);
         }
 
         table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
         }
 
         th {
-            background: var(--bg-card);
-            padding: 1rem;
+            background: var(--bg-input);
+            padding: 0.7rem 1rem;
             text-align: left;
             font-weight: 600;
-            border: 1px solid var(--border);
-            color: var(--primary);
+            color: var(--text);
+            font-size: 0.82rem;
+            text-transform: lowercase;
+            border-bottom: 1px solid var(--border);
         }
 
         td {
-            padding: 0.75rem 1rem;
-            border: 1px solid var(--border);
+            padding: 0.65rem 1rem;
+            border-bottom: 1px solid var(--border-subtle);
             color: var(--text-muted);
+            vertical-align: top;
         }
 
-        tr:hover {
-            background: rgba(59, 130, 246, 0.05);
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: rgba(255,255,255,0.015); }
+
+        /* ── steps ───────────────────────────────────────── */
+        .steps {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin: 1.25rem 0;
         }
 
-        .btn {
-            display: inline-block;
-            padding: 0.75rem 1.5rem;
-            background: var(--primary);
-            color: #fff;
-            text-decoration: none;
-            border-radius: 8px;
-            font-weight: 600;
-            transition: all 0.2s;
-            margin: 0.5rem 0.5rem 0.5rem 0;
+        .step-card {
+            display: flex;
+            gap: 1.1rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 9px;
+            padding: 1.1rem 1.25rem;
         }
 
-        .btn:hover {
-            background: var(--primary-hover);
-            transform: translateY(-2px);
-        }
-
-        .btn-outline {
-            background: transparent;
-            border: 1px solid var(--border);
-            color: var(--text);
-        }
-
-        .btn-outline:hover {
-            border-color: var(--primary);
-            color: var(--primary);
-        }
-
-        .badge {
-            display: inline-block;
-            padding: 0.25rem 0.75rem;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            margin-right: 0.5rem;
-        }
-
-        .badge-get {
-            background: rgba(34, 197, 94, 0.2);
-            color: var(--success);
-        }
-
-        .badge-post {
-            background: rgba(59, 130, 246, 0.2);
-            color: var(--primary);
-        }
-
-        .badge-delete {
-            background: rgba(239, 68, 68, 0.2);
-            color: var(--danger);
-        }
-
-        .step-number {
-            display: inline-flex;
+        .step-num {
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            background: rgba(59,130,246,0.12);
+            border: 1px solid rgba(59,130,246,0.25);
+            display: flex;
             align-items: center;
             justify-content: center;
-            width: 32px;
-            height: 32px;
-            background: var(--primary);
-            color: #fff;
-            border-radius: 50%;
+            font-size: 0.75rem;
             font-weight: 700;
-            font-size: 0.9rem;
-            margin-right: 0.75rem;
+            color: var(--primary);
             flex-shrink: 0;
-        }
-
-        .step {
-            display: flex;
-            align-items: flex-start;
-            margin-bottom: 1.5rem;
-            padding: 1rem;
-            background: var(--bg-card);
-            border-radius: 8px;
-            border: 1px solid var(--border);
-        }
-
-        .step-content {
-            flex: 1;
+            margin-top: 0.1rem;
         }
 
         .step-content h4 {
-            margin-bottom: 0.5rem;
+            font-size: 0.92rem;
+            font-weight: 600;
             color: var(--text);
+            margin-bottom: 0.35rem;
+            text-transform: lowercase;
         }
 
         .step-content p {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            line-height: 1.65;
             margin-bottom: 0.5rem;
         }
 
-        /* Responsive */
-        @media (max-width: 768px) {
-            .docs-container {
-                flex-direction: column;
-            }
+        .step-content p:last-child { margin-bottom: 0; }
+
+        /* ── http badges ─────────────────────────────────── */
+        .badge {
+            display: inline-block;
+            padding: 0.2rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 0.03em;
+        }
+
+        .badge-get { background: rgba(34,197,94,0.15); color: var(--success); }
+        .badge-post { background: rgba(59,130,246,0.15); color: #60a5fa; }
+        .badge-delete { background: rgba(239,68,68,0.15); color: var(--danger); }
+
+        /* ── back to top ─────────────────────────────────── */
+        #back-top {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 38px;
+            height: 38px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: var(--text-muted);
+            opacity: 0;
+            transition: opacity 0.2s, background 0.15s;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        #back-top.visible {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        #back-top:hover {
+            background: var(--bg-input);
+            color: var(--text);
+        }
+
+        /* ── mobile sidebar ──────────────────────────────── */
+        @media (max-width: 900px) {
+            .sidebar-toggle { display: flex; }
 
             .sidebar {
-                width: 100%;
-                max-height: none;
-                border-right: none;
-                border-bottom: 1px solid var(--border);
-                position: static;
+                position: fixed;
+                top: 56px;
+                left: 0;
+                z-index: 90;
+                transform: translateX(-100%);
+                transition: transform 0.25s ease;
+                box-shadow: 4px 0 20px rgba(0,0,0,0.4);
             }
+
+            .sidebar.open { transform: translateX(0); }
 
             .content {
-                padding: 2rem;
+                padding: 2.5rem 1.5rem 6rem;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .content {
+                padding: 2rem 1rem 6rem;
             }
 
-            .section h1 {
-                font-size: 2rem;
-            }
-
-            .section h2 {
-                font-size: 1.5rem;
-            }
+            .doc-section h1 { font-size: 1.6rem; }
         }
     </style>
 </head>
 <body>
-    <!-- Navigation -->
-    <nav class="navbar">
-        <a href="{% url 'tracker:landing' %}" class="navbar-brand">roamly</a>
-        <div class="navbar-actions">
-            {% if user.is_authenticated %}
-                <a href="{% url 'tracker:map' %}" class="btn" style="padding: 0.5rem 1rem; font-size: 0.95rem;">go to app →</a>
-            {% else %}
-                <a href="{% url 'tracker:login' %}" class="btn btn-outline" style="padding: 0.5rem 1rem; font-size: 0.95rem;">login</a>
-                <a href="{% url 'tracker:signup' %}" class="btn" style="padding: 0.5rem 1rem; font-size: 0.95rem;">get started</a>
-            {% endif %}
+
+<div id="progress"></div>
+
+<!-- Navigation -->
+<nav class="nav">
+    <a href="{% url 'tracker:landing' %}" class="nav-brand">
+        <img src="{% static 'tracker/roamly.svg' %}" alt="Roamly">
+    </a>
+    <div class="nav-sep"></div>
+    <span class="nav-label">docs</span>
+
+    <button class="sidebar-toggle" id="sidebar-toggle" aria-label="toggle navigation">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path d="M4 6h16M4 12h16M4 18h16"/>
+        </svg>
+    </button>
+
+    <div class="nav-actions">
+        {% if user.is_authenticated %}
+            <a href="{% url 'tracker:map' %}" class="btn btn-primary">open app →</a>
+        {% else %}
+            <a href="{% url 'tracker:login' %}" class="btn btn-ghost">login</a>
+            <a href="{% url 'tracker:signup' %}" class="btn btn-primary">get started →</a>
+        {% endif %}
+    </div>
+</nav>
+
+<div class="docs-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-group">
+            <div class="sidebar-group-label">getting started</div>
+            <a href="#introduction" class="sidebar-link">introduction</a>
+            <a href="#docker-setup" class="sidebar-link">docker setup</a>
+            <a href="#first-steps" class="sidebar-link">first steps</a>
+            <a href="#environment" class="sidebar-link">configuration</a>
         </div>
-    </nav>
+        <div class="sidebar-group">
+            <div class="sidebar-group-label">tutorials</div>
+            <a href="#owntracks" class="sidebar-link">owntracks setup</a>
+            <a href="#api-guide" class="sidebar-link">sending locations</a>
+            <a href="#trips-tutorial" class="sidebar-link">managing trips</a>
+            <a href="#data-management" class="sidebar-link">import & export</a>
+            <a href="#geocoding" class="sidebar-link">geocoding</a>
+            <a href="#backups" class="sidebar-link">automatic backups</a>
+        </div>
+        <div class="sidebar-group">
+            <div class="sidebar-group-label">production</div>
+            <a href="#reverse-proxy" class="sidebar-link">reverse proxy</a>
+            <a href="#security" class="sidebar-link">security</a>
+            <a href="#updating" class="sidebar-link">updating</a>
+        </div>
+        <div class="sidebar-group">
+            <div class="sidebar-group-label">reference</div>
+            <a href="#api-reference" class="sidebar-link">api reference</a>
+            <a href="#architecture" class="sidebar-link">architecture</a>
+            <a href="#troubleshooting" class="sidebar-link">troubleshooting</a>
+            <a href="#faq" class="sidebar-link">faq</a>
+        </div>
+    </aside>
 
-    <div class="docs-container">
-        <!-- Sidebar Navigation -->
-        <aside class="sidebar">
-            <div class="sidebar-section">
-                <div class="sidebar-title">getting started</div>
-                <a href="#introduction" class="sidebar-link active" onclick="showSection('introduction')">introduction</a>
-                <a href="#docker-setup" class="sidebar-link" onclick="showSection('docker-setup')">docker setup</a>
-                <a href="#first-steps" class="sidebar-link" onclick="showSection('first-steps')">first steps</a>
-                <a href="#environment" class="sidebar-link" onclick="showSection('environment')">configuration</a>
-            </div>
+    <!-- Content -->
+    <main class="content">
 
-            <div class="sidebar-section">
-                <div class="sidebar-title">tutorials</div>
-                <a href="#owntracks" class="sidebar-link" onclick="showSection('owntracks')">owntracks setup</a>
-                <a href="#api-guide" class="sidebar-link" onclick="showSection('api-guide')">sending locations</a>
-                <a href="#trips-tutorial" class="sidebar-link" onclick="showSection('trips-tutorial')">managing trips</a>
-                <a href="#data-management" class="sidebar-link" onclick="showSection('data-management')">import & export</a>
-                <a href="#geocoding" class="sidebar-link" onclick="showSection('geocoding')">geocoding</a>
-                <a href="#backups" class="sidebar-link" onclick="showSection('backups')">automatic backups</a>
-            </div>
+        <!-- Introduction -->
+        <section id="introduction" class="doc-section">
+            <h1>roamly documentation</h1>
+            <p>roamly is a self-hosted location tracking platform. track your devices, visualize journeys on interactive maps, analyze travel patterns, and export everything — on your own server, with no data leaving it.</p>
 
-            <div class="sidebar-section">
-                <div class="sidebar-title">production</div>
-                <a href="#reverse-proxy" class="sidebar-link" onclick="showSection('reverse-proxy')">reverse proxy</a>
-                <a href="#security" class="sidebar-link" onclick="showSection('security')">security</a>
-                <a href="#updating" class="sidebar-link" onclick="showSection('updating')">updating</a>
-            </div>
+            <h2>what you get</h2>
+            <ul>
+                <li><strong>interactive map</strong> — maplibre gl with postgis vector tiles, renders millions of points</li>
+                <li><strong>multi-device tracking</strong> — separate api keys per device</li>
+                <li><strong>trip management</strong> — named journeys with places and time-spent tracking</li>
+                <li><strong>visit analytics</strong> — cities, states, countries with dates and time spent</li>
+                <li><strong>distance tracking</strong> — daily km with canvas charts</li>
+                <li><strong>reverse geocoding</strong> — coordinates to place names via openstreetmap nominatim</li>
+                <li><strong>import & export</strong> — csv, gpx, full json backup</li>
+                <li><strong>automatic s3 backups</strong> — any s3-compatible provider, configurable retention</li>
+                <li><strong>owntracks compatible</strong> — or any http client</li>
+                <li><strong>pwa</strong> — installable, dark & light themes</li>
+            </ul>
 
-            <div class="sidebar-section">
-                <div class="sidebar-title">reference</div>
-                <a href="#api-reference" class="sidebar-link" onclick="showSection('api-reference')">api reference</a>
-                <a href="#architecture" class="sidebar-link" onclick="showSection('architecture')">architecture</a>
-                <a href="#troubleshooting" class="sidebar-link" onclick="showSection('troubleshooting')">troubleshooting</a>
-                <a href="#faq" class="sidebar-link" onclick="showSection('faq')">faq</a>
-            </div>
-        </aside>
+            <h2>tech stack</h2>
+            <ul>
+                <li><strong>backend:</strong> django 5 + python 3.12, gunicorn</li>
+                <li><strong>database:</strong> postgresql 16 + postgis for spatial queries and vector tiles</li>
+                <li><strong>frontend:</strong> vanilla javascript, maplibre gl, canvas api</li>
+                <li><strong>deployment:</strong> docker compose</li>
+            </ul>
+        </section>
 
-        <!-- Main Content -->
-        <main class="content">
+        <!-- Docker Setup -->
+        <section id="docker-setup" class="doc-section">
+            <h1>docker setup</h1>
+            <p>roamly runs as a two-container docker compose stack — a postgis database and the django web app. everything is configured out of the box.</p>
 
-            <!-- Introduction -->
-            <section id="introduction" class="section active">
-                <h1>roamly documentation</h1>
-                <p>roamly is a self-hosted location tracking platform that gives you full ownership of your location data. track your devices, visualize journeys on interactive maps, analyze travel patterns, and export everything — all on your own server.</p>
+            <h2>prerequisites</h2>
+            <ul>
+                <li><a href="https://docs.docker.com/get-docker/" target="_blank">docker</a> and <a href="https://docs.docker.com/compose/install/" target="_blank">docker compose</a></li>
+                <li>2 gb ram minimum, 1 gb free disk</li>
+                <li>port 8001 available (and optionally 5433 for db access)</li>
+            </ul>
 
-                <h2>what you get</h2>
-                <ul>
-                    <li><strong>interactive map</strong> — visualize location history with maplibre gl and vector tiles, supporting millions of points</li>
-                    <li><strong>multi-device tracking</strong> — track phones, tablets, or any device that can send http requests</li>
-                    <li><strong>trip management</strong> — organize locations into named trips with places and time-spent tracking</li>
-                    <li><strong>visit analytics</strong> — see which cities, states, and countries you've visited with time spent at each</li>
-                    <li><strong>distance tracking</strong> — daily distance calculations with canvas-based charts</li>
-                    <li><strong>reverse geocoding</strong> — automatic conversion of coordinates to place names via openstreetmap nominatim with spatial clustering</li>
-                    <li><strong>import & export</strong> — full data portability with csv, gpx, and json backup formats</li>
-                    <li><strong>automatic s3 backups</strong> — scheduled backups to any s3-compatible storage with configurable retention</li>
-                    <li><strong>owntracks compatible</strong> — native support for owntracks http mode</li>
-                    <li><strong>api key auth</strong> — secure api keys for each device, manageable from the web ui</li>
-                    <li><strong>pwa support</strong> — installable as a progressive web app with offline capabilities</li>
-                    <li><strong>dark & light themes</strong> — toggle between themes from the settings page</li>
-                </ul>
-
-                <h2>tech stack</h2>
-                <ul>
-                    <li><strong>backend:</strong> django 5 + python 3.12, gunicorn</li>
-                    <li><strong>database:</strong> postgresql 16 with postgis for spatial queries and vector tiles</li>
-                    <li><strong>frontend:</strong> vanilla javascript, maplibre gl, canvas api charts</li>
-                    <li><strong>deployment:</strong> docker & docker compose</li>
-                </ul>
-            </section>
-
-            <!-- Docker Setup -->
-            <section id="docker-setup" class="section">
-                <h1>docker setup</h1>
-                <p>roamly is deployed with docker compose. the stack includes a postgis database and the django web application — everything is configured out of the box.</p>
-
-                <h2>prerequisites</h2>
-                <ul>
-                    <li><a href="https://docs.docker.com/get-docker/" target="_blank" style="color: var(--primary);">docker</a> and <a href="https://docs.docker.com/compose/install/" target="_blank" style="color: var(--primary);">docker compose</a> installed on your system</li>
-                    <li>at least 2 gb ram and 1 gb free disk space</li>
-                    <li>ports 8001 (web) and optionally 5433 (database) available</li>
-                </ul>
-
-                <h2>install & run</h2>
-                <pre><code># clone the repository
+            <h2>install & run</h2>
+            <pre><code># clone the repo
 git clone https://github.com/waxn/roamly.git
 cd roamly
 
-# start the stack (database + web app)
+# start everything
 docker compose up -d</code></pre>
 
-                <div class="success-box">
-                    <strong>that's it!</strong> roamly is now running at <code>http://localhost:8001</code>. migrations and static files are handled automatically on startup.
-                </div>
+            <div class="callout success">
+                <div class="callout-icon"></div>
+                <div><strong>that's it.</strong> roamly is now running at <code>http://localhost:8001</code>. migrations and static files are handled automatically on startup.</div>
+            </div>
 
-                <h2>what docker compose starts</h2>
-                <div class="table-wrapper">
-                    <table>
-                        <tr>
-                            <th>service</th>
-                            <th>image</th>
-                            <th>port</th>
-                            <th>description</th>
-                        </tr>
+            <h2>what gets started</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>service</th><th>image</th><th>port</th><th>description</th></tr>
+                    </thead>
+                    <tbody>
                         <tr>
                             <td><code>db</code></td>
                             <td>postgis/postgis:16-3.4</td>
                             <td>5433 → 5432</td>
-                            <td>postgresql database with postgis spatial extensions</td>
+                            <td>postgresql with postgis spatial extensions</td>
                         </tr>
                         <tr>
                             <td><code>web</code></td>
-                            <td>built from Dockerfile</td>
+                            <td>built from dockerfile</td>
                             <td>8001 → 8000</td>
                             <td>django app served by gunicorn (3 workers)</td>
                         </tr>
-                    </table>
-                </div>
+                    </tbody>
+                </table>
+            </div>
 
-                <h2>data persistence</h2>
-                <p>your data is stored in bind-mount volumes that survive container restarts and rebuilds:</p>
-                <ul>
-                    <li><code>./data/postgres/</code> — all database data (locations, users, trips, etc.)</li>
-                    <li><code>./staticfiles/</code> — collected static assets</li>
-                </ul>
+            <h2>data persistence</h2>
+            <p>data lives in bind-mount volumes that survive container rebuilds:</p>
+            <ul>
+                <li><code>./data/postgres/</code> — all database data</li>
+                <li><code>./staticfiles/</code> — collected static assets</li>
+            </ul>
 
-                <div class="warning-box">
-                    <strong>backup tip:</strong> to back up your database, run:<br>
-                    <code>docker compose exec db pg_dump -U roamly roamly > backup.sql</code>
-                </div>
-
-                <h2>useful commands</h2>
-                <pre><code># view live logs
+            <h2>useful commands</h2>
+            <pre><code># view logs
 docker compose logs -f web
 
 # stop everything
 docker compose down
 
-# rebuild after pulling updates
+# rebuild after an update
 docker compose down && docker compose up -d --build
 
-# open a database shell
+# open a db shell
 docker compose exec db psql -U roamly -d roamly
 
 # back up the database
 docker compose exec db pg_dump -U roamly roamly > backup.sql
 
-# restore from backup
+# restore
 docker compose exec -T db psql -U roamly roamly < backup.sql</code></pre>
-            </section>
+        </section>
 
-            <!-- First Steps -->
-            <section id="first-steps" class="section">
-                <h1>first steps</h1>
-                <p>after starting roamly with docker compose, follow these steps to start tracking your location.</p>
+        <!-- First Steps -->
+        <section id="first-steps" class="doc-section">
+            <h1>first steps</h1>
+            <p>after <code>docker compose up -d</code>, follow these steps to start tracking your first device.</p>
 
-                <div class="step">
-                    <span class="step-number">1</span>
+            <div class="steps">
+                <div class="step-card">
+                    <div class="step-num">1</div>
                     <div class="step-content">
                         <h4>create an account</h4>
-                        <p>open <code>http://localhost:8001</code> and click <strong>get started</strong> to create your account. enter a username and password — this is your private instance, so there's no email required.</p>
+                        <p>open <code>http://localhost:8001</code> and click <strong>get started</strong>. enter a username and password — no email required.</p>
                     </div>
                 </div>
-
-                <div class="step">
-                    <span class="step-number">2</span>
+                <div class="step-card">
+                    <div class="step-num">2</div>
                     <div class="step-content">
                         <h4>create an api key</h4>
-                        <p>go to <strong>settings</strong> and scroll to the <strong>api keys</strong> section. click <strong>create api key</strong> and give it a name that matches your device (e.g., "pixel 9", "iphone 16"). copy the generated key — you'll need it in the next step.</p>
+                        <p>go to <strong>settings → api keys → create api key</strong>. name it after your device (e.g., "pixel 9"). copy the 64-character key.</p>
                     </div>
                 </div>
-
-                <div class="step">
-                    <span class="step-number">3</span>
+                <div class="step-card">
+                    <div class="step-num">3</div>
                     <div class="step-content">
                         <h4>set up a tracking app</h4>
-                        <p>install <a href="https://owntracks.org/" target="_blank" style="color: var(--primary);">owntracks</a> on your phone (ios or android). configure it to send locations to your roamly server. see the <a href="#owntracks" onclick="showSection('owntracks')" style="color: var(--primary);">owntracks setup tutorial</a> for step-by-step instructions.</p>
+                        <p>install <a href="https://owntracks.org/" target="_blank">owntracks</a> on your phone and point it at your server. see the <a href="#owntracks">owntracks setup</a> section for step-by-step instructions.</p>
                     </div>
                 </div>
-
-                <div class="step">
-                    <span class="step-number">4</span>
+                <div class="step-card">
+                    <div class="step-num">4</div>
                     <div class="step-content">
                         <h4>verify it's working</h4>
-                        <p>after owntracks sends its first location, go to the <strong>map</strong> page. you should see a point on the map. if not, check the <a href="#troubleshooting" onclick="showSection('troubleshooting')" style="color: var(--primary);">troubleshooting</a> section.</p>
+                        <p>after owntracks sends its first location, check the <strong>map</strong> page. if nothing appears, see <a href="#troubleshooting">troubleshooting</a>.</p>
                     </div>
                 </div>
-
-                <div class="step">
-                    <span class="step-number">5</span>
+                <div class="step-card">
+                    <div class="step-num">5</div>
                     <div class="step-content">
                         <h4>run geocoding</h4>
-                        <p>go to <strong>settings</strong> and click <strong>start geocoding</strong> to convert your location coordinates into city/country names. this runs in the background using spatial clustering to minimize api calls.</p>
+                        <p>go to <strong>settings → start geocoding</strong> to convert coordinates to city/country names. runs in the background.</p>
                     </div>
                 </div>
+            </div>
 
-                <div class="info-box">
-                    <strong>tip:</strong> roamly also geocodes new locations automatically as they arrive. the background geocoding job is useful for bulk-processing imported data or locations that were pushed while nominatim was unavailable.
-                </div>
-            </section>
+            <div class="callout info">
+                <div class="callout-icon"></div>
+                <div>roamly geocodes new locations automatically as they arrive. the background job is for bulk-processing imports or locations that missed geocoding.</div>
+            </div>
+        </section>
 
-            <!-- Environment / Configuration -->
-            <section id="environment" class="section">
-                <h1>configuration</h1>
-                <p>roamly is configured through environment variables. you can set these in a <code>.env</code> file in the project root, or set them directly in your hosting platform (e.g. portainer stack environment variables). no domain names are hardcoded — all host and csrf configuration must be provided via environment variables.</p>
+        <!-- Environment -->
+        <section id="environment" class="doc-section">
+            <h1>configuration</h1>
+            <p>roamly is configured via environment variables — set them in a <code>.env</code> file in the project root, or directly in your hosting platform (portainer, etc.). no hostnames are hardcoded.</p>
 
-                <h2>environment variables</h2>
-                <div class="table-wrapper">
-                    <table>
-                        <tr>
-                            <th>variable</th>
-                            <th>description</th>
-                            <th>default</th>
-                        </tr>
+            <h2>environment variables</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>variable</th><th>description</th><th>default</th></tr>
+                    </thead>
+                    <tbody>
                         <tr>
                             <td><code>DEBUG</code></td>
-                            <td>enable django debug mode. set to <code>False</code> in production.</td>
+                            <td>django debug mode. set to <code>False</code> in production.</td>
                             <td><code>False</code></td>
                         </tr>
                         <tr>
                             <td><code>SECRET_KEY</code></td>
-                            <td>django secret key for session signing. <strong>change this in production.</strong></td>
+                            <td>django secret key. <strong>change this in production.</strong></td>
                             <td><code>change-me-in-production</code></td>
                         </tr>
                         <tr>
                             <td><code>POSTGRES_PASSWORD</code></td>
-                            <td>password for the postgresql database user.</td>
+                            <td>database password.</td>
                             <td><code>roamly_secret</code></td>
                         </tr>
                         <tr>
                             <td><code>ALLOWED_HOSTS</code></td>
-                            <td>comma-separated list of hostnames the server accepts requests for. <strong>must be set to your domain in production.</strong></td>
+                            <td>comma-separated hostnames. <strong>set to your domain in production.</strong></td>
                             <td><code>localhost,127.0.0.1</code></td>
                         </tr>
                         <tr>
                             <td><code>CSRF_TRUSTED_ORIGINS</code></td>
-                            <td>comma-separated urls (with protocol) trusted for csrf. <strong>must include your domain's https url in production.</strong></td>
-                            <td><code>http://localhost,http://127.0.0.1</code></td>
+                            <td>comma-separated urls with protocol. <strong>must include your https url.</strong></td>
+                            <td><code>http://localhost</code></td>
                         </tr>
                         <tr>
                             <td><code>DATABASE_URL</code></td>
-                            <td>full database connection string. auto-configured in docker compose.</td>
+                            <td>full db connection string. auto-configured in docker compose.</td>
                             <td><code>postgis://roamly:...@db:5432/roamly</code></td>
                         </tr>
-                    </table>
-                </div>
+                    </tbody>
+                </table>
+            </div>
 
-                <h2>example .env file</h2>
-                <pre><code># production .env file
-# copy .env.example to .env and fill in these values
-# or set them as environment variables in portainer / your hosting platform
-
-DEBUG=False
+            <h2>example .env</h2>
+            <pre><code>DEBUG=False
 SECRET_KEY=your-random-secret-key-at-least-50-chars
 POSTGRES_PASSWORD=a-strong-database-password
 
 # comma-separated, no protocol
 ALLOWED_HOSTS=roamly.yourdomain.com
 
-# comma-separated, include protocol — add all domains you host on
+# comma-separated, include protocol
 CSRF_TRUSTED_ORIGINS=https://roamly.yourdomain.com</code></pre>
 
-                <div class="warning-box">
-                    <strong>important:</strong> always change <code>SECRET_KEY</code> and <code>POSTGRES_PASSWORD</code> before exposing roamly to the internet. the defaults are insecure placeholders.
-                </div>
+            <div class="callout warning">
+                <div class="callout-icon"></div>
+                <div><strong>always</strong> change <code>SECRET_KEY</code> and <code>POSTGRES_PASSWORD</code> before exposing roamly to the internet.</div>
+            </div>
 
-                <h2>generating a secret key</h2>
-                <pre><code># run this to generate a secure random key
-python3 -c "import secrets; print(secrets.token_urlsafe(64))"</code></pre>
-            </section>
+            <h2>generating a secret key</h2>
+            <pre><code>python3 -c "import secrets; print(secrets.token_urlsafe(64))"</code></pre>
+        </section>
 
-            <!-- OwnTracks Setup -->
-            <section id="owntracks" class="section">
-                <h1>owntracks setup</h1>
-                <p><a href="https://owntracks.org/" target="_blank" style="color: var(--primary);">owntracks</a> is a free, open-source app for ios and android that sends your location to your own server. it's the recommended way to push locations to roamly.</p>
+        <!-- OwnTracks -->
+        <section id="owntracks" class="doc-section">
+            <h1>owntracks setup</h1>
+            <p><a href="https://owntracks.org/" target="_blank">owntracks</a> is a free, open-source app for ios and android that pushes your location to your own server over http.</p>
 
-                <h2>install owntracks</h2>
-                <ul>
-                    <li><strong>ios:</strong> <a href="https://apps.apple.com/app/owntracks/id692424691" target="_blank" style="color: var(--primary);">download from app store</a></li>
-                    <li><strong>android:</strong> <a href="https://play.google.com/store/apps/details?id=org.owntracks.android" target="_blank" style="color: var(--primary);">download from google play</a> or <a href="https://f-droid.org/packages/org.owntracks.android/" target="_blank" style="color: var(--primary);">f-droid</a></li>
-                </ul>
+            <h2>install owntracks</h2>
+            <ul>
+                <li><strong>ios:</strong> <a href="https://apps.apple.com/app/owntracks/id692424691" target="_blank">app store</a></li>
+                <li><strong>android:</strong> <a href="https://play.google.com/store/apps/details?id=org.owntracks.android" target="_blank">google play</a> or <a href="https://f-droid.org/packages/org.owntracks.android/" target="_blank">f-droid</a></li>
+            </ul>
 
-                <h2>step-by-step configuration</h2>
-
-                <div class="step">
-                    <span class="step-number">1</span>
+            <h2>configuration</h2>
+            <div class="steps">
+                <div class="step-card">
+                    <div class="step-num">1</div>
                     <div class="step-content">
-                        <h4>get your api key from roamly</h4>
-                        <p>log into roamly → <strong>settings</strong> → <strong>api keys</strong> → <strong>create api key</strong>. name it after your phone model. copy the 64-character key.</p>
+                        <h4>get your api key</h4>
+                        <p>settings → api keys → create api key. copy the 64-character key.</p>
                     </div>
                 </div>
-
-                <div class="step">
-                    <span class="step-number">2</span>
+                <div class="step-card">
+                    <div class="step-num">2</div>
                     <div class="step-content">
                         <h4>open owntracks preferences</h4>
-                        <p><strong>android:</strong> tap the menu (☰) → preferences → connection<br>
-                        <strong>ios:</strong> tap (i) button → settings</p>
+                        <p><strong>android:</strong> menu (☰) → preferences → connection<br>
+                        <strong>ios:</strong> (i) button → settings</p>
                     </div>
                 </div>
-
-                <div class="step">
-                    <span class="step-number">3</span>
+                <div class="step-card">
+                    <div class="step-num">3</div>
                     <div class="step-content">
                         <h4>set mode to http</h4>
-                        <p>change the mode from <strong>mqtt</strong> to <strong>http</strong>. this tells owntracks to send location updates over http(s) instead of mqtt.</p>
+                        <p>change mode from <strong>mqtt</strong> to <strong>http</strong>.</p>
                     </div>
                 </div>
-
-                <div class="step">
-                    <span class="step-number">4</span>
+                <div class="step-card">
+                    <div class="step-num">4</div>
                     <div class="step-content">
                         <h4>set the server url</h4>
-                        <p>enter your roamly push endpoint:</p>
-                        <pre><code>https://your-domain.com/api/push/?api_key=YOUR_API_KEY</code></pre>
-                        <p>replace <code>your-domain.com</code> with your server address and <code>YOUR_API_KEY</code> with the key you copied.</p>
-                        <p><strong>for local testing</strong> (phone and server on same network):</p>
-                        <pre><code>http://192.168.x.x:8001/api/push/?api_key=YOUR_API_KEY</code></pre>
+                        <pre><code>https://your-domain.com/api/push/?api_key=YOUR_KEY</code></pre>
+                        <p><strong>local testing</strong> (phone and server on same network):</p>
+                        <pre><code>http://192.168.x.x:8001/api/push/?api_key=YOUR_KEY</code></pre>
                     </div>
                 </div>
-
-                <div class="step">
-                    <span class="step-number">5</span>
-                    <div class="step-content">
-                        <h4>set your device identifier</h4>
-                        <p>in owntracks preferences, set the <strong>tracker id</strong> (tid) to a short name like <code>ph</code> or your initials. this is used as the device id in roamly.</p>
-                    </div>
-                </div>
-
-                <div class="step">
-                    <span class="step-number">6</span>
+                <div class="step-card">
+                    <div class="step-num">5</div>
                     <div class="step-content">
                         <h4>send a test location</h4>
-                        <p>go back to the owntracks map screen and tap the publish button (↑) to force-send your current location. then check roamly's <strong>map</strong> page — your point should appear within a few seconds.</p>
+                        <p>tap the publish button (↑) on the owntracks map screen. your point should appear on roamly's map within a few seconds.</p>
                     </div>
                 </div>
+            </div>
 
-                <div class="info-box">
-                    <strong>alternative auth:</strong> instead of passing the api key in the url, you can set an authorization header in owntracks: <code>Authorization: Bearer YOUR_API_KEY</code>. the url parameter method is simpler for most users.
-                </div>
+            <div class="callout info">
+                <div class="callout-icon"></div>
+                <div>instead of a url parameter, you can pass the key as a header: <code>Authorization: Bearer YOUR_KEY</code>. the url param method is simpler for most setups.</div>
+            </div>
 
-                <h2>recommended owntracks settings</h2>
-                <ul>
-                    <li><strong>monitoring mode:</strong> "significant" for battery-friendly tracking, "move" for detailed tracking</li>
-                    <li><strong>location accuracy:</strong> owntracks reports gps accuracy — roamly stores this per point</li>
-                    <li><strong>battery data:</strong> automatically captured and stored with each location point</li>
-                </ul>
+            <h2>owntracks not working?</h2>
+            <ul>
+                <li>make sure the url ends with <code>/api/push/</code> — trailing slash matters</li>
+                <li>check you're using <strong>http mode</strong>, not mqtt</li>
+                <li>verify the api key has no extra spaces</li>
+                <li>confirm your server is reachable from your phone's network</li>
+                <li>check logs: <code>docker compose logs -f web</code></li>
+            </ul>
+        </section>
 
-                <h2>owntracks not working?</h2>
-                <ul>
-                    <li>make sure the url ends with <code>/api/push/</code> (trailing slash matters in django)</li>
-                    <li>check that you're using <strong>http mode</strong>, not mqtt</li>
-                    <li>verify the api key has no extra spaces (copy-paste carefully)</li>
-                    <li>check that your roamly server is reachable from your phone's network</li>
-                    <li>look at logs: <code>docker compose logs -f web</code></li>
-                </ul>
-            </section>
+        <!-- API Guide -->
+        <section id="api-guide" class="doc-section">
+            <h1>sending locations</h1>
+            <p>push locations from any app or script that can make http requests. the <code>/api/push/</code> endpoint accepts json.</p>
 
-            <!-- API Guide (Sending Locations) -->
-            <section id="api-guide" class="section">
-                <h1>sending locations</h1>
-                <p>you can push location data to roamly from any app or script that can make http requests. the <code>/api/push/</code> endpoint accepts json payloads.</p>
+            <h2>authentication</h2>
+            <ol>
+                <li><strong>authorization header:</strong> <code>Authorization: Bearer YOUR_KEY</code></li>
+                <li><strong>url parameter:</strong> <code>?api_key=YOUR_KEY</code></li>
+                <li><strong>json body field:</strong> <code>"api_key": "YOUR_KEY"</code></li>
+            </ol>
 
-                <h2>authentication</h2>
-                <p>every push request needs an api key. you can pass it in three ways (in order of preference):</p>
-                <ol>
-                    <li><strong>authorization header:</strong> <code>Authorization: Bearer YOUR_API_KEY</code></li>
-                    <li><strong>url parameter:</strong> <code>?api_key=YOUR_API_KEY</code></li>
-                    <li><strong>json body field:</strong> <code>{"api_key": "YOUR_API_KEY", ...}</code></li>
-                </ol>
-
-                <h2>standard format</h2>
-                <pre><code>curl -X POST https://your-domain.com/api/push/ \
-  -H "Authorization: Bearer YOUR_API_KEY" \
+            <h2>standard format</h2>
+            <pre><code>curl -X POST https://your-domain.com/api/push/ \
+  -H "Authorization: Bearer YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "device_id": "my-phone",
@@ -772,69 +899,26 @@ python3 -c "import secrets; print(secrets.token_urlsafe(64))"</code></pre>
     "battery": 85
   }'</code></pre>
 
-                <h3>field reference</h3>
-                <div class="table-wrapper">
-                    <table>
-                        <tr>
-                            <th>field</th>
-                            <th>type</th>
-                            <th>required</th>
-                            <th>description</th>
-                        </tr>
-                        <tr>
-                            <td><code>device_id</code></td>
-                            <td>string</td>
-                            <td>yes</td>
-                            <td>unique identifier for the device</td>
-                        </tr>
-                        <tr>
-                            <td><code>latitude</code></td>
-                            <td>number</td>
-                            <td>yes</td>
-                            <td>latitude in decimal degrees (-90 to 90)</td>
-                        </tr>
-                        <tr>
-                            <td><code>longitude</code></td>
-                            <td>number</td>
-                            <td>yes</td>
-                            <td>longitude in decimal degrees (-180 to 180)</td>
-                        </tr>
-                        <tr>
-                            <td><code>timestamp</code></td>
-                            <td>string / number</td>
-                            <td>no</td>
-                            <td>iso 8601 string or unix timestamp. defaults to current time.</td>
-                        </tr>
-                        <tr>
-                            <td><code>altitude</code></td>
-                            <td>number</td>
-                            <td>no</td>
-                            <td>altitude in meters</td>
-                        </tr>
-                        <tr>
-                            <td><code>accuracy</code></td>
-                            <td>number</td>
-                            <td>no</td>
-                            <td>gps accuracy in meters</td>
-                        </tr>
-                        <tr>
-                            <td><code>speed</code></td>
-                            <td>number</td>
-                            <td>no</td>
-                            <td>speed in meters per second</td>
-                        </tr>
-                        <tr>
-                            <td><code>battery</code></td>
-                            <td>number</td>
-                            <td>no</td>
-                            <td>battery percentage (0–100)</td>
-                        </tr>
-                    </table>
-                </div>
+            <h3>field reference</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>field</th><th>type</th><th>required</th><th>description</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>device_id</code></td><td>string</td><td>yes</td><td>unique identifier for the device</td></tr>
+                        <tr><td><code>latitude</code></td><td>number</td><td>yes</td><td>decimal degrees, -90 to 90</td></tr>
+                        <tr><td><code>longitude</code></td><td>number</td><td>yes</td><td>decimal degrees, -180 to 180</td></tr>
+                        <tr><td><code>timestamp</code></td><td>string / number</td><td>no</td><td>iso 8601 or unix timestamp. defaults to now.</td></tr>
+                        <tr><td><code>altitude</code></td><td>number</td><td>no</td><td>meters</td></tr>
+                        <tr><td><code>accuracy</code></td><td>number</td><td>no</td><td>gps accuracy in meters</td></tr>
+                        <tr><td><code>speed</code></td><td>number</td><td>no</td><td>meters per second</td></tr>
+                        <tr><td><code>battery</code></td><td>number</td><td>no</td><td>0–100</td></tr>
+                    </tbody>
+                </table>
+            </div>
 
-                <h2>owntracks format</h2>
-                <p>roamly also accepts the native owntracks json format:</p>
-                <pre><code>{
+            <h2>owntracks format</h2>
+            <p>roamly also accepts the native owntracks json format directly:</p>
+            <pre><code>{
   "_type": "location",
   "tid": "ph",
   "lat": 48.8566,
@@ -846,284 +930,191 @@ python3 -c "import secrets; print(secrets.token_urlsafe(64))"</code></pre>
   "batt": 85
 }</code></pre>
 
-                <h2>response</h2>
-                <pre><code>// success (200)
-{
-  "status": "ok",
-  "location_id": 12345,
-  "device": "my-phone"
-}
+            <h2>response</h2>
+            <pre><code>// success (200)
+{ "status": "ok", "location_id": 12345, "device": "my-phone" }
 
 // error (401)
-{
-  "error": "Invalid or missing API key"
-}</code></pre>
+{ "error": "Invalid or missing API key" }</code></pre>
 
-                <h2>example: python script</h2>
-                <pre><code>import requests
-import time
+            <h2>python example</h2>
+            <pre><code>import requests, time
 
-API_KEY = "your-api-key-here"
-URL = "https://your-domain.com/api/push/"
-
-data = {
-    "device_id": "python-script",
-    "latitude": 51.5074,
-    "longitude": -0.1278,
-    "timestamp": int(time.time())
-}
-
-response = requests.post(
-    URL,
-    json=data,
-    headers={"Authorization": f"Bearer {API_KEY}"}
+resp = requests.post(
+    "https://your-domain.com/api/push/",
+    json={
+        "device_id": "python-script",
+        "latitude": 51.5074,
+        "longitude": -0.1278,
+        "timestamp": int(time.time())
+    },
+    headers={"Authorization": "Bearer YOUR_KEY"}
 )
-print(response.json())</code></pre>
-            </section>
+print(resp.json())</code></pre>
+        </section>
 
-            <!-- Trips Tutorial -->
-            <section id="trips-tutorial" class="section">
-                <h1>managing trips</h1>
-                <p>trips let you organize location data into named journeys — vacations, road trips, business travel, daily commutes. a trip captures all locations within a time range from a specific device.</p>
+        <!-- Trips -->
+        <section id="trips-tutorial" class="doc-section">
+            <h1>managing trips</h1>
+            <p>trips let you organize location data into named journeys — vacations, road trips, commutes. a trip captures all locations within a time range for a specific device.</p>
 
-                <h2>creating a trip</h2>
-
-                <div class="step">
-                    <span class="step-number">1</span>
+            <h2>creating a trip</h2>
+            <div class="steps">
+                <div class="step-card">
+                    <div class="step-num">1</div>
                     <div class="step-content">
-                        <h4>go to the trips page</h4>
+                        <h4>go to trips</h4>
                         <p>click <strong>trips</strong> in the navigation bar.</p>
                     </div>
                 </div>
-
-                <div class="step">
-                    <span class="step-number">2</span>
+                <div class="step-card">
+                    <div class="step-num">2</div>
                     <div class="step-content">
-                        <h4>click "create trip"</h4>
-                        <p>fill in the form:</p>
-                        <ul>
-                            <li><strong>name</strong> — e.g., "tokyo spring 2026"</li>
-                            <li><strong>device</strong> — which device was with you on the trip</li>
-                            <li><strong>start date / end date</strong> — the trip's time range</li>
-                            <li><strong>description</strong> — optional notes about the trip</li>
-                        </ul>
+                        <h4>create trip</h4>
+                        <p>fill in: name, device, start date, end date, optional description.</p>
                     </div>
                 </div>
-
-                <div class="step">
-                    <span class="step-number">3</span>
+                <div class="step-card">
+                    <div class="step-num">3</div>
                     <div class="step-content">
                         <h4>view the trip</h4>
-                        <p>click on the trip to open it. you'll see a full-screen map with all location points that fall within the trip's time range, connected by a trail line.</p>
+                        <p>click on a trip to see a full-screen map with all location points in that time range, connected by a trail line.</p>
                     </div>
                 </div>
+            </div>
 
-                <h2>adding places to a trip</h2>
-                <p>places are named waypoints within a trip — hotels, restaurants, landmarks. roamly calculates how long you spent at each place based on nearby location points.</p>
-                <ol>
-                    <li>open a trip and click <strong>add place</strong></li>
-                    <li>enter a name (e.g., "hotel shinagawa")</li>
-                    <li>set the latitude and longitude (click on the map or enter manually)</li>
-                    <li>set a <strong>radius</strong> in meters — location points within this radius count as "at this place"</li>
-                    <li>add optional notes</li>
-                </ol>
+            <h2>adding places</h2>
+            <p>places are named waypoints — hotels, restaurants, landmarks. roamly calculates time spent using gps proximity.</p>
+            <ol>
+                <li>open a trip → click <strong>add place</strong></li>
+                <li>enter a name and coordinates (click map or enter manually)</li>
+                <li>set a radius in meters — points within that radius count as "at this place"</li>
+            </ol>
 
-                <div class="info-box">
-                    <strong>time spent calculation:</strong> roamly uses the haversine formula to find which location points fall within a place's radius. it then sums the time gaps between consecutive points (capping gaps at 1 hour) to estimate total time at that place.
-                </div>
+            <div class="callout info">
+                <div class="callout-icon"></div>
+                <div><strong>time calculation:</strong> roamly uses haversine to find which points fall within a place's radius, then sums time gaps between consecutive points (capping gaps at 1 hour).</div>
+            </div>
+        </section>
 
-                <h2>editing & deleting trips</h2>
-                <ul>
-                    <li>click on a trip to view/edit its name and description</li>
-                    <li>places can be edited or removed individually</li>
-                    <li>deleting a trip only removes the trip and its places — your location data is not affected</li>
-                </ul>
-            </section>
+        <!-- Data Management -->
+        <section id="data-management" class="doc-section">
+            <h1>import & export</h1>
+            <p>your data is yours — export anytime in open formats, import from other services.</p>
 
-            <!-- Data Management (Import/Export) -->
-            <section id="data-management" class="section">
-                <h1>import & export</h1>
-                <p>your data is yours. export it anytime in open formats, or import location history from other services.</p>
+            <h2>export formats</h2>
+            <ul>
+                <li><strong>csv</strong> — all locations as a spreadsheet. columns: device, lat, lng, altitude, accuracy, speed, battery, timestamp, city, state, country, country_code.</li>
+                <li><strong>gpx 1.1</strong> — compatible with google earth, qgis, garmin, most gps software.</li>
+                <li><strong>json backup</strong> — everything: devices, locations, trips, places, api keys. use this to migrate servers or take a complete snapshot.</li>
+            </ul>
 
-                <h2>exporting data</h2>
-                <p>all export options are available in <strong>settings</strong>.</p>
+            <h2>import formats</h2>
+            <ul>
+                <li><strong>csv</strong> — flexible column detection. understands <code>lat</code>/<code>latitude</code>, <code>lng</code>/<code>lon</code>/<code>longitude</code>, etc. minimum: latitude, longitude, timestamp.</li>
+                <li><strong>gpx</strong> — reads track points, route points, and waypoints from gpx 1.0 and 1.1.</li>
+                <li><strong>restore from backup</strong> — atomic transaction import. duplicate locations are skipped automatically.</li>
+            </ul>
 
-                <h3>csv export</h3>
-                <p>downloads all locations as a spreadsheet-compatible csv file with columns: device, latitude, longitude, altitude, accuracy, speed, battery, timestamp, city, state, country, country_code.</p>
+            <div class="callout warning">
+                <div class="callout-icon"></div>
+                <div><strong>google takeout:</strong> google location history exports are non-standard. convert to csv or gpx with a third-party tool first.</div>
+            </div>
+        </section>
 
-                <h3>gpx export</h3>
-                <p>downloads locations in gpx 1.1 format — compatible with google earth, qgis, garmin basecamp, and most gps software. includes elevation data when available.</p>
+        <!-- Geocoding -->
+        <section id="geocoding" class="doc-section">
+            <h1>geocoding</h1>
+            <p>reverse geocoding converts coordinates to city, state, and country names. roamly uses <a href="https://nominatim.openstreetmap.org/" target="_blank">openstreetmap nominatim</a> — free, no api key required.</p>
 
-                <h3>full backup (json)</h3>
-                <p>exports everything: devices, locations, trips, places, and api keys in a single json file. use this to migrate between servers or as a complete backup.</p>
+            <h2>how it works</h2>
+            <ul>
+                <li><strong>real-time:</strong> new locations are geocoded immediately on arrival</li>
+                <li><strong>background batch:</strong> for imports or missed geocoding, run the job from settings</li>
+            </ul>
 
-                <h2>importing data</h2>
+            <h2>spatial clustering</h2>
+            <p>nominatim allows 1 request per second. to work around this, roamly groups nearby points into ~111m grid clusters and geocodes one representative per cluster, then applies the result to all points in it. 100k points in a few cities might need only a few thousand requests.</p>
 
-                <h3>csv import</h3>
-                <p>upload a csv file with location data. roamly flexibly detects columns — it understands variations like <code>lat</code>/<code>latitude</code>, <code>lng</code>/<code>lon</code>/<code>longitude</code>, etc. minimum required columns are latitude, longitude, and timestamp.</p>
+            <h2>what gets stored per location</h2>
+            <ul>
+                <li><code>city</code> — city, town, village, or municipality</li>
+                <li><code>state</code> — state, province, or region</li>
+                <li><code>country</code> — full country name</li>
+                <li><code>country_code</code> — iso 3166-1 alpha-2 (e.g., <code>us</code>, <code>de</code>)</li>
+                <li><code>place_name</code> — full nominatim display name</li>
+            </ul>
+        </section>
 
-                <h3>gpx import</h3>
-                <p>upload gpx files from any gps app or device. roamly reads track points, route points, and waypoints from both gpx 1.0 and 1.1 formats.</p>
+        <!-- Backups -->
+        <section id="backups" class="doc-section">
+            <h1>automatic backups</h1>
+            <p>roamly can back up all your data to any s3-compatible storage — aws s3, backblaze b2, cloudflare r2, minio, wasabi.</p>
 
-                <h3>restore from backup</h3>
-                <p>upload a roamly json backup file to restore all data. this runs in an atomic transaction — if anything fails, nothing is partially imported. duplicate locations are automatically skipped.</p>
+            <h2>supported providers</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>provider</th><th>endpoint url</th></tr></thead>
+                    <tbody>
+                        <tr><td>aws s3</td><td><code>https://s3.amazonaws.com</code></td></tr>
+                        <tr><td>backblaze b2</td><td><code>https://s3.us-west-000.backblazeb2.com</code></td></tr>
+                        <tr><td>cloudflare r2</td><td><code>https://&lt;account-id&gt;.r2.cloudflarestorage.com</code></td></tr>
+                        <tr><td>minio</td><td><code>http://your-minio-server:9000</code></td></tr>
+                        <tr><td>wasabi</td><td><code>https://s3.wasabisys.com</code></td></tr>
+                    </tbody>
+                </table>
+            </div>
 
-                <div class="warning-box">
-                    <strong>note on google takeout:</strong> google location history exports are in a non-standard format. convert them to csv or gpx first using a third-party tool before importing into roamly.
-                </div>
-            </section>
-
-            <!-- Geocoding -->
-            <section id="geocoding" class="section">
-                <h1>geocoding</h1>
-                <p>reverse geocoding converts raw coordinates into readable place names (city, state, country). roamly uses <a href="https://nominatim.openstreetmap.org/" target="_blank" style="color: var(--primary);">openstreetmap nominatim</a>, a free geocoding service.</p>
-
-                <h2>how it works</h2>
-                <ul>
-                    <li><strong>real-time:</strong> when a new location is pushed via the api, roamly immediately attempts to geocode it</li>
-                    <li><strong>background batch:</strong> for bulk imports or failed geocoding attempts, you can run a background job from <strong>settings</strong></li>
-                </ul>
-
-                <h2>spatial clustering</h2>
-                <p>to work around nominatim's rate limit (1 request per second), roamly groups nearby points into spatial clusters (~111m grid). all points in the same cluster share a single geocode result. this dramatically reduces api calls — for example, 100,000 points concentrated in a few cities might only need a few thousand requests instead of 100,000.</p>
-
-                <h2>running background geocoding</h2>
-                <ol>
-                    <li>go to <strong>settings</strong></li>
-                    <li>click <strong>start geocoding</strong></li>
-                    <li>roamly clusters nearby points and geocodes one representative per cluster, then applies the result to all points in that cluster</li>
-                    <li>progress is shown live — you can refresh to check, or click <strong>stop</strong> to pause</li>
-                </ol>
-
-                <div class="info-box">
-                    <strong>performance:</strong> actual speed depends on how clustered your data is. dense urban data (many points per area) will be much faster than sparse travel data. the progress bar shows points processed, not api calls made.
-                </div>
-
-                <h2>what gets stored</h2>
-                <p>each geocoded location receives:</p>
-                <ul>
-                    <li><code>city</code> — city, town, village, or municipality name</li>
-                    <li><code>state</code> — state, province, or region</li>
-                    <li><code>country</code> — full country name</li>
-                    <li><code>country_code</code> — iso 3166-1 alpha-2 code (e.g., "us", "de")</li>
-                    <li><code>place_name</code> — full display name from nominatim</li>
-                </ul>
-            </section>
-
-            <!-- Automatic Backups -->
-            <section id="backups" class="section">
-                <h1>automatic backups</h1>
-                <p>roamly can automatically back up all your data to any s3-compatible storage provider — aws s3, backblaze b2, cloudflare r2, minio, wasabi, or any service that speaks the s3 api.</p>
-
-                <h2>supported providers</h2>
-                <div class="table-wrapper">
-                    <table>
-                        <tr>
-                            <th>provider</th>
-                            <th>endpoint url</th>
-                        </tr>
-                        <tr>
-                            <td>aws s3</td>
-                            <td><code>https://s3.amazonaws.com</code> (or regional, e.g. <code>https://s3.us-east-1.amazonaws.com</code>)</td>
-                        </tr>
-                        <tr>
-                            <td>backblaze b2</td>
-                            <td><code>https://s3.us-west-000.backblazeb2.com</code> (check your bucket region)</td>
-                        </tr>
-                        <tr>
-                            <td>cloudflare r2</td>
-                            <td><code>https://&lt;account-id&gt;.r2.cloudflarestorage.com</code></td>
-                        </tr>
-                        <tr>
-                            <td>minio</td>
-                            <td><code>http://your-minio-server:9000</code></td>
-                        </tr>
-                        <tr>
-                            <td>wasabi</td>
-                            <td><code>https://s3.wasabisys.com</code> (or regional)</td>
-                        </tr>
-                    </table>
-                </div>
-
-                <h2>setting up automatic backups</h2>
-
-                <div class="step">
-                    <span class="step-number">1</span>
+            <h2>setup</h2>
+            <div class="steps">
+                <div class="step-card">
+                    <div class="step-num">1</div>
                     <div class="step-content">
                         <h4>create a bucket</h4>
-                        <p>create a bucket in your s3 provider's dashboard. note the bucket name, endpoint url, and region.</p>
+                        <p>create a bucket in your provider. note the name, endpoint url, and region.</p>
                     </div>
                 </div>
-
-                <div class="step">
-                    <span class="step-number">2</span>
+                <div class="step-card">
+                    <div class="step-num">2</div>
                     <div class="step-content">
-                        <h4>get access credentials</h4>
-                        <p>create an access key and secret key with read/write permissions for the bucket. most providers have an "application keys" or "iam" section for this.</p>
+                        <h4>get credentials</h4>
+                        <p>create an access key and secret key with read/write access to the bucket.</p>
                     </div>
                 </div>
-
-                <div class="step">
-                    <span class="step-number">3</span>
+                <div class="step-card">
+                    <div class="step-num">3</div>
                     <div class="step-content">
                         <h4>configure in roamly</h4>
-                        <p>go to <strong>settings → automatic backups</strong> and fill in:</p>
-                        <ul>
-                            <li><strong>endpoint url</strong> — your provider's s3 endpoint</li>
-                            <li><strong>bucket name</strong> — the bucket you created</li>
-                            <li><strong>access key</strong> and <strong>secret key</strong> — your credentials</li>
-                            <li><strong>path prefix</strong> — folder path inside the bucket (default: <code>roamly-backups/</code>)</li>
-                            <li><strong>region</strong> — bucket region (default: <code>auto</code>)</li>
-                        </ul>
+                        <p>settings → automatic backups → fill in endpoint url, bucket name, access key, secret key, path prefix, region.</p>
                     </div>
                 </div>
-
-                <div class="step">
-                    <span class="step-number">4</span>
+                <div class="step-card">
+                    <div class="step-num">4</div>
                     <div class="step-content">
-                        <h4>test the connection</h4>
-                        <p>click <strong>test connection</strong> to verify your credentials. roamly uploads and deletes a small test file to confirm everything works.</p>
+                        <h4>test and schedule</h4>
+                        <p>click <strong>test connection</strong>, then choose a schedule: daily, weekly, or monthly.</p>
                     </div>
                 </div>
+            </div>
 
-                <div class="step">
-                    <span class="step-number">5</span>
-                    <div class="step-content">
-                        <h4>set a schedule</h4>
-                        <p>choose a backup interval: <strong>daily</strong>, <strong>weekly</strong>, or <strong>monthly</strong>. click <strong>save</strong>. backups will run automatically in the background.</p>
-                    </div>
-                </div>
+            <h2>backup format</h2>
+            <p>backups are json files containing all your devices, locations, trips, places, and api keys:</p>
+            <pre><code>{prefix}{username}/backup_{YYYY-MM-DD_HHmmss}.json
+# e.g.: roamly-backups/alice/backup_2026-02-17_143022.json</code></pre>
 
-                <h2>backup retention</h2>
-                <p>set <strong>max backups to keep</strong> to automatically delete older backups when the limit is exceeded. set to <code>0</code> for unlimited retention. after each successful backup, roamly lists all backup files in your bucket prefix and removes the oldest ones beyond the limit.</p>
+            <div class="callout info">
+                <div class="callout-icon"></div>
+                <div>the backup scheduler checks every 15 minutes whether a backup is due, so the exact run time varies by up to 15 minutes from the configured interval.</div>
+            </div>
+        </section>
 
-                <h2>manual backups</h2>
-                <p>click <strong>backup now</strong> to trigger an immediate backup at any time. the backup runs in the background — you can see progress and status in the settings page.</p>
+        <!-- Reverse Proxy -->
+        <section id="reverse-proxy" class="doc-section">
+            <h1>reverse proxy</h1>
+            <p>for production, put roamly behind a reverse proxy for https and clean domain routing.</p>
 
-                <h2>backup format</h2>
-                <p>backups use the same json format as the manual export. each backup file contains all your devices, locations, trips, places, and api keys. files are named:</p>
-                <pre><code>{prefix}{username}/backup_{YYYY-MM-DD_HHmmss}.json</code></pre>
-                <p>for example: <code>roamly-backups/alice/backup_2026-02-17_143022.json</code></p>
-
-                <h2>restoring from an s3 backup</h2>
-                <ol>
-                    <li>download the backup json file from your s3 bucket</li>
-                    <li>go to <strong>settings → import → restore from backup</strong></li>
-                    <li>upload the json file — roamly restores everything in an atomic transaction</li>
-                </ol>
-
-                <div class="info-box">
-                    <strong>tip:</strong> the backup scheduler checks every 15 minutes whether a backup is due. so a "daily" backup won't run at exactly the same time each day, but within a 15-minute window of when the interval elapses.
-                </div>
-            </section>
-
-            <!-- Reverse Proxy -->
-            <section id="reverse-proxy" class="section">
-                <h1>reverse proxy</h1>
-                <p>for production use, put roamly behind a reverse proxy for https support and proper domain routing.</p>
-
-                <h2>nginx configuration</h2>
-                <pre><code>server {
+            <h2>nginx</h2>
+            <pre><code>server {
     listen 80;
     server_name roamly.yourdomain.com;
     return 301 https://$server_name$request_uri;
@@ -1147,505 +1138,236 @@ server {
     }
 }</code></pre>
 
-                <h2>ssl with let's encrypt</h2>
-                <pre><code># install certbot
-sudo apt install certbot python3-certbot-nginx
+            <h2>let's encrypt</h2>
+            <pre><code>sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d roamly.yourdomain.com</code></pre>
 
-# get a certificate
-sudo certbot --nginx -d roamly.yourdomain.com
+            <div class="callout warning">
+                <div class="callout-icon"></div>
+                <div>update your <code>.env</code> when using a reverse proxy:<br>
+                <code>ALLOWED_HOSTS=roamly.yourdomain.com</code><br>
+                <code>CSRF_TRUSTED_ORIGINS=https://roamly.yourdomain.com</code></div>
+            </div>
 
-# auto-renewal is set up automatically by certbot</code></pre>
-
-                <div class="warning-box">
-                    <strong>don't forget:</strong> update your <code>.env</code> file when using a reverse proxy:
-                    <pre style="margin-top: 0.75rem;"><code>ALLOWED_HOSTS=roamly.yourdomain.com
-CSRF_TRUSTED_ORIGINS=https://roamly.yourdomain.com</code></pre>
-                </div>
-
-                <h2>caddy (alternative)</h2>
-                <p>caddy handles ssl automatically with zero configuration:</p>
-                <pre><code># Caddyfile
+            <h2>caddy (simpler)</h2>
+            <p>caddy handles ssl automatically with zero configuration:</p>
+            <pre><code># Caddyfile
 roamly.yourdomain.com {
     reverse_proxy localhost:8001
 }</code></pre>
-            </section>
+        </section>
 
-            <!-- Security -->
-            <section id="security" class="section">
-                <h1>security</h1>
+        <!-- Security -->
+        <section id="security" class="doc-section">
+            <h1>security</h1>
 
-                <h2>production checklist</h2>
-                <ul>
-                    <li>set <code>DEBUG=False</code></li>
-                    <li>change <code>SECRET_KEY</code> to a random string (50+ characters)</li>
-                    <li>change <code>POSTGRES_PASSWORD</code> to a strong password</li>
-                    <li>set <code>ALLOWED_HOSTS</code> to your domain only (not <code>*</code>)</li>
-                    <li>set <code>CSRF_TRUSTED_ORIGINS</code> to your https url</li>
-                    <li>use https via a reverse proxy (nginx/caddy + let's encrypt)</li>
-                    <li>don't expose port 5433 (database) to the internet — only expose 8001 or use the reverse proxy</li>
-                </ul>
+            <h2>production checklist</h2>
+            <ul>
+                <li>set <code>DEBUG=False</code></li>
+                <li>change <code>SECRET_KEY</code> to 50+ random characters</li>
+                <li>change <code>POSTGRES_PASSWORD</code> to something strong</li>
+                <li>set <code>ALLOWED_HOSTS</code> to your domain only</li>
+                <li>set <code>CSRF_TRUSTED_ORIGINS</code> to your https url</li>
+                <li>use https via nginx or caddy + let's encrypt</li>
+                <li>don't expose port 5433 to the internet</li>
+            </ul>
 
-                <h2>api key best practices</h2>
-                <ul>
-                    <li>create a separate api key for each device</li>
-                    <li>deactivate keys you're no longer using (toggle in settings)</li>
-                    <li>delete keys for devices you've retired</li>
-                    <li>roamly tracks when each key was last used — check periodically</li>
-                </ul>
+            <h2>api key practices</h2>
+            <ul>
+                <li>create a separate key per device</li>
+                <li>deactivate keys you're not using</li>
+                <li>delete keys for retired devices</li>
+                <li>roamly tracks last-used time per key — audit occasionally</li>
+            </ul>
 
-                <h2>account & data deletion</h2>
-                <p>from <strong>settings</strong>, you can:</p>
-                <ul>
-                    <li><strong>delete all location data</strong> — removes all locations while keeping your account, devices, and trips</li>
-                    <li><strong>delete account</strong> — permanently removes your account and all associated data</li>
-                </ul>
-            </section>
+            <h2>data deletion</h2>
+            <p>from <strong>settings</strong>:</p>
+            <ul>
+                <li><strong>delete all locations</strong> — removes location data, keeps account and trips</li>
+                <li><strong>delete account</strong> — permanently removes everything</li>
+            </ul>
+        </section>
 
-            <!-- Updating -->
-            <section id="updating" class="section">
-                <h1>updating roamly</h1>
-                <p>to update to the latest version:</p>
-                <pre><code># pull the latest code
-cd roamly
+        <!-- Updating -->
+        <section id="updating" class="doc-section">
+            <h1>updating</h1>
+            <pre><code>cd roamly
 git pull
+docker compose down && docker compose up -d --build</code></pre>
 
-# rebuild and restart
-docker compose down
-docker compose up -d --build</code></pre>
+            <p>migrations run automatically on startup.</p>
 
-                <p>migrations run automatically on startup, so your database schema will be updated as needed.</p>
+            <div class="callout info">
+                <div class="callout-icon"></div>
+                <div>back up before updating:<br><code>docker compose exec db pg_dump -U roamly roamly > backup_$(date +%Y%m%d).sql</code></div>
+            </div>
+        </section>
 
-                <div class="info-box">
-                    <strong>before updating:</strong> it's a good idea to back up your database first:<br>
-                    <code>docker compose exec db pg_dump -U roamly roamly > backup_$(date +%Y%m%d).sql</code>
-                </div>
-            </section>
+        <!-- API Reference -->
+        <section id="api-reference" class="doc-section">
+            <h1>api reference</h1>
+            <p>all endpoints return json. <strong>api key</strong> auth uses the key in a header, query param, or body. <strong>session</strong> auth uses a logged-in browser session.</p>
 
-            <!-- API Reference -->
-            <section id="api-reference" class="section">
-                <h1>api reference</h1>
-                <p>all endpoints return json. endpoints marked <strong>api key</strong> authenticate via api key. endpoints marked <strong>session</strong> require a logged-in user session (cookie-based).</p>
+            <h2>location data</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>method</th><th>endpoint</th><th>auth</th><th>description</th></tr></thead>
+                    <tbody>
+                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/push/</code></td><td>api key</td><td>push a location point</td></tr>
+                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/locations/</code></td><td>session</td><td>list locations with filtering</td></tr>
+                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/locations/geojson/</code></td><td>session</td><td>locations as geojson</td></tr>
+                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/tiles/&lt;z&gt;/&lt;x&gt;/&lt;y&gt;.pbf</code></td><td>session</td><td>mapbox vector tiles (postgis)</td></tr>
+                        <tr><td><span class="badge badge-delete">DELETE</span></td><td><code>/api/locations/&lt;id&gt;/delete/</code></td><td>session</td><td>delete a location point</td></tr>
+                    </tbody>
+                </table>
+            </div>
 
-                <h2>location data</h2>
-                <div class="table-wrapper">
-                    <table>
-                        <tr>
-                            <th>method</th>
-                            <th>endpoint</th>
-                            <th>auth</th>
-                            <th>description</th>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-post">POST</span></td>
-                            <td><code>/api/push/</code></td>
-                            <td>api key</td>
-                            <td>push a location point from a device</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-get">GET</span></td>
-                            <td><code>/api/locations/</code></td>
-                            <td>session</td>
-                            <td>list locations with filtering and pagination</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-get">GET</span></td>
-                            <td><code>/api/locations/geojson/</code></td>
-                            <td>session</td>
-                            <td>get locations as a geojson featurecollection</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-get">GET</span></td>
-                            <td><code>/api/tiles/&lt;z&gt;/&lt;x&gt;/&lt;y&gt;.pbf</code></td>
-                            <td>session</td>
-                            <td>mapbox vector tiles (postgis st_asmvt)</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-delete">DELETE</span></td>
-                            <td><code>/api/locations/&lt;id&gt;/delete/</code></td>
-                            <td>session</td>
-                            <td>delete a single location point</td>
-                        </tr>
-                    </table>
-                </div>
+            <h2>statistics</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>method</th><th>endpoint</th><th>auth</th><th>description</th></tr></thead>
+                    <tbody>
+                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/stats/</code></td><td>session</td><td>summary: total points, countries, cities, date range</td></tr>
+                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/visits/</code></td><td>session</td><td>city/state/country visit counts with time spent</td></tr>
+                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/distance/</code></td><td>session</td><td>daily distance in km</td></tr>
+                    </tbody>
+                </table>
+            </div>
 
-                <h2>statistics</h2>
-                <div class="table-wrapper">
-                    <table>
-                        <tr>
-                            <th>method</th>
-                            <th>endpoint</th>
-                            <th>auth</th>
-                            <th>description</th>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-get">GET</span></td>
-                            <td><code>/api/stats/</code></td>
-                            <td>session</td>
-                            <td>summary stats: total points, countries, cities, date range</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-get">GET</span></td>
-                            <td><code>/api/visits/</code></td>
-                            <td>session</td>
-                            <td>city/state/country visit counts with time spent</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-get">GET</span></td>
-                            <td><code>/api/distance/</code></td>
-                            <td>session</td>
-                            <td>daily distance calculation in km</td>
-                        </tr>
-                    </table>
-                </div>
+            <h2>trips</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>method</th><th>endpoint</th><th>auth</th><th>description</th></tr></thead>
+                    <tbody>
+                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/trips/</code></td><td>session</td><td>list all trips</td></tr>
+                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/trips/create/</code></td><td>session</td><td>create a trip</td></tr>
+                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/trips/&lt;id&gt;/</code></td><td>session</td><td>trip details with locations and places</td></tr>
+                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/trips/&lt;id&gt;/update/</code></td><td>session</td><td>update trip name/description</td></tr>
+                        <tr><td><span class="badge badge-delete">DELETE</span></td><td><code>/api/trips/&lt;id&gt;/delete/</code></td><td>session</td><td>delete trip (locations preserved)</td></tr>
+                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/trips/&lt;id&gt;/places/create/</code></td><td>session</td><td>add a place to a trip</td></tr>
+                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/trips/&lt;id&gt;/places/&lt;pid&gt;/update/</code></td><td>session</td><td>update a place</td></tr>
+                        <tr><td><span class="badge badge-delete">DELETE</span></td><td><code>/api/trips/&lt;id&gt;/places/&lt;pid&gt;/delete/</code></td><td>session</td><td>delete a place</td></tr>
+                    </tbody>
+                </table>
+            </div>
 
-                <h2>trips</h2>
-                <div class="table-wrapper">
-                    <table>
-                        <tr>
-                            <th>method</th>
-                            <th>endpoint</th>
-                            <th>auth</th>
-                            <th>description</th>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-get">GET</span></td>
-                            <td><code>/api/trips/</code></td>
-                            <td>session</td>
-                            <td>list all trips</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-post">POST</span></td>
-                            <td><code>/api/trips/create/</code></td>
-                            <td>session</td>
-                            <td>create a new trip</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-get">GET</span></td>
-                            <td><code>/api/trips/&lt;id&gt;/</code></td>
-                            <td>session</td>
-                            <td>get trip details with locations and places</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-post">POST</span></td>
-                            <td><code>/api/trips/&lt;id&gt;/update/</code></td>
-                            <td>session</td>
-                            <td>update trip name/description</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-delete">DELETE</span></td>
-                            <td><code>/api/trips/&lt;id&gt;/delete/</code></td>
-                            <td>session</td>
-                            <td>delete a trip (locations are preserved)</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-post">POST</span></td>
-                            <td><code>/api/trips/&lt;id&gt;/places/create/</code></td>
-                            <td>session</td>
-                            <td>add a place to a trip</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-post">POST</span></td>
-                            <td><code>/api/trips/&lt;id&gt;/places/&lt;pid&gt;/update/</code></td>
-                            <td>session</td>
-                            <td>update a trip place</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-delete">DELETE</span></td>
-                            <td><code>/api/trips/&lt;id&gt;/places/&lt;pid&gt;/delete/</code></td>
-                            <td>session</td>
-                            <td>delete a trip place</td>
-                        </tr>
-                    </table>
-                </div>
+            <h2>geocoding</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>method</th><th>endpoint</th><th>auth</th><th>description</th></tr></thead>
+                    <tbody>
+                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/geocode/</code></td><td>session</td><td>start background geocoding job</td></tr>
+                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/geocode/status/</code></td><td>session</td><td>check geocoding progress</td></tr>
+                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/geocode/stop/</code></td><td>session</td><td>stop the geocoding job</td></tr>
+                    </tbody>
+                </table>
+            </div>
 
-                <h2>geocoding</h2>
-                <div class="table-wrapper">
-                    <table>
-                        <tr>
-                            <th>method</th>
-                            <th>endpoint</th>
-                            <th>auth</th>
-                            <th>description</th>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-post">POST</span></td>
-                            <td><code>/api/geocode/</code></td>
-                            <td>session</td>
-                            <td>start background geocoding job</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-get">GET</span></td>
-                            <td><code>/api/geocode/status/</code></td>
-                            <td>session</td>
-                            <td>check geocoding progress</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-post">POST</span></td>
-                            <td><code>/api/geocode/stop/</code></td>
-                            <td>session</td>
-                            <td>stop the running geocoding job</td>
-                        </tr>
-                    </table>
-                </div>
+            <h2>import & export</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>method</th><th>endpoint</th><th>auth</th><th>description</th></tr></thead>
+                    <tbody>
+                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/export/csv/</code></td><td>session</td><td>download all locations as csv</td></tr>
+                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/export/gpx/</code></td><td>session</td><td>download all locations as gpx 1.1</td></tr>
+                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/export/backup/</code></td><td>session</td><td>full json backup</td></tr>
+                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/import/csv/</code></td><td>session</td><td>upload and import csv</td></tr>
+                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/import/gpx/</code></td><td>session</td><td>upload and import gpx</td></tr>
+                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/import/backup/</code></td><td>session</td><td>restore from json backup</td></tr>
+                    </tbody>
+                </table>
+            </div>
 
-                <h2>import & export</h2>
-                <div class="table-wrapper">
-                    <table>
-                        <tr>
-                            <th>method</th>
-                            <th>endpoint</th>
-                            <th>auth</th>
-                            <th>description</th>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-get">GET</span></td>
-                            <td><code>/api/export/csv/</code></td>
-                            <td>session</td>
-                            <td>download all locations as csv</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-get">GET</span></td>
-                            <td><code>/api/export/gpx/</code></td>
-                            <td>session</td>
-                            <td>download all locations as gpx 1.1</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-get">GET</span></td>
-                            <td><code>/api/export/backup/</code></td>
-                            <td>session</td>
-                            <td>full json backup (devices, locations, trips, keys)</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-post">POST</span></td>
-                            <td><code>/api/import/csv/</code></td>
-                            <td>session</td>
-                            <td>upload and import a csv file</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-post">POST</span></td>
-                            <td><code>/api/import/gpx/</code></td>
-                            <td>session</td>
-                            <td>upload and import a gpx file</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-post">POST</span></td>
-                            <td><code>/api/import/backup/</code></td>
-                            <td>session</td>
-                            <td>restore from a json backup file</td>
-                        </tr>
-                    </table>
-                </div>
+            <h2>backups</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>method</th><th>endpoint</th><th>auth</th><th>description</th></tr></thead>
+                    <tbody>
+                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/backup/config/</code></td><td>session</td><td>get s3 backup config</td></tr>
+                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/backup/config/</code></td><td>session</td><td>save s3 config and schedule</td></tr>
+                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/backup/test/</code></td><td>session</td><td>test s3 connection</td></tr>
+                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/backup/now/</code></td><td>session</td><td>trigger immediate backup</td></tr>
+                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/backup/status/</code></td><td>session</td><td>last backup status, time, size</td></tr>
+                    </tbody>
+                </table>
+            </div>
 
-                <h2>backups</h2>
-                <div class="table-wrapper">
-                    <table>
-                        <tr>
-                            <th>method</th>
-                            <th>endpoint</th>
-                            <th>auth</th>
-                            <th>description</th>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-get">GET</span></td>
-                            <td><code>/api/backup/config/</code></td>
-                            <td>session</td>
-                            <td>get current s3 backup configuration</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-post">POST</span></td>
-                            <td><code>/api/backup/config/</code></td>
-                            <td>session</td>
-                            <td>save s3 backup configuration and schedule</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-post">POST</span></td>
-                            <td><code>/api/backup/test/</code></td>
-                            <td>session</td>
-                            <td>test s3 connection with provided credentials</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-post">POST</span></td>
-                            <td><code>/api/backup/now/</code></td>
-                            <td>session</td>
-                            <td>trigger an immediate backup</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-get">GET</span></td>
-                            <td><code>/api/backup/status/</code></td>
-                            <td>session</td>
-                            <td>get last backup status, time, and size</td>
-                        </tr>
-                    </table>
-                </div>
+            <h2>query parameters</h2>
+            <p>most <code>GET</code> endpoints accept:</p>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>parameter</th><th>description</th><th>example</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>hours</code></td><td>last n hours</td><td><code>?hours=168</code></td></tr>
+                        <tr><td><code>all</code></td><td>all-time data</td><td><code>?all=1</code></td></tr>
+                        <tr><td><code>device_id</code></td><td>filter by device</td><td><code>?device_id=my-phone</code></td></tr>
+                        <tr><td><code>start_date</code></td><td>date range start (iso)</td><td><code>?start_date=2026-01-01</code></td></tr>
+                        <tr><td><code>end_date</code></td><td>date range end (iso)</td><td><code>?end_date=2026-01-31</code></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
 
-                <h2>api keys & devices</h2>
-                <div class="table-wrapper">
-                    <table>
-                        <tr>
-                            <th>method</th>
-                            <th>endpoint</th>
-                            <th>auth</th>
-                            <th>description</th>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-post">POST</span></td>
-                            <td><code>/api/keys/create/</code></td>
-                            <td>session</td>
-                            <td>create a new api key</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-post">POST</span></td>
-                            <td><code>/api/keys/&lt;id&gt;/delete/</code></td>
-                            <td>session</td>
-                            <td>delete an api key</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-get">GET</span></td>
-                            <td><code>/api/devices/</code></td>
-                            <td>session</td>
-                            <td>list all devices</td>
-                        </tr>
-                    </table>
-                </div>
+        <!-- Architecture -->
+        <section id="architecture" class="doc-section">
+            <h1>architecture</h1>
 
-                <h2>account</h2>
-                <div class="table-wrapper">
-                    <table>
-                        <tr>
-                            <th>method</th>
-                            <th>endpoint</th>
-                            <th>auth</th>
-                            <th>description</th>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-post">POST</span></td>
-                            <td><code>/api/account/delete-data/</code></td>
-                            <td>session</td>
-                            <td>delete all location data</td>
-                        </tr>
-                        <tr>
-                            <td><span class="badge badge-delete">DELETE</span></td>
-                            <td><code>/api/account/delete/</code></td>
-                            <td>session</td>
-                            <td>delete entire account and all data</td>
-                        </tr>
-                    </table>
-                </div>
+            <h2>system overview</h2>
+            <pre><code>mobile device (owntracks / custom app / script)
+    │
+    │ POST /api/push/  (api key auth)
+    ▼
+roamly web server (django + gunicorn)
+    ├── api endpoints (push, locations, trips, import/export)
+    ├── web ui (maplibre gl, canvas charts, vanilla js)
+    └── postgresql 16 + postgis 3.4
+            ├── locations with point geometry (srid 4326)
+            ├── vector tiles via st_asmvt (30s cache)
+            └── spatial filtering with st_intersects
 
-                <h2>query parameters</h2>
-                <p>most <code>GET</code> endpoints accept these filtering parameters:</p>
-                <div class="table-wrapper">
-                    <table>
-                        <tr>
-                            <th>parameter</th>
-                            <th>description</th>
-                            <th>example</th>
-                        </tr>
-                        <tr>
-                            <td><code>hours</code></td>
-                            <td>filter to last n hours</td>
-                            <td><code>?hours=168</code> (7 days)</td>
-                        </tr>
-                        <tr>
-                            <td><code>all</code></td>
-                            <td>return all-time data</td>
-                            <td><code>?all=1</code></td>
-                        </tr>
-                        <tr>
-                            <td><code>device_id</code></td>
-                            <td>filter by device</td>
-                            <td><code>?device_id=my-phone</code></td>
-                        </tr>
-                        <tr>
-                            <td><code>start_date</code></td>
-                            <td>start of date range (iso format)</td>
-                            <td><code>?start_date=2026-01-01</code></td>
-                        </tr>
-                        <tr>
-                            <td><code>end_date</code></td>
-                            <td>end of date range (iso format)</td>
-                            <td><code>?end_date=2026-01-31</code></td>
-                        </tr>
-                    </table>
-                </div>
-            </section>
+background threads
+    ├── reverse geocoding (nominatim, spatial clustering)
+    ├── s3 backup scheduler (checks every 15 min)
+    └── auto-resume stale jobs on startup</code></pre>
 
-            <!-- Architecture -->
-            <section id="architecture" class="section">
-                <h1>architecture</h1>
+            <h2>data model</h2>
+            <pre><code>user (django auth)
+├── apikey         — 64-char hex keys for device auth
+├── device         — unique per (user, device_id)
+│   ├── location   — lat/lng/point, timestamp, geocoded fields
+│   └── trip       — name, start/end time
+│       └── tripplace — named waypoint with radius
+├── geocodingjob   — one per user, tracks batch progress
+└── backupconfig   — s3 credentials, schedule, retention</code></pre>
 
-                <h2>system overview</h2>
-                <pre><code>┌──────────────────────────────────────────────────────────┐
-│  mobile device                                           │
-│  (owntracks / custom app / script)                       │
-└──────────────┬───────────────────────────────────────────┘
-               │ POST /api/push/
-               │ (api key auth)
-               ▼
-┌──────────────────────────────────────────────────────────┐
-│  roamly web server (django + gunicorn)                   │
-│  ┌─────────────────┐  ┌──────────────────────────────┐  │
-│  │  api endpoints   │  │  web ui (map, stats, trips)  │  │
-│  │  • push          │  │  • maplibre gl + vector tiles│  │
-│  │  • locations     │  │  • canvas charts             │  │
-│  │  • trips         │  │  • vanilla javascript        │  │
-│  │  • import/export │  │                              │  │
-│  └────────┬────────┘  └──────────────┬───────────────┘  │
-│           │                          │                    │
-│  ┌────────▼──────────────────────────▼───────────────┐  │
-│  │  postgresql 16 + postgis 3.4                       │  │
-│  │  • locations with point geometry (srid 4326)       │  │
-│  │  • vector tiles via st_asmvt (cached 30s)          │  │
-│  │  • spatial filtering with st_intersects            │  │
-│  └───────────────────────────────────────────────────┘  │
-│                                                          │
-│  ┌───────────────────────────────────────────────────┐  │
-│  │  background threads                                │  │
-│  │  • reverse geocoding (nominatim, clustered)          │  │
-│  │  • s3 backup scheduler (checks every 15 min)       │  │
-│  │  • auto-resume stale jobs on startup               │  │
-│  └───────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────┘</code></pre>
+            <h2>vector tiles</h2>
+            <p>the map uses postgis-generated mapbox vector tiles. instead of sending thousands of geojson points, the server generates compact binary tiles via <code>ST_AsMVT()</code>. each tile has two layers:</p>
+            <ul>
+                <li><strong>locations</strong> — individual points</li>
+                <li><strong>trails</strong> — connected line strings between consecutive points</li>
+            </ul>
+            <p>tiles are cached for 30 seconds and capped at 100k points per tile.</p>
+        </section>
 
-                <h2>data model</h2>
-                <pre><code>user (django auth)
-├── apikey          — 64-char hex keys for device auth
-├── device          — unique per (user, device_id)
-│   ├── location    — lat/lng/point, timestamp, geocoded fields
-│   └── trip        — name, start/end time
-│       └── tripplace  — named waypoint with radius
-├── geocodingjob    — one per user, tracks batch progress
-├── poidownloadjob  — one per user, tracks poi download progress
-└── backupconfig    — s3 credentials, schedule, retention limit</code></pre>
+        <!-- Troubleshooting -->
+        <section id="troubleshooting" class="doc-section">
+            <h1>troubleshooting</h1>
 
-                <h2>vector tiles</h2>
-                <p>the map uses postgis-generated <a href="https://docs.mapbox.com/data/tilesets/guides/vector-tiles-introduction/" target="_blank" style="color: var(--primary);">mapbox vector tiles</a> for fast rendering. instead of sending thousands of geojson points to the browser, the server generates compact binary tiles on-demand using <code>ST_AsMVT()</code>. each tile contains two layers:</p>
-                <ul>
-                    <li><strong>locations</strong> — individual points</li>
-                    <li><strong>trails</strong> — connected line strings between consecutive points</li>
-                </ul>
-                <p>tiles are cached for 30 seconds and limited to 100k points per tile to prevent memory issues.</p>
-            </section>
+            <h2>docker won't start</h2>
+            <ul>
+                <li>check docker is running: <code>docker info</code></li>
+                <li>check port 8001 is free: <code>ss -tlnp | grep 8001</code></li>
+                <li>view logs: <code>docker compose logs web</code></li>
+                <li>db issues: <code>docker compose logs db</code></li>
+            </ul>
 
-            <!-- Troubleshooting -->
-            <section id="troubleshooting" class="section">
-                <h1>troubleshooting</h1>
-
-                <h2>docker won't start</h2>
-                <ul>
-                    <li>check docker is running: <code>docker info</code></li>
-                    <li>check port 8001 is free: <code>ss -tlnp | grep 8001</code></li>
-                    <li>view logs: <code>docker compose logs web</code></li>
-                    <li>if the database container is unhealthy: <code>docker compose logs db</code></li>
-                </ul>
-
-                <h2>locations not appearing on the map</h2>
-                <ul>
-                    <li>verify your api key is correct: copy-paste it, check for trailing spaces</li>
-                    <li>verify the key is active (not deactivated) in settings</li>
-                    <li>check the time range filter on the map — try "all time"</li>
-                    <li>test with curl:
-                        <pre><code>curl -X POST http://localhost:8001/api/push/ \
+            <h2>locations not appearing on the map</h2>
+            <ul>
+                <li>verify the api key — copy-paste, check for spaces</li>
+                <li>check the key is active in settings</li>
+                <li>check the time range filter — try "all time"</li>
+                <li>test with curl:
+                    <pre><code>curl -X POST http://localhost:8001/api/push/ \
   -H "Content-Type: application/json" \
   -d '{
     "api_key": "YOUR_KEY",
@@ -1653,108 +1375,152 @@ docker compose up -d --build</code></pre>
     "latitude": 40.7128,
     "longitude": -74.006
   }'</code></pre>
-                    </li>
-                    <li>check logs for errors: <code>docker compose logs -f web</code></li>
-                </ul>
+                </li>
+                <li>check logs: <code>docker compose logs -f web</code></li>
+            </ul>
 
-                <h2>owntracks shows "not connected" or fails to publish</h2>
-                <ul>
-                    <li>make sure you're using <strong>http mode</strong>, not mqtt</li>
-                    <li>verify the url ends with <code>/api/push/</code> (trailing slash required)</li>
-                    <li>if using https, make sure your ssl certificate is valid</li>
-                    <li>test if the server is reachable from your phone (try opening the url in your phone's browser)</li>
-                </ul>
+            <h2>owntracks not connecting</h2>
+            <ul>
+                <li>confirm you're using <strong>http mode</strong>, not mqtt</li>
+                <li>url must end with <code>/api/push/</code> — trailing slash required</li>
+                <li>if using https, verify the ssl certificate is valid</li>
+                <li>open the push url in your phone's browser to test reachability</li>
+            </ul>
 
-                <h2>geocoding not working</h2>
-                <ul>
-                    <li>nominatim may be temporarily rate-limited — wait a few minutes and try again</li>
-                    <li>check server has internet access: <code>docker compose exec web curl -s https://nominatim.openstreetmap.org/status</code></li>
-                    <li>check geocoding job status in settings</li>
-                </ul>
+            <h2>geocoding not working</h2>
+            <ul>
+                <li>nominatim may be rate-limited — wait a few minutes</li>
+                <li>test connectivity: <code>docker compose exec web curl -s https://nominatim.openstreetmap.org/status</code></li>
+            </ul>
 
-                <h2>csrf errors when behind a reverse proxy</h2>
-                <ul>
-                    <li>set <code>CSRF_TRUSTED_ORIGINS</code> to include your full url (e.g., <code>https://roamly.yourdomain.com</code>)</li>
-                    <li>make sure your proxy passes the <code>X-Forwarded-Proto</code> header</li>
-                </ul>
+            <h2>csrf errors behind a reverse proxy</h2>
+            <ul>
+                <li>set <code>CSRF_TRUSTED_ORIGINS=https://roamly.yourdomain.com</code></li>
+                <li>confirm your proxy passes <code>X-Forwarded-Proto</code></li>
+            </ul>
 
-                <h2>"allowed hosts" error</h2>
-                <ul>
-                    <li>set <code>ALLOWED_HOSTS</code> to include your domain: <code>ALLOWED_HOSTS=roamly.yourdomain.com</code></li>
-                    <li>for local access, include <code>localhost</code>: <code>ALLOWED_HOSTS=roamly.yourdomain.com,localhost</code></li>
-                </ul>
-            </section>
+            <h2>"allowed hosts" error</h2>
+            <ul>
+                <li>set <code>ALLOWED_HOSTS=roamly.yourdomain.com</code></li>
+                <li>for local access too: <code>ALLOWED_HOSTS=roamly.yourdomain.com,localhost</code></li>
+            </ul>
+        </section>
 
-            <!-- FAQ -->
-            <section id="faq" class="section">
-                <h1>frequently asked questions</h1>
+        <!-- FAQ -->
+        <section id="faq" class="doc-section">
+            <h1>faq</h1>
 
-                <h3>is roamly truly private?</h3>
-                <p>yes. roamly runs entirely on your server. there is no telemetry, no tracking, no data sharing. the only external service contacted is openstreetmap nominatim for geocoding, and that only sends coordinates (no user info).</p>
+            <h3>is roamly actually private?</h3>
+            <p>yes. it runs on your server, no telemetry, no data sharing. the only external call is nominatim for geocoding — which only sends coordinates, no user info.</p>
 
-                <h3>can multiple people use one roamly instance?</h3>
-                <p>yes. each user signs up with their own account and gets separate data, devices, trips, and api keys. there is no cross-user data access.</p>
+            <h3>can multiple people share one instance?</h3>
+            <p>yes. each user gets their own account with separate data, devices, trips, and api keys. no cross-user data access.</p>
 
-                <h3>how much storage does it use?</h3>
-                <p>very little. a typical phone sending a location every 5 minutes generates around 100k points per year, which takes roughly 50–100 mb in postgresql. even with millions of points, roamly handles it well thanks to postgis indexing and vector tiles.</p>
+            <h3>how much storage does it use?</h3>
+            <p>a phone sending every 5 minutes generates ~100k points/year, which is roughly 50–100 mb in postgresql. postgis handles millions of points fine.</p>
 
-                <h3>can i run this on a raspberry pi?</h3>
-                <p>yes, roamly runs on arm devices. make sure you have at least 2 gb ram. the postgis docker image supports arm64.</p>
+            <h3>can i run this on a raspberry pi?</h3>
+            <p>yes. roamly runs on arm64. at least 2 gb ram recommended. the postgis docker image supports arm64.</p>
 
-                <h3>do i need a domain name?</h3>
-                <p>for owntracks over the internet, yes — you need either a domain with https or a way for your phone to reach your server (e.g., vpn, tailscale). for local network only, you can use your server's ip address.</p>
+            <h3>do i need a domain name?</h3>
+            <p>for owntracks over the internet, yes — or use tailscale/vpn for your phone to reach the server. for local network only, an ip address works fine.</p>
 
-                <h3>what happens if my server goes down?</h3>
-                <p>owntracks buffers locations on-device and sends them when the connection is restored. your existing data is safe in the postgresql volume on disk.</p>
+            <h3>what if my server goes down?</h3>
+            <p>owntracks buffers locations on-device and sends them when the connection restores. your existing data is safe on disk in the postgres volume.</p>
 
-                <h3>can i use this without owntracks?</h3>
-                <p>absolutely. any tool that can send http post requests works — curl, python scripts, tasker, shortcuts, home assistant, or any custom app. see the <a href="#api-guide" onclick="showSection('api-guide')" style="color: var(--primary);">sending locations</a> tutorial.</p>
+            <h3>can i use it without owntracks?</h3>
+            <p>absolutely. anything that can post json over http works — curl, python, tasker, shortcuts, home assistant, custom apps.</p>
 
-                <h3>how do i migrate to a new server?</h3>
-                <ol>
-                    <li>export a full backup: <strong>settings → export backup</strong></li>
-                    <li>or dump the database: <code>docker compose exec db pg_dump -U roamly roamly > backup.sql</code></li>
-                    <li>set up roamly on the new server</li>
-                    <li>restore the backup or import the sql dump</li>
-                </ol>
+            <h3>how do i migrate to a new server?</h3>
+            <ol>
+                <li>export a full backup: settings → export backup (json)</li>
+                <li>or dump postgres: <code>docker compose exec db pg_dump -U roamly roamly > backup.sql</code></li>
+                <li>set up roamly on the new server</li>
+                <li>import the backup or restore the sql dump</li>
+            </ol>
 
-                <h3>does roamly support real-time tracking?</h3>
-                <p>roamly stores locations as they arrive but doesn't have a live-updating map (no websockets). refresh the map page to see the latest data. owntracks in "move" mode can send updates every few seconds for near-real-time tracking.</p>
+            <h3>does roamly support real-time tracking?</h3>
+            <p>locations are stored as they arrive but there's no live-push to the browser. refresh the map to see the latest. owntracks in "move" mode can send updates every few seconds for near-real-time.</p>
+        </section>
 
-                <h3>can i customize the map style?</h3>
-                <p>the map uses maplibre gl with an openstreetmap tile provider. the style switches between dark and light based on your theme preference. custom map styles would require editing the template source code.</p>
-            </section>
+    </main>
+</div>
 
-        </main>
-    </div>
+<!-- Back to top -->
+<button id="back-top" title="back to top">
+    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path d="M5 15l7-7 7 7"/>
+    </svg>
+</button>
 
-    <script>
-        function showSection(sectionId) {
-            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+<script>
+    // ── progress bar ──────────────────────────────────────
+    (function () {
+        const bar = document.getElementById('progress');
+        function update() {
+            const h = document.documentElement;
+            const pct = (h.scrollTop / (h.scrollHeight - h.clientHeight)) * 100;
+            bar.style.width = pct + '%';
+        }
+        window.addEventListener('scroll', update, { passive: true });
+    })();
 
-            const section = document.getElementById(sectionId);
-            if (section) {
-                section.classList.add('active');
-                section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
+    // ── back to top ───────────────────────────────────────
+    (function () {
+        const btn = document.getElementById('back-top');
+        window.addEventListener('scroll', () => {
+            btn.classList.toggle('visible', window.scrollY > 400);
+        }, { passive: true });
+        btn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+    })();
 
-            document.querySelectorAll('.sidebar-link').forEach(link => {
-                link.classList.remove('active');
-                if (link.getAttribute('href') === '#' + sectionId) {
-                    link.classList.add('active');
+    // ── scroll-spy sidebar ────────────────────────────────
+    (function () {
+        const links = document.querySelectorAll('.sidebar-link');
+        const sections = document.querySelectorAll('.doc-section');
+
+        const obs = new IntersectionObserver((entries) => {
+            entries.forEach(e => {
+                if (e.isIntersecting) {
+                    const id = e.target.id;
+                    links.forEach(l => {
+                        const active = l.getAttribute('href') === '#' + id;
+                        l.classList.toggle('active', active);
+                    });
                 }
             });
-        }
-
-        window.addEventListener('hashchange', () => {
-            const hash = window.location.hash.substr(1);
-            if (hash) showSection(hash);
+        }, {
+            rootMargin: '-20% 0px -70% 0px'
         });
 
-        if (window.location.hash) {
-            const hash = window.location.hash.substr(1);
-            showSection(hash);
-        }
-    </script>
+        sections.forEach(s => obs.observe(s));
+
+        // smooth scroll on link click
+        links.forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                const target = document.querySelector(link.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                // close mobile sidebar
+                document.getElementById('sidebar').classList.remove('open');
+            });
+        });
+    })();
+
+    // ── mobile sidebar toggle ─────────────────────────────
+    (function () {
+        const toggle = document.getElementById('sidebar-toggle');
+        const sidebar = document.getElementById('sidebar');
+        toggle.addEventListener('click', () => sidebar.classList.toggle('open'));
+        document.addEventListener('click', (e) => {
+            if (!sidebar.contains(e.target) && e.target !== toggle) {
+                sidebar.classList.remove('open');
+            }
+        });
+    })();
+</script>
+
 </body>
 </html>

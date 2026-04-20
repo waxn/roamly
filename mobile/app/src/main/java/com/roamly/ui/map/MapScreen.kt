@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Remove
@@ -25,15 +26,17 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -51,24 +54,65 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.android.gms.location.LocationServices
 import com.roamly.data.api.LocationPoint
 import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.tileprovider.tilesource.XYTileSource
+import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Polyline
 import kotlin.math.atan2
 import kotlin.math.cos
-import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
+
+private val StreetsTiles = XYTileSource(
+    "RoamlyStreets",
+    1,
+    19,
+    256,
+    ".png",
+    arrayOf("https://basemaps.cartocdn.com/light_all/")
+)
+
+private val DarkTiles = XYTileSource(
+    "RoamlyDark",
+    1,
+    19,
+    256,
+    ".png",
+    arrayOf("https://basemaps.cartocdn.com/dark_all/")
+)
+
+private val SatelliteTiles = XYTileSource(
+    "RoamlySatellite",
+    1,
+    19,
+    256,
+    ".jpg",
+    arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/")
+) {
+    override fun getTileURLString(pMapTileIndex: Long): String {
+        val zoom = org.osmdroid.util.MapTileIndex.getZoom(pMapTileIndex)
+        val x = org.osmdroid.util.MapTileIndex.getX(pMapTileIndex)
+        val y = org.osmdroid.util.MapTileIndex.getY(pMapTileIndex)
+        return "${baseUrl}$zoom/$y/$x$imageFilenameEnding"
+    }
+}
+
+private fun tileSourceFor(layer: MapLayer) = when (layer) {
+    MapLayer.STREETS -> StreetsTiles
+    MapLayer.DARK -> DarkTiles
+    MapLayer.SATELLITE -> SatelliteTiles
+}
 
 @Composable
 fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val mapView = remember {
+        Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
         Configuration.getInstance().userAgentValue = "Roamly/1.0"
         MapView(context).apply {
-            setTileSource(TileSourceFactory.MAPNIK)
+            setTileSource(tileSourceFor(state.mapLayer))
             setMultiTouchControls(true)
             controller.setZoom(10.0)
             controller.setCenter(GeoPoint(20.0, 0.0))
@@ -88,6 +132,7 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
 
     // Update map overlays whenever locations change (SideEffect runs after every recomposition)
     SideEffect {
+        mapView.setTileSource(tileSourceFor(state.mapLayer))
         mapView.overlays.clear()
         if (state.locations.isNotEmpty()) {
             val sorted = state.locations.sortedBy { it.timestamp }
@@ -100,11 +145,23 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                 outlinePaint.strokeCap = Paint.Cap.ROUND
             }
             mapView.overlays.add(polyline)
-            val last = sorted.last()
-            mapView.controller.animateTo(GeoPoint(last.lat, last.lng))
-            mapView.controller.setZoom(12.0)
+            if (points.size == 1) {
+                mapView.controller.animateTo(points.first())
+                mapView.controller.setZoom(13.0)
+            } else {
+                val bbox = BoundingBox.fromGeoPoints(points)
+                mapView.zoomToBoundingBox(bbox, true, 96)
+            }
         }
         mapView.invalidate()
+    }
+
+    DisposableEffect(mapView) {
+        mapView.onResume()
+        onDispose {
+            mapView.onPause()
+            mapView.onDetach()
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -138,6 +195,35 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
             }
         }
 
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 12.dp, end = 12.dp),
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+            shadowElevation = 4.dp
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Layers,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+                MapLayer.entries.forEach { layer ->
+                    FilterChip(
+                        selected = state.mapLayer == layer,
+                        onClick = { viewModel.setMapLayer(layer) },
+                        label = { Text(layer.label, style = MaterialTheme.typography.labelMedium) }
+                    )
+                }
+            }
+        }
+
         // Right-side controls: zoom + near-here
         Column(
             modifier = Modifier
@@ -163,8 +249,8 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
             }
         }
 
-        // "Have I been near here?" FAB
-        SmallFloatingActionButton(
+        // "Have I been near here?" action
+        ExtendedFloatingActionButton(
             onClick = {
                 val hasFine = ContextCompat.checkSelfPermission(
                     context, Manifest.permission.ACCESS_FINE_LOCATION
@@ -183,22 +269,32 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                     )
                 }
             },
+            text = { Text("Have I Been Here?") },
+            icon = {
+                Icon(
+                    Icons.Filled.MyLocation,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 16.dp, bottom = if (state.stats != null) 120.dp else 16.dp),
             containerColor = MaterialTheme.colorScheme.surface,
-        ) {
-            Icon(
-                Icons.Filled.MyLocation,
-                contentDescription = "Have I been near here?",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp)
-            )
-        }
+        )
 
         // Loading indicator
         if (state.isLoading) {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 70.dp)
+            ) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp))
+                Spacer(Modifier.size(8.dp))
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+            }
         }
 
         // Stats card
