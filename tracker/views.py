@@ -2727,6 +2727,69 @@ def _group_by_day(qs):
     return result
 
 
+def _parse_date_search_query(query):
+    """Parse common date query formats into [start, end) datetimes."""
+    text = (query or '').strip()
+    if not text:
+        return None
+
+    lower = text.lower()
+    now = timezone.now()
+
+    if lower == 'today':
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = start + timedelta(days=1)
+        return {'start': start, 'end': end, 'kind': 'day'}
+
+    if lower == 'yesterday':
+        end = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        start = end - timedelta(days=1)
+        return {'start': start, 'end': end, 'kind': 'day'}
+
+    day_formats = [
+        '%Y-%m-%d',
+        '%Y/%m/%d',
+        '%b %d %Y',
+        '%B %d %Y',
+    ]
+    month_formats = [
+        '%Y-%m',
+        '%Y/%m',
+        '%b %Y',
+        '%B %Y',
+    ]
+
+    for fmt in day_formats:
+        try:
+            d = datetime.strptime(text, fmt)
+            start = timezone.make_aware(datetime(d.year, d.month, d.day, 0, 0, 0))
+            end = start + timedelta(days=1)
+            return {'start': start, 'end': end, 'kind': 'day'}
+        except ValueError:
+            continue
+
+    for fmt in month_formats:
+        try:
+            d = datetime.strptime(text, fmt)
+            start = timezone.make_aware(datetime(d.year, d.month, 1, 0, 0, 0))
+            if d.month == 12:
+                end = timezone.make_aware(datetime(d.year + 1, 1, 1, 0, 0, 0))
+            else:
+                end = timezone.make_aware(datetime(d.year, d.month + 1, 1, 0, 0, 0))
+            return {'start': start, 'end': end, 'kind': 'month'}
+        except ValueError:
+            continue
+
+    if text.isdigit() and len(text) == 4:
+        year = int(text)
+        if 1900 <= year <= 2100:
+            start = timezone.make_aware(datetime(year, 1, 1, 0, 0, 0))
+            end = timezone.make_aware(datetime(year + 1, 1, 1, 0, 0, 0))
+            return {'start': start, 'end': end, 'kind': 'year'}
+
+    return None
+
+
 @login_required
 def search_view(request):
     return render(request, 'tracker/search.html')
@@ -2775,24 +2838,40 @@ def search_api(request):
     if cached is not None:
         return JsonResponse(cached)
 
+    parsed_date = _parse_date_search_query(q)
+
     # Location name results (city/state/place_name matches)
-    filtered = locations.filter(
-        Q(city__icontains=q) | Q(state__icontains=q) | Q(place_name__icontains=q)
-    )
+    if parsed_date:
+        filtered = locations.filter(
+            timestamp__gte=parsed_date['start'],
+            timestamp__lt=parsed_date['end'],
+        )
+    else:
+        filtered = locations.filter(
+            Q(city__icontains=q) | Q(state__icontains=q) | Q(place_name__icontains=q)
+        )
     days = _group_by_day(filtered)
+
+    # For text-based town/state/place searches, show the searched term in the location column
+    # so each result row reflects the query rather than listing all nearby cities for that day.
+    if not parsed_date:
+        for d in days:
+            d['matched_query'] = q
+            d['cities'] = [{'city': q, 'state': ''}]
 
     # Place results (from local POI database)
     place_results = []
     needs_download = False
     places_checked = 0
-    if POI.objects.count() > 0:
+    if not parsed_date and POI.objects.count() > 0:
         place_results = _search_local_pois(q, locations)
         places_checked = len(place_results)
-    else:
+    elif not parsed_date:
         needs_download = True
 
     payload = {
         'query': q,
+        'query_type': 'date' if parsed_date else 'text',
         'location_results': days,
         'total_days': len(days),
         'total_points': sum(d['count'] for d in days),

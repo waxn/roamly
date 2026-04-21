@@ -110,7 +110,7 @@ table tbody tr[onclick]:hover {
                placeholder="search a city, state, or place..." autocomplete="off">
     </div>
     <p class="search-hint" id="search-hint">
-        try a city or state name, "here" for your current location, or a place like "walmart"
+        try a city/state, "here", a place like "walmart", or dates like "2026-04-21", "apr 2026", "2026", "today"
     </p>
 
     <div id="search-loading" style="display:none; text-align:center; padding:2rem; color:var(--text-muted);">
@@ -346,7 +346,9 @@ function renderLocationTable(rows) {
     for (const r of rows) {
         const d = new Date(r.date + 'T00:00:00');
         const dateStr = d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-        const cityStr = [...new Set(r.cities.map(c => c.city + (c.state ? ', ' + c.state : '')))].join('; ') || '-';
+        const cityStr = r.matched_query
+            ? r.matched_query
+            : ([...new Set(r.cities.map(c => c.city + (c.state ? ', ' + c.state : '')))].join('; ') || '-');
         const deviceStr = [...new Set(r.devices)].join(', ') || '-';
         const mapUrl = `/map/?start=${r.date}&end=${r.date}`;
         html += `<tr onclick="window.location='${mapUrl}'" style="cursor:pointer;" title="view on map">
