@@ -16,8 +16,7 @@ from datetime import datetime, date, time as dt_time, timedelta, timezone as dt_
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, Min, Max, Avg, Q
-from django.db.models.functions import TruncDate
+from django.db.models import Count, Min, Max, Avg, Q, Case, When, Value, IntegerField
 from django.http import FileResponse, JsonResponse, HttpResponse, StreamingHttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
@@ -2586,27 +2585,55 @@ def delete_account(request):
 
 def _search_local_pois(query, user_locations_qs, radius_m=150):
     """Search the local POI table and match against user's location history."""
-    matching_pois = POI.objects.filter(name__icontains=query)
+    query = query.strip()
+    if not query:
+        return []
+
+    # Limit candidate POIs so one query doesn't fan out into hundreds of expensive spatial checks.
+    matching_pois = (
+        POI.objects.filter(name__icontains=query)
+        .annotate(
+            match_rank=Case(
+                When(name__iexact=query, then=Value(0)),
+                When(name__istartswith=query, then=Value(1)),
+                default=Value(2),
+                output_field=IntegerField(),
+            )
+        )
+        .order_by('match_rank', 'name')[:120]
+    )
 
     results = []
-    for poi in matching_pois.iterator():
+    for poi in matching_pois.iterator(chunk_size=200):
         nearby = _find_nearby_locations(
             user_locations_qs, poi.latitude, poi.longitude, radius_m
         )
-        if nearby.exists():
-            day_data = _group_by_day(nearby)
-            # Filter out days where dwell time is under 5 minutes
-            day_data = [d for d in day_data if d['time_spent'] >= 300]
-            if not day_data:
-                continue
-            display = f"{poi.name}, {poi.address}" if poi.address else poi.name
-            results.append({
-                'place_name': display,
-                'lat': poi.latitude,
-                'lng': poi.longitude,
-                'days': day_data,
-                'total_points': sum(d['count'] for d in day_data),
-            })
+        day_data = _group_by_day(nearby)
+        # Filter out days where dwell time is under 5 minutes.
+        day_data = [d for d in day_data if d['time_spent'] >= 300]
+        if not day_data:
+            continue
+
+        total_points = sum(d['count'] for d in day_data)
+        total_time_spent = sum(d['time_spent'] for d in day_data)
+        display = f"{poi.name}, {poi.address}" if poi.address else poi.name
+        results.append({
+            'place_name': display,
+            'lat': poi.latitude,
+            'lng': poi.longitude,
+            'days': day_data,
+            'total_points': total_points,
+            'total_time_spent': total_time_spent,
+            'match_rank': getattr(poi, 'match_rank', 2),
+        })
+
+    # Better relevance: exact/prefix text matches first, then places with stronger evidence.
+    results.sort(
+        key=lambda r: (r['match_rank'], -r['total_time_spent'], -r['total_points'], r['place_name'])
+    )
+    for r in results:
+        r.pop('total_time_spent', None)
+        r.pop('match_rank', None)
     return results
 
 
@@ -2643,35 +2670,59 @@ def _calc_dwell_time(qs, max_gap=600):
 
 def _group_by_day(qs):
     """Group a Location queryset by date, returning summary dicts."""
-    days = qs.annotate(
-        day=TruncDate('timestamp')
-    ).values('day').annotate(
-        count=Count('id'),
-        first_ts=Min('timestamp'),
-        last_ts=Max('timestamp'),
-    ).order_by('-day')[:100]
+    by_day = {}
+
+    rows = qs.order_by('timestamp').values_list(
+        'timestamp', 'city', 'state', 'device__name'
+    )
+
+    for ts, city, state, device_name in rows.iterator(chunk_size=5000):
+        day_str = ts.date().isoformat()
+        day = by_day.get(day_str)
+        if day is None:
+            day = {
+                'date': day_str,
+                'count': 0,
+                'first_ts': ts,
+                'last_ts': ts,
+                'time_spent': 0,
+                'cities_set': set(),
+                'cities': [],
+                'devices_set': set(),
+                'devices': [],
+                'prev_ts': None,
+            }
+            by_day[day_str] = day
+
+        day['count'] += 1
+        day['last_ts'] = ts
+
+        if day['prev_ts'] is not None:
+            gap = (ts - day['prev_ts']).total_seconds()
+            if gap <= 600:
+                day['time_spent'] += int(gap)
+        day['prev_ts'] = ts
+
+        city_key = (city or '', state or '')
+        if city and city_key not in day['cities_set'] and len(day['cities']) < 5:
+            day['cities_set'].add(city_key)
+            day['cities'].append({'city': city, 'state': state or ''})
+
+        if device_name and device_name not in day['devices_set'] and len(day['devices']) < 5:
+            day['devices_set'].add(device_name)
+            day['devices'].append(device_name)
 
     result = []
-    for d in days:
-        day_str = d['day'].isoformat()
-        day_locs = qs.filter(timestamp__date=d['day'])
-        cities = list(
-            day_locs.exclude(city='')
-            .values_list('city', 'state').distinct()[:5]
-        )
-        devices = list(
-            day_locs.values_list('device__name', flat=True).distinct()[:5]
-        )
-        time_spent = _calc_dwell_time(day_locs)
-
+    for day_str in sorted(by_day.keys(), reverse=True)[:100]:
+        day = by_day[day_str]
         result.append({
-            'date': day_str,
-            'count': d['count'],
-            'first_ts': d['first_ts'].isoformat() if d['first_ts'] else None,
-            'last_ts': d['last_ts'].isoformat() if d['last_ts'] else None,
-            'time_spent': time_spent,
-            'cities': [{'city': c[0], 'state': c[1]} for c in cities],
-            'devices': [name for name in devices if name],
+            'date': day['date'],
+            'count': day['count'],
+            'first_ts': day['first_ts'].isoformat() if day['first_ts'] else None,
+            'last_ts': day['last_ts'].isoformat() if day['last_ts'] else None,
+            'time_spent': day['time_spent'],
+            'cities': day['cities'],
+            'devices': day['devices'],
         })
     return result
 
@@ -2687,6 +2738,7 @@ def search_api(request):
     mode = request.GET.get('mode', 'text')
     q = request.GET.get('q', '').strip()
     locations = Location.objects.filter(device__user=request.user)
+    gen = cache.get(f"cache_gen:{request.user.id}", 0)
 
     if mode == 'here':
         try:
@@ -2695,17 +2747,33 @@ def search_api(request):
         except (KeyError, ValueError):
             return JsonResponse({'error': 'lat and lng required'}, status=400)
         radius_m = float(request.GET.get('radius', 100))
+
+        cache_key = (
+            f"search:{request.user.id}:{gen}:here:"
+            f"{round(lat, 5)}:{round(lng, 5)}:{int(radius_m)}"
+        )
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return JsonResponse(cached)
+
         nearby = _find_nearby_locations(locations, lat, lng, radius_m)
         days = _group_by_day(nearby)
-        return JsonResponse({
+        payload = {
             'mode': 'here',
             'results': days,
             'total_days': len(days),
             'total_points': sum(d['count'] for d in days),
-        })
+        }
+        cache.set(cache_key, payload, timeout=120)
+        return JsonResponse(payload)
 
     if not q:
         return JsonResponse({'error': 'q parameter required'}, status=400)
+
+    cache_key = f"search:{request.user.id}:{gen}:text:{q.lower()}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached)
 
     # Location name results (city/state/place_name matches)
     filtered = locations.filter(
@@ -2719,11 +2787,11 @@ def search_api(request):
     places_checked = 0
     if POI.objects.count() > 0:
         place_results = _search_local_pois(q, locations)
-        places_checked = POI.objects.filter(name__icontains=q).count()
+        places_checked = len(place_results)
     else:
         needs_download = True
 
-    return JsonResponse({
+    payload = {
         'query': q,
         'location_results': days,
         'total_days': len(days),
@@ -2731,7 +2799,9 @@ def search_api(request):
         'place_results': place_results,
         'places_checked': places_checked,
         'needs_download': needs_download,
-    })
+    }
+    cache.set(cache_key, payload, timeout=120)
+    return JsonResponse(payload)
 
 
 # ---------------------------------------------------------------------------

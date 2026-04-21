@@ -186,6 +186,7 @@ checkPoiStatus();
 
 // --- Search ---
 let debounceTimer = null;
+let activeSearchController = null;
 const input = document.getElementById('search-input');
 const loading = document.getElementById('search-loading');
 const results = document.getElementById('search-results');
@@ -217,6 +218,9 @@ input.addEventListener('keydown', (e) => {
 });
 
 async function searchHere() {
+    if (activeSearchController) activeSearchController.abort();
+    activeSearchController = new AbortController();
+
     loading.style.display = 'block';
     loading.innerHTML = '<span class="spinner"></span> getting location...';
     results.innerHTML = '';
@@ -228,22 +232,30 @@ async function searchHere() {
         });
         loading.innerHTML = '<span class="spinner"></span> searching...';
         const url = `/api/search/?mode=here&lat=${pos.coords.latitude}&lng=${pos.coords.longitude}&radius=100`;
-        const resp = await fetch(url);
+        const resp = await fetch(url, { signal: activeSearchController.signal });
         const data = await resp.json();
         loading.style.display = 'none';
         renderHereResults(data);
     } catch (e) {
+        if (e?.name === 'AbortError') return;
         loading.style.display = 'none';
         results.innerHTML = '<div class="card no-results">could not get your location. please enable location access.</div>';
+    } finally {
+        activeSearchController = null;
     }
 }
 
 async function performSearch(query) {
+    if (activeSearchController) activeSearchController.abort();
+    activeSearchController = new AbortController();
+
     loading.style.display = 'block';
     loading.innerHTML = '<span class="spinner"></span> searching...';
     results.innerHTML = '';
     try {
-        const resp = await fetch(`/api/search/?q=${encodeURIComponent(query)}`);
+        const resp = await fetch(`/api/search/?q=${encodeURIComponent(query)}`, {
+            signal: activeSearchController.signal,
+        });
         const data = await resp.json();
         loading.style.display = 'none';
         if (data.error) {
@@ -252,8 +264,11 @@ async function performSearch(query) {
             renderResults(data);
         }
     } catch (e) {
+        if (e?.name === 'AbortError') return;
         loading.style.display = 'none';
         results.innerHTML = '<div class="card no-results">search failed. please try again.</div>';
+    } finally {
+        activeSearchController = null;
     }
 }
 
