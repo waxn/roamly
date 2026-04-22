@@ -553,6 +553,7 @@ def track_api(request):
             {
                 'c': p['c'],
                 'ts': p['ts'],
+                'speed': p['speed'],
                 'city': p['city'],
                 'state': p['state'],
                 'country': p['country'],

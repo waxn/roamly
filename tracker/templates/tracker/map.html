@@ -271,6 +271,24 @@ function deviceColor(id) {
     return deviceColors[Math.abs(hash) % deviceColors.length];
 }
 
+const speedGradient = localStorage.getItem('roamly_speed_gradient') || 'on';
+
+// Returns a MapLibre expression that colors by speed when speedGradient is on.
+// fallback: a static color string or MapLibre expression used when stationary (speed <= 1 m/s).
+function speedColorExpr(fallback) {
+    return [
+        'case',
+        ['<=', ['coalesce', ['get', 'speed'], 0], 1.0],
+        fallback,
+        ['interpolate', ['linear'], ['get', 'speed'],
+            1.0, '#3b82f6',
+            5.0, '#22c55e',
+            15.0, '#f59e0b',
+            30.0, '#ef4444'
+        ]
+    ];
+}
+
 // Apply default time range from preferences
 const defaultTimeRange = localStorage.getItem('roamly_default_time_range') || '24';
 document.getElementById('time-range').value = defaultTimeRange;
@@ -396,7 +414,7 @@ function initAccLayers() {
         source: ACC_SOURCE_ID,
         minzoom: 8,
         paint: {
-            'circle-color': ['get', 'color'],
+            'circle-color': speedGradient === 'on' ? speedColorExpr(['get', 'color']) : ['get', 'color'],
             'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 6, 12, 9, 16, 14],
             'circle-stroke-width': 1,
             'circle-stroke-color': 'rgba(255,255,255,0.7)',
@@ -502,6 +520,7 @@ function loadViewport(limit) {
                             device_id: device.device_id,
                             device_name: device.name,
                             timestamp: loc.timestamp,
+                            speed: loc.speed ?? null,
                             city: loc.city,
                             state: loc.state,
                             country: loc.country,
@@ -566,7 +585,7 @@ function renderTrack(devices, autoFit) {
             features.push({
                 type: 'Feature',
                 geometry: { type: 'Point', coordinates: p.c },
-                properties: { ts: p.ts, city: p.city, state: p.state, country: p.country, device_name: device.name }
+                properties: { ts: p.ts, speed: p.speed ?? null, color, city: p.city, state: p.state, country: p.country, device_name: device.name }
             });
             if (p.c[0] < minLng) minLng = p.c[0];
             if (p.c[0] > maxLng) maxLng = p.c[0];
@@ -605,7 +624,7 @@ function renderTrack(devices, autoFit) {
             filter: ['==', ['geometry-type'], 'Point'],
             minzoom: 11,
             paint: {
-                'circle-color': color,
+                'circle-color': speedGradient === 'on' ? speedColorExpr(color) : color,
                 'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 6, 12, 9, 16, 14],
                 'circle-stroke-width': 1,
                 'circle-stroke-color': 'rgba(255,255,255,0.7)',

@@ -204,6 +204,17 @@
                 </div>
                 {% endif %}
 
+                <div class="pref-form-group">
+                    <label class="pref-label">
+                        Speed Color Gradient
+                        <div class="info-icon" data-tooltip="Color dots by speed: device color when stationary, blue→green→orange→red as speed increases">?</div>
+                    </label>
+                    <select id="speed-gradient" class="form-control" onchange="savePref('roamly_speed_gradient', this.value)">
+                        <option value="off">Off</option>
+                        <option value="on">On</option>
+                    </select>
+                </div>
+
                 <div class="pref-form-group classic-only" style="display: none;">
                     <label class="pref-label">
                         Map Point Limit
@@ -774,6 +785,7 @@ function savePref(key, value) {
     localStorage.setItem(key, value);
 }
 document.getElementById('default-time-range').value = localStorage.getItem('roamly_default_time_range') || '24';
+document.getElementById('speed-gradient').value = localStorage.getItem('roamly_speed_gradient') || 'on';
 
 // Map renderer preference
 function updateClassicOptions() {
