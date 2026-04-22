@@ -7,9 +7,9 @@
         <h1>Settings</h1>
     </div>
 
-    <div class="grid grid-2">
+    <div style="columns: 2 320px; column-gap: 1rem;">
         <!-- Profile Picture -->
-        <div class="card" style="grid-column: span 2;">
+        <div class="card" style="column-span: all; break-inside: avoid; margin-bottom: 1rem;">
             <div class="card-header">Profile Picture</div>
             <div style="display: flex; align-items: center; gap: 1.5rem;">
                 <div id="profile-pic-preview" style="width: 80px; height: 80px; border-radius: 50%; overflow: hidden; background: var(--bg-input); display: flex; align-items: center; justify-content: center; font-size: 2rem; color: var(--primary); flex-shrink: 0;">
@@ -35,7 +35,7 @@
         </div>
 
         <!-- API Keys -->
-        <div class="card" style="grid-column: span 2;">
+        <div class="card" style="column-span: all; break-inside: avoid; margin-bottom: 1rem;">
             <div class="card-header">API Keys</div>
             <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1rem;">
                 Use API keys to push location data from mobile apps like OwnTracks.
@@ -78,7 +78,7 @@
         </div>
 
         <!-- Devices -->
-        <div class="card">
+        <div class="card" style="break-inside: avoid; margin-bottom: 1rem;">
             <div class="card-header">Devices</div>
             <table>
                 <thead>
@@ -100,7 +100,7 @@
         </div>
 
         <!-- Preferences -->
-        <div class="card">
+        <div class="card" style="break-inside: avoid; margin-bottom: 1rem;">
             <div class="card-header">Preferences</div>
             
             <style>
@@ -243,7 +243,7 @@
         </div>
 
         <!-- Data Management -->
-        <div class="card">
+        <div class="card" style="break-inside: avoid; margin-bottom: 1rem;">
             <div class="card-header">Data Management</div>
 
             <div style="margin-bottom: 1rem;">
@@ -294,7 +294,7 @@
         </div>
 
         <!-- Geocoding -->
-        <div class="card">
+        <div class="card" style="break-inside: avoid; margin-bottom: 1rem;">
             <div class="card-header">Reverse Geocoding</div>
             <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1rem;">
                 Geocode location points that don't have city/country data yet. Uses OpenStreetMap Nominatim with spatial clustering to minimize API calls.
@@ -312,7 +312,7 @@
         </div>
 
         <!-- Automatic Backups -->
-        <div class="card" style="grid-column: 1 / -1;">
+        <div class="card" style="column-span: all; break-inside: avoid; margin-bottom: 1rem;">
             <div class="card-header">Automatic Backups</div>
             <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1rem;">
                 Automatically back up all your data to any S3-compatible storage (AWS S3, Backblaze B2, Cloudflare R2, MinIO, Wasabi, etc.).
@@ -438,7 +438,7 @@
         </div>
 
         <!-- GPSLogger Setup -->
-        <div class="card" style="grid-column: 1 / -1;">
+        <div class="card" style="column-span: all; break-inside: avoid; margin-bottom: 1rem;">
             <div class="card-header">GPSLogger for Android Setup</div>
             <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1rem;">
                 <a href="https://gpslogger.app" target="_blank" style="color: var(--primary);">GPSLogger</a> is a free, open-source Android app for logging GPS data. Here's how to set it up with Roamly:
@@ -469,7 +469,7 @@
         </div>
 
         <!-- Danger Zone -->
-        <div class="card" style="grid-column: 1 / -1; border: 1px solid var(--danger);">
+        <div class="card" style="column-span: all; break-inside: avoid; margin-bottom: 1rem; border: 1px solid var(--danger);">
             <div class="card-header" style="color: var(--danger);">Danger Zone</div>
 
             <div style="margin-bottom: 1.5rem;">
@@ -500,7 +500,7 @@
         </div>
 
         <!-- API Usage -->
-        <div class="card" style="grid-column: 1 / -1;">
+        <div class="card" style="column-span: all; break-inside: avoid; margin-bottom: 1rem;">
             <div class="card-header">API Usage</div>
             <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.75rem;">
                 Push location data using any HTTP client. Example:
