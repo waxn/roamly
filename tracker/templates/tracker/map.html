@@ -316,6 +316,13 @@ document.querySelectorAll('.style-btn').forEach(btn => {
 });
 
 // ── Popup builder ──
+function formatSpeed(mps) {
+    if (mps == null || mps < 0) return null;
+    const unit = localStorage.getItem('roamly_speed_unit') || 'kmh';
+    if (unit === 'mph') return `${(mps * 2.23694).toFixed(1)} mph`;
+    return `${(mps * 3.6).toFixed(1)} km/h`;
+}
+
 function showPointPopup(pt, coords) {
     const ts = new Date(pt.ts * 1000);
     let html = `<strong>${pt.device_name || 'Unknown'}</strong><br>`;
@@ -323,6 +330,8 @@ function showPointPopup(pt, coords) {
     if (pt.city)    html += `<br>${pt.city}`;
     if (pt.state)   html += `, ${pt.state}`;
     if (pt.country) html += `<br>${pt.country}`;
+    const spd = formatSpeed(pt.speed);
+    if (spd) html += `<br><span style="color:var(--text-muted)">${spd}</span>`;
     new maplibregl.Popup({ offset: 10 }).setLngLat(coords).setHTML(html).addTo(map);
 }
 
@@ -431,6 +440,8 @@ function initAccLayers() {
         if (p.city) html += `<br>${p.city}`;
         if (p.state) html += `, ${p.state}`;
         if (p.country) html += `<br>${p.country}`;
+        const spd = formatSpeed(p.speed);
+        if (spd) html += `<br><span style="color:var(--text-muted)">${spd}</span>`;
         new maplibregl.Popup({ offset: 10 })
             .setLngLat(e.features[0].geometry.coordinates.slice())
             .setHTML(html)
