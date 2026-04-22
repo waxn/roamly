@@ -583,7 +583,7 @@
         </div>
         <div class="sidebar-group">
             <div class="sidebar-group-label">tutorials</div>
-            <a href="#owntracks" class="sidebar-link">owntracks setup</a>
+            <a href="#gpslogger" class="sidebar-link">gpslogger setup</a>
             <a href="#api-guide" class="sidebar-link">sending locations</a>
             <a href="#trips-tutorial" class="sidebar-link">managing trips</a>
             <a href="#data-management" class="sidebar-link">import & export</a>
@@ -623,7 +623,7 @@
                 <li><strong>reverse geocoding</strong> — coordinates to place names via openstreetmap nominatim</li>
                 <li><strong>import & export</strong> — csv, gpx, full json backup</li>
                 <li><strong>automatic s3 backups</strong> — any s3-compatible provider, configurable retention</li>
-                <li><strong>owntracks compatible</strong> — or any http client</li>
+                <li><strong>gpslogger & owntracks compatible</strong> — or any http client</li>
                 <li><strong>pwa</strong> — installable, dark & light themes</li>
             </ul>
 
@@ -735,14 +735,14 @@ docker compose exec -T db psql -U roamly roamly < backup.sql</code></pre>
                     <div class="step-num">3</div>
                     <div class="step-content">
                         <h4>set up a tracking app</h4>
-                        <p>install <a href="https://owntracks.org/" target="_blank">owntracks</a> on your phone and point it at your server. see the <a href="#owntracks">owntracks setup</a> section for step-by-step instructions.</p>
+                        <p>install <a href="https://gpslogger.app/" target="_blank">gpslogger</a> on android (or <a href="https://owntracks.org/" target="_blank">owntracks</a> on ios/android) and point it at your server. see the <a href="#gpslogger">gpslogger setup</a> section for step-by-step instructions.</p>
                     </div>
                 </div>
                 <div class="step-card">
                     <div class="step-num">4</div>
                     <div class="step-content">
                         <h4>verify it's working</h4>
-                        <p>after owntracks sends its first location, check the <strong>map</strong> page. if nothing appears, see <a href="#troubleshooting">troubleshooting</a>.</p>
+                        <p>after gpslogger sends its first location, check the <strong>map</strong> page. if nothing appears, see <a href="#troubleshooting">troubleshooting</a>.</p>
                     </div>
                 </div>
                 <div class="step-card">
@@ -826,15 +826,14 @@ CSRF_TRUSTED_ORIGINS=https://roamly.yourdomain.com</code></pre>
             <pre><code>python3 -c "import secrets; print(secrets.token_urlsafe(64))"</code></pre>
         </section>
 
-        <!-- OwnTracks -->
-        <section id="owntracks" class="doc-section">
-            <h1>owntracks setup</h1>
-            <p><a href="https://owntracks.org/" target="_blank">owntracks</a> is a free, open-source app for ios and android that pushes your location to your own server over http.</p>
+        <!-- GPSLogger -->
+        <section id="gpslogger" class="doc-section">
+            <h1>gpslogger setup</h1>
+            <p><a href="https://gpslogger.app/" target="_blank">gpslogger</a> is a free, open-source android app for logging gps data to a custom url. it's lightweight, battery-friendly, and the recommended way to send locations to roamly.</p>
 
-            <h2>install owntracks</h2>
+            <h2>install gpslogger</h2>
             <ul>
-                <li><strong>ios:</strong> <a href="https://apps.apple.com/app/owntracks/id692424691" target="_blank">app store</a></li>
-                <li><strong>android:</strong> <a href="https://play.google.com/store/apps/details?id=org.owntracks.android" target="_blank">google play</a> or <a href="https://f-droid.org/packages/org.owntracks.android/" target="_blank">f-droid</a></li>
+                <li><strong>android:</strong> <a href="https://f-droid.org/packages/com.mendhak.gpslogger/" target="_blank">f-droid</a> or <a href="https://play.google.com/store/apps/details?id=com.mendhak.gpslogger" target="_blank">google play</a></li>
             </ul>
 
             <h2>configuration</h2>
@@ -843,55 +842,71 @@ CSRF_TRUSTED_ORIGINS=https://roamly.yourdomain.com</code></pre>
                     <div class="step-num">1</div>
                     <div class="step-content">
                         <h4>get your api key</h4>
-                        <p>settings → api keys → create api key. copy the 64-character key.</p>
+                        <p>settings → api keys → create api key. name it after your device (e.g., "pixel 9"). copy the key.</p>
                     </div>
                 </div>
                 <div class="step-card">
                     <div class="step-num">2</div>
                     <div class="step-content">
-                        <h4>open owntracks preferences</h4>
-                        <p><strong>android:</strong> menu (☰) → preferences → connection<br>
-                        <strong>ios:</strong> (i) button → settings</p>
+                        <h4>enable custom url logging</h4>
+                        <p>in gpslogger, tap the <strong>three-dot menu → logging details</strong>, then enable <strong>log to custom url</strong>.</p>
                     </div>
                 </div>
                 <div class="step-card">
                     <div class="step-num">3</div>
                     <div class="step-content">
-                        <h4>set mode to http</h4>
-                        <p>change mode from <strong>mqtt</strong> to <strong>http</strong>.</p>
+                        <h4>configure the url</h4>
+                        <p>tap <strong>log to custom url</strong> to open its settings:</p>
+                        <ul>
+                            <li><strong>url:</strong> <code>https://your-domain.com/api/push/</code></li>
+                            <li><strong>http method:</strong> post</li>
+                            <li><strong>http body:</strong></li>
+                        </ul>
+                        <pre><code>{"api_key":"YOUR_KEY","device_id":"%SER","latitude":%LAT,"longitude":%LON,"altitude":%ALT,"speed":%SPD,"accuracy":%ACC,"battery":%BATT,"timestamp":"%TIME"}</code></pre>
+                        <ul>
+                            <li><strong>http headers:</strong> <code>Content-Type: application/json</code></li>
+                        </ul>
                     </div>
                 </div>
                 <div class="step-card">
                     <div class="step-num">4</div>
                     <div class="step-content">
-                        <h4>set the server url</h4>
-                        <pre><code>https://your-domain.com/api/push/?api_key=YOUR_KEY</code></pre>
-                        <p><strong>local testing</strong> (phone and server on same network):</p>
-                        <pre><code>http://192.168.x.x:8001/api/push/?api_key=YOUR_KEY</code></pre>
+                        <h4>set logging interval</h4>
+                        <p>go back, tap <strong>performance</strong>, and set your preferred interval (e.g., 60 seconds).</p>
                     </div>
                 </div>
                 <div class="step-card">
                     <div class="step-num">5</div>
                     <div class="step-content">
-                        <h4>send a test location</h4>
-                        <p>tap the publish button (↑) on the owntracks map screen. your point should appear on roamly's map within a few seconds.</p>
+                        <h4>start logging</h4>
+                        <p>tap the <strong>start</strong> button. your points should appear on roamly's map within seconds.</p>
                     </div>
                 </div>
             </div>
 
             <div class="callout info">
                 <div class="callout-icon"></div>
-                <div>instead of a url parameter, you can pass the key as a header: <code>Authorization: Bearer YOUR_KEY</code>. the url param method is simpler for most setups.</div>
+                <div>the <code>%SER</code> placeholder sends the device's serial/id, which roamly uses as the device identifier. you can replace it with any fixed string if you prefer a custom device name.</div>
             </div>
 
-            <h2>owntracks not working?</h2>
+            <h2>gpslogger not working?</h2>
             <ul>
                 <li>make sure the url ends with <code>/api/push/</code> — trailing slash matters</li>
-                <li>check you're using <strong>http mode</strong>, not mqtt</li>
-                <li>verify the api key has no extra spaces</li>
+                <li>verify <code>Content-Type: application/json</code> is set in http headers</li>
+                <li>check the api key in the json body has no extra spaces</li>
                 <li>confirm your server is reachable from your phone's network</li>
                 <li>check logs: <code>docker compose logs -f web</code></li>
             </ul>
+
+            <h2>owntracks (ios & android)</h2>
+            <p>roamly is also fully compatible with <a href="https://owntracks.org/" target="_blank">owntracks</a> — the recommended option for ios users.</p>
+            <ul>
+                <li><strong>ios:</strong> <a href="https://apps.apple.com/app/owntracks/id692424691" target="_blank">app store</a></li>
+                <li><strong>android:</strong> <a href="https://play.google.com/store/apps/details?id=org.owntracks.android" target="_blank">google play</a> or <a href="https://f-droid.org/packages/org.owntracks.android/" target="_blank">f-droid</a></li>
+            </ul>
+            <p>in owntracks preferences, set mode to <strong>http</strong> and the url to:</p>
+            <pre><code>https://your-domain.com/api/push/?api_key=YOUR_KEY</code></pre>
+            <p>tap the publish button (↑) to send a test location.</p>
         </section>
 
         <!-- API Guide -->
@@ -938,7 +953,7 @@ CSRF_TRUSTED_ORIGINS=https://roamly.yourdomain.com</code></pre>
                 </table>
             </div>
 
-            <h2>owntracks format</h2>
+            <h2>owntracks format (compatibility)</h2>
             <p>roamly also accepts the native owntracks json format directly:</p>
             <pre><code>{
   "_type": "location",
@@ -1335,7 +1350,7 @@ docker compose down && docker compose up -d --build</code></pre>
             <h1>architecture</h1>
 
             <h2>system overview</h2>
-            <pre><code>mobile device (owntracks / custom app / script)
+            <pre><code>mobile device (gpslogger / owntracks / custom app / script)
     │
     │ POST /api/push/  (api key auth)
     ▼
@@ -1401,10 +1416,10 @@ background threads
                 <li>check logs: <code>docker compose logs -f web</code></li>
             </ul>
 
-            <h2>owntracks not connecting</h2>
+            <h2>gpslogger / owntracks not connecting</h2>
             <ul>
-                <li>confirm you're using <strong>http mode</strong>, not mqtt</li>
                 <li>url must end with <code>/api/push/</code> — trailing slash required</li>
+                <li>for owntracks: confirm you're using <strong>http mode</strong>, not mqtt</li>
                 <li>if using https, verify the ssl certificate is valid</li>
                 <li>open the push url in your phone's browser to test reachability</li>
             </ul>
@@ -1445,12 +1460,12 @@ background threads
             <p>yes. roamly runs on arm64. at least 2 gb ram recommended. the postgis docker image supports arm64.</p>
 
             <h3>do i need a domain name?</h3>
-            <p>for owntracks over the internet, yes — or use tailscale/vpn for your phone to reach the server. for local network only, an ip address works fine.</p>
+            <p>for remote access over the internet, yes — or use tailscale/vpn for your phone to reach the server. for local network only, an ip address works fine.</p>
 
             <h3>what if my server goes down?</h3>
-            <p>owntracks buffers locations on-device and sends them when the connection restores. your existing data is safe on disk in the postgres volume.</p>
+            <p>gpslogger and owntracks both buffer locations on-device and send them when the connection restores. your existing data is safe on disk in the postgres volume.</p>
 
-            <h3>can i use it without owntracks?</h3>
+            <h3>can i use it without gpslogger or owntracks?</h3>
             <p>absolutely. anything that can post json over http works — curl, python, tasker, shortcuts, home assistant, custom apps.</p>
 
             <h3>how do i migrate to a new server?</h3>
@@ -1462,7 +1477,7 @@ background threads
             </ol>
 
             <h3>does roamly support real-time tracking?</h3>
-            <p>locations are stored as they arrive but there's no live-push to the browser. refresh the map to see the latest. owntracks in "move" mode can send updates every few seconds for near-real-time.</p>
+            <p>locations are stored as they arrive but there's no live-push to the browser. refresh the map to see the latest. gpslogger and owntracks can both send updates every few seconds for near-real-time.</p>
         </section>
 
     </main>

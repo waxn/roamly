@@ -696,7 +696,7 @@
     <div class="strip">
         <div class="strip-item"><span class="strip-dot"></span> runs on your server</div>
         <div class="strip-item"><span class="strip-dot"></span> zero telemetry</div>
-        <div class="strip-item"><span class="strip-dot"></span> owntracks compatible</div>
+        <div class="strip-item"><span class="strip-dot"></span> gpslogger & owntracks compatible</div>
         <div class="strip-item"><span class="strip-dot"></span> docker compose setup</div>
         <div class="strip-item"><span class="strip-dot"></span> postgis vector tiles</div>
     </div>
@@ -737,8 +737,8 @@
                 </div>
                 <div class="feature-card reveal reveal-delay-5">
                     <div class="feature-num">06</div>
-                    <div class="feature-name">owntracks support</div>
-                    <p class="feature-desc">native owntracks http mode on ios and android. or send a plain http post from curl, python, home assistant, tasker — whatever fits.</p>
+                    <div class="feature-name">gpslogger & owntracks</div>
+                    <p class="feature-desc">built for gpslogger on android — free, open-source, battery-friendly. also works with owntracks on ios and android, or any plain http post from curl, python, home assistant, tasker.</p>
                 </div>
                 <div class="feature-card reveal reveal-delay-6">
                     <div class="feature-num">07</div>
@@ -773,7 +773,7 @@
                 <div>
                     <p class="section-eyebrow reveal">setup</p>
                     <h2 class="section-title reveal">running in about two minutes</h2>
-                    <p class="section-sub reveal" style="margin-bottom: 3rem;">docker compose handles the database, migrations, and server. once it's up, point owntracks at your endpoint and you're tracking.</p>
+                    <p class="section-sub reveal" style="margin-bottom: 3rem;">docker compose handles the database, migrations, and server. once it's up, point gpslogger at your endpoint and you're tracking.</p>
 
                     <div class="setup-steps">
                         <div class="step reveal">
@@ -793,8 +793,8 @@
                         <div class="step reveal reveal-delay-2">
                             <div class="step-num">3</div>
                             <div class="step-body">
-                                <h4>connect owntracks</h4>
-                                <p>set mode to http, point the url at <code>/api/push/?api_key=YOUR_KEY</code>, send a test location.</p>
+                                <h4>connect gpslogger</h4>
+                                <p>enable "log to custom url", point it at <code>/api/push/</code> with your api key in the json body, send a test location.</p>
                             </div>
                         </div>
                         <div class="step reveal reveal-delay-3">
