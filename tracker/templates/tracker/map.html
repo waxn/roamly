@@ -370,6 +370,9 @@ const MORE_LOAD_LIMIT = 50000;
 const ACC_SOURCE_ID = 'acc-pts';
 const ACC_HEAT_LAYER = 'acc-pts-heat';
 const ACC_DOTS_LAYER = 'acc-pts-dots';
+const ACC_LINES_SOURCE = 'acc-lines';
+const ACC_LINES_LAYER  = 'acc-lines-layer';
+const connectLines = localStorage.getItem('roamly_connect_lines') || 'off';
 
 let accMap = new Map();            // "devId:ts" → Feature, deduped accumulated points
 let fetchedAreas = [];             // {w,s,e,n} bboxes where we have complete data (no limit hit)
@@ -387,6 +390,34 @@ function clearTrackLayers() {
 
 function getAccFC() {
     return { type: 'FeatureCollection', features: Array.from(accMap.values()) };
+}
+
+const LINE_GAP_MS = 20 * 60 * 1000; // split segment if gap > 20 min
+
+function buildLinesFC() {
+    const byDevice = new Map();
+    accMap.forEach(f => {
+        const id = f.properties.device_id;
+        if (!byDevice.has(id)) byDevice.set(id, []);
+        byDevice.get(id).push(f);
+    });
+    const features = [];
+    byDevice.forEach(pts => {
+        pts.sort((a, b) => new Date(a.properties.timestamp) - new Date(b.properties.timestamp));
+        const color = pts[0].properties.color;
+        let seg = [pts[0].geometry.coordinates];
+        for (let i = 1; i < pts.length; i++) {
+            const gap = new Date(pts[i].properties.timestamp) - new Date(pts[i - 1].properties.timestamp);
+            if (gap > LINE_GAP_MS) {
+                if (seg.length >= 2) features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: seg }, properties: { color } });
+                seg = [pts[i].geometry.coordinates];
+            } else {
+                seg.push(pts[i].geometry.coordinates);
+            }
+        }
+        if (seg.length >= 2) features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: seg }, properties: { color } });
+    });
+    return { type: 'FeatureCollection', features };
 }
 
 function initAccLayers() {
@@ -415,6 +446,22 @@ function initAccLayers() {
             ]
         }
     });
+
+    // Lines — connect points in chronological order per device (only when setting is on)
+    if (connectLines === 'on') {
+        map.addSource(ACC_LINES_SOURCE, { type: 'geojson', data: buildLinesFC() });
+        map.addLayer({
+            id: ACC_LINES_LAYER,
+            type: 'line',
+            source: ACC_LINES_SOURCE,
+            minzoom: DETAIL_MIN_ZOOM,
+            paint: {
+                'line-color': ['get', 'color'],
+                'line-width': 3,
+                'line-opacity': 0.75,
+            }
+        });
+    }
 
     // Dots — identical size to base track dots, per-device color
     map.addLayer({
@@ -456,7 +503,9 @@ function clearAccumulated() {
     fetchedAreas = [];
     lastViewportHitLimit = false;
     if (map.getLayer(ACC_HEAT_LAYER)) map.removeLayer(ACC_HEAT_LAYER);
+    if (map.getLayer(ACC_LINES_LAYER)) map.removeLayer(ACC_LINES_LAYER);
     if (map.getLayer(ACC_DOTS_LAYER)) map.removeLayer(ACC_DOTS_LAYER);
+    if (map.getSource(ACC_LINES_SOURCE)) map.removeSource(ACC_LINES_SOURCE);
     if (map.getSource(ACC_SOURCE_ID)) map.removeSource(ACC_SOURCE_ID);
     updateDetailControls();
 }
@@ -469,6 +518,9 @@ function mergeAccFeatures(newFeatures) {
     initAccLayers();
     if (map.getSource(ACC_SOURCE_ID)) {
         map.getSource(ACC_SOURCE_ID).setData(getAccFC());
+    }
+    if (connectLines === 'on' && map.getSource(ACC_LINES_SOURCE)) {
+        map.getSource(ACC_LINES_SOURCE).setData(buildLinesFC());
     }
 }
 

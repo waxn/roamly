@@ -215,6 +215,17 @@
                     </select>
                 </div>
 
+                <div class="pref-form-group">
+                    <label class="pref-label">
+                        Connect Points with Lines
+                        <div class="info-icon" data-tooltip="When zoomed in and detail points are loaded, draw lines connecting them in chronological order">?</div>
+                    </label>
+                    <select id="connect-lines" class="form-control" onchange="savePref('roamly_connect_lines', this.value)">
+                        <option value="off">Off</option>
+                        <option value="on">On</option>
+                    </select>
+                </div>
+
                 <div class="pref-form-group classic-only" style="display: none;">
                     <label class="pref-label">
                         Map Point Limit
@@ -786,6 +797,7 @@ function savePref(key, value) {
 }
 document.getElementById('default-time-range').value = localStorage.getItem('roamly_default_time_range') || '24';
 document.getElementById('speed-gradient').value = localStorage.getItem('roamly_speed_gradient') || 'on';
+document.getElementById('connect-lines').value = localStorage.getItem('roamly_connect_lines') || 'off';
 
 // Map renderer preference
 function updateClassicOptions() {
