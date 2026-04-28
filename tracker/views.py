@@ -1357,6 +1357,7 @@ def trip_detail(request, trip_id):
         "id": trip.id,
         "name": trip.name,
         "description": trip.description,
+        "device_name": trip.device.name or trip.device.device_id,
         "start_time": trip.start_time.isoformat(),
         "end_time": trip.end_time.isoformat(),
         "locations": locs,

@@ -268,7 +268,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="container" style="max-width: 1600px;">
+<div style="padding: 1.5rem; width: 100%;">
     <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
         <h1>Adventures</h1>
         <button class="btn btn-primary" onclick="showCreateAdventure()">New Adventure</button>
@@ -595,6 +595,16 @@ function loadAdventures() {
         });
 }
 
+// Convert a date string (YYYY-MM-DD) to a UTC ISO string at local midnight or end-of-day.
+// This ensures the filter captures the user's full local day regardless of their timezone.
+function localDateToUTC(dateStr, endOfDay) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dt = endOfDay
+        ? new Date(y, m - 1, d, 23, 59, 59)
+        : new Date(y, m - 1, d, 0, 0, 0);
+    return dt.toISOString();
+}
+
 function createAdventure() {
     const startVal = document.getElementById('trip-start').value;
     if (!startVal) {
@@ -605,8 +615,8 @@ function createAdventure() {
     const body = {
         name: document.getElementById('trip-name').value || 'Untitled Adventure',
         device_id: document.getElementById('trip-device').value,
-        start_time: startVal,
-        end_time: endVal || '',  // empty = open-ended, backend defaults to far future
+        start_time: localDateToUTC(startVal, false),
+        end_time: endVal ? localDateToUTC(endVal, true) : '',
         description: document.getElementById('trip-description').value,
     };
 
@@ -692,12 +702,15 @@ function loadTripDetail(id) {
             currentTripData = data;
             currentIsCreator = data.is_creator;
 
-            // Update sidebar header
             document.getElementById('sidebar-trip-name').textContent = data.name;
-            const start = new Date(data.start_time).toLocaleDateString();
-            const end = new Date(data.end_time).toLocaleDateString();
+            const startD = new Date(data.start_time);
+            const endD = new Date(data.end_time);
+            const openEnded = endD.getFullYear() >= 2099;
+            const startStr = startD.toLocaleDateString([], {month:'short', day:'numeric', year:'numeric'});
+            const endStr = openEnded ? 'ongoing' : endD.toLocaleDateString([], {month:'short', day:'numeric', year:'numeric'});
+            const ptCount = (data.total_location_count || data.locations.length).toLocaleString();
             document.getElementById('sidebar-trip-dates').textContent =
-                `${start} - ${end} · ${data.locations.length} points`;
+                `${startStr} – ${endStr} · ${ptCount} pts · ${data.device_name || ''}`;
 
             document.getElementById('trip-notes').value = data.description || '';
             renderTripOnMap(data);
