@@ -1627,15 +1627,7 @@ function loadVisits() {
         });
 }
 
-// Intercept visits section toggle to lazy-load
-document.getElementById('visits-section-toggle').addEventListener('click', function() {
-    // Give the toggle a moment to open before loading
-    setTimeout(() => {
-        if (!this.classList.contains('collapsed')) {
-            loadVisits();
-        }
-    }, 50);
-});
+// (visits section removed from sidebar redesign)
 
 function formatDuration(seconds) {
     if (!seconds) return '-';
