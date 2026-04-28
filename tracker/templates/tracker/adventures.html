@@ -258,6 +258,39 @@
 }
 
 
+/* Map style switcher */
+.sidebar-style-switcher {
+    display: flex; gap: 3px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 3px;
+}
+.sidebar-style-btn {
+    background: none; border: none; color: var(--text-muted);
+    padding: 3px 10px; border-radius: 5px; font-size: 0.6875rem;
+    font-family: 'Space Grotesk', sans-serif; font-weight: 700;
+    text-transform: lowercase; cursor: pointer; transition: all 0.12s;
+}
+.sidebar-style-btn.active { background: var(--primary); color: #fff; }
+.sidebar-style-btn:not(.active):hover { color: var(--text); background: var(--bg-input); }
+
+/* MapLibre popup — match app theme */
+.maplibregl-popup-content {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 8px !important;
+    padding: 0.5rem 0.75rem !important;
+    color: var(--text) !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-size: 0.8125rem !important;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4) !important;
+    min-width: 120px;
+}
+.maplibregl-popup-tip { border-top-color: var(--bg-card) !important; border-bottom-color: var(--bg-card) !important; }
+.maplibregl-popup-close-button {
+    color: var(--text-muted) !important; font-size: 1rem !important;
+    padding: 0.25rem 0.5rem !important; top: 2px; right: 2px;
+}
+.maplibregl-popup-close-button:hover { color: var(--text) !important; background: none !important; }
+
 /* Responsive */
 @media (max-width: 768px) {
     .trip-fullscreen.active { flex-direction: column; }
@@ -463,6 +496,28 @@ let timelineHasMore = false;
 let composeLocation = null;
 let visitsLoaded = false;
 let blurbPlacingMode = false;
+
+// Read the same display settings as the main map page
+const _speedGradient = localStorage.getItem('roamly_speed_gradient') || 'on';
+const _showHeatmap   = localStorage.getItem('roamly_show_heatmap') || 'on';
+const _heatIntensity = localStorage.getItem('roamly_heatmap_intensity') || 'medium';
+const _dotSizePref   = localStorage.getItem('roamly_dot_size') || 'medium';
+const _lineGapMs     = parseInt(localStorage.getItem('roamly_line_gap_minutes') || '20', 10) * 60 * 1000;
+const _detailZoom    = parseInt(localStorage.getItem('roamly_detail_zoom') || '8', 10);
+
+const _DOT_SIZES = { small:[8,2,12,4,16,8], medium:[8,3,12,6,16,12], large:[8,5,12,9,16,18] };
+const _HEAT_INTENSITY = { low:[0,0.2,13,0.7], medium:[0,0.4,13,1.4], high:[0,0.8,13,2.5] };
+const _dotArgs  = _DOT_SIZES[_dotSizePref] || _DOT_SIZES.medium;
+const _heatArgs = _HEAT_INTENSITY[_heatIntensity] || _HEAT_INTENSITY.medium;
+
+function _speedColorExpr() {
+    return ['case', ['!', ['has', 'speed']], '#3b82f6',
+        ['<', ['to-number', ['get', 'speed']], 0.5], '#3b82f6',
+        ['interpolate', ['linear'], ['to-number', ['get', 'speed']],
+            0.5, '#3b82f6', 3, '#22c55e', 8, '#f59e0b', 15, '#ef4444'
+        ]
+    ];
+}
 
 const mapStyles = {
     'Streets': {
@@ -755,42 +810,43 @@ function renderTripOnMap(data) {
 
     tripMap.addSource('adv-pts', { type: 'geojson', data: { type: 'FeatureCollection', features } });
 
-    // Heatmap layer (always shown)
-    tripMap.addLayer({
-        id: 'adv-heat', type: 'heatmap', source: 'adv-pts',
-        maxzoom: smallAdventure ? 16 : 13,
-        paint: {
-            'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 0.5, 13, 2],
-            'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 8, 13, 30],
-            'heatmap-opacity': smallAdventure
-                ? ['interpolate', ['linear'], ['zoom'], 0, 0.8, 10, 0.5, 14, 0.05]
-                : ['interpolate', ['linear'], ['zoom'], 0, 0.8, 11, 0.5, 13, 0.1],
-            'heatmap-color': ADV_HEATMAP_COLOR,
-        }
-    });
+    // Heatmap — respects roamly_show_heatmap and roamly_heatmap_intensity settings
+    if (_showHeatmap === 'on') {
+        tripMap.addLayer({
+            id: 'adv-heat', type: 'heatmap', source: 'adv-pts',
+            maxzoom: smallAdventure ? 16 : 13,
+            paint: {
+                'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], ..._heatArgs],
+                'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 6, 13, 26],
+                'heatmap-opacity': smallAdventure
+                    ? ['interpolate', ['linear'], ['zoom'], 0, 0.8, 10, 0.5, 14, 0.05]
+                    : ['interpolate', ['linear'], ['zoom'], 0, 0.8, 11, 0.5, 13, 0.1],
+                'heatmap-color': ADV_HEATMAP_COLOR,
+            }
+        });
+    }
 
-    // Dot layer — always visible for small adventures, zoom-gated for large
+    // Dots — respects roamly_dot_size and roamly_speed_gradient settings
     tripMap.addLayer({
         id: 'adv-dots', type: 'circle', source: 'adv-pts',
-        minzoom: smallAdventure ? 0 : 9,
+        minzoom: smallAdventure ? 0 : _detailZoom,
         paint: {
-            'circle-color': '#3b82f6',
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 2, 10, 3, 14, 6, 18, 10],
+            'circle-color': _speedGradient === 'on' ? _speedColorExpr() : '#3b82f6',
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], ..._dotArgs],
             'circle-stroke-width': 1,
             'circle-stroke-color': 'rgba(255,255,255,0.6)',
-            'circle-opacity': smallAdventure ? 1 : ['interpolate', ['linear'], ['zoom'], 9, 0, 11, 1],
+            'circle-opacity': smallAdventure ? 1 : ['interpolate', ['linear'], ['zoom'], _detailZoom, 0, _detailZoom + 2, 1],
         }
     });
 
-    // Line — only for small adventures (connects in chronological order)
-    if (smallAdventure && coords.length > 1) {
-        // Build segmented line (split gaps > 30 min)
-        const LINE_GAP_MS = 30 * 60 * 1000;
+    // Line — respects roamly_connect_lines and roamly_line_gap_minutes settings
+    const _connectLines = localStorage.getItem('roamly_connect_lines') || 'off';
+    if (coords.length > 1 && (smallAdventure || _connectLines === 'on')) {
         const lineFeatures = [];
         let seg = [coords[0]];
         for (let i = 1; i < data.locations.length; i++) {
             const gap = new Date(data.locations[i].timestamp) - new Date(data.locations[i-1].timestamp);
-            if (gap > LINE_GAP_MS) {
+            if (gap > _lineGapMs) {
                 if (seg.length > 1) lineFeatures.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: seg } });
                 seg = [coords[i]];
             } else {
@@ -802,7 +858,8 @@ function renderTripOnMap(data) {
         tripMap.addSource('adv-line', { type: 'geojson', data: { type: 'FeatureCollection', features: lineFeatures } });
         tripMap.addLayer({
             id: 'adv-line', type: 'line', source: 'adv-line',
-            paint: { 'line-color': '#3b82f6', 'line-width': 2, 'line-opacity': 0.6 }
+            minzoom: smallAdventure ? 0 : _detailZoom,
+            paint: { 'line-color': '#3b82f6', 'line-width': 2, 'line-opacity': 0.55 }
         });
     }
 
@@ -825,10 +882,14 @@ function renderTripOnMap(data) {
         const props = e.features[0].properties;
         const coordsPt = e.features[0].geometry.coordinates.slice();
         const ts = new Date(props.timestamp);
-        let html = `<strong>${ts.toLocaleString()}</strong>`;
-        if (props.city) html += `<br>${props.city}`;
-        if (props.country) html += `, ${props.country}`;
-        new maplibregl.Popup({ offset: 8 })
+        const timeStr = ts.toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+        let place = [props.city, props.country].filter(Boolean).join(', ');
+        const spd = props.speed != null && props.speed > 0
+            ? `<div style="color:var(--text-muted);margin-top:2px;">${(props.speed * 3.6).toFixed(1)} km/h</div>` : '';
+        const html = `<div style="font-weight:600;font-size:0.8125rem;">${timeStr}</div>`
+            + (place ? `<div style="color:var(--text-muted);font-size:0.75rem;margin-top:2px;">${escHtml(place)}</div>` : '')
+            + spd;
+        new maplibregl.Popup({ offset: 10, closeButton: false })
             .setLngLat(coordsPt)
             .setHTML(html)
             .addTo(tripMap);
@@ -880,7 +941,7 @@ function renderPlaceMarkers(places) {
     const markerFeatures = places.map(p => ({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [p.longitude, p.latitude] },
-        properties: { id: p.id, name: p.name }
+        properties: { id: p.id, name: p.name, time_spent_display: p.time_spent_display || '' }
     }));
 
     tripMap.addSource('place-markers', {
@@ -910,6 +971,19 @@ function renderPlaceMarkers(places) {
             'text-halo-width': 1
         }
     });
+
+    // Themed popup on pin click
+    tripMap.on('click', 'place-markers', (e) => {
+        const props = e.features[0].properties;
+        const coords = e.features[0].geometry.coordinates.slice();
+        const timeStr = props.time_spent_display ? `<div style="color:var(--text-muted);font-size:0.75rem;margin-top:2px;">${escHtml(props.time_spent_display)} spent here</div>` : '';
+        new maplibregl.Popup({ offset: 10, closeButton: false })
+            .setLngLat(coords)
+            .setHTML(`<div style="font-weight:600;font-size:0.8125rem;">📍 ${escHtml(props.name)}</div>${timeStr}`)
+            .addTo(tripMap);
+    });
+    tripMap.on('mouseenter', 'place-markers', () => tripMap.getCanvas().style.cursor = 'pointer');
+    tripMap.on('mouseleave', 'place-markers', () => tripMap.getCanvas().style.cursor = '');
 }
 
 function makeCircle(lng, lat, radiusM, steps = 64) {
@@ -1089,21 +1163,25 @@ function updateTempCircle(lng, lat, radiusM) {
 
 function cancelPlaceForm() {
     document.getElementById('place-form-container').innerHTML = '';
-    ['temp-place', 'temp-place-circle'].forEach(id => {
-        if (tripMap.getLayer(id)) tripMap.removeLayer(id);
-        if (tripMap.getSource(id)) tripMap.removeSource(id);
-    });
+    document.getElementById('add-pin-btn').textContent = '+ add';
+    placingMode = false;
+    document.getElementById('place-hint').classList.remove('active');
+    if (tripMap) {
+        ['temp-place', 'temp-place-circle'].forEach(id => {
+            if (tripMap.getLayer(id)) tripMap.removeLayer(id);
+            if (tripMap.getSource(id)) tripMap.removeSource(id);
+        });
+        tripMap.getCanvas().style.cursor = '';
+    }
 }
 
 function savePlace(lat, lng) {
-    const name = document.getElementById('pf-name').value || 'Untitled Place';
-    const radius = parseFloat(document.getElementById('pf-radius').value);
-    const notes = document.getElementById('pf-notes').value;
+    const name = document.getElementById('pf-name').value.trim() || 'Pin';
 
     fetch(`/api/trips/${currentTripId}/places/create/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-        body: JSON.stringify({ name, latitude: lat, longitude: lng, radius, notes })
+        body: JSON.stringify({ name, latitude: lat, longitude: lng, radius: 100, notes: '' })
     })
     .then(r => r.json())
     .then(data => {
