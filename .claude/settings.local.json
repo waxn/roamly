@@ -4,7 +4,11 @@
       "Bash(docker compose build:*)",
       "Bash(python3:*)",
       "Bash(docker compose:*)",
-      "Bash(DJANGO_SETTINGS_MODULE=roamly.settings python:*)"
+      "Bash(DJANGO_SETTINGS_MODULE=roamly.settings python:*)",
+      "Bash(grep -E \".py$\")",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(sudo docker *)"
     ]
   }
 }
