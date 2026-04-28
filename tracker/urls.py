@@ -20,7 +20,7 @@ urlpatterns = [
     path('stats/', views.stats_view, name='stats'),
     path('visits/', views.visits_view, name='visits'),
     path('search/', views.search_view, name='search'),
-    path('trips/', views.trips_view, name='trips'),
+    path('adventures/', views.adventures_view, name='adventures'),
     path('settings/', views.settings_view, name='settings'),
 
     # Auth
@@ -44,9 +44,9 @@ urlpatterns = [
     path('api/search/', views.search_api, name='search_api'),
 
     # Trips pages
-    path('trip/<slug:slug>/', views.trip_public_view, name='trip_public'),
+    path('adventure/<slug:slug>/', views.adventure_public_view, name='adventure_public'),
 
-    # Trips API
+    # Adventures API
     path('api/trips/', views.trips_api, name='trips_api'),
     path('api/trips/create/', views.create_trip, name='create_trip'),
     path('api/trips/<int:trip_id>/', views.trip_detail, name='trip_detail'),
