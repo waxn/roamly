@@ -1,6 +1,6 @@
 from django.contrib import admin
 from .models import (
-    APIKey, Device, Location, Trip, TripPlace,
+    APIKey, Device, Location, Adventure, AdventurePlace,
     UserProfile, Pal, PalMember, PalBlurb, PalBlurbPhoto, PalMilestone, PalComment,
 )
 
@@ -24,14 +24,14 @@ class LocationAdmin(admin.ModelAdmin):
     date_hierarchy = 'timestamp'
 
 
-@admin.register(Trip)
-class TripAdmin(admin.ModelAdmin):
+@admin.register(Adventure)
+class AdventureAdmin(admin.ModelAdmin):
     list_display = ('name', 'device', 'start_time', 'end_time')
 
 
-@admin.register(TripPlace)
-class TripPlaceAdmin(admin.ModelAdmin):
-    list_display = ('name', 'trip', 'latitude', 'longitude')
+@admin.register(AdventurePlace)
+class AdventurePlaceAdmin(admin.ModelAdmin):
+    list_display = ('name', 'adventure', 'latitude', 'longitude')
 
 
 @admin.register(UserProfile)
