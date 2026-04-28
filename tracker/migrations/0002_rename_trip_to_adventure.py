@@ -2,7 +2,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ('tracker', '0001_initial'),  # adjust to actual last migration
+        ('tracker', '0009_trip_creator_trip_public_slug_tripblurb_and_more'),
     ]
     operations = [
         migrations.RenameModel('Trip', 'Adventure'),
