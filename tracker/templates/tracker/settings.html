@@ -7,7 +7,19 @@
         <h1>Settings</h1>
     </div>
 
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; align-items: start;">
+    <style>
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+            gap: 1rem;
+            align-items: start;
+        }
+        .settings-grid .card { margin-bottom: 0; }
+        @media (max-width: 640px) {
+            .settings-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+    <div class="settings-grid">
         <!-- Profile Picture -->
         <div class="card" style="grid-column: 1 / -1; margin-bottom: 0;">
             <div class="card-header">Profile Picture</div>
@@ -254,6 +266,73 @@
                         <option value="30">30px (tight)</option>
                         <option value="50">50px (default)</option>
                         <option value="80">80px (spread)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Map Display Settings -->
+        <div class="card" style="margin-bottom: 0;">
+            <div class="card-header">Map Point Display</div>
+            <div class="pref-grid">
+                <div class="pref-form-group">
+                    <label class="pref-label">
+                        Heatmap Layer
+                        <div class="info-icon" data-tooltip="Show a density heatmap overlaid on location data">?</div>
+                    </label>
+                    <select id="show-heatmap" class="form-control" onchange="savePref('roamly_show_heatmap', this.value)">
+                        <option value="on">Visible</option>
+                        <option value="off">Hidden</option>
+                    </select>
+                </div>
+
+                <div class="pref-form-group">
+                    <label class="pref-label">
+                        Heatmap Intensity
+                        <div class="info-icon" data-tooltip="How strongly individual points contribute to the heatmap">?</div>
+                    </label>
+                    <select id="heatmap-intensity" class="form-control" onchange="savePref('roamly_heatmap_intensity', this.value)">
+                        <option value="low">Low</option>
+                        <option value="medium">Medium (default)</option>
+                        <option value="high">High</option>
+                    </select>
+                </div>
+
+                <div class="pref-form-group">
+                    <label class="pref-label">
+                        Detail Point Size
+                        <div class="info-icon" data-tooltip="Radius of individual GPS points when zoomed in">?</div>
+                    </label>
+                    <select id="dot-size" class="form-control" onchange="savePref('roamly_dot_size', this.value)">
+                        <option value="small">Small (2–4px)</option>
+                        <option value="medium">Medium (3–6px)</option>
+                        <option value="large">Large (5–10px)</option>
+                    </select>
+                </div>
+
+                <div class="pref-form-group">
+                    <label class="pref-label">
+                        Line Gap Threshold
+                        <div class="info-icon" data-tooltip="Gap in minutes that splits a connected line into separate segments">?</div>
+                    </label>
+                    <select id="line-gap" class="form-control" onchange="savePref('roamly_line_gap_minutes', this.value)">
+                        <option value="5">5 minutes</option>
+                        <option value="10">10 minutes</option>
+                        <option value="20">20 minutes (default)</option>
+                        <option value="60">1 hour</option>
+                    </select>
+                </div>
+
+                <div class="pref-form-group">
+                    <label class="pref-label">
+                        Detail Zoom Level
+                        <div class="info-icon" data-tooltip="Minimum zoom level to start loading individual GPS points">?</div>
+                    </label>
+                    <select id="detail-zoom" class="form-control" onchange="savePref('roamly_detail_zoom', this.value)">
+                        <option value="6">6 (always)</option>
+                        <option value="8">8 (default)</option>
+                        <option value="10">10 (zoomed in)</option>
+                        <option value="12">12 (close up)</option>
                     </select>
                 </div>
             </div>
@@ -826,6 +905,13 @@ if (document.getElementById('point-limit'))
     document.getElementById('point-limit').value = localStorage.getItem('roamly_point_limit') || '5000';
 if (document.getElementById('cluster-radius'))
     document.getElementById('cluster-radius').value = localStorage.getItem('roamly_cluster_radius') || '50';
+
+// Map Display prefs
+document.getElementById('show-heatmap').value = localStorage.getItem('roamly_show_heatmap') || 'on';
+document.getElementById('heatmap-intensity').value = localStorage.getItem('roamly_heatmap_intensity') || 'medium';
+document.getElementById('dot-size').value = localStorage.getItem('roamly_dot_size') || 'medium';
+document.getElementById('line-gap').value = localStorage.getItem('roamly_line_gap_minutes') || '20';
+document.getElementById('detail-zoom').value = localStorage.getItem('roamly_detail_zoom') || '8';
 
 // Import with device chooser
 let pendingImportFiles = [];

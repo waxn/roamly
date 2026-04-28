@@ -364,7 +364,7 @@ let activeSources = [];   // decimated track source IDs on the map
 let lastTrackData = [];   // for style-swap re-render
 let pendingFetch = null;  // AbortController for track fetch
 
-const DETAIL_MIN_ZOOM = 8;
+const DETAIL_MIN_ZOOM = parseInt(localStorage.getItem('roamly_detail_zoom') || '8', 10);
 const AUTO_LOAD_LIMIT = 10000;
 const MORE_LOAD_LIMIT = 50000;
 const ACC_SOURCE_ID = 'acc-pts';
@@ -373,6 +373,23 @@ const ACC_DOTS_LAYER = 'acc-pts-dots';
 const ACC_LINES_SOURCE = 'acc-lines';
 const ACC_LINES_LAYER  = 'acc-lines-layer';
 const connectLines = localStorage.getItem('roamly_connect_lines') || 'off';
+const showHeatmap = localStorage.getItem('roamly_show_heatmap') || 'on';
+const heatmapIntensity = localStorage.getItem('roamly_heatmap_intensity') || 'medium';
+const dotSizePref = localStorage.getItem('roamly_dot_size') || 'medium';
+const lineGapMs = parseInt(localStorage.getItem('roamly_line_gap_minutes') || '20', 10) * 60 * 1000;
+
+const DOT_SIZES = {
+    small:  [8, 2, 12, 4, 16, 8],
+    medium: [8, 3, 12, 6, 16, 12],
+    large:  [8, 5, 12, 9, 16, 18],
+};
+const HEATMAP_INTENSITY = {
+    low:    [0, 0.2, 13, 0.7],
+    medium: [0, 0.4, 13, 1.4],
+    high:   [0, 0.8, 13, 2.5],
+};
+const dotSizeArgs = DOT_SIZES[dotSizePref] || DOT_SIZES.medium;
+const heatIntArgs = HEATMAP_INTENSITY[heatmapIntensity] || HEATMAP_INTENSITY.medium;
 
 let accMap = new Map();            // "devId:ts" → Feature, deduped accumulated points
 let fetchedAreas = [];             // {w,s,e,n} bboxes where we have complete data (no limit hit)
@@ -392,7 +409,7 @@ function getAccFC() {
     return { type: 'FeatureCollection', features: Array.from(accMap.values()) };
 }
 
-const LINE_GAP_MS = 20 * 60 * 1000; // split segment if gap > 20 min
+const LINE_GAP_MS = lineGapMs;
 
 function buildLinesFC() {
     const byDevice = new Map();
@@ -425,27 +442,29 @@ function initAccLayers() {
 
     map.addSource(ACC_SOURCE_ID, { type: 'geojson', data: getAccFC() });
 
-    // Heatmap — same ramp as base track, additively brightens dense areas
-    map.addLayer({
-        id: ACC_HEAT_LAYER,
-        type: 'heatmap',
-        source: ACC_SOURCE_ID,
-        maxzoom: 13,
-        paint: {
-            'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 0.4, 13, 1.4],
-            'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 6, 13, 26],
-            'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.75, 11, 0.6, 13, 0.1],
-            'heatmap-color': [
-                'interpolate', ['linear'], ['heatmap-density'],
-                0, 'rgba(33,102,172,0)',
-                0.2, 'rgb(103,169,207)',
-                0.4, 'rgb(209,229,240)',
-                0.6, 'rgb(253,219,199)',
-                0.8, 'rgb(239,138,98)',
-                1, 'rgb(178,24,43)'
-            ]
-        }
-    });
+    // Heatmap
+    if (showHeatmap === 'on') {
+        map.addLayer({
+            id: ACC_HEAT_LAYER,
+            type: 'heatmap',
+            source: ACC_SOURCE_ID,
+            maxzoom: 13,
+            paint: {
+                'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], ...heatIntArgs],
+                'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 6, 13, 26],
+                'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.75, 11, 0.6, 13, 0.1],
+                'heatmap-color': [
+                    'interpolate', ['linear'], ['heatmap-density'],
+                    0, 'rgba(33,102,172,0)',
+                    0.2, 'rgb(103,169,207)',
+                    0.4, 'rgb(209,229,240)',
+                    0.6, 'rgb(253,219,199)',
+                    0.8, 'rgb(239,138,98)',
+                    1, 'rgb(178,24,43)'
+                ]
+            }
+        });
+    }
 
     // Lines — connect points in chronological order per device (only when setting is on)
     if (connectLines === 'on') {
@@ -463,15 +482,15 @@ function initAccLayers() {
         });
     }
 
-    // Dots — identical size to base track dots, per-device color
+    // Dots
     map.addLayer({
         id: ACC_DOTS_LAYER,
         type: 'circle',
         source: ACC_SOURCE_ID,
-        minzoom: 8,
+        minzoom: DETAIL_MIN_ZOOM,
         paint: {
             'circle-color': speedGradient === 'on' ? speedColorExpr(['get', 'color']) : ['get', 'color'],
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 6, 12, 9, 16, 14],
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], ...dotSizeArgs],
             'circle-stroke-width': 1,
             'circle-stroke-color': 'rgba(255,255,255,0.7)',
         }
@@ -659,36 +678,38 @@ function renderTrack(devices, autoFit) {
         map.addSource(srcId, { type: 'geojson', data: { type: 'FeatureCollection', features } });
         activeSources.push(srcId);
 
-        map.addLayer({
-            id: `${srcId}-heat`,
-            type: 'heatmap',
-            source: srcId,
-            maxzoom: 13,
-            paint: {
-                'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 0.4, 13, 1.4],
-                'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 6, 13, 26],
-                'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.75, 11, 0.6, 13, 0.1],
-                'heatmap-color': [
-                    'interpolate', ['linear'], ['heatmap-density'],
-                    0, 'rgba(33,102,172,0)',
-                    0.2, 'rgb(103,169,207)',
-                    0.4, 'rgb(209,229,240)',
-                    0.6, 'rgb(253,219,199)',
-                    0.8, 'rgb(239,138,98)',
-                    1, 'rgb(178,24,43)'
-                ]
-            }
-        });
+        if (showHeatmap === 'on') {
+            map.addLayer({
+                id: `${srcId}-heat`,
+                type: 'heatmap',
+                source: srcId,
+                maxzoom: 13,
+                paint: {
+                    'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], ...heatIntArgs],
+                    'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 6, 13, 26],
+                    'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.75, 11, 0.6, 13, 0.1],
+                    'heatmap-color': [
+                        'interpolate', ['linear'], ['heatmap-density'],
+                        0, 'rgba(33,102,172,0)',
+                        0.2, 'rgb(103,169,207)',
+                        0.4, 'rgb(209,229,240)',
+                        0.6, 'rgb(253,219,199)',
+                        0.8, 'rgb(239,138,98)',
+                        1, 'rgb(178,24,43)'
+                    ]
+                }
+            });
+        }
 
         map.addLayer({
             id: `${srcId}-dots`,
             type: 'circle',
             source: srcId,
             filter: ['==', ['geometry-type'], 'Point'],
-            minzoom: 11,
+            minzoom: DETAIL_MIN_ZOOM,
             paint: {
                 'circle-color': speedGradient === 'on' ? speedColorExpr(color) : color,
-                'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 6, 12, 9, 16, 14],
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], ...dotSizeArgs],
                 'circle-stroke-width': 1,
                 'circle-stroke-color': 'rgba(255,255,255,0.7)',
             }
