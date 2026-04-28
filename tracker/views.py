@@ -1246,18 +1246,23 @@ def create_trip(request):
 
     try:
         start_raw = data.get('start_time', '').strip()
-        end_raw = data.get('end_time', '').strip()
-        if not start_raw or not end_raw:
-            return JsonResponse({"error": "Start and end dates are required"}, status=400)
+        if not start_raw:
+            return JsonResponse({"error": "Start date is required"}, status=400)
         start = datetime.fromisoformat(start_raw.replace('Z', '+00:00'))
-        end = datetime.fromisoformat(end_raw.replace('Z', '+00:00'))
-        # Date-only inputs produce midnight; set end to end of day
-        if 'T' not in end_raw:
-            end = end.replace(hour=23, minute=59, second=59)
         if timezone.is_naive(start):
             start = timezone.make_aware(start)
-        if timezone.is_naive(end):
-            end = timezone.make_aware(end)
+
+        end_raw = data.get('end_time', '').strip()
+        if end_raw:
+            end = datetime.fromisoformat(end_raw.replace('Z', '+00:00'))
+            # Date-only: set to end of day
+            if len(end_raw) <= 10:
+                end = end.replace(hour=23, minute=59, second=59)
+            if timezone.is_naive(end):
+                end = timezone.make_aware(end)
+        else:
+            # No end date — open-ended adventure, far future so all points are captured
+            end = timezone.make_aware(datetime(2099, 12, 31, 23, 59, 59))
     except (KeyError, ValueError) as e:
         return JsonResponse({"error": f"Invalid dates: {e}"}, status=400)
 
