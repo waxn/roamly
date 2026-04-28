@@ -96,24 +96,151 @@
     100% { left: 160%; }
 }
 
-/* Sidebar */
+/* Sidebar — document style */
 .trip-sidebar {
-    width: 360px;
+    width: 380px;
     background: var(--bg-card);
     border-left: 1px solid var(--border);
     display: flex;
     flex-direction: column;
     overflow-y: auto;
+    overflow-x: hidden;
 }
 
-.sidebar-header {
-    padding: 1rem 1.25rem;
+/* Document-style sidebar sections */
+.adv-sidebar-header {
+    padding: 0.875rem 1.25rem;
     border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
+    flex-shrink: 0;
 }
+.adv-sidebar-header h2 {
+    font-size: 1rem; font-weight: 700; margin: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.adv-sidebar-meta { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.125rem; }
+
+.adv-doc-section {
+    padding: 0.875rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+}
+.adv-section-label {
+    font-size: 0.6rem; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--text-muted);
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 0.625rem;
+}
+.adv-inline-btn {
+    font-size: 0.7rem; font-weight: 700; color: var(--primary);
+    background: none; border: none; cursor: pointer; padding: 0;
+    font-family: 'Space Grotesk', sans-serif; text-transform: lowercase;
+    letter-spacing: 0;
+}
+.adv-inline-btn:hover { opacity: 0.75; }
+
+.adv-notes-area {
+    width: 100%; min-height: 100px; max-height: 360px;
+    background: transparent; border: none; color: var(--text);
+    padding: 0; font-family: 'Space Grotesk', sans-serif;
+    font-size: 0.875rem; font-weight: 400; resize: none; outline: none;
+    line-height: 1.65;
+}
+.adv-notes-area::placeholder { color: var(--text-dim); }
+
+.adv-photos-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;
+}
+.adv-photos-grid img {
+    width: 100%; aspect-ratio: 1; object-fit: cover;
+    border-radius: 4px; cursor: pointer; display: block;
+}
+.adv-no-photos { font-size: 0.75rem; color: var(--text-muted); }
+
+.adv-pin-item {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.375rem 0.25rem; font-size: 0.8125rem;
+    border-radius: 4px; cursor: pointer; transition: background 0.12s;
+}
+.adv-pin-item:hover { background: rgba(255,255,255,0.03); }
+.adv-pin-name { flex: 1; font-weight: 600; }
+.adv-pin-meta { font-size: 0.6875rem; color: var(--text-muted); }
+.adv-pin-del {
+    background: none; border: none; color: var(--text-muted);
+    cursor: pointer; padding: 2px 5px; font-size: 0.7rem;
+    border-radius: 3px; opacity: 0; transition: opacity 0.1s;
+}
+.adv-pin-item:hover .adv-pin-del { opacity: 1; }
+.adv-pin-del:hover { color: var(--danger); }
+.adv-no-pins { font-size: 0.75rem; color: var(--text-muted); }
+
+.adv-compose {
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 8px; padding: 0.625rem 0.75rem; margin-bottom: 0.5rem;
+}
+.adv-compose textarea {
+    width: 100%; background: transparent; border: none; color: var(--text);
+    font-family: 'Space Grotesk', sans-serif; font-size: 0.8125rem;
+    resize: none; outline: none; min-height: 52px; line-height: 1.55;
+    display: block;
+}
+.adv-compose textarea::placeholder { color: var(--text-muted); }
+.adv-compose-row {
+    display: flex; align-items: center; gap: 0.375rem;
+    border-top: 1px solid var(--border); padding-top: 0.375rem; margin-top: 0.375rem;
+}
+.adv-compose-tool {
+    background: none; border: none; color: var(--text-muted);
+    cursor: pointer; font-size: 0.8125rem; padding: 2px 6px;
+    border-radius: 4px; font-family: inherit;
+}
+.adv-compose-tool:hover { color: var(--primary); background: rgba(59,130,246,0.08); }
+.adv-compose-tool.active { color: var(--primary); }
+.adv-compose-loc {
+    font-size: 0.7rem; color: var(--text-muted); flex: 1;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.adv-photo-preview { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 0.375rem; }
+.adv-photo-preview img { width: 44px; height: 44px; object-fit: cover; border-radius: 4px; }
+
+/* Timeline inside journal */
+.adv-timeline-event {
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 8px; padding: 0.625rem 0.75rem; margin-bottom: 0.5rem; font-size: 0.8125rem;
+}
+.adv-event-header { display: flex; align-items: center; gap: 0.375rem; margin-bottom: 0.25rem; }
+.adv-event-author { font-weight: 600; font-size: 0.75rem; }
+.adv-event-time { font-size: 0.6875rem; color: var(--text-muted); margin-left: auto; }
+.adv-event-del { background: none; border: none; color: var(--danger); cursor: pointer; font-size: 0.7rem; padding: 0 3px; }
+.adv-event-text { line-height: 1.45; white-space: pre-wrap; }
+.adv-event-loc { font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.25rem; }
+.adv-event-photos { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 0.375rem; }
+.adv-event-photos img { width: 64px; height: 64px; object-fit: cover; border-radius: 4px; cursor: pointer; }
+.adv-milestone {
+    display: flex; align-items: flex-start; gap: 0.5rem;
+    background: rgba(59,130,246,0.07); border: 1px solid rgba(59,130,246,0.2);
+    border-radius: 8px; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem;
+}
+.adv-ms-emoji { font-size: 1.25rem; line-height: 1; flex-shrink: 0; }
+.adv-ms-title { font-size: 0.875rem; font-weight: 600; }
+.adv-ms-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.125rem; }
+.adv-ms-date { font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.125rem; }
+
+/* Place form */
+.adv-place-form {
+    background: var(--bg-input); border: 1px solid var(--primary);
+    border-radius: 8px; padding: 0.75rem; margin-bottom: 0.5rem;
+}
+.adv-place-form .form-group { margin-bottom: 0.5rem; }
+.adv-place-form label { font-size: 0.75rem; }
+
+/* Share link */
+.adv-share-row { display: flex; gap: 0.5rem; margin-top: 0.375rem; align-items: center; }
+.adv-share-row input {
+    flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text-muted); font-family: 'Space Grotesk', sans-serif; font-size: 0.6875rem;
+    padding: 0.25rem 0.5rem; outline: none;
+}
+
+.notes-status { font-size: 0.6875rem; color: var(--text-muted); min-height: 1em; margin-top: 0.25rem; }
 .sidebar-header h2 {
     font-size: 1.125rem;
     font-weight: 600;
@@ -130,369 +257,6 @@
     margin-top: 0.125rem;
 }
 
-.sidebar-section {
-    border-bottom: 1px solid var(--border);
-}
-.sidebar-section-toggle {
-    width: 100%;
-    padding: 0.75rem 1.25rem;
-    background: none;
-    border: none;
-    color: var(--text);
-    font-family: 'Space Grotesk', sans-serif;
-    font-weight: 600;
-    font-size: 0.875rem;
-    text-transform: lowercase;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-.sidebar-section-toggle:hover { background: rgba(255,255,255,0.03); }
-.sidebar-section-toggle .arrow { transition: transform 0.2s; }
-.sidebar-section-toggle.collapsed .arrow { transform: rotate(-90deg); }
-.sidebar-section-body { padding: 0 1.25rem 1rem; }
-.sidebar-section-toggle.collapsed + .sidebar-section-body { display: none; }
-
-/* Notes */
-.trip-notes-area {
-    width: 100%;
-    min-height: 80px;
-    background: var(--bg-input);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text);
-    padding: 0.5rem 0.75rem;
-    font-family: 'Space Grotesk', sans-serif;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    resize: vertical;
-    outline: none;
-}
-.trip-notes-area:focus { border-color: var(--primary); }
-.notes-status {
-    font-size: 0.6875rem;
-    color: var(--text-muted);
-    margin-top: 0.25rem;
-    min-height: 1em;
-}
-
-/* Places */
-.place-item {
-    background: var(--bg-input);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.625rem 0.75rem;
-    margin-bottom: 0.5rem;
-    cursor: pointer;
-    transition: border-color 0.15s;
-}
-.place-item:hover { border-color: var(--primary); }
-.place-item-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-.place-item-name { font-size: 0.875rem; font-weight: 600; }
-.place-item-meta {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    margin-top: 0.25rem;
-}
-.place-item-notes {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    margin-top: 0.25rem;
-    font-style: italic;
-}
-.place-delete-btn {
-    background: none;
-    border: none;
-    color: var(--danger);
-    cursor: pointer;
-    font-size: 0.75rem;
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-family: 'Space Grotesk', sans-serif;
-    font-weight: 700;
-    text-transform: lowercase;
-}
-.place-delete-btn:hover { background: rgba(239,68,68,0.15); }
-
-.add-place-btn {
-    width: 100%;
-    padding: 0.5rem;
-    background: var(--bg-input);
-    border: 1px dashed var(--border);
-    border-radius: 8px;
-    color: var(--text-muted);
-    cursor: pointer;
-    font-family: 'Space Grotesk', sans-serif;
-    font-weight: 600;
-    font-size: 0.8125rem;
-    text-transform: lowercase;
-    transition: all 0.15s;
-}
-.add-place-btn:hover { border-color: var(--primary); color: var(--primary); }
-.add-place-btn.placing {
-    border-color: var(--primary);
-    color: var(--primary);
-    background: rgba(59,130,246,0.1);
-}
-
-/* Place form */
-.place-form {
-    background: var(--bg-input);
-    border: 1px solid var(--primary);
-    border-radius: 8px;
-    padding: 0.75rem;
-    margin-bottom: 0.5rem;
-}
-.place-form .form-group { margin-bottom: 0.5rem; }
-.place-form label { font-size: 0.75rem; }
-.place-form .form-control { font-size: 0.8125rem; padding: 0.375rem 0.5rem; }
-
-.radius-slider-group {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-.radius-slider-group input[type="range"] {
-    flex: 1;
-    accent-color: var(--primary);
-}
-.radius-slider-group .radius-value {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    min-width: 45px;
-    text-align: right;
-}
-
-/* Options */
-.option-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.375rem 0;
-}
-.option-label {
-    font-size: 0.8125rem;
-    color: var(--text-muted);
-}
-
-/* Timeline */
-.timeline-event {
-    background: var(--bg-input);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.75rem;
-    margin-bottom: 0.625rem;
-}
-.timeline-event-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.375rem;
-}
-.timeline-avatar {
-    width: 26px; height: 26px; border-radius: 50%;
-    background: var(--primary); color: #fff;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 0.625rem; font-weight: 700; flex-shrink: 0;
-    overflow: hidden;
-}
-.timeline-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.timeline-author { font-size: 0.8125rem; font-weight: 600; }
-.timeline-time { font-size: 0.6875rem; color: var(--text-muted); margin-left: auto; }
-.timeline-text { font-size: 0.8125rem; line-height: 1.4; white-space: pre-wrap; }
-.timeline-location { font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.25rem; }
-.timeline-photos {
-    display: flex; gap: 4px; margin-top: 0.5rem; flex-wrap: wrap;
-}
-.timeline-photos img {
-    width: 72px; height: 72px; object-fit: cover; border-radius: 4px; cursor: pointer;
-}
-.timeline-actions {
-    display: flex; align-items: center; gap: 0.5rem; margin-top: 0.375rem;
-}
-.timeline-comment-btn {
-    background: none; border: none; color: var(--text-muted); cursor: pointer;
-    font-size: 0.75rem; font-family: 'Space Grotesk', sans-serif; padding: 2px 0;
-}
-.timeline-comment-btn:hover { color: var(--primary); }
-.timeline-delete-btn {
-    background: none; border: none; color: var(--danger); cursor: pointer;
-    font-size: 0.75rem; font-family: 'Space Grotesk', sans-serif; padding: 2px 0;
-    margin-left: auto;
-}
-.timeline-delete-btn:hover { opacity: 0.75; }
-.milestone-event {
-    background: rgba(59,130,246,0.07);
-    border: 1px solid rgba(59,130,246,0.25);
-    border-radius: 8px; padding: 0.625rem 0.75rem; margin-bottom: 0.625rem;
-    display: flex; align-items: flex-start; gap: 0.5rem;
-}
-.milestone-emoji { font-size: 1.375rem; line-height: 1; flex-shrink: 0; }
-.milestone-title { font-size: 0.875rem; font-weight: 600; }
-.milestone-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.125rem; }
-.milestone-date { font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.125rem; }
-.comment-item {
-    display: flex; gap: 0.375rem; margin-top: 0.375rem; font-size: 0.75rem;
-}
-.comment-author { font-weight: 600; flex-shrink: 0; }
-.comment-text { color: var(--text-muted); }
-.comments-area { margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
-.add-comment-row { display: flex; gap: 0.375rem; margin-top: 0.375rem; }
-.add-comment-row input {
-    flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-    color: var(--text); font-family: 'Space Grotesk', sans-serif; font-size: 0.75rem;
-    padding: 0.25rem 0.5rem; outline: none;
-}
-.add-comment-row input:focus { border-color: var(--primary); }
-.add-comment-row button {
-    background: var(--primary); border: none; color: #fff; border-radius: 6px;
-    font-family: 'Space Grotesk', sans-serif; font-size: 0.75rem; font-weight: 700;
-    padding: 0.25rem 0.5rem; cursor: pointer; text-transform: lowercase;
-}
-
-/* Compose */
-.compose-area {
-    border-top: 1px solid var(--border);
-    padding: 0.75rem 1.25rem;
-    flex-shrink: 0;
-}
-.compose-textarea {
-    width: 100%; min-height: 60px;
-    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
-    color: var(--text); font-family: 'Space Grotesk', sans-serif; font-size: 0.8125rem;
-    padding: 0.5rem 0.75rem; resize: vertical; outline: none; box-sizing: border-box;
-}
-.compose-textarea:focus { border-color: var(--primary); }
-.compose-location-row {
-    display: flex; align-items: center; gap: 0.375rem; margin-top: 0.375rem;
-}
-.compose-pin-btn {
-    background: none; border: 1px solid var(--border); border-radius: 6px;
-    color: var(--text-muted); font-size: 0.8125rem; padding: 2px 6px; cursor: pointer;
-    flex-shrink: 0; line-height: 1.4;
-}
-.compose-pin-btn:hover { border-color: var(--primary); color: var(--primary); }
-.compose-pin-btn.placing { border-color: var(--primary); color: var(--primary); background: rgba(59,130,246,0.1); }
-.compose-location-text { font-size: 0.75rem; color: var(--text-muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.compose-clear-loc {
-    background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.75rem; padding: 0 2px; display: none;
-}
-.compose-clear-loc:hover { color: var(--danger); }
-.compose-actions {
-    display: flex; align-items: center; gap: 0.5rem; margin-top: 0.375rem;
-}
-.compose-photo-label {
-    background: none; border: 1px solid var(--border); border-radius: 6px;
-    color: var(--text-muted); font-family: 'Space Grotesk', sans-serif; font-size: 0.75rem;
-    font-weight: 700; padding: 3px 8px; cursor: pointer; text-transform: lowercase;
-}
-.compose-photo-label:hover { border-color: var(--primary); color: var(--primary); }
-.compose-photo-preview { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 0.375rem; }
-.compose-photo-preview img { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; }
-
-/* Members */
-.member-item {
-    display: flex; align-items: center; gap: 0.625rem;
-    padding: 0.375rem 0; border-bottom: 1px solid var(--border);
-}
-.member-item:last-child { border-bottom: none; }
-.member-avatar {
-    width: 28px; height: 28px; border-radius: 50%;
-    background: var(--primary); color: #fff;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 0.6875rem; font-weight: 700; flex-shrink: 0; overflow: hidden;
-}
-.member-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.member-name { font-size: 0.875rem; font-weight: 600; flex: 1; }
-.member-role { font-size: 0.6875rem; color: var(--text-muted); text-transform: lowercase; }
-.member-remove-btn {
-    background: none; border: none; color: var(--danger); cursor: pointer;
-    font-size: 0.6875rem; padding: 2px 6px; border-radius: 4px;
-    font-family: 'Space Grotesk', sans-serif;
-}
-.member-remove-btn:hover { background: rgba(239,68,68,0.15); }
-
-/* Add member */
-.add-member-row { display: flex; gap: 0.5rem; margin-top: 0.625rem; }
-.add-member-row input {
-    flex: 1; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px;
-    color: var(--text); font-family: 'Space Grotesk', sans-serif; font-size: 0.8125rem;
-    padding: 0.375rem 0.5rem; outline: none;
-}
-.add-member-row input:focus { border-color: var(--primary); }
-
-/* Visits mini table */
-.visits-tabs { display: flex; gap: 4px; margin-bottom: 0.75rem; }
-.visits-tab-btn {
-    background: none; border: 1px solid var(--border); border-radius: 6px;
-    color: var(--text-muted); font-family: 'Space Grotesk', sans-serif;
-    font-size: 0.6875rem; font-weight: 700; padding: 3px 10px; cursor: pointer; text-transform: lowercase;
-}
-.visits-tab-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
-.visits-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
-.visits-table th { color: var(--text-muted); font-weight: 600; padding: 4px 0; text-align: left; border-bottom: 1px solid var(--border); }
-.visits-table td { padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
-
-/* Share link */
-.share-link-box {
-    display: flex; gap: 0.5rem; margin-top: 0.375rem; align-items: center;
-}
-.share-link-box input {
-    flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-    color: var(--text-muted); font-family: 'Space Grotesk', sans-serif; font-size: 0.6875rem;
-    padding: 0.25rem 0.5rem; outline: none;
-}
-.copy-link-btn {
-    background: none; border: 1px solid var(--border); border-radius: 6px;
-    color: var(--text-muted); font-family: 'Space Grotesk', sans-serif; font-size: 0.6875rem;
-    font-weight: 700; padding: 0.25rem 0.5rem; cursor: pointer; text-transform: lowercase;
-}
-.copy-link-btn:hover { border-color: var(--primary); color: var(--primary); }
-
-/* Milestone form */
-.milestone-form {
-    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; margin-top: 0.5rem;
-}
-.milestone-form .form-group { margin-bottom: 0.5rem; }
-.milestone-form label { font-size: 0.75rem; }
-
-/* Style switcher in sidebar */
-.sidebar-style-switcher {
-    display: flex;
-    gap: 4px;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 3px;
-}
-.sidebar-style-btn {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    padding: 3px 8px;
-    border-radius: 6px;
-    font-size: 0.6875rem;
-    font-family: 'Space Grotesk', sans-serif;
-    font-weight: 700;
-    text-transform: lowercase;
-    cursor: pointer;
-}
-.sidebar-style-btn.active {
-    background: var(--primary);
-    color: #fff;
-}
-
-.no-places {
-    font-size: 0.8125rem;
-    color: var(--text-muted);
-    text-align: center;
-    padding: 0.5rem 0;
-}
 
 /* Responsive */
 @media (max-width: 768px) {
@@ -562,168 +326,114 @@
         <div id="trip-map"></div>
     </div>
     <div class="trip-sidebar" id="trip-sidebar">
-        <div class="sidebar-header">
-            <div>
-                <div style="display:flex;align-items:center;gap:0.5rem;">
-                    <h2 id="sidebar-trip-name"></h2>
-                    <button class="edit-name-btn" onclick="startEditTripName()" title="edit name">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-                    </button>
-                </div>
-                <div class="trip-dates" id="sidebar-trip-dates"></div>
+        <!-- Header -->
+        <div class="adv-sidebar-header">
+            <div style="display:flex;align-items:center;gap:0.5rem;">
+                <h2 id="sidebar-trip-name"></h2>
+                <button class="edit-name-btn" onclick="startEditTripName()" title="edit name">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                </button>
+            </div>
+            <div class="adv-sidebar-meta" id="sidebar-trip-dates"></div>
+        </div>
+
+        <!-- Notes -->
+        <div class="adv-doc-section">
+            <div class="adv-section-label">notes</div>
+            <textarea class="adv-notes-area" id="trip-notes" placeholder="write about this adventure..."></textarea>
+            <div class="notes-status" id="notes-status"></div>
+        </div>
+
+        <!-- Photos -->
+        <div class="adv-doc-section">
+            <div class="adv-section-label">
+                photos
+                <label class="adv-inline-btn" style="cursor:pointer;">
+                    + add
+                    <input type="file" accept="image/*" multiple style="display:none;" id="adv-photo-input" onchange="uploadAdventurePhotos(this)">
+                </label>
+            </div>
+            <div class="adv-photos-grid" id="adv-photos-grid">
+                <span class="adv-no-photos">no photos yet</span>
             </div>
         </div>
 
-        <!-- Notes Section -->
-        <div class="sidebar-section">
-            <button class="sidebar-section-toggle" onclick="toggleSection(this)">
-                Notes <span class="arrow">&#9660;</span>
-            </button>
-            <div class="sidebar-section-body">
-                <textarea class="trip-notes-area" id="trip-notes" placeholder="add notes about this trip..."></textarea>
-                <div class="notes-status" id="notes-status"></div>
+        <!-- Pins -->
+        <div class="adv-doc-section">
+            <div class="adv-section-label">
+                pins
+                <button class="adv-inline-btn" id="add-pin-btn" onclick="startAddPlace()">+ add</button>
             </div>
+            <div id="places-list"></div>
+            <div id="place-form-container"></div>
         </div>
 
-        <!-- Timeline Section -->
-        <div class="sidebar-section">
-            <button class="sidebar-section-toggle collapsed" onclick="toggleSection(this)">
-                Timeline <span class="arrow">&#9660;</span>
-            </button>
-            <div class="sidebar-section-body" style="display:none;">
-                <div id="timeline-list" style="margin-bottom:0.5rem;"></div>
-                <div id="timeline-load-more" style="text-align:center;display:none;">
-                    <button class="btn btn-outline btn-sm" onclick="loadMoreTimeline()">load more</button>
+        <!-- Journal -->
+        <div class="adv-doc-section" style="flex:1;">
+            <div class="adv-section-label">
+                journal
+                <button class="adv-inline-btn" onclick="toggleCompose()">+ entry</button>
+            </div>
+            <!-- Compose entry -->
+            <div class="adv-compose" id="compose-area" style="display:none;">
+                <textarea id="compose-text" placeholder="what happened?..."></textarea>
+                <div class="adv-compose-row">
+                    <label class="adv-compose-tool" style="cursor:pointer;" title="add photos">
+                        📷
+                        <input type="file" id="compose-photos" accept="image/*" multiple style="display:none;" onchange="previewPhotos(this)">
+                    </label>
+                    <button class="adv-compose-tool" id="compose-pin-btn" onclick="startBlurbPinMode()" title="pin location on map">📍</button>
+                    <span class="adv-compose-loc" id="compose-location-display"></span>
+                    <button class="adv-compose-tool" id="compose-clear-loc" onclick="clearComposeLocation()" style="display:none;">✕</button>
+                    <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="submitBlurb()">post</button>
                 </div>
-                <!-- Milestone quick-add -->
-                <div style="margin-top:0.5rem;">
-                    <button class="btn btn-outline btn-sm" style="width:100%" onclick="toggleMilestoneForm()">+ add milestone</button>
-                    <div id="milestone-form" class="milestone-form" style="display:none;">
-                        <div class="form-group">
-                            <label>Emoji</label>
-                            <input type="text" id="ms-emoji" class="form-control" value="🏁" style="max-width:60px;">
-                        </div>
-                        <div class="form-group">
-                            <label>Title</label>
-                            <input type="text" id="ms-title" class="form-control" placeholder="Milestone title">
-                        </div>
-                        <div class="form-group">
-                            <label>Description</label>
-                            <input type="text" id="ms-desc" class="form-control" placeholder="optional...">
-                        </div>
-                        <div class="form-group">
-                            <label>Date</label>
-                            <input type="datetime-local" id="ms-date" class="form-control">
-                        </div>
-                        <div style="display:flex;gap:0.5rem;">
-                            <button class="btn btn-primary btn-sm" onclick="saveMilestone()">save</button>
-                            <button class="btn btn-outline btn-sm" onclick="toggleMilestoneForm()">cancel</button>
-                        </div>
-                    </div>
+                <div class="adv-photo-preview" id="compose-photo-preview"></div>
+            </div>
+            <!-- Milestone form -->
+            <div class="adv-compose" id="milestone-form" style="display:none;">
+                <div style="display:flex;gap:0.375rem;margin-bottom:0.375rem;">
+                    <input type="text" id="ms-emoji" class="form-control" value="🏁" style="max-width:48px;padding:0.25rem;text-align:center;">
+                    <input type="text" id="ms-title" class="form-control" placeholder="milestone title">
+                </div>
+                <input type="text" id="ms-desc" class="form-control" placeholder="description (optional)" style="margin-bottom:0.375rem;">
+                <input type="datetime-local" id="ms-date" class="form-control" style="margin-bottom:0.375rem;">
+                <div style="display:flex;gap:0.375rem;">
+                    <button class="btn btn-primary btn-sm" onclick="saveMilestone()">save</button>
+                    <button class="btn btn-outline btn-sm" onclick="toggleMilestoneForm()">cancel</button>
                 </div>
             </div>
-        </div>
-
-        <!-- Places Section -->
-        <div class="sidebar-section">
-            <button class="sidebar-section-toggle collapsed" onclick="toggleSection(this)">
-                Places <span class="arrow">&#9660;</span>
-            </button>
-            <div class="sidebar-section-body" style="display:none;">
-                <div id="places-list"></div>
-                <div id="place-form-container"></div>
-                <button class="add-place-btn" id="add-place-btn" onclick="startAddPlace()">+ add place</button>
+            <!-- Timeline events -->
+            <div id="timeline-list"></div>
+            <div id="timeline-load-more" style="text-align:center;display:none;">
+                <button class="btn btn-outline btn-sm" onclick="loadMoreTimeline()">load more</button>
             </div>
+            <button class="adv-inline-btn" style="display:block;margin-top:0.625rem;" onclick="toggleMilestoneForm()">+ milestone</button>
         </div>
 
-        <!-- Visits Section -->
-        <div class="sidebar-section">
-            <button class="sidebar-section-toggle collapsed" onclick="toggleSection(this)" id="visits-section-toggle" data-loaded="0">
-                Visits <span class="arrow">&#9660;</span>
-            </button>
-            <div class="sidebar-section-body" style="display:none;">
-                <div class="visits-tabs">
-                    <button class="visits-tab-btn active" onclick="switchVisitsTab('countries', this)">countries</button>
-                    <button class="visits-tab-btn" onclick="switchVisitsTab('cities', this)">cities</button>
-                </div>
-                <div id="visits-countries-pane">
-                    <table class="visits-table">
-                        <thead><tr><th>Country</th><th>Cities</th><th>Time</th></tr></thead>
-                        <tbody id="visits-countries-body"><tr><td colspan="3" style="color:var(--text-muted)">loading...</td></tr></tbody>
-                    </table>
-                </div>
-                <div id="visits-cities-pane" style="display:none;">
-                    <table class="visits-table">
-                        <thead><tr><th>City</th><th>Country</th><th>Time</th></tr></thead>
-                        <tbody id="visits-cities-body"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <!-- Members Section -->
-        <div class="sidebar-section">
-            <button class="sidebar-section-toggle collapsed" onclick="toggleSection(this)">
-                Members <span class="arrow">&#9660;</span>
-            </button>
-            <div class="sidebar-section-body" style="display:none;">
-                <div id="members-list"></div>
-                <div id="add-member-area" style="display:none;">
-                    <div class="add-member-row">
-                        <input type="text" id="add-member-input" placeholder="username" onkeydown="if(event.key==='Enter')addMember()">
-                        <button class="btn btn-primary btn-sm" onclick="addMember()">add</button>
-                    </div>
-                    <div id="add-member-error" style="color:var(--danger);font-size:0.75rem;margin-top:0.25rem;"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Options Section -->
-        <div class="sidebar-section">
-            <button class="sidebar-section-toggle collapsed" onclick="toggleSection(this)">
-                Options <span class="arrow">&#9660;</span>
-            </button>
-            <div class="sidebar-section-body" style="display:none;">
-                <div class="option-row">
-                    <span class="option-label">Map Style</span>
+        <!-- Options -->
+        <div class="adv-doc-section">
+            <div class="adv-section-label">options</div>
+            <div style="display:flex;flex-direction:column;gap:0.75rem;">
+                <div>
+                    <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:0.375rem;">map style</div>
                     <div class="sidebar-style-switcher">
                         <button class="sidebar-style-btn active" data-style="Streets" onclick="setMapStyle(this)">Streets</button>
                         <button class="sidebar-style-btn" data-style="Dark" onclick="setMapStyle(this)">Dark</button>
                         <button class="sidebar-style-btn" data-style="Satellite" onclick="setMapStyle(this)">Satellite</button>
                     </div>
                 </div>
-                <div class="option-row" style="margin-top: 0.5rem;">
-                    <span class="option-label">Share link</span>
+                <div id="share-section" style="display:none;">
+                    <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:0.375rem;">share</div>
                     <button id="toggle-public-btn" class="btn btn-outline btn-sm" onclick="togglePublic()">make public</button>
-                </div>
-                <div id="share-link-area" style="display:none; margin-top:0.25rem;">
-                    <div class="share-link-box">
-                        <input type="text" id="share-link-input" readonly onclick="this.select()">
-                        <button class="copy-link-btn" onclick="copyShareLink()">copy</button>
+                    <div id="share-link-area" style="display:none;margin-top:0.375rem;">
+                        <div class="adv-share-row">
+                            <input type="text" id="share-link-input" readonly onclick="this.select()">
+                            <button class="btn btn-outline btn-sm" onclick="copyShareLink()">copy</button>
+                        </div>
                     </div>
                 </div>
-                <div class="option-row" style="margin-top: 0.75rem;">
-                    <span class="option-label">Delete adventure</span>
-                    <button class="btn btn-danger btn-sm" onclick="deleteTripFromDetail()">Delete</button>
-                </div>
+                <button class="btn btn-danger btn-sm" style="align-self:flex-start;" onclick="deleteTripFromDetail()">Delete Adventure</button>
             </div>
-        </div>
-    </div>
-    <!-- Compose blurb area (bottom of sidebar) -->
-    <div class="compose-area" id="compose-area">
-        <textarea class="compose-textarea" id="compose-text" placeholder="add a note to the timeline..."></textarea>
-        <div class="compose-location-row">
-            <button class="compose-pin-btn" id="compose-pin-btn" onclick="startBlurbPinMode()" title="click to pin on map">✏️</button>
-            <span class="compose-location-text" id="compose-location-display">no location</span>
-            <button class="compose-clear-loc" id="compose-clear-loc" onclick="clearComposeLocation()" title="clear location">&times;</button>
-        </div>
-        <div class="compose-photo-preview" id="compose-photo-preview"></div>
-        <div class="compose-actions">
-            <label class="compose-photo-label">
-                📷 photos
-                <input type="file" id="compose-photos" accept="image/*" multiple style="display:none;" onchange="previewPhotos(this)">
-            </label>
-            <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="submitBlurb()">post</button>
         </div>
     </div>
 </div>
@@ -865,7 +575,7 @@ function openTrip(id) {
     tripMap.on('click', (e) => {
         if (placingMode) {
             placingMode = false;
-            document.getElementById('add-place-btn').classList.remove('placing');
+            document.getElementById('add-pin-btn').textContent = '+ add';
             document.getElementById('place-hint').classList.remove('active');
             tripMap.getCanvas().style.cursor = '';
             showPlaceForm(e.lngLat.lat, e.lngLat.lng);
@@ -912,26 +622,13 @@ function loadTripDetail(id) {
             document.getElementById('sidebar-trip-dates').textContent =
                 `${start} - ${end} · ${data.locations.length} points`;
 
-            // Notes
             document.getElementById('trip-notes').value = data.description || '';
-
-            // Render map data
             renderTripOnMap(data);
-
-            // Render places
             renderPlaces(data.places || []);
-
-            // Members
-            renderMembers(data.members || []);
-
-            // Sharing
             renderSharingOptions(data);
-
-            // Reset timeline
-            timelinePage = 1;
-            timelineHasMore = false;
-            visitsLoaded = false;
+            timelinePage = 1; timelineHasMore = false;
             document.getElementById('timeline-list').innerHTML = '';
+            document.getElementById('adv-photos-grid').innerHTML = '<span class="adv-no-photos">loading...</span>';
             loadTimeline(id, 1);
         });
 }
@@ -1209,19 +906,15 @@ function startEditTripName() {
 function renderPlaces(places) {
     const list = document.getElementById('places-list');
     if (!places.length) {
-        list.innerHTML = '<div class="no-places">no places added yet</div>';
+        list.innerHTML = '<div class="adv-no-pins">no pins yet — click + add to drop one on the map</div>';
         return;
     }
     list.innerHTML = places.map(p => `
-        <div class="place-item" onclick="flyToPlace(${p.longitude}, ${p.latitude})">
-            <div class="place-item-header">
-                <span class="place-item-name">${p.name}</span>
-                <button class="place-delete-btn" onclick="event.stopPropagation();deletePlace(${p.id})">&times;</button>
-            </div>
-            <div class="place-item-meta">
-                ${p.radius}m radius · ${p.time_spent_display} spent
-            </div>
-            ${p.notes ? `<div class="place-item-notes">${p.notes}</div>` : ''}
+        <div class="adv-pin-item" onclick="flyToPlace(${p.longitude}, ${p.latitude})">
+            <span>📍</span>
+            <span class="adv-pin-name">${escHtml(p.name)}</span>
+            <span class="adv-pin-meta">${p.time_spent_display || ''}</span>
+            <button class="adv-pin-del" onclick="event.stopPropagation();deletePlace(${p.id})" title="remove">&times;</button>
         </div>
     `).join('');
 }
@@ -1234,15 +927,14 @@ function flyToPlace(lng, lat) {
 
 function startAddPlace() {
     if (placingMode) {
-        // Cancel placing mode
         placingMode = false;
-        document.getElementById('add-place-btn').classList.remove('placing');
+        document.getElementById('add-pin-btn').textContent = '+ add';
         document.getElementById('place-hint').classList.remove('active');
         tripMap.getCanvas().style.cursor = '';
         return;
     }
     placingMode = true;
-    document.getElementById('add-place-btn').classList.add('placing');
+    document.getElementById('add-pin-btn').textContent = '× cancel';
     document.getElementById('place-hint').classList.add('active');
     tripMap.getCanvas().style.cursor = 'crosshair';
 }
@@ -1268,26 +960,17 @@ function showPlaceForm(lat, lng) {
     updateTempCircle(lng, lat, 100);
 
     document.getElementById('place-form-container').innerHTML = `
-        <div class="place-form">
+        <div class="adv-place-form">
             <div class="form-group">
-                <label>Name</label>
-                <input type="text" id="pf-name" class="form-control" placeholder="Place name">
+                <label>Pin name</label>
+                <input type="text" id="pf-name" class="form-control" placeholder="e.g. Summit, Café, Hotel">
             </div>
-            <div class="form-group">
-                <label>Radius</label>
-                <div class="radius-slider-group">
-                    <input type="range" id="pf-radius" min="25" max="2000" value="100"
-                        oninput="onRadiusChange(${lng}, ${lat}, this.value)">
-                    <span class="radius-value" id="pf-radius-val">100m</span>
-                </div>
+            <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:0.375rem;">
+                ${lat.toFixed(5)}, ${lng.toFixed(5)}
             </div>
-            <div class="form-group">
-                <label>Notes</label>
-                <textarea id="pf-notes" class="form-control" rows="2" placeholder="Notes about this place..."></textarea>
-            </div>
-            <div style="display:flex;gap:0.5rem;">
-                <button class="btn btn-primary btn-sm" onclick="savePlace(${lat}, ${lng})">Save</button>
-                <button class="btn btn-outline btn-sm" onclick="cancelPlaceForm()">Cancel</button>
+            <div style="display:flex;gap:0.375rem;">
+                <button class="btn btn-primary btn-sm" onclick="savePlace(${lat}, ${lng})">drop pin</button>
+                <button class="btn btn-outline btn-sm" onclick="cancelPlaceForm()">cancel</button>
             </div>
         </div>
     `;
@@ -1361,9 +1044,26 @@ function loadTimeline(id, page) {
         .then(data => {
             timelineHasMore = data.has_more;
             document.getElementById('timeline-load-more').style.display = data.has_more ? 'block' : 'none';
+            if (page === 1) {
+                // Extract all photos from blurbs and populate photos grid
+                const allPhotos = [];
+                data.events.forEach(ev => {
+                    if (ev.type === 'blurb' && ev.photos && ev.photos.length) {
+                        ev.photos.forEach(p => allPhotos.push(p));
+                    }
+                });
+                const grid = document.getElementById('adv-photos-grid');
+                if (allPhotos.length) {
+                    grid.innerHTML = allPhotos.map(p =>
+                        `<img src="${p.thumb}" onclick="window.open('${p.url}','_blank')" alt="">`
+                    ).join('');
+                } else {
+                    grid.innerHTML = '<span class="adv-no-photos">no photos yet</span>';
+                }
+            }
             if (!data.events.length && page === 1) {
                 document.getElementById('timeline-list').innerHTML =
-                    '<div style="font-size:0.8125rem;color:var(--text-muted);text-align:center;padding:0.5rem 0;">no posts yet</div>';
+                    '<div style="font-size:0.75rem;color:var(--text-muted);padding:0.25rem 0;">no entries yet</div>';
                 return;
             }
             const html = data.events.map(ev => renderTimelineEvent(ev)).join('');
@@ -1383,40 +1083,37 @@ function loadMoreTimeline() {
 function renderTimelineEvent(ev) {
     if (ev.type === 'milestone') {
         const date = new Date(ev.date).toLocaleDateString();
-        const deleteBtn = ev.can_delete ? `<button class="timeline-delete-btn" onclick="deleteMilestone(${ev.id})">&times;</button>` : '';
-        return `<div class="milestone-event">
-            <div class="milestone-emoji">${ev.emoji}</div>
+        const delBtn = ev.can_delete ? `<button class="adv-event-del" onclick="deleteMilestone(${ev.id})">&times;</button>` : '';
+        return `<div class="adv-milestone">
+            <div class="adv-ms-emoji">${ev.emoji}</div>
             <div style="flex:1;">
-                <div class="milestone-title">${escHtml(ev.title)}</div>
-                ${ev.description ? `<div class="milestone-desc">${escHtml(ev.description)}</div>` : ''}
-                <div class="milestone-date">${date}</div>
+                <div class="adv-ms-title">${escHtml(ev.title)}</div>
+                ${ev.description ? `<div class="adv-ms-desc">${escHtml(ev.description)}</div>` : ''}
+                <div class="adv-ms-date">${date}</div>
             </div>
-            ${deleteBtn}
+            ${delBtn}
         </div>`;
     }
-    const time = new Date(ev.created_at).toLocaleString();
-    const avatarHtml = ev.avatar
-        ? `<img src="${ev.avatar}" alt="">`
-        : ev.author.charAt(0).toUpperCase();
+    const time = new Date(ev.created_at).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
     const photos = (ev.photos || []).map(p =>
-        `<img src="${p.thumb}" onclick="window.open('${p.url}','_blank')" alt="">`
+        `<img src="${p.thumb}" onclick="window.open('${p.url}','_blank')" alt="" loading="lazy">`
     ).join('');
-    const deleteBtn = ev.can_delete ? `<button class="timeline-delete-btn" onclick="deleteBlurb(${ev.id})">&times;</button>` : '';
-    const locHtml = ev.location_name ? `<div class="timeline-location">📍 ${escHtml(ev.location_name)}</div>` : '';
-    return `<div class="timeline-event" id="blurb-${ev.id}">
-        <div class="timeline-event-header">
-            <div class="timeline-avatar">${avatarHtml}</div>
-            <span class="timeline-author">${escHtml(ev.author)}</span>
-            <span class="timeline-time">${time}</span>
-            ${deleteBtn}
+    const delBtn = ev.can_delete ? `<button class="adv-event-del" onclick="deleteBlurb(${ev.id})">&times;</button>` : '';
+    const locHtml = ev.location_name ? `<div class="adv-event-loc">📍 ${escHtml(ev.location_name)}</div>` : '';
+    const textHtml = ev.text ? `<div class="adv-event-text">${escHtml(ev.text)}</div>` : '';
+    return `<div class="adv-timeline-event" id="blurb-${ev.id}">
+        <div class="adv-event-header">
+            <span class="adv-event-author">${escHtml(ev.author)}</span>
+            <span class="adv-event-time">${time}</span>
+            ${delBtn}
         </div>
-        <div class="timeline-text">${escHtml(ev.text)}</div>
+        ${textHtml}
         ${locHtml}
-        ${photos ? `<div class="timeline-photos">${photos}</div>` : ''}
-        <div class="timeline-actions">
-            <button class="timeline-comment-btn" onclick="toggleComments(${ev.id}, this)">${ev.comment_count} comment${ev.comment_count !== 1 ? 's' : ''}</button>
+        ${photos ? `<div class="adv-event-photos">${photos}</div>` : ''}
+        <div>
+            <button class="adv-inline-btn" style="font-size:0.65rem;opacity:0.6;" onclick="toggleComments(${ev.id}, this)">${ev.comment_count} comment${ev.comment_count !== 1 ? 's' : ''}</button>
         </div>
-        <div class="comments-area" id="comments-${ev.id}" style="display:none;"></div>
+        <div id="comments-${ev.id}" style="display:none;margin-top:0.25rem;"></div>
     </div>`;
 }
 
@@ -1531,7 +1228,7 @@ function startBlurbPinMode() {
     // Cancel place-marker mode if active
     if (placingMode) {
         placingMode = false;
-        document.getElementById('add-place-btn').classList.remove('placing');
+        document.getElementById('add-pin-btn').textContent = '+ add';
         document.getElementById('place-hint').classList.remove('active');
     }
     blurbPlacingMode = true;
@@ -1560,7 +1257,7 @@ function setBlurbLocation(lat, lng) {
 
 function clearComposeLocation() {
     composeLocation = null;
-    document.getElementById('compose-location-display').textContent = 'no location';
+    document.getElementById('compose-location-display').textContent = '';
     document.getElementById('compose-clear-loc').style.display = 'none';
     if (tripMap) {
         if (tripMap.getLayer('blurb-pin')) tripMap.removeLayer('blurb-pin');
@@ -1602,18 +1299,9 @@ function submitBlurb() {
             clearComposeLocation();
             document.getElementById('compose-photo-preview').innerHTML = '';
             photosInput.value = '';
+            document.getElementById('compose-area').style.display = 'none';
             timelinePage = 1;
             loadTimeline(currentTripId, 1);
-            // Open timeline section if collapsed
-            const toggle = document.querySelector('.sidebar-section-toggle');
-            // find the timeline toggle
-            document.querySelectorAll('.sidebar-section-toggle').forEach(btn => {
-                if (btn.textContent.trim().startsWith('Timeline') && btn.classList.contains('collapsed')) {
-                    btn.classList.remove('collapsed');
-                    const body = btn.nextElementSibling;
-                    if (body) body.style.display = '';
-                }
-            });
         } else {
             alert(data.error || 'Error posting');
         }
@@ -1673,9 +1361,37 @@ function removeMember(userId) {
     }).then(() => loadTripDetail(currentTripId));
 }
 
+// ─── Compose toggle ──────────────────────────────────────────
+
+function toggleCompose() {
+    const area = document.getElementById('compose-area');
+    area.style.display = area.style.display === 'none' ? 'block' : 'none';
+    if (area.style.display === 'block') document.getElementById('compose-text').focus();
+}
+
+// ─── Photo upload (creates a blurb with photos, no text) ─────
+
+async function uploadAdventurePhotos(input) {
+    const files = Array.from(input.files).slice(0, 10);
+    if (!files.length) return;
+    const grid = document.getElementById('adv-photos-grid');
+    grid.innerHTML = '<span class="adv-no-photos">uploading...</span>';
+    const formData = new FormData();
+    formData.append('text', '📷');
+    files.forEach(f => formData.append('photos', f));
+    await fetch(`/api/trips/${currentTripId}/blurbs/create/`, {
+        method: 'POST', headers: {'X-CSRFToken': csrfToken}, body: formData
+    });
+    input.value = '';
+    timelinePage = 1;
+    loadTimeline(currentTripId, 1);
+}
+
 // ─── Sharing ─────────────────────────────────────────────────
 
 function renderSharingOptions(data) {
+    const shareSection = document.getElementById('share-section');
+    if (shareSection) shareSection.style.display = currentIsCreator ? '' : 'none';
     const btn = document.getElementById('toggle-public-btn');
     const linkArea = document.getElementById('share-link-area');
     const linkInput = document.getElementById('share-link-input');
