@@ -100,6 +100,56 @@
             <div id="stat-states" style="font-size: 0.875rem; color: var(--text-muted);">-</div>
         </div>
     </div>
+
+    <!-- Yearly Overview -->
+    <div style="margin-top: 1.5rem;">
+        <div class="card-header" style="padding: 0; margin-bottom: 1rem; font-size: 1rem; font-weight: 700; color: var(--text);" id="yearly-heading">Yearly Overview</div>
+
+        <!-- Period Comparison -->
+        <div class="grid grid-3" style="margin-bottom: 1rem;" id="yearly-compare-grid">
+            <div class="card" style="padding: 1rem;">
+                <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: lowercase; font-weight: 600; margin-bottom: 0.5rem;">this week</div>
+                <div id="week-pts" class="stat-value" style="font-size: 1.5rem;">-</div>
+                <div style="font-size: 0.75rem; color: var(--text-muted);">points</div>
+                <div id="week-delta" style="font-size: 0.75rem; margin-top: 0.375rem;"></div>
+                <div id="week-places" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;"></div>
+            </div>
+            <div class="card" style="padding: 1rem;">
+                <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: lowercase; font-weight: 600; margin-bottom: 0.5rem;">this month</div>
+                <div id="month-pts" class="stat-value" style="font-size: 1.5rem;">-</div>
+                <div style="font-size: 0.75rem; color: var(--text-muted);">points</div>
+                <div id="month-delta" style="font-size: 0.75rem; margin-top: 0.375rem;"></div>
+                <div id="month-places" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;"></div>
+            </div>
+            <div class="card" style="padding: 1rem;">
+                <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: lowercase; font-weight: 600; margin-bottom: 0.5rem;" id="year-label">this year</div>
+                <div id="year-pts" class="stat-value" style="font-size: 1.5rem;">-</div>
+                <div style="font-size: 0.75rem; color: var(--text-muted);">points</div>
+                <div id="year-delta" style="font-size: 0.75rem; margin-top: 0.375rem;"></div>
+                <div id="year-places" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;"></div>
+            </div>
+        </div>
+
+        <div class="grid grid-2">
+            <!-- Monthly Breakdown Chart -->
+            <div class="card">
+                <div class="card-header" id="monthly-chart-title">Monthly Activity</div>
+                <div class="chart-container" style="height: 160px;" id="yearly-chart-wrap">
+                    <canvas id="yearly-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Top Places -->
+            <div class="card">
+                <div class="card-header">Most Visited</div>
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+                    <button class="btn btn-outline btn-sm" id="mv-cities-btn" onclick="switchMV('cities')" style="border-color: var(--primary); color: var(--primary);">cities</button>
+                    <button class="btn btn-outline btn-sm" id="mv-countries-btn" onclick="switchMV('countries')">countries</button>
+                </div>
+                <div id="most-visited-list" style="font-size: 0.8125rem;"></div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -567,5 +617,133 @@ window.addEventListener('resize', () => {
 });
 
 loadStats();
+loadYearlyOverview();
+
+// ─── Yearly Overview ───────────────────────────────────────────
+
+let yearlyData = null;
+let mvMode = 'cities';
+
+function pct(a, b) {
+    if (!b) return null;
+    return Math.round(((a - b) / b) * 100);
+}
+
+function deltaHtml(curr, prev) {
+    const p = pct(curr, prev);
+    if (p === null) return '';
+    const sign = p >= 0 ? '+' : '';
+    const color = p >= 0 ? 'var(--primary)' : 'var(--danger)';
+    return `<span style="color:${color};font-weight:600;">${sign}${p}%</span> vs previous`;
+}
+
+function loadYearlyOverview() {
+    fetch('/api/stats/yearly/')
+        .then(r => r.json())
+        .then(data => {
+            yearlyData = data;
+            document.getElementById('yearly-heading').textContent = `${data.year} Overview`;
+            document.getElementById('year-label').textContent = `${data.year}`;
+            document.getElementById('monthly-chart-title').textContent = `${data.year} — Monthly Activity`;
+
+            // Week
+            document.getElementById('week-pts').textContent = data.this_week.points.toLocaleString();
+            document.getElementById('week-delta').innerHTML = deltaHtml(data.this_week.points, data.last_week.points);
+            document.getElementById('week-places').textContent =
+                `${data.this_week.countries} countr${data.this_week.countries !== 1 ? 'ies' : 'y'} · ${data.this_week.cities} cit${data.this_week.cities !== 1 ? 'ies' : 'y'}`;
+
+            // Month
+            document.getElementById('month-pts').textContent = data.this_month.points.toLocaleString();
+            document.getElementById('month-delta').innerHTML = deltaHtml(data.this_month.points, data.last_month.points);
+            document.getElementById('month-places').textContent =
+                `${data.this_month.countries} countr${data.this_month.countries !== 1 ? 'ies' : 'y'} · ${data.this_month.cities} cit${data.this_month.cities !== 1 ? 'ies' : 'y'}`;
+
+            // Year
+            document.getElementById('year-pts').textContent = data.this_year.points.toLocaleString();
+            document.getElementById('year-delta').innerHTML = deltaHtml(data.this_year.points, data.last_year.points);
+            document.getElementById('year-places').textContent =
+                `${data.this_year.countries} countr${data.this_year.countries !== 1 ? 'ies' : 'y'} · ${data.this_year.cities} cit${data.this_year.cities !== 1 ? 'ies' : 'y'}`;
+
+            drawYearlyChart(data.monthly_breakdown);
+            renderMostVisited(data);
+        });
+}
+
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function drawYearlyChart(monthly) {
+    const canvas = document.getElementById('yearly-chart');
+    const wrap = document.getElementById('yearly-chart-wrap');
+    if (!canvas || !monthly.length) return;
+    canvas.width = wrap.offsetWidth;
+    canvas.height = 160;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const PAD = { top: 12, right: 8, bottom: 24, left: 10 };
+    const cw = W - PAD.left - PAD.right;
+    const ch = H - PAD.top - PAD.bottom;
+    const maxPts = Math.max(...monthly.map(m => m.points), 1);
+    const barGap = 4;
+    const barW = (cw - (monthly.length - 1) * barGap) / monthly.length;
+    const primary = getComputedStyle(document.documentElement).getPropertyValue('--primary') || '#3b82f6';
+
+    ctx.clearRect(0, 0, W, H);
+    monthly.forEach((m, i) => {
+        const x = PAD.left + i * (barW + barGap);
+        const barH = (m.points / maxPts) * ch;
+        const y = PAD.top + ch - barH;
+        ctx.fillStyle = primary.trim();
+        ctx.globalAlpha = 0.85;
+        const r = Math.min(3, barW / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + barW - r, y);
+        ctx.quadraticCurveTo(x + barW, y, x + barW, y + r);
+        ctx.lineTo(x + barW, y + barH);
+        ctx.lineTo(x, y + barH);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-muted') || '#888';
+        ctx.font = `600 10px 'Space Grotesk', sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText(MONTH_NAMES[m.month - 1], x + barW / 2, H - 6);
+    });
+}
+
+function renderMostVisited(data) {
+    const list = document.getElementById('most-visited-list');
+    const items = mvMode === 'cities'
+        ? data.top_cities.map(c => ({ label: `${c.city}, ${c.country}`, count: c.count }))
+        : data.top_countries.map(c => ({ label: c.country, count: c.count }));
+    const max = items[0]?.count || 1;
+    list.innerHTML = items.slice(0, 8).map(item => {
+        const pct = Math.round((item.count / max) * 100);
+        return `<div style="margin-bottom:0.5rem;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
+                <span>${escHtmlStats(item.label)}</span>
+                <span style="color:var(--text-muted);font-size:0.75rem;">${item.count.toLocaleString()}</span>
+            </div>
+            <div style="height:4px;background:var(--bg-input);border-radius:2px;">
+                <div style="height:100%;width:${pct}%;background:var(--primary);border-radius:2px;"></div>
+            </div>
+        </div>`;
+    }).join('') || '<span style="color:var(--text-muted);">No data yet</span>';
+}
+
+function switchMV(mode) {
+    mvMode = mode;
+    document.getElementById('mv-cities-btn').style.cssText = mode === 'cities' ? 'border-color:var(--primary);color:var(--primary);' : '';
+    document.getElementById('mv-countries-btn').style.cssText = mode === 'countries' ? 'border-color:var(--primary);color:var(--primary);' : '';
+    if (yearlyData) renderMostVisited(yearlyData);
+}
+
+function escHtmlStats(s) {
+    if (!s) return '';
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
 </script>
 {% endblock %}

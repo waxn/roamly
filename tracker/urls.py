@@ -39,6 +39,7 @@ urlpatterns = [
 
     # Stats API
     path('api/stats/', views.stats_api, name='stats_api'),
+    path('api/stats/yearly/', views.yearly_overview_api, name='yearly_overview_api'),
     path('api/visits/', views.visits_api, name='visits_api'),
     path('api/distance/', views.distance_api, name='distance_api'),
     path('api/search/', views.search_api, name='search_api'),

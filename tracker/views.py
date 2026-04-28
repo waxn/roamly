@@ -954,6 +954,68 @@ def stats_api(request):
     return JsonResponse(result)
 
 
+@login_required
+def yearly_overview_api(request):
+    """Yearly overview: week/month/year stats with comparisons and top places."""
+    gen = cache.get(f"cache_gen:{request.user.id}", 0)
+    cache_key = f"yearly:{request.user.id}:{gen}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached)
+
+    now = timezone.now()
+    qs = Location.objects.filter(device__user=request.user)
+
+    def _period_stats(start, end):
+        period = qs.filter(timestamp__gte=start, timestamp__lt=end)
+        pts = period.count()
+        countries = period.exclude(country='').values('country').distinct().count()
+        cities = period.exclude(city='').values('city', 'country').distinct().count()
+        return {"points": pts, "countries": countries, "cities": cities}
+
+    week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    last_week_start = week_start - timedelta(days=7)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    last_month_start = (month_start - timedelta(days=1)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    year_start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+    last_year_start = year_start.replace(year=year_start.year - 1)
+
+    this_week = _period_stats(week_start, now)
+    last_week = _period_stats(last_week_start, week_start)
+    this_month = _period_stats(month_start, now)
+    last_month = _period_stats(last_month_start, month_start)
+    this_year = _period_stats(year_start, now)
+    last_year = _period_stats(last_year_start, year_start)
+
+    # Monthly breakdown for this year
+    monthly = []
+    for m in range(1, now.month + 1):
+        m_start = year_start.replace(month=m)
+        m_end = year_start.replace(month=m + 1) if m < 12 else now.replace(year=now.year + 1, month=1, day=1)
+        period = qs.filter(timestamp__gte=m_start, timestamp__lt=m_end)
+        monthly.append({"month": m, "points": period.count()})
+
+    # Top cities (all time)
+    top_cities = list(
+        qs.exclude(city='').values('city', 'country').annotate(count=Count('id')).order_by('-count')[:10]
+    )
+    top_countries = list(
+        qs.exclude(country='').values('country').annotate(count=Count('id')).order_by('-count')[:10]
+    )
+
+    result = {
+        "this_week": this_week, "last_week": last_week,
+        "this_month": this_month, "last_month": last_month,
+        "this_year": this_year, "last_year": last_year,
+        "monthly_breakdown": monthly,
+        "top_cities": top_cities,
+        "top_countries": top_countries,
+        "year": now.year,
+    }
+    cache.set(cache_key, result, timeout=1800)
+    return JsonResponse(result)
+
+
 def _haversine_km(lat1, lon1, lat2, lon2):
     """Calculate distance between two points in km using haversine formula."""
     R = 6371.0
