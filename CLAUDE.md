@@ -4,11 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commits
 
-**Make a commit after every meaningful change.** Each commit should be signed:
+**Every individual fix or change gets its own commit — no batching.** This includes bug fixes, single-file edits, and CSS tweaks. Each commit must be signed:
 
 ```
 Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 ```
+
+Also update this CLAUDE.md whenever something architectural or behavioural is added or changed.
 
 ## Running the app
 
