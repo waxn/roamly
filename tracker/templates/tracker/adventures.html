@@ -263,25 +263,26 @@
     .trip-fullscreen.active { flex-direction: column; }
     .trip-map-area { height: 50vh; }
     .trip-sidebar { width: 100%; height: 50vh; border-left: none; border-top: 1px solid var(--border); }
+    #create-adventure-form .adv-create-grid { grid-template-columns: 1fr 1fr !important; }
 }
 {% endblock %}
 
 {% block content %}
-<div class="container">
+<div class="container" style="max-width: 1600px;">
     <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
         <h1>Adventures</h1>
         <button class="btn btn-primary" onclick="showCreateAdventure()">New Adventure</button>
     </div>
 
-    <!-- Create Trip Form (hidden by default) -->
-    <div id="create-adventure-form" class="card" style="display: none;">
-        <div class="card-header">Create Adventure</div>
-        <div class="grid grid-2">
-            <div class="form-group">
-                <label>Adventure Name</label>
-                <input type="text" id="trip-name" class="form-control" placeholder="e.g., Weekend in Paris">
+    <!-- Create Adventure Form -->
+    <div id="create-adventure-form" class="card" style="display: none; margin-bottom: 1.5rem;">
+        <div class="card-header">New Adventure</div>
+        <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 1rem; align-items: end;">
+            <div class="form-group" style="margin:0;">
+                <label>Name</label>
+                <input type="text" id="trip-name" class="form-control" placeholder="e.g., Morning bike ride, Alps road trip">
             </div>
-            <div class="form-group">
+            <div class="form-group" style="margin:0;">
                 <label>Device</label>
                 <select id="trip-device" class="form-control">
                     {% for device in devices %}
@@ -289,31 +290,27 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="form-group">
-                <label>Start Date &amp; Time</label>
+            <div class="form-group" style="margin:0;">
+                <label>Start</label>
                 <input type="datetime-local" id="trip-start" class="form-control" required>
             </div>
-            <div class="form-group">
-                <label>End Date &amp; Time</label>
+            <div class="form-group" style="margin:0;">
+                <label>End</label>
                 <input type="datetime-local" id="trip-end" class="form-control" required>
             </div>
         </div>
-        <div class="form-group">
-            <label>Description</label>
-            <textarea id="trip-description" class="form-control" rows="2" placeholder="Optional description..."></textarea>
+        <div class="form-group" style="margin-top: 0.75rem;">
+            <label>Description <span style="color:var(--text-muted);font-weight:400;">(optional)</span></label>
+            <input type="text" id="trip-description" class="form-control" placeholder="A few words about this adventure...">
         </div>
-        <div style="display: flex; gap: 0.5rem;">
-            <button class="btn btn-primary" onclick="createAdventure()">Create</button>
+        <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
+            <button class="btn btn-primary" onclick="createAdventure()">Create Adventure</button>
             <button class="btn btn-outline" onclick="hideCreateAdventure()">Cancel</button>
         </div>
     </div>
 
     <!-- Adventures List -->
-    <div id="trips-list">
-        <div style="text-align: center; padding: 2rem; color: var(--text-muted);">
-            <span class="spinner"></span> Loading adventures...
-        </div>
-    </div>
+    <div id="trips-list"></div>
 </div>
 
 <!-- Full-screen Trip Detail -->
@@ -487,34 +484,45 @@ function hideCreateAdventure() {
 }
 
 function loadAdventures() {
+    document.getElementById('trips-list').innerHTML =
+        '<div style="color:var(--text-muted);padding:1rem 0;"><span class="spinner"></span> loading...</div>';
     fetch('/api/trips/')
         .then(r => r.json())
         .then(data => {
-            if (data.trips.length === 0) {
+            if (!data.trips || data.trips.length === 0) {
                 document.getElementById('trips-list').innerHTML =
-                    '<div class="card" style="text-align:center;color:var(--text-muted);padding:2rem;">No adventures yet. Create one to track a journey, ride, hike, or any outing.</div>';
+                    '<div class="card" style="text-align:center;color:var(--text-muted);padding:3rem 2rem;">No adventures yet. Hit <strong>New Adventure</strong> to log a ride, hike, or any outing.</div>';
                 return;
             }
-            const html = data.trips.map(trip => {
-                const start = new Date(trip.start_time).toLocaleDateString();
-                const end = new Date(trip.end_time).toLocaleDateString();
-                const memberBadge = trip.member_count > 1 ? ` &middot; ${trip.member_count} members` : '';
-                const publicBadge = trip.is_public ? ' <span class="badge badge-success" style="font-size:0.6875rem;">public</span>' : '';
-                return `<div class="card trip-card" onclick="openTrip(${trip.id})">
-                    <div style="display:flex;justify-content:space-between;align-items:center;">
-                        <div style="flex:1;min-width:0;">
-                            <div style="display:flex;align-items:center;gap:0.5rem;">
-                                <strong>${trip.name}</strong>${publicBadge}
-                            </div>
-                            <div style="font-size:0.8125rem;color:var(--text-muted);margin-top:0.25rem;">
-                                ${start} &ndash; ${end} &middot; ${trip.device} &middot; ${trip.location_count} points${memberBadge}
-                            </div>
-                            ${trip.description ? `<div style="font-size:0.8125rem;color:var(--text-muted);margin-top:0.25rem;">${trip.description}</div>` : ''}
+            const html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:1rem;">' +
+                data.trips.map(trip => {
+                    const start = new Date(trip.start_time);
+                    const end = new Date(trip.end_time);
+                    const sameDay = start.toDateString() === end.toDateString();
+                    const dateStr = sameDay
+                        ? start.toLocaleDateString([], {weekday:'short',month:'short',day:'numeric'})
+                            + ' · ' + start.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})
+                            + '–' + end.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})
+                        : start.toLocaleDateString([], {month:'short',day:'numeric'})
+                            + ' – ' + end.toLocaleDateString([], {month:'short',day:'numeric',year:'numeric'});
+                    const publicBadge = trip.is_public
+                        ? '<span class="badge badge-success" style="font-size:0.6rem;padding:1px 6px;">public</span>' : '';
+                    const pts = trip.location_count.toLocaleString();
+                    return `<div class="card trip-card" onclick="openTrip(${trip.id})" style="padding:1.125rem 1.25rem;">
+                        <div style="display:flex;align-items:flex-start;gap:0.5rem;margin-bottom:0.375rem;">
+                            <strong style="font-size:0.9375rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(trip.name)}</strong>
+                            ${publicBadge}
                         </div>
-                    </div>
-                </div>`;
-            }).join('');
+                        <div style="font-size:0.8125rem;color:var(--text-muted);">${dateStr}</div>
+                        <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem;">${trip.device} &middot; ${pts} pts</div>
+                        ${trip.description ? `<div style="font-size:0.8125rem;color:var(--text-muted);margin-top:0.375rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(trip.description)}</div>` : ''}
+                    </div>`;
+                }).join('') + '</div>';
             document.getElementById('trips-list').innerHTML = html;
+        })
+        .catch(() => {
+            document.getElementById('trips-list').innerHTML =
+                '<div class="card" style="color:var(--danger);padding:1.5rem;">Failed to load adventures — check the console.</div>';
         });
 }
 
