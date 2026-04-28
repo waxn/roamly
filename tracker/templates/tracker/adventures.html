@@ -936,48 +936,88 @@ function loadTripDetail(id) {
         });
 }
 
+const ADV_MAP_LIMIT = 20000;
+const ADV_HEATMAP_COLOR = [
+    'interpolate', ['linear'], ['heatmap-density'],
+    0, 'rgba(33,102,172,0)',
+    0.2, 'rgb(103,169,207)',
+    0.4, 'rgb(209,229,240)',
+    0.6, 'rgb(253,219,199)',
+    0.8, 'rgb(239,138,98)',
+    1, 'rgb(178,24,43)'
+];
+
 function renderTripOnMap(data) {
     if (!tripMap || !data.locations.length) { hideTripMapLoading(); return; }
 
     // Remove old sources/layers
-    ['trip-line', 'trip-points', 'place-circles', 'place-markers'].forEach(id => {
+    ['adv-heat', 'adv-dots', 'adv-line', 'place-circles', 'place-markers', 'place-labels'].forEach(id => {
         if (tripMap.getLayer(id)) tripMap.removeLayer(id);
     });
-    ['trip-line', 'trip-points', 'place-circles', 'place-markers'].forEach(id => {
+    ['adv-pts', 'adv-line', 'place-circles', 'place-markers'].forEach(id => {
         if (tripMap.getSource(id)) tripMap.removeSource(id);
     });
 
-    const coords = data.locations.map(l => [l.lng, l.lat]);
-
-    // Trip path
-    tripMap.addSource('trip-line', {
-        type: 'geojson',
-        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }}
-    });
-    tripMap.addLayer({
-        id: 'trip-line', type: 'line', source: 'trip-line',
-        paint: { 'line-color': '#3b82f6', 'line-width': 3, 'line-opacity': 0.8 }
-    });
-
-    // Trip points
+    const smallAdventure = data.locations.length < ADV_MAP_LIMIT;
     const features = data.locations.map(l => ({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [l.lng, l.lat] },
-        properties: l
+        properties: { timestamp: l.timestamp, city: l.city, country: l.country, speed: l.speed }
     }));
-    tripMap.addSource('trip-points', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features }
-    });
+    const coords = data.locations.map(l => [l.lng, l.lat]);
+
+    tripMap.addSource('adv-pts', { type: 'geojson', data: { type: 'FeatureCollection', features } });
+
+    // Heatmap layer (always shown)
     tripMap.addLayer({
-        id: 'trip-points', type: 'circle', source: 'trip-points',
+        id: 'adv-heat', type: 'heatmap', source: 'adv-pts',
+        maxzoom: smallAdventure ? 16 : 13,
         paint: {
-            'circle-color': '#3b82f6',
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 2, 12, 4, 18, 8],
-            'circle-stroke-width': 1,
-            'circle-stroke-color': 'rgba(255,255,255,0.6)'
+            'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 0.5, 13, 2],
+            'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 8, 13, 30],
+            'heatmap-opacity': smallAdventure
+                ? ['interpolate', ['linear'], ['zoom'], 0, 0.8, 10, 0.5, 14, 0.05]
+                : ['interpolate', ['linear'], ['zoom'], 0, 0.8, 11, 0.5, 13, 0.1],
+            'heatmap-color': ADV_HEATMAP_COLOR,
         }
     });
+
+    // Dot layer — always visible for small adventures, zoom-gated for large
+    tripMap.addLayer({
+        id: 'adv-dots', type: 'circle', source: 'adv-pts',
+        minzoom: smallAdventure ? 0 : 9,
+        paint: {
+            'circle-color': '#3b82f6',
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 2, 10, 3, 14, 6, 18, 10],
+            'circle-stroke-width': 1,
+            'circle-stroke-color': 'rgba(255,255,255,0.6)',
+            'circle-opacity': smallAdventure ? 1 : ['interpolate', ['linear'], ['zoom'], 9, 0, 11, 1],
+        }
+    });
+
+    // Line — only for small adventures (connects in chronological order)
+    if (smallAdventure && coords.length > 1) {
+        // Build segmented line (split gaps > 30 min)
+        const LINE_GAP_MS = 30 * 60 * 1000;
+        const lineFeatures = [];
+        let seg = [coords[0]];
+        for (let i = 1; i < data.locations.length; i++) {
+            const gap = new Date(data.locations[i].timestamp) - new Date(data.locations[i-1].timestamp);
+            if (gap > LINE_GAP_MS) {
+                if (seg.length > 1) lineFeatures.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: seg } });
+                seg = [coords[i]];
+            } else {
+                seg.push(coords[i]);
+            }
+        }
+        if (seg.length > 1) lineFeatures.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: seg } });
+
+        tripMap.addSource('adv-line', { type: 'geojson', data: { type: 'FeatureCollection', features: lineFeatures } });
+        tripMap.addLayer({
+            id: 'adv-line', type: 'line', source: 'adv-line',
+            paint: { 'line-color': '#3b82f6', 'line-width': 2, 'line-opacity': 0.6 }
+        });
+    }
 
     // Place markers and radius circles
     renderPlaceMarkers(data.places || []);
@@ -993,23 +1033,23 @@ function renderTripOnMap(data) {
     tripMap.once('idle', hideTripMapLoading);
 
     // Point click popup
-    tripMap.on('click', 'trip-points', (e) => {
+    tripMap.on('click', 'adv-dots', (e) => {
         if (placingMode) return;
         const props = e.features[0].properties;
-        const coords = e.features[0].geometry.coordinates.slice();
+        const coordsPt = e.features[0].geometry.coordinates.slice();
         const ts = new Date(props.timestamp);
         let html = `<strong>${ts.toLocaleString()}</strong>`;
         if (props.city) html += `<br>${props.city}`;
         if (props.country) html += `, ${props.country}`;
         new maplibregl.Popup({ offset: 8 })
-            .setLngLat(coords)
+            .setLngLat(coordsPt)
             .setHTML(html)
             .addTo(tripMap);
     });
-    tripMap.on('mouseenter', 'trip-points', () => {
+    tripMap.on('mouseenter', 'adv-dots', () => {
         if (!placingMode) tripMap.getCanvas().style.cursor = 'pointer';
     });
-    tripMap.on('mouseleave', 'trip-points', () => {
+    tripMap.on('mouseleave', 'adv-dots', () => {
         if (!placingMode) tripMap.getCanvas().style.cursor = '';
     });
 }

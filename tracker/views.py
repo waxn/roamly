@@ -1251,11 +1251,15 @@ def _format_duration(seconds):
 @login_required
 def trip_detail(request, trip_id):
     trip = _get_trip_for_user(trip_id, request.user)
-    locations = list(trip.locations)
+    LOCATION_LIMIT = 30000
+    location_qs = trip.locations
+    total_count = location_qs.count()
+    locations = list(location_qs[:LOCATION_LIMIT])
     locs = [{
         "lat": l.latitude, "lng": l.longitude,
         "timestamp": l.timestamp.isoformat(),
         "city": l.city, "country": l.country,
+        "speed": l.speed,
     } for l in locations]
 
     places = []
@@ -1289,6 +1293,7 @@ def trip_detail(request, trip_id):
         "start_time": trip.start_time.isoformat(),
         "end_time": trip.end_time.isoformat(),
         "locations": locs,
+        "total_location_count": total_count,
         "places": places,
         "is_creator": is_creator,
         "is_public": bool(trip.public_slug),
