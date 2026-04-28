@@ -586,7 +586,7 @@
             <div class="sidebar-group-label">tutorials</div>
             <a href="#gpslogger" class="sidebar-link">gpslogger setup</a>
             <a href="#api-guide" class="sidebar-link">sending locations</a>
-            <a href="#trips-tutorial" class="sidebar-link">managing trips</a>
+            <a href="#trips-tutorial" class="sidebar-link">adventures</a>
             <a href="#data-management" class="sidebar-link">import & export</a>
             <a href="#geocoding" class="sidebar-link">geocoding</a>
             <a href="#backups" class="sidebar-link">automatic backups</a>
@@ -618,8 +618,8 @@
             <ul>
                 <li><strong>interactive map</strong> — maplibre gl with postgis vector tiles, renders millions of points</li>
                 <li><strong>multi-device tracking</strong> — separate api keys per device</li>
-                <li><strong>trip management</strong> — named journeys with places and time-spent tracking</li>
-                <li><strong>visit analytics</strong> — cities, states, countries with dates and time spent</li>
+                <li><strong>adventures</strong> — log any outing (rides, hikes, trips) by precise start/end time; places, timeline, photos, milestones, and public sharing</li>
+                <li><strong>visit analytics</strong> — cities, states, countries with dates, time spent, and yearly period comparisons</li>
                 <li><strong>distance tracking</strong> — daily km with canvas charts</li>
                 <li><strong>reverse geocoding</strong> — coordinates to place names via openstreetmap nominatim</li>
                 <li><strong>import & export</strong> — csv, gpx, full json backup</li>
@@ -993,46 +993,57 @@ print(resp.json())</code></pre>
 
         <!-- Trips -->
         <section id="trips-tutorial" class="doc-section">
-            <h1>managing trips</h1>
-            <p>trips let you organize location data into named journeys — vacations, road trips, commutes. a trip captures all locations within a time range for a specific device.</p>
+            <h1>adventures</h1>
+            <p>adventures let you capture any outing — a 7-hour bike ride, a hiking day, a road trip, a vacation. they group location data by a precise start and end time for a specific device.</p>
 
-            <h2>creating a trip</h2>
+            <h2>creating an adventure</h2>
             <div class="steps">
                 <div class="step-card">
                     <div class="step-num">1</div>
                     <div class="step-content">
-                        <h4>go to trips</h4>
-                        <p>click <strong>trips</strong> in the navigation bar.</p>
+                        <h4>go to adventures</h4>
+                        <p>click <strong>adventures</strong> in the navigation bar.</p>
                     </div>
                 </div>
                 <div class="step-card">
                     <div class="step-num">2</div>
                     <div class="step-content">
-                        <h4>create trip</h4>
-                        <p>fill in: name, device, start date, end date, optional description.</p>
+                        <h4>create adventure</h4>
+                        <p>fill in: name, device, start date & time, end date & time, optional description. time precision means you can log a morning run without including the afternoon commute.</p>
                     </div>
                 </div>
                 <div class="step-card">
                     <div class="step-num">3</div>
                     <div class="step-content">
-                        <h4>view the trip</h4>
-                        <p>click on a trip to see a full-screen map with all location points in that time range, connected by a trail line.</p>
+                        <h4>view the adventure</h4>
+                        <p>click on an adventure to open a full-screen map. under 20k points: all dots shown immediately with a heatmap and trail line. over 20k: heatmap-first with progressive dot loading as you zoom.</p>
                     </div>
                 </div>
             </div>
 
             <h2>adding places</h2>
-            <p>places are named waypoints — hotels, restaurants, landmarks. roamly calculates time spent using gps proximity.</p>
+            <p>places are named waypoints — trailheads, cafés, landmarks. roamly calculates time spent using haversine proximity.</p>
             <ol>
-                <li>open a trip → click <strong>add place</strong></li>
-                <li>enter a name and coordinates (click map or enter manually)</li>
-                <li>set a radius in meters — points within that radius count as "at this place"</li>
+                <li>open an adventure → sidebar → places → click <strong>+ add place</strong></li>
+                <li>click on the map to drop a pin</li>
+                <li>set a radius in meters — gps points within the radius count as "at this place"</li>
             </ol>
 
             <div class="callout info">
                 <div class="callout-icon"></div>
                 <div><strong>time calculation:</strong> roamly uses haversine to find which points fall within a place's radius, then sums time gaps between consecutive points (capping gaps at 1 hour).</div>
             </div>
+
+            <h2>timeline & notes</h2>
+            <p>each adventure has a sidebar with a notes area, a timeline of posts, and a milestones section.</p>
+            <ul>
+                <li><strong>notes:</strong> free-form text for the adventure; saved automatically.</li>
+                <li><strong>timeline:</strong> post updates with optional photos and a pinned map location. useful for logging moments during the activity.</li>
+                <li><strong>milestones:</strong> named events with an emoji and date — summit reached, border crossed, finish line.</li>
+            </ul>
+
+            <h2>sharing</h2>
+            <p>adventures can be made public via a shareable slug link. go to the adventure → options → make public. anyone with the link can view the map and timeline without logging in.</p>
         </section>
 
         <!-- Data Management -->

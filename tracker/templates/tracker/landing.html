@@ -49,7 +49,10 @@
 
         body {
             font-family: 'Space Grotesk', sans-serif;
-            background: radial-gradient(circle at 50% -20%, #1a2235 0%, var(--bg) 80%);
+            background:
+                radial-gradient(ellipse at 20% 0%, rgba(59,130,246,0.06) 0%, transparent 60%),
+                radial-gradient(ellipse at 80% 10%, rgba(139,92,246,0.04) 0%, transparent 50%),
+                radial-gradient(circle at 50% -20%, #1a2235 0%, var(--bg) 75%);
             background-attachment: fixed;
             color: var(--text);
             min-height: 100vh;
@@ -349,8 +352,9 @@
             position: absolute;
             inset: 0;
             opacity: 0;
-            background: radial-gradient(circle at top left, rgba(59,130,246,0.06) 0%, transparent 60%);
-            transition: opacity 0.3s;
+            background: radial-gradient(circle at top left, rgba(59,130,246,0.09) 0%, transparent 55%);
+            transition: opacity 0.35s;
+            pointer-events: none;
         }
 
         .feature-card:hover::after {
@@ -358,10 +362,11 @@
         }
 
         .feature-num {
-            font-size: 0.7rem;
+            font-size: 0.65rem;
             font-weight: 700;
-            color: var(--text-dim);
-            letter-spacing: 0.08em;
+            color: var(--primary);
+            opacity: 0.45;
+            letter-spacing: 0.12em;
             margin-bottom: 1.25rem;
             font-variant-numeric: tabular-nums;
         }
@@ -676,7 +681,7 @@
         <div class="hero-inner">
             <div class="hero-label">self-hosted · open source</div>
             <h1>your location data,<br><span>your server.</span></h1>
-            <p class="hero-sub">track your devices, visualize journeys, and keep your gps history where it belongs — on hardware you control.</p>
+            <p class="hero-sub">track every ride, hike, and journey. visualize your history on a heatmap, log adventures, and keep your gps data on hardware you control.</p>
             <div class="hero-actions">
                 <a href="{% url 'tracker:signup' %}" class="btn btn-primary btn-lg">start tracking free →</a>
                 {% if user.is_authenticated %}
@@ -698,6 +703,7 @@
         <div class="strip-item"><span class="strip-dot"></span> runs on your server</div>
         <div class="strip-item"><span class="strip-dot"></span> zero telemetry</div>
         <div class="strip-item"><span class="strip-dot"></span> gpslogger & owntracks compatible</div>
+        <div class="strip-item"><span class="strip-dot"></span> adventure journals</div>
         <div class="strip-item"><span class="strip-dot"></span> docker compose setup</div>
         <div class="strip-item"><span class="strip-dot"></span> postgis vector tiles</div>
     </div>
@@ -723,13 +729,13 @@
                 </div>
                 <div class="feature-card reveal reveal-delay-2">
                     <div class="feature-num">03</div>
-                    <div class="feature-name">trip management</div>
-                    <p class="feature-desc">organize locations into named trips. add places with a radius and roamly calculates how long you spent there using haversine proximity.</p>
+                    <div class="feature-name">adventures</div>
+                    <p class="feature-desc">log any outing — a 7-hour bike ride, a hike, a road trip. mark locations with radius zones, add timeline notes with photos, and share a public link.</p>
                 </div>
                 <div class="feature-card reveal reveal-delay-3">
                     <div class="feature-num">04</div>
                     <div class="feature-name">visit analytics</div>
-                    <p class="feature-desc">every city, state, and country you've visited — with visit counts, first/last seen dates, and total time spent. no manual tagging.</p>
+                    <p class="feature-desc">every city, state, and country you've visited — with visit counts, first/last seen dates, and total time spent. yearly overview with period comparisons.</p>
                 </div>
                 <div class="feature-card reveal reveal-delay-4">
                     <div class="feature-num">05</div>
@@ -802,7 +808,7 @@
                             <div class="step-num">4</div>
                             <div class="step-body">
                                 <h4>you're live</h4>
-                                <p>locations appear on the map as they arrive. explore stats, create trips, run geocoding to get city names.</p>
+                                <p>locations appear on the map as they arrive. explore stats, log adventures, run geocoding to get city names.</p>
                             </div>
                         </div>
                     </div>
