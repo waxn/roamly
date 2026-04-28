@@ -1567,7 +1567,7 @@ function renderSharingOptions(data) {
         btn.style.display = 'none';
         if (data.is_public) {
             linkArea.style.display = 'block';
-            linkInput.value = `${window.location.origin}/trip/${data.public_slug}/`;
+            linkInput.value = `${window.location.origin}/adventure/${data.public_slug}/`;
         }
         return;
     }
@@ -1577,7 +1577,7 @@ function renderSharingOptions(data) {
         btn.classList.remove('btn-outline');
         btn.classList.add('btn-primary');
         linkArea.style.display = 'block';
-        linkInput.value = `${window.location.origin}/trip/${data.public_slug}/`;
+        linkInput.value = `${window.location.origin}/adventure/${data.public_slug}/`;
     } else {
         btn.textContent = 'make public';
         btn.classList.add('btn-outline');
