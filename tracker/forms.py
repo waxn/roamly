@@ -2,7 +2,7 @@ from django import forms
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
 
-from .models import APIKey, Trip
+from .models import APIKey, Adventure
 
 
 class SignUpForm(UserCreationForm):
@@ -19,7 +19,7 @@ class APIKeyForm(forms.ModelForm):
         fields = ('name',)
 
 
-class TripForm(forms.ModelForm):
+class AdventureForm(forms.ModelForm):
     start_time = forms.DateTimeField(
         widget=forms.DateTimeInput(attrs={'type': 'datetime-local'}),
         input_formats=['%Y-%m-%dT%H:%M']
@@ -30,5 +30,5 @@ class TripForm(forms.ModelForm):
     )
 
     class Meta:
-        model = Trip
+        model = Adventure
         fields = ('name', 'description', 'start_time', 'end_time')
