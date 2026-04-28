@@ -381,9 +381,13 @@
                         Import GPX
                         <input type="file" accept=".gpx" multiple style="display: none;" onchange="selectFilesToImport(this, 'gpx')">
                     </label>
+                    <label class="btn btn-outline btn-sm" style="cursor: pointer;">
+                        Import JSON
+                        <input type="file" accept=".json" multiple style="display: none;" onchange="selectFilesToImport(this, 'json')">
+                    </label>
                 </div>
                 <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem;">
-                    Select files to import. You'll be asked to choose a device for the imported locations.
+                    CSV, GPX 1.0/1.1, Google Takeout JSON, OwnTracks JSON. Missing fields (altitude, speed, etc.) are handled gracefully. You'll be asked to choose a device for the imported locations.
                 </p>
                 <div id="import-status" style="font-size: 0.8125rem; color: var(--text-muted);"></div>
             </div>

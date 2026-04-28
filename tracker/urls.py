@@ -99,6 +99,7 @@ urlpatterns = [
     path('api/export/backup/download/<str:job_id>/', views.export_backup_download, name='export_backup_download'),
     path('api/import/csv/', views.import_csv, name='import_csv'),
     path('api/import/gpx/', views.import_gpx, name='import_gpx'),
+    path('api/import/json/', views.import_json, name='import_json'),
     path('api/import/backup/', views.restore_backup, name='restore_backup'),
 
     # API Keys

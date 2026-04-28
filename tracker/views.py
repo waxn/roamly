@@ -2309,7 +2309,6 @@ def _get_csv_field(row, *candidates):
         val = row.get(name)
         if val is not None and str(val).strip():
             return str(val).strip()
-        # Try case-insensitive match
         for key in row:
             if key and key.strip().lower() == name.lower():
                 val = row[key]
@@ -2345,7 +2344,16 @@ def _parse_timestamp(value):
         '%Y/%m/%d %H:%M:%S',
         '%m/%d/%Y %H:%M:%S',
         '%d/%m/%Y %H:%M:%S',
+        '%Y-%m-%d %H:%M',
+        '%d-%m-%Y %H:%M:%S',
+        '%d.%m.%Y %H:%M:%S',
+        '%Y.%m.%d %H:%M:%S',
+        '%Y-%m-%dT%H:%M:%S.%f',
+        '%Y-%m-%dT%H:%M:%S.%f%z',
+        '%a %b %d %H:%M:%S %Z %Y',
         '%Y-%m-%d',
+        '%m/%d/%Y',
+        '%d/%m/%Y',
     ]:
         try:
             ts = datetime.strptime(value, fmt)
@@ -2399,11 +2407,13 @@ def import_csv(request):
             )
 
             lat = _safe_float(
-                _get_csv_field(row, 'latitude', 'lat', 'Latitude', 'Lat')
+                _get_csv_field(row, 'latitude', 'lat', 'Latitude', 'Lat',
+                               'position_lat', 'y', 'Y', 'LATITUDE', 'LAT')
             )
             lon = _safe_float(
                 _get_csv_field(row, 'longitude', 'lng', 'lon', 'long',
-                               'Longitude', 'Lng', 'Lon', 'Long')
+                               'Longitude', 'Lng', 'Lon', 'Long',
+                               'position_long', 'x', 'X', 'LONGITUDE', 'LON')
             )
 
             if lat is None or lon is None:
@@ -2411,9 +2421,14 @@ def import_csv(request):
                     f"Missing lat/lon. Columns found: {list(row.keys())}"
                 )
 
+            if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+                raise ValueError(f"Coordinates out of range: lat={lat} lon={lon}")
+
             ts_raw = _get_csv_field(
                 row, 'timestamp', 'time', 'datetime', 'date', 'created_at',
-                'Timestamp', 'Time', 'DateTime', 'Date'
+                'Timestamp', 'Time', 'DateTime', 'Date', 'timestamp_iso',
+                'local_timestamp', 'utc_timestamp', 'time_local', 'date_time',
+                'recorded_at', 'starttime', 'date/time',
             )
             ts = _parse_timestamp(ts_raw)
             if ts is None:
@@ -2426,21 +2441,24 @@ def import_csv(request):
                 timestamp=ts,
                 defaults={
                     'altitude': _safe_float(
-                        _get_csv_field(row, 'altitude', 'alt', 'elevation', 'ele')
+                        _get_csv_field(row, 'altitude', 'alt', 'elevation', 'ele',
+                                       'altitude_m', 'enhanced_altitude', 'gps_altitude')
                     ),
                     'accuracy': _safe_float(
-                        _get_csv_field(row, 'accuracy', 'acc', 'hdop')
+                        _get_csv_field(row, 'accuracy', 'acc', 'hdop', 'horizontal_accuracy',
+                                       'position_accuracy', 'gps_accuracy')
                     ),
                     'speed': _safe_float(
-                        _get_csv_field(row, 'speed', 'vel', 'velocity')
+                        _get_csv_field(row, 'speed', 'vel', 'velocity', 'speed_m_s',
+                                       'enhanced_speed', 'ground_speed', 'speed_ms')
                     ),
                     'battery': _safe_float(
-                        _get_csv_field(row, 'battery', 'batt', 'battery_level')
+                        _get_csv_field(row, 'battery', 'batt', 'battery_level', 'battery_pct')
                     ),
-                    'city': _get_csv_field(row, 'city', 'City') or '',
-                    'state': _get_csv_field(row, 'state', 'State', 'province', 'region') or '',
-                    'country': _get_csv_field(row, 'country', 'Country') or '',
-                    'country_code': _get_csv_field(row, 'country_code', 'countryCode', 'cc') or '',
+                    'city': _get_csv_field(row, 'city', 'City', 'locality') or '',
+                    'state': _get_csv_field(row, 'state', 'State', 'province', 'region', 'administrative_area') or '',
+                    'country': _get_csv_field(row, 'country', 'Country', 'country_name') or '',
+                    'country_code': _get_csv_field(row, 'country_code', 'countryCode', 'cc', 'iso_country') or '',
                 }
             )
             count += 1
@@ -2545,6 +2563,93 @@ def import_gpx(request):
             if first_error is None:
                 first_error = str(e)
             logger.warning(f"GPX import error: {e}")
+
+    result = {"status": "ok", "imported": count, "errors": errors}
+    if first_error and errors > 0:
+        result["first_error"] = first_error
+    return JsonResponse(result)
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def import_json(request):
+    """Import locations from JSON (Google Takeout Location History or OwnTracks export)."""
+    f = request.FILES.get('file')
+    if not f:
+        return JsonResponse({"error": "No file uploaded"}, status=400)
+
+    try:
+        content = f.read().decode('utf-8-sig')
+        data = json.loads(content)
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        return JsonResponse({"error": f"Invalid JSON: {e}"}, status=400)
+
+    override_device_id = request.POST.get('device_id', '').strip()
+    count = 0
+    errors = 0
+    first_error = None
+
+    def _import_one(lat, lon, ts, device_id_val, **kwargs):
+        nonlocal count, errors, first_error
+        try:
+            if lat is None or lon is None:
+                raise ValueError("Missing lat/lon")
+            if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+                raise ValueError(f"Coordinates out of range: {lat}, {lon}")
+            dev_id = override_device_id or device_id_val or 'json-import'
+            device, _ = Device.objects.get_or_create(
+                user=request.user, device_id=dev_id, defaults={'name': dev_id}
+            )
+            Location.objects.get_or_create(
+                device=device, latitude=lat, longitude=lon,
+                timestamp=ts or timezone.now(),
+                defaults=kwargs,
+            )
+            count += 1
+        except Exception as e:
+            errors += 1
+            if first_error is None:
+                first_error = str(e)
+
+    # Google Takeout Records format (new): {"locations": [...], "timelineObjects": [...]}
+    # or {"semanticSegments": [...]}
+    if isinstance(data, dict) and 'locations' in data:
+        for loc in data['locations']:
+            lat_raw = loc.get('latitudeE7') or loc.get('latitude')
+            lon_raw = loc.get('longitudeE7') or loc.get('longitude')
+            lat = float(lat_raw) / 1e7 if lat_raw and abs(float(lat_raw)) > 90 else _safe_float(lat_raw)
+            lon = float(lon_raw) / 1e7 if lon_raw and abs(float(lon_raw)) > 180 else _safe_float(lon_raw)
+            ts_raw = loc.get('timestamp') or loc.get('timestampMs')
+            ts = _parse_timestamp(ts_raw)
+            _import_one(lat, lon, ts, 'google-takeout',
+                        altitude=_safe_float(loc.get('altitude')),
+                        accuracy=_safe_float(loc.get('accuracy') or loc.get('horizontalAccuracy')))
+
+    # OwnTracks JSON array: [{"_type": "location", "lat": ..., "lon": ..., "tst": ...}, ...]
+    elif isinstance(data, list) and data and isinstance(data[0], dict):
+        for loc in data:
+            if loc.get('_type') == 'location' or ('lat' in loc and 'lon' in loc):
+                lat = _safe_float(loc.get('lat') or loc.get('latitude'))
+                lon = _safe_float(loc.get('lon') or loc.get('longitude'))
+                ts_raw = loc.get('tst') or loc.get('timestamp') or loc.get('time')
+                ts = _parse_timestamp(str(ts_raw)) if ts_raw else None
+                device_id_val = str(loc.get('tid') or loc.get('device_id') or 'owntracks')
+                _import_one(lat, lon, ts, device_id_val,
+                            altitude=_safe_float(loc.get('alt') or loc.get('altitude')),
+                            accuracy=_safe_float(loc.get('acc') or loc.get('accuracy')),
+                            speed=_safe_float(loc.get('vel') or loc.get('speed')),
+                            battery=_safe_float(loc.get('batt') or loc.get('battery')))
+            elif 'latitude' in loc or 'lat' in loc:
+                lat = _safe_float(loc.get('latitude') or loc.get('lat'))
+                lon = _safe_float(loc.get('longitude') or loc.get('lon') or loc.get('lng'))
+                ts = _parse_timestamp(str(loc.get('timestamp') or loc.get('time') or ''))
+                _import_one(lat, lon, ts, 'json-import',
+                            altitude=_safe_float(loc.get('altitude') or loc.get('alt')),
+                            accuracy=_safe_float(loc.get('accuracy')),
+                            speed=_safe_float(loc.get('speed')))
+    else:
+        return JsonResponse({"error": "Unrecognized JSON format. Expected Google Takeout {'locations':[...]} or OwnTracks array [{...}]."}, status=400)
 
     result = {"status": "ok", "imported": count, "errors": errors}
     if first_error and errors > 0:
