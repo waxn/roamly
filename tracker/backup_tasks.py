@@ -95,12 +95,12 @@ def _build_pals_data(user):
 
 def _build_backup_json(user):
     """Build the backup JSON data dict for a user (same format as export_backup view)."""
-    from .models import Device, Location, Trip, TripPlace, APIKey
+    from .models import Device, Location, Adventure, AdventurePlace, APIKey
 
     devices = Device.objects.filter(user=user)
     locations = Location.objects.filter(device__user=user).select_related('device').order_by('timestamp')
-    trips = Trip.objects.filter(device__user=user).select_related('device')
-    trip_places = TripPlace.objects.filter(trip__device__user=user).select_related('trip', 'trip__device')
+    trips = Adventure.objects.filter(device__user=user).select_related('device')
+    trip_places = AdventurePlace.objects.filter(adventure__device__user=user).select_related('adventure', 'adventure__device')
     api_keys = APIKey.objects.filter(user=user)
 
     data = {
@@ -143,9 +143,9 @@ def _build_backup_json(user):
         ],
         'trip_places': [
             {
-                'trip_name': tp.trip.name,
-                'trip_device_id': tp.trip.device.device_id,
-                'trip_start_time': tp.trip.start_time,
+                'trip_name': tp.adventure.name,
+                'trip_device_id': tp.adventure.device.device_id,
+                'trip_start_time': tp.adventure.start_time,
                 'name': tp.name,
                 'latitude': tp.latitude,
                 'longitude': tp.longitude,
