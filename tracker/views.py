@@ -1392,6 +1392,28 @@ def update_trip(request, trip_id):
         trip.description = data['description']
     if 'name' in data:
         trip.name = data['name']
+    if 'start_time' in data and data['start_time']:
+        try:
+            start = datetime.fromisoformat(data['start_time'].replace('Z', '+00:00'))
+            trip.start_time = timezone.make_aware(start) if timezone.is_naive(start) else start
+        except (ValueError, TypeError):
+            pass
+    if 'end_time' in data:
+        raw = (data['end_time'] or '').strip()
+        if raw:
+            try:
+                end = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+                trip.end_time = timezone.make_aware(end) if timezone.is_naive(end) else end
+            except (ValueError, TypeError):
+                pass
+        else:
+            trip.end_time = timezone.make_aware(datetime(2099, 12, 31, 23, 59, 59))
+    if 'device_id' in data and data['device_id']:
+        try:
+            device = Device.objects.get(user=request.user, device_id=data['device_id'])
+            trip.device = device
+        except Device.DoesNotExist:
+            pass
     trip.save()
     return JsonResponse({"status": "ok"})
 
