@@ -8,74 +8,131 @@
 {% block robots_meta %}index, follow{% endblock %}
 
 {% block extra_css %}
-.trip-public-layout { display: flex; height: calc(100vh - 60px); }
-.trip-public-map { flex: 1; position: relative; min-width: 0; }
+.pub-layout { display: flex; height: calc(100vh - 56px); }
+.pub-map-area { flex: 1; position: relative; min-width: 0; }
 #public-map { width: 100%; height: 100%; }
-.trip-public-sidebar {
-    width: 360px; background: var(--bg-card); border-left: 1px solid var(--border);
-    display: flex; flex-direction: column; overflow-y: auto;
+
+.pub-sidebar {
+    width: 380px; background: var(--bg-card); border-left: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden;
 }
-.tps-header { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
-.tps-header h2 { font-size: 1.125rem; font-weight: 700; margin: 0; }
-.tps-header .trip-dates { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
-.tps-section { border-bottom: 1px solid var(--border); padding: 0.75rem 1.25rem; }
-.tps-section h3 { font-size: 0.8125rem; font-weight: 700; text-transform: lowercase; margin: 0 0 0.5rem; color: var(--text-muted); }
-.timeline-event {
-    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
-    padding: 0.75rem; margin-bottom: 0.625rem;
+.pub-header {
+    padding: 0.875rem 1.25rem; border-bottom: 1px solid var(--border); flex-shrink: 0;
 }
-.timeline-event-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.375rem; }
-.timeline-avatar {
-    width: 24px; height: 24px; border-radius: 50%; background: var(--primary);
-    color: #fff; display: flex; align-items: center; justify-content: center;
-    font-size: 0.625rem; font-weight: 700; flex-shrink: 0;
+.pub-header h2 { font-size: 1rem; font-weight: 700; margin: 0; }
+.pub-meta { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.125rem; }
+.pub-desc { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.5rem; line-height: 1.5; }
+
+.pub-section { padding: 0.875rem 1.25rem; border-bottom: 1px solid var(--border); }
+.pub-section-label {
+    font-size: 0.6rem; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--text-muted);
+    margin-bottom: 0.625rem;
 }
-.timeline-author { font-size: 0.8125rem; font-weight: 600; }
-.timeline-time { font-size: 0.6875rem; color: var(--text-muted); margin-left: auto; }
-.timeline-text { font-size: 0.8125rem; line-height: 1.4; white-space: pre-wrap; }
-.timeline-photos { display: flex; gap: 4px; margin-top: 0.5rem; flex-wrap: wrap; }
-.timeline-photos img { width: 72px; height: 72px; object-fit: cover; border-radius: 4px; cursor: pointer; }
-.milestone-event {
-    background: rgba(59,130,246,0.07); border: 1px solid rgba(59,130,246,0.25);
-    border-radius: 8px; padding: 0.625rem 0.75rem; margin-bottom: 0.625rem;
+
+.pub-photos-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.pub-photos-grid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 4px; cursor: pointer; }
+
+.pub-event {
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 8px; padding: 0.625rem 0.75rem; margin-bottom: 0.5rem; font-size: 0.8125rem;
+}
+.pub-event-header { display: flex; align-items: center; gap: 0.375rem; margin-bottom: 0.25rem; }
+.pub-event-author { font-weight: 600; font-size: 0.75rem; }
+.pub-event-time { font-size: 0.6875rem; color: var(--text-muted); margin-left: auto; }
+.pub-event-text { line-height: 1.45; white-space: pre-wrap; }
+.pub-event-loc { font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.25rem; }
+.pub-event-photos { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 0.375rem; }
+.pub-event-photos img { width: 64px; height: 64px; object-fit: cover; border-radius: 4px; cursor: pointer; }
+.pub-milestone {
     display: flex; align-items: flex-start; gap: 0.5rem;
+    background: rgba(59,130,246,0.07); border: 1px solid rgba(59,130,246,0.2);
+    border-radius: 8px; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem;
 }
-.milestone-emoji { font-size: 1.375rem; flex-shrink: 0; }
-.milestone-title { font-size: 0.875rem; font-weight: 600; }
-.milestone-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.125rem; }
-.milestone-date { font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.125rem; }
-.member-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; font-size: 0.8125rem; }
+.pub-ms-emoji { font-size: 1.25rem; flex-shrink: 0; }
+.pub-ms-title { font-size: 0.875rem; font-weight: 600; }
+.pub-ms-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.125rem; }
+.pub-ms-date { font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.125rem; }
+
+.pub-comment-input-row { display: flex; gap: 0.375rem; margin-top: 0.375rem; }
+.pub-comment-input-row input {
+    flex: 1; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); font-family: 'Space Grotesk', sans-serif; font-size: 0.75rem;
+    padding: 0.25rem 0.5rem; outline: none;
+}
+.pub-comment-input-row input:focus { border-color: var(--primary); }
+.pub-comment-item { font-size: 0.75rem; margin-top: 0.25rem; color: var(--text-muted); }
+.pub-comment-author { font-weight: 600; color: var(--text); }
+
+/* Name gate modal */
+.name-gate {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    display: flex; align-items: center; justify-content: center; z-index: 3000;
+}
+.name-gate-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 2rem; width: 340px; max-width: 90vw;
+}
+.name-gate-card h3 { font-size: 1.125rem; margin-bottom: 0.5rem; }
+.name-gate-card p { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1rem; line-height: 1.5; }
+.name-chip {
+    display: inline-block; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 20px; padding: 3px 10px; font-size: 0.75rem; cursor: pointer;
+    margin: 0 4px 4px 0; transition: all 0.12s;
+}
+.name-chip:hover { border-color: var(--primary); color: var(--primary); }
+
+/* Popup theme */
+.maplibregl-popup-content {
+    background: var(--bg-card) !important; border: 1px solid var(--border) !important;
+    border-radius: 8px !important; padding: 0.5rem 0.75rem !important;
+    color: var(--text) !important; font-family: 'Space Grotesk', sans-serif !important;
+    font-size: 0.8125rem !important; box-shadow: 0 4px 16px rgba(0,0,0,0.4) !important;
+}
+.maplibregl-popup-tip { border-top-color: var(--bg-card) !important; border-bottom-color: var(--bg-card) !important; }
+.maplibregl-popup-close-button { color: var(--text-muted) !important; }
+
 @media (max-width: 768px) {
-    .trip-public-layout { flex-direction: column; }
-    .trip-public-map { height: 45vh; }
-    .trip-public-sidebar { width: 100%; }
+    .pub-layout { flex-direction: column; }
+    .pub-map-area { height: 45vh; }
+    .pub-sidebar { width: 100%; }
 }
 {% endblock %}
 
 {% block content %}
-<div class="trip-public-layout">
-    <div class="trip-public-map">
+<!-- Name gate -->
+<div class="name-gate" id="name-gate">
+    <div class="name-gate-card">
+        <h3>who are you?</h3>
+        <p>enter a name to leave comments on this adventure. it's saved locally so you only need to do this once.</p>
+        <div id="name-chips" style="margin-bottom: 0.75rem;"></div>
+        <input type="text" id="gate-name-input" class="form-control" placeholder="your name" style="margin-bottom:0.75rem;"
+               onkeydown="if(event.key==='Enter') confirmName()">
+        <button class="btn btn-primary" style="width:100%;" onclick="confirmName()">continue</button>
+    </div>
+</div>
+
+<div class="pub-layout">
+    <div class="pub-map-area">
         <div id="public-map"></div>
     </div>
-    <div class="trip-public-sidebar">
-        <div class="tps-header">
-            <h2 id="pub-trip-name">{{ trip.name }}</h2>
-            <div class="trip-dates" id="pub-trip-dates"></div>
+    <div class="pub-sidebar">
+        <div class="pub-header">
+            <h2>{{ trip.name }}</h2>
+            <div class="pub-meta" id="pub-meta"></div>
             {% if trip.description %}
-            <div style="font-size:0.8125rem;color:var(--text-muted);margin-top:0.375rem;">{{ trip.description }}</div>
+            <div class="pub-desc">{{ trip.description }}</div>
             {% endif %}
         </div>
 
-        <div class="tps-section" id="pub-members-section" style="display:none;">
-            <h3>members</h3>
-            <div id="pub-members-list"></div>
+        <div class="pub-section" id="pub-photos-section" style="display:none;">
+            <div class="pub-section-label">photos</div>
+            <div class="pub-photos-grid" id="pub-photos-grid"></div>
         </div>
 
-        <div class="tps-section">
-            <h3>timeline</h3>
-            <div id="pub-timeline-list">
-                <div style="color:var(--text-muted);font-size:0.8125rem;">loading...</div>
-            </div>
+        <div class="pub-section">
+            <div class="pub-section-label">journal</div>
+            <div id="pub-timeline-list" style="font-size:0.8125rem;color:var(--text-muted);">loading...</div>
         </div>
     </div>
 </div>
@@ -84,91 +141,244 @@
 {% block extra_js %}
 <script>
 const SLUG = '{{ slug }}';
+const NAMES_KEY = 'roamly_visitor_names';
+const CURRENT_NAME_KEY = 'roamly_visitor_current';
+let visitorName = localStorage.getItem(CURRENT_NAME_KEY) || '';
+
+// ── Name gate ──────────────────────────────────────────────
+
+function getStoredNames() {
+    try { return JSON.parse(localStorage.getItem(NAMES_KEY) || '[]'); } catch { return []; }
+}
+function saveVisitorName(name) {
+    const names = getStoredNames().filter(n => n !== name);
+    names.unshift(name);
+    localStorage.setItem(NAMES_KEY, JSON.stringify(names.slice(0, 8)));
+    localStorage.setItem(CURRENT_NAME_KEY, name);
+    visitorName = name;
+}
+function confirmName() {
+    const val = document.getElementById('gate-name-input').value.trim();
+    if (!val) { document.getElementById('gate-name-input').focus(); return; }
+    saveVisitorName(val);
+    document.getElementById('name-gate').style.display = 'none';
+}
+function pickName(name) {
+    document.getElementById('gate-name-input').value = name;
+    confirmName();
+}
+
+// Show gate or auto-dismiss if name known
+window.addEventListener('DOMContentLoaded', () => {
+    const names = getStoredNames();
+    const chipsEl = document.getElementById('name-chips');
+    if (names.length) {
+        chipsEl.innerHTML = names.map(n =>
+            `<span class="name-chip" onclick="pickName(${JSON.stringify(escHtml(n))})">${escHtml(n)}</span>`
+        ).join('');
+    }
+    if (visitorName) {
+        document.getElementById('name-gate').style.display = 'none';
+    } else {
+        document.getElementById('gate-name-input').focus();
+    }
+});
+
+// ── Map ────────────────────────────────────────────────────
+
+function escHtml(s) {
+    if (!s) return '';
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 
 const mapStyles = {
-    Streets: {
-        version: 8, glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-        sources: { osm: { type: 'raster', tiles: ['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'], tileSize: 256 }},
-        layers: [{ id: 'osm', type: 'raster', source: 'osm' }]
-    }
+    Streets: { version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+        sources:{osm:{type:'raster',tiles:['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'],tileSize:256}},
+        layers:[{id:'osm',type:'raster',source:'osm'}] },
+    Dark: { version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+        sources:{carto:{type:'raster',tiles:['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'],tileSize:256}},
+        layers:[{id:'carto',type:'raster',source:'carto'}] },
+    Satellite: { version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+        sources:{esri:{type:'raster',tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],tileSize:256}},
+        layers:[{id:'esri',type:'raster',source:'esri'}] },
 };
 
-const map = new maplibregl.Map({
-    container: 'public-map', style: mapStyles.Streets, center: [0, 20], zoom: 2
-});
-map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
+const _showHeatmap   = localStorage.getItem('roamly_show_heatmap') || 'on';
+const _heatIntensity = localStorage.getItem('roamly_heatmap_intensity') || 'medium';
+const _dotSizePref   = localStorage.getItem('roamly_dot_size') || 'medium';
+const _speedGradient = localStorage.getItem('roamly_speed_gradient') || 'on';
+const _DOT_SIZES = { small:[8,2,12,4,16,8], medium:[8,3,12,6,16,12], large:[8,5,12,9,16,18] };
+const _HEAT_INT  = { low:[0,0.2,13,0.7], medium:[0,0.4,13,1.4], high:[0,0.8,13,2.5] };
+const _dotArgs  = _DOT_SIZES[_dotSizePref] || _DOT_SIZES.medium;
+const _heatArgs = _HEAT_INT[_heatIntensity] || _HEAT_INT.medium;
+const ADV_HEATMAP_COLOR = ['interpolate',['linear'],['heatmap-density'],
+    0,'rgba(33,102,172,0)', 0.2,'rgb(103,169,207)', 0.4,'rgb(209,229,240)',
+    0.6,'rgb(253,219,199)', 0.8,'rgb(239,138,98)', 1,'rgb(178,24,43)'];
 
-function escHtml(str) {
-    if (!str) return '';
-    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function _speedColorExpr() {
+    return ['case',['<=',['coalesce',['get','speed'],0],1.0],'#3b82f6',
+        ['interpolate',['linear'],['get','speed'],1.0,'#3b82f6',5.0,'#22c55e',15.0,'#f59e0b',30.0,'#ef4444']];
 }
+
+const map = new maplibregl.Map({ container:'public-map', style:mapStyles.Streets, center:[0,20], zoom:2 });
+map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
 map.on('load', () => {
     fetch(`/api/trip/${SLUG}/detail/`)
         .then(r => r.json())
         .then(data => {
-            document.getElementById('pub-trip-name').textContent = data.name;
-            const start = new Date(data.start_time).toLocaleDateString();
-            const end = new Date(data.end_time).toLocaleDateString();
-            document.getElementById('pub-trip-dates').textContent = `${start} – ${end} · ${data.locations.length} points`;
+            const startD = new Date(data.start_time);
+            const endD   = new Date(data.end_time);
+            const openEnded = endD.getFullYear() >= 2099;
+            const startStr = startD.toLocaleDateString([], {month:'short',day:'numeric',year:'numeric'});
+            const endStr   = openEnded ? 'ongoing' : endD.toLocaleDateString([], {month:'short',day:'numeric',year:'numeric'});
+            const pts = (data.total_location_count || data.locations.length).toLocaleString();
+            document.getElementById('pub-meta').textContent = `${startStr} – ${endStr} · ${pts} pts`;
 
-            if (data.members && data.members.length) {
-                document.getElementById('pub-members-section').style.display = '';
-                document.getElementById('pub-members-list').innerHTML = data.members.map(m =>
-                    `<div class="member-item"><div class="timeline-avatar">${m.username.charAt(0).toUpperCase()}</div> ${escHtml(m.username)} <span style="color:var(--text-muted);font-size:0.6875rem;">(${m.role})</span></div>`
-                ).join('');
-            }
+            if (!data.locations.length) return;
+            const ADV_MAP_LIMIT = 20000;
+            const smallAdv = data.locations.length < ADV_MAP_LIMIT;
+            const features = data.locations.map(l => ({
+                type:'Feature', geometry:{type:'Point',coordinates:[l.lng,l.lat]},
+                properties:{timestamp:l.timestamp,city:l.city,country:l.country,speed:l.speed}
+            }));
+            const coords = data.locations.map(l => [l.lng, l.lat]);
 
-            if (data.locations.length) {
-                const coords = data.locations.map(l => [l.lng, l.lat]);
-                map.addSource('trip-line', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }}});
-                map.addLayer({ id: 'trip-line', type: 'line', source: 'trip-line', paint: { 'line-color': '#3b82f6', 'line-width': 3, 'line-opacity': 0.8 }});
-                const features = data.locations.map(l => ({
-                    type: 'Feature', geometry: { type: 'Point', coordinates: [l.lng, l.lat] }, properties: l
-                }));
-                map.addSource('trip-points', { type: 'geojson', data: { type: 'FeatureCollection', features }});
-                map.addLayer({ id: 'trip-points', type: 'circle', source: 'trip-points',
-                    paint: { 'circle-color': '#3b82f6', 'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 2, 12, 4], 'circle-stroke-width': 1, 'circle-stroke-color': 'rgba(255,255,255,0.6)' }
+            map.addSource('pub-pts', {type:'geojson', data:{type:'FeatureCollection',features}});
+
+            if (_showHeatmap === 'on') {
+                map.addLayer({ id:'pub-heat', type:'heatmap', source:'pub-pts',
+                    maxzoom: smallAdv ? 16 : 13,
+                    paint: { 'heatmap-intensity':['interpolate',['linear'],['zoom'],..._heatArgs],
+                        'heatmap-radius':['interpolate',['linear'],['zoom'],0,6,13,26],
+                        'heatmap-opacity':['interpolate',['linear'],['zoom'],0,0.75,11,0.6,13,0.1],
+                        'heatmap-color': ADV_HEATMAP_COLOR }
                 });
-                const lngs = coords.map(c => c[0]), lats = coords.map(c => c[1]);
-                map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 60 });
             }
+            map.addLayer({ id:'pub-dots', type:'circle', source:'pub-pts',
+                minzoom: smallAdv ? 0 : 8,
+                paint: { 'circle-color': _speedGradient==='on' ? _speedColorExpr() : '#3b82f6',
+                    'circle-radius':['interpolate',['linear'],['zoom'],..._dotArgs],
+                    'circle-stroke-width':1, 'circle-stroke-color':'rgba(255,255,255,0.6)',
+                    'circle-opacity': smallAdv ? 1 : ['interpolate',['linear'],['zoom'],8,0,10,1] }
+            });
+
+            if (smallAdv && coords.length > 1) {
+                const lineFeats = [];
+                const GAP = 20 * 60 * 1000;
+                let seg = [coords[0]];
+                for (let i = 1; i < data.locations.length; i++) {
+                    const gap = new Date(data.locations[i].timestamp) - new Date(data.locations[i-1].timestamp);
+                    if (gap > GAP) { if (seg.length > 1) lineFeats.push({type:'Feature',geometry:{type:'LineString',coordinates:seg}}); seg=[coords[i]]; }
+                    else seg.push(coords[i]);
+                }
+                if (seg.length > 1) lineFeats.push({type:'Feature',geometry:{type:'LineString',coordinates:seg}});
+                map.addSource('pub-line', {type:'geojson',data:{type:'FeatureCollection',features:lineFeats}});
+                map.addLayer({id:'pub-line', type:'line', source:'pub-line',
+                    paint:{'line-color':'#3b82f6','line-width':2,'line-opacity':0.55}});
+            }
+
+            map.on('click','pub-dots', e => {
+                const p = e.features[0].properties;
+                const ts = new Date(p.timestamp);
+                const timeStr = ts.toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+                const place = [p.city,p.country].filter(Boolean).join(', ');
+                new maplibregl.Popup({offset:10,closeButton:false})
+                    .setLngLat(e.features[0].geometry.coordinates.slice())
+                    .setHTML(`<div style="font-weight:600;">${timeStr}</div>`+(place?`<div style="color:var(--text-muted);font-size:.75rem;">${escHtml(place)}</div>`:''))
+                    .addTo(map);
+            });
+            map.on('mouseenter','pub-dots',()=>map.getCanvas().style.cursor='pointer');
+            map.on('mouseleave','pub-dots',()=>map.getCanvas().style.cursor='');
+
+            const lngs=coords.map(c=>c[0]), lats=coords.map(c=>c[1]);
+            map.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]],{padding:60});
         });
 
     fetch(`/api/trip/${SLUG}/timeline/`)
         .then(r => r.json())
         .then(data => {
-            const list = document.getElementById('pub-timeline-list');
+            const allPhotos = [];
+            const listEl = document.getElementById('pub-timeline-list');
+
             if (!data.events.length) {
-                list.innerHTML = '<div style="color:var(--text-muted);font-size:0.8125rem;">no timeline events yet</div>';
+                listEl.innerHTML = '<div style="color:var(--text-muted);">no journal entries yet</div>';
                 return;
             }
-            list.innerHTML = data.events.map(ev => {
+
+            const pinSvg = `<svg width="9" height="12" viewBox="0 0 28 36" fill="none"><path d="M14 2C8.48 2 4 6.48 4 12c0 7.5 10 22 10 22s10-14.5 10-22c0-5.52-4.48-10-10-10z" fill="var(--primary)" opacity=".8"/><circle cx="14" cy="12" r="4" fill="white"/></svg>`;
+
+            listEl.innerHTML = data.events.map(ev => {
                 if (ev.type === 'milestone') {
-                    return `<div class="milestone-event">
-                        <div class="milestone-emoji">${ev.emoji}</div>
-                        <div>
-                            <div class="milestone-title">${escHtml(ev.title)}</div>
-                            ${ev.description ? `<div class="milestone-desc">${escHtml(ev.description)}</div>` : ''}
-                            <div class="milestone-date">${new Date(ev.date).toLocaleDateString()}</div>
-                        </div>
+                    return `<div class="pub-milestone">
+                        <div class="pub-ms-emoji">${ev.emoji}</div>
+                        <div><div class="pub-ms-title">${escHtml(ev.title)}</div>
+                        ${ev.description?`<div class="pub-ms-desc">${escHtml(ev.description)}</div>`:''}
+                        <div class="pub-ms-date">${new Date(ev.date).toLocaleDateString([],{month:'short',day:'numeric',year:'numeric'})}</div></div>
                     </div>`;
                 }
-                const photos = (ev.photos || []).map(p =>
-                    `<img src="${p.thumb}" onclick="window.open('${p.url}','_blank')" alt="">`
-                ).join('');
-                return `<div class="timeline-event">
-                    <div class="timeline-event-header">
-                        <div class="timeline-avatar">${ev.author.charAt(0).toUpperCase()}</div>
-                        <span class="timeline-author">${escHtml(ev.author)}</span>
-                        <span class="timeline-time">${new Date(ev.created_at).toLocaleString()}</span>
+                const photos = (ev.photos||[]).map(p => { allPhotos.push(p); return `<img src="${p.thumb}" onclick="window.open('${p.url}','_blank')" alt="" loading="lazy">`; }).join('');
+                const time = new Date(ev.created_at).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+                const locHtml = ev.location_name ? `<div class="pub-event-loc">${pinSvg} ${escHtml(ev.location_name)}</div>` : '';
+                return `<div class="pub-event" id="pub-blurb-${ev.id}">
+                    <div class="pub-event-header">
+                        <span class="pub-event-author">${escHtml(ev.author)}</span>
+                        <span class="pub-event-time">${time}</span>
                     </div>
-                    <div class="timeline-text">${escHtml(ev.text)}</div>
-                    ${ev.location_name ? `<div style="font-size:0.6875rem;color:var(--text-muted);margin-top:0.25rem;">📍 ${escHtml(ev.location_name)}</div>` : ''}
-                    ${photos ? `<div class="timeline-photos">${photos}</div>` : ''}
+                    ${ev.text?`<div class="pub-event-text">${escHtml(ev.text)}</div>`:''}
+                    ${locHtml}
+                    ${photos?`<div class="pub-event-photos">${photos}</div>`:''}
+                    <div id="pub-comments-${ev.id}" style="margin-top:0.375rem;"></div>
+                    <div class="pub-comment-input-row">
+                        <input type="text" placeholder="add a comment..." id="pub-ci-${ev.id}"
+                            onkeydown="if(event.key==='Enter')postPubComment(${ev.id})">
+                        <button class="btn btn-primary btn-sm" onclick="postPubComment(${ev.id})">post</button>
+                    </div>
                 </div>`;
             }).join('');
+
+            // load comments for each blurb
+            data.events.filter(e=>e.type==='blurb').forEach(ev => loadPubComments(ev.id));
+
+            if (allPhotos.length) {
+                document.getElementById('pub-photos-section').style.display = '';
+                document.getElementById('pub-photos-grid').innerHTML = allPhotos.map(p =>
+                    `<img src="${p.thumb}" onclick="window.open('${p.url}','_blank')" alt="" loading="lazy">`
+                ).join('');
+            }
         });
 });
+
+function loadPubComments(blurbId) {
+    fetch(`/api/pal/${SLUG}/blurbs/${blurbId}/comments/`).catch(()=>{})
+        .then(r => r && r.ok ? r.json() : null)
+        .then(data => {
+            if (!data || !data.comments) return;
+            const el = document.getElementById(`pub-comments-${blurbId}`);
+            if (!el || !data.comments.length) return;
+            el.innerHTML = data.comments.map(c =>
+                `<div class="pub-comment-item"><span class="pub-comment-author">${escHtml(c.author)}</span> ${escHtml(c.text)}</div>`
+            ).join('');
+        });
+}
+
+function postPubComment(blurbId) {
+    if (!visitorName) { document.getElementById('name-gate').style.display='flex'; return; }
+    const input = document.getElementById(`pub-ci-${blurbId}`);
+    const text = input.value.trim();
+    if (!text) return;
+    fetch(`/api/trip/${SLUG}/blurbs/${blurbId}/comments/create/`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-CSRFToken': getCsrf()},
+        body: JSON.stringify({text, guest_name: visitorName})
+    }).then(r=>r.json()).then(d => {
+        if (d.status==='ok') { input.value=''; loadPubComments(blurbId); }
+    });
+}
+
+function getCsrf() {
+    const m = document.cookie.match(/csrftoken=([^;]+)/);
+    return m ? m[1] : '';
+}
 </script>
 {% endblock %}
