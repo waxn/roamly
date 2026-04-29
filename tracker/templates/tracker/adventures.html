@@ -172,6 +172,24 @@
 .adv-pin-del:hover { color: var(--danger); }
 .adv-no-pins { font-size: 0.75rem; color: var(--text-muted); }
 
+.member-item {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.25rem 0; font-size: 0.8125rem;
+}
+.member-avatar {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--primary); color: #fff; font-size: 0.75rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: hidden;
+}
+.member-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.member-name { flex: 1; font-weight: 600; }
+.member-role { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+.member-remove-btn {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    padding: 2px 6px; border-radius: 3px; font-size: 0.8rem; transition: color 0.12s;
+}
+.member-remove-btn:hover { color: var(--danger); }
+
 .adv-compose {
     background: var(--bg-input); border: 1px solid var(--border);
     border-radius: 8px; padding: 0.625rem 0.75rem; margin-bottom: 0.5rem;
@@ -480,6 +498,20 @@
                 <button class="btn btn-outline btn-sm" onclick="loadMoreTimeline()">load more</button>
             </div>
             <button class="adv-inline-btn" style="display:block;margin-top:0.625rem;" onclick="toggleMilestoneForm()">+ milestone</button>
+        </div>
+
+        <!-- Members -->
+        <div class="adv-doc-section" id="members-section">
+            <div class="adv-section-label">members</div>
+            <div id="members-list" style="margin-bottom:0.5rem;"></div>
+            <div id="add-member-area" style="display:none;">
+                <div style="display:flex;gap:0.375rem;margin-top:0.25rem;">
+                    <input type="text" id="add-member-input" class="form-control" placeholder="username" style="font-size:0.8125rem;padding:0.25rem 0.5rem;"
+                        onkeydown="if(event.key==='Enter')addMember()">
+                    <button class="btn btn-outline btn-sm" onclick="addMember()">add</button>
+                </div>
+                <div id="add-member-error" style="font-size:0.75rem;color:var(--danger);margin-top:0.25rem;"></div>
+            </div>
         </div>
 
         <!-- Options -->
@@ -805,6 +837,7 @@ function loadTripDetail(id) {
             document.getElementById('trip-notes').value = data.description || '';
             renderTripOnMap(data);
             renderPlaces(data.places || []);
+            renderMembers(data.members || []);
             renderSharingOptions(data);
             timelinePage = 1; timelineHasMore = false;
             document.getElementById('timeline-list').innerHTML = '';
@@ -824,16 +857,18 @@ const ADV_HEATMAP_COLOR = [
     1, 'rgb(178,24,43)'
 ];
 
+const MEMBER_COLORS = ['#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
+
 function renderTripOnMap(data) {
     if (!tripMap || !data.locations.length) { hideTripMapLoading(); return; }
 
-    // Remove old sources/layers
-    ['adv-heat', 'adv-dots', 'adv-line', 'place-circles', 'place-markers', 'place-labels'].forEach(id => {
-        if (tripMap.getLayer(id)) tripMap.removeLayer(id);
-    });
-    ['adv-pts', 'adv-line', 'place-circles', 'place-markers'].forEach(id => {
-        if (tripMap.getSource(id)) tripMap.removeSource(id);
-    });
+    // Remove old sources/layers (including any previous member tracks)
+    tripMap.getStyle().layers
+        .filter(l => l.id.startsWith('member-') || ['adv-heat','adv-dots','adv-line','place-circles','place-markers','place-labels'].includes(l.id))
+        .forEach(l => { if (tripMap.getLayer(l.id)) tripMap.removeLayer(l.id); });
+    Object.keys(tripMap.getStyle().sources || {})
+        .filter(id => id.startsWith('member-') || ['adv-pts','adv-line','place-circles','place-markers'].includes(id))
+        .forEach(id => { if (tripMap.getSource(id)) tripMap.removeSource(id); });
 
     const smallAdventure = data.locations.length < ADV_MAP_LIMIT;
     const features = data.locations.map(l => ({
@@ -899,12 +934,67 @@ function renderTripOnMap(data) {
     // Place markers and radius circles
     renderPlaceMarkers(data.places || []);
 
-    // Fit bounds
-    const lngs = coords.map(c => c[0]);
-    const lats = coords.map(c => c[1]);
+    // Member tracks — one source+layer per member with palette color
+    const memberEntries = Object.entries(data.member_locations || {});
+    let allCoords = [...coords];
+    memberEntries.forEach(([username, locs], i) => {
+        const color = MEMBER_COLORS[i % MEMBER_COLORS.length];
+        const srcId = `member-pts-${i}`;
+        const dotId = `member-dots-${i}`;
+        const lineId = `member-line-${i}`;
+        const memberFeatures = locs.map(l => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [l.lng, l.lat] },
+            properties: { timestamp: l.timestamp, speed: l.speed, member: username }
+        }));
+        const memberCoords = locs.map(l => [l.lng, l.lat]);
+        allCoords = allCoords.concat(memberCoords);
+        tripMap.addSource(srcId, { type: 'geojson', data: { type: 'FeatureCollection', features: memberFeatures } });
+        tripMap.addLayer({
+            id: dotId, type: 'circle', source: srcId,
+            minzoom: memberCoords.length < ADV_MAP_LIMIT ? 0 : _detailZoom,
+            paint: {
+                'circle-color': color,
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], ..._dotArgs],
+                'circle-stroke-width': 1, 'circle-stroke-color': 'rgba(255,255,255,0.6)',
+            }
+        });
+        if (memberCoords.length > 1) {
+            const lineFeats = [];
+            let seg = [memberCoords[0]];
+            for (let j = 1; j < locs.length; j++) {
+                const gap = new Date(locs[j].timestamp) - new Date(locs[j-1].timestamp);
+                if (gap > _lineGapMs) { if (seg.length > 1) lineFeats.push({type:'Feature',geometry:{type:'LineString',coordinates:seg}}); seg=[memberCoords[j]]; }
+                else seg.push(memberCoords[j]);
+            }
+            if (seg.length > 1) lineFeats.push({type:'Feature',geometry:{type:'LineString',coordinates:seg}});
+            if (lineFeats.length) {
+                tripMap.addSource(lineId, { type: 'geojson', data: { type: 'FeatureCollection', features: lineFeats } });
+                tripMap.addLayer({ id: lineId, type: 'line', source: lineId,
+                    paint: { 'line-color': color, 'line-width': 2, 'line-opacity': 0.55 } });
+            }
+        }
+        // Popup for member dots
+        tripMap.on('click', dotId, (e) => {
+            if (placingMode) return;
+            const props = e.features[0].properties;
+            const ts = new Date(props.timestamp);
+            const timeStr = ts.toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+            new maplibregl.Popup({ offset: 10, closeButton: false })
+                .setLngLat(e.features[0].geometry.coordinates.slice())
+                .setHTML(`<div style="font-weight:600;font-size:0.8125rem;">${escHtml(props.member)}</div><div style="color:var(--text-muted);font-size:0.75rem;">${timeStr}</div>`)
+                .addTo(tripMap);
+        });
+        tripMap.on('mouseenter', dotId, () => { if (!placingMode) tripMap.getCanvas().style.cursor = 'pointer'; });
+        tripMap.on('mouseleave', dotId, () => { if (!placingMode) tripMap.getCanvas().style.cursor = ''; });
+    });
+
+    // Fit bounds including all member tracks
+    const allLngs = allCoords.map(c => c[0]);
+    const allLats = allCoords.map(c => c[1]);
     tripMap.fitBounds([
-        [Math.min(...lngs), Math.min(...lats)],
-        [Math.max(...lngs), Math.max(...lats)]
+        [Math.min(...allLngs), Math.min(...allLats)],
+        [Math.max(...allLngs), Math.max(...allLats)]
     ], { padding: 60 });
 
     tripMap.once('idle', hideTripMapLoading);

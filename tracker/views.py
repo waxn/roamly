@@ -1344,7 +1344,9 @@ def trip_detail(request, trip_id):
         })
 
     is_creator = trip.device.user == request.user or trip.creator == request.user
+    owner_user = trip.device.user
     members = []
+    member_locations = {}
     for m in trip.members.select_related('user'):
         members.append({
             "user_id": m.user.id,
@@ -1352,6 +1354,20 @@ def trip_detail(request, trip_id):
             "role": m.role,
             "avatar": _get_user_avatar(m.user),
         })
+        if m.user != owner_user:
+            member_locs = list(
+                Location.objects.filter(
+                    device__user=m.user,
+                    timestamp__gte=trip.start_time,
+                    timestamp__lte=trip.end_time,
+                ).order_by('timestamp')[:LOCATION_LIMIT]
+            )
+            if member_locs:
+                member_locations[m.user.username] = [{
+                    "lat": l.latitude, "lng": l.longitude,
+                    "timestamp": l.timestamp.isoformat(),
+                    "speed": l.speed,
+                } for l in member_locs]
 
     return JsonResponse({
         "id": trip.id,
@@ -1367,6 +1383,7 @@ def trip_detail(request, trip_id):
         "is_public": bool(trip.public_slug),
         "public_slug": trip.public_slug,
         "members": members,
+        "member_locations": member_locations,
     })
 
 
