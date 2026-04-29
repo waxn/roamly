@@ -511,11 +511,17 @@ const _HEAT_INTENSITY = { low:[0,0.2,13,0.7], medium:[0,0.4,13,1.4], high:[0,0.8
 const _dotArgs  = _DOT_SIZES[_dotSizePref] || _DOT_SIZES.medium;
 const _heatArgs = _HEAT_INTENSITY[_heatIntensity] || _HEAT_INTENSITY.medium;
 
+// Identical to speedColorExpr in map.html — stationary ≤1 m/s uses primary, moving interpolates
 function _speedColorExpr() {
-    return ['case', ['!', ['has', 'speed']], '#3b82f6',
-        ['<', ['to-number', ['get', 'speed']], 0.5], '#3b82f6',
-        ['interpolate', ['linear'], ['to-number', ['get', 'speed']],
-            0.5, '#3b82f6', 3, '#22c55e', 8, '#f59e0b', 15, '#ef4444'
+    return [
+        'case',
+        ['<=', ['coalesce', ['get', 'speed'], 0], 1.0],
+        '#3b82f6',
+        ['interpolate', ['linear'], ['get', 'speed'],
+            1.0, '#3b82f6',
+            5.0, '#22c55e',
+            15.0, '#f59e0b',
+            30.0, '#ef4444'
         ]
     ];
 }
@@ -811,7 +817,7 @@ function renderTripOnMap(data) {
 
     tripMap.addSource('adv-pts', { type: 'geojson', data: { type: 'FeatureCollection', features } });
 
-    // Heatmap — respects roamly_show_heatmap and roamly_heatmap_intensity settings
+    // Heatmap — same paint as main map, extended maxzoom for small adventures
     if (_showHeatmap === 'on') {
         tripMap.addLayer({
             id: 'adv-heat', type: 'heatmap', source: 'adv-pts',
@@ -819,9 +825,7 @@ function renderTripOnMap(data) {
             paint: {
                 'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], ..._heatArgs],
                 'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 6, 13, 26],
-                'heatmap-opacity': smallAdventure
-                    ? ['interpolate', ['linear'], ['zoom'], 0, 0.8, 10, 0.5, 14, 0.05]
-                    : ['interpolate', ['linear'], ['zoom'], 0, 0.8, 11, 0.5, 13, 0.1],
+                'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.75, 11, 0.6, 13, 0.1],
                 'heatmap-color': ADV_HEATMAP_COLOR,
             }
         });
