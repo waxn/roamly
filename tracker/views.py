@@ -1851,6 +1851,49 @@ def trip_public_timeline_api(request, slug):
     return JsonResponse({'events': events})
 
 
+def trip_public_blurb_comments(request, slug, blurb_id):
+    trip = get_object_or_404(Adventure, public_slug=slug)
+    blurb = get_object_or_404(AdventureBlurb, id=blurb_id, adventure=trip)
+    comments = []
+    for c in blurb.comments.select_related('author').order_by('created_at'):
+        author = c.author.username if c.author else (c.guest_name or 'guest')
+        comments.append({
+            'id': c.id,
+            'author': author,
+            'is_guest': c.author is None,
+            'text': c.text,
+            'created_at': c.created_at.isoformat(),
+        })
+    return JsonResponse({'comments': comments})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_public_create_comment(request, slug, blurb_id):
+    trip = get_object_or_404(Adventure, public_slug=slug)
+    blurb = get_object_or_404(AdventureBlurb, id=blurb_id, adventure=trip)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    text = data.get('text', '').strip()
+    name = data.get('guest_name', '').strip()
+    if not text:
+        return JsonResponse({"error": "Text required"}, status=400)
+    if not name:
+        return JsonResponse({"error": "Name required"}, status=400)
+    if len(name) > 100:
+        return JsonResponse({"error": "Name too long"}, status=400)
+    comment = AdventureComment.objects.create(blurb=blurb, author=None, guest_name=name, text=text)
+    return JsonResponse({"status": "ok", "comment": {
+        'id': comment.id,
+        'author': name,
+        'is_guest': True,
+        'text': text,
+        'created_at': comment.created_at.isoformat(),
+    }})
+
+
 def trip_public_view(request, slug):
     trip = get_object_or_404(Adventure, public_slug=slug)
     description = trip.description or f'An adventure from {trip.start_time.strftime("%b %d")} to {trip.end_time.strftime("%b %d, %Y")} on Roamly.'

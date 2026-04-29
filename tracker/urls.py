@@ -71,6 +71,8 @@ urlpatterns = [
     # Public trip API
     path('api/trip/<slug:slug>/detail/', views.trip_public_detail_api, name='trip_public_detail_api'),
     path('api/trip/<slug:slug>/timeline/', views.trip_public_timeline_api, name='trip_public_timeline_api'),
+    path('api/trip/<slug:slug>/blurbs/<int:blurb_id>/comments/', views.trip_public_blurb_comments, name='trip_public_blurb_comments'),
+    path('api/trip/<slug:slug>/blurbs/<int:blurb_id>/comments/create/', views.trip_public_create_comment, name='trip_public_create_comment'),
 
     # Geocoding
     path('api/geocode/', views.geocode_api, name='geocode_api'),

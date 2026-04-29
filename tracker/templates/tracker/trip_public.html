@@ -350,7 +350,7 @@ map.on('load', () => {
 });
 
 function loadPubComments(blurbId) {
-    fetch(`/api/pal/${SLUG}/blurbs/${blurbId}/comments/`).catch(()=>{})
+    fetch(`/api/trip/${SLUG}/blurbs/${blurbId}/comments/`).catch(()=>{})
         .then(r => r && r.ok ? r.json() : null)
         .then(data => {
             if (!data || !data.comments) return;
