@@ -420,8 +420,8 @@
         <div class="adv-doc-section">
             <div class="adv-section-label">
                 photos
-                <label class="adv-inline-btn" style="cursor:pointer;">
-                    + add
+                <label class="adv-inline-btn" style="cursor:pointer;display:flex;align-items:center;gap:3px;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> add
                     <input type="file" accept="image/*" multiple style="display:none;" id="adv-photo-input" onchange="uploadAdventurePhotos(this)">
                 </label>
             </div>
@@ -451,10 +451,10 @@
                 <textarea id="compose-text" placeholder="what happened?..."></textarea>
                 <div class="adv-compose-row">
                     <label class="adv-compose-tool" style="cursor:pointer;" title="add photos">
-                        📷
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
                         <input type="file" id="compose-photos" accept="image/*" multiple style="display:none;" onchange="previewPhotos(this)">
                     </label>
-                    <button class="adv-compose-tool" id="compose-pin-btn" onclick="startBlurbPinMode()" title="pin location on map">📍</button>
+                    <button class="adv-compose-tool" id="compose-pin-btn" onclick="startBlurbPinMode()" title="pin location on map"><svg width="13" height="17" viewBox="0 0 28 36" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M14 2C8.48 2 4 6.48 4 12c0 7.5 10 22 10 22s10-14.5 10-22c0-5.52-4.48-10-10-10z" fill="currentColor" opacity=".9"/><circle cx="14" cy="12" r="4" fill="white"/></svg></button>
                     <span class="adv-compose-loc" id="compose-location-display"></span>
                     <button class="adv-compose-tool" id="compose-clear-loc" onclick="clearComposeLocation()" style="display:none;">✕</button>
                     <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="submitBlurb()">post</button>
@@ -1343,7 +1343,7 @@ function renderTimelineEvent(ev) {
         `<img src="${p.thumb}" onclick="window.open('${p.url}','_blank')" alt="" loading="lazy">`
     ).join('');
     const delBtn = ev.can_delete ? `<button class="adv-event-del" onclick="deleteBlurb(${ev.id})">&times;</button>` : '';
-    const locHtml = ev.location_name ? `<div class="adv-event-loc">📍 ${escHtml(ev.location_name)}</div>` : '';
+    const locHtml = ev.location_name ? `<div class="adv-event-loc"><svg width="10" height="13" viewBox="0 0 28 36" fill="none"><path d="M14 2C8.48 2 4 6.48 4 12c0 7.5 10 22 10 22s10-14.5 10-22c0-5.52-4.48-10-10-10z" fill="var(--primary)" opacity=".8"/><circle cx="14" cy="12" r="4" fill="white"/></svg> ${escHtml(ev.location_name)}</div>` : '';
     const textHtml = ev.text ? `<div class="adv-event-text">${escHtml(ev.text)}</div>` : '';
     return `<div class="adv-timeline-event" id="blurb-${ev.id}">
         <div class="adv-event-header">
