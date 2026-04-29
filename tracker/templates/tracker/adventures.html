@@ -942,11 +942,23 @@ function renderPlaceMarkers(places) {
         }
     });
 
-    // Center markers
+    // Register SVG pin icon if not already loaded
+    if (!tripMap.hasImage('adv-pin')) {
+        const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
+            <path d="M14 2C8.48 2 4 6.48 4 12c0 7.5 10 22 10 22s10-14.5 10-22c0-5.52-4.48-10-10-10z"
+                fill="#22c55e" stroke="#fff" stroke-width="1.5"/>
+            <circle cx="14" cy="12" r="4" fill="#fff"/>
+        </svg>`;
+        const img = new Image(28, 36);
+        img.onload = () => { if (!tripMap.hasImage('adv-pin')) tripMap.addImage('adv-pin', img, { pixelRatio: 2 }); };
+        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
+    }
+
     const markerFeatures = places.map(p => ({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [p.longitude, p.latitude] },
-        properties: { id: p.id, name: p.name, time_spent_display: p.time_spent_display || '' }
+        properties: { id: p.id, name: p.name, time_spent_display: p.time_spent_display || '',
+                      lng: p.longitude, lat: p.latitude }
     }));
 
     tripMap.addSource('place-markers', {
@@ -954,41 +966,51 @@ function renderPlaceMarkers(places) {
         data: { type: 'FeatureCollection', features: markerFeatures }
     });
     tripMap.addLayer({
-        id: 'place-markers', type: 'circle', source: 'place-markers',
-        paint: {
-            'circle-color': '#22c55e',
-            'circle-radius': 7,
-            'circle-stroke-width': 2,
-            'circle-stroke-color': '#fff'
-        }
-    });
-    tripMap.addLayer({
-        id: 'place-labels', type: 'symbol', source: 'place-markers',
+        id: 'place-markers', type: 'symbol', source: 'place-markers',
         layout: {
+            'icon-image': 'adv-pin',
+            'icon-size': 1,
+            'icon-anchor': 'bottom',
+            'icon-allow-overlap': true,
             'text-field': ['get', 'name'],
             'text-size': 11,
-            'text-offset': [0, 1.5],
-            'text-anchor': 'top'
+            'text-offset': [0, 0.4],
+            'text-anchor': 'top',
+            'text-allow-overlap': false,
         },
         paint: {
             'text-color': '#22c55e',
-            'text-halo-color': 'rgba(0,0,0,0.7)',
-            'text-halo-width': 1
+            'text-halo-color': 'rgba(0,0,0,0.75)',
+            'text-halo-width': 1.5
         }
     });
 
-    // Themed popup on pin click
-    tripMap.on('click', 'place-markers', (e) => {
+    let pinTooltip = null;
+
+    tripMap.on('mouseenter', 'place-markers', (e) => {
+        tripMap.getCanvas().style.cursor = 'pointer';
         const props = e.features[0].properties;
         const coords = e.features[0].geometry.coordinates.slice();
-        const timeStr = props.time_spent_display ? `<div style="color:var(--text-muted);font-size:0.75rem;margin-top:2px;">${escHtml(props.time_spent_display)} spent here</div>` : '';
-        new maplibregl.Popup({ offset: 10, closeButton: false })
+        const timeStr = props.time_spent_display
+            ? `<div style="color:var(--text-muted);font-size:0.75rem;margin-top:2px;">${escHtml(props.time_spent_display)} here</div>` : '';
+        pinTooltip = new maplibregl.Popup({ offset: [0, -32], closeButton: false, closeOnClick: false })
             .setLngLat(coords)
-            .setHTML(`<div style="font-weight:600;font-size:0.8125rem;">📍 ${escHtml(props.name)}</div>${timeStr}`)
+            .setHTML(`<div style="font-weight:600;font-size:0.8125rem;">${escHtml(props.name)}</div>${timeStr}`)
             .addTo(tripMap);
     });
-    tripMap.on('mouseenter', 'place-markers', () => tripMap.getCanvas().style.cursor = 'pointer');
-    tripMap.on('mouseleave', 'place-markers', () => tripMap.getCanvas().style.cursor = '');
+    tripMap.on('mouseleave', 'place-markers', () => {
+        tripMap.getCanvas().style.cursor = '';
+        if (pinTooltip) { pinTooltip.remove(); pinTooltip = null; }
+    });
+    tripMap.on('click', 'place-markers', (e) => {
+        const props = e.features[0].properties;
+        tripMap.flyTo({ center: [props.lng, props.lat], zoom: Math.max(tripMap.getZoom(), 14), duration: 600 });
+        // Highlight matching pin in sidebar
+        document.querySelectorAll('.adv-pin-item').forEach(el => {
+            el.style.background = el.querySelector('.adv-pin-name')?.textContent === props.name
+                ? 'rgba(34,197,94,0.1)' : '';
+        });
+    });
 }
 
 function makeCircle(lng, lat, radiusM, steps = 64) {
@@ -1078,9 +1100,10 @@ function renderPlaces(places) {
         list.innerHTML = '<div class="adv-no-pins">no pins yet — click + add to drop one on the map</div>';
         return;
     }
+    const pinSvg = `<svg width="12" height="16" viewBox="0 0 28 36" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;margin-top:1px;"><path d="M14 2C8.48 2 4 6.48 4 12c0 7.5 10 22 10 22s10-14.5 10-22c0-5.52-4.48-10-10-10z" fill="#22c55e"/><circle cx="14" cy="12" r="4" fill="#fff"/></svg>`;
     list.innerHTML = places.map(p => `
         <div class="adv-pin-item" onclick="flyToPlace(${p.longitude}, ${p.latitude})">
-            <span>📍</span>
+            ${pinSvg}
             <span class="adv-pin-name">${escHtml(p.name)}</span>
             <span class="adv-pin-meta">${p.time_spent_display || ''}</span>
             <button class="adv-pin-del" onclick="event.stopPropagation();deletePlace(${p.id})" title="remove">&times;</button>
