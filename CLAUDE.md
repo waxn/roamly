@@ -14,7 +14,7 @@ Also update this CLAUDE.md whenever something architectural or behavioural is ad
 
 ## Running the app
 
-Everything runs inside Docker. Never run `python manage.py` directly on the host.
+Everything runs inside Docker. Never run `python manage.py` directly on the host. Do not attempt to run `docker compose` or `sudo docker compose` commands — these require a password and an interactive terminal. If a restart or migration is needed, tell the user to run it themselves.
 
 ```bash
 # Start (builds if needed)
