@@ -2843,14 +2843,35 @@ def delete_account(request):
 # Search
 # ---------------------------------------------------------------------------
 
+_CLUSTER_MAX_DEG = 1.0  # ~111 km — POIs within this spread share one bbox query
+
+
+def _cluster_pois(pois):
+    """Group POIs into geographic clusters so each cluster fits within _CLUSTER_MAX_DEG degrees.
+
+    Reduces the number of Location DB queries from one-per-POI down to one-per-cluster.
+    """
+    clusters = []
+    for poi in sorted(pois, key=lambda p: (p.latitude, p.longitude)):
+        for cluster in clusters:
+            lats = [p.latitude for p in cluster]
+            lngs = [p.longitude for p in cluster]
+            if (max(max(lats), poi.latitude) - min(min(lats), poi.latitude) <= _CLUSTER_MAX_DEG
+                    and max(max(lngs), poi.longitude) - min(min(lngs), poi.longitude) <= _CLUSTER_MAX_DEG):
+                cluster.append(poi)
+                break
+        else:
+            clusters.append([poi])
+    return clusters
+
+
 def _search_local_pois(query, user_locations_qs, radius_m=150):
     """Search the local POI table and match against user's location history."""
     query = query.strip()
     if not query:
         return []
 
-    # Limit candidate POIs so one query doesn't fan out into hundreds of expensive spatial checks.
-    matching_pois = (
+    matching_pois = list(
         POI.objects.filter(name__icontains=query)
         .annotate(
             match_rank=Case(
@@ -2863,31 +2884,58 @@ def _search_local_pois(query, user_locations_qs, radius_m=150):
         .order_by('match_rank', 'name')[:120]
     )
 
+    if not matching_pois:
+        return []
+
+    delta = radius_m / 111000.0
     results = []
-    for poi in matching_pois.iterator(chunk_size=200):
-        nearby = _find_nearby_locations(
-            user_locations_qs, poi.latitude, poi.longitude, radius_m
+
+    for cluster in _cluster_pois(matching_pois):
+        min_lat = min(p.latitude for p in cluster) - delta
+        max_lat = max(p.latitude for p in cluster) + delta
+        min_lng = min(p.longitude for p in cluster) - delta
+        max_lng = max(p.longitude for p in cluster) + delta
+
+        # One query per cluster instead of one per POI.
+        bbox_locs = list(
+            user_locations_qs.filter(
+                latitude__gte=min_lat, latitude__lte=max_lat,
+                longitude__gte=min_lng, longitude__lte=max_lng,
+            ).order_by('timestamp').values(
+                'timestamp', 'latitude', 'longitude', 'city', 'state', 'device__name'
+            )
         )
-        day_data = _group_by_day(nearby)
-        # Filter out days where dwell time is under 5 minutes.
-        day_data = [d for d in day_data if d['time_spent'] >= 300]
-        if not day_data:
+
+        if not bbox_locs:
             continue
 
-        total_points = sum(d['count'] for d in day_data)
-        total_time_spent = sum(d['time_spent'] for d in day_data)
-        display = f"{poi.name}, {poi.address}" if poi.address else poi.name
-        results.append({
-            'place_name': display,
-            'lat': poi.latitude,
-            'lng': poi.longitude,
-            'days': day_data,
-            'total_points': total_points,
-            'total_time_spent': total_time_spent,
-            'match_rank': getattr(poi, 'match_rank', 2),
-        })
+        for poi in cluster:
+            nearby = [
+                loc for loc in bbox_locs
+                if abs(loc['latitude'] - poi.latitude) <= delta
+                and abs(loc['longitude'] - poi.longitude) <= delta
+            ]
+            if not nearby:
+                continue
 
-    # Better relevance: exact/prefix text matches first, then places with stronger evidence.
+            day_data = _group_by_day_dicts(nearby)
+            day_data = [d for d in day_data if d['time_spent'] >= 300]
+            if not day_data:
+                continue
+
+            total_points = sum(d['count'] for d in day_data)
+            total_time_spent = sum(d['time_spent'] for d in day_data)
+            display = f"{poi.name}, {poi.address}" if poi.address else poi.name
+            results.append({
+                'place_name': display,
+                'lat': poi.latitude,
+                'lng': poi.longitude,
+                'days': day_data,
+                'total_points': total_points,
+                'total_time_spent': total_time_spent,
+                'match_rank': poi.match_rank,
+            })
+
     results.sort(
         key=lambda r: (r['match_rank'], -r['total_time_spent'], -r['total_points'], r['place_name'])
     )
@@ -2967,6 +3015,68 @@ def _group_by_day(qs):
         if city and city_key not in day['cities_set'] and len(day['cities']) < 5:
             day['cities_set'].add(city_key)
             day['cities'].append({'city': city, 'state': state or ''})
+
+        if device_name and device_name not in day['devices_set'] and len(day['devices']) < 5:
+            day['devices_set'].add(device_name)
+            day['devices'].append(device_name)
+
+    result = []
+    for day_str in sorted(by_day.keys(), reverse=True)[:100]:
+        day = by_day[day_str]
+        result.append({
+            'date': day['date'],
+            'count': day['count'],
+            'first_ts': day['first_ts'].isoformat() if day['first_ts'] else None,
+            'last_ts': day['last_ts'].isoformat() if day['last_ts'] else None,
+            'time_spent': day['time_spent'],
+            'cities': day['cities'],
+            'devices': day['devices'],
+        })
+    return result
+
+
+def _group_by_day_dicts(locs):
+    """Like _group_by_day but takes a pre-fetched list of dicts (sorted by timestamp).
+
+    Used by _search_local_pois so no extra DB query is needed per POI.
+    """
+    by_day = {}
+    for loc in locs:
+        ts = loc['timestamp']
+        day_str = ts.date().isoformat()
+        day = by_day.get(day_str)
+        if day is None:
+            day = {
+                'date': day_str,
+                'count': 0,
+                'first_ts': ts,
+                'last_ts': ts,
+                'time_spent': 0,
+                'cities_set': set(),
+                'cities': [],
+                'devices_set': set(),
+                'devices': [],
+                'prev_ts': None,
+            }
+            by_day[day_str] = day
+
+        day['count'] += 1
+        day['last_ts'] = ts
+
+        if day['prev_ts'] is not None:
+            gap = (ts - day['prev_ts']).total_seconds()
+            if gap <= 600:
+                day['time_spent'] += int(gap)
+        day['prev_ts'] = ts
+
+        city = loc.get('city') or ''
+        state = loc.get('state') or ''
+        device_name = loc.get('device__name') or ''
+
+        city_key = (city, state)
+        if city and city_key not in day['cities_set'] and len(day['cities']) < 5:
+            day['cities_set'].add(city_key)
+            day['cities'].append({'city': city, 'state': state})
 
         if device_name and device_name not in day['devices_set'] and len(day['devices']) < 5:
             day['devices_set'].add(device_name)
