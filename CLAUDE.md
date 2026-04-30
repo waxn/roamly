@@ -2,6 +2,25 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Versioning
+
+This project uses [Semantic Versioning](https://semver.org/) via git tags (`v1.2.3`). The tag is what triggers the Docker Hub publish in CI.
+
+| Change type | Version bump | Example |
+|---|---|---|
+| Bug fix, security patch, copy/style tweak | patch (`1.2.x`) | `v1.2.4` |
+| New feature, new model/field, new endpoint | minor (`1.x.0`) | `v1.3.0`) |
+| Breaking change to backup format, API contract, or migration that can't roll back | major (`x.0.0`) | `v2.0.0` |
+
+After finishing a set of changes, create and push the tag:
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+The backup JSON format version (in `backup_tasks.py`) must also be bumped whenever the backup schema changes.
+
 ## Commits
 
 **Every individual fix or change gets its own commit — no batching.** This includes bug fixes, single-file edits, and CSS tweaks. Each commit must be signed:
