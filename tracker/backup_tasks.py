@@ -93,19 +93,99 @@ def _build_pals_data(user):
     return result
 
 
+def _build_adventures_data(user):
+    """Build serializable adventures data including all social content."""
+    from .models import Adventure
+
+    adventures = Adventure.objects.filter(device__user=user).select_related(
+        'device', 'creator'
+    ).prefetch_related(
+        'members__user',
+        'blurbs__author',
+        'blurbs__photos',
+        'blurbs__comments__author',
+        'milestones__author',
+        'places',
+    )
+
+    result = []
+    for adv in adventures:
+        blurbs = []
+        for b in adv.blurbs.all():
+            blurbs.append({
+                'author_username': b.author.username,
+                'text': b.text,
+                'latitude': b.latitude,
+                'longitude': b.longitude,
+                'location_name': b.location_name,
+                'created_at': b.created_at,
+                'photos': [
+                    {'image': p.image.name, 'order': p.order}
+                    for p in b.photos.all()
+                ],
+                'comments': [
+                    {
+                        'author_username': c.author.username if c.author else None,
+                        'guest_name': c.guest_name,
+                        'text': c.text,
+                        'created_at': c.created_at,
+                    }
+                    for c in b.comments.all()
+                ],
+            })
+
+        result.append({
+            'device_id': adv.device.device_id,
+            'name': adv.name,
+            'description': adv.description,
+            'start_time': adv.start_time,
+            'end_time': adv.end_time,
+            'creator_username': adv.creator.username if adv.creator else None,
+            'public_slug': adv.public_slug,
+            'created_at': adv.created_at,
+            'members': [
+                {'username': m.user.username, 'role': m.role}
+                for m in adv.members.all()
+            ],
+            'blurbs': blurbs,
+            'milestones': [
+                {
+                    'author_username': m.author.username,
+                    'title': m.title,
+                    'description': m.description,
+                    'emoji': m.emoji,
+                    'date': m.date,
+                    'created_at': m.created_at,
+                }
+                for m in adv.milestones.all()
+            ],
+            'places': [
+                {
+                    'name': p.name,
+                    'latitude': p.latitude,
+                    'longitude': p.longitude,
+                    'radius': p.radius,
+                    'notes': p.notes,
+                    'visited_at': p.visited_at,
+                }
+                for p in adv.places.all()
+            ],
+        })
+
+    return result
+
+
 def _build_backup_json(user):
     """Build the backup JSON data dict for a user (same format as export_backup view)."""
-    from .models import Device, Location, Adventure, AdventurePlace, APIKey
+    from .models import Device, Location, APIKey
 
     devices = Device.objects.filter(user=user)
     locations = Location.objects.filter(device__user=user).select_related('device').order_by('timestamp')
-    trips = Adventure.objects.filter(device__user=user).select_related('device')
-    trip_places = AdventurePlace.objects.filter(adventure__device__user=user).select_related('adventure', 'adventure__device')
     api_keys = APIKey.objects.filter(user=user)
 
     data = {
         'meta': {
-            'version': 2,
+            'version': 3,
             'exported_at': timezone.now().isoformat(),
             'username': user.username,
         },
@@ -131,30 +211,7 @@ def _build_backup_json(user):
             }
             for loc in locations
         ],
-        'trips': [
-            {
-                'device_id': t.device.device_id,
-                'name': t.name,
-                'description': t.description,
-                'start_time': t.start_time,
-                'end_time': t.end_time,
-            }
-            for t in trips
-        ],
-        'trip_places': [
-            {
-                'trip_name': tp.adventure.name,
-                'trip_device_id': tp.adventure.device.device_id,
-                'trip_start_time': tp.adventure.start_time,
-                'name': tp.name,
-                'latitude': tp.latitude,
-                'longitude': tp.longitude,
-                'radius': tp.radius,
-                'notes': tp.notes,
-                'visited_at': tp.visited_at,
-            }
-            for tp in trip_places
-        ],
+        'adventures': _build_adventures_data(user),
         'api_keys': [
             {
                 'name': k.name,
@@ -406,7 +463,7 @@ def _get_image_s3_client(config):
 
 def _get_user_media_files(user):
     """Collect all media file paths (relative to MEDIA_ROOT) belonging to a user."""
-    from .models import UserProfile, PalBlurbPhoto
+    from .models import UserProfile, AdventureBlurbPhoto, PalBlurbPhoto
 
     files = []
 
@@ -418,6 +475,12 @@ def _get_user_media_files(user):
             files.append(profile.profile_picture_thumbnail.name)
     except UserProfile.DoesNotExist:
         pass
+
+    for photo in AdventureBlurbPhoto.objects.filter(blurb__adventure__device__user=user):
+        if photo.image:
+            files.append(photo.image.name)
+        if photo.thumbnail:
+            files.append(photo.thumbnail.name)
 
     for photo in PalBlurbPhoto.objects.filter(blurb__pal__creator=user):
         if photo.image:
