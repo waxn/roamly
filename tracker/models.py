@@ -68,6 +68,7 @@ if HAS_POSTGIS and gis_models:
         country = gis_models.CharField(max_length=100, blank=True)
         country_code = gis_models.CharField(max_length=3, blank=True)
         place_name = gis_models.CharField(max_length=300, blank=True)
+        processed_for_visits = gis_models.BooleanField(default=False)
 
         class Meta:
             ordering = ['-timestamp']
@@ -104,6 +105,7 @@ else:
         country = models.CharField(max_length=100, blank=True)
         country_code = models.CharField(max_length=3, blank=True)
         place_name = models.CharField(max_length=300, blank=True)
+        processed_for_visits = models.BooleanField(default=False)
 
         class Meta:
             ordering = ['-timestamp']
@@ -111,6 +113,91 @@ else:
 
         def __str__(self):
             return f"{self.device} @ {self.timestamp}"
+
+
+if HAS_POSTGIS and gis_models:
+    class Visit(gis_models.Model):
+        """Precomputed stay at a specific location."""
+        device = gis_models.ForeignKey(Device, on_delete=gis_models.CASCADE, related_name='visits')
+        start_time = gis_models.DateTimeField()
+        end_time = gis_models.DateTimeField()
+        latitude = gis_models.FloatField()
+        longitude = gis_models.FloatField()
+        location = gis_models.PointField(geography=True, null=True, blank=True, srid=4326)
+        poi = gis_models.ForeignKey('POI', on_delete=gis_models.SET_NULL, null=True, blank=True, related_name='visits')
+        point_count = gis_models.IntegerField(default=0)
+        
+        city = gis_models.CharField(max_length=200, blank=True)
+        state = gis_models.CharField(max_length=200, blank=True)
+        country = gis_models.CharField(max_length=100, blank=True)
+        country_code = gis_models.CharField(max_length=3, blank=True)
+        place_name = gis_models.CharField(max_length=300, blank=True)
+
+        class Meta:
+            ordering = ['-start_time']
+            indexes = [
+                gis_models.Index(fields=['device', '-start_time'], name='tracker_vis_device__idx'),
+                gis_models.Index(fields=['city'], name='tracker_vis_city_idx'),
+                gis_models.Index(fields=['poi'], name='tracker_vis_poi_idx'),
+                GistIndex(fields=['location'], name='tracker_vis_location_gist'),
+            ]
+
+        def save(self, *args, **kwargs):
+            if self.latitude is not None and self.longitude is not None:
+                self.location = Point(self.longitude, self.latitude, srid=4326)
+            super().save(*args, **kwargs)
+
+        def __str__(self):
+            return f"{self.device} Visit at {self.start_time}"
+
+else:
+    class Visit(models.Model):
+        """Precomputed stay at a specific location (SQLite fallback)."""
+        device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='visits')
+        start_time = models.DateTimeField()
+        end_time = models.DateTimeField()
+        latitude = models.FloatField()
+        longitude = models.FloatField()
+        poi = models.ForeignKey('POI', on_delete=models.SET_NULL, null=True, blank=True, related_name='visits')
+        point_count = models.IntegerField(default=0)
+
+        city = models.CharField(max_length=200, blank=True)
+        state = models.CharField(max_length=200, blank=True)
+        country = models.CharField(max_length=100, blank=True)
+        country_code = models.CharField(max_length=3, blank=True)
+        place_name = models.CharField(max_length=300, blank=True)
+
+        class Meta:
+            ordering = ['-start_time']
+            indexes = [
+                models.Index(fields=['device', '-start_time'], name='tracker_vis_device__idx'),
+                models.Index(fields=['city'], name='tracker_vis_city_idx'),
+                models.Index(fields=['poi'], name='tracker_vis_poi_idx'),
+            ]
+
+        def __str__(self):
+            return f"{self.device} Visit at {self.start_time}"
+
+
+class VisitJob(models.Model):
+    """Persistent state for background visit computation tasks."""
+    STATUS_CHOICES = [
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('stopped', 'Stopped'),
+    ]
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='visit_job')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='running')
+    processed = models.IntegerField(default=0)
+    total = models.IntegerField(default=0)
+    visits_added = models.IntegerField(default=0)
+    started_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Visit Computation {self.user.username}: {self.processed}/{self.total}"
+
+
 
 
 class Adventure(models.Model):
