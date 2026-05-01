@@ -8,7 +8,14 @@
       "Bash(grep -E \".py$\")",
       "Bash(git add *)",
       "Bash(git commit *)",
-      "Bash(sudo docker *)"
+      "Bash(sudo docker *)",
+      "Bash(git -C /home/linus/Documents/dev/Roamly add tracker/views.py)",
+      "Bash(git -C /home/linus/Documents/dev/Roamly commit -m ' *)",
+      "Bash(git -C /home/linus/Documents/dev/Roamly add CLAUDE.md)",
+      "Bash(git -C /home/linus/Documents/dev/Roamly add README.md)",
+      "Bash(git -C /home/linus/Documents/dev/Roamly add docker-compose.yml)",
+      "Bash(git -C /home/linus/Documents/dev/Roamly add tracker/backup_tasks.py)",
+      "Bash(git -C /home/linus/Documents/dev/Roamly diff c181f02 f012a5e -- tracker/templates/tracker/map.html)"
     ]
   }
 }
