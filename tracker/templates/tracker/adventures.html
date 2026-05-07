@@ -820,7 +820,13 @@ function loadTripDetail(id) {
     showTripMapLoading();
     fetch(`/api/trips/${id}/`)
         .then(r => {
-            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            if (!r.ok) {
+                return r.json().then(body => {
+                    const err = new Error(`HTTP ${r.status}`);
+                    err._serverMsg = body.error ? `${body.type}: ${body.error}` : `HTTP ${r.status}`;
+                    throw err;
+                }).catch(() => { throw new Error(`HTTP ${r.status}`); });
+            }
             return r.json();
         })
         .then(data => {
@@ -852,7 +858,7 @@ function loadTripDetail(id) {
             hideTripMapLoading();
             console.error('Failed to load adventure detail:', err);
             document.getElementById('sidebar-trip-name').textContent = 'Error loading adventure';
-            document.getElementById('sidebar-trip-dates').textContent = `${err.message} — check server logs`;
+            document.getElementById('sidebar-trip-dates').textContent = err._serverMsg || `${err.message} — check server logs`;
         });
 }
 

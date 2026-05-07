@@ -1325,6 +1325,15 @@ def _format_duration(seconds):
 
 @login_required
 def trip_detail(request, trip_id):
+    try:
+        return _trip_detail_inner(request, trip_id)
+    except Exception as exc:
+        import traceback
+        logger.error("trip_detail error: %s\n%s", exc, traceback.format_exc())
+        return JsonResponse({"error": str(exc), "type": type(exc).__name__}, status=500)
+
+
+def _trip_detail_inner(request, trip_id):
     trip = _get_trip_for_user(trip_id, request.user)
     LOCATION_LIMIT = 30000
     location_qs = trip.locations
