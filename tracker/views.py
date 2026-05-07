@@ -3767,7 +3767,7 @@ def pal_locations_api(request, pal_id):
         result[m.user.username] = {
             'avatar': _get_user_avatar(m.user),
             'locations': [
-                {'lat': loc.latitude, 'lng': loc.longitude, 'ts': loc.timestamp.isoformat()}
+                {'lat': _jf(loc.latitude), 'lng': _jf(loc.longitude), 'ts': loc.timestamp.isoformat()}
                 for loc in locations
             ]
         }
@@ -4068,7 +4068,7 @@ def pal_public_locations_api(request, slug):
         result[m.user.username] = {
             'avatar': _get_user_avatar(m.user),
             'locations': [
-                {'lat': loc.latitude, 'lng': loc.longitude, 'ts': loc.timestamp.isoformat()}
+                {'lat': _jf(loc.latitude), 'lng': _jf(loc.longitude), 'ts': loc.timestamp.isoformat()}
                 for loc in locations
             ]
         }
