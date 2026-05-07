@@ -238,7 +238,10 @@ function escapeHtml(text) {
 // --- Load PAL Detail ---
 function loadPalDetail() {
     fetch(detailUrl)
-        .then(r => r.json())
+        .then(r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+        })
         .then(data => {
             palData = data;
             document.getElementById('pal-name').textContent = data.name;
@@ -255,6 +258,11 @@ function loadPalDetail() {
             renderSettingsTab();
             loadTimeline();
             loadMemberLocations();
+        })
+        .catch(err => {
+            console.error('Failed to load pal detail:', err);
+            document.getElementById('pal-name').textContent = 'Error loading pal';
+            document.getElementById('pal-dates').textContent = err.message;
         });
 }
 
