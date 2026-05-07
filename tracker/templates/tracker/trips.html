@@ -940,40 +940,119 @@ function renderTripOnMap(data) {
     if (!tripMap || !data.locations.length) { hideTripMapLoading(); return; }
 
     // Remove old sources/layers
-    ['trip-line', 'trip-points', 'place-circles', 'place-markers'].forEach(id => {
+    ['trip-line', 'trip-points', 'trip-heat', 'place-circles', 'place-markers'].forEach(id => {
         if (tripMap.getLayer(id)) tripMap.removeLayer(id);
     });
-    ['trip-line', 'trip-points', 'place-circles', 'place-markers'].forEach(id => {
+    ['trip-line', 'trip-points', 'trip-heat', 'place-circles', 'place-markers'].forEach(id => {
         if (tripMap.getSource(id)) tripMap.removeSource(id);
     });
 
+    // Get user preferences
+    const speedGradient = localStorage.getItem('roamly_speed_gradient') || 'on';
+    const showHeatmap = localStorage.getItem('roamly_show_heatmap') || 'on';
+    const heatmapIntensity = localStorage.getItem('roamly_heatmap_intensity') || 'medium';
+    const dotSizePref = localStorage.getItem('roamly_dot_size') || 'medium';
+    const connectLines = localStorage.getItem('roamly_connect_lines') || 'off';
+    const lineGapMs = parseInt(localStorage.getItem('roamly_line_gap_minutes') || '20', 10) * 60 * 1000;
+
+    const DOT_SIZES = {
+        small:  [8, 2, 12, 4, 16, 8],
+        medium: [8, 3, 12, 6, 16, 12],
+        large:  [8, 5, 12, 9, 16, 18],
+    };
+    const HEATMAP_INTENSITY = {
+        low:    [0, 0.2, 13, 0.7],
+        medium: [0, 0.4, 13, 1.4],
+        high:   [0, 0.8, 13, 2.5],
+    };
+    const dotSizeArgs = DOT_SIZES[dotSizePref] || DOT_SIZES.medium;
+    const heatIntArgs = HEATMAP_INTENSITY[heatmapIntensity] || HEATMAP_INTENSITY.medium;
+
     const coords = data.locations.map(l => [l.lng, l.lat]);
 
-    // Trip path
-    tripMap.addSource('trip-line', {
-        type: 'geojson',
-        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }}
-    });
-    tripMap.addLayer({
-        id: 'trip-line', type: 'line', source: 'trip-line',
-        paint: { 'line-color': '#3b82f6', 'line-width': 3, 'line-opacity': 0.8 }
-    });
-
-    // Trip points
+    // Build features with speed data for color coding
     const features = data.locations.map(l => ({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [l.lng, l.lat] },
         properties: l
     }));
+
+    // Handle connection lines if enabled
+    if (connectLines === 'on') {
+        const lineFeatures = [];
+        const sortedLocs = [...data.locations].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        for (let i = 1; i < sortedLocs.length; i++) {
+            const gap = new Date(sortedLocs[i].timestamp) - new Date(sortedLocs[i - 1].timestamp);
+            if (gap > lineGapMs) continue; // Skip if gap is too large
+            lineFeatures.push({
+                type: 'Feature',
+                geometry: { type: 'LineString', coordinates: [[sortedLocs[i - 1].lng, sortedLocs[i - 1].lat], [sortedLocs[i].lng, sortedLocs[i].lat]] },
+                properties: {}
+            });
+        }
+        if (lineFeatures.length > 0) {
+            tripMap.addSource('trip-line', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: lineFeatures }
+            });
+            tripMap.addLayer({
+                id: 'trip-line', type: 'line', source: 'trip-line',
+                paint: { 'line-color': '#3b82f6', 'line-width': 2, 'line-opacity': 0.6 }
+            });
+        }
+    }
+
+    // Heatmap layer if enabled
+    if (showHeatmap === 'on') {
+        tripMap.addSource('trip-heat', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features }
+        });
+        tripMap.addLayer({
+            id: 'trip-heat', type: 'heatmap', source: 'trip-heat',
+            paint: {
+                'heatmap-weight': ['interpolate', ['linear'], ['get', 'speed'], 0, 0.2, 30, 1],
+                'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, heatIntArgs[0], 13, heatIntArgs[1]],
+                'heatmap-color': [
+                    'interpolate', ['linear'], ['heatmap-density'],
+                    0, 'rgba(33, 102, 172, 0)',
+                    0.2, 'rgb(103, 169, 207)',
+                    0.4, 'rgb(209, 229, 240)',
+                    0.6, 'rgb(253, 219, 199)',
+                    0.8, 'rgb(239, 138, 98)',
+                    1, 'rgb(178, 24, 43)'
+                ],
+                'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, heatIntArgs[2], 13, heatIntArgs[3]]
+            }
+        });
+    }
+
+    // Trip points with speed coloring if enabled
     tripMap.addSource('trip-points', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features }
     });
+
+    let circleColor = '#3b82f6';
+    if (speedGradient === 'on') {
+        circleColor = [
+            'case',
+            ['<=', ['coalesce', ['get', 'speed'], 0], 1.0],
+            '#3b82f6',
+            ['interpolate', ['linear'], ['get', 'speed'],
+                1.0, '#3b82f6',
+                5.0, '#22c55e',
+                15.0, '#f59e0b',
+                30.0, '#ef4444'
+            ]
+        ];
+    }
+
     tripMap.addLayer({
         id: 'trip-points', type: 'circle', source: 'trip-points',
         paint: {
-            'circle-color': '#3b82f6',
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 2, 12, 4, 18, 8],
+            'circle-color': circleColor,
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], dotSizeArgs[0], dotSizeArgs[1], dotSizeArgs[2], dotSizeArgs[3], dotSizeArgs[4], dotSizeArgs[5]],
             'circle-stroke-width': 1,
             'circle-stroke-color': 'rgba(255,255,255,0.6)'
         }
@@ -1001,6 +1080,12 @@ function renderTripOnMap(data) {
         let html = `<strong>${ts.toLocaleString()}</strong>`;
         if (props.city) html += `<br>${props.city}`;
         if (props.country) html += `, ${props.country}`;
+        if (props.speed != null) {
+            const unit = localStorage.getItem('roamly_speed_unit') || 'kmh';
+            const speed = unit === 'mph' ? (props.speed * 2.23694).toFixed(1) : (props.speed * 3.6).toFixed(1);
+            const speedStr = unit === 'mph' ? `${speed} mph` : `${speed} km/h`;
+            html += `<br><span style="color:var(--text-muted)">${speedStr}</span>`;
+        }
         new maplibregl.Popup({ offset: 8 })
             .setLngLat(coords)
             .setHTML(html)
