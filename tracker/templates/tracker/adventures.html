@@ -607,7 +607,7 @@ const mapStyles = {
     }
 };
 
-let currentMapStyle = 'Streets';
+let currentMapStyle = localStorage.getItem('roamly_map_tile_style') || 'Streets';
 
 // ─── Trip List ───────────────────────────────────────────────
 
@@ -1017,8 +1017,9 @@ function renderTripOnMap(data) {
         const ts = new Date(props.timestamp);
         const timeStr = ts.toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
         let place = [props.city, props.country].filter(Boolean).join(', ');
+        const _spUnit = localStorage.getItem('roamly_speed_unit') || 'kmh';
         const spd = props.speed != null && props.speed > 0
-            ? `<div style="color:var(--text-muted);margin-top:2px;">${(props.speed * 3.6).toFixed(1)} km/h</div>` : '';
+            ? `<div style="color:var(--text-muted);margin-top:2px;">${_spUnit === 'mph' ? (props.speed * 2.23694).toFixed(1) + ' mph' : (props.speed * 3.6).toFixed(1) + ' km/h'}</div>` : '';
         const html = `<div style="font-weight:600;font-size:0.8125rem;">${timeStr}</div>`
             + (place ? `<div style="color:var(--text-muted);font-size:0.75rem;margin-top:2px;">${escHtml(place)}</div>` : '')
             + spd;
@@ -1835,6 +1836,7 @@ function setMapStyle(btn) {
     document.querySelectorAll('.sidebar-style-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     currentMapStyle = btn.dataset.style;
+    localStorage.setItem('roamly_map_tile_style', currentMapStyle);
     if (tripMap) {
         tripMap.setStyle(mapStyles[currentMapStyle]);
         tripMap.once('styledata', () => {
@@ -1863,6 +1865,11 @@ function toggleSection(btn) {
 }
 
 // ─── Init ────────────────────────────────────────────────────
+
+// Restore saved tile style button state
+document.querySelectorAll('.sidebar-style-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.style === currentMapStyle);
+});
 
 loadAdventures();
 </script>

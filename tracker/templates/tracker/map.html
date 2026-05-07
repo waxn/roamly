@@ -293,20 +293,28 @@ function speedColorExpr(fallback) {
 const defaultTimeRange = localStorage.getItem('roamly_default_time_range') || '24';
 document.getElementById('time-range').value = defaultTimeRange;
 
+const _savedTileStyle = localStorage.getItem('roamly_map_tile_style') || 'Streets';
+
 const map = new maplibregl.Map({
     container: 'map',
-    style: mapStyles['Streets'],
+    style: mapStyles[_savedTileStyle] || mapStyles['Streets'],
     center: [0, 20],
     zoom: 2,
 });
 
 map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
+// Restore active button for saved style
+document.querySelectorAll('.style-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.style === _savedTileStyle);
+});
+
 // Style switcher — re-render track after style swap
 document.querySelectorAll('.style-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         document.querySelectorAll('.style-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
+        localStorage.setItem('roamly_map_tile_style', btn.dataset.style);
         map.setStyle(mapStyles[btn.dataset.style]);
         map.once('styledata', () => {
             renderTrack(lastTrackData, false);
