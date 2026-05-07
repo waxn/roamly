@@ -889,7 +889,7 @@ def locations_geojson_api(request):
     for loc in locations:
         features.append({
             "type": "Feature",
-            "geometry": {"type": "Point", "coordinates": [loc.longitude, loc.latitude]},
+            "geometry": {"type": "Point", "coordinates": [_jf(loc.longitude), _jf(loc.latitude)]},
             "properties": {
                 "timestamp": loc.timestamp.isoformat(),
                 "device": loc.device.name or loc.device.device_id,
@@ -1828,7 +1828,7 @@ def trip_public_detail_api(request, slug):
     trip = get_object_or_404(Adventure, public_slug=slug)
     locations = list(trip.locations)
     locs = [{
-        "lat": l.latitude, "lng": l.longitude,
+        "lat": _jf(l.latitude), "lng": _jf(l.longitude),
         "timestamp": l.timestamp.isoformat(),
         "city": l.city, "country": l.country,
     } for l in locations]
@@ -2066,9 +2066,9 @@ def _write_backup_json(user, f):
         first = False
         f.write(encoder.encode({
             'device_id': loc.device.device_id,
-            'latitude': loc.latitude, 'longitude': loc.longitude,
-            'altitude': loc.altitude, 'accuracy': loc.accuracy,
-            'speed': loc.speed, 'battery': loc.battery,
+            'latitude': _jf(loc.latitude), 'longitude': _jf(loc.longitude),
+            'altitude': _jf(loc.altitude), 'accuracy': _jf(loc.accuracy),
+            'speed': _jf(loc.speed), 'battery': _jf(loc.battery),
             'timestamp': loc.timestamp,
             'city': loc.city, 'state': loc.state,
             'country': loc.country, 'country_code': loc.country_code,
