@@ -1667,9 +1667,14 @@ function renderMembers(members) {
         return;
     }
     list.innerHTML = members.map(m => {
-        const avatarHtml = m.avatar
-            ? `<img src="${m.avatar}" alt="">`
-            : m.username.charAt(0).toUpperCase();
+        let avatarHtml;
+        if (m.avatar && m.avatar.type === 'image' && m.avatar.url) {
+            avatarHtml = `<img src="${m.avatar.url}" alt="">`;
+        } else if (m.avatar && m.avatar.type === 'initials') {
+            avatarHtml = `<span style="background:${m.avatar.color};color:#fff;width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:0.6875rem;font-weight:700;">${m.avatar.initials}</span>`;
+        } else {
+            avatarHtml = m.username.charAt(0).toUpperCase();
+        }
         const removeBtn = currentIsCreator && m.role !== 'creator'
             ? `<button class="member-remove-btn" onclick="removeMember(${m.user_id})">&times;</button>` : '';
         return `<div class="member-item">
