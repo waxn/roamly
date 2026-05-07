@@ -202,10 +202,12 @@ function loadData(append = false) {
         .catch(err => {
             console.error('Failed to load data:', err);
             document.getElementById('data-table-body').innerHTML =
-                `<tr><td colspan="10" style="text-align:center;color:var(--danger);padding:2rem;">Error loading data. Please try again.</td></tr>`;
+                `<tr><td colspan="10" style="text-align:center;color:var(--danger);padding:2rem;">Error loading data: ${err.message}. Check the server logs for details.</td></tr>`;
+            document.getElementById('data-info').textContent = '';
             loadMoreBtn.disabled = false;
-            loadMoreBtn.textContent = 'Load More';
-            loadMoreBtn.style.display = 'none';
+            loadMoreBtn.textContent = 'Retry';
+            loadMoreBtn.style.display = 'block';
+            loadMoreBtn.onclick = () => loadData(false);
         });
 }
 

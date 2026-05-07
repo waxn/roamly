@@ -51,6 +51,14 @@ def _bust_user_cache(user_id):
     val = (cache.get(key) or 0) + 1
     cache.set(key, val, timeout=86400 * 30)
 
+
+def _jf(value):
+    """Return None if value is NaN/Infinity — JSON can't represent those floats."""
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return None
+    return value
+
+
 # Check for PostGIS
 try:
     from django.contrib.gis.geos import Polygon, Point
@@ -494,9 +502,9 @@ def track_api(request):
                 'points': [],
             }
         devices_map[did]['points'].append({
-            'c': [loc['longitude'], loc['latitude']],
+            'c': [_jf(loc['longitude']), _jf(loc['latitude'])],
             'ts': int(loc['timestamp'].timestamp()),
-            'speed': loc['speed'],
+            'speed': _jf(loc['speed']),
             'city': loc['city'],
             'state': loc['state'],
             'country': loc['country'],
@@ -637,13 +645,13 @@ def locations_api(request):
             }
         devices_data[did]["locations"].append({
             "id": loc.id,
-            "lat": loc.latitude,
-            "lng": loc.longitude,
+            "lat": _jf(loc.latitude),
+            "lng": _jf(loc.longitude),
             "timestamp": loc.timestamp.isoformat(),
-            "altitude": loc.altitude,
-            "accuracy": loc.accuracy,
-            "speed": loc.speed,
-            "battery": loc.battery,
+            "altitude": _jf(loc.altitude),
+            "accuracy": _jf(loc.accuracy),
+            "speed": _jf(loc.speed),
+            "battery": _jf(loc.battery),
             "city": loc.city,
             "state": loc.state,
             "country": loc.country,
@@ -1323,10 +1331,10 @@ def trip_detail(request, trip_id):
     total_count = location_qs.count()
     locations = list(location_qs[:LOCATION_LIMIT])
     locs = [{
-        "lat": l.latitude, "lng": l.longitude,
+        "lat": _jf(l.latitude), "lng": _jf(l.longitude),
         "timestamp": l.timestamp.isoformat(),
         "city": l.city, "country": l.country,
-        "speed": l.speed,
+        "speed": _jf(l.speed),
     } for l in locations]
 
     places = []
@@ -1364,9 +1372,9 @@ def trip_detail(request, trip_id):
             )
             if member_locs:
                 member_locations[m.user.username] = [{
-                    "lat": l.latitude, "lng": l.longitude,
+                    "lat": _jf(l.latitude), "lng": _jf(l.longitude),
                     "timestamp": l.timestamp.isoformat(),
-                    "speed": l.speed,
+                    "speed": _jf(l.speed),
                 } for l in member_locs]
 
     return JsonResponse({
