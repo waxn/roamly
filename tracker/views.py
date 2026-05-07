@@ -585,6 +585,15 @@ def track_api(request):
 @login_required
 def locations_api(request):
     """Get locations with spatial filtering."""
+    try:
+        return _locations_api_inner(request)
+    except Exception as exc:
+        import traceback
+        logger.error("locations_api error: %s\n%s", exc, traceback.format_exc())
+        return JsonResponse({"error": str(exc), "type": type(exc).__name__}, status=500)
+
+
+def _locations_api_inner(request):
     device_id = request.GET.get("device_id")
     all_time = request.GET.get("all")
     limit = min(int(request.GET.get("limit", 5000)), 50000)
