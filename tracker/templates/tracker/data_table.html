@@ -161,10 +161,15 @@ function loadData(append = false) {
     loadMoreBtn.innerHTML = '<span class="spinner"></span> Loading...';
 
     fetch(`/api/locations/?${params}`)
-        .then(r => r.json())
+        .then(r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+        })
         .then(data => {
+            if (!data.devices) throw new Error('Invalid response format');
             let count = 0;
             data.devices.forEach(dev => {
+                if (!dev.locations) return;
                 dev.locations.forEach(loc => {
                     count++;
                     allRows.push({
@@ -193,6 +198,14 @@ function loadData(append = false) {
             } else {
                 loadMoreBtn.style.display = 'none';
             }
+        })
+        .catch(err => {
+            console.error('Failed to load data:', err);
+            document.getElementById('data-table-body').innerHTML =
+                `<tr><td colspan="10" style="text-align:center;color:var(--danger);padding:2rem;">Error loading data. Please try again.</td></tr>`;
+            loadMoreBtn.disabled = false;
+            loadMoreBtn.textContent = 'Load More';
+            loadMoreBtn.style.display = 'none';
         });
 }
 
