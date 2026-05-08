@@ -362,32 +362,51 @@ def push_location(request):
         defaults={'name': str(device_id)}
     )
 
-    location = Location.objects.create(
-        device=device,
-        latitude=latitude,
-        longitude=longitude,
-        altitude=float(altitude) if altitude else None,
-        accuracy=float(accuracy) if accuracy else None,
-        speed=float(speed) if speed else None,
-        battery=float(battery) if battery else None,
-        timestamp=timestamp,
-    )
+    loc_defaults = {
+        'altitude': _safe_float(altitude),
+        'accuracy': _safe_float(accuracy),
+        'speed': _safe_float(speed),
+        'battery': _safe_float(battery),
+    }
 
-    # Non-blocking geocode
+    from django.db import IntegrityError
     try:
-        result = reverse_geocode(latitude, longitude)
-        if result:
-            location.city = result['city']
-            location.state = result['state']
-            location.country = result['country']
-            location.country_code = result['country_code']
-            location.place_name = result['place_name']
-            location.save()
-    except Exception:
-        pass
+        location = Location.objects.create(
+            device=device,
+            latitude=latitude,
+            longitude=longitude,
+            timestamp=timestamp,
+            **loc_defaults,
+        )
+        created = True
+    except IntegrityError:
+        # Duplicate location (same device+lat+lng+timestamp) — return existing
+        try:
+            location = Location.objects.get(
+                device=device, latitude=latitude,
+                longitude=longitude, timestamp=timestamp,
+            )
+        except Location.DoesNotExist:
+            location = None
+        created = False
+
+    if created and location:
+        # Attempt inline geocode (up to 10s timeout)
+        try:
+            result = reverse_geocode(latitude, longitude)
+            if result:
+                location.city = result['city']
+                location.state = result['state']
+                location.country = result['country']
+                location.country_code = result['country_code']
+                location.place_name = result['place_name']
+                location.save(update_fields=['city', 'state', 'country', 'country_code', 'place_name'])
+        except Exception:
+            pass
 
     _bust_user_cache(user.id)
-    return JsonResponse({"status": "ok", "location_id": location.id, "device": str(device_id)})
+    loc_id = location.id if location else None
+    return JsonResponse({"status": "ok", "location_id": loc_id, "device": str(device_id)})
 
 
 @login_required
@@ -2405,14 +2424,17 @@ def restore_backup(request):
 
 
 def _safe_float(value):
-    """Convert a value to float, returning None for empty/invalid values."""
+    """Convert a value to float, returning None for empty/invalid/NaN values."""
     if value is None:
         return None
     value = str(value).strip()
     if not value:
         return None
     try:
-        return float(value)
+        result = float(value)
+        if math.isnan(result) or math.isinf(result):
+            return None
+        return result
     except (ValueError, TypeError):
         return None
 
