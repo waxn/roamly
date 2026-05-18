@@ -645,6 +645,51 @@ def _locations_api_inner(request):
     if device_id:
         locations = locations.filter(device__device_id=device_id)
 
+    # Additional filter parameters
+    q = request.GET.get('q')
+    min_speed = request.GET.get('min_speed')
+    max_speed = request.GET.get('max_speed')
+    min_battery = request.GET.get('min_battery')
+    max_battery = request.GET.get('max_battery')
+    city = request.GET.get('city')
+    state = request.GET.get('state')
+    country_code = request.GET.get('country_code')
+
+    if q:
+        q = q.strip()
+        # search across city/state/country
+        locations = locations.filter(
+            models.Q(city__icontains=q) | models.Q(state__icontains=q) | models.Q(country__icontains=q)
+        )
+
+    try:
+        if min_speed is not None and min_speed != '':
+            locations = locations.filter(speed__gte=float(min_speed))
+    except (ValueError, TypeError):
+        pass
+    try:
+        if max_speed is not None and max_speed != '':
+            locations = locations.filter(speed__lte=float(max_speed))
+    except (ValueError, TypeError):
+        pass
+    try:
+        if min_battery is not None and min_battery != '':
+            locations = locations.filter(battery__gte=int(min_battery))
+    except (ValueError, TypeError):
+        pass
+    try:
+        if max_battery is not None and max_battery != '':
+            locations = locations.filter(battery__lte=int(max_battery))
+    except (ValueError, TypeError):
+        pass
+
+    if city:
+        locations = locations.filter(city__iexact=city)
+    if state:
+        locations = locations.filter(state__iexact=state)
+    if country_code:
+        locations = locations.filter(country_code__iexact=country_code)
+
     if min_lng and min_lat and max_lng and max_lat:
         try:
             _min_lng, _min_lat = float(min_lng), float(min_lat)

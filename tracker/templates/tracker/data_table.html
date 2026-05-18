@@ -12,6 +12,9 @@
                 <option value="{{ device.device_id }}">{{ device.name|default:device.device_id }}</option>
                 {% endfor %}
             </select>
+            <input id="data-q" placeholder="Search town/state/country" class="form-control" style="width: 18rem;" />
+            <input id="data-min-speed" placeholder="Min speed (m/s)" class="form-control" style="width: 8rem;" />
+            <input id="data-max-speed" placeholder="Max speed (m/s)" class="form-control" style="width: 8rem;" />
             <select id="data-range" class="form-control" style="width: auto;">
                 <option value="24">Last 24h</option>
                 <option value="72">Last 3 days</option>
@@ -71,7 +74,7 @@
 <script>
 let currentOffset = 0;
 const LIMIT = 1000;
-const API_MAX_LIMIT = 50000; // server-side max; use for "Load All" to minimize requests
+const API_MAX_LIMIT = 50000; // server-side max
 let allRows = [];
 let sortKey = 'timestamp';
 let sortDir = 'desc';
@@ -148,7 +151,17 @@ function loadData(append = false) {
 
     params.set('offset', currentOffset);
 
-    if (range === 'all') {
+    // If user has applied any filters, search the entire time period
+    const qVal = document.getElementById('data-q').value.trim();
+    const minSpeedVal = document.getElementById('data-min-speed').value.trim();
+    const maxSpeedVal = document.getElementById('data-max-speed').value.trim();
+
+    if (qVal || minSpeedVal || maxSpeedVal) {
+        params.set('all', '1');
+        if (qVal) params.set('q', qVal);
+        if (minSpeedVal) params.set('min_speed', minSpeedVal);
+        if (maxSpeedVal) params.set('max_speed', maxSpeedVal);
+    } else if (range === 'all') {
         params.set('all', '1');
     } else {
         params.set('hours', range);
@@ -325,5 +338,31 @@ function deleteLocation(id) {
 loadData();
 document.getElementById('data-device').addEventListener('change', () => loadData(false));
 document.getElementById('data-range').addEventListener('change', () => loadData(false));
+document.getElementById('data-q').addEventListener('input', () => {
+    // debounce
+    clearTimeout(window._dataQTimer);
+    window._dataQTimer = setTimeout(() => loadData(false), 350);
+});
+document.getElementById('data-min-speed').addEventListener('change', () => loadData(false));
+document.getElementById('data-max-speed').addEventListener('change', () => loadData(false));
+
+// Infinite scroll: load more when near bottom of table container
+const tableContainer = document.querySelector('.table-responsive');
+let _scrollPending = false;
+tableContainer.addEventListener('scroll', () => {
+    if (_scrollPending) return;
+    _scrollPending = true;
+    requestAnimationFrame(() => {
+        const el = tableContainer;
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 120) {
+            // close to bottom
+            const loadMoreBtn = document.getElementById('load-more-btn');
+            if (loadMoreBtn.style.display !== 'none' && !loadMoreBtn.disabled) {
+                loadMore();
+            }
+        }
+        _scrollPending = false;
+    });
+});
 </script>
 {% endblock %}
