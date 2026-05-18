@@ -373,23 +373,39 @@ document.getElementById('data-q').addEventListener('input', () => {
 document.getElementById('data-min-speed').addEventListener('change', () => loadData(false));
 document.getElementById('data-max-speed').addEventListener('change', () => loadData(false));
 
-// Infinite scroll: load more when near bottom of table container
-const tableContainer = document.querySelector('.table-responsive');
+// Infinite scroll: load more when near bottom of table container or window
+function _checkAndMaybeLoadMore(elTop, elHeight, elScrollTop, elScrollHeight) {
+    if (elScrollTop + elHeight >= elScrollHeight - 180) {
+        const loadMoreBtn = document.getElementById('load-more-btn');
+        if (loadMoreBtn && loadMoreBtn.style.display !== 'none' && !loadMoreBtn.disabled) {
+            loadMore();
+        }
+    }
+}
+
 let _scrollPending = false;
-tableContainer.addEventListener('scroll', () => {
+const tableContainer = document.querySelector('.table-responsive');
+
+function _onScrollEvent(source) {
     if (_scrollPending) return;
     _scrollPending = true;
     requestAnimationFrame(() => {
-        const el = tableContainer;
-        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 120) {
-            // close to bottom
-            const loadMoreBtn = document.getElementById('load-more-btn');
-            if (loadMoreBtn.style.display !== 'none' && !loadMoreBtn.disabled) {
-                loadMore();
+        try {
+            if (source === 'window') {
+                const scrollTop = window.scrollY || window.pageYOffset || document.documentElement.scrollTop;
+                const height = window.innerHeight || document.documentElement.clientHeight;
+                const scrollHeight = document.documentElement.scrollHeight;
+                _checkAndMaybeLoadMore(0, height, scrollTop, scrollHeight);
+            } else if (tableContainer) {
+                _checkAndMaybeLoadMore(tableContainer.getBoundingClientRect().top, tableContainer.clientHeight, tableContainer.scrollTop, tableContainer.scrollHeight);
             }
+        } finally {
+            _scrollPending = false;
         }
-        _scrollPending = false;
     });
-});
+}
+
+if (tableContainer) tableContainer.addEventListener('scroll', () => _onScrollEvent('container'));
+window.addEventListener('scroll', () => _onScrollEvent('window'));
 </script>
 {% endblock %}
