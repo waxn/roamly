@@ -1584,6 +1584,7 @@ def _trip_detail_inner(request, trip_id):
         "is_creator": is_creator,
         "is_public": bool(trip.public_slug),
         "public_slug": trip.public_slug,
+        "access_pin": trip.access_pin,
         "members": members,
         "member_locations": member_locations,
     })
@@ -1633,8 +1634,19 @@ def update_trip(request, trip_id):
             trip.device = device
         except Device.DoesNotExist:
             pass
+    if 'public_slug' in data and trip.public_slug is not None:
+        new_slug = (data['public_slug'] or '').strip().lower()
+        new_slug = ''.join(c for c in new_slug if c.isalnum() or c in '-_')[:64]
+        if new_slug and new_slug != trip.public_slug:
+            if not Adventure.objects.filter(public_slug=new_slug).exclude(id=trip.id).exists():
+                trip.public_slug = new_slug
+            else:
+                return JsonResponse({"error": "That link is already taken"}, status=400)
+    if 'access_pin' in data:
+        raw_pin = (data['access_pin'] or '').strip()
+        trip.access_pin = raw_pin[:20]
     trip.save()
-    return JsonResponse({"status": "ok"})
+    return JsonResponse({"status": "ok", "public_slug": trip.public_slug})
 
 
 @login_required
@@ -2018,8 +2030,34 @@ def trip_visits_api(request, trip_id):
 # Public Trip API (no auth required)
 # ---------------------------------------------------------------------------
 
+def _check_public_pin(request, trip):
+    """Return True if the request may access this public adventure."""
+    if not trip.access_pin:
+        return True
+    session_key = f'adv_pin_ok_{trip.public_slug}'
+    return request.session.get(session_key) is True
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_verify_pin(request, slug):
+    trip = get_object_or_404(Adventure, public_slug=slug)
+    if not trip.access_pin:
+        return JsonResponse({"status": "ok"})
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    if data.get('pin', '').strip() == trip.access_pin:
+        request.session[f'adv_pin_ok_{slug}'] = True
+        return JsonResponse({"status": "ok"})
+    return JsonResponse({"error": "Incorrect PIN"}, status=403)
+
+
 def trip_public_detail_api(request, slug):
     trip = get_object_or_404(Adventure, public_slug=slug)
+    if not _check_public_pin(request, trip):
+        return JsonResponse({"error": "PIN required"}, status=403)
     locations = list(trip.locations)
     locs = [{
         "lat": _jf(l.latitude), "lng": _jf(l.longitude),
@@ -2040,6 +2078,8 @@ def trip_public_detail_api(request, slug):
 
 def trip_public_timeline_api(request, slug):
     trip = get_object_or_404(Adventure, public_slug=slug)
+    if not _check_public_pin(request, trip):
+        return JsonResponse({"error": "PIN required"}, status=403)
     events = []
     for b in trip.blurbs.select_related('author').prefetch_related('photos', 'comments'):
         events.append({
@@ -2072,6 +2112,8 @@ def trip_public_timeline_api(request, slug):
 
 def trip_public_blurb_comments(request, slug, blurb_id):
     trip = get_object_or_404(Adventure, public_slug=slug)
+    if not _check_public_pin(request, trip):
+        return JsonResponse({"error": "PIN required"}, status=403)
     blurb = get_object_or_404(AdventureBlurb, id=blurb_id, adventure=trip)
     comments = []
     for c in blurb.comments.select_related('author').order_by('created_at'):
@@ -2116,11 +2158,13 @@ def trip_public_create_comment(request, slug, blurb_id):
 def trip_public_view(request, slug):
     trip = get_object_or_404(Adventure, public_slug=slug)
     description = trip.description or f'An adventure from {trip.start_time.strftime("%b %d")} to {trip.end_time.strftime("%b %d, %Y")} on Roamly.'
+    requires_pin = bool(trip.access_pin) and not _check_public_pin(request, trip)
     return render(request, 'tracker/trip_public.html', {
         'trip': trip,
         'slug': slug,
         'seo_description': description,
         'seo_canonical': request.build_absolute_uri(),
+        'requires_pin': requires_pin,
     })
 
 adventure_public_view = trip_public_view

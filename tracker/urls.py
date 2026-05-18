@@ -69,6 +69,7 @@ urlpatterns = [
     path('api/trips/<int:trip_id>/milestones/<int:milestone_id>/delete/', views.trip_delete_milestone, name='trip_delete_milestone'),
     path('api/trips/<int:trip_id>/visits/', views.trip_visits_api, name='trip_visits_api'),
     # Public trip API
+    path('api/trip/<slug:slug>/verify-pin/', views.trip_verify_pin, name='trip_verify_pin'),
     path('api/trip/<slug:slug>/detail/', views.trip_public_detail_api, name='trip_public_detail_api'),
     path('api/trip/<slug:slug>/timeline/', views.trip_public_timeline_api, name='trip_public_timeline_api'),
     path('api/trip/<slug:slug>/blurbs/<int:blurb_id>/comments/', views.trip_public_blurb_comments, name='trip_public_blurb_comments'),
