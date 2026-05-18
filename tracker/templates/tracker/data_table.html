@@ -195,7 +195,16 @@ function loadData(append = false) {
         .then(data => {
             const rows = Array.isArray(data.locations) ? data.locations : [];
             const grouped = Array.isArray(data.devices) ? data.devices : [];
-            if (!rows.length && !grouped.length) throw new Error('Invalid response format');
+            if (!rows.length && !grouped.length) {
+                console.warn('locations API returned empty payload or unexpected format', data);
+                // show no-data state and hide pagination
+                allRows = allRows || [];
+                renderRows();
+                document.getElementById('data-info').textContent = `Showing ${allRows.length} location points`;
+                loadMoreBtn.style.display = 'none';
+                document.getElementById('load-all-btn').style.display = 'none';
+                return;
+            }
             let count = 0;
             if (rows.length) {
                 rows.forEach(loc => {
@@ -298,7 +307,12 @@ async function loadAll() {
             const data = await resp.json();
             const rows = Array.isArray(data.locations) ? data.locations : [];
             const grouped = Array.isArray(data.devices) ? data.devices : [];
-            if (!rows.length && !grouped.length) throw new Error('Invalid response format');
+            if (!rows.length && !grouped.length) {
+                console.warn('locations API returned empty payload or unexpected format', data);
+                renderRows();
+                document.getElementById('data-info').textContent = `Showing ${allRows.length} location points`;
+                break;
+            }
 
             let count = 0;
             if (rows.length) {
