@@ -367,6 +367,26 @@
 }
 .maplibregl-popup-close-button:hover { color: var(--text) !important; background: none !important; }
 
+/* Tab-based sidebar */
+.adv-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.adv-tab { flex: 1; padding: 0.625rem 0; text-align: center; background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); cursor: pointer; font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 0.8125rem; text-transform: lowercase; }
+.adv-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+.adv-tab-panel { flex: 1; overflow-y: auto; padding: 1rem 1.25rem; display: none; }
+.adv-tab-panel.active-panel { display: block; }
+.adv-section-label { font-size: 0.65rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; margin-top: 0.875rem; }
+.adv-section-label:first-child { margin-top: 0; }
+.adv-notes { width: 100%; min-height: 80px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 0.5rem 0.75rem; font-family: 'Space Grotesk', sans-serif; font-size: 0.8125rem; resize: vertical; outline: none; box-sizing: border-box; }
+.adv-notes:focus { border-color: var(--primary); }
+
+/* Map info bar */
+#adv-map-info {
+    position: absolute; bottom: 24px; left: 12px; z-index: 10;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px; font-size: 0.8125rem; font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700; text-transform: lowercase; color: var(--text-muted);
+    pointer-events: none; display: none;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .trip-fullscreen.active { flex-direction: column; }
@@ -448,6 +468,7 @@
             <button class="adv-style-btn" data-style="Dark" onclick="setMapStyle(this)">Dark</button>
             <button class="adv-style-btn" data-style="Satellite" onclick="setMapStyle(this)">Satellite</button>
         </div>
+        <div id="adv-map-info"></div>
         <div id="trip-map"></div>
     </div>
 
@@ -491,152 +512,123 @@
             </div>
         </div>
 
-        <!-- Scrollable content -->
-        <div class="sidebar-scroll">
+        <!-- Tab bar -->
+        <div class="adv-tabs">
+            <button class="adv-tab active" onclick="switchAdvTab('journal',this)">journal</button>
+            <button class="adv-tab" onclick="switchAdvTab('details',this)">details</button>
+            <button class="adv-tab" onclick="switchAdvTab('people',this)">people</button>
+            <button class="adv-tab" onclick="switchAdvTab('share',this)">share</button>
+        </div>
 
-            <!-- Notes section -->
-            <div class="adv-section">
-                <button class="adv-section-toggle" onclick="toggleAdvSection(this)">
-                    notes <span class="adv-section-arrow">&#9660;</span>
-                </button>
-                <div class="adv-section-body">
-                    <textarea class="adv-notes-area" id="trip-notes" placeholder="write about this adventure..."></textarea>
-                    <div class="notes-status" id="notes-status"></div>
+        <!-- Journal tab -->
+        <div class="adv-tab-panel active-panel" id="tab-journal" style="display:block;">
+            <!-- Compose entry (always visible at top) -->
+            <div class="adv-compose" id="compose-area" style="margin-bottom:0.625rem;">
+                <textarea id="compose-text" placeholder="what happened?..."></textarea>
+                <div class="adv-compose-row">
+                    <label class="adv-compose-tool" style="cursor:pointer;" title="add photos">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                        <input type="file" id="compose-photos" accept="image/*" multiple style="display:none;" onchange="previewPhotos(this)">
+                    </label>
+                    <button class="adv-compose-tool" id="compose-pin-btn" onclick="startBlurbPinMode()" title="pin on map"><svg width="13" height="17" viewBox="0 0 28 36" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M14 2C8.48 2 4 6.48 4 12c0 7.5 10 22 10 22s10-14.5 10-22c0-5.52-4.48-10-10-10z" fill="currentColor" opacity=".9"/><circle cx="14" cy="12" r="4" fill="white"/></svg></button>
+                    <span class="adv-compose-loc" id="compose-location-display"></span>
+                    <button class="adv-compose-tool" id="compose-clear-loc" onclick="clearComposeLocation()" style="display:none;">✕</button>
+                    <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="submitBlurb()">post</button>
+                </div>
+                <div class="adv-photo-preview" id="compose-photo-preview"></div>
+            </div>
+            <!-- Timeline events -->
+            <div id="timeline-list"></div>
+            <div id="timeline-load-more" style="text-align:center;display:none;margin-top:0.5rem;">
+                <button class="btn btn-outline btn-sm" onclick="loadMoreTimeline()">load more</button>
+            </div>
+            <button class="adv-inline-btn" style="display:block;margin-top:0.625rem;" onclick="toggleMilestoneForm()">+ milestone</button>
+            <!-- Milestone form (hidden by default) -->
+            <div class="adv-compose" id="milestone-form" style="display:none;margin-top:0.5rem;">
+                <div style="display:flex;gap:0.375rem;margin-bottom:0.375rem;">
+                    <input type="text" id="ms-emoji" class="form-control" value="🏁" style="max-width:48px;padding:0.25rem;text-align:center;">
+                    <input type="text" id="ms-title" class="form-control" placeholder="milestone title">
+                </div>
+                <input type="text" id="ms-desc" class="form-control" placeholder="description (optional)" style="margin-bottom:0.375rem;">
+                <input type="datetime-local" id="ms-date" class="form-control" style="margin-bottom:0.375rem;">
+                <div style="display:flex;gap:0.375rem;">
+                    <button class="btn btn-primary btn-sm" onclick="saveMilestone()">save</button>
+                    <button class="btn btn-outline btn-sm" onclick="toggleMilestoneForm()">cancel</button>
                 </div>
             </div>
+        </div>
 
-            <!-- Journal section -->
-            <div class="adv-section">
-                <button class="adv-section-toggle" onclick="toggleAdvSection(this)">
-                    journal <span class="adv-section-arrow">&#9660;</span>
-                </button>
-                <div class="adv-section-body">
-                    <!-- Compose entry (always visible) -->
-                    <div class="adv-compose" id="compose-area" style="margin-bottom:0.625rem;">
-                        <textarea id="compose-text" placeholder="what happened?..."></textarea>
-                        <div class="adv-compose-row">
-                            <label class="adv-compose-tool" style="cursor:pointer;" title="add photos">
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                                <input type="file" id="compose-photos" accept="image/*" multiple style="display:none;" onchange="previewPhotos(this)">
-                            </label>
-                            <button class="adv-compose-tool" id="compose-pin-btn" onclick="startBlurbPinMode()" title="pin on map"><svg width="13" height="17" viewBox="0 0 28 36" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M14 2C8.48 2 4 6.48 4 12c0 7.5 10 22 10 22s10-14.5 10-22c0-5.52-4.48-10-10-10z" fill="currentColor" opacity=".9"/><circle cx="14" cy="12" r="4" fill="white"/></svg></button>
-                            <span class="adv-compose-loc" id="compose-location-display"></span>
-                            <button class="adv-compose-tool" id="compose-clear-loc" onclick="clearComposeLocation()" style="display:none;">✕</button>
-                            <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="submitBlurb()">post</button>
-                        </div>
-                        <div class="adv-photo-preview" id="compose-photo-preview"></div>
-                    </div>
-                    <!-- Milestone form -->
-                    <div class="adv-compose" id="milestone-form" style="display:none;margin-bottom:0.625rem;">
-                        <div style="display:flex;gap:0.375rem;margin-bottom:0.375rem;">
-                            <input type="text" id="ms-emoji" class="form-control" value="🏁" style="max-width:48px;padding:0.25rem;text-align:center;">
-                            <input type="text" id="ms-title" class="form-control" placeholder="milestone title">
-                        </div>
-                        <input type="text" id="ms-desc" class="form-control" placeholder="description (optional)" style="margin-bottom:0.375rem;">
-                        <input type="datetime-local" id="ms-date" class="form-control" style="margin-bottom:0.375rem;">
-                        <div style="display:flex;gap:0.375rem;">
-                            <button class="btn btn-primary btn-sm" onclick="saveMilestone()">save</button>
-                            <button class="btn btn-outline btn-sm" onclick="toggleMilestoneForm()">cancel</button>
-                        </div>
-                    </div>
-                    <!-- Timeline events -->
-                    <div id="timeline-list"></div>
-                    <div id="timeline-load-more" style="text-align:center;display:none;margin-top:0.5rem;">
-                        <button class="btn btn-outline btn-sm" onclick="loadMoreTimeline()">load more</button>
-                    </div>
-                    <button class="adv-inline-btn" style="display:block;margin-top:0.625rem;" onclick="toggleMilestoneForm()">+ milestone</button>
-                </div>
+        <!-- Details tab -->
+        <div class="adv-tab-panel" id="tab-details">
+            <!-- Notes -->
+            <div class="adv-section-label">notes</div>
+            <textarea class="adv-notes" id="trip-notes" placeholder="write about this adventure..."></textarea>
+            <div class="notes-status" id="notes-status"></div>
+
+            <!-- Photos -->
+            <div class="adv-section-label" style="margin-top:1rem;">
+                photos
+                <label class="adv-inline-btn" style="cursor:pointer;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> add
+                    <input type="file" accept="image/*" multiple style="display:none;" id="adv-photo-input" onchange="uploadAdventurePhotos(this)">
+                </label>
+            </div>
+            <div class="adv-photos-grid" id="adv-photos-grid">
+                <span class="adv-no-photos">no photos yet</span>
             </div>
 
-            <!-- Photos section -->
-            <div class="adv-section">
-                <button class="adv-section-toggle collapsed" onclick="toggleAdvSection(this)">
-                    photos
-                    <span style="display:flex;align-items:center;gap:0.375rem;">
-                        <label class="adv-inline-btn" style="cursor:pointer;" onclick="event.stopPropagation();">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> add
-                            <input type="file" accept="image/*" multiple style="display:none;" id="adv-photo-input" onchange="uploadAdventurePhotos(this)">
-                        </label>
-                        <span class="adv-section-arrow">&#9660;</span>
-                    </span>
-                </button>
-                <div class="adv-section-body" style="display:none;">
-                    <div class="adv-photos-grid" id="adv-photos-grid">
-                        <span class="adv-no-photos">no photos yet</span>
-                    </div>
-                </div>
+            <!-- Pins -->
+            <div class="adv-section-label" style="margin-top:1rem;">
+                pins
+                <button class="adv-inline-btn" id="add-pin-btn" onclick="startAddPlace()">+ add</button>
             </div>
+            <div id="places-list"></div>
+            <div id="place-form-container"></div>
 
-            <!-- Pins section -->
-            <div class="adv-section">
-                <button class="adv-section-toggle collapsed" onclick="toggleAdvSection(this)">
-                    pins
-                    <span style="display:flex;align-items:center;gap:0.375rem;">
-                        <button class="adv-inline-btn" id="add-pin-btn" onclick="event.stopPropagation();startAddPlace()">+ add</button>
-                        <span class="adv-section-arrow">&#9660;</span>
-                    </span>
-                </button>
-                <div class="adv-section-body" style="display:none;">
-                    <div id="places-list"></div>
-                    <div id="place-form-container"></div>
-                </div>
+            <!-- Visits -->
+            <div class="adv-section-label" style="margin-top:1rem;">visits</div>
+            <div style="display:flex;gap:4px;margin-bottom:0.625rem;">
+                <button class="btn btn-outline btn-sm active" onclick="switchVisitsTab('countries',this)" style="font-size:0.6875rem;padding:2px 10px;">countries</button>
+                <button class="btn btn-outline btn-sm" onclick="switchVisitsTab('cities',this)" style="font-size:0.6875rem;padding:2px 10px;">cities</button>
             </div>
-
-            <!-- Visits section -->
-            <div class="adv-section">
-                <button class="adv-section-toggle collapsed" onclick="toggleAdvSection(this);lazyLoadVisits(this)" id="visits-section-toggle">
-                    visits <span class="adv-section-arrow">&#9660;</span>
-                </button>
-                <div class="adv-section-body" style="display:none;">
-                    <div style="display:flex;gap:4px;margin-bottom:0.625rem;">
-                        <button class="btn btn-outline btn-sm active" onclick="switchVisitsTab('countries',this)" style="font-size:0.6875rem;padding:2px 10px;">countries</button>
-                        <button class="btn btn-outline btn-sm" onclick="switchVisitsTab('cities',this)" style="font-size:0.6875rem;padding:2px 10px;">cities</button>
-                    </div>
-                    <div id="visits-countries-pane">
-                        <table style="width:100%;border-collapse:collapse;font-size:0.75rem;">
-                            <thead><tr><th style="color:var(--text-muted);font-weight:600;padding:4px 0;text-align:left;border-bottom:1px solid var(--border);">Country</th><th style="color:var(--text-muted);font-weight:600;padding:4px 0;text-align:left;border-bottom:1px solid var(--border);">Cities</th><th style="color:var(--text-muted);font-weight:600;padding:4px 0;text-align:left;border-bottom:1px solid var(--border);">Time</th></tr></thead>
-                            <tbody id="visits-countries-body"><tr><td colspan="3" style="color:var(--text-muted);padding:4px 0;">loading...</td></tr></tbody>
-                        </table>
-                    </div>
-                    <div id="visits-cities-pane" style="display:none;">
-                        <table style="width:100%;border-collapse:collapse;font-size:0.75rem;">
-                            <thead><tr><th style="color:var(--text-muted);font-weight:600;padding:4px 0;text-align:left;border-bottom:1px solid var(--border);">City</th><th style="color:var(--text-muted);font-weight:600;padding:4px 0;text-align:left;border-bottom:1px solid var(--border);">Country</th><th style="color:var(--text-muted);font-weight:600;padding:4px 0;text-align:left;border-bottom:1px solid var(--border);">Time</th></tr></thead>
-                            <tbody id="visits-cities-body"></tbody>
-                        </table>
-                    </div>
-                </div>
+            <div id="visits-countries-pane">
+                <table style="width:100%;border-collapse:collapse;font-size:0.75rem;">
+                    <thead><tr><th style="color:var(--text-muted);font-weight:600;padding:4px 0;text-align:left;border-bottom:1px solid var(--border);">Country</th><th style="color:var(--text-muted);font-weight:600;padding:4px 0;text-align:left;border-bottom:1px solid var(--border);">Cities</th><th style="color:var(--text-muted);font-weight:600;padding:4px 0;text-align:left;border-bottom:1px solid var(--border);">Time</th></tr></thead>
+                    <tbody id="visits-countries-body"><tr><td colspan="3" style="color:var(--text-muted);padding:4px 0;">loading...</td></tr></tbody>
+                </table>
             </div>
-
-            <!-- Members section -->
-            <div class="adv-section" id="members-section">
-                <button class="adv-section-toggle collapsed" onclick="toggleAdvSection(this)">
-                    members <span class="adv-section-arrow">&#9660;</span>
-                </button>
-                <div class="adv-section-body" style="display:none;">
-                    <div id="members-list" style="margin-bottom:0.5rem;"></div>
-                    <div id="add-member-area" style="display:none;">
-                        <div style="display:flex;gap:0.375rem;margin-top:0.25rem;">
-                            <input type="text" id="add-member-input" class="form-control" placeholder="username" style="font-size:0.8125rem;padding:0.25rem 0.5rem;"
-                                onkeydown="if(event.key==='Enter')addMember()">
-                            <button class="btn btn-outline btn-sm" onclick="addMember()">add</button>
-                        </div>
-                        <div id="add-member-error" style="font-size:0.75rem;color:var(--danger);margin-top:0.25rem;"></div>
-                    </div>
-                </div>
+            <div id="visits-cities-pane" style="display:none;">
+                <table style="width:100%;border-collapse:collapse;font-size:0.75rem;">
+                    <thead><tr><th style="color:var(--text-muted);font-weight:600;padding:4px 0;text-align:left;border-bottom:1px solid var(--border);">City</th><th style="color:var(--text-muted);font-weight:600;padding:4px 0;text-align:left;border-bottom:1px solid var(--border);">Country</th><th style="color:var(--text-muted);font-weight:600;padding:4px 0;text-align:left;border-bottom:1px solid var(--border);">Time</th></tr></thead>
+                    <tbody id="visits-cities-body"></tbody>
+                </table>
             </div>
+        </div>
 
-        </div><!-- /sidebar-scroll -->
+        <!-- People tab -->
+        <div class="adv-tab-panel" id="tab-people">
+            <div class="adv-section-label" style="margin-top:0;">members</div>
+            <div id="members-list" style="margin-bottom:0.5rem;"></div>
+            <div id="add-member-area" style="display:none;">
+                <div style="display:flex;gap:0.375rem;margin-top:0.25rem;">
+                    <input type="text" id="add-member-input" class="form-control" placeholder="username" style="font-size:0.8125rem;padding:0.25rem 0.5rem;"
+                        onkeydown="if(event.key==='Enter')addMember()">
+                    <button class="btn btn-outline btn-sm" onclick="addMember()">add</button>
+                </div>
+                <div id="add-member-error" style="font-size:0.75rem;color:var(--danger);margin-top:0.25rem;"></div>
+            </div>
+        </div>
 
-        <!-- Sharing & options footer (always visible at bottom) -->
-        <div class="adv-sharing-footer" id="sharing-footer">
-            <!-- Public / private row -->
+        <!-- Share tab -->
+        <div class="adv-tab-panel" id="tab-share">
+            <!-- Public / private row (creator only) -->
             <div class="adv-share-toggle-row" id="creator-share-section" style="display:none;">
                 <span class="adv-share-label">visibility</span>
                 <button id="toggle-public-btn" class="btn btn-outline btn-sm" onclick="togglePublic()">make public</button>
             </div>
 
-            <!-- Share link (shown when public) -->
-            <div id="share-link-area" style="display:none;">
+            <!-- Share link (shown when public, creator) -->
+            <div id="share-link-area" style="display:none;margin-top:0.5rem;">
                 <div class="adv-share-link-row">
                     <span class="adv-share-prefix">/adventure/</span>
                     <input type="text" class="adv-share-slug-input" id="share-slug-input"
@@ -656,7 +648,7 @@
             </div>
 
             <!-- Non-creator: show link if public -->
-            <div id="member-share-link" style="display:none;">
+            <div id="member-share-link" style="display:none;margin-top:0.5rem;">
                 <div class="adv-share-link-row">
                     <input type="text" id="share-link-input" readonly onclick="this.select()"
                         style="flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-muted);font-family:'Space Grotesk',sans-serif;font-size:0.7rem;padding:0.25rem 0.5rem;outline:none;">
@@ -664,8 +656,8 @@
                 </div>
             </div>
 
-            <!-- Delete -->
-            <div>
+            <!-- Delete (always shown) -->
+            <div style="margin-top:1.5rem;">
                 <button class="btn btn-danger btn-sm" onclick="deleteTripFromDetail()">delete adventure</button>
             </div>
         </div>
@@ -897,6 +889,11 @@ function openTrip(id) {
     document.body.style.overflow = 'hidden';
 
     // Initialize map if needed
+    // Reset tabs to journal
+    document.querySelectorAll('.adv-tab').forEach((b, i) => b.classList.toggle('active', i === 0));
+    document.querySelectorAll('.adv-tab-panel').forEach((p, i) => p.style.display = i === 0 ? '' : 'none');
+    visitsLoaded = false;
+
     if (tripMap) { tripMap.remove(); tripMap = null; }
     tripMap = new maplibregl.Map({
         container: 'trip-map',
@@ -944,7 +941,12 @@ function closeTrip() {
 }
 
 function showTripMapLoading() { document.getElementById('trip-map-loading-bar').classList.add('active'); }
-function hideTripMapLoading() { document.getElementById('trip-map-loading-bar').classList.remove('active'); }
+function hideTripMapLoading(infoText) {
+    document.getElementById('trip-map-loading-bar').classList.remove('active');
+    const bar = document.getElementById('adv-map-info');
+    if (infoText) { bar.textContent = infoText; bar.style.display = ''; }
+    else bar.style.display = 'none';
+}
 
 function loadTripDetail(id) {
     showTripMapLoading();
@@ -1016,7 +1018,6 @@ function renderTripOnMap(data) {
         .filter(id => id.startsWith('member-') || ['adv-pts','adv-line','place-circles','place-markers'].includes(id))
         .forEach(id => { if (tripMap.getSource(id)) tripMap.removeSource(id); });
 
-    const smallAdventure = data.locations.length < ADV_MAP_LIMIT;
     const features = data.locations.map(l => ({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [l.lng, l.lat] },
@@ -1026,8 +1027,9 @@ function renderTripOnMap(data) {
 
     tripMap.addSource('adv-pts', { type: 'geojson', data: { type: 'FeatureCollection', features } });
 
-    // Heatmap — same paint as main map, extended maxzoom for small adventures
+    // Heatmap — same paint as main map, extended maxzoom for large adventures
     if (_showHeatmap === 'on') {
+        const smallAdventure = data.locations.length < ADV_MAP_LIMIT;
         tripMap.addLayer({
             id: 'adv-heat', type: 'heatmap', source: 'adv-pts',
             maxzoom: smallAdventure ? 16 : 13,
@@ -1040,22 +1042,22 @@ function renderTripOnMap(data) {
         });
     }
 
-    // Dots — respects roamly_dot_size and roamly_speed_gradient settings
+    // Dots — always use _detailZoom (consistent with main map, no smallAdventure special case)
     tripMap.addLayer({
         id: 'adv-dots', type: 'circle', source: 'adv-pts',
-        minzoom: smallAdventure ? 0 : _detailZoom,
+        minzoom: _detailZoom,
         paint: {
             'circle-color': _speedGradient === 'on' ? _speedColorExpr() : '#3b82f6',
             'circle-radius': ['interpolate', ['linear'], ['zoom'], ..._dotArgs],
             'circle-stroke-width': 1,
             'circle-stroke-color': 'rgba(255,255,255,0.6)',
-            'circle-opacity': smallAdventure ? 1 : ['interpolate', ['linear'], ['zoom'], _detailZoom, 0, _detailZoom + 2, 1],
+            'circle-opacity': ['interpolate', ['linear'], ['zoom'], _detailZoom, 0, _detailZoom + 2, 1],
         }
     });
 
     // Line — respects roamly_connect_lines and roamly_line_gap_minutes settings
     const _connectLines = localStorage.getItem('roamly_connect_lines') || 'off';
-    if (coords.length > 1 && (smallAdventure || _connectLines === 'on')) {
+    if (coords.length > 1 && _connectLines === 'on') {
         const lineFeatures = [];
         let seg = [coords[0]];
         for (let i = 1; i < data.locations.length; i++) {
@@ -1069,12 +1071,14 @@ function renderTripOnMap(data) {
         }
         if (seg.length > 1) lineFeatures.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: seg } });
 
-        tripMap.addSource('adv-line', { type: 'geojson', data: { type: 'FeatureCollection', features: lineFeatures } });
-        tripMap.addLayer({
-            id: 'adv-line', type: 'line', source: 'adv-line',
-            minzoom: smallAdventure ? 0 : _detailZoom,
-            paint: { 'line-color': '#3b82f6', 'line-width': 2, 'line-opacity': 0.55 }
-        });
+        if (lineFeatures.length) {
+            tripMap.addSource('adv-line', { type: 'geojson', data: { type: 'FeatureCollection', features: lineFeatures } });
+            tripMap.addLayer({
+                id: 'adv-line', type: 'line', source: 'adv-line',
+                minzoom: _detailZoom,
+                paint: { 'line-color': '#3b82f6', 'line-width': 2, 'line-opacity': 0.55 }
+            });
+        }
     }
 
     // Place markers and radius circles
@@ -1098,11 +1102,12 @@ function renderTripOnMap(data) {
         tripMap.addSource(srcId, { type: 'geojson', data: { type: 'FeatureCollection', features: memberFeatures } });
         tripMap.addLayer({
             id: dotId, type: 'circle', source: srcId,
-            minzoom: memberCoords.length < ADV_MAP_LIMIT ? 0 : _detailZoom,
+            minzoom: _detailZoom,
             paint: {
                 'circle-color': color,
                 'circle-radius': ['interpolate', ['linear'], ['zoom'], ..._dotArgs],
                 'circle-stroke-width': 1, 'circle-stroke-color': 'rgba(255,255,255,0.6)',
+                'circle-opacity': ['interpolate', ['linear'], ['zoom'], _detailZoom, 0, _detailZoom + 2, 1],
             }
         });
         if (memberCoords.length > 1) {
@@ -1143,7 +1148,9 @@ function renderTripOnMap(data) {
         [Math.max(...allLngs), Math.max(...allLats)]
     ], { padding: 60 });
 
-    tripMap.once('idle', hideTripMapLoading);
+    const ptCount = (data.total_location_count || data.locations.length).toLocaleString();
+    const devName = data.device_name || '';
+    tripMap.once('idle', () => hideTripMapLoading(`${ptCount} pts · ${devName}`));
 
     // Point click popup
     tripMap.on('click', 'adv-dots', (e) => {
@@ -1175,53 +1182,33 @@ function renderTripOnMap(data) {
 function renderPlaceMarkers(places) {
     if (!tripMap) return;
 
-    // Remove existing place layers
-    ['place-circles', 'place-markers', 'place-labels'].forEach(id => {
+    // Remove existing place layers/sources
+    ['place-circles', 'place-markers'].forEach(id => {
         if (tripMap.getLayer(id)) tripMap.removeLayer(id);
-    });
-    ['place-circles', 'place-markers', 'place-labels'].forEach(id => {
         if (tripMap.getSource(id)) tripMap.removeSource(id);
     });
 
     if (!places.length) return;
 
+    const _themeAccent = '#3b82f6';
+
     // Radius circles as polygons (approximate circle with 64 points)
-    const circleFeatures = places.map(p => {
-        const coords = makeCircle(p.longitude, p.latitude, p.radius);
-        return {
-            type: 'Feature',
-            geometry: { type: 'Polygon', coordinates: [coords] },
-            properties: { id: p.id, name: p.name }
-        };
-    });
+    const circleFeatures = places.map(p => ({
+        type: 'Feature',
+        geometry: { type: 'Polygon', coordinates: [makeCircle(p.longitude, p.latitude, p.radius)] },
+        properties: { id: p.id, name: p.name }
+    }));
 
     tripMap.addSource('place-circles', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: circleFeatures }
     });
-    const _themeAccent = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#3b82f6';
-
     tripMap.addLayer({
         id: 'place-circles', type: 'fill', source: 'place-circles',
-        paint: {
-            'fill-color': _themeAccent,
-            'fill-opacity': 0.12
-        }
+        paint: { 'fill-color': _themeAccent, 'fill-opacity': 0.12 }
     });
 
-    // Register SVG pin icon if not already loaded
-    if (!tripMap.hasImage('adv-pin')) {
-        const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="44" viewBox="0 0 32 44">
-            <filter id="s"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity="0.35"/></filter>
-            <path d="M16 2C9.37 2 4 7.37 4 14c0 9.5 12 28 12 28S28 23.5 28 14C28 7.37 22.63 2 16 2z"
-                fill="white" stroke="${_themeAccent}" stroke-width="2.5" filter="url(#s)"/>
-            <circle cx="16" cy="14" r="5" fill="${_themeAccent}"/>
-        </svg>`;
-        const img = new Image(32, 44);
-        img.onload = () => { if (!tripMap.hasImage('adv-pin')) tripMap.addImage('adv-pin', img, { pixelRatio: 2 }); };
-        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
-    }
-
+    // Center dots as simple colored circles
     const markerFeatures = places.map(p => ({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [p.longitude, p.latitude] },
@@ -1234,22 +1221,12 @@ function renderPlaceMarkers(places) {
         data: { type: 'FeatureCollection', features: markerFeatures }
     });
     tripMap.addLayer({
-        id: 'place-markers', type: 'symbol', source: 'place-markers',
-        layout: {
-            'icon-image': 'adv-pin',
-            'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.85, 10, 1.0, 14, 1.2, 18, 1.5],
-            'icon-anchor': 'bottom',
-            'icon-allow-overlap': true,
-            'text-field': ['get', 'name'],
-            'text-size': 11,
-            'text-offset': [0, 0.4],
-            'text-anchor': 'top',
-            'text-allow-overlap': false,
-        },
+        id: 'place-markers', type: 'circle', source: 'place-markers',
         paint: {
-            'text-color': '#ffffff',
-            'text-halo-color': 'rgba(0,0,0,0.85)',
-            'text-halo-width': 2
+            'circle-color': _themeAccent,
+            'circle-radius': 7,
+            'circle-stroke-width': 2,
+            'circle-stroke-color': '#ffffff',
         }
     });
 
@@ -1261,7 +1238,7 @@ function renderPlaceMarkers(places) {
         const coords = e.features[0].geometry.coordinates.slice();
         const timeStr = props.time_spent_display
             ? `<div style="color:var(--text-muted);font-size:0.75rem;margin-top:2px;">${escHtml(props.time_spent_display)} here</div>` : '';
-        pinTooltip = new maplibregl.Popup({ offset: [0, -32], closeButton: false, closeOnClick: false })
+        pinTooltip = new maplibregl.Popup({ offset: 12, closeButton: false, closeOnClick: false })
             .setLngLat(coords)
             .setHTML(`<div style="font-weight:600;font-size:0.8125rem;">${escHtml(props.name)}</div>${timeStr}`)
             .addTo(tripMap);
@@ -2036,18 +2013,14 @@ function deleteTripFromDetail() {
     .then(() => closeTrip());
 }
 
-// ─── Sidebar: Toggle Sections ────────────────────────────────
+// ─── Sidebar: Tab switching ───────────────────────────────────
 
-function toggleAdvSection(btn) {
-    btn.classList.toggle('collapsed');
-    const body = btn.nextElementSibling;
-    if (body) body.style.display = btn.classList.contains('collapsed') ? 'none' : '';
-}
-
-function lazyLoadVisits(btn) {
-    if (!visitsLoaded && !btn.classList.contains('collapsed')) {
-        loadVisits();
-    }
+function switchAdvTab(tab, btn) {
+    document.querySelectorAll('.adv-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.adv-tab-panel').forEach(p => p.style.display = 'none');
+    document.getElementById('tab-' + tab).style.display = '';
+    if (tab === 'details' && !visitsLoaded) loadVisits();
 }
 
 // ─── Init ────────────────────────────────────────────────────
