@@ -96,18 +96,45 @@
     100% { left: 160%; }
 }
 
-/* Sidebar — document style */
+/* Sidebar */
 .trip-sidebar {
     width: 380px;
     background: var(--bg-card);
     border-left: 1px solid var(--border);
     display: flex;
     flex-direction: column;
+    overflow: hidden;
+}
+
+.sidebar-scroll {
+    flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
 }
 
-/* Document-style sidebar sections */
+/* Map style overlay */
+.adv-style-overlay {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 10;
+    display: flex;
+    gap: 4px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px;
+}
+.adv-style-btn {
+    background: none; border: none; color: var(--text-muted);
+    padding: 4px 10px; border-radius: 6px; font-size: 0.75rem;
+    font-family: 'Space Grotesk', sans-serif; font-weight: 700;
+    text-transform: lowercase; cursor: pointer;
+}
+.adv-style-btn.active { background: var(--primary); color: #fff; }
+.adv-style-btn:not(.active):hover { color: var(--text); background: var(--bg-input); }
+
+/* Sidebar header */
 .adv-sidebar-header {
     padding: 0.875rem 1.25rem;
     border-bottom: 1px solid var(--border);
@@ -119,16 +146,24 @@
 }
 .adv-sidebar-meta { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.125rem; }
 
-.adv-doc-section {
-    padding: 0.875rem 1.25rem;
+/* Collapsible sections */
+.adv-section {
     border-bottom: 1px solid var(--border);
 }
-.adv-section-label {
-    font-size: 0.6rem; font-weight: 700; letter-spacing: 0.12em;
-    text-transform: uppercase; color: var(--text-muted);
+.adv-section-toggle {
+    width: 100%; padding: 0.6875rem 1.25rem;
+    background: none; border: none; color: var(--text);
+    font-family: 'Space Grotesk', sans-serif; font-weight: 600;
+    font-size: 0.8125rem; text-transform: lowercase; cursor: pointer;
     display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 0.625rem;
 }
+.adv-section-toggle:hover { background: rgba(255,255,255,0.03); }
+.adv-section-arrow { transition: transform 0.18s; font-size: 0.625rem; color: var(--text-muted); }
+.adv-section-toggle.collapsed .adv-section-arrow { transform: rotate(-90deg); }
+.adv-section-body { padding: 0 1.25rem 0.875rem; }
+.adv-section-toggle.collapsed + .adv-section-body { display: none; }
+
+/* Inline section action button */
 .adv-inline-btn {
     font-size: 0.7rem; font-weight: 700; color: var(--primary);
     background: none; border: none; cursor: pointer; padding: 0;
@@ -276,20 +311,42 @@
 }
 
 
-/* Map style switcher */
-.sidebar-style-switcher {
-    display: inline-flex; gap: 3px;
-    background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 3px;
-    align-self: flex-start;
+/* Sharing section */
+.adv-sharing-footer {
+    border-top: 1px solid var(--border);
+    padding: 0.875rem 1.25rem;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
 }
-.sidebar-style-btn {
-    background: none; border: none; color: var(--text-muted);
-    padding: 3px 10px; border-radius: 5px; font-size: 0.6875rem;
-    font-family: 'Space Grotesk', sans-serif; font-weight: 700;
-    text-transform: lowercase; cursor: pointer; transition: all 0.12s;
+.adv-share-toggle-row {
+    display: flex; align-items: center; gap: 0.5rem;
 }
-.sidebar-style-btn.active { background: var(--primary); color: #fff; }
-.sidebar-style-btn:not(.active):hover { color: var(--text); background: var(--bg-input); }
+.adv-share-label { font-size: 0.75rem; font-weight: 600; flex: 1; }
+.adv-share-link-row {
+    display: flex; align-items: center; gap: 0.375rem;
+}
+.adv-share-prefix {
+    font-size: 0.7rem; color: var(--text-muted); white-space: nowrap; flex-shrink: 0;
+}
+.adv-share-slug-input {
+    flex: 1; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); font-family: 'Space Grotesk', sans-serif;
+    font-size: 0.75rem; padding: 0.25rem 0.5rem; outline: none; min-width: 0;
+}
+.adv-share-slug-input:focus { border-color: var(--primary); }
+.adv-pin-row {
+    display: flex; align-items: center; gap: 0.5rem;
+}
+.adv-pin-label { font-size: 0.75rem; color: var(--text-muted); flex: 1; }
+.adv-pin-input {
+    width: 90px; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); font-family: 'Space Grotesk', sans-serif;
+    font-size: 0.8125rem; padding: 0.25rem 0.5rem; outline: none; letter-spacing: 0.1em;
+}
+.adv-pin-input:focus { border-color: var(--primary); }
+.adv-share-saved { font-size: 0.65rem; color: var(--text-muted); }
 
 /* MapLibre popup — match app theme */
 .maplibregl-popup-content {
@@ -385,11 +442,18 @@
         <div id="trip-map-loading-bar"></div>
         <div class="trip-map-hint" id="place-hint">click on the map to place a marker</div>
         <div class="trip-map-hint" id="blurb-pin-hint" style="top:52px;">click on the map to pin location</div>
+        <!-- Map style switcher overlay -->
+        <div class="adv-style-overlay">
+            <button class="adv-style-btn active" data-style="Streets" onclick="setMapStyle(this)">Streets</button>
+            <button class="adv-style-btn" data-style="Dark" onclick="setMapStyle(this)">Dark</button>
+            <button class="adv-style-btn" data-style="Satellite" onclick="setMapStyle(this)">Satellite</button>
+        </div>
         <div id="trip-map"></div>
     </div>
+
     <div class="trip-sidebar" id="trip-sidebar">
         <!-- Header -->
-        <div class="adv-sidebar-header">
+        <div class="adv-sidebar-header" style="flex-shrink:0;">
             <div id="adv-header-view" style="display:flex;align-items:center;gap:0.5rem;">
                 <h2 id="sidebar-trip-name" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></h2>
                 <button class="edit-name-btn" onclick="startEditAdventure()" title="edit">
@@ -427,116 +491,182 @@
             </div>
         </div>
 
-        <!-- Notes -->
-        <div class="adv-doc-section">
-            <div class="adv-section-label">notes</div>
-            <textarea class="adv-notes-area" id="trip-notes" placeholder="write about this adventure..."></textarea>
-            <div class="notes-status" id="notes-status"></div>
-        </div>
+        <!-- Scrollable content -->
+        <div class="sidebar-scroll">
 
-        <!-- Photos -->
-        <div class="adv-doc-section">
-            <div class="adv-section-label">
-                photos
-                <label class="adv-inline-btn" style="cursor:pointer;display:flex;align-items:center;gap:3px;">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> add
-                    <input type="file" accept="image/*" multiple style="display:none;" id="adv-photo-input" onchange="uploadAdventurePhotos(this)">
-                </label>
-            </div>
-            <div class="adv-photos-grid" id="adv-photos-grid">
-                <span class="adv-no-photos">no photos yet</span>
-            </div>
-        </div>
-
-        <!-- Pins -->
-        <div class="adv-doc-section">
-            <div class="adv-section-label">
-                pins
-                <button class="adv-inline-btn" id="add-pin-btn" onclick="startAddPlace()">+ add</button>
-            </div>
-            <div id="places-list"></div>
-            <div id="place-form-container"></div>
-        </div>
-
-        <!-- Journal -->
-        <div class="adv-doc-section" style="flex:1;">
-            <div class="adv-section-label">
-                journal
-                <button class="adv-inline-btn" onclick="toggleCompose()">+ entry</button>
-            </div>
-            <!-- Compose entry -->
-            <div class="adv-compose" id="compose-area" style="display:none;">
-                <textarea id="compose-text" placeholder="what happened?..."></textarea>
-                <div class="adv-compose-row">
-                    <label class="adv-compose-tool" style="cursor:pointer;" title="add photos">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                        <input type="file" id="compose-photos" accept="image/*" multiple style="display:none;" onchange="previewPhotos(this)">
-                    </label>
-                    <button class="adv-compose-tool" id="compose-pin-btn" onclick="startBlurbPinMode()" title="pin location on map"><svg width="13" height="17" viewBox="0 0 28 36" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M14 2C8.48 2 4 6.48 4 12c0 7.5 10 22 10 22s10-14.5 10-22c0-5.52-4.48-10-10-10z" fill="currentColor" opacity=".9"/><circle cx="14" cy="12" r="4" fill="white"/></svg></button>
-                    <span class="adv-compose-loc" id="compose-location-display"></span>
-                    <button class="adv-compose-tool" id="compose-clear-loc" onclick="clearComposeLocation()" style="display:none;">✕</button>
-                    <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="submitBlurb()">post</button>
-                </div>
-                <div class="adv-photo-preview" id="compose-photo-preview"></div>
-            </div>
-            <!-- Milestone form -->
-            <div class="adv-compose" id="milestone-form" style="display:none;">
-                <div style="display:flex;gap:0.375rem;margin-bottom:0.375rem;">
-                    <input type="text" id="ms-emoji" class="form-control" value="🏁" style="max-width:48px;padding:0.25rem;text-align:center;">
-                    <input type="text" id="ms-title" class="form-control" placeholder="milestone title">
-                </div>
-                <input type="text" id="ms-desc" class="form-control" placeholder="description (optional)" style="margin-bottom:0.375rem;">
-                <input type="datetime-local" id="ms-date" class="form-control" style="margin-bottom:0.375rem;">
-                <div style="display:flex;gap:0.375rem;">
-                    <button class="btn btn-primary btn-sm" onclick="saveMilestone()">save</button>
-                    <button class="btn btn-outline btn-sm" onclick="toggleMilestoneForm()">cancel</button>
+            <!-- Notes section -->
+            <div class="adv-section">
+                <button class="adv-section-toggle" onclick="toggleAdvSection(this)">
+                    notes <span class="adv-section-arrow">&#9660;</span>
+                </button>
+                <div class="adv-section-body">
+                    <textarea class="adv-notes-area" id="trip-notes" placeholder="write about this adventure..."></textarea>
+                    <div class="notes-status" id="notes-status"></div>
                 </div>
             </div>
-            <!-- Timeline events -->
-            <div id="timeline-list"></div>
-            <div id="timeline-load-more" style="text-align:center;display:none;">
-                <button class="btn btn-outline btn-sm" onclick="loadMoreTimeline()">load more</button>
-            </div>
-            <button class="adv-inline-btn" style="display:block;margin-top:0.625rem;" onclick="toggleMilestoneForm()">+ milestone</button>
-        </div>
 
-        <!-- Members -->
-        <div class="adv-doc-section" id="members-section">
-            <div class="adv-section-label">members</div>
-            <div id="members-list" style="margin-bottom:0.5rem;"></div>
-            <div id="add-member-area" style="display:none;">
-                <div style="display:flex;gap:0.375rem;margin-top:0.25rem;">
-                    <input type="text" id="add-member-input" class="form-control" placeholder="username" style="font-size:0.8125rem;padding:0.25rem 0.5rem;"
-                        onkeydown="if(event.key==='Enter')addMember()">
-                    <button class="btn btn-outline btn-sm" onclick="addMember()">add</button>
-                </div>
-                <div id="add-member-error" style="font-size:0.75rem;color:var(--danger);margin-top:0.25rem;"></div>
-            </div>
-        </div>
-
-        <!-- Options -->
-        <div class="adv-doc-section">
-            <div class="adv-section-label">options</div>
-            <div style="display:flex;flex-direction:column;gap:0.75rem;">
-                <div>
-                    <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:0.375rem;">map style</div>
-                    <div class="sidebar-style-switcher">
-                        <button class="sidebar-style-btn active" data-style="Streets" onclick="setMapStyle(this)">Streets</button>
-                        <button class="sidebar-style-btn" data-style="Dark" onclick="setMapStyle(this)">Dark</button>
-                        <button class="sidebar-style-btn" data-style="Satellite" onclick="setMapStyle(this)">Satellite</button>
+            <!-- Journal section -->
+            <div class="adv-section">
+                <button class="adv-section-toggle" onclick="toggleAdvSection(this)">
+                    journal <span class="adv-section-arrow">&#9660;</span>
+                </button>
+                <div class="adv-section-body">
+                    <!-- Compose entry (always visible) -->
+                    <div class="adv-compose" id="compose-area" style="margin-bottom:0.625rem;">
+                        <textarea id="compose-text" placeholder="what happened?..."></textarea>
+                        <div class="adv-compose-row">
+                            <label class="adv-compose-tool" style="cursor:pointer;" title="add photos">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                                <input type="file" id="compose-photos" accept="image/*" multiple style="display:none;" onchange="previewPhotos(this)">
+                            </label>
+                            <button class="adv-compose-tool" id="compose-pin-btn" onclick="startBlurbPinMode()" title="pin on map"><svg width="13" height="17" viewBox="0 0 28 36" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M14 2C8.48 2 4 6.48 4 12c0 7.5 10 22 10 22s10-14.5 10-22c0-5.52-4.48-10-10-10z" fill="currentColor" opacity=".9"/><circle cx="14" cy="12" r="4" fill="white"/></svg></button>
+                            <span class="adv-compose-loc" id="compose-location-display"></span>
+                            <button class="adv-compose-tool" id="compose-clear-loc" onclick="clearComposeLocation()" style="display:none;">✕</button>
+                            <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="submitBlurb()">post</button>
+                        </div>
+                        <div class="adv-photo-preview" id="compose-photo-preview"></div>
                     </div>
-                </div>
-                <div id="share-section" style="display:none;">
-                    <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:0.375rem;">share</div>
-                    <button id="toggle-public-btn" class="btn btn-outline btn-sm" onclick="togglePublic()">make public</button>
-                    <div id="share-link-area" style="display:none;margin-top:0.375rem;">
-                        <div class="adv-share-row">
-                            <input type="text" id="share-link-input" readonly onclick="this.select()">
-                            <button class="btn btn-outline btn-sm" onclick="copyShareLink()">copy</button>
+                    <!-- Milestone form -->
+                    <div class="adv-compose" id="milestone-form" style="display:none;margin-bottom:0.625rem;">
+                        <div style="display:flex;gap:0.375rem;margin-bottom:0.375rem;">
+                            <input type="text" id="ms-emoji" class="form-control" value="🏁" style="max-width:48px;padding:0.25rem;text-align:center;">
+                            <input type="text" id="ms-title" class="form-control" placeholder="milestone title">
+                        </div>
+                        <input type="text" id="ms-desc" class="form-control" placeholder="description (optional)" style="margin-bottom:0.375rem;">
+                        <input type="datetime-local" id="ms-date" class="form-control" style="margin-bottom:0.375rem;">
+                        <div style="display:flex;gap:0.375rem;">
+                            <button class="btn btn-primary btn-sm" onclick="saveMilestone()">save</button>
+                            <button class="btn btn-outline btn-sm" onclick="toggleMilestoneForm()">cancel</button>
                         </div>
                     </div>
+                    <!-- Timeline events -->
+                    <div id="timeline-list"></div>
+                    <div id="timeline-load-more" style="text-align:center;display:none;margin-top:0.5rem;">
+                        <button class="btn btn-outline btn-sm" onclick="loadMoreTimeline()">load more</button>
+                    </div>
+                    <button class="adv-inline-btn" style="display:block;margin-top:0.625rem;" onclick="toggleMilestoneForm()">+ milestone</button>
                 </div>
-                <button class="btn btn-danger btn-sm" style="align-self:flex-start;" onclick="deleteTripFromDetail()">Delete Adventure</button>
+            </div>
+
+            <!-- Photos section -->
+            <div class="adv-section">
+                <button class="adv-section-toggle collapsed" onclick="toggleAdvSection(this)">
+                    photos
+                    <span style="display:flex;align-items:center;gap:0.375rem;">
+                        <label class="adv-inline-btn" style="cursor:pointer;" onclick="event.stopPropagation();">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> add
+                            <input type="file" accept="image/*" multiple style="display:none;" id="adv-photo-input" onchange="uploadAdventurePhotos(this)">
+                        </label>
+                        <span class="adv-section-arrow">&#9660;</span>
+                    </span>
+                </button>
+                <div class="adv-section-body" style="display:none;">
+                    <div class="adv-photos-grid" id="adv-photos-grid">
+                        <span class="adv-no-photos">no photos yet</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pins section -->
+            <div class="adv-section">
+                <button class="adv-section-toggle collapsed" onclick="toggleAdvSection(this)">
+                    pins
+                    <span style="display:flex;align-items:center;gap:0.375rem;">
+                        <button class="adv-inline-btn" id="add-pin-btn" onclick="event.stopPropagation();startAddPlace()">+ add</button>
+                        <span class="adv-section-arrow">&#9660;</span>
+                    </span>
+                </button>
+                <div class="adv-section-body" style="display:none;">
+                    <div id="places-list"></div>
+                    <div id="place-form-container"></div>
+                </div>
+            </div>
+
+            <!-- Visits section -->
+            <div class="adv-section">
+                <button class="adv-section-toggle collapsed" onclick="toggleAdvSection(this);lazyLoadVisits(this)" id="visits-section-toggle">
+                    visits <span class="adv-section-arrow">&#9660;</span>
+                </button>
+                <div class="adv-section-body" style="display:none;">
+                    <div style="display:flex;gap:4px;margin-bottom:0.625rem;">
+                        <button class="btn btn-outline btn-sm active" onclick="switchVisitsTab('countries',this)" style="font-size:0.6875rem;padding:2px 10px;">countries</button>
+                        <button class="btn btn-outline btn-sm" onclick="switchVisitsTab('cities',this)" style="font-size:0.6875rem;padding:2px 10px;">cities</button>
+                    </div>
+                    <div id="visits-countries-pane">
+                        <table style="width:100%;border-collapse:collapse;font-size:0.75rem;">
+                            <thead><tr><th style="color:var(--text-muted);font-weight:600;padding:4px 0;text-align:left;border-bottom:1px solid var(--border);">Country</th><th style="color:var(--text-muted);font-weight:600;padding:4px 0;text-align:left;border-bottom:1px solid var(--border);">Cities</th><th style="color:var(--text-muted);font-weight:600;padding:4px 0;text-align:left;border-bottom:1px solid var(--border);">Time</th></tr></thead>
+                            <tbody id="visits-countries-body"><tr><td colspan="3" style="color:var(--text-muted);padding:4px 0;">loading...</td></tr></tbody>
+                        </table>
+                    </div>
+                    <div id="visits-cities-pane" style="display:none;">
+                        <table style="width:100%;border-collapse:collapse;font-size:0.75rem;">
+                            <thead><tr><th style="color:var(--text-muted);font-weight:600;padding:4px 0;text-align:left;border-bottom:1px solid var(--border);">City</th><th style="color:var(--text-muted);font-weight:600;padding:4px 0;text-align:left;border-bottom:1px solid var(--border);">Country</th><th style="color:var(--text-muted);font-weight:600;padding:4px 0;text-align:left;border-bottom:1px solid var(--border);">Time</th></tr></thead>
+                            <tbody id="visits-cities-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Members section -->
+            <div class="adv-section" id="members-section">
+                <button class="adv-section-toggle collapsed" onclick="toggleAdvSection(this)">
+                    members <span class="adv-section-arrow">&#9660;</span>
+                </button>
+                <div class="adv-section-body" style="display:none;">
+                    <div id="members-list" style="margin-bottom:0.5rem;"></div>
+                    <div id="add-member-area" style="display:none;">
+                        <div style="display:flex;gap:0.375rem;margin-top:0.25rem;">
+                            <input type="text" id="add-member-input" class="form-control" placeholder="username" style="font-size:0.8125rem;padding:0.25rem 0.5rem;"
+                                onkeydown="if(event.key==='Enter')addMember()">
+                            <button class="btn btn-outline btn-sm" onclick="addMember()">add</button>
+                        </div>
+                        <div id="add-member-error" style="font-size:0.75rem;color:var(--danger);margin-top:0.25rem;"></div>
+                    </div>
+                </div>
+            </div>
+
+        </div><!-- /sidebar-scroll -->
+
+        <!-- Sharing & options footer (always visible at bottom) -->
+        <div class="adv-sharing-footer" id="sharing-footer">
+            <!-- Public / private row -->
+            <div class="adv-share-toggle-row" id="creator-share-section" style="display:none;">
+                <span class="adv-share-label">visibility</span>
+                <button id="toggle-public-btn" class="btn btn-outline btn-sm" onclick="togglePublic()">make public</button>
+            </div>
+
+            <!-- Share link (shown when public) -->
+            <div id="share-link-area" style="display:none;">
+                <div class="adv-share-link-row">
+                    <span class="adv-share-prefix">/adventure/</span>
+                    <input type="text" class="adv-share-slug-input" id="share-slug-input"
+                        onchange="saveSlug(this.value)" onblur="saveSlug(this.value)"
+                        onkeydown="if(event.key==='Enter'){this.blur();}">
+                    <button class="btn btn-outline btn-sm" style="font-size:0.6875rem;padding:3px 8px;flex-shrink:0;" onclick="copyShareLink()">copy</button>
+                </div>
+                <!-- PIN row -->
+                <div class="adv-pin-row" style="margin-top:0.375rem;">
+                    <span class="adv-pin-label">access pin</span>
+                    <input type="text" class="adv-pin-input" id="share-pin-input"
+                        placeholder="none" maxlength="20"
+                        onchange="savePin(this.value)" onblur="savePin(this.value)"
+                        onkeydown="if(event.key==='Enter'){this.blur();}">
+                </div>
+                <div class="adv-share-saved" id="share-saved-msg" style="display:none;">saved</div>
+            </div>
+
+            <!-- Non-creator: show link if public -->
+            <div id="member-share-link" style="display:none;">
+                <div class="adv-share-link-row">
+                    <input type="text" id="share-link-input" readonly onclick="this.select()"
+                        style="flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-muted);font-family:'Space Grotesk',sans-serif;font-size:0.7rem;padding:0.25rem 0.5rem;outline:none;">
+                    <button class="btn btn-outline btn-sm" style="font-size:0.6875rem;padding:3px 8px;flex-shrink:0;" onclick="copyShareLink()">copy</button>
+                </div>
+            </div>
+
+            <!-- Delete -->
+            <div>
+                <button class="btn btn-danger btn-sm" onclick="deleteTripFromDetail()">delete adventure</button>
             </div>
         </div>
     </div>
@@ -1653,7 +1783,6 @@ function submitBlurb() {
             clearComposeLocation();
             document.getElementById('compose-photo-preview').innerHTML = '';
             photosInput.value = '';
-            document.getElementById('compose-area').style.display = 'none';
             timelinePage = 1;
             loadTimeline(currentTripId, 1);
         } else {
@@ -1720,14 +1849,6 @@ function removeMember(userId) {
     }).then(() => loadTripDetail(currentTripId));
 }
 
-// ─── Compose toggle ──────────────────────────────────────────
-
-function toggleCompose() {
-    const area = document.getElementById('compose-area');
-    area.style.display = area.style.display === 'none' ? 'block' : 'none';
-    if (area.style.display === 'block') document.getElementById('compose-text').focus();
-}
-
 // ─── Photo upload (creates a blurb with photos, no text) ─────
 
 async function uploadAdventurePhotos(input) {
@@ -1749,31 +1870,36 @@ async function uploadAdventurePhotos(input) {
 // ─── Sharing ─────────────────────────────────────────────────
 
 function renderSharingOptions(data) {
-    const shareSection = document.getElementById('share-section');
-    if (shareSection) shareSection.style.display = currentIsCreator ? '' : 'none';
-    const btn = document.getElementById('toggle-public-btn');
+    const creatorRow = document.getElementById('creator-share-section');
+    const memberLink = document.getElementById('member-share-link');
     const linkArea = document.getElementById('share-link-area');
-    const linkInput = document.getElementById('share-link-input');
-    if (!currentIsCreator) {
-        btn.style.display = 'none';
+    const btn = document.getElementById('toggle-public-btn');
+
+    if (currentIsCreator) {
+        creatorRow.style.display = '';
+        memberLink.style.display = 'none';
         if (data.is_public) {
-            linkArea.style.display = 'block';
-            linkInput.value = `${window.location.origin}/adventure/${data.public_slug}/`;
+            btn.textContent = 'make private';
+            btn.classList.remove('btn-outline');
+            btn.classList.add('btn-primary');
+            linkArea.style.display = '';
+            document.getElementById('share-slug-input').value = data.public_slug || '';
+            document.getElementById('share-pin-input').value = data.access_pin || '';
+        } else {
+            btn.textContent = 'make public';
+            btn.classList.add('btn-outline');
+            btn.classList.remove('btn-primary');
+            linkArea.style.display = 'none';
         }
-        return;
-    }
-    btn.style.display = '';
-    if (data.is_public) {
-        btn.textContent = 'make private';
-        btn.classList.remove('btn-outline');
-        btn.classList.add('btn-primary');
-        linkArea.style.display = 'block';
-        linkInput.value = `${window.location.origin}/adventure/${data.public_slug}/`;
     } else {
-        btn.textContent = 'make public';
-        btn.classList.add('btn-outline');
-        btn.classList.remove('btn-primary');
-        linkArea.style.display = 'none';
+        creatorRow.style.display = 'none';
+        if (data.is_public) {
+            memberLink.style.display = '';
+            document.getElementById('share-link-input').value =
+                `${window.location.origin}/adventure/${data.public_slug}/`;
+        } else {
+            memberLink.style.display = 'none';
+        }
     }
 }
 
@@ -1781,20 +1907,70 @@ function togglePublic() {
     fetch(`/api/trips/${currentTripId}/toggle-public/`, {
         method: 'POST', headers: {'X-CSRFToken': csrfToken}
     }).then(r => r.json()).then(data => {
-        renderSharingOptions({is_public: data.is_public, public_slug: data.public_slug});
+        currentTripData = Object.assign(currentTripData || {}, {
+            is_public: data.is_public, public_slug: data.public_slug
+        });
+        renderSharingOptions(currentTripData);
     });
 }
 
+let slugSaveTimeout = null;
+function saveSlug(value) {
+    clearTimeout(slugSaveTimeout);
+    const slug = value.trim();
+    if (!slug || slug === (currentTripData && currentTripData.public_slug)) return;
+    slugSaveTimeout = setTimeout(() => {
+        fetch(`/api/trips/${currentTripId}/update/`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+            body: JSON.stringify({public_slug: slug})
+        }).then(r => r.json()).then(data => {
+            if (data.error) {
+                alert(data.error);
+                document.getElementById('share-slug-input').value = currentTripData.public_slug || '';
+            } else {
+                currentTripData.public_slug = data.public_slug;
+                flashShareSaved();
+            }
+        });
+    }, 600);
+}
+
+let pinSaveTimeout = null;
+function savePin(value) {
+    clearTimeout(pinSaveTimeout);
+    const pin = value.trim();
+    if (pin === (currentTripData && currentTripData.access_pin)) return;
+    pinSaveTimeout = setTimeout(() => {
+        fetch(`/api/trips/${currentTripId}/update/`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+            body: JSON.stringify({access_pin: pin})
+        }).then(r => r.json()).then(() => {
+            if (currentTripData) currentTripData.access_pin = pin;
+            flashShareSaved();
+        });
+    }, 600);
+}
+
+function flashShareSaved() {
+    const msg = document.getElementById('share-saved-msg');
+    if (!msg) return;
+    msg.style.display = '';
+    setTimeout(() => { msg.style.display = 'none'; }, 1500);
+}
+
 function copyShareLink() {
-    const input = document.getElementById('share-link-input');
-    input.select();
-    navigator.clipboard.writeText(input.value).catch(() => {});
+    const slug = currentTripData && currentTripData.public_slug;
+    const url = slug ? `${window.location.origin}/adventure/${slug}/` : '';
+    if (!url) return;
+    navigator.clipboard.writeText(url).then(() => flashShareSaved()).catch(() => {});
 }
 
 // ─── Visits ──────────────────────────────────────────────────
 
 function switchVisitsTab(tab, btn) {
-    document.querySelectorAll('.visits-tab-btn').forEach(b => b.classList.remove('active'));
+    btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById('visits-countries-pane').style.display = tab === 'countries' ? '' : 'none';
     document.getElementById('visits-cities-pane').style.display = tab === 'cities' ? '' : 'none';
@@ -1818,7 +1994,6 @@ function loadVisits() {
         });
 }
 
-// (visits section removed from sidebar redesign)
 
 function formatDuration(seconds) {
     if (!seconds) return '-';
@@ -1836,10 +2011,10 @@ function escHtml(str) {
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// ─── Sidebar: Options ────────────────────────────────────────
+// ─── Map Style (overlay buttons on map) ─────────────────────
 
 function setMapStyle(btn) {
-    document.querySelectorAll('.sidebar-style-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.adv-style-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     currentMapStyle = btn.dataset.style;
     localStorage.setItem('roamly_map_tile_style', currentMapStyle);
@@ -1847,10 +2022,7 @@ function setMapStyle(btn) {
         tripMap.setStyle(mapStyles[currentMapStyle]);
         tripMap.once('styledata', () => {
             if (currentTripData) renderTripOnMap(currentTripData);
-            // Restore blurb pin if it was set
-            if (composeLocation) {
-                setBlurbLocation(composeLocation.lat, composeLocation.lng);
-            }
+            if (composeLocation) setBlurbLocation(composeLocation.lat, composeLocation.lng);
         });
     }
 }
@@ -1866,14 +2038,22 @@ function deleteTripFromDetail() {
 
 // ─── Sidebar: Toggle Sections ────────────────────────────────
 
-function toggleSection(btn) {
+function toggleAdvSection(btn) {
     btn.classList.toggle('collapsed');
+    const body = btn.nextElementSibling;
+    if (body) body.style.display = btn.classList.contains('collapsed') ? 'none' : '';
+}
+
+function lazyLoadVisits(btn) {
+    if (!visitsLoaded && !btn.classList.contains('collapsed')) {
+        loadVisits();
+    }
 }
 
 // ─── Init ────────────────────────────────────────────────────
 
-// Restore saved tile style button state
-document.querySelectorAll('.sidebar-style-btn').forEach(btn => {
+// Restore saved tile style on map overlay buttons
+document.querySelectorAll('.adv-style-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.style === currentMapStyle);
 });
 
