@@ -73,6 +73,8 @@
 {% block extra_js %}
 <script>
 let currentOffset = 0;
+let lastBeforeTs = null;
+let lastBeforeId = null;
 const LIMIT = 1000;
 const API_MAX_LIMIT = 50000; // server-side max
 let allRows = [];
@@ -147,9 +149,17 @@ function loadData(append = false) {
     if (!append) {
         currentOffset = 0;
         allRows = [];
+        lastBeforeTs = null;
+        lastBeforeId = null;
     }
 
-    params.set('offset', currentOffset);
+    // If we have a keyset cursor (returned by server) use it instead of offset
+    if (lastBeforeTs && append) {
+        params.set('before_ts', lastBeforeTs);
+        if (lastBeforeId) params.set('before_id', lastBeforeId);
+    } else {
+        params.set('offset', currentOffset);
+    }
 
     // If user has applied any filters, search the entire time period
     const qVal = document.getElementById('data-q').value.trim();
@@ -211,6 +221,11 @@ function loadData(append = false) {
             });
 
             currentOffset += count;
+            // update keyset cursor if server provided
+            if (data.next_before_ts) {
+                lastBeforeTs = data.next_before_ts;
+                lastBeforeId = data.next_before_id || null;
+            }
             renderRows();
             document.getElementById('data-info').textContent = `Showing ${allRows.length} location points`;
 
@@ -258,7 +273,13 @@ async function loadAll() {
         while (true) {
             iteration++;
             const params = new URLSearchParams({ limit: API_MAX_LIMIT });
-            params.set('offset', currentOffset);
+            // use keyset cursor when available
+            if (lastBeforeTs) {
+                params.set('before_ts', lastBeforeTs);
+                if (lastBeforeId) params.set('before_id', lastBeforeId);
+            } else {
+                params.set('offset', currentOffset);
+            }
             if (range === 'all') {
                 params.set('all', '1');
             } else {
@@ -301,9 +322,15 @@ async function loadAll() {
             renderRows();
             document.getElementById('data-info').textContent = `Showing ${allRows.length} location points`;
 
-            if (count < API_MAX_LIMIT) {
-                // done
-                break;
+            // update cursor from server
+            if (data.next_before_ts) {
+                lastBeforeTs = data.next_before_ts;
+                lastBeforeId = data.next_before_id || null;
+                // if we received a full batch, continue; otherwise finish
+                if (count < API_MAX_LIMIT) break;
+            } else {
+                // server didn't provide a keyset cursor -> rely on offset
+                if (count < API_MAX_LIMIT) break;
             }
             // allow the UI to update between large batches
             await new Promise(r => setTimeout(r, 100));

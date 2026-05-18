@@ -617,6 +617,9 @@ def _locations_api_inner(request):
     all_time = request.GET.get("all")
     limit = min(int(request.GET.get("limit", 5000)), 50000)
     offset = int(request.GET.get("offset", 0))
+    # Keyset pagination: fetch records before a given timestamp+id
+    before_ts = request.GET.get('before_ts')
+    before_id = request.GET.get('before_id')
     start_date = request.GET.get("start_date")
     end_date = request.GET.get("end_date")
     min_lng = request.GET.get("min_lng")
@@ -705,9 +708,37 @@ def _locations_api_inner(request):
         except (ValueError, TypeError):
             pass
 
-    locations = locations.select_related('device').order_by('-timestamp')[offset:offset + limit]
+    # Prefer keyset pagination when cursor provided (more efficient for large offsets)
+    if before_ts:
+        try:
+            before_dt = datetime.fromisoformat(before_ts)
+            if timezone.is_naive(before_dt):
+                before_dt = timezone.make_aware(before_dt)
+        except (ValueError, TypeError):
+            before_dt = None
+        try:
+            before_id_int = int(before_id) if before_id else None
+        except (ValueError, TypeError):
+            before_id_int = None
+
+        if before_dt is not None:
+            # order by timestamp desc, id desc; fetch rows strictly older than cursor
+            from django.db.models import Q
+            if before_id_int is not None:
+                locations = locations.filter(
+                    Q(timestamp__lt=before_dt) | (Q(timestamp=before_dt) & Q(id__lt=before_id_int))
+                )
+            else:
+                locations = locations.filter(timestamp__lt=before_dt)
+            locations = locations.select_related('device').order_by('-timestamp', '-id')[:limit]
+        else:
+            locations = locations.select_related('device').order_by('-timestamp', '-id')[offset:offset + limit]
+    else:
+        locations = locations.select_related('device').order_by('-timestamp', '-id')[offset:offset + limit]
 
     devices_data = {}
+    last_cursor_ts = None
+    last_cursor_id = None
     for loc in locations:
         did = loc.device.device_id
         if did not in devices_data:
@@ -730,8 +761,15 @@ def _locations_api_inner(request):
             "country": loc.country,
             "country_code": loc.country_code,
         })
+        # track last cursor (the last item in this page — remember results are desc)
+        last_cursor_ts = loc.timestamp
+        last_cursor_id = loc.id
 
-    return JsonResponse({"devices": list(devices_data.values())})
+    resp = {"devices": list(devices_data.values())}
+    if last_cursor_ts is not None:
+        resp['next_before_ts'] = last_cursor_ts.isoformat()
+        resp['next_before_id'] = last_cursor_id
+    return JsonResponse(resp)
 
 
 def _tile_coords(lat, lng, z):
