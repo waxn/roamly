@@ -16,7 +16,8 @@ from datetime import datetime, date, time as dt_time, timedelta, timezone as dt_
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, Min, Max, Avg, Q, Case, When, Value, IntegerField
+from django.db.models import Count, Min, Max, Avg, Q, Case, When, Value, IntegerField, FloatField
+from django.db.models.functions import Coalesce
 from django.http import FileResponse, JsonResponse, HttpResponse, StreamingHttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
@@ -617,8 +618,9 @@ def _locations_api_inner(request):
     all_time = request.GET.get("all")
     limit = min(int(request.GET.get("limit", 5000)), 50000)
     offset = int(request.GET.get("offset", 0))
-    # Keyset pagination: fetch records before a given timestamp+id
-    before_ts = request.GET.get('before_ts')
+    sort_key = request.GET.get('sort_key', 'timestamp')
+    sort_dir = request.GET.get('sort_dir', 'desc').lower()
+    before_value = request.GET.get('before_value')
     before_id = request.GET.get('before_id')
     start_date = request.GET.get("start_date")
     end_date = request.GET.get("end_date")
@@ -626,6 +628,54 @@ def _locations_api_inner(request):
     min_lat = request.GET.get("min_lat")
     max_lng = request.GET.get("max_lng")
     max_lat = request.GET.get("max_lat")
+
+    if sort_dir not in ("asc", "desc"):
+        sort_dir = "desc"
+
+    sort_config = {
+        'timestamp': {'field': 'timestamp', 'kind': 'datetime'},
+        'speed': {'field': 'sort_value', 'kind': 'number', 'source': 'speed'},
+        'battery': {'field': 'sort_value', 'kind': 'number', 'source': 'battery'},
+        'lat': {'field': 'sort_value', 'kind': 'number', 'source': 'latitude'},
+        'lng': {'field': 'sort_value', 'kind': 'number', 'source': 'longitude'},
+        'city': {'field': 'sort_value', 'kind': 'text', 'source': 'city'},
+        'state': {'field': 'sort_value', 'kind': 'text', 'source': 'state'},
+        'country_code': {'field': 'sort_value', 'kind': 'text', 'source': 'country_code'},
+        'country': {'field': 'sort_value', 'kind': 'text', 'source': 'country'},
+        'device': {'field': 'sort_value', 'kind': 'text', 'source': 'device_sort'},
+    }
+    if sort_key not in sort_config:
+        sort_key = 'timestamp'
+    config = sort_config[sort_key]
+    sort_field = config['field']
+    sort_source = config.get('source', sort_field)
+
+    def _cursor_value_for_loc(loc):
+        if sort_key == 'timestamp':
+            return loc.timestamp.isoformat()
+        value = getattr(loc, sort_source, None)
+        if sort_key == 'device':
+            value = loc.device.name or loc.device.device_id
+        if config['kind'] == 'number':
+            if value is None:
+                return -1e308
+            return _jf(value)
+        return value or ''
+
+    def _parse_cursor_value(raw):
+        if raw is None:
+            return None
+        try:
+            if config['kind'] == 'number':
+                return float(raw)
+            if sort_key == 'timestamp':
+                dt = datetime.fromisoformat(raw)
+                if timezone.is_naive(dt):
+                    dt = timezone.make_aware(dt)
+                return dt
+            return str(raw)
+        except (TypeError, ValueError):
+            return None
 
     locations = Location.objects.filter(device__user=request.user)
 
@@ -661,9 +711,7 @@ def _locations_api_inner(request):
     if q:
         q = q.strip()
         # search across city/state/country
-        locations = locations.filter(
-            models.Q(city__icontains=q) | models.Q(state__icontains=q) | models.Q(country__icontains=q)
-        )
+        locations = locations.filter(Q(city__icontains=q) | Q(state__icontains=q) | Q(country__icontains=q))
 
     try:
         if min_speed is not None and min_speed != '':
@@ -693,6 +741,13 @@ def _locations_api_inner(request):
     if country_code:
         locations = locations.filter(country_code__iexact=country_code)
 
+    if sort_key == 'device':
+        locations = locations.annotate(sort_value=Coalesce('device__name', 'device__device_id', Value('')))
+    elif config['kind'] == 'text':
+        locations = locations.annotate(sort_value=Coalesce(sort_source, Value('')))
+    elif config['kind'] == 'number':
+        locations = locations.annotate(sort_value=Coalesce(sort_source, Value(-1e308), output_field=FloatField()))
+
     if min_lng and min_lat and max_lng and max_lat:
         try:
             _min_lng, _min_lat = float(min_lng), float(min_lat)
@@ -708,37 +763,40 @@ def _locations_api_inner(request):
         except (ValueError, TypeError):
             pass
 
-    # Prefer keyset pagination when cursor provided (more efficient for large offsets)
-    if before_ts:
-        try:
-            before_dt = datetime.fromisoformat(before_ts)
-            if timezone.is_naive(before_dt):
-                before_dt = timezone.make_aware(before_dt)
-        except (ValueError, TypeError):
-            before_dt = None
-        try:
-            before_id_int = int(before_id) if before_id else None
-        except (ValueError, TypeError):
-            before_id_int = None
+    try:
+        before_id_int = int(before_id) if before_id else None
+    except (ValueError, TypeError):
+        before_id_int = None
 
-        if before_dt is not None:
-            # order by timestamp desc, id desc; fetch rows strictly older than cursor
-            from django.db.models import Q
-            if before_id_int is not None:
-                locations = locations.filter(
-                    Q(timestamp__lt=before_dt) | (Q(timestamp=before_dt) & Q(id__lt=before_id_int))
-                )
-            else:
-                locations = locations.filter(timestamp__lt=before_dt)
-            locations = locations.select_related('device').order_by('-timestamp', '-id')[:limit]
-        else:
-            locations = locations.select_related('device').order_by('-timestamp', '-id')[offset:offset + limit]
+    sort_lookup = 'timestamp' if sort_key == 'timestamp' else 'sort_value'
+    if sort_dir == 'asc':
+        order_prefix = ''
+        cursor_cmp = 'gt'
+        tie_cmp = 'gt'
     else:
-        locations = locations.select_related('device').order_by('-timestamp', '-id')[offset:offset + limit]
+        order_prefix = '-'
+        cursor_cmp = 'lt'
+        tie_cmp = 'lt'
+
+    cursor_value = _parse_cursor_value(before_value)
+    if cursor_value is not None:
+        cursor_filter = Q(**{f'{sort_lookup}__{cursor_cmp}': cursor_value})
+        if before_id_int is not None:
+            cursor_filter |= Q(**{sort_lookup: cursor_value}) & Q(**{f'id__{tie_cmp}': before_id_int})
+        locations = locations.filter(cursor_filter)
+
+    order_fields = [f'{order_prefix}{sort_lookup}', f'{order_prefix}id']
+
+    locations = locations.select_related('device').order_by(*order_fields)
+    page = list(locations[: limit + 1])
+    has_more = len(page) > limit
+    locations = page[:limit]
 
     devices_data = {}
+    locations_data = []
     last_cursor_ts = None
     last_cursor_id = None
+    last_cursor_value = None
     for loc in locations:
         did = loc.device.device_id
         if did not in devices_data:
@@ -761,13 +819,29 @@ def _locations_api_inner(request):
             "country": loc.country,
             "country_code": loc.country_code,
         })
+        locations_data.append({
+            "id": loc.id,
+            "device": loc.device.name or did,
+            "lat": _jf(loc.latitude),
+            "lng": _jf(loc.longitude),
+            "timestamp": loc.timestamp.isoformat(),
+            "altitude": _jf(loc.altitude),
+            "accuracy": _jf(loc.accuracy),
+            "speed": _jf(loc.speed),
+            "battery": _jf(loc.battery),
+            "city": loc.city,
+            "state": loc.state,
+            "country": loc.country,
+            "country_code": loc.country_code,
+        })
         # track last cursor (the last item in this page — remember results are desc)
         last_cursor_ts = loc.timestamp
         last_cursor_id = loc.id
+        last_cursor_value = _cursor_value_for_loc(loc)
 
-    resp = {"devices": list(devices_data.values())}
-    if last_cursor_ts is not None:
-        resp['next_before_ts'] = last_cursor_ts.isoformat()
+    resp = {"devices": list(devices_data.values()), "locations": locations_data, "sort_key": sort_key, "sort_dir": sort_dir, "has_more": has_more}
+    if last_cursor_ts is not None and has_more:
+        resp['next_before_value'] = last_cursor_value
         resp['next_before_id'] = last_cursor_id
     return JsonResponse(resp)
 

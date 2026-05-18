@@ -76,6 +76,10 @@ if HAS_POSTGIS and gis_models:
                 models.Index(fields=['device', '-timestamp'], name='tracker_loc_device__idx'),
                 models.Index(fields=['city'], name='tracker_loc_city_idx'),
                 models.Index(fields=['country'], name='tracker_loc_country_idx'),
+                models.Index(fields=['state'], name='tracker_loc_state_idx'),
+                models.Index(fields=['country_code'], name='tracker_loc_ccode_idx'),
+                models.Index(fields=['speed'], name='tracker_loc_speed_idx'),
+                models.Index(fields=['battery'], name='tracker_loc_battery_idx'),
                 models.Index(fields=['timestamp'], name='tracker_loc_timesta_idx'),
                 GistIndex(fields=['location'], name='tracker_loc_location_gist'),
             ]
@@ -109,6 +113,16 @@ else:
 
         class Meta:
             ordering = ['-timestamp']
+            indexes = [
+                models.Index(fields=['device', '-timestamp'], name='tracker_loc_device__idx'),
+                models.Index(fields=['city'], name='tracker_loc_city_idx'),
+                models.Index(fields=['country'], name='tracker_loc_country_idx'),
+                models.Index(fields=['state'], name='tracker_loc_state_idx'),
+                models.Index(fields=['country_code'], name='tracker_loc_ccode_idx'),
+                models.Index(fields=['speed'], name='tracker_loc_speed_idx'),
+                models.Index(fields=['battery'], name='tracker_loc_battery_idx'),
+                models.Index(fields=['timestamp'], name='tracker_loc_timesta_idx'),
+            ]
             unique_together = ['device', 'latitude', 'longitude', 'timestamp']
 
         def __str__(self):

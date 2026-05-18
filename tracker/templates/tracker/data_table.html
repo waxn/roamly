@@ -73,7 +73,7 @@
 {% block extra_js %}
 <script>
 let currentOffset = 0;
-let lastBeforeTs = null;
+let lastBeforeValue = null;
 let lastBeforeId = null;
 const LIMIT = 1000;
 const API_MAX_LIMIT = 50000; // server-side max
@@ -88,27 +88,15 @@ function formatSpeed(speedMs) {
 }
 
 function renderRows() {
-    const sorted = [...allRows];
-    sorted.sort((a, b) => {
-        let va = a[sortKey], vb = b[sortKey];
-        if (va == null) va = '';
-        if (vb == null) vb = '';
-        if (typeof va === 'string') {
-            const cmp = va.localeCompare(vb, undefined, {sensitivity: 'base'});
-            return sortDir === 'asc' ? cmp : -cmp;
-        }
-        return sortDir === 'asc' ? va - vb : vb - va;
-    });
-
-    const html = sorted.map(r => `<tr id="loc-${r.id}">
+    const html = allRows.map(r => `<tr id="loc-${r.id}">
         <td>${r.device}</td>
         <td>${r.lat.toFixed(5)}</td>
         <td>${r.lng.toFixed(5)}</td>
         <td>${r.city || '-'}</td>
         <td>${r.state || '-'}</td>
         <td>${r.country_code || '-'}</td>
-        <td>${r.speed ? formatSpeed(r.speed) : '-'}</td>
-        <td>${r.battery ? r.battery + '%' : '-'}</td>
+        <td>${r.speed !== null && r.speed !== undefined ? formatSpeed(r.speed) : '-'}</td>
+        <td>${r.battery !== null && r.battery !== undefined ? r.battery + '%' : '-'}</td>
         <td style="color:var(--text-muted)">${new Date(r.timestamp).toLocaleString()}</td>
         <td><button onclick="deleteLocation(${r.id})" class="btn-icon" title="Delete point" style="color:var(--text-muted);cursor:pointer;background:none;border:none;padding:0.25rem;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
@@ -136,35 +124,36 @@ function sortBy(key) {
         sortDir = sortDir === 'asc' ? 'desc' : 'asc';
     } else {
         sortKey = key;
-        sortDir = 'asc';
+        sortDir = ['timestamp', 'speed', 'battery'].includes(key) ? 'desc' : 'asc';
     }
-    renderRows();
+    loadData(false);
 }
 
-function loadData(append = false) {
+function buildParams(append = false, limit = LIMIT) {
     const device = document.getElementById('data-device').value;
     const range = document.getElementById('data-range').value;
-    const params = new URLSearchParams({ limit: LIMIT });
+    const qVal = document.getElementById('data-q').value.trim();
+    const minSpeedVal = document.getElementById('data-min-speed').value.trim();
+    const maxSpeedVal = document.getElementById('data-max-speed').value.trim();
+    const params = new URLSearchParams({
+        limit: String(limit),
+        sort_key: sortKey,
+        sort_dir: sortDir,
+    });
 
     if (!append) {
         currentOffset = 0;
         allRows = [];
-        lastBeforeTs = null;
+        lastBeforeValue = null;
         lastBeforeId = null;
     }
 
-    // If we have a keyset cursor (returned by server) use it instead of offset
-    if (lastBeforeTs && append) {
-        params.set('before_ts', lastBeforeTs);
-        if (lastBeforeId) params.set('before_id', lastBeforeId);
+    if (append && lastBeforeValue !== null && lastBeforeValue !== undefined) {
+        params.set('before_value', String(lastBeforeValue));
+        if (lastBeforeId !== null && lastBeforeId !== undefined) params.set('before_id', String(lastBeforeId));
     } else {
-        params.set('offset', currentOffset);
+        params.set('offset', String(currentOffset));
     }
-
-    // If user has applied any filters, search the entire time period
-    const qVal = document.getElementById('data-q').value.trim();
-    const minSpeedVal = document.getElementById('data-min-speed').value.trim();
-    const maxSpeedVal = document.getElementById('data-max-speed').value.trim();
 
     if (qVal || minSpeedVal || maxSpeedVal) {
         params.set('all', '1');
@@ -177,6 +166,11 @@ function loadData(append = false) {
         params.set('hours', range);
     }
     if (device) params.set('device_id', device);
+    return params;
+}
+
+function loadData(append = false) {
+    const params = buildParams(append, LIMIT);
 
     if (!append) {
         document.getElementById('data-table-body').innerHTML =
@@ -199,15 +193,16 @@ function loadData(append = false) {
             return r.json();
         })
         .then(data => {
-            if (!data.devices) throw new Error('Invalid response format');
+            const rows = Array.isArray(data.locations) ? data.locations : [];
+            const grouped = Array.isArray(data.devices) ? data.devices : [];
+            if (!rows.length && !grouped.length) throw new Error('Invalid response format');
             let count = 0;
-            data.devices.forEach(dev => {
-                if (!dev.locations) return;
-                dev.locations.forEach(loc => {
+            if (rows.length) {
+                rows.forEach(loc => {
                     count++;
                     allRows.push({
                         id: loc.id,
-                        device: dev.name,
+                        device: loc.device,
                         lat: loc.lat,
                         lng: loc.lng,
                         city: loc.city,
@@ -215,21 +210,40 @@ function loadData(append = false) {
                         country_code: loc.country_code,
                         speed: loc.speed,
                         battery: loc.battery,
-                        timestamp: new Date(loc.timestamp).getTime(),
+                        timestamp: loc.timestamp,
                     });
                 });
-            });
+            } else {
+                grouped.forEach(dev => {
+                    if (!dev.locations) return;
+                    dev.locations.forEach(loc => {
+                        count++;
+                        allRows.push({
+                            id: loc.id,
+                            device: dev.name,
+                            lat: loc.lat,
+                            lng: loc.lng,
+                            city: loc.city,
+                            state: loc.state,
+                            country_code: loc.country_code,
+                            speed: loc.speed,
+                            battery: loc.battery,
+                            timestamp: loc.timestamp,
+                        });
+                    });
+                });
+            }
 
             currentOffset += count;
             // update keyset cursor if server provided
-            if (data.next_before_ts) {
-                lastBeforeTs = data.next_before_ts;
-                lastBeforeId = data.next_before_id || null;
+            if (data.next_before_value !== undefined) {
+                lastBeforeValue = data.next_before_value;
+                lastBeforeId = data.next_before_id ?? null;
             }
             renderRows();
             document.getElementById('data-info').textContent = `Showing ${allRows.length} location points`;
 
-            if (count >= LIMIT) {
+            if (data.has_more) {
                 loadMoreBtn.style.display = 'block';
                 loadMoreBtn.disabled = false;
                 loadMoreBtn.textContent = 'Load More';
@@ -261,8 +275,6 @@ function loadMore() {
 async function loadAll() {
     const loadAllBtn = document.getElementById('load-all-btn');
     const loadMoreBtn = document.getElementById('load-more-btn');
-    const device = document.getElementById('data-device').value;
-    const range = document.getElementById('data-range').value;
 
     loadAllBtn.disabled = true;
     loadMoreBtn.disabled = true;
@@ -272,40 +284,29 @@ async function loadAll() {
         let iteration = 0;
         while (true) {
             iteration++;
-            const params = new URLSearchParams({ limit: API_MAX_LIMIT });
-            // use keyset cursor when available
-            if (lastBeforeTs) {
-                params.set('before_ts', lastBeforeTs);
-                if (lastBeforeId) params.set('before_id', lastBeforeId);
-            } else {
-                params.set('offset', currentOffset);
-            }
-            if (range === 'all') {
-                params.set('all', '1');
-            } else {
-                params.set('hours', range);
-            }
-            if (device) params.set('device_id', device);
+            // keep cursor fresh for each iteration
+            const iterParams = buildParams(true, API_MAX_LIMIT);
 
             // show incremental progress for very large loads
             document.getElementById('data-info').textContent = `Loading batch ${iteration}... (loaded ${allRows.length})`;
 
-            const resp = await fetch(`/api/locations/?${params}`);
+            const resp = await fetch(`/api/locations/?${iterParams}`);
             if (!resp.ok) {
                 const body = await resp.json().catch(() => ({}));
                 throw new Error(body.error ? `${body.type}: ${body.error}` : `HTTP ${resp.status}`);
             }
             const data = await resp.json();
-            if (!data.devices) throw new Error('Invalid response format');
+            const rows = Array.isArray(data.locations) ? data.locations : [];
+            const grouped = Array.isArray(data.devices) ? data.devices : [];
+            if (!rows.length && !grouped.length) throw new Error('Invalid response format');
 
             let count = 0;
-            data.devices.forEach(dev => {
-                if (!dev.locations) return;
-                dev.locations.forEach(loc => {
+            if (rows.length) {
+                rows.forEach(loc => {
                     count++;
                     allRows.push({
                         id: loc.id,
-                        device: dev.name,
+                        device: loc.device,
                         lat: loc.lat,
                         lng: loc.lng,
                         city: loc.city,
@@ -313,24 +314,41 @@ async function loadAll() {
                         country_code: loc.country_code,
                         speed: loc.speed,
                         battery: loc.battery,
-                        timestamp: new Date(loc.timestamp).getTime(),
+                        timestamp: loc.timestamp,
                     });
                 });
-            });
+            } else {
+                grouped.forEach(dev => {
+                    if (!dev.locations) return;
+                    dev.locations.forEach(loc => {
+                        count++;
+                        allRows.push({
+                            id: loc.id,
+                            device: dev.name,
+                            lat: loc.lat,
+                            lng: loc.lng,
+                            city: loc.city,
+                            state: loc.state,
+                            country_code: loc.country_code,
+                            speed: loc.speed,
+                            battery: loc.battery,
+                            timestamp: loc.timestamp,
+                        });
+                    });
+                });
+            }
 
             currentOffset += count;
             renderRows();
             document.getElementById('data-info').textContent = `Showing ${allRows.length} location points`;
 
             // update cursor from server
-            if (data.next_before_ts) {
-                lastBeforeTs = data.next_before_ts;
-                lastBeforeId = data.next_before_id || null;
-                // if we received a full batch, continue; otherwise finish
-                if (count < API_MAX_LIMIT) break;
-            } else {
-                // server didn't provide a keyset cursor -> rely on offset
-                if (count < API_MAX_LIMIT) break;
+            if (data.next_before_value !== undefined) {
+                lastBeforeValue = data.next_before_value;
+                lastBeforeId = data.next_before_id ?? null;
+                if (!data.has_more) break;
+            } else if (!data.has_more) {
+                break;
             }
             // allow the UI to update between large batches
             await new Promise(r => setTimeout(r, 100));
