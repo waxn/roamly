@@ -131,7 +131,15 @@
 }
 .maplibregl-popup-close-button {
     color: var(--text-muted) !important;
-    font-size: 1rem;
+    width: 28px;
+    height: 28px;
+    line-height: 28px;
+    font-size: 1.25rem;
+    font-weight: 700;
+    border-radius: 999px;
+    top: 8px;
+    right: 8px;
+    background: rgba(0, 0, 0, 0.08);
 }
 .maplibregl-map, .maplibregl-ctrl {
     font-family: 'Space Grotesk', sans-serif !important;
@@ -351,8 +359,8 @@ function buildFilterParams() {
     const endDate   = document.getElementById('end-date').value;
     const params = new URLSearchParams();
     if (startDate && endDate) {
-        params.set('start_date', startDate);
-        params.set('end_date', endDate);
+        params.set('start_date', toLocalDateTimeParam(startDate, 'start'));
+        params.set('end_date', toLocalDateTimeParam(endDate, 'end'));
     } else if (timeRange === 'all') {
         params.set('all', '1');
     } else {
@@ -360,6 +368,17 @@ function buildFilterParams() {
     }
     if (deviceId) params.set('device_id', deviceId);
     return params.toString();
+}
+
+function toLocalDateTimeParam(dateStr, kind) {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day, kind === 'end' ? 23 : 0, kind === 'end' ? 59 : 0, kind === 'end' ? 59 : 0);
+    const pad = n => String(Math.abs(n)).padStart(2, '0');
+    const offset = -date.getTimezoneOffset();
+    const sign = offset >= 0 ? '+' : '-';
+    const offsetHours = pad(Math.trunc(Math.abs(offset) / 60));
+    const offsetMinutes = pad(Math.abs(offset) % 60);
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}${sign}${offsetHours}:${offsetMinutes}`;
 }
 
 // ═══════════════════════════════════════════════════════════════════
