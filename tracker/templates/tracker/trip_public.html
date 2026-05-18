@@ -64,7 +64,7 @@
 .pub-comment-item { font-size: 0.75rem; margin-top: 0.25rem; color: var(--text-muted); }
 .pub-comment-author { font-weight: 600; color: var(--text); }
 
-/* Name gate modal */
+/* Gate modals (PIN + name) */
 .name-gate {
     position: fixed; inset: 0; background: rgba(0,0,0,0.7);
     display: flex; align-items: center; justify-content: center; z-index: 3000;
@@ -81,6 +81,14 @@
     margin: 0 4px 4px 0; transition: all 0.12s;
 }
 .name-chip:hover { border-color: var(--primary); color: var(--primary); }
+.pin-input {
+    letter-spacing: 0.15em; text-align: center; font-size: 1.25rem;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); font-family: 'Space Grotesk', sans-serif; font-weight: 700;
+    padding: 0.5rem; width: 100%; outline: none; margin-bottom: 0.75rem;
+}
+.pin-input:focus { border-color: var(--primary); }
+.pin-error { color: var(--danger); font-size: 0.8125rem; margin-bottom: 0.5rem; min-height: 1.25em; }
 
 /* Popup theme */
 .maplibregl-popup-content {
@@ -100,8 +108,23 @@
 {% endblock %}
 
 {% block content %}
+<!-- PIN gate (shown only when access_pin is set and not yet verified) -->
+{% if requires_pin %}
+<div class="name-gate" id="pin-gate">
+    <div class="name-gate-card">
+        <h3>this adventure is private</h3>
+        <p>enter the access PIN provided by the creator to view this adventure.</p>
+        <input type="text" class="pin-input" id="pin-input" inputmode="numeric" pattern="[0-9a-zA-Z]*"
+            placeholder="PIN" maxlength="20"
+            onkeydown="if(event.key==='Enter') verifyPin()">
+        <div class="pin-error" id="pin-error"></div>
+        <button class="btn btn-primary" style="width:100%;" onclick="verifyPin()">unlock</button>
+    </div>
+</div>
+{% endif %}
+
 <!-- Name gate -->
-<div class="name-gate" id="name-gate">
+<div class="name-gate" id="name-gate" {% if requires_pin %}style="display:none;"{% endif %}>
     <div class="name-gate-card">
         <h3>who are you?</h3>
         <p>enter a name to leave comments on this adventure. it's saved locally so you only need to do this once.</p>
@@ -144,6 +167,38 @@ const SLUG = '{{ slug }}';
 const NAMES_KEY = 'roamly_visitor_names';
 const CURRENT_NAME_KEY = 'roamly_visitor_current';
 let visitorName = localStorage.getItem(CURRENT_NAME_KEY) || '';
+
+// ── PIN gate ───────────────────────────────────────────────
+
+{% if requires_pin %}
+function verifyPin() {
+    const pin = document.getElementById('pin-input').value.trim();
+    if (!pin) { document.getElementById('pin-input').focus(); return; }
+    fetch(`/api/trip/${SLUG}/verify-pin/`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({pin})
+    }).then(r => r.json()).then(data => {
+        if (data.status === 'ok') {
+            document.getElementById('pin-gate').style.display = 'none';
+            _pinUnlocked = true;
+            if (visitorName) {
+                document.getElementById('name-gate').style.display = 'none';
+            } else {
+                document.getElementById('name-gate').style.display = '';
+                document.getElementById('gate-name-input').focus();
+            }
+            initPublicMap();
+        } else {
+            document.getElementById('pin-error').textContent = 'incorrect PIN — try again';
+            document.getElementById('pin-input').value = '';
+            document.getElementById('pin-input').focus();
+        }
+    }).catch(() => {
+        document.getElementById('pin-error').textContent = 'error checking PIN';
+    });
+}
+{% endif %}
 
 // ── Name gate ──────────────────────────────────────────────
 
@@ -223,7 +278,17 @@ function _speedColorExpr() {
 const map = new maplibregl.Map({ container:'public-map', style:mapStyles.Streets, center:[0,20], zoom:2 });
 map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
-map.on('load', () => {
+let _mapLoaded = false;
+let _pinUnlocked = {% if requires_pin %}false{% else %}true{% endif %};
+
+function initPublicMap() {
+    if (!_mapLoaded || !_pinUnlocked) return;
+    fetchPublicData();
+}
+
+map.on('load', () => { _mapLoaded = true; initPublicMap(); });
+
+function fetchPublicData() {
     fetch(`/api/trip/${SLUG}/detail/`)
         .then(r => r.json())
         .then(data => {
@@ -347,7 +412,7 @@ map.on('load', () => {
                 ).join('');
             }
         });
-});
+}
 
 function loadPubComments(blurbId) {
     fetch(`/api/trip/${SLUG}/blurbs/${blurbId}/comments/`).catch(()=>{})
