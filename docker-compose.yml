@@ -7,7 +7,6 @@ services:
       - ./data/redis:/data
 
   db:
-    profiles: [local]
     image: postgis/postgis:16-3.4
     container_name: roamly_db
     restart: unless-stopped
@@ -34,6 +33,7 @@ services:
     restart: unless-stopped
     depends_on:
       - redis
+      - db
     dns:
       - 1.1.1.1
       - 8.8.8.8

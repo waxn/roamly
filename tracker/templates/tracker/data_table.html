@@ -47,9 +47,12 @@
                 </tbody>
             </table>
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem; gap:0.5rem;">
             <div id="data-info" style="font-size: 0.8125rem; color: var(--text-muted);"></div>
-            <button id="load-more-btn" class="btn btn-outline btn-sm" onclick="loadMore()" style="display: none;">Load More</button>
+            <div style="display:flex; gap:0.5rem;">
+                <button id="load-more-btn" class="btn btn-outline btn-sm" onclick="loadMore()" style="display: none;">Load More</button>
+                <button id="load-all-btn" class="btn btn-outline btn-sm" onclick="loadAll()" style="display: none;">Load All</button>
+            </div>
         </div>
     </div>
 </div>
@@ -68,6 +71,7 @@
 <script>
 let currentOffset = 0;
 const LIMIT = 1000;
+const API_MAX_LIMIT = 50000; // server-side max; use for "Load All" to minimize requests
 let allRows = [];
 let sortKey = 'timestamp';
 let sortDir = 'desc';
@@ -201,8 +205,13 @@ function loadData(append = false) {
                 loadMoreBtn.style.display = 'block';
                 loadMoreBtn.disabled = false;
                 loadMoreBtn.textContent = 'Load More';
+                // show option to load everything (may take a long time)
+                const loadAllBtn = document.getElementById('load-all-btn');
+                loadAllBtn.style.display = 'block';
+                loadAllBtn.disabled = false;
             } else {
                 loadMoreBtn.style.display = 'none';
+                document.getElementById('load-all-btn').style.display = 'none';
             }
         })
         .catch(err => {
@@ -219,6 +228,84 @@ function loadData(append = false) {
 
 function loadMore() {
     loadData(true);
+}
+
+async function loadAll() {
+    const loadAllBtn = document.getElementById('load-all-btn');
+    const loadMoreBtn = document.getElementById('load-more-btn');
+    const device = document.getElementById('data-device').value;
+    const range = document.getElementById('data-range').value;
+
+    loadAllBtn.disabled = true;
+    loadMoreBtn.disabled = true;
+    loadAllBtn.innerHTML = '<span class="spinner"></span> Loading all...';
+
+    try {
+        let iteration = 0;
+        while (true) {
+            iteration++;
+            const params = new URLSearchParams({ limit: API_MAX_LIMIT });
+            params.set('offset', currentOffset);
+            if (range === 'all') {
+                params.set('all', '1');
+            } else {
+                params.set('hours', range);
+            }
+            if (device) params.set('device_id', device);
+
+            // show incremental progress for very large loads
+            document.getElementById('data-info').textContent = `Loading batch ${iteration}... (loaded ${allRows.length})`;
+
+            const resp = await fetch(`/api/locations/?${params}`);
+            if (!resp.ok) {
+                const body = await resp.json().catch(() => ({}));
+                throw new Error(body.error ? `${body.type}: ${body.error}` : `HTTP ${resp.status}`);
+            }
+            const data = await resp.json();
+            if (!data.devices) throw new Error('Invalid response format');
+
+            let count = 0;
+            data.devices.forEach(dev => {
+                if (!dev.locations) return;
+                dev.locations.forEach(loc => {
+                    count++;
+                    allRows.push({
+                        id: loc.id,
+                        device: dev.name,
+                        lat: loc.lat,
+                        lng: loc.lng,
+                        city: loc.city,
+                        state: loc.state,
+                        country_code: loc.country_code,
+                        speed: loc.speed,
+                        battery: loc.battery,
+                        timestamp: new Date(loc.timestamp).getTime(),
+                    });
+                });
+            });
+
+            currentOffset += count;
+            renderRows();
+            document.getElementById('data-info').textContent = `Showing ${allRows.length} location points`;
+
+            if (count < API_MAX_LIMIT) {
+                // done
+                break;
+            }
+            // allow the UI to update between large batches
+            await new Promise(r => setTimeout(r, 100));
+        }
+    } catch (err) {
+        console.error('Failed to load all data:', err);
+        document.getElementById('data-info').textContent = `Error: ${err.message}`;
+    } finally {
+        loadAllBtn.disabled = false;
+        loadAllBtn.textContent = 'Load All';
+        loadMoreBtn.disabled = false;
+        // hide Load More once all loaded
+        document.getElementById('load-more-btn').style.display = 'none';
+        document.getElementById('load-all-btn').style.display = 'none';
+    }
 }
 
 function deleteLocation(id) {
