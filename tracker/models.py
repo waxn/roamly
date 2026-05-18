@@ -223,6 +223,7 @@ class Adventure(models.Model):
     start_time = models.DateTimeField()
     end_time = models.DateTimeField()
     public_slug = models.SlugField(max_length=64, unique=True, null=True, blank=True)
+    access_pin = models.CharField(max_length=20, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
