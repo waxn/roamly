@@ -1012,7 +1012,7 @@ function renderTripOnMap(data) {
 
     // Remove old sources/layers (including any previous member tracks)
     tripMap.getStyle().layers
-        .filter(l => l.id.startsWith('member-') || ['adv-heat','adv-dots','adv-line','place-circles','place-markers','place-labels'].includes(l.id))
+        .filter(l => l.id.startsWith('member-') || ['adv-heat','adv-dots','adv-line','place-circles','place-markers'].includes(l.id))
         .forEach(l => { if (tripMap.getLayer(l.id)) tripMap.removeLayer(l.id); });
     Object.keys(tripMap.getStyle().sources || {})
         .filter(id => id.startsWith('member-') || ['adv-pts','adv-line','place-circles','place-markers'].includes(id))
