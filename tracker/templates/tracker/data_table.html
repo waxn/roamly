@@ -12,9 +12,7 @@
                 <option value="{{ device.device_id }}">{{ device.name|default:device.device_id }}</option>
                 {% endfor %}
             </select>
-            <input id="data-q" placeholder="Search town/state/country" class="form-control" style="width: 18rem;" />
-            <input id="data-min-speed" placeholder="Min speed (m/s)" class="form-control" style="width: 8rem;" />
-            <input id="data-max-speed" placeholder="Max speed (m/s)" class="form-control" style="width: 8rem;" />
+            <!-- search inputs removed (use Search page) -->
             <select id="data-range" class="form-control" style="width: auto;">
                 <option value="24">Last 24h</option>
                 <option value="72">Last 3 days</option>
@@ -88,7 +86,7 @@ function formatSpeed(speedMs) {
 }
 
 function renderRows() {
-    const html = allRows.map(r => `<tr id="loc-${r.id}">
+    const html = allRows.map(r => `<tr id="loc-${r.id}" data-ts="${r.timestamp}" style="cursor:pointer">
         <td>${r.device}</td>
         <td>${r.lat.toFixed(5)}</td>
         <td>${r.lng.toFixed(5)}</td>
@@ -98,13 +96,23 @@ function renderRows() {
         <td>${r.speed !== null && r.speed !== undefined ? formatSpeed(r.speed) : '-'}</td>
         <td>${r.battery !== null && r.battery !== undefined ? r.battery + '%' : '-'}</td>
         <td style="color:var(--text-muted)">${new Date(r.timestamp).toLocaleString()}</td>
-        <td><button onclick="deleteLocation(${r.id})" class="btn-icon" title="Delete point" style="color:var(--text-muted);cursor:pointer;background:none;border:none;padding:0.25rem;">
+        <td><button onclick="event.stopPropagation(); deleteLocation(${r.id})" class="btn-icon" title="Delete point" style="color:var(--text-muted);cursor:pointer;background:none;border:none;padding:0.25rem;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
         </button></td>
     </tr>`).join('');
 
     document.getElementById('data-table-body').innerHTML = html ||
         '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);">No data</td></tr>';
+
+    // attach click handlers to rows to open map focused on that point's day
+    document.querySelectorAll('#data-table-body tr[id^="loc-"]').forEach(tr => {
+        tr.addEventListener('click', (ev) => {
+            const id = tr.id.replace('loc-', '');
+            const ts = tr.dataset.ts;
+            if (!id || !ts) return;
+            openOnMap(id, ts);
+        });
+    });
 
     // Update sort arrows
     document.querySelectorAll('th.sortable').forEach(th => {
@@ -132,9 +140,7 @@ function sortBy(key) {
 function buildParams(append = false, limit = LIMIT) {
     const device = document.getElementById('data-device').value;
     const range = document.getElementById('data-range').value;
-    const qVal = document.getElementById('data-q').value.trim();
-    const minSpeedVal = document.getElementById('data-min-speed').value.trim();
-    const maxSpeedVal = document.getElementById('data-max-speed').value.trim();
+    // search fields removed; filtering lives on the Search page
     const params = new URLSearchParams({
         limit: String(limit),
         sort_key: sortKey,
@@ -155,12 +161,7 @@ function buildParams(append = false, limit = LIMIT) {
         params.set('offset', String(currentOffset));
     }
 
-    if (qVal || minSpeedVal || maxSpeedVal) {
-        params.set('all', '1');
-        if (qVal) params.set('q', qVal);
-        if (minSpeedVal) params.set('min_speed', minSpeedVal);
-        if (maxSpeedVal) params.set('max_speed', maxSpeedVal);
-    } else if (range === 'all') {
+    if (range === 'all') {
         params.set('all', '1');
     } else {
         params.set('hours', range);
@@ -394,16 +395,25 @@ function deleteLocation(id) {
     });
 }
 
+function openOnMap(id, isoTs) {
+    try {
+        const d = new Date(isoTs);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const dateStr = `${y}-${m}-${day}`;
+        // navigate to map with selected id and date (map will focus on the day)
+        window.location = `/map/?selected=${encodeURIComponent(id)}&date=${encodeURIComponent(dateStr)}`;
+    } catch (e) {
+        console.error('openOnMap failed', e);
+        window.location = `/map/?selected=${encodeURIComponent(id)}`;
+    }
+}
+
 loadData();
 document.getElementById('data-device').addEventListener('change', () => loadData(false));
 document.getElementById('data-range').addEventListener('change', () => loadData(false));
-document.getElementById('data-q').addEventListener('input', () => {
-    // debounce
-    clearTimeout(window._dataQTimer);
-    window._dataQTimer = setTimeout(() => loadData(false), 350);
-});
-document.getElementById('data-min-speed').addEventListener('change', () => loadData(false));
-document.getElementById('data-max-speed').addEventListener('change', () => loadData(false));
+// search inputs removed; no listeners needed here
 
 // Infinite scroll: load more when near bottom of table container or window
 function _checkAndMaybeLoadMore(elTop, elHeight, elScrollTop, elScrollHeight) {

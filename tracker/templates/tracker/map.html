@@ -658,6 +658,60 @@ function maybeLoadViewport() {
     loadViewport(AUTO_LOAD_LIMIT);
 }
 
+async function fetchAndFocusSelected(id, dateStr) {
+    try {
+        const params = new URLSearchParams(buildFilterParams());
+        if (dateStr) {
+            params.set('start_date', dateStr);
+            params.set('end_date', dateStr);
+            params.set('all', '1');
+        }
+        params.set('limit', '50000');
+        params.set('offset', '0');
+
+        const resp = await fetch(`/api/locations/?${params.toString()}`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+
+        // search flat locations
+        let found = null;
+        if (Array.isArray(data.locations)) {
+            found = data.locations.find(l => String(l.id) === String(id));
+        }
+        if (!found && Array.isArray(data.devices)) {
+            for (const dev of data.devices) {
+                if (!dev.locations) continue;
+                const f = dev.locations.find(l => String(l.id) === String(id));
+                if (f) {
+                    // attach device name if available
+                    if (!f.device) f.device = dev.name || dev.device_id;
+                    found = f;
+                    break;
+                }
+            }
+        }
+        if (!found) return;
+
+        const coords = [found.lng, found.lat];
+        const props = {
+            ts: Math.floor(new Date(found.timestamp).getTime() / 1000),
+            device_name: found.device || found.device_name || '',
+            speed: found.speed ?? null,
+            city: found.city,
+            state: found.state,
+            country: found.country,
+        };
+
+        // fly to and show popup
+        map.once('idle', () => {
+            try { map.flyTo({ center: coords, zoom: 15 }); } catch (e) {}
+            showPointPopup(props, coords);
+        });
+    } catch (err) {
+        console.error('fetchAndFocusSelected error', err);
+    }
+}
+
 function renderTrack(devices, autoFit) {
     lastTrackData = devices || [];
     clearTrackLayers();
@@ -777,6 +831,18 @@ function loadTrack(autoFit) {
         document.getElementById('end-date').value = p.get('end');
         document.getElementById('time-range').value = 'all';
     }
+    // support legacy 'date' + 'selected' query params from data table
+    if (p.get('date')) {
+        const d = p.get('date');
+        document.getElementById('start-date').value = d;
+        document.getElementById('end-date').value = d;
+        document.getElementById('time-range').value = 'all';
+    }
+    if (p.get('selected')) {
+        // remember for after initial track load
+        window.__selectedFromURL = p.get('selected');
+        window.__selectedDateFromURL = p.get('date') || null;
+    }
     if (p.get('lat') && p.get('lng')) {
         const lat = parseFloat(p.get('lat'));
         const lng = parseFloat(p.get('lng'));
@@ -785,7 +851,13 @@ function loadTrack(autoFit) {
     }
 })();
 
-map.on('load', () => loadTrack(true));
+map.on('load', () => {
+    loadTrack(true);
+    if (window.__selectedFromURL) {
+        // attempt to fetch the exact location and focus it
+        fetchAndFocusSelected(window.__selectedFromURL, window.__selectedDateFromURL);
+    }
+});
 
 // Update the "load more" panel visibility when zoom changes
 map.on('zoomend', () => updateDetailControls());
