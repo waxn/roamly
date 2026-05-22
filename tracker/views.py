@@ -1288,6 +1288,28 @@ def distance_api(request):
     return JsonResponse(result)
 
 
+_VISITS_MAX_GAP_CROSS = 3600  # cap only when geocoded place label changes
+
+
+def _visits_dwell_gap(prev, cur, level):
+    """Seconds between two points for visit time attribution.
+
+    prev/cur: (timestamp, city, state, country, country_code).
+    Count the full interval when still at the same place; cap at 1 hour when the
+    label changes (e.g. travel between towns with sparse pings).
+    """
+    raw = (cur[0] - prev[0]).total_seconds()
+    if raw <= 0:
+        return 0
+    if level == 'city':
+        same = (prev[1], prev[2], prev[3], prev[4]) == (cur[1], cur[2], cur[3], cur[4])
+    elif level == 'state':
+        same = (prev[2], prev[3]) == (cur[2], cur[3])
+    else:
+        same = prev[3] == cur[3]
+    return raw if same else min(raw, _VISITS_MAX_GAP_CROSS)
+
+
 @login_required
 def visits_api(request):
     """Aggregated city/state/country visit statistics."""
@@ -1335,9 +1357,7 @@ def visits_api(request):
         "location_count": s['count'], "city_count": s['city_count'],
     } for s in state_stats if s['state']]
 
-    # Time spent per city/state/country
-    # Attribute gap between consecutive points to the first point's location
-    MAX_GAP = 3600  # Cap at 1 hour to avoid idle/overnight skew
+    # Time spent per city/state/country — attribute each gap to the earlier point's place
     time_city = defaultdict(float)
     time_state = defaultdict(float)
     time_country = defaultdict(float)
@@ -1347,16 +1367,21 @@ def visits_api(request):
     )
     prev = None
     for ts, city, state_val, country_val, cc in points.iterator():
+        cur = (ts, city, state_val, country_val, cc)
         if prev:
-            gap = min((ts - prev[0]).total_seconds(), MAX_GAP)
-            if gap > 0:
-                if prev[1]:
+            if prev[1]:
+                gap = _visits_dwell_gap(prev, cur, 'city')
+                if gap > 0:
                     time_city[(prev[1], prev[2], prev[3], prev[4])] += gap
-                if prev[2]:
+            if prev[2]:
+                gap = _visits_dwell_gap(prev, cur, 'state')
+                if gap > 0:
                     time_state[(prev[2], prev[3])] += gap
-                if prev[3]:
+            if prev[3]:
+                gap = _visits_dwell_gap(prev, cur, 'country')
+                if gap > 0:
                     time_country[prev[3]] += gap
-        prev = (ts, city, state_val, country_val, cc)
+        prev = cur
 
     # Attach time_spent to existing result lists
     for c in cities:
@@ -2002,20 +2027,22 @@ def trip_visits_api(request, trip_id):
         "location_count": s['count'], "city_count": s['city_count'],
     } for s in state_stats if s['state']]
 
-    MAX_GAP = 3600
     time_city = defaultdict(float)
     time_country = defaultdict(float)
     points = locations.order_by('timestamp').values_list('timestamp', 'city', 'state', 'country', 'country_code')
     prev = None
     for ts, city, state_val, country_val, cc in points.iterator():
+        cur = (ts, city, state_val, country_val, cc)
         if prev:
-            gap = min((ts - prev[0]).total_seconds(), MAX_GAP)
-            if gap > 0:
-                if prev[1]:
+            if prev[1]:
+                gap = _visits_dwell_gap(prev, cur, 'city')
+                if gap > 0:
                     time_city[(prev[1], prev[2], prev[3], prev[4])] += gap
-                if prev[3]:
+            if prev[3]:
+                gap = _visits_dwell_gap(prev, cur, 'country')
+                if gap > 0:
                     time_country[prev[3]] += gap
-        prev = (ts, city, state_val, country_val, cc)
+        prev = cur
 
     for c in cities:
         key = (c['city'], c['state'], c['country'], c['country_code'])

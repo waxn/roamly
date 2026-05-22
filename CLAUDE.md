@@ -143,6 +143,10 @@ All map display preferences are stored in `localStorage` with `roamly_` prefix:
 | `roamly_cluster_radius` | 30 / 50 / 80 | 50 |
 | `roamly_default_time_range` | hours or 'all' | 24 |
 
+## Visit time spent
+
+`/api/visits/` and trip-scoped visit stats sum gaps between consecutive geocoded points, attributed to the earlier point's city/state/country. If the next point has the **same** place label, the full gap counts (e.g. 1pm→6pm in one town = 5h). If the label **changes**, the gap credited to the previous place is capped at 1 hour (`_visits_dwell_gap` in `views.py`).
+
 ## Import formats
 
 `/api/import/csv/` — broad column alias matching (Garmin, Strava, GPSLogger, generic)
