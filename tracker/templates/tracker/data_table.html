@@ -3,9 +3,12 @@
 
 {% block content %}
 <div class="container">
-    <div class="page-header" style="display: flex; justify-content: space-between; align-items: center;">
-        <h1>Location Data</h1>
-        <div style="display: flex; gap: 0.5rem; align-items: center;">
+    <div class="page-toolbar">
+        <div>
+            <h1>location data</h1>
+            <p class="page-lead" style="margin-bottom:0;">browse and sort every recorded gps point.</p>
+        </div>
+        <div class="toolbar-actions">
             <select id="data-device" class="form-control" style="width: auto;">
                 <option value="">All devices</option>
                 {% for device in devices %}
@@ -20,7 +23,7 @@
                 <option value="720">Last 30 days</option>
                 <option value="all">All time</option>
             </select>
-            <button class="btn btn-primary btn-sm" onclick="loadData()">Load</button>
+            <button class="btn btn-primary btn-sm" onclick="loadData()">load</button>
         </div>
     </div>
 
@@ -59,14 +62,7 @@
 </div>
 {% endblock %}
 
-{% block extra_css %}
-<style>
-    th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
-    th.sortable:hover { color: var(--primary); }
-    th.sortable .sort-arrow { font-size: 0.7em; opacity: 0.3; }
-    th.sortable.active-sort .sort-arrow { opacity: 1; }
-</style>
-{% endblock %}
+{% block extra_css %}{% endblock %}
 
 {% block extra_js %}
 <script>

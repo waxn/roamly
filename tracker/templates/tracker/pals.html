@@ -3,15 +3,26 @@
 
 {% block extra_css %}
 <style>
-.pal-card { cursor: pointer; transition: border-color 0.15s; margin-bottom: 0.75rem; }
-.pal-card:hover { border-color: var(--primary); }
+.pal-card {
+    cursor: pointer;
+    transition: transform 0.25s var(--ease-out), border-color 0.25s, box-shadow 0.25s;
+    margin-bottom: 0.75rem;
+}
+.pal-card:hover {
+    border-color: var(--border-bright);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-card);
+}
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container">
-    <div class="page-header" style="display: flex; justify-content: space-between; align-items: center;">
-        <h1>pals</h1>
+    <div class="page-toolbar">
+        <div>
+            <h1>pals</h1>
+            <p class="page-lead" style="margin-bottom:0;">group trips — each member's track on one shared map.</p>
+        </div>
         <button class="btn btn-primary" onclick="showCreatePal()">new pal</button>
     </div>
 

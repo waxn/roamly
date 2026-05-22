@@ -398,9 +398,12 @@
 
 {% block content %}
 <div style="padding: 1.5rem; width: 100%; max-width: 900px; margin: 0 auto;">
-    <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-        <h1>Adventures</h1>
-        <button class="btn btn-primary" onclick="showCreateAdventure()">New Adventure</button>
+    <div class="page-toolbar">
+        <div>
+            <h1>adventures</h1>
+            <p class="page-lead" style="margin-bottom:0;">time-bounded trips with maps, timeline posts, and sharing.</p>
+        </div>
+        <button class="btn btn-primary" onclick="showCreateAdventure()">new adventure</button>
     </div>
 
     <!-- Create Adventure Form -->
