@@ -7,25 +7,33 @@
     {% load static %}
     <link rel="icon" type="image/x-icon" href="{% static 'tracker/roamlymark.ico' %}">
     <link rel="manifest" href="{% static 'tracker/manifest.json' %}">
-    <meta name="theme-color" content="#0f1117">
+    <meta name="theme-color" content="#0a0c12">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg: #0f1117;
-            --bg-card: #13161e;
-            --bg-input: #1a1d28;
-            --bg-sidebar: #0c0e14;
-            --border: #222535;
-            --border-subtle: #191c28;
-            --text: #d8dce8;
-            --text-muted: #757a92;
-            --text-dim: #3f4358;
+            --bg: #0a0c12;
+            --bg-card: #11151f;
+            --bg-glass: rgba(17, 21, 31, 0.78);
+            --bg-input: #161b28;
+            --bg-sidebar: rgba(8, 10, 16, 0.92);
+            --border: rgba(255, 255, 255, 0.08);
+            --border-bright: rgba(59, 130, 246, 0.35);
+            --border-subtle: rgba(255, 255, 255, 0.04);
+            --text: #e8ecf4;
+            --text-muted: #8b92a8;
+            --text-dim: #555b72;
             --primary: #3b82f6;
+            --primary-soft: rgba(59, 130, 246, 0.12);
+            --accent: #f59e0b;
             --success: #22c55e;
             --warning: #f59e0b;
             --danger: #ef4444;
+            --font-display: 'Syne', sans-serif;
+            --font-body: 'IBM Plex Sans', sans-serif;
+            --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+            --nav-h: 64px;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -33,97 +41,128 @@
         html { scroll-behavior: smooth; height: 100%; }
 
         body {
-            font-family: 'Space Grotesk', sans-serif;
-            background: radial-gradient(circle at 50% -20%, #1a2235 0%, var(--bg) 80%);
-            background-attachment: fixed;
+            font-family: var(--font-body);
+            background: var(--bg);
             color: var(--text);
             min-height: 100%;
+            text-transform: lowercase;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background:
+                radial-gradient(ellipse 70% 45% at 10% -5%, rgba(59, 130, 246, 0.12), transparent 55%),
+                radial-gradient(ellipse 50% 35% at 95% 10%, rgba(245, 158, 11, 0.05), transparent 50%);
+            pointer-events: none;
+            z-index: 0;
         }
 
         /* ── progress bar ────────────────────────────────── */
         #progress {
             position: fixed;
             top: 0; left: 0;
-            height: 2px;
-            background: var(--primary);
-            z-index: 200;
-            transition: width 0.1s linear;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+            z-index: 300;
+            transition: width 0.08s linear;
             width: 0;
+            box-shadow: 0 0 12px rgba(59, 130, 246, 0.5);
         }
 
         /* ── navbar ──────────────────────────────────────── */
         .nav {
             position: fixed;
             top: 0; left: 0; right: 0;
-            z-index: 100;
-            height: 56px;
-            background: rgba(12,14,20,0.96);
-            backdrop-filter: blur(12px);
-            border-bottom: 1px solid var(--border-subtle);
+            z-index: 200;
+            height: var(--nav-h);
+            background: rgba(10, 12, 18, 0.82);
+            backdrop-filter: blur(16px) saturate(1.2);
+            border-bottom: 1px solid var(--border);
             display: flex;
             align-items: center;
-            padding: 0 1.5rem;
-            gap: 1.5rem;
+            padding: 0 clamp(1rem, 3vw, 1.75rem);
+            gap: 1rem;
         }
 
         .nav-brand {
-            font-size: 1rem;
-            font-weight: 700;
-            color: var(--text);
             text-decoration: none;
-            text-transform: lowercase;
             display: flex;
             align-items: center;
-            gap: 0.5rem;
+            gap: 0.65rem;
             flex-shrink: 0;
         }
 
         .nav-brand img {
             height: 36px;
             filter: brightness(0) invert(1);
+            transition: transform 0.3s var(--ease-out);
         }
+
+        .nav-brand:hover img { transform: scale(1.04); }
 
         .nav-sep {
             width: 1px;
-            height: 18px;
+            height: 20px;
             background: var(--border);
             flex-shrink: 0;
         }
 
         .nav-label {
+            font-family: var(--font-display);
             color: var(--text-muted);
-            font-size: 0.85rem;
-            text-transform: lowercase;
+            font-size: 0.9rem;
+            font-weight: 700;
         }
 
         .nav-actions {
             margin-left: auto;
             display: flex;
-            gap: 0.5rem;
+            gap: 0.45rem;
         }
 
         .btn {
             display: inline-flex;
             align-items: center;
             gap: 0.35rem;
-            padding: 0.45rem 1rem;
-            border-radius: 7px;
+            padding: 0.5rem 1rem;
+            border-radius: 999px;
             border: none;
-            font-family: 'Space Grotesk', sans-serif;
+            font-family: var(--font-body);
             font-size: 0.85rem;
             font-weight: 600;
-            text-transform: lowercase;
             cursor: pointer;
             text-decoration: none;
-            transition: all 0.16s;
+            transition: transform 0.2s var(--ease-out), box-shadow 0.2s, background 0.2s, color 0.2s, border-color 0.2s;
+            white-space: nowrap;
         }
 
-        .btn-primary { background: var(--primary); color: #fff; }
-        .btn-primary:hover { background: #2563eb; }
-        .btn-ghost { background: transparent; color: var(--text-muted); }
-        .btn-ghost:hover { background: rgba(255,255,255,0.05); color: var(--text); }
-        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text-muted); }
-        .btn-outline:hover { border-color: var(--primary); color: var(--primary); }
+        .btn-primary {
+            background: var(--primary);
+            color: #fff;
+        }
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(59, 130, 246, 0.35);
+        }
+        .btn-ghost {
+            background: transparent;
+            color: var(--text-muted);
+        }
+        .btn-ghost:hover {
+            background: rgba(255,255,255,0.06);
+            color: var(--text);
+        }
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+        }
+        .btn-outline:hover {
+            border-color: var(--border-bright);
+            color: var(--primary);
+        }
 
         /* ── sidebar toggle (mobile) ─────────────────────── */
         .sidebar-toggle {
@@ -138,24 +177,72 @@
         /* ── layout ──────────────────────────────────────── */
         .docs-layout {
             display: flex;
-            margin-top: 56px;
-            min-height: calc(100vh - 56px);
+            margin-top: var(--nav-h);
+            min-height: calc(100vh - var(--nav-h));
+            position: relative;
+            z-index: 1;
+        }
+
+        .content-area {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            justify-content: center;
         }
 
         /* ── sidebar ─────────────────────────────────────── */
         .sidebar {
-            width: 260px;
+            width: 272px;
             flex-shrink: 0;
             background: var(--bg-sidebar);
-            border-right: 1px solid var(--border-subtle);
+            backdrop-filter: blur(12px);
+            border-right: 1px solid var(--border);
             position: sticky;
-            top: 56px;
-            height: calc(100vh - 56px);
+            top: var(--nav-h);
+            height: calc(100vh - var(--nav-h));
             overflow-y: auto;
-            padding: 1.5rem 0;
+            padding: 1.25rem 0 2rem;
             scrollbar-width: thin;
             scrollbar-color: var(--border) transparent;
         }
+
+        .sidebar-search {
+            margin: 0 1rem 1rem;
+            position: relative;
+        }
+
+        .sidebar-search input {
+            width: 100%;
+            padding: 0.55rem 0.85rem 0.55rem 2.2rem;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--bg-input);
+            color: var(--text);
+            font-family: var(--font-body);
+            font-size: 0.82rem;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .sidebar-search input:focus {
+            border-color: var(--border-bright);
+            box-shadow: 0 0 0 3px var(--primary-soft);
+        }
+
+        .sidebar-search input::placeholder { color: var(--text-dim); }
+
+        .sidebar-search svg {
+            position: absolute;
+            left: 0.7rem;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 14px;
+            height: 14px;
+            color: var(--text-dim);
+            pointer-events: none;
+        }
+
+        .sidebar-link.hidden { display: none; }
 
         .sidebar::-webkit-scrollbar { width: 4px; }
         .sidebar::-webkit-scrollbar-track { background: transparent; }
@@ -210,47 +297,156 @@
 
         .sidebar-link.active {
             color: var(--text);
-            background: rgba(59,130,246,0.1);
+            background: var(--primary-soft);
             font-weight: 600;
         }
 
         .sidebar-link.active::before {
             background: var(--primary);
             border-color: var(--primary);
-            transform: scale(1.2);
-            box-shadow: 0 0 6px rgba(59,130,246,0.5);
+            transform: scale(1.25);
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.55);
         }
 
         /* ── main content ────────────────────────────────── */
         .content {
-            flex: 1;
+            width: 100%;
+            max-width: 52rem;
             min-width: 0;
-            padding: 3.5rem 4rem 8rem;
-            max-width: 860px;
+            padding: 2rem clamp(1.25rem, 4vw, 3.5rem) 8rem;
+            box-sizing: border-box;
+        }
+
+        /* ── docs hero ───────────────────────────────────── */
+        .docs-hero {
+            background: var(--bg-glass);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: clamp(1.5rem, 4vw, 2.25rem);
+            margin-bottom: 3rem;
+            backdrop-filter: blur(16px);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .docs-hero::before {
+            content: '';
+            position: absolute;
+            top: -40%;
+            right: -10%;
+            width: 280px;
+            height: 280px;
+            background: radial-gradient(circle, rgba(59, 130, 246, 0.15), transparent 70%);
+            pointer-events: none;
+        }
+
+        .docs-hero h1 {
+            font-family: var(--font-display);
+            font-size: clamp(1.75rem, 4vw, 2.35rem);
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            line-height: 1.1;
+            margin-bottom: 0.65rem;
+            position: relative;
+        }
+
+        .docs-hero h1 span {
+            background: linear-gradient(135deg, #60a5fa, #3b82f6, #f59e0b);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .docs-hero > p {
+            color: var(--text-muted);
+            font-size: 1rem;
+            line-height: 1.7;
+            max-width: 36rem;
+            margin-bottom: 1.25rem;
+            position: relative;
+        }
+
+        .quick-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            position: relative;
+        }
+
+        .quick-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.4rem 0.85rem;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: rgba(0, 0, 0, 0.2);
+            color: var(--text-muted);
+            font-size: 0.78rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.25s var(--ease-out);
+        }
+
+        .quick-link:hover {
+            border-color: var(--border-bright);
+            color: var(--primary);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+        }
+
+        .quick-link svg {
+            width: 14px;
+            height: 14px;
+            opacity: 0.7;
         }
 
         /* ── doc section ─────────────────────────────────── */
         .doc-section {
-            padding-bottom: 5rem;
-            border-bottom: 1px solid var(--border-subtle);
-            margin-bottom: 5rem;
-            scroll-margin-top: 80px;
+            padding: 2rem 0 4rem;
+            margin-bottom: 2rem;
+            scroll-margin-top: calc(var(--nav-h) + 1.5rem);
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.65s var(--ease-out), transform 0.65s var(--ease-out);
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
         }
 
-        .doc-section:last-child {
-            border-bottom: none;
-            margin-bottom: 0;
+        .doc-section.visible {
+            opacity: 1;
+            transform: none;
+        }
+
+        .doc-section:not(:last-child) {
+            border-bottom: 1px solid var(--border-subtle);
         }
 
         .doc-section h1 {
-            font-size: 1.9rem;
-            font-weight: 700;
-            letter-spacing: -0.01em;
+            font-family: var(--font-display);
+            font-size: clamp(1.5rem, 3vw, 1.85rem);
+            font-weight: 800;
+            letter-spacing: -0.02em;
             color: var(--text);
             margin-bottom: 0.75rem;
-            text-transform: lowercase;
-            line-height: 1.2;
+            line-height: 1.15;
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
         }
+
+        .doc-section h1::before {
+            content: '';
+            width: 4px;
+            height: 1.1em;
+            border-radius: 4px;
+            background: linear-gradient(180deg, var(--primary), var(--accent));
+            flex-shrink: 0;
+        }
+
+        #introduction h1::before { display: none; }
+        #introduction h1 { padding-left: 0; }
 
         .doc-section > p:first-of-type {
             font-size: 1.025rem;
@@ -260,12 +456,12 @@
         }
 
         .doc-section h2 {
-            font-size: 1.2rem;
-            font-weight: 600;
+            font-family: var(--font-display);
+            font-size: 1.15rem;
+            font-weight: 700;
             color: var(--text);
-            margin: 2.5rem 0 0.75rem;
-            text-transform: lowercase;
-            letter-spacing: -0.005em;
+            margin: 2.25rem 0 0.75rem;
+            letter-spacing: -0.01em;
         }
 
         .doc-section h3 {
@@ -320,16 +516,84 @@
         }
 
         /* ── code blocks ─────────────────────────────────── */
-        .doc-section pre {
-            background: #090b0f;
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 1.25rem 1.5rem;
-            overflow-x: auto;
+        .code-block {
+            position: relative;
             margin: 1.25rem 0;
+            border-radius: 14px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+            background: #06080d;
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
+        }
+
+        .code-block-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem 0.85rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .code-block-dots {
+            display: flex;
+            gap: 0.35rem;
+        }
+
+        .code-block-dots span {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+        }
+
+        .code-block-dots span:nth-child(1) { background: #ff5f56; }
+        .code-block-dots span:nth-child(2) { background: #ffbd2e; }
+        .code-block-dots span:nth-child(3) { background: #27c93f; }
+
+        .copy-btn {
+            padding: 0.25rem 0.65rem;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-dim);
+            font-family: var(--font-body);
+            font-size: 0.7rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .copy-btn:hover {
+            border-color: var(--border-bright);
+            color: var(--primary);
+        }
+
+        .copy-btn.copied {
+            color: var(--success);
+            border-color: rgba(34, 197, 94, 0.35);
+        }
+
+        .doc-section pre {
+            background: transparent;
+            border: none;
+            border-radius: 0;
+            padding: 1.1rem 1.25rem;
+            margin: 0;
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
+            overflow-x: auto;
+            overflow-y: hidden;
             font-family: 'Courier New', monospace;
-            font-size: 0.855rem;
+            font-size: 0.84rem;
             line-height: 1.75;
+            white-space: pre-wrap;
+            word-break: break-word;
+            overflow-wrap: anywhere;
             scrollbar-width: thin;
             scrollbar-color: var(--border) transparent;
         }
@@ -340,6 +604,9 @@
             padding: 0;
             color: #c9d1e0;
             font-size: inherit;
+            white-space: inherit;
+            word-break: inherit;
+            overflow-wrap: inherit;
         }
 
         /* ── callout boxes ───────────────────────────────── */
@@ -347,11 +614,12 @@
             display: flex;
             gap: 0.9rem;
             padding: 1.1rem 1.25rem;
-            border-radius: 8px;
+            border-radius: 14px;
             margin: 1.5rem 0;
             font-size: 0.92rem;
             line-height: 1.65;
             color: var(--text-muted);
+            backdrop-filter: blur(8px);
         }
 
         .callout-icon {
@@ -387,8 +655,10 @@
         .table-wrap {
             overflow-x: auto;
             margin: 1.25rem 0;
-            border-radius: 8px;
+            border-radius: 14px;
             border: 1px solid var(--border);
+            background: var(--bg-glass);
+            backdrop-filter: blur(8px);
         }
 
         table {
@@ -429,26 +699,35 @@
         .step-card {
             display: flex;
             gap: 1.1rem;
-            background: var(--bg-card);
-            border: 1px solid var(--border-subtle);
-            border-radius: 9px;
-            padding: 1.1rem 1.25rem;
+            background: var(--bg-glass);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 1.15rem 1.3rem;
+            backdrop-filter: blur(8px);
+            transition: transform 0.3s var(--ease-out), border-color 0.3s, box-shadow 0.3s;
+        }
+
+        .step-card:hover {
+            transform: translateX(4px);
+            border-color: var(--border-bright);
+            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.2);
         }
 
         .step-num {
-            width: 26px;
-            height: 26px;
+            width: 30px;
+            height: 30px;
             border-radius: 50%;
-            background: rgba(59,130,246,0.12);
-            border: 1px solid rgba(59,130,246,0.25);
+            background: var(--primary-soft);
+            border: 1px solid var(--border-bright);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 0.75rem;
+            font-family: var(--font-display);
+            font-size: 0.8rem;
             font-weight: 700;
             color: var(--primary);
             flex-shrink: 0;
-            margin-top: 0.1rem;
+            margin-top: 0.05rem;
         }
 
         .step-content h4 {
@@ -488,20 +767,21 @@
             position: fixed;
             bottom: 2rem;
             right: 2rem;
-            width: 38px;
-            height: 38px;
-            background: var(--bg-card);
+            width: 44px;
+            height: 44px;
+            background: var(--bg-glass);
             border: 1px solid var(--border);
-            border-radius: 8px;
+            border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
             color: var(--text-muted);
             opacity: 0;
-            transition: opacity 0.2s, background 0.15s;
+            transition: opacity 0.3s, transform 0.3s var(--ease-out), border-color 0.2s, color 0.2s;
             pointer-events: none;
-            z-index: 50;
+            z-index: 150;
+            backdrop-filter: blur(12px);
         }
 
         #back-top.visible {
@@ -510,8 +790,25 @@
         }
 
         #back-top:hover {
-            background: var(--bg-input);
-            color: var(--text);
+            border-color: var(--border-bright);
+            color: var(--primary);
+            transform: translateY(-3px);
+        }
+
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            top: var(--nav-h);
+            background: rgba(0, 0, 0, 0.55);
+            z-index: 85;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .sidebar-overlay.open {
+            display: block;
+            opacity: 1;
         }
 
         /* ── mobile sidebar ──────────────────────────────── */
@@ -520,27 +817,34 @@
 
             .sidebar {
                 position: fixed;
-                top: 56px;
+                top: var(--nav-h);
                 left: 0;
                 z-index: 90;
                 transform: translateX(-100%);
-                transition: transform 0.25s ease;
-                box-shadow: 4px 0 20px rgba(0,0,0,0.4);
+                transition: transform 0.35s var(--ease-out);
+                box-shadow: 8px 0 40px rgba(0, 0, 0, 0.5);
+                height: calc(100vh - var(--nav-h));
             }
 
             .sidebar.open { transform: translateX(0); }
 
-            .content {
-                padding: 2.5rem 1.5rem 6rem;
+            .content-area .content {
+                padding: 1.5rem 1.25rem 6rem;
             }
         }
 
         @media (max-width: 600px) {
-            .content {
-                padding: 2rem 1rem 6rem;
-            }
+            .content-area .content { padding: 1.25rem 1rem 6rem; }
+            .docs-hero { border-radius: 16px; }
+        }
 
-            .doc-section h1 { font-size: 1.6rem; }
+        @media (prefers-reduced-motion: reduce) {
+            .doc-section {
+                opacity: 1;
+                transform: none;
+                transition: none;
+            }
+            .step-card:hover { transform: none; }
         }
     </style>
 </head>
@@ -563,6 +867,7 @@
     </button>
 
     <div class="nav-actions">
+        <a href="{% url 'tracker:landing' %}" class="btn btn-ghost">home</a>
         {% if user.is_authenticated %}
             <a href="{% url 'tracker:map' %}" class="btn btn-primary">open app →</a>
         {% else %}
@@ -572,9 +877,15 @@
     </div>
 </nav>
 
+<div class="sidebar-overlay" id="sidebar-overlay"></div>
+
 <div class="docs-layout">
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
+        <div class="sidebar-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            <input type="search" id="sidebar-filter" placeholder="filter topics…" autocomplete="off">
+        </div>
         <div class="sidebar-group">
             <div class="sidebar-group-label">getting started</div>
             <a href="#introduction" class="sidebar-link">introduction</a>
@@ -587,6 +898,7 @@
             <a href="#gpslogger" class="sidebar-link">gpslogger setup</a>
             <a href="#api-guide" class="sidebar-link">sending locations</a>
             <a href="#trips-tutorial" class="sidebar-link">adventures</a>
+            <a href="#pals-tutorial" class="sidebar-link">pals</a>
             <a href="#data-management" class="sidebar-link">import & export</a>
             <a href="#geocoding" class="sidebar-link">geocoding</a>
             <a href="#backups" class="sidebar-link">automatic backups</a>
@@ -607,32 +919,47 @@
     </aside>
 
     <!-- Content -->
+    <div class="content-area">
     <main class="content">
+
+        <header class="docs-hero">
+            <h1>roamly <span>docs</span></h1>
+            <p>setup, api reference, and guides for self-hosted gps tracking — map, adventures, pals, visit analytics, and everything that runs on your server.</p>
+            <div class="quick-links">
+                <a href="#docker-setup" class="quick-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg> docker</a>
+                <a href="#gpslogger" class="quick-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 0110 10c0 5.52-4.48 10-10 10S2 17.52 2 12"/><circle cx="12" cy="12" r="3"/></svg> gpslogger</a>
+                <a href="#api-reference" class="quick-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg> api</a>
+                <a href="#trips-tutorial" class="quick-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/></svg> adventures</a>
+                <a href="#pals-tutorial" class="quick-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg> pals</a>
+                <a href="#troubleshooting" class="quick-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01"/></svg> help</a>
+            </div>
+        </header>
 
         <!-- Introduction -->
         <section id="introduction" class="doc-section">
-            <h1>roamly documentation</h1>
-            <p>roamly is a self-hosted location tracking platform. track your devices, visualize journeys on interactive maps, analyze travel patterns, and export everything — on your own server, with no data leaving it.</p>
+            <h1>introduction</h1>
+            <p>roamly is a self-hosted location tracking platform. push gps from your phone, explore your history on a maplibre map, log adventures and pals trips, analyze where you've been, and keep every byte on hardware you control.</p>
 
             <h2>what you get</h2>
             <ul>
-                <li><strong>interactive map</strong> — maplibre gl with postgis vector tiles, renders millions of points</li>
-                <li><strong>multi-device tracking</strong> — separate api keys per device</li>
-                <li><strong>adventures</strong> — log any outing (rides, hikes, trips) by precise start/end time; places, timeline, photos, milestones, and public sharing</li>
-                <li><strong>visit analytics</strong> — cities, states, countries with dates, time spent, and yearly period comparisons</li>
-                <li><strong>distance tracking</strong> — daily km with canvas charts</li>
-                <li><strong>reverse geocoding</strong> — coordinates to place names via openstreetmap nominatim</li>
-                <li><strong>import & export</strong> — csv, gpx, full json backup</li>
-                <li><strong>automatic s3 backups</strong> — any s3-compatible provider, configurable retention</li>
-                <li><strong>gpslogger & owntracks compatible</strong> — or any http client</li>
-                <li><strong>pwa</strong> — installable, dark & light themes</li>
+                <li><strong>map</strong> — heatmap, speed-colored dots, path lines, time-range filters; postgis vector tiles or classic clustered mode</li>
+                <li><strong>multi-device</strong> — separate api keys per device, per-device colors on the map</li>
+                <li><strong>adventures</strong> — time-bounded outings with places, timeline blurbs, photos, milestones, public slug + optional pin</li>
+                <li><strong>pals</strong> — group trips where each member contributes their own gps track on one shared map</li>
+                <li><strong>visit analytics</strong> — dwell time per city/state/country, yearly period comparisons</li>
+                <li><strong>stats & search</strong> — distance charts, location data table, place/date search</li>
+                <li><strong>reverse geocoding</strong> — nominatim with spatial clustering (background job in settings)</li>
+                <li><strong>import & export</strong> — csv, gpx, google takeout json, owntracks json, full backup restore</li>
+                <li><strong>s3 backups</strong> — scheduled data + image backups to any s3-compatible storage</li>
+                <li><strong>gpslogger & owntracks</strong> — or any client that can post json to <code>/api/push/</code></li>
+                <li><strong>pwa</strong> — installable; dark and light themes</li>
             </ul>
 
             <h2>tech stack</h2>
             <ul>
-                <li><strong>backend:</strong> django 5 + python 3.12, gunicorn</li>
-                <li><strong>database:</strong> postgresql 16 + postgis for spatial queries and vector tiles</li>
-                <li><strong>frontend:</strong> vanilla javascript, maplibre gl, canvas api</li>
+                <li><strong>backend:</strong> django + python, gunicorn; background work in threads (geocoding, backups, poi download)</li>
+                <li><strong>database:</strong> sqlite by default; postgresql + postgis when <code>DATABASE_URL</code> is set (enables vector tiles)</li>
+                <li><strong>frontend:</strong> vanilla javascript, maplibre gl, canvas charts</li>
                 <li><strong>deployment:</strong> docker compose</li>
             </ul>
         </section>
@@ -1031,7 +1358,7 @@ print(resp.json())</code></pre>
 
             <div class="callout info">
                 <div class="callout-icon"></div>
-                <div><strong>time calculation:</strong> roamly uses haversine to find which points fall within a place's radius, then sums time gaps between consecutive points (capping gaps at 1 hour).</div>
+                <div><strong>time calculation:</strong> roamly uses haversine to find which points fall within a place's radius, then sums gaps between consecutive in-radius points (gaps over 2 hours are skipped).</div>
             </div>
 
             <h2>timeline & notes</h2>
@@ -1043,7 +1370,43 @@ print(resp.json())</code></pre>
             </ul>
 
             <h2>sharing</h2>
-            <p>adventures can be made public via a shareable slug link. go to the adventure → options → make public. anyone with the link can view the map and timeline without logging in.</p>
+            <p>adventures can be made public with a custom slug. optional <strong>access pin</strong> gates the public page — visitors enter the pin once per browser session. share link format: <code>/adventure/your-slug/</code></p>
+        </section>
+
+        <!-- Pals -->
+        <section id="pals-tutorial" class="doc-section">
+            <h1>pals</h1>
+            <p>pals are multi-user group journeys — like adventures, but each member logs their own device. everyone's track appears on one map with a shared timeline, blurbs, and milestones.</p>
+
+            <h2>creating a pal trip</h2>
+            <div class="steps">
+                <div class="step-card">
+                    <div class="step-num">1</div>
+                    <div class="step-content">
+                        <h4>open pals</h4>
+                        <p>click <strong>pals</strong> in the nav bar → <strong>+ new pal</strong>.</p>
+                    </div>
+                </div>
+                <div class="step-card">
+                    <div class="step-num">2</div>
+                    <div class="step-content">
+                        <h4>invite members</h4>
+                        <p>add roamly users by username. each member pushes locations from their own api key and device.</p>
+                    </div>
+                </div>
+                <div class="step-card">
+                    <div class="step-num">3</div>
+                    <div class="step-content">
+                        <h4>share optionally</h4>
+                        <p>toggle public sharing for a read-only page at <code>/pal/your-slug/</code> — same pattern as adventures.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="callout info">
+                <div class="callout-icon"></div>
+                <div><strong>profile photos</strong> show on the pal map and timeline. upload yours under settings → profile picture.</div>
+            </div>
         </section>
 
         <!-- Data Management -->
@@ -1060,15 +1423,13 @@ print(resp.json())</code></pre>
 
             <h2>import formats</h2>
             <ul>
-                <li><strong>csv</strong> — flexible column detection. understands <code>lat</code>/<code>latitude</code>, <code>lng</code>/<code>lon</code>/<code>longitude</code>, etc. minimum: latitude, longitude, timestamp.</li>
-                <li><strong>gpx</strong> — reads track points, route points, and waypoints from gpx 1.0 and 1.1.</li>
-                <li><strong>restore from backup</strong> — atomic transaction import. duplicate locations are skipped automatically.</li>
+                <li><strong>csv</strong> — flexible column detection (garmin, strava, gpslogger aliases). minimum: latitude, longitude, timestamp.</li>
+                <li><strong>gpx</strong> — track points, route points, and waypoints from gpx 1.0 and 1.1.</li>
+                <li><strong>json</strong> — google takeout <code>{locations:[...]}</code> or owntracks array format.</li>
+                <li><strong>restore from backup</strong> — full json snapshot; duplicate locations are skipped automatically.</li>
             </ul>
 
-            <div class="callout warning">
-                <div class="callout-icon"></div>
-                <div><strong>google takeout:</strong> google location history exports are non-standard. convert to csv or gpx with a third-party tool first.</div>
-            </div>
+            <p>imports prompt you to pick or create a device name so all points land on the right track.</p>
         </section>
 
         <!-- Geocoding -->
@@ -1493,6 +1854,7 @@ background threads
         </section>
 
     </main>
+    </div>
 </div>
 
 <!-- Back to top -->
@@ -1512,6 +1874,7 @@ background threads
             bar.style.width = pct + '%';
         }
         window.addEventListener('scroll', update, { passive: true });
+        update();
     })();
 
     // ── back to top ───────────────────────────────────────
@@ -1521,6 +1884,61 @@ background threads
             btn.classList.toggle('visible', window.scrollY > 400);
         }, { passive: true });
         btn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+    })();
+
+    // ── section reveal on scroll ──────────────────────────
+    (function () {
+        const sections = document.querySelectorAll('.doc-section');
+        const obs = new IntersectionObserver((entries) => {
+            entries.forEach(e => {
+                if (e.isIntersecting) e.target.classList.add('visible');
+            });
+        }, { threshold: 0.06, rootMargin: '0px 0px -8% 0px' });
+        sections.forEach(s => obs.observe(s));
+    })();
+
+    // ── wrap code blocks + copy buttons ───────────────────
+    (function () {
+        document.querySelectorAll('.doc-section pre').forEach(pre => {
+            if (pre.closest('.code-block')) return;
+            const wrap = document.createElement('div');
+            wrap.className = 'code-block';
+            const header = document.createElement('div');
+            header.className = 'code-block-header';
+            header.innerHTML = '<div class="code-block-dots"><span></span><span></span><span></span></div>';
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'copy-btn';
+            btn.textContent = 'copy';
+            btn.addEventListener('click', async () => {
+                const code = pre.querySelector('code') || pre;
+                try {
+                    await navigator.clipboard.writeText(code.innerText);
+                    btn.textContent = 'copied';
+                    btn.classList.add('copied');
+                    setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 2000);
+                } catch (_) {
+                    btn.textContent = 'failed';
+                }
+            });
+            header.appendChild(btn);
+            pre.parentNode.insertBefore(wrap, pre);
+            wrap.appendChild(header);
+            wrap.appendChild(pre);
+        });
+    })();
+
+    // ── sidebar filter ────────────────────────────────────
+    (function () {
+        const input = document.getElementById('sidebar-filter');
+        const links = document.querySelectorAll('.sidebar-link');
+        input?.addEventListener('input', () => {
+            const q = input.value.trim().toLowerCase();
+            links.forEach(link => {
+                const match = !q || link.textContent.toLowerCase().includes(q);
+                link.classList.toggle('hidden', !match);
+            });
+        });
     })();
 
     // ── scroll-spy sidebar ────────────────────────────────
@@ -1533,41 +1951,53 @@ background threads
                 if (e.isIntersecting) {
                     const id = e.target.id;
                     links.forEach(l => {
-                        const active = l.getAttribute('href') === '#' + id;
-                        l.classList.toggle('active', active);
+                        l.classList.toggle('active', l.getAttribute('href') === '#' + id);
                     });
                 }
             });
-        }, {
-            rootMargin: '-20% 0px -70% 0px'
-        });
+        }, { rootMargin: '-15% 0px -65% 0px' });
 
         sections.forEach(s => obs.observe(s));
 
-        // smooth scroll on link click
+        function closeSidebar() {
+            document.getElementById('sidebar').classList.remove('open');
+            document.getElementById('sidebar-overlay').classList.remove('open');
+        }
+
         links.forEach(link => {
             link.addEventListener('click', (e) => {
                 e.preventDefault();
                 const target = document.querySelector(link.getAttribute('href'));
-                if (target) {
-                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-                // close mobile sidebar
-                document.getElementById('sidebar').classList.remove('open');
+                if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                closeSidebar();
+            });
+        });
+
+        document.querySelectorAll('.quick-link').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                const target = document.querySelector(link.getAttribute('href'));
+                if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
             });
         });
     })();
 
-    // ── mobile sidebar toggle ─────────────────────────────
+    // ── mobile sidebar ────────────────────────────────────
     (function () {
         const toggle = document.getElementById('sidebar-toggle');
         const sidebar = document.getElementById('sidebar');
-        toggle.addEventListener('click', () => sidebar.classList.toggle('open'));
-        document.addEventListener('click', (e) => {
-            if (!sidebar.contains(e.target) && e.target !== toggle) {
-                sidebar.classList.remove('open');
-            }
+        const overlay = document.getElementById('sidebar-overlay');
+
+        function setOpen(open) {
+            sidebar.classList.toggle('open', open);
+            overlay.classList.toggle('open', open);
+        }
+
+        toggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            setOpen(!sidebar.classList.contains('open'));
         });
+        overlay.addEventListener('click', () => setOpen(false));
     })();
 </script>
 
