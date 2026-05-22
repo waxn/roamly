@@ -127,7 +127,7 @@
             align-items: center;
             gap: 0.35rem;
             padding: 0.5rem 1rem;
-            border-radius: 999px;
+            border-radius: 10px;
             border: none;
             font-family: var(--font-body);
             font-size: 0.85rem;
@@ -154,6 +154,7 @@
             background: rgba(255,255,255,0.06);
             color: var(--text);
         }
+        .btn-ghost.active { color: var(--primary); }
         .btn-outline {
             background: transparent;
             border: 1px solid var(--border);
@@ -378,7 +379,7 @@
             align-items: center;
             gap: 0.35rem;
             padding: 0.4rem 0.85rem;
-            border-radius: 999px;
+            border-radius: 10px;
             border: 1px solid var(--border);
             background: rgba(0, 0, 0, 0.2);
             color: var(--text-muted);
@@ -1998,6 +1999,19 @@ background threads
             setOpen(!sidebar.classList.contains('open'));
         });
         overlay.addEventListener('click', () => setOpen(false));
+    })();
+
+    // ── active nav button ────────────────────────────────
+    (function () {
+        const navLinks = document.querySelectorAll('.nav-actions .btn-ghost');
+        navLinks.forEach(link => {
+            const href = link.getAttribute('href');
+            if (href === window.location.pathname) {
+                link.classList.add('active');
+            } else {
+                link.classList.remove('active');
+            }
+        });
     })();
 </script>
 

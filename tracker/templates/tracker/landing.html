@@ -119,7 +119,7 @@
             align-items: center;
             gap: 0.35rem;
             padding: 0.55rem 1.1rem;
-            border-radius: 999px;
+            border-radius: 10px;
             border: none;
             font-family: var(--font-body);
             font-size: 0.875rem;
@@ -145,6 +145,7 @@
             color: var(--text-muted);
         }
         .btn-ghost:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+        .btn-ghost.active { color: var(--primary); }
 
         .btn-outline {
             background: transparent;
@@ -439,7 +440,7 @@
 
         .feature-tab {
             padding: 0.5rem 1rem;
-            border-radius: 999px;
+            border-radius: 10px;
             border: 1px solid var(--border);
             background: transparent;
             color: var(--text-muted);
@@ -1586,6 +1587,19 @@
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/sw.js', { scope: '/' });
         }
+
+        // ── active nav button ────────────────────────────────
+        (function () {
+            const navLinks = document.querySelectorAll('.nav-links .btn-ghost');
+            navLinks.forEach(link => {
+                const href = link.getAttribute('href');
+                if (href === window.location.pathname) {
+                    link.classList.add('active');
+                } else {
+                    link.classList.remove('active');
+                }
+            });
+        })();
     </script>
 </body>
 </html>
