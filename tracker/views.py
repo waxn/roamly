@@ -34,6 +34,7 @@ from .models import (
     Device, Location, APIKey, Adventure, AdventurePlace, POI, BackupConfig,
     UserProfile, Pal, PalMember, PalBlurb, PalBlurbPhoto, PalMilestone, PalComment,
     AdventureMember, AdventureBlurb, AdventureBlurbPhoto, AdventureMilestone, AdventureComment,
+    SiteStat,
 )
 from .image_utils import resize_image, resize_photo
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding
@@ -161,9 +162,50 @@ def get_api_key_user(request):
 # Auth Views
 # ---------------------------------------------------------------------------
 
+def _refresh_site_stats():
+    if not cache.add('site_stats_refresh_lock', '1', timeout=300):
+        return
+    try:
+        total_points = Location.objects.count()
+        total_cities = (
+            Location.objects
+            .exclude(city__isnull=True).exclude(city='')
+            .values('city', 'country_code').distinct().count()
+        )
+        # PostGIS: per-device LineString from points ordered by timestamp,
+        # length on geography returns metres (great-circle). Python sums devices.
+        with connection.cursor() as cur:
+            cur.execute("""
+                SELECT ST_Length(ST_MakeLine(location::geometry ORDER BY timestamp)::geography)
+                FROM tracker_location
+                WHERE location IS NOT NULL
+                GROUP BY device_id
+                HAVING COUNT(*) > 1
+            """)
+            total_meters = int(sum(row[0] or 0 for row in cur.fetchall()))
+        SiteStat.objects.update_or_create(
+            pk=1,
+            defaults={
+                'total_points': total_points,
+                'total_cities': total_cities,
+                'total_meters': total_meters,
+            },
+        )
+    finally:
+        cache.delete('site_stats_refresh_lock')
+
+
 def landing_view(request):
     """Landing page - show marketing page for non-authenticated users."""
-    return render(request, 'tracker/landing.html')
+    stat, created = SiteStat.objects.get_or_create(pk=1)
+    stale = created or (timezone.now() - stat.updated_at).total_seconds() > 86400
+    if stale:
+        threading.Thread(target=_refresh_site_stats, daemon=True).start()
+    return render(request, 'tracker/landing.html', {
+        'site_total_points': stat.total_points,
+        'site_total_cities': stat.total_cities,
+        'site_total_meters': stat.total_meters,
+    })
 
 
 def docs_view(request):

@@ -1081,16 +1081,16 @@
                     </svg>
                     <div class="hero-stats">
                         <div class="hero-stat">
-                            <div class="hero-stat-val" data-count="12847">0</div>
+                            <div class="hero-stat-val" data-count="{{ site_total_points }}">0</div>
                             <div class="hero-stat-label">points logged</div>
                         </div>
                         <div class="hero-stat">
-                            <div class="hero-stat-val" data-count="34">0</div>
+                            <div class="hero-stat-val" data-count="{{ site_total_cities }}">0</div>
                             <div class="hero-stat-label">cities visited</div>
                         </div>
                         <div class="hero-stat">
-                            <div class="hero-stat-val" data-count="892">0</div>
-                            <div class="hero-stat-label">km tracked</div>
+                            <div class="hero-stat-val" data-meters="{{ site_total_meters }}">0</div>
+                            <div class="hero-stat-label" data-distance-label>km tracked</div>
                         </div>
                     </div>
                 </div>
@@ -1510,6 +1510,18 @@
 
         // ── hero stat counters ───────────────────────────────
         (function () {
+            const imperial = (localStorage.getItem('roamly_speed_unit') || 'kmh') === 'mph';
+            // Swap "km tracked" label to "mi tracked" when imperial
+            document.querySelectorAll('[data-distance-label]').forEach(el => {
+                el.textContent = imperial ? 'mi tracked' : 'km tracked';
+            });
+            // Convert metres → km or mi for animation target
+            document.querySelectorAll('[data-meters]').forEach(el => {
+                const meters = +el.dataset.meters;
+                const value = imperial ? meters / 1609.344 : meters / 1000;
+                el.dataset.count = Math.round(value);
+            });
+
             const els = document.querySelectorAll('[data-count]');
             const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 

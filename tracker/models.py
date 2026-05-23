@@ -547,3 +547,12 @@ class PalComment(models.Model):
 
     def __str__(self):
         return f"Comment by {self.author.username if self.author else self.guest_name}"
+
+
+class SiteStat(models.Model):
+    """Singleton row (pk=1) of cached site-wide stats for the landing page.
+    Refreshed at most once per 24h by a background thread from landing_view."""
+    total_points = models.BigIntegerField(default=0)
+    total_cities = models.IntegerField(default=0)
+    total_meters = models.BigIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
