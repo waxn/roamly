@@ -1299,8 +1299,8 @@
                         <div class="step active" data-step="0">
                             <div class="step-num">1</div>
                             <div class="step-body">
-                                <h4>clone &amp; start</h4>
-                                <p><code>git clone</code> the repo, <code>docker compose up -d</code>. postgis and migrations run automatically when <code>DATABASE_URL</code> is set.</p>
+                                <h4>grab &amp; start</h4>
+                                <p>pull the prebuilt <code>waxn/roamly</code> image with <code>docker compose up -d</code>. postgis and migrations run automatically. updates are just <code>docker compose pull &amp;&amp; docker compose up -d</code> — no git pull, no rebuild.</p>
                             </div>
                         </div>
                         <div class="step" data-step="1">
@@ -1340,10 +1340,13 @@
                             <span class="terminal-title">~/roamly</span>
                         </div>
                         <div class="terminal-body" id="terminal-body">
-                            <span class="t-comment"># clone &amp; start</span><br>
-                            <span class="t-cmd">git clone https://github.com/waxn/roamly.git</span><br>
-                            <span class="t-cmd">cd roamly &amp;&amp; docker compose up -d</span><br>
+                            <span class="t-comment"># grab compose file &amp; start (pulls waxn/roamly image)</span><br>
+                            <span class="t-cmd">curl -O https://raw.githubusercontent.com/waxn/roamly/main/docker-compose.yml</span><br>
+                            <span class="t-cmd">docker compose up -d</span><br>
                             <span class="t-out">db ready · migrations applied · web on :8001</span><br>
+                            <span class="t-blank"></span>
+                            <span class="t-comment"># later, to update: no git pull needed</span><br>
+                            <span class="t-cmd">docker compose pull &amp;&amp; docker compose up -d</span><br>
                             <span class="t-blank"></span>
                             <span class="t-comment"># push a test fix</span><br>
                             <span class="t-cmd">curl -X POST localhost:8001/api/push/ \</span><br>

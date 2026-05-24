@@ -968,7 +968,7 @@
         <!-- Docker Setup -->
         <section id="docker-setup" class="doc-section">
             <h1>docker setup</h1>
-            <p>roamly runs as a two-container docker compose stack — a postgis database and the django web app. everything is configured out of the box.</p>
+            <p>roamly ships as a prebuilt docker image (<a href="https://hub.docker.com/r/waxn/roamly" target="_blank"><code>waxn/roamly</code></a>) and runs as a three-container compose stack: postgis database, redis cache, and the django web app. no source checkout, no local build.</p>
 
             <h2>prerequisites</h2>
             <ul>
@@ -977,18 +977,84 @@
                 <li>port 8001 available (and optionally 5433 for db access)</li>
             </ul>
 
-            <h2>install & run</h2>
-            <pre><code># clone the repo
-git clone https://github.com/waxn/roamly.git
-cd roamly
+            <h2>install &amp; run</h2>
+            <p>grab the compose file and a minimal <code>.env</code>, then bring everything up:</p>
+            <pre><code># pull the compose file
+curl -O https://raw.githubusercontent.com/waxn/roamly/main/docker-compose.yml
 
-# start everything
+# minimal .env (set your own password!)
+cat &gt; .env &lt;&lt;EOF
+POSTGRES_PASSWORD=changeme
+DATABASE_URL=postgis://roamly:changeme@db:5432/roamly
+SECRET_KEY=$(openssl rand -hex 32)
+DEBUG=False
+ALLOWED_HOSTS=localhost,127.0.0.1
+CSRF_TRUSTED_ORIGINS=http://localhost:8001,http://127.0.0.1:8001
+EOF
+
+# start everything (pulls waxn/roamly image automatically)
 docker compose up -d</code></pre>
 
             <div class="callout success">
                 <div class="callout-icon"></div>
                 <div><strong>that's it.</strong> roamly is now running at <code>http://localhost:8001</code>. migrations and static files are handled automatically on startup.</div>
             </div>
+
+            <h2>the docker-compose.yml</h2>
+            <p>for reference, here's the full compose file you just downloaded:</p>
+            <pre><code>services:
+  redis:
+    image: redis:7-alpine
+    container_name: roamly_redis
+    restart: unless-stopped
+    volumes:
+      - ./data/redis:/data
+
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: roamly_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: roamly
+      POSTGRES_USER: roamly
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+      - ./docker-init:/docker-entrypoint-initdb.d
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U roamly -d roamly"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    image: waxn/roamly:latest
+    # To build locally instead of pulling the published image:
+    #   build: .
+    container_name: roamly_web
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - db
+    command: &gt;
+      sh -c "python manage.py migrate --noinput &amp;&amp;
+             python manage.py collectstatic --noinput &amp;&amp;
+             gunicorn roamly.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 300"
+    volumes:
+      - ./staticfiles:/app/staticfiles
+      - ./media:/app/media
+      - ./tracker/migrations:/app/tracker/migrations
+    ports:
+      - "8001:8000"
+    environment:
+      - DEBUG=${DEBUG:-True}
+      - SECRET_KEY=${SECRET_KEY:-django-insecure-change-me-in-production}
+      - DATABASE_URL=${DATABASE_URL}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-http://localhost,http://127.0.0.1}
+      - REDIS_URL=redis://redis:6379/1</code></pre>
 
             <h2>what gets started</h2>
             <div class="table-wrap">
@@ -1004,8 +1070,14 @@ docker compose up -d</code></pre>
                             <td>postgresql with postgis spatial extensions</td>
                         </tr>
                         <tr>
+                            <td><code>redis</code></td>
+                            <td>redis:7-alpine</td>
+                            <td>internal</td>
+                            <td>cache backend for tiles, stats, and api responses</td>
+                        </tr>
+                        <tr>
                             <td><code>web</code></td>
-                            <td>built from dockerfile</td>
+                            <td>waxn/roamly:latest</td>
                             <td>8001 → 8000</td>
                             <td>django app served by gunicorn (3 workers)</td>
                         </tr>
@@ -1017,8 +1089,15 @@ docker compose up -d</code></pre>
             <p>data lives in bind-mount volumes that survive container rebuilds:</p>
             <ul>
                 <li><code>./data/postgres/</code> — all database data</li>
+                <li><code>./data/redis/</code> — redis cache snapshots</li>
+                <li><code>./media/</code> — uploaded photos and profile pictures</li>
                 <li><code>./staticfiles/</code> — collected static assets</li>
             </ul>
+
+            <h2>updating</h2>
+            <p>no git pull, no rebuild — just pull the latest image:</p>
+            <pre><code>docker compose pull
+docker compose up -d</code></pre>
 
             <h2>useful commands</h2>
             <pre><code># view logs
@@ -1027,17 +1106,14 @@ docker compose logs -f web
 # stop everything
 docker compose down
 
-# rebuild after an update
-docker compose down && docker compose up -d --build
-
 # open a db shell
 docker compose exec db psql -U roamly -d roamly
 
 # back up the database
-docker compose exec db pg_dump -U roamly roamly > backup.sql
+docker compose exec db pg_dump -U roamly roamly &gt; backup.sql
 
 # restore
-docker compose exec -T db psql -U roamly roamly < backup.sql</code></pre>
+docker compose exec -T db psql -U roamly roamly &lt; backup.sql</code></pre>
         </section>
 
         <!-- First Steps -->
@@ -1602,15 +1678,14 @@ roamly.yourdomain.com {
         <!-- Updating -->
         <section id="updating" class="doc-section">
             <h1>updating</h1>
-            <pre><code>cd roamly
-git pull
-docker compose down && docker compose up -d --build</code></pre>
+            <pre><code>docker compose pull
+docker compose up -d</code></pre>
 
-            <p>migrations run automatically on startup.</p>
+            <p>pulls the latest <code>waxn/roamly</code> image and restarts the web container. migrations run automatically on startup. no git pull, no rebuild.</p>
 
             <div class="callout info">
                 <div class="callout-icon"></div>
-                <div>back up before updating:<br><code>docker compose exec db pg_dump -U roamly roamly > backup_$(date +%Y%m%d).sql</code></div>
+                <div>back up before updating:<br><code>docker compose exec db pg_dump -U roamly roamly &gt; backup_$(date +%Y%m%d).sql</code></div>
             </div>
         </section>
 
