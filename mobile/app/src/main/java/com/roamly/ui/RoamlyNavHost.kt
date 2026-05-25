@@ -5,7 +5,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Map
-import androidx.compose.material.icons.rounded.People
+import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -39,7 +39,7 @@ import com.roamly.ui.trips.TripDetailScreen
 
 sealed class Screen(val route: String, val label: String) {
     object Map : Screen("map", "Map")
-    object Groups : Screen("groups", "Groups")
+    object Adventures : Screen("adventures", "Adventures")
     object Stats : Screen("stats", "Stats")
     object Settings : Screen("settings", "Settings")
     object Login : Screen("login", "Login")
@@ -47,7 +47,7 @@ sealed class Screen(val route: String, val label: String) {
     object PalDetail : Screen("pals/{palId}", "Pal")
 }
 
-private val bottomNavItems = listOf(Screen.Map, Screen.Groups, Screen.Stats, Screen.Settings)
+private val bottomNavItems = listOf(Screen.Map, Screen.Adventures, Screen.Stats, Screen.Settings)
 
 @Composable
 fun RoamlyNavHost() {
@@ -74,7 +74,7 @@ fun RoamlyNavHost() {
                                 Icon(
                                     imageVector = when (screen) {
                                         Screen.Map -> Icons.Rounded.Map
-                                        Screen.Groups -> Icons.Rounded.People
+                                        Screen.Adventures -> Icons.Rounded.Explore
                                         Screen.Stats -> Icons.Rounded.BarChart
                                         else -> Icons.Rounded.Settings
                                     },
@@ -120,7 +120,7 @@ fun RoamlyNavHost() {
                 )
             }
             composable(Screen.Map.route) { MapScreen() }
-            composable(Screen.Groups.route) {
+            composable(Screen.Adventures.route) {
                 GroupsScreen(
                     onTripClick = { id -> navController.navigate("trips/$id") },
                     onPalClick = { id -> navController.navigate("pals/$id") }
