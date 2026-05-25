@@ -1,5 +1,9 @@
 package com.roamly.ui.settings
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -13,11 +17,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.core.content.PermissionChecker
 import androidx.hilt.navigation.compose.hiltViewModel
 import java.text.SimpleDateFormat
 import java.util.*
@@ -29,6 +36,80 @@ fun SettingsScreen(
     onLoggedOut: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+
+    // ── Permission handling ────────────────────────────────────────────────
+    var showBgLocationRationale by remember { mutableStateOf(false) }
+
+    // Step 2: background location (Android 10+) — only asked after fine is granted
+    val bgLocationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* granted or not — service starts either way; bg location just makes it more reliable */
+        viewModel.toggleTracking()
+    }
+
+    // Step 1: fine location
+    val fineLocationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) return@rememberLauncherForActivityResult
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                != PermissionChecker.PERMISSION_GRANTED
+        ) {
+            showBgLocationRationale = true
+        } else {
+            viewModel.toggleTracking()
+        }
+    }
+
+    // Notification permission (Android 13+)
+    val notifLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* proceed regardless */ }
+
+    fun startTrackingWithPermissions() {
+        // Request notification permission on Android 13+ (non-blocking)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+                != PermissionChecker.PERMISSION_GRANTED
+        ) {
+            notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        // Check fine location
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
+            != PermissionChecker.PERMISSION_GRANTED
+        ) {
+            fineLocationLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                != PermissionChecker.PERMISSION_GRANTED
+        ) {
+            showBgLocationRationale = true
+        } else {
+            viewModel.toggleTracking()
+        }
+    }
+
+    // Background location rationale dialog
+    if (showBgLocationRationale) {
+        AlertDialog(
+            onDismissRequest = { showBgLocationRationale = false; viewModel.toggleTracking() },
+            title = { Text("Background Location") },
+            text = { Text("For tracking while the screen is off, select \"Allow all the time\" on the next screen. You can skip this and tracking will still work while the app is open.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showBgLocationRationale = false
+                    bgLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                }) { Text("Open Settings") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBgLocationRationale = false; viewModel.toggleTracking() }) {
+                    Text("Skip")
+                }
+            }
+        )
+    }
 
     // Edit dialog state
     var editTarget by remember { mutableStateOf<EditTarget?>(null) }
@@ -136,7 +217,10 @@ fun SettingsScreen(
                         )
                     }
                     Button(
-                        onClick = { viewModel.toggleTracking() },
+                        onClick = {
+                            if (state.isTracking) viewModel.toggleTracking()
+                            else startTrackingWithPermissions()
+                        },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (state.isTracking) MaterialTheme.colorScheme.error
                                              else MaterialTheme.colorScheme.primary
