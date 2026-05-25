@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.roamly.data.api.CountryVisit
 import com.roamly.data.api.CityVisit
 import com.roamly.data.api.StatsResponse
+import com.roamly.data.api.YearlyOverviewResponse
 import com.roamly.data.repository.LocationRepository
 import com.roamly.data.repository.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -16,6 +17,7 @@ import javax.inject.Inject
 
 data class StatsUiState(
     val stats: StatsResponse? = null,
+    val yearly: YearlyOverviewResponse? = null,
     val topCountries: List<CountryVisit> = emptyList(),
     val topCities: List<CityVisit> = emptyList(),
     val isLoading: Boolean = false,
@@ -40,6 +42,10 @@ class StatsViewModel @Inject constructor(
             when (val r = locationRepository.getStats()) {
                 is Result.Success -> _uiState.update { it.copy(stats = r.data, isLoading = false) }
                 is Result.Error -> _uiState.update { it.copy(error = r.message, isLoading = false) }
+            }
+            when (val r = locationRepository.getYearlyOverview()) {
+                is Result.Success -> _uiState.update { it.copy(yearly = r.data) }
+                is Result.Error -> { /* yearly is optional */ }
             }
             when (val r = locationRepository.getVisits()) {
                 is Result.Success -> _uiState.update {
