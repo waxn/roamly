@@ -3,6 +3,7 @@ package com.roamly.data.repository
 import com.roamly.data.api.RoamlyApi
 import com.roamly.data.prefs.UserPreferences
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
