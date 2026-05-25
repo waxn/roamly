@@ -72,7 +72,6 @@ class LocationTrackingService : Service() {
     private fun applyFilterSettings() {
         scope.launch {
             filter.maxAccuracyMetres = prefs.maxAccuracyM.first().toFloat()
-            filter.minDisplacementMetres = prefs.minDisplacementM.first().toFloat()
         }
     }
 
@@ -95,14 +94,14 @@ class LocationTrackingService : Service() {
     }
 
     private fun buildRequest(): LocationRequest {
-        return when (runBlocking { prefs.trackingMode.first() }) {
-            "precision" -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5_000L)
-                .setMinUpdateDistanceMeters(2f).build()
-            "low_power" -> LocationRequest.Builder(Priority.PRIORITY_LOW_POWER, 5 * 60_000L)
-                .setMinUpdateDistanceMeters(50f).build()
-            else        -> LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 30_000L)
-                .setMinUpdateDistanceMeters(5f).build()
-        }
+        val intervalMs = runBlocking { prefs.trackingIntervalSecs.first() }
+            .coerceIn(5, 3600) * 1000L
+        // Use HIGH_ACCURACY for short intervals (≤30s), BALANCED otherwise
+        val priority = if (intervalMs <= 30_000L)
+            Priority.PRIORITY_HIGH_ACCURACY
+        else
+            Priority.PRIORITY_BALANCED_POWER_ACCURACY
+        return LocationRequest.Builder(priority, intervalMs).build()
     }
 
     private suspend fun savePoint(loc: android.location.Location) {

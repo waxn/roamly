@@ -29,10 +29,9 @@ class UserPreferences @Inject constructor(
         private val KEY_DARK_MODE  = booleanPreferencesKey("dark_mode")
 
         // Tracking state
-        private val KEY_TRACKING_ACTIVE      = booleanPreferencesKey("tracking_active")
-        private val KEY_TRACKING_MODE        = stringPreferencesKey("tracking_mode")
-        private val KEY_MAX_ACCURACY_M       = intPreferencesKey("max_accuracy_m")
-        private val KEY_MIN_DISPLACEMENT_M   = intPreferencesKey("min_displacement_m")
+        private val KEY_TRACKING_ACTIVE        = booleanPreferencesKey("tracking_active")
+        private val KEY_TRACKING_INTERVAL_SECS = intPreferencesKey("tracking_interval_secs")
+        private val KEY_MAX_ACCURACY_M         = intPreferencesKey("max_accuracy_m")
 
         // Last sync result (written by UploadWorker after every run)
         private val KEY_LAST_SYNC_TIME    = longPreferencesKey("last_sync_time")
@@ -52,10 +51,9 @@ class UserPreferences @Inject constructor(
 
     // ── Tracking ───────────────────────────────────────────────────────────
 
-    val isTrackingActive:   Flow<Boolean> = context.dataStore.data.map { it[KEY_TRACKING_ACTIVE] ?: false }
-    val trackingMode:       Flow<String>  = context.dataStore.data.map { it[KEY_TRACKING_MODE] ?: "balanced" }
-    val maxAccuracyM:       Flow<Int>     = context.dataStore.data.map { it[KEY_MAX_ACCURACY_M] ?: 100 }
-    val minDisplacementM:   Flow<Int>     = context.dataStore.data.map { it[KEY_MIN_DISPLACEMENT_M] ?: 5 }
+    val isTrackingActive:      Flow<Boolean> = context.dataStore.data.map { it[KEY_TRACKING_ACTIVE] ?: false }
+    val trackingIntervalSecs:  Flow<Int>     = context.dataStore.data.map { it[KEY_TRACKING_INTERVAL_SECS] ?: 30 }
+    val maxAccuracyM:          Flow<Int>     = context.dataStore.data.map { it[KEY_MAX_ACCURACY_M] ?: 100 }
 
     // ── Last sync result ───────────────────────────────────────────────────
 
@@ -83,20 +81,20 @@ class UserPreferences @Inject constructor(
         context.dataStore.edit { it[KEY_DARK_MODE] = enabled }
     }
 
+    suspend fun setApiKey(key: String) {
+        context.dataStore.edit { it[KEY_API_KEY] = key }
+    }
+
     suspend fun setTrackingActive(active: Boolean) {
         context.dataStore.edit { it[KEY_TRACKING_ACTIVE] = active }
     }
 
-    suspend fun setTrackingMode(mode: String) {
-        context.dataStore.edit { it[KEY_TRACKING_MODE] = mode }
+    suspend fun setTrackingIntervalSecs(secs: Int) {
+        context.dataStore.edit { it[KEY_TRACKING_INTERVAL_SECS] = secs }
     }
 
     suspend fun setMaxAccuracyM(metres: Int) {
         context.dataStore.edit { it[KEY_MAX_ACCURACY_M] = metres }
-    }
-
-    suspend fun setMinDisplacementM(metres: Int) {
-        context.dataStore.edit { it[KEY_MIN_DISPLACEMENT_M] = metres }
     }
 
     suspend fun setSyncResult(time: Long, success: Boolean, count: Int, error: String) {
@@ -112,10 +110,9 @@ class UserPreferences @Inject constructor(
         context.dataStore.edit { prefs ->
             prefs.remove(KEY_SERVER_URL)
             prefs.remove(KEY_SESSION_ID)
-            prefs.remove(KEY_API_KEY)
             prefs.remove(KEY_USERNAME)
-            prefs.remove(KEY_DEVICE_ID)
-            // Keep dark mode and tracking prefs across logout
+            // Keep API key, device ID, dark mode, and tracking prefs across logout
+            // so re-login reuses the same key and device name
         }
     }
 }

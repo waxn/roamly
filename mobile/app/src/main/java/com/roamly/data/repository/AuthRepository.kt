@@ -64,16 +64,20 @@ class AuthRepository @Inject constructor(
                 ?.substringBefore(";")
                 ?: return Result.Error("Invalid username or password")
 
-            // Save session so createApiKey can authenticate
-            prefs.save(base, sessionId, "", username)
-
-            // Create an API key
-            val keyResponse = api.createApiKey()
-            if (!keyResponse.isSuccessful) {
-                return Result.Error("Could not create API key (${keyResponse.code()})")
+            // Reuse an existing API key if one is already saved (so login doesn't
+            // create a new key every time — the user can also set their own key in Settings)
+            val existingKey = prefs.apiKey.first()
+            val apiKey = if (!existingKey.isNullOrBlank()) {
+                existingKey
+            } else {
+                prefs.save(base, sessionId, "", username)
+                val keyResponse = api.createApiKey()
+                if (!keyResponse.isSuccessful) {
+                    return Result.Error("Could not create API key (${keyResponse.code()})")
+                }
+                keyResponse.body()?.key
+                    ?: return Result.Error("API key response was empty")
             }
-            val apiKey = keyResponse.body()?.key
-                ?: return Result.Error("API key response was empty")
 
             prefs.save(base, sessionId, apiKey, username)
             Result.Success(Unit)

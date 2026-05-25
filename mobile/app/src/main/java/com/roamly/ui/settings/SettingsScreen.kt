@@ -1,7 +1,9 @@
 package com.roamly.ui.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -12,6 +14,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import java.text.SimpleDateFormat
@@ -24,6 +29,28 @@ fun SettingsScreen(
     onLoggedOut: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
+
+    // Edit dialog state
+    var editTarget by remember { mutableStateOf<EditTarget?>(null) }
+
+    editTarget?.let { target ->
+        EditDialog(
+            title = target.title,
+            initialValue = target.currentValue,
+            keyboardType = target.keyboardType,
+            hint = target.hint,
+            onConfirm = { value ->
+                when (target) {
+                    is EditTarget.DeviceId   -> viewModel.setDeviceId(value)
+                    is EditTarget.ApiKey     -> viewModel.setApiKey(value)
+                    is EditTarget.Interval   -> value.toIntOrNull()?.let { viewModel.setTrackingIntervalSecs(it) }
+                    is EditTarget.Accuracy   -> value.toIntOrNull()?.let { viewModel.setMaxAccuracyM(it) }
+                }
+                editTarget = null
+            },
+            onDismiss = { editTarget = null }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -47,9 +74,41 @@ fun SettingsScreen(
             // ── Connection ─────────────────────────────────────────────────
             SettingsCard {
                 SectionHeader("Connection", Icons.Filled.Link)
-                LabeledValue(Icons.Filled.Link,    "Server",    state.serverUrl.ifBlank { "Not set" })
-                LabeledValue(Icons.Filled.Person,  "Username",  state.username.ifBlank { "Not set" })
-                LabeledValue(Icons.Filled.Devices, "Device ID", state.deviceId.take(8).ifBlank { "Not set" })
+
+                LabeledValue(Icons.Filled.Link, "Server", state.serverUrl.ifBlank { "Not set" })
+
+                LabeledValue(Icons.Filled.Person, "Username", state.username.ifBlank { "Not set" })
+
+                // Device ID — tappable
+                EditableRow(
+                    icon = Icons.Filled.Devices,
+                    label = "Device ID",
+                    value = state.deviceId.ifBlank { "Tap to set" },
+                    mono = true,
+                    onClick = {
+                        editTarget = EditTarget.DeviceId(
+                            currentValue = state.deviceId,
+                            title = "Device ID",
+                            hint = "e.g. pixel9pro — identifies this device on the map"
+                        )
+                    }
+                )
+
+                // API key — tappable, masked
+                EditableRow(
+                    icon = Icons.Filled.Key,
+                    label = "API Key",
+                    value = if (state.apiKey.isBlank()) "Tap to set"
+                            else "••••${state.apiKey.takeLast(6)}",
+                    mono = true,
+                    onClick = {
+                        editTarget = EditTarget.ApiKey(
+                            currentValue = state.apiKey,
+                            title = "API Key",
+                            hint = "64-char hex key from Roamly → Settings → API Keys"
+                        )
+                    }
+                )
             }
 
             Spacer(Modifier.height(16.dp))
@@ -58,11 +117,9 @@ fun SettingsScreen(
             SettingsCard {
                 SectionHeader("Tracking", Icons.Filled.LocationOn)
 
-                // Start / Stop button
+                // Start / Stop
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -72,7 +129,7 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.bodyLarge
                         )
                         Text(
-                            if (state.isTracking) "Collecting location in background"
+                            if (state.isTracking) "Sending location in background"
                             else "Tap to start sending location",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -81,10 +138,8 @@ fun SettingsScreen(
                     Button(
                         onClick = { viewModel.toggleTracking() },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (state.isTracking)
-                                MaterialTheme.colorScheme.error
-                            else
-                                MaterialTheme.colorScheme.primary
+                            containerColor = if (state.isTracking) MaterialTheme.colorScheme.error
+                                             else MaterialTheme.colorScheme.primary
                         )
                     ) {
                         Text(if (state.isTracking) "Stop" else "Start")
@@ -94,6 +149,11 @@ fun SettingsScreen(
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
                 // Sync status
+                val syncColor = when {
+                    state.lastSyncTime == 0L -> MaterialTheme.colorScheme.onSurfaceVariant
+                    state.lastSyncSuccess    -> Color(0xFF16A34A)
+                    else                     -> MaterialTheme.colorScheme.error
+                }
                 val syncText = when {
                     state.lastSyncTime == 0L -> "Never synced"
                     state.lastSyncSuccess    -> {
@@ -107,11 +167,6 @@ fun SettingsScreen(
                     else -> "Last sync failed: ${relativeTime(state.lastSyncTime)}" +
                             if (state.lastSyncError.isNotBlank()) " — ${state.lastSyncError}" else ""
                 }
-                val syncColor = when {
-                    state.lastSyncTime == 0L    -> MaterialTheme.colorScheme.onSurfaceVariant
-                    state.lastSyncSuccess       -> Color(0xFF16A34A)
-                    else                        -> MaterialTheme.colorScheme.error
-                }
                 Text(
                     syncText,
                     style = MaterialTheme.typography.bodySmall,
@@ -119,7 +174,6 @@ fun SettingsScreen(
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                // Sync Now button + spinner
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedButton(
                         onClick = { viewModel.syncNow() },
@@ -135,14 +189,34 @@ fun SettingsScreen(
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-                // Tracking mode
-                TrackingModePicker(state.trackingMode, viewModel::setTrackingMode)
+                // Interval input
+                EditableRow(
+                    icon = Icons.Filled.Timer,
+                    label = "Interval (seconds)",
+                    value = state.trackingIntervalSecs.toString(),
+                    onClick = {
+                        editTarget = EditTarget.Interval(
+                            currentValue = state.trackingIntervalSecs.toString(),
+                            title = "Update Interval",
+                            hint = "Seconds between GPS fixes (5–3600)"
+                        )
+                    }
+                )
 
-                // Accuracy threshold
-                AccuracyPicker(state.maxAccuracyM, viewModel::setMaxAccuracyM)
-
-                // Minimum displacement
-                DisplacementPicker(state.minDisplacementM, viewModel::setMinDisplacementM)
+                // Accuracy input
+                EditableRow(
+                    icon = Icons.Filled.GpsFixed,
+                    label = "Min accuracy (m)",
+                    value = state.maxAccuracyM.toString(),
+                    subLabel = "Only send if GPS is within this many metres",
+                    onClick = {
+                        editTarget = EditTarget.Accuracy(
+                            currentValue = state.maxAccuracyM.toString(),
+                            title = "Min Accuracy (metres)",
+                            hint = "Discard fixes with accuracy worse than this (e.g. 50)"
+                        )
+                    }
+                )
             }
 
             Spacer(Modifier.height(16.dp))
@@ -183,7 +257,81 @@ fun SettingsScreen(
     }
 }
 
-// ── Sub-composables ────────────────────────────────────────────────────────
+// ── Edit dialog ────────────────────────────────────────────────────────────
+
+@Composable
+private fun EditDialog(
+    title: String,
+    initialValue: String,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    hint: String = "",
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var value by remember(initialValue) { mutableStateOf(initialValue) }
+    var showKey by remember { mutableStateOf(false) }
+    val isApiKey = title.contains("API", ignoreCase = true)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+                    visualTransformation = if (isApiKey && !showKey)
+                        PasswordVisualTransformation() else VisualTransformation.None,
+                    trailingIcon = if (isApiKey) {
+                        {
+                            IconButton(onClick = { showKey = !showKey }) {
+                                Icon(
+                                    if (showKey) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                    contentDescription = if (showKey) "Hide" else "Show"
+                                )
+                            }
+                        }
+                    } else null,
+                    label = { Text(title) }
+                )
+                if (hint.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(hint, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(value) }) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+// ── Sealed edit targets ────────────────────────────────────────────────────
+
+private sealed class EditTarget(
+    val currentValue: String,
+    val title: String,
+    val hint: String,
+    val keyboardType: KeyboardType = KeyboardType.Text,
+) {
+    class DeviceId(currentValue: String, title: String, hint: String) :
+        EditTarget(currentValue, title, hint, KeyboardType.Text)
+    class ApiKey(currentValue: String, title: String, hint: String) :
+        EditTarget(currentValue, title, hint, KeyboardType.Text)
+    class Interval(currentValue: String, title: String, hint: String) :
+        EditTarget(currentValue, title, hint, KeyboardType.Number)
+    class Accuracy(currentValue: String, title: String, hint: String) :
+        EditTarget(currentValue, title, hint, KeyboardType.Number)
+}
+
+// ── Row composables ────────────────────────────────────────────────────────
 
 @Composable
 private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
@@ -211,80 +359,48 @@ private fun LabeledValue(icon: ImageVector, label: String, value: String) {
         Spacer(Modifier.width(10.dp))
         Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
         Text(value, style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontFamily = if (label == "Device ID") FontFamily.Monospace else FontFamily.Default)
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
-private fun TrackingModePicker(current: String, onSelect: (String) -> Unit) {
-    val modes = listOf(
-        "precision" to "Precision (5s, high battery)",
-        "balanced"  to "Balanced (30s, moderate battery)",
-        "low_power" to "Low Power (5min, minimal battery)",
-    )
-    var expanded by remember { mutableStateOf(false) }
+private fun EditableRow(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    subLabel: String = "",
+    mono: Boolean = false,
+    onClick: () -> Unit,
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("Mode", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-        Box {
-            OutlinedButton(onClick = { expanded = true }) {
-                Text(modes.first { it.first == current }.second, style = MaterialTheme.typography.bodySmall)
-            }
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                modes.forEach { (key, label) ->
-                    DropdownMenuItem(text = { Text(label) }, onClick = { onSelect(key); expanded = false })
-                }
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyMedium)
+            if (subLabel.isNotBlank()) {
+                Text(subLabel, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-    }
-}
-
-@Composable
-private fun AccuracyPicker(current: Int, onSelect: (Int) -> Unit) {
-    val options = listOf(25 to "25 m (strict)", 50 to "50 m", 100 to "100 m (default)", 200 to "200 m", 500 to "500 m")
-    var expanded by remember { mutableStateOf(false) }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text("Max accuracy", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-        Box {
-            OutlinedButton(onClick = { expanded = true }) {
-                Text(options.firstOrNull { it.first == current }?.second ?: "${current}m",
-                    style = MaterialTheme.typography.bodySmall)
-            }
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                options.forEach { (v, label) ->
-                    DropdownMenuItem(text = { Text(label) }, onClick = { onSelect(v); expanded = false })
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DisplacementPicker(current: Int, onSelect: (Int) -> Unit) {
-    val options = listOf(0 to "0 m (every fix)", 5 to "5 m (default)", 10 to "10 m", 25 to "25 m", 50 to "50 m")
-    var expanded by remember { mutableStateOf(false) }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text("Min movement", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-        Box {
-            OutlinedButton(onClick = { expanded = true }) {
-                Text(options.firstOrNull { it.first == current }?.second ?: "${current}m",
-                    style = MaterialTheme.typography.bodySmall)
-            }
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                options.forEach { (v, label) ->
-                    DropdownMenuItem(text = { Text(label) }, onClick = { onSelect(v); expanded = false })
-                }
-            }
-        }
+        Text(
+            value,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+            fontFamily = if (mono) FontFamily.Monospace else FontFamily.Default
+        )
+        Spacer(Modifier.width(4.dp))
+        Icon(
+            Icons.Filled.Edit,
+            contentDescription = "Edit",
+            modifier = Modifier.size(14.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -293,9 +409,9 @@ private fun DisplacementPicker(current: Int, onSelect: (Int) -> Unit) {
 private fun relativeTime(epochMs: Long): String {
     val diff = System.currentTimeMillis() - epochMs
     return when {
-        diff < 60_000L        -> "just now"
-        diff < 3_600_000L     -> "${diff / 60_000}m ago"
-        diff < 86_400_000L    -> "${diff / 3_600_000}h ago"
-        else                  -> SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()).format(Date(epochMs))
+        diff < 60_000L     -> "just now"
+        diff < 3_600_000L  -> "${diff / 60_000}m ago"
+        diff < 86_400_000L -> "${diff / 3_600_000}h ago"
+        else               -> SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()).format(Date(epochMs))
     }
 }
