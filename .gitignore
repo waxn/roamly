@@ -17,8 +17,8 @@ media/
 # Environment/config
 .env
 
-# Docker data
-data/
+# Docker data (root only — mobile app has its own data/ package)
+/data/
 
 # Logs and local data
 *.log
