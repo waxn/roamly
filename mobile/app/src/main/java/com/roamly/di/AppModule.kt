@@ -1,11 +1,14 @@
 package com.roamly.di
 
+import android.content.Context
 import com.google.gson.GsonBuilder
 import com.roamly.data.api.RoamlyApi
 import com.roamly.data.prefs.UserPreferences
+import com.roamly.tracking.TrackingDatabase
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -131,4 +134,9 @@ object AppModule {
     @Singleton
     fun providePalRepository(api: RoamlyApi): com.roamly.data.repository.PalRepository =
         com.roamly.data.repository.PalRepository(api)
+
+    @Provides
+    @Singleton
+    fun provideTrackingDatabase(@ApplicationContext context: Context): TrackingDatabase =
+        TrackingDatabase.getInstance(context)
 }

@@ -28,6 +28,11 @@ interface RoamlyApi {
         @Field("name") name: String = "Roamly Android",
     ): Response<ApiKeyResponse>
 
+    // --- Push location (native tracker) ---
+
+    @POST("api/push/")
+    suspend fun pushLocation(@Body payload: LocationPushPayload): Response<LocationPushResponse>
+
     // --- Locations ---
 
     @GET("api/locations/")

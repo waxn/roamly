@@ -248,3 +248,22 @@ data class ApiKeyResponse(
     val name: String,
     val id: Int,
 )
+
+// --- Native location push ---
+
+data class LocationPushPayload(
+    @SerializedName("device_id")  val deviceId: String,
+    @SerializedName("latitude")   val latitude: Double,
+    @SerializedName("longitude")  val longitude: Double,
+    @SerializedName("timestamp")  val timestamp: String,   // ISO-8601 UTC
+    @SerializedName("altitude")   val altitude: Double?,
+    @SerializedName("accuracy")   val accuracy: Float?,
+    @SerializedName("speed")      val speed: Float?,
+    @SerializedName("battery")    val battery: Int?,
+)
+
+data class LocationPushResponse(
+    val status: String,
+    @SerializedName("location_id") val locationId: Long?,
+    val device: String?,
+)
