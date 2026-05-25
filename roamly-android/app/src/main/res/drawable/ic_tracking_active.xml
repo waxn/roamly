@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Green pulsing dot — tracking active -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="80dp"
+    android:height="80dp"
+    android:viewportWidth="80"
+    android:viewportHeight="80">
+    <!-- Outer ring -->
+    <path
+        android:fillColor="#3316A34A"
+        android:pathData="M40,40m-38,0a38,38 0,1 1,76 0a38,38 0,1 1,-76 0" />
+    <!-- Inner ring -->
+    <path
+        android:fillColor="#6616A34A"
+        android:pathData="M40,40m-28,0a28,28 0,1 1,56 0a28,28 0,1 1,-56 0" />
+    <!-- Solid dot -->
+    <path
+        android:fillColor="#16A34A"
+        android:pathData="M40,40m-16,0a16,16 0,1 1,32 0a16,16 0,1 1,-32 0" />
+</vector>
