@@ -15,7 +15,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -77,7 +81,7 @@ fun StatsScreen(viewModel: StatsViewModel = hiltViewModel()) {
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             if (state.isLoading && state.stats == null) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                SkeletonStats()
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -105,6 +109,79 @@ fun StatsScreen(viewModel: StatsViewModel = hiltViewModel()) {
             state.error?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp))
             }
+        }
+    }
+}
+
+@Composable
+private fun SkeletonStats() {
+    val transition = rememberInfiniteTransition(label = "skeleton")
+    val alpha by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.85f,
+        animationSpec = infiniteRepeatable(tween(900), repeatMode = RepeatMode.Reverse),
+        label = "skel-alpha",
+    )
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        SkeletonCard(height = 150.dp, alpha = alpha)   // summary card
+        SkeletonCard(height = 140.dp, alpha = alpha)   // yearly overview
+        SkeletonCard(height = 170.dp, alpha = alpha)   // monthly bars
+        repeat(3) { SkeletonRow(alpha = alpha) }
+    }
+}
+
+@Composable
+private fun SkeletonBlock(height: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier, alpha: Float) {
+    Box(
+        modifier = modifier
+            .height(height)
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha * 0.18f))
+    )
+}
+
+@Composable
+private fun SkeletonCard(height: androidx.compose.ui.unit.Dp, alpha: Float) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SkeletonBlock(height = 16.dp, modifier = Modifier.fillMaxWidth(0.45f), alpha = alpha)
+            SkeletonBlock(height = (height.value - 60).dp, modifier = Modifier.fillMaxWidth(), alpha = alpha)
+        }
+    }
+}
+
+@Composable
+private fun SkeletonRow(alpha: Float) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha * 0.18f))
+            )
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SkeletonBlock(height = 12.dp, modifier = Modifier.fillMaxWidth(0.55f), alpha = alpha)
+                SkeletonBlock(height = 10.dp, modifier = Modifier.fillMaxWidth(0.30f), alpha = alpha)
+            }
+            SkeletonBlock(height = 12.dp, modifier = Modifier.width(50.dp), alpha = alpha)
         }
     }
 }
