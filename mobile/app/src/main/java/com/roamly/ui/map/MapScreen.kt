@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -106,6 +107,7 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
     }
 
     var nearHereResult by remember { mutableStateOf<NearHereResult?>(null) }
+    var showAllDays by remember { mutableStateOf(false) }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -301,14 +303,28 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
     }
 
     nearHereResult?.let { result ->
-        NearHereDialog(
-            result = result,
-            onDismiss = { nearHereResult = null },
-            onDayClick = { day ->
-                viewModel.focusOn(day.lat, day.lng, zoom = 15.0)
-                nearHereResult = null
-            }
-        )
+        if (showAllDays) {
+            AllDaysScreen(
+                result = result,
+                onClose = { showAllDays = false; nearHereResult = null },
+                onBack = { showAllDays = false },
+                onDayClick = { day ->
+                    viewModel.focusOn(day.lat, day.lng, zoom = 17.0)
+                    showAllDays = false
+                    nearHereResult = null
+                }
+            )
+        } else {
+            NearHereDialog(
+                result = result,
+                onDismiss = { nearHereResult = null },
+                onShowAll = { showAllDays = true },
+                onDayClick = { day ->
+                    viewModel.focusOn(day.lat, day.lng, zoom = 17.0)
+                    nearHereResult = null
+                }
+            )
+        }
     }
 }
 
@@ -338,23 +354,26 @@ private fun StatChip(value: String, label: String) {
 data class NearHereDay(
     val date: LocalDate,
     val pointCount: Int,
+    val closestMeters: Double,
     val lat: Double,
     val lng: Double,
-    val city: String?,
 )
 
 data class NearHereResult(
-    val withinOneKm: Int,
-    val withinFiveKm: Int,
-    val withinTwentyFiveKm: Int,
-    val nearestCity: String?,
-    val days: List<NearHereDay>,
+    val region: String?,        // e.g. "Portland, OR" — city, state of the user's current area
+    val veryCloseDays: Int,     // # of distinct past days with a point within ~150m
+    val totalRegionPoints: Int, // # of all past points in that region
+    val closestMeters: Double?, // closest past point in meters
+    val days: List<NearHereDay>,// past days with a near-exact match (~300m), newest first
 )
+
+private const val PREVIEW_DAYS = 4
 
 @Composable
 private fun NearHereDialog(
     result: NearHereResult,
     onDismiss: () -> Unit,
+    onShowAll: () -> Unit,
     onDayClick: (NearHereDay) -> Unit,
 ) {
     AlertDialog(
@@ -363,18 +382,27 @@ private fun NearHereDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 when {
-                    result.withinOneKm > 0 ->
-                        ResultHeader("yes — within 1 km", "${result.withinOneKm} point${if (result.withinOneKm != 1) "s" else ""} recorded", MaterialTheme.colorScheme.secondary)
-                    result.withinFiveKm > 0 ->
-                        ResultHeader("yes — within 5 km", "${result.withinFiveKm} point${if (result.withinFiveKm != 1) "s" else ""} recorded", MaterialTheme.colorScheme.secondary)
-                    result.withinTwentyFiveKm > 0 ->
-                        ResultHeader("nearby — within 25 km", "${result.withinTwentyFiveKm} point${if (result.withinTwentyFiveKm != 1) "s" else ""} recorded", MaterialTheme.colorScheme.primary)
-                    else -> ResultHeader("no records within 25 km", "of your current location", MaterialTheme.colorScheme.onSurface)
+                    result.days.isNotEmpty() -> {
+                        val closest = result.closestMeters?.let { "${it.toInt()} m away" } ?: ""
+                        ResultHeader(
+                            "yes — you've been right here",
+                            "${result.veryCloseDays} day${if (result.veryCloseDays != 1) "s" else ""}${if (closest.isNotEmpty()) " · closest $closest" else ""}",
+                            MaterialTheme.colorScheme.secondary,
+                        )
+                    }
+                    result.totalRegionPoints > 0 ->
+                        ResultHeader(
+                            "in this area, but not this exact spot",
+                            "${result.totalRegionPoints} past points in ${result.region ?: "this region"}",
+                            MaterialTheme.colorScheme.primary,
+                        )
+                    else ->
+                        ResultHeader("first time here", "no past points nearby", MaterialTheme.colorScheme.onSurface)
                 }
 
-                result.nearestCity?.let {
+                result.region?.let {
                     Text(
-                        "nearest logged: $it",
+                        "region: $it",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -383,16 +411,22 @@ private fun NearHereDialog(
                 if (result.days.isNotEmpty()) {
                     HorizontalDivider()
                     Text(
-                        "past visits (tap to view)",
+                        "past visits to this spot",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    LazyColumn(
-                        modifier = Modifier.heightIn(max = 260.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        items(result.days) { day ->
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        result.days.take(PREVIEW_DAYS).forEach { day ->
                             DayRow(day, onClick = { onDayClick(day) })
+                        }
+                    }
+                    if (result.days.size > PREVIEW_DAYS) {
+                        TextButton(
+                            onClick = onShowAll,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("show all ${result.days.size} days")
+                            Icon(Icons.Filled.ChevronRight, contentDescription = null, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
@@ -400,6 +434,51 @@ private fun NearHereDialog(
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("close") } }
     )
+}
+
+@Composable
+private fun AllDaysScreen(
+    result: NearHereResult,
+    onClose: () -> Unit,
+    onBack: () -> Unit,
+    onDayClick: (NearHereDay) -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Filled.ArrowBack, contentDescription = "back")
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("all visits to this spot", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "${result.days.size} days${result.region?.let { " · $it" } ?: ""}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                TextButton(onClick = onClose) { Text("close") }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(result.days) { day ->
+                    DayRow(day, onClick = { onDayClick(day) })
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -426,8 +505,11 @@ private fun DayRow(day: NearHereDay, onClick: () -> Unit) {
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(day.date.format(fmt), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                val sub = listOfNotNull(day.city, "${day.pointCount} pts").joinToString(" · ")
-                Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "${day.closestMeters.toInt()} m · ${day.pointCount} pts",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -501,6 +583,11 @@ private fun checkNearHere(
     } catch (_: SecurityException) { /* permission not granted */ }
 }
 
+// "Right here" — same store / same building / same spot
+private const val SAME_SPOT_METERS = 200.0
+// "In this region" — same neighbourhood / town area
+private const val REGION_KM = 5.0
+
 internal fun buildNearHere(
     userLat: Double,
     userLng: Double,
@@ -508,69 +595,78 @@ internal fun buildNearHere(
 ): NearHereResult {
     val today = LocalDate.now()
 
-    var within1 = 0
-    var within5 = 0
-    var within25 = 0
-    var nearestCity: String? = null
-    var smallestDist = Double.MAX_VALUE
+    // 1) Find the user's current region by picking the city/state of the
+    //    nearest past point (excluding today). The city field is already
+    //    reverse-geocoded server-side.
+    var regionCity: String? = null
+    var regionState: String? = null
+    var nearestPastDistKm = Double.MAX_VALUE
+    for (pt in locations) {
+        val day = parseDate(pt.timestamp)
+        if (day == today) continue
+        val distKm = haversineKm(userLat, userLng, pt.lat, pt.lng)
+        if (distKm < nearestPastDistKm) {
+            nearestPastDistKm = distKm
+            regionCity = pt.city?.takeIf { it.isNotBlank() }
+            regionState = pt.state?.takeIf { it.isNotBlank() }
+        }
+    }
+    val regionLabel = listOfNotNull(regionCity, regionState).joinToString(", ").ifBlank { null }
 
-    // Aggregate past-day visits within 5km, excluding today's points
+    // 2) Filter to points in that region (by city match) OR fall back to
+    //    everything within REGION_KM of the user if no city match.
+    val regionPoints = locations.filter { pt ->
+        val day = parseDate(pt.timestamp)
+        if (day == today) return@filter false
+        if (regionCity != null && !pt.city.isNullOrBlank()) {
+            pt.city.equals(regionCity, ignoreCase = true)
+        } else {
+            haversineKm(userLat, userLng, pt.lat, pt.lng) <= REGION_KM
+        }
+    }
+
+    // 3) Within those region points, find ones close enough to count as
+    //    "same spot" and aggregate by day.
     data class DayAgg(
         var count: Int = 0,
-        var bestDist: Double = Double.MAX_VALUE,
+        var bestDistM: Double = Double.MAX_VALUE,
         var lat: Double = 0.0,
         var lng: Double = 0.0,
-        var city: String? = null,
     )
     val byDay = HashMap<LocalDate, DayAgg>()
+    var globalClosestM = Double.MAX_VALUE
 
-    for (pt in locations) {
-        val dist = haversineKm(userLat, userLng, pt.lat, pt.lng)
-        if (dist < smallestDist) {
-            smallestDist = dist
-            nearestCity = pt.city
-        }
-        if (dist <= 1.0) within1++
-        if (dist <= 5.0) within5++
-        if (dist <= 25.0) within25++
-
-        if (dist <= 5.0) {
-            val day = parseDate(pt.timestamp) ?: continue
-            if (day == today) continue  // exclude today
-            val agg = byDay.getOrPut(day) { DayAgg() }
-            agg.count++
-            if (dist < agg.bestDist) {
-                agg.bestDist = dist
-                agg.lat = pt.lat
-                agg.lng = pt.lng
-                agg.city = pt.city ?: agg.city
-            }
+    for (pt in regionPoints) {
+        val distM = haversineKm(userLat, userLng, pt.lat, pt.lng) * 1000.0
+        if (distM > SAME_SPOT_METERS) continue
+        if (distM < globalClosestM) globalClosestM = distM
+        val day = parseDate(pt.timestamp) ?: continue
+        val agg = byDay.getOrPut(day) { DayAgg() }
+        agg.count++
+        if (distM < agg.bestDistM) {
+            agg.bestDistM = distM
+            agg.lat = pt.lat
+            agg.lng = pt.lng
         }
     }
 
     val days = byDay.entries
         .sortedByDescending { it.key }
         .map { (date, agg) ->
-            NearHereDay(date = date, pointCount = agg.count, lat = agg.lat, lng = agg.lng, city = agg.city)
+            NearHereDay(
+                date = date,
+                pointCount = agg.count,
+                closestMeters = agg.bestDistM,
+                lat = agg.lat,
+                lng = agg.lng,
+            )
         }
 
-    // Recompute "within" counts excluding today as well, so we don't say "yes" purely
-    // because the user is standing here right now.
-    var w1NoToday = 0; var w5NoToday = 0; var w25NoToday = 0
-    for (pt in locations) {
-        val day = parseDate(pt.timestamp) ?: continue
-        if (day == today) continue
-        val dist = haversineKm(userLat, userLng, pt.lat, pt.lng)
-        if (dist <= 1.0) w1NoToday++
-        if (dist <= 5.0) w5NoToday++
-        if (dist <= 25.0) w25NoToday++
-    }
-
     return NearHereResult(
-        withinOneKm = w1NoToday,
-        withinFiveKm = w5NoToday,
-        withinTwentyFiveKm = w25NoToday,
-        nearestCity = nearestCity,
+        region = regionLabel,
+        veryCloseDays = days.size,
+        totalRegionPoints = regionPoints.size,
+        closestMeters = if (globalClosestM == Double.MAX_VALUE) null else globalClosestM,
         days = days,
     )
 }
