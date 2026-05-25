@@ -249,8 +249,8 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                 )
             },
             modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = 16.dp, bottom = if (state.stats != null) 120.dp else 16.dp),
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = if (state.stats != null) 120.dp else 16.dp),
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
         )
