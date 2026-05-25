@@ -15,6 +15,7 @@ import com.roamly.data.prefs.UserPreferences
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 
 private const val TAG = "LocationTrackingService"
@@ -93,8 +94,8 @@ class LocationTrackingService : Service() {
         if (::locationCallback.isInitialized) fusedClient.removeLocationUpdates(locationCallback)
     }
 
-    private suspend fun buildRequest(): LocationRequest {
-        return when (prefs.trackingMode.first()) {
+    private fun buildRequest(): LocationRequest {
+        return when (runBlocking { prefs.trackingMode.first() }) {
             "precision" -> LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5_000L)
                 .setMinUpdateDistanceMeters(2f).build()
             "low_power" -> LocationRequest.Builder(Priority.PRIORITY_LOW_POWER, 5 * 60_000L)
