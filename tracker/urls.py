@@ -108,6 +108,7 @@ urlpatterns = [
     # API Keys
     path('api/keys/create/', views.create_api_key, name='create_api_key'),
     path('api/keys/<int:key_id>/delete/', views.delete_api_key, name='delete_api_key'),
+    path('api/keys/<int:key_id>/rename/', views.rename_api_key, name='rename_api_key'),
     
     # Devices
     path('api/devices/', views.devices_api, name='devices_api'),

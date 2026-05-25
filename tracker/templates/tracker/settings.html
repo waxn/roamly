@@ -589,7 +589,17 @@
                 <tbody id="api-keys-list">
                     {% for key in api_keys %}
                     <tr id="key-{{ key.id }}">
-                        <td>{{ key.name }}</td>
+                        <td>
+                            <div style="display: flex; align-items: center; gap: 0.35rem;">
+                                <span id="key-name-display-{{ key.id }}" style="font-size: 0.875rem;">{{ key.name }}</span>
+                                <input id="key-name-input-{{ key.id }}" type="text" value="{{ key.name }}"
+                                    style="display:none; font-size: 0.8125rem; padding: 0.15rem 0.4rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); width: 10rem;"
+                                    onkeydown="if(event.key==='Enter')saveKeyName({{ key.id }});if(event.key==='Escape')cancelRenameKey({{ key.id }});">
+                                <button id="key-rename-btn-{{ key.id }}" class="btn btn-outline btn-sm" style="padding: 0.1rem 0.3rem; font-size: 0.7rem;" onclick="startRenameKey({{ key.id }})" title="Rename">✎</button>
+                                <button id="key-save-btn-{{ key.id }}" class="btn btn-primary btn-sm" style="display:none; padding: 0.1rem 0.4rem; font-size: 0.7rem;" onclick="saveKeyName({{ key.id }})">Save</button>
+                                <button id="key-cancel-btn-{{ key.id }}" class="btn btn-outline btn-sm" style="display:none; padding: 0.1rem 0.4rem; font-size: 0.7rem;" onclick="cancelRenameKey({{ key.id }})">Cancel</button>
+                            </div>
+                        </td>
                         <td>
                             <div style="display: flex; align-items: center; gap: 0.25rem;">
                                 <code id="key-val-{{ key.id }}" style="font-size: 0.7rem; color: var(--text-muted); word-break: break-all; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'Space Grotesk', sans-serif;">{{ key.key }}</code>
@@ -798,6 +808,46 @@ function deleteApiKey(id) {
     .then(r => r.json())
     .then(() => {
         document.getElementById(`key-${id}`)?.remove();
+    });
+}
+
+function startRenameKey(id) {
+    document.getElementById(`key-name-display-${id}`).style.display = 'none';
+    document.getElementById(`key-rename-btn-${id}`).style.display = 'none';
+    document.getElementById(`key-name-input-${id}`).style.display = '';
+    document.getElementById(`key-save-btn-${id}`).style.display = '';
+    document.getElementById(`key-cancel-btn-${id}`).style.display = '';
+    document.getElementById(`key-name-input-${id}`).focus();
+    document.getElementById(`key-name-input-${id}`).select();
+}
+
+function cancelRenameKey(id) {
+    // Restore original displayed name (revert input value too)
+    const orig = document.getElementById(`key-name-display-${id}`).textContent;
+    document.getElementById(`key-name-input-${id}`).value = orig;
+    document.getElementById(`key-name-display-${id}`).style.display = '';
+    document.getElementById(`key-rename-btn-${id}`).style.display = '';
+    document.getElementById(`key-name-input-${id}`).style.display = 'none';
+    document.getElementById(`key-save-btn-${id}`).style.display = 'none';
+    document.getElementById(`key-cancel-btn-${id}`).style.display = 'none';
+}
+
+function saveKeyName(id) {
+    const newName = document.getElementById(`key-name-input-${id}`).value.trim();
+    if (!newName) return;
+    const formData = new FormData();
+    formData.append('name', newName);
+    fetch(`/api/keys/${id}/rename/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.name) {
+            document.getElementById(`key-name-display-${id}`).textContent = data.name;
+        }
+        cancelRenameKey(id);
     });
 }
 

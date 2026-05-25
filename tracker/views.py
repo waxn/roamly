@@ -3086,6 +3086,19 @@ def delete_api_key(request, key_id):
     return JsonResponse({"status": "ok"})
 
 
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def rename_api_key(request, key_id):
+    api_key = get_object_or_404(APIKey, id=key_id, user=request.user)
+    name = (request.POST.get('name') or '').strip()
+    if not name:
+        return JsonResponse({"error": "Name cannot be empty"}, status=400)
+    api_key.name = name[:100]
+    api_key.save(update_fields=['name'])
+    return JsonResponse({"status": "ok", "name": api_key.name})
+
+
 # ---------------------------------------------------------------------------
 # Devices Management
 # ---------------------------------------------------------------------------
