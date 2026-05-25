@@ -12,19 +12,21 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.view.Menu
 import android.view.MenuItem
-import android.widget.Toast
+import android.view.View
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.lifecycleScope
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import com.roamly.tracker.R
 import com.roamly.tracker.databinding.ActivityMainBinding
 import com.roamly.tracker.db.AppDatabase
 import com.roamly.tracker.service.LocationTrackingService
 import com.roamly.tracker.worker.UploadWorker
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.*
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -36,31 +38,34 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private var isTracking = false
 
+    // Listener so the UI refreshes immediately when UploadWorker writes results
+    private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key in listOf(
+                UploadWorker.PREF_LAST_SYNC_TIME,
+                UploadWorker.PREF_LAST_SYNC_SUCCESS,
+                UploadWorker.PREF_LAST_SYNC_COUNT,
+                UploadWorker.PREF_LAST_SYNC_ERROR
+            )
+        ) {
+            refreshSyncStatus()
+        }
+    }
+
     // ── Permission launchers ───────────────────────────────────────────────
 
     private val fineLocationLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) {
-            requestBackgroundLocationIfNeeded()
-        } else {
-            showPermissionRationale()
-        }
+        if (granted) requestBackgroundLocationIfNeeded() else showPermissionRationale()
     }
 
     private val backgroundLocationLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            requestNotificationPermissionIfNeeded()
-        }
-        // Background location denied is acceptable; tracking still works
-        // while the app is in the foreground / service is running
-    }
+    ) { requestNotificationPermissionIfNeeded() }
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { /* proceed regardless */ }
+    ) { startTracking() }
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -79,28 +84,43 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnSyncNow.setOnClickListener {
             UploadWorker.scheduleNow(this)
-            Toast.makeText(this, "Sync queued…", Toast.LENGTH_SHORT).show()
         }
 
-        // Observe unsynced count
+        binding.btnOpenSettings.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
+
+        // Live DB counts
         db.pointDao().unsyncedCountLive().observe(this) { count ->
             binding.tvUnsyncedCount.text = when {
                 count == 0 -> "All points synced ✓"
-                count == 1 -> "1 point waiting to sync"
-                else       -> "$count points waiting to sync"
+                count == 1 -> "1 point pending upload"
+                else       -> "$count points pending upload"
             }
         }
 
         db.pointDao().totalCountLive().observe(this) { count ->
-            binding.tvTotalCount.text = "$count points stored locally"
+            binding.tvTotalCount.text = "$count points in local cache"
         }
 
-        // Request battery optimisation exemption on first run
+        // Observe WorkManager so "Sync Now" shows a spinner while running
+        WorkManager.getInstance(this)
+            .getWorkInfosByTagLiveData(UploadWorker.ONETIME_WORK_TAG)
+            .observe(this) { infos ->
+                val running = infos?.any {
+                    it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED
+                } == true
+                binding.syncProgress.visibility = if (running) View.VISIBLE else View.GONE
+                binding.btnSyncNow.isEnabled = !running
+                binding.btnSyncNow.text = if (running) "Syncing…" else "Sync Now"
+                if (!running) refreshSyncStatus()
+            }
+
+        // Battery optimisation on first run
         if (!prefs.getBoolean("battery_opt_shown", false)) {
             requestBatteryOptimisationExemption()
         }
 
-        // Schedule periodic background sync (idempotent)
         UploadWorker.schedulePeriodicSync(this)
     }
 
@@ -108,6 +128,14 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         isTracking = prefs.getBoolean(LocationTrackingService.PREF_TRACKING_ACTIVE, false)
         updateTrackingUI()
+        refreshConfigWarning()
+        refreshSyncStatus()
+        prefs.registerOnSharedPreferenceChangeListener(prefsListener)
+    }
+
+    override fun onPause() {
+        prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
+        super.onPause()
     }
 
     // ── Menu ───────────────────────────────────────────────────────────────
@@ -127,6 +155,64 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ── Status display ─────────────────────────────────────────────────────
+
+    /**
+     * Show a banner if the user hasn't configured server URL / API key / device ID yet.
+     * Called on every resume so it disappears once they fill in Settings.
+     */
+    private fun refreshConfigWarning() {
+        val url      = prefs.getString(UploadWorker.PREF_SERVER_URL, "") ?: ""
+        val key      = prefs.getString(UploadWorker.PREF_API_KEY, "") ?: ""
+        val deviceId = prefs.getString(UploadWorker.PREF_DEVICE_ID, "") ?: ""
+
+        val misconfigured = url.isBlank() || key.isBlank() || deviceId.isBlank()
+        binding.cardConfigWarning.visibility = if (misconfigured) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * Read last sync result from prefs (written by [UploadWorker]) and update the status line.
+     */
+    private fun refreshSyncStatus() {
+        val lastTime    = prefs.getLong(UploadWorker.PREF_LAST_SYNC_TIME, 0L)
+        val lastSuccess = prefs.getBoolean(UploadWorker.PREF_LAST_SYNC_SUCCESS, false)
+        val lastCount   = prefs.getInt(UploadWorker.PREF_LAST_SYNC_COUNT, 0)
+        val lastError   = prefs.getString(UploadWorker.PREF_LAST_SYNC_ERROR, "") ?: ""
+
+        if (lastTime == 0L) {
+            binding.tvLastSync.text = "Never synced"
+            binding.tvLastSync.setTextColor(getColor(R.color.text_muted))
+            return
+        }
+
+        val timeStr = formatRelativeTime(lastTime)
+
+        if (lastSuccess) {
+            val pointsStr = when (lastCount) {
+                0    -> "nothing to send"
+                1    -> "1 point sent"
+                else -> "$lastCount points sent"
+            }
+            binding.tvLastSync.text = "Last sync: $timeStr ($pointsStr)"
+            binding.tvLastSync.setTextColor(getColor(R.color.sync_ok))
+        } else {
+            val errorStr = if (lastError.isNotBlank()) " — $lastError" else ""
+            binding.tvLastSync.text = "Last sync failed: $timeStr$errorStr"
+            binding.tvLastSync.setTextColor(getColor(R.color.sync_error))
+        }
+    }
+
+    private fun formatRelativeTime(epochMs: Long): String {
+        val diffMs = System.currentTimeMillis() - epochMs
+        return when {
+            diffMs < 60_000L          -> "just now"
+            diffMs < 3_600_000L       -> "${diffMs / 60_000}m ago"
+            diffMs < 86_400_000L      -> "${diffMs / 3_600_000}h ago"
+            else                      -> SimpleDateFormat("MMM d, HH:mm", Locale.getDefault())
+                                            .format(Date(epochMs))
+        }
+    }
+
     // ── Tracking controls ──────────────────────────────────────────────────
 
     private fun checkPermissionsAndStart() {
@@ -141,8 +227,8 @@ class MainActivity : AppCompatActivity() {
             AlertDialog.Builder(this)
                 .setTitle("Background Location")
                 .setMessage(
-                    "Roamly needs 'Allow all the time' location access to track your route " +
-                    "while the screen is off.\n\nOn the next screen, select \"Allow all the time\"."
+                    "Roamly needs 'Allow all the time' location access to track while the screen is off.\n\n" +
+                    "On the next screen, select \"Allow all the time\"."
                 )
                 .setPositiveButton("Open Settings") { _, _ ->
                     backgroundLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
@@ -200,18 +286,18 @@ class MainActivity : AppCompatActivity() {
             AlertDialog.Builder(this)
                 .setTitle("Improve Tracking Reliability")
                 .setMessage(
-                    "To keep tracking running reliably 24/7 (especially overnight), " +
-                    "Roamly needs to be excluded from battery optimisation.\n\n" +
-                    "This is recommended — without it, Android may pause tracking " +
-                    "for up to an hour in deep sleep mode."
+                    "To track reliably 24/7 (especially overnight), Roamly needs to be " +
+                    "excluded from battery optimisation.\n\n" +
+                    "Without it, Android may pause tracking for up to an hour while the screen is off."
                 )
                 .setPositiveButton("Allow") { _, _ ->
-                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                        data = Uri.parse("package:$packageName")
-                    }
-                    startActivity(intent)
+                    startActivity(
+                        Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                            data = Uri.parse("package:$packageName")
+                        }
+                    )
                 }
-                .setNegativeButton("Skip") { _, _ -> }
+                .setNegativeButton("Skip", null)
                 .show()
         }
         prefs.edit().putBoolean("battery_opt_shown", true).apply()
@@ -232,10 +318,7 @@ class MainActivity : AppCompatActivity() {
     private fun showPermissionRationale() {
         AlertDialog.Builder(this)
             .setTitle("Location Permission Required")
-            .setMessage(
-                "Roamly needs precise location access to track your route. " +
-                "Please grant the permission in Settings."
-            )
+            .setMessage("Roamly needs precise location access to track your route. Please grant it in Settings.")
             .setPositiveButton("Open Settings") { _, _ ->
                 startActivity(
                     Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {

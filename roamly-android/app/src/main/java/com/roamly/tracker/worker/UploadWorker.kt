@@ -28,16 +28,8 @@ private const val PRUNE_DAYS = 7L
 /**
  * WorkManager worker that bulk-uploads unsynced cached points to the Roamly server.
  *
- * Runs:
- *  - Periodically every 15 minutes (when connected)
- *  - On-demand when [scheduleNow] is called (e.g. after N points accumulate)
- *
- * Guarantees:
- *  - Only runs when there is a network connection
- *  - Survives device reboots (WorkManager persists to its own DB)
- *  - Uses exponential backoff on failure
- *  - Marks points as synced only after a confirmed 2xx response
- *  - Old synced points pruned after each batch to keep DB lean
+ * After each run it writes the result into SharedPreferences so the UI can display
+ * "Last synced: X ago (N points)" or "Last sync failed: reason" without polling.
  */
 @HiltWorker
 class UploadWorker @AssistedInject constructor(
@@ -54,14 +46,14 @@ class UploadWorker @AssistedInject constructor(
 
         if (serverUrl.isBlank() || apiKey.isBlank() || deviceId.isBlank()) {
             Log.w(TAG, "Missing configuration — skipping upload")
-            return Result.success()   // don't retry; user hasn't configured the app
+            writeSyncResult(success = false, uploaded = 0, error = "Not configured")
+            return Result.success()
         }
 
         val api = buildApi(serverUrl, apiKey)
         var uploaded = 0
         var failed = 0
 
-        // Process in batches so we don't hold a huge list in memory
         while (true) {
             val batch = db.pointDao().getUnsynced(limit = BATCH_SIZE)
             if (batch.isEmpty()) break
@@ -72,34 +64,42 @@ class UploadWorker @AssistedInject constructor(
             for (point in batch) {
                 try {
                     val response = api.pushLocation(point.toPayload(deviceId))
-                    if (response.isSuccessful) {
-                        syncedIds.add(point.id)
-                        uploaded++
-                    } else if (response.code() in 400..499) {
-                        // Client error (e.g. bad API key) — don't retry this point
-                        Log.e(TAG, "Client error ${response.code()} for point ${point.id} — skipping")
-                        syncedIds.add(point.id)   // mark synced to avoid infinite retry
-                        failed++
-                    } else {
-                        // Server error — stop batch and retry later
-                        Log.w(TAG, "Server error ${response.code()} — will retry")
-                        break
+                    when {
+                        response.isSuccessful -> {
+                            syncedIds.add(point.id)
+                            uploaded++
+                        }
+                        response.code() in 400..499 -> {
+                            // Client error (bad API key, bad payload) — skip to avoid loop
+                            val msg = "HTTP ${response.code()}"
+                            Log.e(TAG, "Client error $msg for point ${point.id}")
+                            syncedIds.add(point.id)
+                            failed++
+                            if (response.code() == 401 || response.code() == 403) {
+                                db.pointDao().markSynced(syncedIds)
+                                writeSyncResult(success = false, uploaded = uploaded,
+                                    error = "Auth failed (${response.code()}) — check API key")
+                                return Result.success()
+                            }
+                        }
+                        else -> {
+                            Log.w(TAG, "Server error ${response.code()} — will retry")
+                            if (syncedIds.isNotEmpty()) db.pointDao().markSynced(syncedIds)
+                            writeSyncResult(success = false, uploaded = uploaded,
+                                error = "Server error ${response.code()}")
+                            return Result.retry()
+                        }
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Network error uploading point ${point.id}: ${e.message}")
-                    // Mark successfully uploaded points so far, then retry
-                    if (syncedIds.isNotEmpty()) {
-                        db.pointDao().markSynced(syncedIds)
-                    }
+                    Log.e(TAG, "Network error: ${e.message}")
+                    if (syncedIds.isNotEmpty()) db.pointDao().markSynced(syncedIds)
+                    writeSyncResult(success = false, uploaded = uploaded,
+                        error = e.message ?: "Network error")
                     return Result.retry()
                 }
             }
 
-            if (syncedIds.isNotEmpty()) {
-                db.pointDao().markSynced(syncedIds)
-            }
-
-            // If we got fewer than BATCH_SIZE we've exhausted the queue
+            if (syncedIds.isNotEmpty()) db.pointDao().markSynced(syncedIds)
             if (batch.size < BATCH_SIZE) break
         }
 
@@ -108,10 +108,22 @@ class UploadWorker @AssistedInject constructor(
         db.pointDao().pruneOldSynced(cutoff)
 
         Log.i(TAG, "Upload complete: $uploaded uploaded, $failed skipped")
+        writeSyncResult(success = true, uploaded = uploaded, error = null)
         return Result.success()
     }
 
-    // ── Helpers ────────────────────────────────────────────────────────────
+    // ── Write result to prefs so UI can read it ────────────────────────────
+
+    private fun writeSyncResult(success: Boolean, uploaded: Int, error: String?) {
+        prefs.edit()
+            .putLong(PREF_LAST_SYNC_TIME, System.currentTimeMillis())
+            .putBoolean(PREF_LAST_SYNC_SUCCESS, success)
+            .putInt(PREF_LAST_SYNC_COUNT, uploaded)
+            .putString(PREF_LAST_SYNC_ERROR, error ?: "")
+            .apply()
+    }
+
+    // ── HTTP client ────────────────────────────────────────────────────────
 
     private fun buildApi(baseUrl: String, apiKey: String): RoamlyApi {
         val url = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
@@ -139,13 +151,15 @@ class UploadWorker @AssistedInject constructor(
         const val PREF_API_KEY    = "api_key"
         const val PREF_DEVICE_ID  = "device_id"
 
-        private const val PERIODIC_WORK_TAG = "roamly_periodic_upload"
-        private const val ONETIME_WORK_TAG  = "roamly_immediate_upload"
+        // Written after every run — read by MainActivity to show sync status
+        const val PREF_LAST_SYNC_TIME    = "last_sync_time"
+        const val PREF_LAST_SYNC_SUCCESS = "last_sync_success"
+        const val PREF_LAST_SYNC_COUNT   = "last_sync_count"
+        const val PREF_LAST_SYNC_ERROR   = "last_sync_error"
 
-        /**
-         * Enqueue a periodic background upload every 15 minutes (minimum WorkManager allows).
-         * Safe to call multiple times — [ExistingPeriodicWorkPolicy.KEEP] is idempotent.
-         */
+        private const val PERIODIC_WORK_TAG = "roamly_periodic_upload"
+        const val ONETIME_WORK_TAG          = "roamly_immediate_upload"
+
         fun schedulePeriodicSync(context: Context) {
             val request = PeriodicWorkRequestBuilder<UploadWorker>(15, TimeUnit.MINUTES)
                 .setConstraints(
@@ -164,10 +178,6 @@ class UploadWorker @AssistedInject constructor(
             )
         }
 
-        /**
-         * Trigger an immediate one-time upload (e.g. when the threshold of unsynced
-         * points is reached, or when the user taps "Sync Now").
-         */
         fun scheduleNow(context: Context) {
             val request = OneTimeWorkRequestBuilder<UploadWorker>()
                 .setConstraints(
