@@ -37,6 +37,10 @@ interface RoamlyApi {
         @Query("end_date") endDate: String? = null,
         @Query("all") all: Int? = null,
         @Query("limit") limit: Int = 50000,
+        @Query("min_lat") minLat: Double? = null,
+        @Query("max_lat") maxLat: Double? = null,
+        @Query("min_lng") minLng: Double? = null,
+        @Query("max_lng") maxLng: Double? = null,
     ): Response<LocationsResponse>
 
     @GET("api/track/")

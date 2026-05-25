@@ -92,6 +92,7 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
     val context = LocalContext.current
     var showTimeMenu by remember { mutableStateOf(false) }
 
+    val heatmapOverlay = remember { HeatmapOverlay() }
     val pointsOverlay = remember { PointsOverlay() }
 
     val mapView = remember {
@@ -102,8 +103,36 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
             setMultiTouchControls(true)
             controller.setZoom(10.0)
             controller.setCenter(GeoPoint(20.0, 0.0))
+            // heatmap below, dots on top
+            overlays.add(heatmapOverlay)
             overlays.add(pointsOverlay)
         }
+    }
+
+    // Listen for pan/zoom and trigger debounced bbox loads
+    DisposableEffect(mapView) {
+        val listener = object : org.osmdroid.events.MapListener {
+            override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean {
+                emit()
+                return false
+            }
+            override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean {
+                emit()
+                return false
+            }
+            private fun emit() {
+                val bbox = mapView.boundingBox ?: return
+                viewModel.onViewportChanged(
+                    zoom = mapView.zoomLevelDouble,
+                    minLat = bbox.latSouth,
+                    maxLat = bbox.latNorth,
+                    minLng = bbox.lonWest,
+                    maxLng = bbox.lonEast,
+                )
+            }
+        }
+        mapView.addMapListener(listener)
+        onDispose { mapView.removeMapListener(listener) }
     }
 
     var nearHereResult by remember { mutableStateOf<NearHereResult?>(null) }
@@ -117,10 +146,12 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
         if (granted) checkNearHere(context, state.locations) { nearHereResult = it }
     }
 
-    // Apply new points + auto-fit when not following a focus
+    // Apply new points to both overlays + auto-fit when not following a focus
+    var didAutoFit by remember { mutableStateOf(false) }
     SideEffect {
+        heatmapOverlay.setPoints(state.locations)
         pointsOverlay.setPoints(state.locations)
-        if (state.focus == null && state.locations.isNotEmpty()) {
+        if (!didAutoFit && state.focus == null && state.locations.isNotEmpty()) {
             val geoPoints = state.locations.map { GeoPoint(it.lat, it.lng) }
             if (geoPoints.size == 1) {
                 mapView.controller.animateTo(geoPoints.first())
@@ -129,9 +160,12 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                 val bbox = BoundingBox.fromGeoPoints(geoPoints)
                 mapView.zoomToBoundingBox(bbox, false, 96)
             }
+            didAutoFit = true
         }
         mapView.invalidate()
     }
+    // Reset auto-fit when the time period (and thus dataset) changes
+    LaunchedEffect(state.timePeriod) { didAutoFit = false }
 
     // Honor focus jumps (from past-visit taps)
     LaunchedEffect(state.focus?.key) {
@@ -186,7 +220,7 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
             }
         }
 
-        if (state.detailLimited) {
+        if (state.isLoadingMore) {
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -196,17 +230,14 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                 shadowElevation = 2.dp,
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "showing reduced points",
+                        "loading detail…",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    TextButton(onClick = viewModel::loadAllPoints, enabled = !state.isLoadingMore) {
-                        Text(if (state.isLoadingMore) "loading..." else "load all")
-                    }
                 }
             }
         }
@@ -516,7 +547,67 @@ private fun DayRow(day: NearHereDay, onClick: () -> Unit) {
     }
 }
 
-// ---- Custom overlay: speed-graded coloured dots ----
+// ---- Heatmap overlay: translucent radial sprites accumulating into a heat blob ----
+
+private class HeatmapOverlay : Overlay() {
+    private var points: List<LocationPoint> = emptyList()
+    private var sprite: android.graphics.Bitmap? = null
+
+    fun setPoints(p: List<LocationPoint>) { points = p }
+
+    private fun ensureSprite() {
+        if (sprite != null) return
+        val size = 64
+        val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        val cx = size / 2f
+        val grad = android.graphics.RadialGradient(
+            cx, cx, cx,
+            intArrayOf(Color.argb(220, 255, 80, 60), Color.argb(140, 255, 170, 0), Color.argb(0, 255, 255, 0)),
+            floatArrayOf(0f, 0.5f, 1f),
+            android.graphics.Shader.TileMode.CLAMP,
+        )
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = grad }
+        c.drawCircle(cx, cx, cx, p)
+        sprite = bmp
+    }
+
+    override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
+        if (shadow || points.isEmpty()) return
+        ensureSprite()
+        val s = sprite ?: return
+        val zoom = mapView.zoomLevelDouble
+        // Fade out the heatmap when the user zooms in to detail level
+        val alphaFrac = when {
+            zoom >= 15 -> 0.05f
+            zoom >= 13 -> 0.18f
+            zoom >= 11 -> 0.55f
+            else -> 0.75f
+        }
+        val spriteSize = when {
+            zoom < 6 -> 26f
+            zoom < 10 -> 44f
+            zoom < 13 -> 64f
+            else -> 80f
+        }
+        val half = spriteSize / 2f
+        val paint = Paint(Paint.FILTER_BITMAP_FLAG).apply { alpha = (alphaFrac * 255).toInt() }
+        val src = android.graphics.Rect(0, 0, s.width, s.height)
+        val dst = android.graphics.RectF()
+        val projection: Projection = mapView.projection
+        val out = android.graphics.Point()
+        val viewW = mapView.width
+        val viewH = mapView.height
+        for (pt in points) {
+            projection.toPixels(GeoPoint(pt.lat, pt.lng), out)
+            if (out.x < -spriteSize || out.x > viewW + spriteSize || out.y < -spriteSize || out.y > viewH + spriteSize) continue
+            dst.set(out.x - half, out.y - half, out.x + half, out.y + half)
+            canvas.drawBitmap(s, src, dst, paint)
+        }
+    }
+}
+
+// ---- Speed-graded coloured dots; fades out at low zoom so the heatmap leads ----
 
 private class PointsOverlay : Overlay() {
     private var points: List<LocationPoint> = emptyList()
@@ -533,12 +624,17 @@ private class PointsOverlay : Overlay() {
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow || points.isEmpty()) return
-        val projection: Projection = mapView.projection
         val zoom = mapView.zoomLevelDouble
+        if (zoom < 11.0) return  // heatmap-only territory
+        val alphaFrac = when {
+            zoom >= 13 -> 1.0f
+            zoom >= 12 -> 0.7f
+            else -> 0.35f
+        }
+        val projection: Projection = mapView.projection
         val radius = when {
-            zoom < 6 -> 2.2f
-            zoom < 10 -> 3.0f
-            zoom < 13 -> 4.0f
+            zoom < 12 -> 2.5f
+            zoom < 13 -> 3.5f
             zoom < 15 -> 5.0f
             else -> 6.5f
         }
@@ -548,7 +644,8 @@ private class PointsOverlay : Overlay() {
         for (p in points) {
             projection.toPixels(GeoPoint(p.lat, p.lng), out)
             if (out.x < -20 || out.x > viewW + 20 || out.y < -20 || out.y > viewH + 20) continue
-            fillPaint.color = speedColor(p.speed)
+            val c = speedColor(p.speed)
+            fillPaint.color = Color.argb((Color.alpha(c) * alphaFrac).toInt(), Color.red(c), Color.green(c), Color.blue(c))
             canvas.drawCircle(out.x.toFloat(), out.y.toFloat(), radius, fillPaint)
             canvas.drawCircle(out.x.toFloat(), out.y.toFloat(), radius, strokePaint)
         }

@@ -22,6 +22,16 @@ class LocationRepository @Inject constructor(private val api: RoamlyApi) {
                 api.getLocations(all = 1, limit = limit ?: 50000)
         }
 
+    suspend fun getLocationsInBbox(
+        minLat: Double, maxLat: Double, minLng: Double, maxLng: Double,
+        hours: Int? = null, limit: Int = 5000,
+    ): Result<LocationsResponse> = safeApiCall {
+        if (hours != null)
+            api.getLocations(hours = hours, limit = limit, minLat = minLat, maxLat = maxLat, minLng = minLng, maxLng = maxLng)
+        else
+            api.getLocations(all = 1, limit = limit, minLat = minLat, maxLat = maxLat, minLng = minLng, maxLng = maxLng)
+    }
+
     suspend fun getTrack(hours: Int? = null, startDate: String? = null, endDate: String? = null): Result<TrackResponse> =
         safeApiCall {
             if (hours != null)
