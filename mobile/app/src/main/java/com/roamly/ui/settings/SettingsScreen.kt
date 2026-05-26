@@ -111,6 +111,25 @@ fun SettingsScreen(
         )
     }
 
+    // Stop-tracking confirmation
+    var showStopConfirm by remember { mutableStateOf(false) }
+    if (showStopConfirm) {
+        AlertDialog(
+            onDismissRequest = { showStopConfirm = false },
+            title = { Text("Stop tracking?") },
+            text = { Text("Location tracking will stop and no more points will be sent. Any cached points will still be uploaded when you reconnect.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showStopConfirm = false
+                    viewModel.toggleTracking()
+                }) { Text("Stop", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showStopConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     // Edit dialog state
     var editTarget by remember { mutableStateOf<EditTarget?>(null) }
 
@@ -218,7 +237,7 @@ fun SettingsScreen(
                     }
                     Button(
                         onClick = {
-                            if (state.isTracking) viewModel.toggleTracking()
+                            if (state.isTracking) showStopConfirm = true
                             else startTrackingWithPermissions()
                         },
                         colors = ButtonDefaults.buttonColors(
