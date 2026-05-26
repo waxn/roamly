@@ -59,9 +59,11 @@ class LocationTrackingService : Service() {
     }
 
     override fun onDestroy() {
-        scope.launch { prefs.setTrackingActive(false) }
         stopLocationUpdates()
         scope.cancel()
+        // Must use runBlocking here — scope is already cancelled so a coroutine launch
+        // would be a no-op and isTracking would stay true in the UI forever.
+        runBlocking { prefs.setTrackingActive(false) }
         super.onDestroy()
     }
 
