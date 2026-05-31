@@ -33,7 +33,7 @@ class RoamlyApp : Application(), Configuration.Provider {
         createNotificationChannels()
         appScope.launch {
             UploadWorker.schedulePeriodic(this@RoamlyApp, prefs.syncOnMobileData.first())
-            TrackingCoordinator.startTrackingOnLaunchIfEnabled(this@RoamlyApp, prefs)
+            TrackingCoordinator.startTrackingIfAutoStartEnabled(this@RoamlyApp, prefs)
         }
     }
 

@@ -15,7 +15,7 @@ object TrackingCoordinator {
                 PermissionChecker.PERMISSION_GRANTED
     }
 
-    suspend fun startTrackingOnLaunchIfEnabled(context: Context, prefs: UserPreferences) {
+    suspend fun startTrackingIfAutoStartEnabled(context: Context, prefs: UserPreferences) {
         val shouldAutoStart = prefs.autoStartTracking.first()
         if (!shouldAutoStart || !canTrack(context)) return
         LocationTrackingService.start(context)

@@ -111,7 +111,7 @@ class UploadWorker @AssistedInject constructor(
 
         fun schedulePeriodic(context: Context, syncOnMobileData: Boolean = true) {
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                PERIODIC_TAG, ExistingPeriodicWorkPolicy.UPDATE,
+                PERIODIC_TAG, ExistingPeriodicWorkPolicy.KEEP,
                 PeriodicWorkRequestBuilder<UploadWorker>(15, TimeUnit.MINUTES)
                     .setConstraints(
                         Constraints.Builder()
@@ -124,6 +124,11 @@ class UploadWorker @AssistedInject constructor(
                     .addTag(PERIODIC_TAG)
                     .build()
             )
+        }
+
+        fun reschedulePeriodic(context: Context, syncOnMobileData: Boolean) {
+            WorkManager.getInstance(context).cancelUniqueWork(PERIODIC_TAG)
+            schedulePeriodic(context, syncOnMobileData)
         }
     }
 }

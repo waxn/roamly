@@ -58,10 +58,7 @@ class SettingsViewModel @Inject constructor(
         collect(prefs.trackingIntervalSecs)  { v -> _state.update { it.copy(trackingIntervalSecs = v) } }
         collect(prefs.maxAccuracyM)          { v -> _state.update { it.copy(maxAccuracyM = v) } }
         collect(prefs.autoStartTracking)     { v -> _state.update { it.copy(autoStartTracking = v) } }
-        collect(prefs.syncOnMobileData)      { v ->
-            _state.update { it.copy(syncOnMobileData = v) }
-            UploadWorker.schedulePeriodic(context, v)
-        }
+        collect(prefs.syncOnMobileData)      { v -> _state.update { it.copy(syncOnMobileData = v) } }
         collect(prefs.lastSyncTime)          { v -> _state.update { it.copy(lastSyncTime = v) } }
         collect(prefs.lastSyncSuccess)       { v -> _state.update { it.copy(lastSyncSuccess = v) } }
         collect(prefs.lastSyncCount)         { v -> _state.update { it.copy(lastSyncCount = v) } }
@@ -96,7 +93,11 @@ class SettingsViewModel @Inject constructor(
         else LocationTrackingService.start(context)
     }
 
-    fun syncNow() = UploadWorker.scheduleNow(context, _state.value.syncOnMobileData)
+    fun syncNow() {
+        viewModelScope.launch {
+            UploadWorker.scheduleNow(context, prefs.syncOnMobileData.first())
+        }
+    }
 
     fun setDeviceId(id: String) {
         viewModelScope.launch { prefs.setDeviceId(id.trim()) }
@@ -117,14 +118,14 @@ class SettingsViewModel @Inject constructor(
     fun setAutoStartTracking(enabled: Boolean) {
         viewModelScope.launch {
             prefs.setAutoStartTracking(enabled)
-            if (enabled) TrackingCoordinator.startTrackingOnLaunchIfEnabled(context, prefs)
+            if (enabled) TrackingCoordinator.startTrackingIfAutoStartEnabled(context, prefs)
         }
     }
 
     fun setSyncOnMobileData(enabled: Boolean) {
         viewModelScope.launch {
             prefs.setSyncOnMobileData(enabled)
-            UploadWorker.schedulePeriodic(context, enabled)
+            UploadWorker.reschedulePeriodic(context, enabled)
             if (_state.value.isTracking) UploadWorker.scheduleNow(context, enabled)
         }
     }
