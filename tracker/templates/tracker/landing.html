@@ -476,18 +476,18 @@
 
         .section-title {
             font-family: var(--font-display);
-            font-size: clamp(1.8rem, 4.5vw, 2.75rem);
+            font-size: clamp(2rem, 5vw, 3.1rem);
             font-weight: 800;
-            line-height: 1.1;
+            line-height: 1.08;
             letter-spacing: -0.02em;
-            margin-bottom: 0.75rem;
+            margin-bottom: 0.85rem;
         }
 
         .section-sub {
             color: var(--text-muted);
-            font-size: 1.02rem;
-            line-height: 1.7;
-            max-width: 520px;
+            font-size: 1.08rem;
+            line-height: 1.75;
+            max-width: 540px;
             font-weight: 500;
         }
 
@@ -779,30 +779,33 @@
         }
 
         .bento-icon {
-            width: 44px;
-            height: 44px;
-            border-radius: 14px;
+            width: 48px;
+            height: 48px;
+            border-radius: 16px;
             display: flex;
             align-items: center;
             justify-content: center;
-            background: linear-gradient(135deg, var(--primary-soft), rgba(91, 164, 229, 0.1));
-            color: var(--primary);
-            margin-bottom: 0.9rem;
+            margin-bottom: 1rem;
             box-shadow: var(--clay-shadow-sm);
         }
-        .bento-icon svg { width: 20px; height: 20px; }
+        .bento-icon svg { width: 22px; height: 22px; }
+        .bento-icon-teal { background: linear-gradient(135deg, rgba(13,191,172,0.18), rgba(13,191,172,0.08)); color: #0DBFAC; }
+        .bento-icon-coral { background: linear-gradient(135deg, rgba(255,107,107,0.18), rgba(255,107,107,0.08)); color: #FF6B6B; }
+        .bento-icon-lavender { background: linear-gradient(135deg, rgba(155,142,247,0.18), rgba(155,142,247,0.08)); color: #9B8EF7; }
+        .bento-icon-amber { background: linear-gradient(135deg, rgba(247,183,49,0.18), rgba(247,183,49,0.08)); color: #F7B731; }
+        .bento-icon-sky { background: linear-gradient(135deg, rgba(91,164,229,0.18), rgba(91,164,229,0.08)); color: #5BA4E5; }
 
         .bento-title {
             font-family: var(--font-display);
-            font-size: 1rem;
+            font-size: 1.05rem;
             font-weight: 700;
-            margin-bottom: 0.4rem;
+            margin-bottom: 0.45rem;
         }
         .bento-desc {
-            font-size: 0.82rem;
+            font-size: 0.875rem;
             font-weight: 500;
             color: var(--text-muted);
-            line-height: 1.6;
+            line-height: 1.65;
         }
 
         .bento-span-4 { grid-column: span 4; }
@@ -1293,27 +1296,27 @@
 
             <div class="bento reveal">
                 <div class="bento-card bento-span-4">
-                    <div class="bento-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 15V5"/></svg></div>
+                    <div class="bento-icon bento-icon-coral"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 15V5"/></svg></div>
                     <div class="bento-title">import anything</div>
                     <p class="bento-desc">csv, gpx 1.0/1.1, google takeout location history, owntracks json — assign to a device on import.</p>
                 </div>
                 <div class="bento-card bento-span-4">
-                    <div class="bento-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 0110 10c0 5.52-4.48 10-10 10S2 17.52 2 12"/><path d="M12 6v6l4 2"/></svg></div>
+                    <div class="bento-icon bento-icon-lavender"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 0110 10c0 5.52-4.48 10-10 10S2 17.52 2 12"/><path d="M12 6v6l4 2"/></svg></div>
                     <div class="bento-title">reverse geocoding</div>
                     <p class="bento-desc">background nominatim job clusters coordinates first to respect rate limits, then fills city/state/country.</p>
                 </div>
                 <div class="bento-card bento-span-4">
-                    <div class="bento-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a4 4 0 00-8 0v2"/></svg></div>
+                    <div class="bento-icon bento-icon-teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a4 4 0 00-8 0v2"/></svg></div>
                     <div class="bento-title">api keys per device</div>
-                    <p class="bento-desc">bearer token or json body on <code style="color:var(--primary);">/api/push/</code> — gpslogger, owntracks, curl, home assistant.</p>
+                    <p class="bento-desc">bearer token or json body on <code style="color:var(--primary);background:rgba(13,191,172,0.1);padding:0.1rem 0.35rem;border-radius:5px;">/api/push/</code> — gpslogger, owntracks, curl, home assistant.</p>
                 </div>
                 <div class="bento-card bento-span-6">
-                    <div class="bento-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg></div>
+                    <div class="bento-icon bento-icon-amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg></div>
                     <div class="bento-title">data table &amp; exports</div>
                     <p class="bento-desc">sort and filter every location row, jump to a point on the map, export csv or gpx, download a full json backup and restore later.</p>
                 </div>
                 <div class="bento-card bento-span-6">
-                    <div class="bento-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg></div>
+                    <div class="bento-icon bento-icon-sky"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg></div>
                     <div class="bento-title">tunable map display</div>
                     <p class="bento-desc">heatmap intensity, dot size, line gap threshold, detail zoom level, cluster radius, and per-device colors — all stored in local preferences.</p>
                 </div>
