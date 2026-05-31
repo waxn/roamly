@@ -23,6 +23,7 @@ INSTALLED_APPS = [
 DATABASE_URL = os.environ.get('DATABASE_URL')
 if DATABASE_URL:
     INSTALLED_APPS.insert(-1, 'django.contrib.gis')
+    INSTALLED_APPS.insert(-1, 'django.contrib.postgres')
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
