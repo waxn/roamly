@@ -8,8 +8,8 @@ espressoCore = "3.7.0"
 lifecycleRuntimeKtx = "2.8.6"
 activityCompose = "1.11.0"
 composeBom = "2026.05.00"
-hilt = "2.57.1"
-ksp = "2.3.20-1.0.31"
+hilt = "2.59"
+ksp = "2.3.9"
 retrofit = "2.9.0"
 okhttp = "4.12.0"
 datastore = "1.2.1"
@@ -61,5 +61,6 @@ hilt-work-compiler = { group = "androidx.hilt", name = "hilt-compiler", version.
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
