@@ -32,6 +32,8 @@ class UserPreferences @Inject constructor(
         private val KEY_TRACKING_ACTIVE        = booleanPreferencesKey("tracking_active")
         private val KEY_TRACKING_INTERVAL_SECS = intPreferencesKey("tracking_interval_secs")
         private val KEY_MAX_ACCURACY_M         = intPreferencesKey("max_accuracy_m")
+        private val KEY_AUTO_START_TRACKING    = booleanPreferencesKey("auto_start_tracking")
+        private val KEY_SYNC_ON_MOBILE_DATA    = booleanPreferencesKey("sync_on_mobile_data")
 
         // Last sync result (written by UploadWorker after every run)
         private val KEY_LAST_SYNC_TIME    = longPreferencesKey("last_sync_time")
@@ -54,6 +56,8 @@ class UserPreferences @Inject constructor(
     val isTrackingActive:      Flow<Boolean> = context.dataStore.data.map { it[KEY_TRACKING_ACTIVE] ?: false }
     val trackingIntervalSecs:  Flow<Int>     = context.dataStore.data.map { it[KEY_TRACKING_INTERVAL_SECS] ?: 30 }
     val maxAccuracyM:          Flow<Int>     = context.dataStore.data.map { it[KEY_MAX_ACCURACY_M] ?: 100 }
+    val autoStartTracking:     Flow<Boolean> = context.dataStore.data.map { it[KEY_AUTO_START_TRACKING] ?: true }
+    val syncOnMobileData:      Flow<Boolean> = context.dataStore.data.map { it[KEY_SYNC_ON_MOBILE_DATA] ?: true }
 
     // ── Last sync result ───────────────────────────────────────────────────
 
@@ -95,6 +99,14 @@ class UserPreferences @Inject constructor(
 
     suspend fun setMaxAccuracyM(metres: Int) {
         context.dataStore.edit { it[KEY_MAX_ACCURACY_M] = metres }
+    }
+
+    suspend fun setAutoStartTracking(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_AUTO_START_TRACKING] = enabled }
+    }
+
+    suspend fun setSyncOnMobileData(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_SYNC_ON_MOBILE_DATA] = enabled }
     }
 
     suspend fun setSyncResult(time: Long, success: Boolean, count: Int, error: String) {

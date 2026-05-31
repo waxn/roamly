@@ -110,23 +110,22 @@ class LocationTrackingService : Service() {
         val bm = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
         val battery = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).takeIf { it >= 0 }
 
-        db.pointDao().insert(
-            CachedPoint(
-                latitude  = loc.latitude,
-                longitude = loc.longitude,
-                accuracy  = if (loc.hasAccuracy()) loc.accuracy else null,
-                altitude  = if (loc.hasAltitude()) loc.altitude else null,
-                speed     = if (loc.hasSpeed()) loc.speed else null,
-                battery   = battery,
-                timestamp = loc.time,
-                provider  = loc.provider,
-            )
+        val point = CachedPoint(
+            latitude  = loc.latitude,
+            longitude = loc.longitude,
+            accuracy  = if (loc.hasAccuracy()) loc.accuracy else null,
+            altitude  = if (loc.hasAltitude()) loc.altitude else null,
+            speed     = if (loc.hasSpeed()) loc.speed else null,
+            battery   = battery,
+            timestamp = loc.time,
+            provider  = loc.provider,
         )
+        db.pointDao().insert(point)
+        runCatching { CsvPointLogger.appendPoint(applicationContext, point) }
+            .onFailure { Log.e(TAG, "Failed to append point CSV", it) }
         Log.d(TAG, "Saved ${loc.latitude},${loc.longitude} acc=${loc.accuracy}m")
-
-        if (db.pointDao().unsyncedCount() >= 10) {
-            UploadWorker.scheduleNow(applicationContext)
-        }
+        val syncOnMobileData = prefs.syncOnMobileData.first()
+        UploadWorker.scheduleNow(applicationContext, syncOnMobileData)
     }
 
     // ── Notification ───────────────────────────────────────────────────────
