@@ -1,7 +1,10 @@
 package com.roamly.ui.settings
 
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -37,6 +40,7 @@ fun SettingsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    LaunchedEffect(Unit) { viewModel.refreshBatteryOptimizationState() }
 
     // ── Permission handling ────────────────────────────────────────────────
     var showBgLocationRationale by remember { mutableStateOf(false) }
@@ -67,6 +71,9 @@ fun SettingsScreen(
     val notifLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { /* proceed regardless */ }
+    val batteryOptLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { viewModel.refreshBatteryOptimizationState() }
 
     fun startTrackingWithPermissions() {
         // Request notification permission on Android 13+ (non-blocking)
@@ -251,6 +258,50 @@ fun SettingsScreen(
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Start tracking on startup",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = state.autoStartTracking,
+                        onCheckedChange = viewModel::setAutoStartTracking
+                    )
+                }
+                Text(
+                    "Automatically starts background tracking after boot or app launch (when location permission is granted).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Sync on mobile data",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = state.syncOnMobileData,
+                        onCheckedChange = viewModel::setSyncOnMobileData
+                    )
+                }
+                Text(
+                    "When off, uploads wait for unmetered Wi-Fi.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
                 // Sync status
                 val syncColor = when {
                     state.lastSyncTime == 0L -> MaterialTheme.colorScheme.onSurfaceVariant
@@ -320,6 +371,27 @@ fun SettingsScreen(
                         )
                     }
                 )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                LabeledValue(
+                    Icons.Filled.Save,
+                    "CSV export",
+                    state.csvPath.ifBlank { "Preparing..." }
+                )
+                LabeledValue(
+                    Icons.Filled.BatteryFull,
+                    "Battery optimization",
+                    if (state.batteryOptimizationDisabled) "Disabled for Roamly" else "Enabled"
+                )
+                OutlinedButton(
+                    onClick = {
+                        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                            data = Uri.parse("package:${context.packageName}")
+                        }
+                        batteryOptLauncher.launch(intent)
+                    }
+                ) { Text("Improve background reliability") }
             }
 
             Spacer(Modifier.height(16.dp))
