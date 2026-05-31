@@ -32,12 +32,12 @@ class AuthViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(LoginUiState())
     val uiState: StateFlow<LoginUiState> = _uiState
 
-    val isLoggedIn: StateFlow<Boolean> = combine(
+    val isLoggedIn: StateFlow<Boolean?> = combine(
         prefs.serverUrl,
         prefs.apiKey,
         prefs.sessionId
     ) { url, key, sid -> !url.isNullOrBlank() && !key.isNullOrBlank() && !sid.isNullOrBlank() }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     fun onServerUrlChange(value: String) = _uiState.update { it.copy(serverUrl = value) }
     fun onUsernameChange(value: String) = _uiState.update { it.copy(username = value) }

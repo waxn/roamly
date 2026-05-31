@@ -5,13 +5,23 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import com.roamly.data.prefs.UserPreferences
+import com.roamly.tracking.TrackingCoordinator
+import com.roamly.tracking.UploadWorker
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltAndroidApp
 class RoamlyApp : Application(), Configuration.Provider {
 
     @Inject lateinit var workerFactory: HiltWorkerFactory
+    @Inject lateinit var prefs: UserPreferences
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
@@ -21,6 +31,10 @@ class RoamlyApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannels()
+        appScope.launch {
+            UploadWorker.schedulePeriodic(this@RoamlyApp, prefs.syncOnMobileData.first())
+            TrackingCoordinator.startTrackingIfAutoStartEnabled(this@RoamlyApp, prefs)
+        }
     }
 
     private fun createNotificationChannels() {

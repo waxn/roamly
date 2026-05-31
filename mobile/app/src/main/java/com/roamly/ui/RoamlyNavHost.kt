@@ -2,11 +2,14 @@ package com.roamly.ui
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -15,7 +18,9 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -53,11 +58,18 @@ private val bottomNavItems = listOf(Screen.Map, Screen.Adventures, Screen.Stats,
 fun RoamlyNavHost() {
     val navController = rememberNavController()
     val authViewModel: AuthViewModel = hiltViewModel()
+    val isLoggedIn by authViewModel.isLoggedIn.collectAsState()
+    val initialRoute = when (isLoggedIn) {
+        null -> null
+        true -> Screen.Map.route
+        false -> Screen.Login.route
+    }
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
-    val showBottomBar = currentDestination?.route != Screen.Login.route &&
+    val showBottomBar = initialRoute != null &&
+            currentDestination?.route != Screen.Login.route &&
             currentDestination?.route != Screen.TripDetail.route &&
             currentDestination?.route != Screen.PalDetail.route
 
@@ -104,9 +116,21 @@ fun RoamlyNavHost() {
             }
         }
     ) { innerPadding ->
+        val destination = initialRoute
+        if (destination == null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+            return@Scaffold
+        }
         NavHost(
             navController = navController,
-            startDestination = Screen.Login.route,
+            startDestination = destination,
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Screen.Login.route) {

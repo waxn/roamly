@@ -6,7 +6,9 @@ import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.roamly.data.prefs.UserPreferences
+import com.roamly.tracking.CsvPointLogger
 import com.roamly.tracking.LocationTrackingService
+import com.roamly.tracking.TrackingCoordinator
 import com.roamly.tracking.UploadWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -25,6 +27,10 @@ data class SettingsUiState(
     val isTracking: Boolean = false,
     val trackingIntervalSecs: Int = 30,
     val maxAccuracyM: Int = 100,
+    val autoStartTracking: Boolean = true,
+    val syncOnMobileData: Boolean = true,
+    val batteryOptimizationDisabled: Boolean = false,
+    val csvPath: String = "",
     // Sync status
     val lastSyncTime: Long = 0L,
     val lastSyncSuccess: Boolean = false,
@@ -51,10 +57,18 @@ class SettingsViewModel @Inject constructor(
         collect(prefs.isTrackingActive)      { v -> _state.update { it.copy(isTracking = v) } }
         collect(prefs.trackingIntervalSecs)  { v -> _state.update { it.copy(trackingIntervalSecs = v) } }
         collect(prefs.maxAccuracyM)          { v -> _state.update { it.copy(maxAccuracyM = v) } }
+        collect(prefs.autoStartTracking)     { v -> _state.update { it.copy(autoStartTracking = v) } }
+        collect(prefs.syncOnMobileData)      { v -> _state.update { it.copy(syncOnMobileData = v) } }
         collect(prefs.lastSyncTime)          { v -> _state.update { it.copy(lastSyncTime = v) } }
         collect(prefs.lastSyncSuccess)       { v -> _state.update { it.copy(lastSyncSuccess = v) } }
         collect(prefs.lastSyncCount)         { v -> _state.update { it.copy(lastSyncCount = v) } }
         collect(prefs.lastSyncError)         { v -> _state.update { it.copy(lastSyncError = v) } }
+        _state.update {
+            it.copy(
+                batteryOptimizationDisabled = TrackingCoordinator.isIgnoringBatteryOptimizations(context),
+                csvPath = CsvPointLogger.csvPath(context),
+            )
+        }
 
         viewModelScope.launch {
             WorkManager.getInstance(context)
@@ -79,7 +93,11 @@ class SettingsViewModel @Inject constructor(
         else LocationTrackingService.start(context)
     }
 
-    fun syncNow() = UploadWorker.scheduleNow(context)
+    fun syncNow() {
+        viewModelScope.launch {
+            UploadWorker.scheduleNow(context, prefs.syncOnMobileData.first())
+        }
+    }
 
     fun setDeviceId(id: String) {
         viewModelScope.launch { prefs.setDeviceId(id.trim()) }
@@ -95,6 +113,27 @@ class SettingsViewModel @Inject constructor(
 
     fun setMaxAccuracyM(metres: Int) {
         viewModelScope.launch { prefs.setMaxAccuracyM(metres.coerceAtLeast(1)) }
+    }
+
+    fun setAutoStartTracking(enabled: Boolean) {
+        viewModelScope.launch {
+            prefs.setAutoStartTracking(enabled)
+            if (enabled) TrackingCoordinator.startTrackingIfAutoStartEnabled(context, prefs)
+        }
+    }
+
+    fun setSyncOnMobileData(enabled: Boolean) {
+        viewModelScope.launch {
+            prefs.setSyncOnMobileData(enabled)
+            UploadWorker.reschedulePeriodic(context, enabled)
+            if (_state.value.isTracking) UploadWorker.scheduleNow(context, enabled)
+        }
+    }
+
+    fun refreshBatteryOptimizationState() {
+        _state.update {
+            it.copy(batteryOptimizationDisabled = TrackingCoordinator.isIgnoringBatteryOptimizations(context))
+        }
     }
 
     fun setDarkMode(enabled: Boolean) {

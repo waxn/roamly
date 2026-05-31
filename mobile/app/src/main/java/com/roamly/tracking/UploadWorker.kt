@@ -92,26 +92,43 @@ class UploadWorker @AssistedInject constructor(
         const val ONETIME_TAG  = "roamly_upload_now"
         private const val PERIODIC_TAG = "roamly_upload_periodic"
 
-        fun scheduleNow(context: Context) {
+        fun scheduleNow(context: Context, syncOnMobileData: Boolean = true) {
             WorkManager.getInstance(context).enqueueUniqueWork(
                 ONETIME_TAG, ExistingWorkPolicy.KEEP,
                 OneTimeWorkRequestBuilder<UploadWorker>()
-                    .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                    .setConstraints(
+                        Constraints.Builder()
+                            .setRequiredNetworkType(
+                                if (syncOnMobileData) NetworkType.CONNECTED else NetworkType.UNMETERED
+                            )
+                            .build()
+                    )
                     .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                     .addTag(ONETIME_TAG)
                     .build()
             )
         }
 
-        fun schedulePeriodic(context: Context) {
+        fun schedulePeriodic(context: Context, syncOnMobileData: Boolean = true) {
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 PERIODIC_TAG, ExistingPeriodicWorkPolicy.KEEP,
                 PeriodicWorkRequestBuilder<UploadWorker>(15, TimeUnit.MINUTES)
-                    .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                    .setConstraints(
+                        Constraints.Builder()
+                            .setRequiredNetworkType(
+                                if (syncOnMobileData) NetworkType.CONNECTED else NetworkType.UNMETERED
+                            )
+                            .build()
+                    )
                     .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
                     .addTag(PERIODIC_TAG)
                     .build()
             )
+        }
+
+        fun reschedulePeriodic(context: Context, syncOnMobileData: Boolean) {
+            WorkManager.getInstance(context).cancelUniqueWork(PERIODIC_TAG)
+            schedulePeriodic(context, syncOnMobileData)
         }
     }
 }

@@ -20,6 +20,8 @@ import javax.inject.Inject
 
 private const val TAG = "LocationTrackingService"
 private const val NOTIFICATION_ID = 1001
+private const val UPLOAD_SCHEDULE_MIN_INTERVAL_MS = 60_000L
+private const val UPLOAD_BATCH_TRIGGER_COUNT = 10
 
 const val ACTION_STOP    = "com.roamly.STOP"
 const val ACTION_PAUSE   = "com.roamly.PAUSE"
@@ -36,6 +38,11 @@ class LocationTrackingService : Service() {
     private lateinit var locationCallback: LocationCallback
     private val filter = LocationFilter()
     private var isPaused = false
+    private var lastUploadScheduleAt = System.currentTimeMillis()
+    private var syncOnMobileData = true
+    @Volatile
+    private var observingPrefs = false
+    private var prefsObserverJob: Job? = null
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -52,6 +59,7 @@ class LocationTrackingService : Service() {
         }
         startForeground(NOTIFICATION_ID, buildNotification())
         applyFilterSettings()
+        observeRuntimePreferences()
         startLocationUpdates()
         scope.launch { prefs.setTrackingActive(true) }
         Log.i(TAG, "Tracking started")
@@ -60,6 +68,7 @@ class LocationTrackingService : Service() {
 
     override fun onDestroy() {
         stopLocationUpdates()
+        prefsObserverJob?.cancel()
         scope.cancel()
         // Must use runBlocking here — scope is already cancelled so a coroutine launch
         // would be a no-op and isTracking would stay true in the UI forever.
@@ -74,6 +83,14 @@ class LocationTrackingService : Service() {
     private fun applyFilterSettings() {
         scope.launch {
             filter.maxAccuracyMetres = prefs.maxAccuracyM.first().toFloat()
+        }
+    }
+
+    private fun observeRuntimePreferences() {
+        if (observingPrefs) return
+        observingPrefs = true
+        prefsObserverJob = scope.launch {
+            prefs.syncOnMobileData.collect { syncOnMobileData = it }
         }
     }
 
@@ -110,22 +127,26 @@ class LocationTrackingService : Service() {
         val bm = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
         val battery = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).takeIf { it >= 0 }
 
-        db.pointDao().insert(
-            CachedPoint(
-                latitude  = loc.latitude,
-                longitude = loc.longitude,
-                accuracy  = if (loc.hasAccuracy()) loc.accuracy else null,
-                altitude  = if (loc.hasAltitude()) loc.altitude else null,
-                speed     = if (loc.hasSpeed()) loc.speed else null,
-                battery   = battery,
-                timestamp = loc.time,
-                provider  = loc.provider,
-            )
+        val point = CachedPoint(
+            latitude  = loc.latitude,
+            longitude = loc.longitude,
+            accuracy  = if (loc.hasAccuracy()) loc.accuracy else null,
+            altitude  = if (loc.hasAltitude()) loc.altitude else null,
+            speed     = if (loc.hasSpeed()) loc.speed else null,
+            battery   = battery,
+            timestamp = loc.time,
+            provider  = loc.provider,
         )
+        db.pointDao().insert(point)
+        runCatching { CsvPointLogger.appendPoint(applicationContext, point) }
+            .onFailure { Log.e(TAG, "Failed to append point CSV", it) }
         Log.d(TAG, "Saved ${loc.latitude},${loc.longitude} acc=${loc.accuracy}m")
-
-        if (db.pointDao().unsyncedCount() >= 10) {
-            UploadWorker.scheduleNow(applicationContext)
+        val now = System.currentTimeMillis()
+        val reachedTimeThreshold = now - lastUploadScheduleAt >= UPLOAD_SCHEDULE_MIN_INTERVAL_MS
+        val shouldSchedule = reachedTimeThreshold || db.pointDao().unsyncedCount() >= UPLOAD_BATCH_TRIGGER_COUNT
+        if (shouldSchedule) {
+            lastUploadScheduleAt = now
+            UploadWorker.scheduleNow(applicationContext, syncOnMobileData)
         }
     }
 
