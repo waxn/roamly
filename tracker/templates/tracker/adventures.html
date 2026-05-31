@@ -393,12 +393,71 @@
 .maplibregl-popup-close-button { color: var(--text-muted) !important; font-size: 1rem !important; padding: 0.25rem 0.5rem !important; top: 2px; right: 2px; }
 .maplibregl-popup-close-button:hover { color: var(--text) !important; background: none !important; }
 
+/* Panel right side */
+.trip-sidebar.panel-right { left: auto; right: 16px; }
+
+/* Embedded back button in panel header */
+.adv-back-embedded {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    padding: 5px; border-radius: 7px; display: flex; align-items: center; justify-content: center;
+    transition: color 0.12s, background 0.12s; flex-shrink: 0;
+}
+.adv-back-embedded:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+
+/* Formatting toolbar */
+.adv-format-toolbar {
+    display: flex; gap: 2px; padding-bottom: 0.375rem; margin-bottom: 0.375rem;
+    border-bottom: 1px solid var(--border);
+}
+.adv-fmt-btn {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    padding: 3px 8px; border-radius: 5px; font-size: 0.8rem;
+    font-family: 'Space Grotesk', sans-serif; font-weight: 700; line-height: 1;
+    transition: color 0.12s, background 0.12s;
+}
+.adv-fmt-btn:hover { color: var(--text); background: rgba(255,255,255,0.07); }
+
+/* Post cards in journal sidebar */
+.adv-post-card {
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 10px; padding: 0.625rem 0.75rem; margin-bottom: 0.375rem;
+    cursor: pointer; transition: border-color 0.12s, background 0.12s;
+}
+.adv-post-card:hover { border-color: var(--primary); background: rgba(59,130,246,0.04); }
+.adv-post-title {
+    font-size: 0.875rem; font-weight: 600; margin-bottom: 0.2rem;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.adv-post-preview {
+    font-size: 0.75rem; color: var(--text-muted); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; margin-bottom: 0.25rem;
+}
+.adv-post-card-meta { font-size: 0.6875rem; color: var(--text-muted); }
+
+/* Post view modal */
+.adv-post-modal { max-width: 640px; }
+.adv-post-modal-meta {
+    font-size: 0.8125rem; color: var(--text-muted);
+    margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+}
+.adv-post-body {
+    font-size: 0.9375rem; line-height: 1.75; margin-bottom: 1rem;
+}
+.adv-post-body strong { font-weight: 700; }
+.adv-post-body em { font-style: italic; color: var(--text-muted); }
+.adv-post-photos { display: grid; grid-template-columns: repeat(3,1fr); gap: 5px; margin-bottom: 1rem; }
+.adv-post-photos img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; cursor: pointer; display: block; }
+.adv-post-loc { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1rem; display: flex; align-items: center; gap: 5px; }
+.adv-comments-section { border-top: 1px solid var(--border); padding-top: 0.875rem; }
+.adv-comments-label { font-size: 0.65rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem; }
+
 /* Responsive */
 @media (max-width: 768px) {
     .trip-sidebar {
         left: 0; right: 0; top: auto; bottom: 0; width: 100%; height: 52vh;
         border-radius: 16px 16px 0 0; border-bottom: none;
     }
+    .trip-sidebar.panel-right { right: 0; }
     .trip-back-btn { left: 1rem; top: calc(48vh - 44px); }
     .adv-style-overlay { top: 1rem; right: 1rem; }
     #adv-map-info { bottom: calc(52vh + 16px); right: 1rem; }
@@ -516,8 +575,8 @@
     </div>
     <div id="adv-map-info"></div>
 
-    <!-- Back button -->
-    <button class="trip-back-btn" onclick="closeTrip()">
+    <!-- Floating back button — shown only when panel is on right -->
+    <button class="trip-back-btn" id="trip-back-float" onclick="closeTrip()" style="display:none;left:16px;">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
         back
     </button>
@@ -526,8 +585,17 @@
     <div class="trip-sidebar" id="trip-sidebar">
         <div class="adv-panel-header">
             <div class="adv-panel-title-row">
+                <!-- Embedded back — shown when panel is left -->
+                <button class="adv-back-embedded" id="back-embedded" onclick="closeTrip()" title="back">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                </button>
                 <h2 class="adv-panel-title" id="sidebar-trip-name"></h2>
                 <div style="display:flex;gap:0.125rem;flex-shrink:0;">
+                    <!-- Move panel side -->
+                    <button class="adv-icon-btn" onclick="toggleSide()" title="move panel to other side">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 10 20 15 15 20"/><path d="M4 4v7a4 4 0 0 0 4 4h12"/></svg>
+                    </button>
+                    <!-- Settings -->
                     <button class="adv-icon-btn" onclick="openSettings()" title="settings">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                     </button>
@@ -546,7 +614,13 @@
         <!-- Journal tab -->
         <div class="adv-tab-panel active-panel" id="tab-journal">
             <div class="adv-compose" id="compose-area">
-                <textarea id="compose-text" placeholder="what happened?..."></textarea>
+                <div class="adv-format-toolbar">
+                    <button class="adv-fmt-btn" onclick="wrapSelection('**','**')" title="bold"><strong>B</strong></button>
+                    <button class="adv-fmt-btn" onclick="wrapSelection('*','*')" title="italic"><em>I</em></button>
+                    <button class="adv-fmt-btn" onclick="insertHeading()" title="heading" style="font-size:0.7rem;">H1</button>
+                    <button class="adv-fmt-btn" onclick="wrapSelection('\n\n---\n\n','')" title="divider" style="letter-spacing:-.05em;">———</button>
+                </div>
+                <textarea id="compose-text" placeholder="write something..." style="min-height:80px;"></textarea>
                 <div class="adv-compose-row">
                     <label class="adv-compose-tool" style="cursor:pointer;" title="add photos">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
@@ -665,6 +739,17 @@
     </div>
 </div>
 
+<!-- ── Post View Modal ── -->
+<div class="adv-modal-overlay" id="post-modal-overlay" onclick="if(event.target===this)closePost()">
+    <div class="adv-modal adv-post-modal">
+        <div class="adv-modal-header" style="margin-bottom:0;">
+            <span style="font-size:0.75rem;font-weight:600;color:var(--text-muted);text-transform:lowercase;">post</span>
+            <button class="adv-modal-close" onclick="closePost()">✕</button>
+        </div>
+        <div id="post-modal-body" style="padding-top:0.875rem;"></div>
+    </div>
+</div>
+
 <!-- ── Settings Modal ── -->
 <div class="adv-modal-overlay" id="settings-modal-overlay" onclick="if(event.target===this)closeSettings()">
     <div class="adv-modal adv-modal-sm">
@@ -745,6 +830,9 @@ let timelineHasMore = false;
 let composeLocation = null;
 let visitsLoaded = false;
 let blurbPlacingMode = false;
+let currentPanelSide = localStorage.getItem('roamly_panel_side') || 'left';
+let currentPostId = null;
+const timelineEventsMap = {};
 
 const _speedGradient = localStorage.getItem('roamly_speed_gradient') || 'on';
 const _showHeatmap   = localStorage.getItem('roamly_show_heatmap') || 'on';
@@ -889,6 +977,7 @@ function openTrip(id) {
     currentTripId = id;
     document.getElementById('trip-fullscreen').classList.add('active');
     document.body.style.overflow = 'hidden';
+    updatePanelSide();
     document.querySelectorAll('.adv-tab').forEach((b,i) => b.classList.toggle('active', i===0));
     document.querySelectorAll('.adv-tab-panel').forEach((p,i) => p.style.display = i===0?'':'none');
     visitsLoaded = false;
@@ -1138,12 +1227,20 @@ function loadTimeline(id,page){
         timelineHasMore=data.has_more;
         document.getElementById('timeline-load-more').style.display=data.has_more?'block':'none';
         if(page===1){
-            const allPhotos=[];data.events.forEach(ev=>{if(ev.type==='blurb'&&ev.photos&&ev.photos.length)ev.photos.forEach(p=>allPhotos.push(p));});
+            const allPhotos=[];
+            data.events.forEach(ev=>{
+                if(ev.type==='blurb'){
+                    timelineEventsMap[ev.id]=ev;
+                    if(ev.photos&&ev.photos.length)ev.photos.forEach(p=>allPhotos.push(p));
+                }
+            });
             const grid=document.getElementById('adv-photos-grid');
             grid.innerHTML=allPhotos.length?allPhotos.map(p=>`<img src="${p.thumb}" onclick="window.open('${p.url}','_blank')" alt="">`).join(''):'<span class="adv-no-photos">no photos yet</span>';
+        } else {
+            data.events.forEach(ev=>{ if(ev.type==='blurb') timelineEventsMap[ev.id]=ev; });
         }
         if(!data.events.length&&page===1){document.getElementById('timeline-list').innerHTML='<div style="font-size:0.75rem;color:var(--text-muted);padding:0.25rem 0;">no entries yet</div>';return;}
-        const html=data.events.map(ev=>renderTimelineEvent(ev)).join('');
+        const html=data.events.map(ev=>ev.type==='milestone'?renderMilestoneInline(ev):renderPostCard(ev)).join('');
         if(page===1)document.getElementById('timeline-list').innerHTML=html;
         else document.getElementById('timeline-list').insertAdjacentHTML('beforeend',html);
     });
@@ -1151,29 +1248,154 @@ function loadTimeline(id,page){
 
 function loadMoreTimeline(){timelinePage++;loadTimeline(currentTripId,timelinePage);}
 
-function renderTimelineEvent(ev){
-    if(ev.type==='milestone'){const date=new Date(ev.date).toLocaleDateString();const delBtn=ev.can_delete?`<button class="adv-event-del" onclick="deleteMilestone(${ev.id})">&times;</button>`:'';return `<div class="adv-milestone"><div class="adv-ms-emoji">${ev.emoji}</div><div style="flex:1;"><div class="adv-ms-title">${escHtml(ev.title)}</div>${ev.description?`<div class="adv-ms-desc">${escHtml(ev.description)}</div>`:''}<div class="adv-ms-date">${date}</div></div>${delBtn}</div>`;}
-    const time=new Date(ev.created_at).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
-    const photos=(ev.photos||[]).map(p=>`<img src="${p.thumb}" onclick="window.open('${p.url}','_blank')" alt="" loading="lazy">`).join('');
-    const delBtn=ev.can_delete?`<button class="adv-event-del" onclick="deleteBlurb(${ev.id})">&times;</button>`:'';
-    const locHtml=ev.location_name?`<div class="adv-event-loc"><svg width="10" height="13" viewBox="0 0 28 36" fill="none"><path d="M14 2C8.48 2 4 6.48 4 12c0 7.5 10 22 10 22s10-14.5 10-22c0-5.52-4.48-10-10-10z" fill="var(--primary)" opacity=".8"/><circle cx="14" cy="12" r="4" fill="white"/></svg> ${escHtml(ev.location_name)}</div>`:'';
-    return `<div class="adv-timeline-event" id="blurb-${ev.id}"><div class="adv-event-header"><span class="adv-event-author">${escHtml(ev.author)}</span><span class="adv-event-time">${time}</span>${delBtn}</div>${ev.text?`<div class="adv-event-text">${escHtml(ev.text)}</div>`:''}${locHtml}${photos?`<div class="adv-event-photos">${photos}</div>`:''}<div><button class="adv-inline-btn" style="font-size:0.65rem;opacity:0.6;" onclick="toggleComments(${ev.id},this)">${ev.comment_count} comment${ev.comment_count!==1?'s':''}</button></div><div id="comments-${ev.id}" style="display:none;margin-top:0.25rem;"></div></div>`;
+function renderMilestoneInline(ev){
+    const date=new Date(ev.date).toLocaleDateString();
+    const delBtn=ev.can_delete?`<button class="adv-event-del" onclick="deleteMilestone(${ev.id})">&times;</button>`:'';
+    return `<div class="adv-milestone"><div class="adv-ms-emoji">${ev.emoji}</div><div style="flex:1;"><div class="adv-ms-title">${escHtml(ev.title)}</div>${ev.description?`<div class="adv-ms-desc">${escHtml(ev.description)}</div>`:''}<div class="adv-ms-date">${date}</div></div>${delBtn}</div>`;
 }
 
-function toggleComments(blurbId){const area=document.getElementById(`comments-${blurbId}`);if(area.style.display==='none'){area.style.display='block';loadComments(blurbId);}else area.style.display='none';}
+function renderPostCard(ev){
+    const lines=(ev.text||'').split('\n').filter(l=>l.trim());
+    const rawTitle=lines[0]?lines[0].replace(/^#+\s*/,''):'';
+    const title=rawTitle.slice(0,60)||((ev.photos&&ev.photos.length)?`📷 ${ev.photos.length} photo${ev.photos.length>1?'s':''}`:'(no text)');
+    const preview=lines.length>1?lines[1].replace(/^#+\s*/,'').replace(/\*+/g,'').slice(0,80):'';
+    const date=new Date(ev.created_at).toLocaleDateString([],{month:'short',day:'numeric'});
+    const metaParts=[escHtml(ev.author),date];
+    if(ev.comment_count>0)metaParts.push(`${ev.comment_count} comment${ev.comment_count!==1?'s':''}`);
+    if(ev.photos&&ev.photos.length)metaParts.push(`${ev.photos.length} photo${ev.photos.length>1?'s':''}`);
+    return `<div class="adv-post-card" id="post-card-${ev.id}" onclick="openPost(${ev.id})">
+        <div class="adv-post-title">${escHtml(title)}</div>
+        ${preview?`<div class="adv-post-preview">${escHtml(preview)}</div>`:''}
+        <div class="adv-post-card-meta">${metaParts.join(' · ')}</div>
+    </div>`;
+}
 
-function loadComments(blurbId){
-    const area=document.getElementById(`comments-${blurbId}`);
+function deleteBlurb(blurbId){
+    if(!confirm('Delete this post?'))return;
+    closePost();
+    fetch(`/api/trips/${currentTripId}/blurbs/${blurbId}/delete/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>{timelinePage=1;loadTimeline(currentTripId,1);});
+}
+function deleteMilestone(msId){if(!confirm('Delete this milestone?'))return;fetch(`/api/trips/${currentTripId}/milestones/${msId}/delete/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>{timelinePage=1;loadTimeline(currentTripId,1);});}
+
+// ─── Post view modal ──────────────────────────────────────────
+
+function openPost(blurbId){
+    const ev=timelineEventsMap[blurbId];
+    if(!ev)return;
+    currentPostId=blurbId;
+    const time=new Date(ev.created_at).toLocaleString([],{month:'long',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'});
+    const bodyHtml=renderMarkdown(ev.text||'');
+    const photosHtml=ev.photos&&ev.photos.length?`<div class="adv-post-photos">${ev.photos.map(p=>`<img src="${p.thumb}" onclick="window.open('${p.url}','_blank')" alt="" loading="lazy">`).join('')}</div>`:'';
+    const locHtml=ev.location_name?`<div class="adv-post-loc"><svg width="11" height="14" viewBox="0 0 28 36" fill="none"><path d="M14 2C8.48 2 4 6.48 4 12c0 7.5 10 22 10 22s10-14.5 10-22c0-5.52-4.48-10-10-10z" fill="var(--primary)" opacity=".8"/><circle cx="14" cy="12" r="4" fill="white"/></svg> ${escHtml(ev.location_name)}</div>`:'';
+    const delBtn=ev.can_delete?`<button class="btn btn-danger btn-sm" style="font-size:0.6875rem;padding:3px 10px;margin-left:auto;" onclick="deleteBlurb(${ev.id})">delete</button>`:'';
+    document.getElementById('post-modal-body').innerHTML=`
+        <div class="adv-post-modal-meta"><strong>${escHtml(ev.author)}</strong><span>·</span><span>${escHtml(time)}</span>${delBtn}</div>
+        ${bodyHtml?`<div class="adv-post-body">${bodyHtml}</div>`:''}
+        ${photosHtml}${locHtml}
+        <div class="adv-comments-section">
+            <div class="adv-comments-label">comments</div>
+            <div id="post-comments-list" style="margin-bottom:0.5rem;"></div>
+            <div class="add-comment-row">
+                <input type="text" id="post-comment-input" placeholder="add a comment..." onkeydown="if(event.key==='Enter')submitPostComment(${ev.id})">
+                <button onclick="submitPostComment(${ev.id})">post</button>
+            </div>
+        </div>`;
+    document.getElementById('post-modal-overlay').classList.add('active');
+    loadPostComments(blurbId);
+}
+
+function closePost(){
+    document.getElementById('post-modal-overlay').classList.remove('active');
+    currentPostId=null;
+}
+
+function loadPostComments(blurbId){
+    const list=document.getElementById('post-comments-list');
+    if(!list)return;
     fetch(`/api/trips/${currentTripId}/blurbs/${blurbId}/comments/`).then(r=>r.json()).then(data=>{
-        const ch=data.comments.map(c=>{const d=c.can_delete?`<button style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:0.7rem;padding:0 2px;" onclick="deleteComment(${c.id})">&times;</button>`:'';return `<div class="comment-item"><span class="comment-author">${escHtml(c.author)}</span><span class="comment-text">${escHtml(c.text)}</span>${d}</div>`;}).join('');
-        area.innerHTML=ch+`<div class="add-comment-row"><input type="text" id="comment-input-${blurbId}" placeholder="add a comment..."><button onclick="postComment(${blurbId})">post</button></div>`;
+        if(!list)return;
+        list.innerHTML=data.comments.map(c=>{const d=c.can_delete?`<button style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:0.7rem;padding:0 2px;" onclick="deletePostComment(${c.id})">&times;</button>`:'';return `<div class="comment-item"><span class="comment-author">${escHtml(c.author)}</span><span class="comment-text">${escHtml(c.text)}</span>${d}</div>`;}).join('')||'<div style="font-size:0.75rem;color:var(--text-muted);padding:2px 0;">no comments yet</div>';
     });
 }
 
-function postComment(blurbId){const input=document.getElementById(`comment-input-${blurbId}`);const text=input.value.trim();if(!text)return;fetch(`/api/trips/${currentTripId}/blurbs/${blurbId}/comments/create/`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},body:JSON.stringify({text})}).then(()=>{input.value='';loadComments(blurbId);});}
-function deleteComment(commentId){if(!confirm('Delete comment?'))return;fetch(`/api/trips/${currentTripId}/comments/${commentId}/delete/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>loadTimeline(currentTripId,1));}
-function deleteBlurb(blurbId){if(!confirm('Delete this post?'))return;fetch(`/api/trips/${currentTripId}/blurbs/${blurbId}/delete/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>{timelinePage=1;loadTimeline(currentTripId,1);});}
-function deleteMilestone(msId){if(!confirm('Delete this milestone?'))return;fetch(`/api/trips/${currentTripId}/milestones/${msId}/delete/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>{timelinePage=1;loadTimeline(currentTripId,1);});}
+function submitPostComment(blurbId){
+    const input=document.getElementById('post-comment-input');
+    const text=input.value.trim();if(!text)return;
+    fetch(`/api/trips/${currentTripId}/blurbs/${blurbId}/comments/create/`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},body:JSON.stringify({text})}).then(()=>{
+        input.value='';loadPostComments(blurbId);
+        if(timelineEventsMap[blurbId]){
+            timelineEventsMap[blurbId].comment_count=(timelineEventsMap[blurbId].comment_count||0)+1;
+            const card=document.getElementById(`post-card-${blurbId}`);
+            if(card)card.outerHTML=renderPostCard(timelineEventsMap[blurbId]);
+        }
+    });
+}
+
+function deletePostComment(commentId){
+    if(!confirm('Delete comment?'))return;
+    fetch(`/api/trips/${currentTripId}/comments/${commentId}/delete/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>{if(currentPostId)loadPostComments(currentPostId);});
+}
+
+// ─── Panel side toggle ────────────────────────────────────────
+
+function toggleSide(){
+    currentPanelSide=currentPanelSide==='left'?'right':'left';
+    localStorage.setItem('roamly_panel_side',currentPanelSide);
+    updatePanelSide();
+}
+
+function updatePanelSide(){
+    const sidebar=document.getElementById('trip-sidebar');
+    const floatBtn=document.getElementById('trip-back-float');
+    const embeddedBtn=document.getElementById('back-embedded');
+    if(currentPanelSide==='right'){
+        sidebar.classList.add('panel-right');
+        if(floatBtn)floatBtn.style.display='';
+        if(embeddedBtn)embeddedBtn.style.display='none';
+    }else{
+        sidebar.classList.remove('panel-right');
+        if(floatBtn)floatBtn.style.display='none';
+        if(embeddedBtn)embeddedBtn.style.display='';
+    }
+}
+
+// ─── Markdown renderer ────────────────────────────────────────
+
+function renderMarkdown(text){
+    if(!text)return'';
+    let h=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    h=h.replace(/^# (.+)$/gm,'<h3 style="font-size:1.125rem;font-weight:700;margin:0.875rem 0 0.25rem;line-height:1.3;">$1</h3>');
+    h=h.replace(/^## (.+)$/gm,'<h4 style="font-size:0.9375rem;font-weight:700;margin:0.75rem 0 0.25rem;color:var(--text-muted);">$1</h4>');
+    h=h.replace(/^### (.+)$/gm,'<h4 style="font-size:0.875rem;font-weight:700;margin:0.625rem 0 0.25rem;">$1</h4>');
+    h=h.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+    h=h.replace(/\*(.+?)\*/g,'<em>$1</em>');
+    h=h.replace(/^---$/gm,'<hr style="border:none;border-top:1px solid var(--border);margin:1rem 0;">');
+    h=h.replace(/\n/g,'<br>');
+    h=h.replace(/<\/h[34]><br>/g,(m)=>m.replace('<br>',''));
+    h=h.replace(/<hr[^>]*><br>/g,(m)=>m.replace('<br>',''));
+    return h;
+}
+
+// ─── Format toolbar helpers ───────────────────────────────────
+
+function wrapSelection(prefix,suffix){
+    const ta=document.getElementById('compose-text');
+    const s=ta.selectionStart,e=ta.selectionEnd;
+    const sel=ta.value.slice(s,e)||'text';
+    ta.value=ta.value.slice(0,s)+prefix+sel+suffix+ta.value.slice(e);
+    ta.setSelectionRange(s+prefix.length,s+prefix.length+sel.length);
+    ta.focus();
+}
+
+function insertHeading(){
+    const ta=document.getElementById('compose-text');
+    const s=ta.selectionStart,e=ta.selectionEnd;
+    const sel=ta.value.slice(s,e)||'Title';
+    const clean=sel.replace(/^#+\s*/,'');
+    ta.value=ta.value.slice(0,s)+'# '+clean+ta.value.slice(e);
+    ta.setSelectionRange(s+2,s+2+clean.length);
+    ta.focus();
+}
 
 function toggleMilestoneForm(){const f=document.getElementById('milestone-form');f.style.display=f.style.display==='none'?'block':'none';if(f.style.display==='block'){const now=new Date();document.getElementById('ms-date').value=new Date(now-now.getTimezoneOffset()*60000).toISOString().slice(0,16);}}
 
