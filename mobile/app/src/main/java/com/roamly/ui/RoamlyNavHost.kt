@@ -15,6 +15,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -53,11 +54,18 @@ private val bottomNavItems = listOf(Screen.Map, Screen.Adventures, Screen.Stats,
 fun RoamlyNavHost() {
     val navController = rememberNavController()
     val authViewModel: AuthViewModel = hiltViewModel()
+    val isLoggedIn by authViewModel.isLoggedIn.collectAsState()
+    val startDestination = when (isLoggedIn) {
+        null -> null
+        true -> Screen.Map.route
+        false -> Screen.Login.route
+    }
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
-    val showBottomBar = currentDestination?.route != Screen.Login.route &&
+    val showBottomBar = startDestination != null &&
+            currentDestination?.route != Screen.Login.route &&
             currentDestination?.route != Screen.TripDetail.route &&
             currentDestination?.route != Screen.PalDetail.route
 
@@ -104,9 +112,10 @@ fun RoamlyNavHost() {
             }
         }
     ) { innerPadding ->
+        val destination = startDestination ?: return@Scaffold
         NavHost(
             navController = navController,
-            startDestination = Screen.Login.route,
+            startDestination = destination,
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Screen.Login.route) {

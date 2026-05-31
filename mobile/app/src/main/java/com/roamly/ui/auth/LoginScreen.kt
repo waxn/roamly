@@ -57,7 +57,7 @@ fun LoginScreen(
     var showPassword by remember { mutableStateOf(false) }
 
     LaunchedEffect(isLoggedIn) {
-        if (isLoggedIn) onLoggedIn()
+        if (isLoggedIn == true) onLoggedIn()
     }
 
     Box(
@@ -191,7 +191,7 @@ fun LoginScreen(
 
             Spacer(Modifier.height(12.dp))
             Text(
-                "viewer mode only: this app does not upload gps points",
+                "tracks offline, stores CSV locally, and syncs when online",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
