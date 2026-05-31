@@ -435,7 +435,14 @@
 .adv-post-card-meta { font-size: 0.6875rem; color: var(--text-muted); }
 
 /* Post view modal */
-.adv-post-modal { max-width: 640px; }
+.adv-post-modal { max-width: 780px; }
+.adv-compose-modal-textarea {
+    width: 100%; min-height: 220px; background: transparent; border: none;
+    color: var(--text); font-family: 'Space Grotesk', sans-serif;
+    font-size: 0.9375rem; line-height: 1.7; resize: none; outline: none;
+    display: block; padding: 0; box-sizing: border-box;
+}
+.adv-compose-modal-textarea::placeholder { color: var(--text-muted); }
 .adv-post-modal-meta {
     font-size: 0.8125rem; color: var(--text-muted);
     margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
@@ -613,28 +620,10 @@
 
         <!-- Journal tab -->
         <div class="adv-tab-panel active-panel" id="tab-journal">
-            <div class="adv-compose" id="compose-area">
-                <div class="adv-format-toolbar">
-                    <button class="adv-fmt-btn" onclick="wrapSelection('**','**')" title="bold"><strong>B</strong></button>
-                    <button class="adv-fmt-btn" onclick="wrapSelection('*','*')" title="italic"><em>I</em></button>
-                    <button class="adv-fmt-btn" onclick="insertHeading()" title="heading" style="font-size:0.7rem;">H1</button>
-                    <button class="adv-fmt-btn" onclick="wrapSelection('\n\n---\n\n','')" title="divider" style="letter-spacing:-.05em;">———</button>
-                </div>
-                <textarea id="compose-text" placeholder="write something..." style="min-height:80px;"></textarea>
-                <div class="adv-compose-row">
-                    <label class="adv-compose-tool" style="cursor:pointer;" title="add photos">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                        <input type="file" id="compose-photos" accept="image/*" multiple style="display:none;" onchange="previewPhotos(this)">
-                    </label>
-                    <button class="adv-compose-tool" id="compose-pin-btn" onclick="startBlurbPinMode()" title="pin on map">
-                        <svg width="13" height="17" viewBox="0 0 28 36" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M14 2C8.48 2 4 6.48 4 12c0 7.5 10 22 10 22s10-14.5 10-22c0-5.52-4.48-10-10-10z" fill="currentColor" opacity=".9"/><circle cx="14" cy="12" r="4" fill="white"/></svg>
-                    </button>
-                    <span class="adv-compose-loc" id="compose-location-display"></span>
-                    <button class="adv-compose-tool" id="compose-clear-loc" onclick="clearComposeLocation()" style="display:none;">✕</button>
-                    <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="submitBlurb()">post</button>
-                </div>
-                <div class="adv-photo-preview" id="compose-photo-preview"></div>
-            </div>
+            <button class="adv-compose" id="compose-area-btn" onclick="openCompose()"
+                style="width:100%;text-align:left;cursor:pointer;color:var(--text-muted);font-size:0.875rem;font-family:'Space Grotesk',sans-serif;margin-bottom:0.75rem;display:block;">
+                write a post…
+            </button>
             <div id="timeline-list"></div>
             <div id="timeline-load-more" style="text-align:center;display:none;margin-top:0.5rem;">
                 <button class="btn btn-outline btn-sm" onclick="loadMoreTimeline()">load more</button>
@@ -743,7 +732,7 @@
 <div class="adv-modal-overlay" id="post-modal-overlay" onclick="if(event.target===this)closePost()">
     <div class="adv-modal adv-post-modal">
         <div class="adv-modal-header" style="margin-bottom:0;">
-            <span style="font-size:0.75rem;font-weight:600;color:var(--text-muted);text-transform:lowercase;">post</span>
+            <span id="post-modal-label" style="font-size:0.75rem;font-weight:600;color:var(--text-muted);text-transform:lowercase;">post</span>
             <button class="adv-modal-close" onclick="closePost()">✕</button>
         </div>
         <div id="post-modal-body" style="padding-top:0.875rem;"></div>
@@ -987,7 +976,7 @@ function openTrip(id) {
     tripMap.on('load', () => loadTripDetail(id));
     tripMap.on('click', (e) => {
         if (placingMode) { placingMode=false; document.getElementById('add-pin-btn').textContent='+ add'; document.getElementById('place-hint').classList.remove('active'); tripMap.getCanvas().style.cursor=''; showPlaceForm(e.lngLat.lat,e.lngLat.lng); }
-        else if (blurbPlacingMode) { blurbPlacingMode=false; document.getElementById('compose-pin-btn').classList.remove('placing'); document.getElementById('blurb-pin-hint').classList.remove('active'); tripMap.getCanvas().style.cursor=''; setBlurbLocation(e.lngLat.lat,e.lngLat.lng); }
+        else if (blurbPlacingMode) { blurbPlacingMode=false; const pb=document.getElementById('compose-pin-btn');if(pb)pb.classList.remove('placing'); document.getElementById('blurb-pin-hint').classList.remove('active'); tripMap.getCanvas().style.cursor=''; setBlurbLocation(e.lngLat.lat,e.lngLat.lng); }
     });
 }
 
@@ -1283,6 +1272,7 @@ function openPost(blurbId){
     const ev=timelineEventsMap[blurbId];
     if(!ev)return;
     currentPostId=blurbId;
+    const lbl=document.getElementById('post-modal-label');if(lbl)lbl.textContent='post';
     const time=new Date(ev.created_at).toLocaleString([],{month:'long',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'});
     const bodyHtml=renderMarkdown(ev.text||'');
     const photosHtml=ev.photos&&ev.photos.length?`<div class="adv-post-photos">${ev.photos.map(p=>`<img src="${p.thumb}" onclick="window.open('${p.url}','_blank')" alt="" loading="lazy">`).join('')}</div>`:'';
@@ -1405,32 +1395,99 @@ function saveMilestone(){
     .then(r=>r.json()).then(data=>{if(data.status==='ok'){toggleMilestoneForm();document.getElementById('ms-title').value='';document.getElementById('ms-desc').value='';timelinePage=1;loadTimeline(currentTripId,1);}});
 }
 
-// ─── Blurb compose ────────────────────────────────────────────
+// ─── Blurb compose (modal) ────────────────────────────────────
 
-function startBlurbPinMode(){
+let _composeDraftText = '';
+let _composeDraftReturnToModal = false;
+
+function openCompose(){
+    currentPostId=null;
+    const draft=_composeDraftText;_composeDraftText='';
+    const locDisplay=composeLocation?`${composeLocation.lat.toFixed(4)}, ${composeLocation.lng.toFixed(4)}`:'';
+    document.getElementById('post-modal-body').innerHTML=`
+        <div class="adv-format-toolbar" style="margin-bottom:0.625rem;">
+            <button class="adv-fmt-btn" onclick="wrapSelection('**','**')"><strong>B</strong></button>
+            <button class="adv-fmt-btn" onclick="wrapSelection('*','*')"><em>I</em></button>
+            <button class="adv-fmt-btn" onclick="insertHeading()" style="font-size:0.7rem;">H1</button>
+            <button class="adv-fmt-btn" onclick="wrapSelection('\n\n---\n\n','')" style="letter-spacing:-.05em;">———</button>
+        </div>
+        <textarea class="adv-compose-modal-textarea" id="compose-text" placeholder="write something…"></textarea>
+        <div class="adv-compose-row" style="border-top:1px solid var(--border);padding-top:0.5rem;margin-top:0.5rem;">
+            <label class="adv-compose-tool" style="cursor:pointer;" title="add photos">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                <input type="file" id="compose-photos" accept="image/*" multiple style="display:none;" onchange="previewPhotos(this)">
+            </label>
+            <button class="adv-compose-tool" id="compose-pin-btn" onclick="startBlurbPinModeFromModal()" title="pin on map">
+                <svg width="13" height="17" viewBox="0 0 28 36" fill="none"><path d="M14 2C8.48 2 4 6.48 4 12c0 7.5 10 22 10 22s10-14.5 10-22c0-5.52-4.48-10-10-10z" fill="currentColor" opacity=".9"/><circle cx="14" cy="12" r="4" fill="white"/></svg>
+            </button>
+            <span class="adv-compose-loc" id="compose-location-display">${escHtml(locDisplay)}</span>
+            <button class="adv-compose-tool" id="compose-clear-loc" onclick="clearComposeLocation()" style="${composeLocation?'':'display:none'}">✕</button>
+            <button class="btn btn-primary" style="margin-left:auto;" onclick="submitBlurb()">publish</button>
+        </div>
+        <div class="adv-photo-preview" id="compose-photo-preview" style="margin-top:0.5rem;"></div>`;
+    const lbl=document.getElementById('post-modal-label');if(lbl)lbl.textContent='new post';
+    document.getElementById('post-modal-overlay').classList.add('active');
+    const ta=document.getElementById('compose-text');
+    if(draft)ta.value=draft;
+    ta.focus();
+}
+
+function startBlurbPinModeFromModal(){
     if(!tripMap)return;
-    if(blurbPlacingMode){blurbPlacingMode=false;document.getElementById('compose-pin-btn').classList.remove('placing');document.getElementById('blurb-pin-hint').classList.remove('active');tripMap.getCanvas().style.cursor='';return;}
+    _composeDraftText=document.getElementById('compose-text')?.value||'';
+    _composeDraftReturnToModal=true;
+    document.getElementById('post-modal-overlay').classList.remove('active');
     if(placingMode){placingMode=false;document.getElementById('add-pin-btn').textContent='+ add';document.getElementById('place-hint').classList.remove('active');}
-    blurbPlacingMode=true;document.getElementById('compose-pin-btn').classList.add('placing');document.getElementById('blurb-pin-hint').classList.add('active');tripMap.getCanvas().style.cursor='crosshair';
+    blurbPlacingMode=true;
+    document.getElementById('blurb-pin-hint').classList.add('active');
+    if(tripMap)tripMap.getCanvas().style.cursor='crosshair';
 }
 
 function setBlurbLocation(lat,lng){
-    composeLocation={lat,lng};document.getElementById('compose-location-display').textContent=`${lat.toFixed(4)}, ${lng.toFixed(4)}`;document.getElementById('compose-clear-loc').style.display='';
-    if(tripMap.getLayer('blurb-pin'))tripMap.removeLayer('blurb-pin');if(tripMap.getSource('blurb-pin'))tripMap.removeSource('blurb-pin');
-    tripMap.addSource('blurb-pin',{type:'geojson',data:{type:'Feature',geometry:{type:'Point',coordinates:[lng,lat]}}});
-    tripMap.addLayer({id:'blurb-pin',type:'circle',source:'blurb-pin',paint:{'circle-color':'#a855f7','circle-radius':8,'circle-stroke-width':2,'circle-stroke-color':'#fff'}});
+    composeLocation={lat,lng};
+    const display=document.getElementById('compose-location-display');
+    const clearBtn=document.getElementById('compose-clear-loc');
+    if(display)display.textContent=`${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    if(clearBtn)clearBtn.style.display='';
+    if(tripMap){
+        if(tripMap.getLayer('blurb-pin'))tripMap.removeLayer('blurb-pin');
+        if(tripMap.getSource('blurb-pin'))tripMap.removeSource('blurb-pin');
+        tripMap.addSource('blurb-pin',{type:'geojson',data:{type:'Feature',geometry:{type:'Point',coordinates:[lng,lat]}}});
+        tripMap.addLayer({id:'blurb-pin',type:'circle',source:'blurb-pin',paint:{'circle-color':'#a855f7','circle-radius':8,'circle-stroke-width':2,'circle-stroke-color':'#fff'}});
+    }
+    if(_composeDraftReturnToModal){_composeDraftReturnToModal=false;openCompose();}
 }
 
-function clearComposeLocation(){composeLocation=null;document.getElementById('compose-location-display').textContent='';document.getElementById('compose-clear-loc').style.display='none';if(tripMap){if(tripMap.getLayer('blurb-pin'))tripMap.removeLayer('blurb-pin');if(tripMap.getSource('blurb-pin'))tripMap.removeSource('blurb-pin');}}
+function clearComposeLocation(){
+    composeLocation=null;
+    const display=document.getElementById('compose-location-display');
+    const clearBtn=document.getElementById('compose-clear-loc');
+    if(display)display.textContent='';
+    if(clearBtn)clearBtn.style.display='none';
+    if(tripMap){if(tripMap.getLayer('blurb-pin'))tripMap.removeLayer('blurb-pin');if(tripMap.getSource('blurb-pin'))tripMap.removeSource('blurb-pin');}
+}
 
-function previewPhotos(input){const p=document.getElementById('compose-photo-preview');p.innerHTML='';Array.from(input.files).slice(0,5).forEach(f=>{const img=document.createElement('img');img.src=URL.createObjectURL(f);p.appendChild(img);});}
+function previewPhotos(input){
+    const p=document.getElementById('compose-photo-preview');
+    if(!p)return;
+    p.innerHTML='';
+    Array.from(input.files).slice(0,5).forEach(f=>{const img=document.createElement('img');img.src=URL.createObjectURL(f);p.appendChild(img);});
+}
 
 function submitBlurb(){
-    const text=document.getElementById('compose-text').value.trim();if(!text)return;
+    const taEl=document.getElementById('compose-text');
+    const text=taEl?taEl.value.trim():'';if(!text)return;
     const formData=new FormData();formData.append('text',text);
     if(composeLocation){formData.append('latitude',composeLocation.lat);formData.append('longitude',composeLocation.lng);formData.append('location_name',document.getElementById('compose-location-display').textContent);}
-    const pi=document.getElementById('compose-photos');Array.from(pi.files).slice(0,5).forEach(f=>formData.append('photos',f));
-    fetch(`/api/trips/${currentTripId}/blurbs/create/`,{method:'POST',headers:{'X-CSRFToken':csrfToken},body:formData}).then(r=>r.json()).then(data=>{if(data.status==='ok'){document.getElementById('compose-text').value='';clearComposeLocation();document.getElementById('compose-photo-preview').innerHTML='';pi.value='';timelinePage=1;loadTimeline(currentTripId,1);}else alert(data.error||'Error posting');});
+    const pi=document.getElementById('compose-photos');
+    if(pi)Array.from(pi.files).slice(0,5).forEach(f=>formData.append('photos',f));
+    fetch(`/api/trips/${currentTripId}/blurbs/create/`,{method:'POST',headers:{'X-CSRFToken':csrfToken},body:formData}).then(r=>r.json()).then(data=>{
+        if(data.status==='ok'){
+            closePost();
+            clearComposeLocation();
+            timelinePage=1;loadTimeline(currentTripId,1);
+        }else alert(data.error||'Error posting');
+    });
 }
 
 // ─── Members ──────────────────────────────────────────────────
