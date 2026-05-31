@@ -163,14 +163,19 @@
             white-space: nowrap;
         }
         .btn { user-select: none; -webkit-user-select: none; }
-        .btn:hover { transform: scale(1.08) translateY(-4px); }
+        .btn:hover { transform: scale(1.1); }
         @keyframes btn-pop {
-            0%   { transform: scale(0.88) translateY(3px); }
-            50%  { transform: scale(1.12) translateY(-5px); }
-            75%  { transform: scale(0.97) translateY(-1px); }
-            100% { transform: scale(1) translateY(0); }
+            0%   { transform: scale(0.88); }
+            50%  { transform: scale(1.14); }
+            75%  { transform: scale(0.98); }
+            100% { transform: scale(1); }
         }
-        .btn-pressing { transform: scale(0.88) translateY(3px) !important; transition: transform 0.07s ease !important; box-shadow: 0 2px 6px rgba(0,0,0,0.2) !important; }
+        @keyframes clay-particle {
+            0%   { transform: translate(0,0) scale(1.4); opacity: 1; }
+            20%  { transform: translate(calc(var(--tx)*0.3), calc(var(--ty)*0.3)) scale(0.75); opacity: 1; }
+            100% { transform: translate(var(--tx), var(--ty)) scale(0.05); opacity: 0; }
+        }
+        .btn-pressing { transform: scale(0.88) !important; transition: transform 0.07s ease !important; box-shadow: 0 2px 6px rgba(0,0,0,0.2) !important; }
         .btn-popping { animation: btn-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards !important; }
 
         .btn-primary {
@@ -2032,17 +2037,29 @@ background threads
         });
     })();
 
-    // ── button inflate + pop ─────────────────────────────
+    // ── button inflate + pop + clay particles ────────────
     (function() {
+        const COLORS = ['#0DBFAC','#FF6B6B','#9B8EF7','#F7B731','#5BA4E5','#22c55e'];
+        function spawnParticles(btn) {
+            const r = btn.getBoundingClientRect();
+            const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+            for (let i = 0, n = 8 + Math.floor(Math.random() * 5); i < n; i++) {
+                const a = Math.random() * Math.PI * 2, d = 38 + Math.random() * 62;
+                const s = 5 + Math.random() * 9, c = COLORS[Math.floor(Math.random() * COLORS.length)];
+                const dur = (0.42 + Math.random() * 0.32).toFixed(2);
+                const el = document.createElement('span');
+                el.style.cssText = `position:fixed;left:${cx}px;top:${cy}px;width:${s}px;height:${s}px;margin:${(-s/2).toFixed(1)}px 0 0 ${(-s/2).toFixed(1)}px;border-radius:50%;background:${c};pointer-events:none;z-index:9999;box-shadow:0 2px 8px ${c}88;--tx:${(Math.cos(a)*d).toFixed(1)}px;--ty:${(Math.sin(a)*d).toFixed(1)}px;animation:clay-particle ${dur}s cubic-bezier(0.25,0.46,0.45,0.94) forwards`;
+                document.body.appendChild(el);
+                setTimeout(() => el.remove(), (+dur + 0.15) * 1000);
+            }
+        }
         document.querySelectorAll('.btn').forEach(function(btn) {
-            btn.addEventListener('pointerdown', function() {
-                this.classList.remove('btn-popping');
-                this.classList.add('btn-pressing');
-            });
+            btn.addEventListener('pointerdown', function() { this.classList.remove('btn-popping'); this.classList.add('btn-pressing'); });
             function release() {
                 if (!this.classList.contains('btn-pressing')) return;
                 this.classList.remove('btn-pressing');
                 this.classList.add('btn-popping');
+                spawnParticles(this);
                 this.addEventListener('animationend', () => this.classList.remove('btn-popping'), { once: true });
             }
             btn.addEventListener('pointerup', release);
