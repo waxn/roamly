@@ -206,14 +206,22 @@
         }
         .btn-submit:hover {
             background: linear-gradient(135deg, #10d4bf 0%, #0DBFAC 100%);
-            transform: translateY(-2px) scale(1.01);
+            transform: scale(1.08) translateY(-4px);
             box-shadow:
                 inset 0 1px 0 rgba(255, 255, 255, 0.25),
-                inset 0 -3px 0 rgba(0, 0, 0, 0.18),
-                0 14px 36px rgba(13, 191, 172, 0.45),
-                0 4px 10px rgba(0, 0, 0, 0.22);
+                inset 0 -4px 0 rgba(0, 0, 0, 0.18),
+                0 18px 44px rgba(13, 191, 172, 0.5),
+                0 6px 12px rgba(0, 0, 0, 0.22);
         }
-        .btn-submit:active { transform: translateY(2px) scale(0.98); }
+        .btn-submit { transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease, background 0.2s; user-select: none; }
+        @keyframes btn-pop {
+            0%   { transform: scale(0.88) translateY(3px); }
+            50%  { transform: scale(1.12) translateY(-5px); }
+            75%  { transform: scale(0.97) translateY(-1px); }
+            100% { transform: scale(1) translateY(0); }
+        }
+        .btn-pressing { transform: scale(0.88) translateY(3px) !important; transition: transform 0.07s ease !important; box-shadow: 0 2px 6px rgba(0,0,0,0.2) !important; }
+        .btn-popping { animation: btn-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards !important; }
 
         .card-footer {
             margin-top: 1.5rem;
@@ -397,6 +405,25 @@
             draw();
             setInterval(pingNode, 1600);
             window.addEventListener('resize', resize);
+        })();
+
+        // button inflate + pop
+        (function() {
+            document.querySelectorAll('.btn-submit').forEach(function(btn) {
+                btn.addEventListener('pointerdown', function() {
+                    this.classList.remove('btn-popping');
+                    this.classList.add('btn-pressing');
+                });
+                function release() {
+                    if (!this.classList.contains('btn-pressing')) return;
+                    this.classList.remove('btn-pressing');
+                    this.classList.add('btn-popping');
+                    this.addEventListener('animationend', () => this.classList.remove('btn-popping'), { once: true });
+                }
+                btn.addEventListener('pointerup', release);
+                btn.addEventListener('pointercancel', function() { this.classList.remove('btn-pressing'); });
+                btn.addEventListener('pointerleave', function() { this.classList.remove('btn-pressing'); });
+            });
         })();
     </script>
 </body>
