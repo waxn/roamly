@@ -56,11 +56,20 @@
     margin-top: 0.5rem; font-weight: 500;
 }
 .pub-article-meta {
-    display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;
+    display: flex; gap: 0.875rem; flex-wrap: wrap; align-items: center;
     font-size: 0.8125rem; color: var(--text-muted);
-    margin-top: 1rem;
+    margin: 1.25rem 0 0.5rem;
+    padding-bottom: 1rem; border-bottom: 1px solid var(--border);
 }
 .pub-meta-sep { opacity: 0.3; }
+.pub-copy-link {
+    margin-left: auto; display: inline-flex; align-items: center; gap: 0.375rem;
+    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-muted); font-family: var(--font-body); font-size: 0.75rem;
+    font-weight: 700; padding: 0.35rem 0.75rem; cursor: pointer; transition: all 0.15s;
+}
+.pub-copy-link:hover { color: var(--primary); border-color: var(--border-bright); }
+.pub-copy-link svg { width: 13px; height: 13px; }
 
 /* Blocks */
 .pub-block { margin-bottom: 1.25rem; }
@@ -220,31 +229,6 @@
 .name-chip { display: inline-block; background: var(--bg-input); border: 1px solid var(--border); border-radius: 20px; padding: 3px 10px; font-size: 0.75rem; cursor: pointer; margin: 0 4px 4px 0; transition: all 0.12s; }
 .name-chip:hover { border-color: var(--primary); color: var(--primary); }
 
-/* Share bar */
-.pub-share-bar {
-    display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
-    padding: 0.875rem 0; border-top: 1px solid var(--border);
-    margin-top: 2rem; font-size: 0.8125rem; color: var(--text-muted);
-}
-.share-btn {
-    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px;
-    color: var(--text-muted); font-family: var(--font-body); font-size: 0.75rem; font-weight: 700;
-    padding: 0.3rem 0.75rem; cursor: pointer; transition: all 0.15s;
-}
-.share-btn:hover { color: var(--text); border-color: var(--text-muted); }
-
-/* Back nav */
-.pub-nav {
-    padding: 0.875rem 1rem;
-    border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; gap: 0.75rem;
-    background: var(--bg-glass); backdrop-filter: blur(8px);
-    position: sticky; top: 0; z-index: 200;
-}
-.pub-back-btn { background: none; border: none; color: var(--text-muted); font-family: var(--font-body); font-size: 0.8125rem; cursor: pointer; display: flex; align-items: center; gap: 0.375rem; transition: color 0.1s; }
-.pub-back-btn:hover { color: var(--primary); }
-.pub-nav-title { font-weight: 700; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pub-nav-spacer { flex: 1; }
 
 @media (max-width: 640px) {
     .pub-cover img { height: 300px; }
@@ -314,40 +298,19 @@
 </div>
 {% endif %}
 
-<!-- Sticky sub-nav -->
-<div class="pub-nav">
-    <button class="pub-back-btn" onclick="history.back()">
-        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
-        back
-    </button>
-    {% if not trip.cover_image %}
-    <span class="pub-nav-title">{{ trip.name }}</span>
-    {% endif %}
-    <div class="pub-nav-spacer"></div>
-    <button class="share-btn" onclick="copyLink()">copy link</button>
-</div>
-
 <div class="pub-article-wrap">
     {% if not trip.cover_image %}
     <div class="pub-article-header">
         <h1 class="pub-article-title">{{ trip.name }}</h1>
         {% if trip.subtitle %}<p class="pub-article-subtitle">{{ trip.subtitle }}</p>{% endif %}
-        <div class="pub-article-meta" id="pub-article-meta"></div>
     </div>
     {% endif %}
 
+    <!-- Meta row (dates · travelers · copy link) — always shown under the title -->
+    <div class="pub-article-meta" id="pub-article-meta"></div>
+
     <!-- Document body -->
     <div id="pub-body-blocks"></div>
-
-    <!-- Share bar -->
-    <div class="pub-share-bar">
-        <span>share this adventure</span>
-        <button class="share-btn" onclick="copyLink()">copy link</button>
-        {% if trip.description %}
-        <span class="pub-meta-sep">·</span>
-        <span>{{ trip.description }}</span>
-        {% endif %}
-    </div>
 
     <!-- Blurbs section (map pins / notes) -->
     <div id="pub-blurbs-section"></div>
@@ -612,16 +575,19 @@ async function loadAndRender(){
         (b.photos||[]).forEach(p => { allPhotos[p.id] = p; });
     });
 
-    // Article meta
+    // Article meta (dates · travelers · the single copy-link button)
     const metaEl = document.getElementById('pub-article-meta');
     if(metaEl){
         const start = new Date(tripData.start_time);
         const end = new Date(tripData.end_time);
         const fmt = d => d.toLocaleDateString([],{month:'short',day:'numeric',year:'numeric'});
-        metaEl.innerHTML = `<span>${fmt(start)}</span><span class="pub-meta-sep">—</span><span>${fmt(end)}</span>`;
+        const openEnded = end.getFullYear() >= 2099;
+        let html = `<span>${fmt(start)}</span><span class="pub-meta-sep">—</span><span>${openEnded ? 'ongoing' : fmt(end)}</span>`;
         if((tripData.members||[]).length){
-            metaEl.innerHTML += `<span class="pub-meta-sep">·</span><span>${tripData.members.length} traveller${tripData.members.length>1?'s':''}</span>`;
+            html += `<span class="pub-meta-sep">·</span><span>${tripData.members.length} traveller${tripData.members.length>1?'s':''}</span>`;
         }
+        html += `<button class="pub-copy-link" onclick="copyLink()"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.07 0l1.41-1.41a5 5 0 00-7.07-7.07l-1.42 1.42"/><path d="M14 11a5 5 0 00-7.07 0L5.5 12.43a5 5 0 007.07 7.07l1.42-1.42"/></svg>copy link</button>`;
+        metaEl.innerHTML = html;
     }
 
     const locs = tripData.locations || [];
