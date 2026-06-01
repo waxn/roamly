@@ -2367,9 +2367,9 @@ def trip_public_create_comment(request, slug, blurb_id):
 
 def trip_public_view(request, slug):
     trip = get_object_or_404(Adventure, public_slug=slug)
-    description = trip.description or f'An adventure from {trip.start_time.strftime("%b %d")} to {trip.end_time.strftime("%b %d, %Y")} on Roamly.'
+    description = trip.subtitle or trip.description or f'An adventure from {trip.start_time.strftime("%b %d")} to {trip.end_time.strftime("%b %d, %Y")} on Roamly.'
     requires_pin = bool(trip.access_pin) and not _check_public_pin(request, trip)
-    return render(request, 'tracker/trip_public.html', {
+    return render(request, 'tracker/adventure_public.html', {
         'trip': trip,
         'slug': slug,
         'seo_description': description,

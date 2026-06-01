@@ -1,0 +1,706 @@
+{% extends "tracker/base.html" %}
+{% block title %}{{ trip.name }} — Roamly{% endblock %}
+{% block meta_description %}{{ seo_description }}{% endblock %}
+{% block og_title %}{{ trip.name }} — Roamly{% endblock %}
+{% block og_description %}{{ seo_description }}{% endblock %}
+{% block twitter_title %}{{ trip.name }} — Roamly{% endblock %}
+{% block twitter_description %}{{ seo_description }}{% endblock %}
+{% block robots_meta %}index, follow{% endblock %}
+
+{% block extra_css %}
+/* ── Article layout ── */
+.pub-article-wrap {
+    max-width: 760px; margin: 0 auto;
+    padding: 0 1rem 6rem;
+}
+
+/* Cover hero */
+.pub-cover {
+    width: 100%; max-height: 480px; overflow: hidden;
+    position: relative; margin-bottom: 0;
+    background: var(--bg-card);
+}
+.pub-cover img { width: 100%; height: 480px; object-fit: cover; display: block; }
+.pub-cover-scrim {
+    position: absolute; inset: 0;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.65) 100%);
+}
+.pub-cover-text {
+    position: absolute; bottom: 2rem; left: 50%; transform: translateX(-50%);
+    width: 100%; max-width: 760px; padding: 0 1.5rem;
+    text-align: center;
+}
+.pub-cover-title {
+    font-family: var(--font-display); font-size: 2.25rem; font-weight: 800;
+    color: #fff; line-height: 1.15; text-shadow: 0 2px 12px rgba(0,0,0,0.5);
+    text-transform: lowercase; margin: 0;
+}
+.pub-cover-subtitle {
+    font-family: var(--font-body); font-size: 1rem; color: rgba(255,255,255,0.85);
+    margin-top: 0.5rem; text-shadow: 0 1px 6px rgba(0,0,0,0.4);
+    font-weight: 500;
+}
+
+/* Article header (no cover image case) */
+.pub-article-header {
+    padding: 2.5rem 0 1.5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1.5rem;
+}
+.pub-article-title {
+    font-family: var(--font-display); font-size: 2rem; font-weight: 800;
+    line-height: 1.15; text-transform: lowercase; margin: 0;
+}
+.pub-article-subtitle {
+    font-family: var(--font-body); font-size: 1rem; color: var(--text-muted);
+    margin-top: 0.5rem; font-weight: 500;
+}
+.pub-article-meta {
+    display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;
+    font-size: 0.8125rem; color: var(--text-muted);
+    margin-top: 1rem;
+}
+.pub-meta-sep { opacity: 0.3; }
+
+/* Blocks */
+.pub-block { margin-bottom: 1.25rem; }
+
+.pub-heading-1 { font-family: var(--font-display); font-size: 1.625rem; font-weight: 800; line-height: 1.2; margin: 2rem 0 0.75rem; text-transform: lowercase; }
+.pub-heading-2 { font-family: var(--font-display); font-size: 1.25rem; font-weight: 700; line-height: 1.25; margin: 1.75rem 0 0.5rem; text-transform: lowercase; }
+.pub-heading-3 { font-family: var(--font-body); font-size: 1rem; font-weight: 700; color: var(--text-muted); line-height: 1.3; margin: 1.25rem 0 0.375rem; text-transform: lowercase; }
+
+.pub-paragraph {
+    font-family: var(--font-body); font-size: 0.9375rem;
+    line-height: 1.75; color: var(--text);
+}
+.pub-paragraph .pin-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--primary); color: #fff; font-size: 0.6rem; font-weight: 800;
+    vertical-align: super; cursor: pointer; margin: 0 1px;
+    box-shadow: 0 2px 6px rgba(13,191,172,0.4); user-select: none;
+}
+
+.pub-divider { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+
+.pub-callout {
+    border-radius: var(--radius-clay-sm); padding: 0.875rem 1.125rem;
+    display: flex; gap: 0.75rem; align-items: flex-start;
+    box-shadow: var(--clay-shadow-sm); margin: 1rem 0;
+}
+.pub-callout[data-color="mint"]     { background: rgba(13,191,172,0.1);  border: 1px solid rgba(13,191,172,0.3); }
+.pub-callout[data-color="coral"]    { background: rgba(255,107,107,0.1); border: 1px solid rgba(255,107,107,0.3); }
+.pub-callout[data-color="amber"]    { background: rgba(247,183,49,0.1);  border: 1px solid rgba(247,183,49,0.3); }
+.pub-callout[data-color="lavender"] { background: rgba(155,142,247,0.1); border: 1px solid rgba(155,142,247,0.3); }
+.pub-callout[data-color="sky"]      { background: rgba(91,164,229,0.1);  border: 1px solid rgba(91,164,229,0.3); }
+.pub-callout-emoji { font-size: 1.25rem; flex-shrink: 0; }
+.pub-callout-text { font-size: 0.9rem; line-height: 1.6; }
+
+.pub-map-embed {
+    border-radius: var(--radius-clay-sm); overflow: hidden;
+    border: 1px solid var(--border); position: relative; cursor: pointer;
+}
+.pub-map-embed .pub-map-inner { width: 100%; }
+.pub-map-embed .pub-map-overlay {
+    position: absolute; inset: 0;
+    background: transparent; display: flex; align-items: center; justify-content: center;
+    transition: background 0.2s;
+}
+.pub-map-embed.static .pub-map-overlay {
+    background: rgba(0,0,0,0.0);
+}
+.pub-map-embed.static:hover .pub-map-overlay {
+    background: rgba(0,0,0,0.15);
+}
+.pub-map-embed .interact-hint {
+    background: rgba(0,0,0,0.55); color: #fff; border-radius: 8px;
+    padding: 0.375rem 0.875rem; font-size: 0.75rem; font-weight: 700;
+    opacity: 0; transition: opacity 0.2s; pointer-events: none;
+}
+.pub-map-embed.static:hover .interact-hint { opacity: 1; }
+.pub-map-embed.interactive .pub-map-overlay { display: none; }
+
+.pub-photo-grid { margin: 0.5rem 0; }
+.pub-photo-row { display: flex; gap: 4px; }
+.pub-photo-row.layout-grid { flex-wrap: wrap; }
+.pub-photo-row.layout-grid .pub-photo-thumb { width: calc(33.33% - 3px); aspect-ratio: 1; }
+.pub-photo-row.layout-strip .pub-photo-thumb { height: 160px; flex: 1; }
+.pub-photo-row.layout-single .pub-photo-thumb { width: 100%; max-height: 400px; }
+.pub-photo-thumb { object-fit: cover; border-radius: 8px; cursor: pointer; display: block; }
+
+/* Lightbox */
+.lightbox-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.92); z-index: 9000;
+    display: none; align-items: center; justify-content: center;
+    flex-direction: column; gap: 1rem;
+}
+.lightbox-overlay.open { display: flex; }
+.lightbox-overlay img { max-width: 90vw; max-height: 85vh; border-radius: 10px; object-fit: contain; }
+.lightbox-close { position: absolute; top: 1rem; right: 1.5rem; color: #fff; font-size: 2rem; cursor: pointer; background: none; border: none; opacity: 0.75; transition: opacity 0.1s; }
+.lightbox-close:hover { opacity: 1; }
+.lightbox-prev, .lightbox-next {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    color: #fff; font-size: 2rem; cursor: pointer; background: rgba(0,0,0,0.4);
+    border: none; border-radius: 8px; padding: 0.375rem 0.75rem; opacity: 0.7; transition: opacity 0.1s;
+}
+.lightbox-prev { left: 1rem; }
+.lightbox-next { right: 1rem; }
+.lightbox-prev:hover, .lightbox-next:hover { opacity: 1; }
+
+.pub-location-card {
+    border-radius: var(--radius-clay-sm); border: 1px solid var(--border);
+    background: var(--bg-card); padding: 0.875rem 1.125rem;
+    box-shadow: var(--clay-shadow-sm); display: flex; gap: 0.875rem; align-items: center;
+    cursor: pointer; transition: border-color 0.15s;
+    margin: 0.5rem 0;
+}
+.pub-location-card:hover { border-color: var(--primary); }
+.pub-lc-icon { font-size: 1.625rem; flex-shrink: 0; }
+.pub-lc-name { font-weight: 700; font-size: 0.9375rem; }
+.pub-lc-notes { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.125rem; }
+
+/* Blurbs section */
+.pub-blurbs-section { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 1.5rem; }
+.pub-blurbs-title { font-family: var(--font-display); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 1rem; }
+.pub-blurb-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius-clay-sm); padding: 1rem 1.125rem;
+    box-shadow: var(--clay-shadow-sm); margin-bottom: 0.875rem;
+}
+.pub-blurb-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+.pub-blurb-author { font-weight: 700; font-size: 0.8125rem; }
+.pub-blurb-time { font-size: 0.75rem; color: var(--text-muted); margin-left: auto; }
+.pub-blurb-loc { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.375rem; }
+.pub-blurb-text { font-size: 0.9rem; line-height: 1.6; white-space: pre-wrap; }
+.pub-blurb-photos { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 0.5rem; }
+.pub-blurb-photos img { width: 72px; height: 72px; object-fit: cover; border-radius: 6px; cursor: pointer; }
+.pub-comment-thread { margin-top: 0.75rem; border-top: 1px solid var(--border); padding-top: 0.625rem; }
+.pub-comment-item { font-size: 0.8125rem; margin-bottom: 0.375rem; color: var(--text-muted); }
+.pub-comment-author { font-weight: 700; color: var(--text); }
+.pub-comment-form { display: flex; gap: 0.375rem; margin-top: 0.5rem; }
+.pub-comment-form input {
+    flex: 1; background: var(--bg-input); border: 1px solid var(--border); border-radius: 10px;
+    color: var(--text); font-family: var(--font-body); font-size: 0.8125rem;
+    padding: 0.3rem 0.625rem; outline: none;
+}
+.pub-comment-form input:focus { border-color: var(--primary); }
+.pub-comment-form button {
+    background: var(--primary); color: #fff; border: none; border-radius: 10px;
+    padding: 0.3rem 0.75rem; font-family: var(--font-body); font-size: 0.8125rem;
+    font-weight: 700; cursor: pointer;
+}
+
+/* Pin popup */
+.pin-popup-overlay {
+    position: fixed; inset: 0; z-index: 5000;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.55);
+}
+.pin-popup-overlay.open { display: flex; }
+.pin-popup-card {
+    background: var(--bg-elevated); border: 1px solid var(--border-bright);
+    border-radius: var(--radius-clay); box-shadow: var(--clay-shadow);
+    padding: 1.25rem; max-width: 340px; width: 90vw; position: relative;
+}
+.pin-popup-close { position: absolute; top: 0.5rem; right: 0.75rem; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.25rem; }
+.pin-popup-close:hover { color: var(--text); }
+.pin-popup-name { font-family: var(--font-display); font-weight: 700; font-size: 1.0625rem; margin-bottom: 0.375rem; }
+.pin-popup-notes { font-size: 0.8125rem; color: var(--text-muted); line-height: 1.5; }
+.pin-popup-mini-map { width: 100%; height: 140px; border-radius: 10px; margin-top: 0.75rem; overflow: hidden; }
+
+/* Gate modals */
+.name-gate { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 3000; }
+.name-gate-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; width: 340px; max-width: 90vw; }
+.name-gate-card h3 { font-size: 1.125rem; margin-bottom: 0.5rem; }
+.name-gate-card p { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1rem; line-height: 1.5; }
+.pin-input { letter-spacing: 0.15em; text-align: center; font-size: 1.25rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-family: var(--font-body); font-weight: 700; padding: 0.5rem; width: 100%; outline: none; margin-bottom: 0.75rem; }
+.pin-input:focus { border-color: var(--primary); }
+.pin-error { color: var(--danger); font-size: 0.8125rem; margin-bottom: 0.5rem; min-height: 1.25em; }
+.name-chip { display: inline-block; background: var(--bg-input); border: 1px solid var(--border); border-radius: 20px; padding: 3px 10px; font-size: 0.75rem; cursor: pointer; margin: 0 4px 4px 0; transition: all 0.12s; }
+.name-chip:hover { border-color: var(--primary); color: var(--primary); }
+
+/* Share bar */
+.pub-share-bar {
+    display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+    padding: 0.875rem 0; border-top: 1px solid var(--border);
+    margin-top: 2rem; font-size: 0.8125rem; color: var(--text-muted);
+}
+.share-btn {
+    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-muted); font-family: var(--font-body); font-size: 0.75rem; font-weight: 700;
+    padding: 0.3rem 0.75rem; cursor: pointer; transition: all 0.15s;
+}
+.share-btn:hover { color: var(--text); border-color: var(--text-muted); }
+
+/* Back nav */
+.pub-nav {
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 0.75rem;
+    background: var(--bg-glass); backdrop-filter: blur(8px);
+    position: sticky; top: var(--nav-h); z-index: 200;
+}
+.pub-back-btn { background: none; border: none; color: var(--text-muted); font-family: var(--font-body); font-size: 0.8125rem; cursor: pointer; display: flex; align-items: center; gap: 0.375rem; transition: color 0.1s; }
+.pub-back-btn:hover { color: var(--primary); }
+.pub-nav-title { font-weight: 700; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pub-nav-spacer { flex: 1; }
+
+@media (max-width: 640px) {
+    .pub-cover img { height: 300px; }
+    .pub-cover-title { font-size: 1.625rem; }
+    .pub-article-title { font-size: 1.5rem; }
+    .pub-photo-row.layout-grid .pub-photo-thumb { width: calc(50% - 2px); }
+}
+{% endblock %}
+
+{% block content %}
+{% if requires_pin %}
+<div class="name-gate" id="pin-gate">
+    <div class="name-gate-card">
+        <h3>this adventure is private</h3>
+        <p>enter the access pin provided by the creator to view this adventure.</p>
+        <input type="text" class="pin-input" id="pin-input" inputmode="numeric" pattern="[0-9a-zA-Z]*"
+            placeholder="PIN" maxlength="20"
+            onkeydown="if(event.key==='Enter') verifyPin()">
+        <div class="pin-error" id="pin-error"></div>
+        <button class="btn btn-primary" style="width:100%;" onclick="verifyPin()">unlock</button>
+    </div>
+</div>
+{% endif %}
+
+<!-- Name gate for comments -->
+<div class="name-gate" id="name-gate" {% if requires_pin %}style="display:none;"{% endif %}>
+    <div class="name-gate-card">
+        <h3>leave a comment?</h3>
+        <p>enter your name to post comments. it's saved locally.</p>
+        <div id="name-chips" style="margin-bottom:0.75rem;"></div>
+        <input type="text" id="gate-name-input" class="form-control" placeholder="your name" style="margin-bottom:0.75rem;"
+               onkeydown="if(event.key==='Enter') confirmName()">
+        <button class="btn btn-primary" style="width:100%;" onclick="confirmName()">continue</button>
+        <button class="btn" style="width:100%;margin-top:0.5rem;background:none;border:1px solid var(--border);color:var(--text-muted);"
+                onclick="skipName()">skip (no comments)</button>
+    </div>
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox-overlay" id="lightbox">
+    <button class="lightbox-close" onclick="closeLightbox()">×</button>
+    <button class="lightbox-prev" onclick="lightboxStep(-1)">‹</button>
+    <img id="lightbox-img" src="" alt="">
+    <button class="lightbox-next" onclick="lightboxStep(1)">›</button>
+</div>
+
+<!-- Pin popup -->
+<div class="pin-popup-overlay" id="pin-popup-overlay">
+    <div class="pin-popup-card">
+        <button class="pin-popup-close" id="pin-popup-close">×</button>
+        <div class="pin-popup-name" id="pin-popup-name"></div>
+        <div class="pin-popup-notes" id="pin-popup-notes"></div>
+        <div class="pin-popup-mini-map" id="pin-popup-mini-map"></div>
+    </div>
+</div>
+
+{% if not requires_pin %}
+<!-- Cover hero -->
+{% if trip.cover_image %}
+<div class="pub-cover">
+    <img src="{{ trip.cover_image.url }}" alt="{{ trip.name }}">
+    <div class="pub-cover-scrim"></div>
+    <div class="pub-cover-text">
+        <h1 class="pub-cover-title">{{ trip.name }}</h1>
+        {% if trip.subtitle %}<p class="pub-cover-subtitle">{{ trip.subtitle }}</p>{% endif %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Sticky sub-nav -->
+<div class="pub-nav">
+    <button class="pub-back-btn" onclick="history.back()">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+        back
+    </button>
+    {% if not trip.cover_image %}
+    <span class="pub-nav-title">{{ trip.name }}</span>
+    {% endif %}
+    <div class="pub-nav-spacer"></div>
+    <button class="share-btn" onclick="copyLink()">copy link</button>
+</div>
+
+<div class="pub-article-wrap">
+    {% if not trip.cover_image %}
+    <div class="pub-article-header">
+        <h1 class="pub-article-title">{{ trip.name }}</h1>
+        {% if trip.subtitle %}<p class="pub-article-subtitle">{{ trip.subtitle }}</p>{% endif %}
+        <div class="pub-article-meta" id="pub-article-meta"></div>
+    </div>
+    {% endif %}
+
+    <!-- Document body -->
+    <div id="pub-body-blocks"></div>
+
+    <!-- Share bar -->
+    <div class="pub-share-bar">
+        <span>share this adventure</span>
+        <button class="share-btn" onclick="copyLink()">copy link</button>
+        {% if trip.description %}
+        <span class="pub-meta-sep">·</span>
+        <span>{{ trip.description }}</span>
+        {% endif %}
+    </div>
+
+    <!-- Blurbs section (map pins / notes) -->
+    <div id="pub-blurbs-section"></div>
+</div>
+{% endif %}
+
+<script>
+const SLUG = '{{ slug }}';
+const CSRF = '{{ csrf_token }}';
+const HAS_PIN = {% if trip.access_pin %}true{% else %}false{% endif %};
+const mapStyles = {
+    'Dark':    { version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf', sources:{carto:{type:'raster',tiles:['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'],tileSize:256}}, layers:[{id:'carto',type:'raster',source:'carto'}] },
+    'Streets': { version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf', sources:{osm:{type:'raster',tiles:['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'],tileSize:256}}, layers:[{id:'osm',type:'raster',source:'osm'}] },
+};
+
+let tripData = {};
+let placesMap = {};
+let lightboxImages = [];
+let lightboxIdx = 0;
+let guestName = localStorage.getItem('roamly_guest_name') || '';
+let pinMiniMap = null;
+let embeddedMaps = {};
+
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function copyLink(){ navigator.clipboard.writeText(location.href).then(()=>alert('link copied!')); }
+
+// ── PIN gate ────────────────────────────────────────────────────────────────
+async function verifyPin(){
+    const pin = document.getElementById('pin-input').value.trim();
+    const r = await fetch(`/api/trip/${SLUG}/verify-pin/`, {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+        body: JSON.stringify({pin})
+    });
+    if(r.ok){ location.reload(); }
+    else { document.getElementById('pin-error').textContent = 'incorrect pin'; }
+}
+
+// ── Name gate ───────────────────────────────────────────────────────────────
+function confirmName(){
+    const name = document.getElementById('gate-name-input').value.trim();
+    if(!name) return;
+    guestName = name;
+    localStorage.setItem('roamly_guest_name', name);
+    const prev = JSON.parse(localStorage.getItem('roamly_guest_names') || '[]');
+    if(!prev.includes(name)){ prev.unshift(name); localStorage.setItem('roamly_guest_names', JSON.stringify(prev.slice(0,5))); }
+    document.getElementById('name-gate').style.display = 'none';
+}
+function skipName(){ document.getElementById('name-gate').style.display = 'none'; }
+
+// ── Lightbox ────────────────────────────────────────────────────────────────
+function openLightbox(images, idx){
+    lightboxImages = images; lightboxIdx = idx;
+    document.getElementById('lightbox-img').src = images[idx];
+    document.getElementById('lightbox').classList.add('open');
+}
+function closeLightbox(){ document.getElementById('lightbox').classList.remove('open'); }
+function lightboxStep(d){
+    lightboxIdx = (lightboxIdx + d + lightboxImages.length) % lightboxImages.length;
+    document.getElementById('lightbox-img').src = lightboxImages[lightboxIdx];
+}
+document.getElementById('lightbox').addEventListener('click', e => { if(e.target === e.currentTarget) closeLightbox(); });
+
+// ── Pin popup ────────────────────────────────────────────────────────────────
+document.getElementById('pin-popup-close').addEventListener('click', () => {
+    document.getElementById('pin-popup-overlay').classList.remove('open');
+    if(pinMiniMap){ pinMiniMap.remove(); pinMiniMap = null; }
+});
+
+function openPinPopup(placeId){
+    const place = placesMap[placeId];
+    if(!place) return;
+    document.getElementById('pin-popup-name').textContent = place.name;
+    document.getElementById('pin-popup-notes').textContent = place.notes || '';
+    document.getElementById('pin-popup-overlay').classList.add('open');
+    const miniEl = document.getElementById('pin-popup-mini-map');
+    miniEl.innerHTML = '';
+    if(pinMiniMap){ pinMiniMap.remove(); pinMiniMap = null; }
+    const theme = localStorage.getItem('roamly_theme') === 'light' ? 'Streets' : 'Dark';
+    pinMiniMap = new maplibregl.Map({container:miniEl, style:mapStyles[theme], center:[place.longitude,place.latitude], zoom:13, interactive:false});
+    pinMiniMap.on('load',()=>{ new maplibregl.Marker().setLngLat([place.longitude,place.latitude]).addTo(pinMiniMap); });
+}
+
+// ── Inline pin ref rendering ─────────────────────────────────────────────────
+function renderPinRefs(text){
+    let counter = 0;
+    return esc(text).replace(/\[\^pin:(\d+)\]/g, (_, id) => {
+        counter++;
+        const place = placesMap[parseInt(id)];
+        const title = place ? esc(place.name) : '?';
+        return `<span class="pin-badge" title="${title}" data-pin-id="${id}">${counter}</span>`;
+    });
+}
+
+// ── Block renderer ────────────────────────────────────────────────────────────
+function renderBlock(block, allPhotos){
+    const c = block.content || {};
+    if(block.type === 'heading'){
+        const level = c.level || 2;
+        return `<div class="pub-block pub-heading-${level}">${esc(c.text||'')}</div>`;
+    }
+    if(block.type === 'paragraph'){
+        return `<p class="pub-block pub-paragraph">${renderPinRefs(c.text||'')}</p>`;
+    }
+    if(block.type === 'divider'){
+        return `<hr class="pub-divider pub-block">`;
+    }
+    if(block.type === 'callout'){
+        return `<div class="pub-block pub-callout" data-color="${esc(c.color||'mint')}">
+            <span class="pub-callout-emoji">${esc(c.emoji||'📍')}</span>
+            <div class="pub-callout-text">${esc(c.text||'')}</div>
+        </div>`;
+    }
+    if(block.type === 'map_embed'){
+        const height = c.height_px || 360;
+        const mapId = 'embed-map-' + Math.random().toString(36).slice(2,8);
+        return `<div class="pub-block pub-map-embed static" id="${mapId}-wrap" data-map-id="${mapId}" data-config='${JSON.stringify(c)}'>
+            <div id="${mapId}" class="pub-map-inner" style="height:${height}px;"></div>
+            <div class="pub-map-overlay">
+                <span class="interact-hint">click to interact</span>
+            </div>
+        </div>`;
+    }
+    if(block.type === 'photo_grid'){
+        const ids = c.photo_ids || [];
+        const layout = c.layout || 'grid';
+        const imgs = ids.map((pid, i) => {
+            const ph = allPhotos[pid];
+            if(!ph) return '';
+            return `<img class="pub-photo-thumb" src="${esc(ph.thumb||ph.url)}" data-full="${esc(ph.url)}" data-idx="${i}" loading="lazy">`;
+        }).join('');
+        if(!imgs) return '';
+        return `<div class="pub-block pub-photo-grid">
+            <div class="pub-photo-row layout-${esc(layout)}">${imgs}</div>
+        </div>`;
+    }
+    if(block.type === 'location_card'){
+        const place = placesMap[c.place_id];
+        if(!place) return '';
+        return `<div class="pub-block pub-location-card" data-place-id="${c.place_id}">
+            <span class="pub-lc-icon">📍</span>
+            <div><div class="pub-lc-name">${esc(place.name)}</div>${place.notes?`<div class="pub-lc-notes">${esc(place.notes)}</div>`:''}</div>
+        </div>`;
+    }
+    return '';
+}
+
+// ── Blurb renderer ────────────────────────────────────────────────────────────
+function renderBlurb(b){
+    const dt = new Date(b.created_at);
+    const timeStr = dt.toLocaleDateString([], {month:'short',day:'numeric',year:'numeric'});
+    const photos = b.photos || [];
+    const photoHtml = photos.length ? `<div class="pub-blurb-photos">${photos.map((p,i)=>`<img src="${esc(p.thumb||p.url)}" data-full="${esc(p.url)}" data-blurb-idx="${i}" loading="lazy" alt="">`).join('')}</div>` : '';
+    return `<div class="pub-blurb-card" id="blurb-${b.id}">
+        <div class="pub-blurb-header">
+            <span class="pub-blurb-author">${esc(b.author)}</span>
+            <span class="pub-blurb-time">${timeStr}</span>
+        </div>
+        ${b.location_name ? `<div class="pub-blurb-loc">📍 ${esc(b.location_name)}</div>` : ''}
+        <div class="pub-blurb-text">${esc(b.text)}</div>
+        ${photoHtml}
+        <div class="pub-comment-thread" id="comments-${b.id}">
+            <div id="comment-list-${b.id}"></div>
+            <div class="pub-comment-form">
+                <input type="text" placeholder="leave a comment…" id="comment-input-${b.id}"
+                    onkeydown="if(event.key==='Enter') postComment(${b.id})">
+                <button onclick="postComment(${b.id})">post</button>
+            </div>
+        </div>
+    </div>`;
+}
+
+async function loadComments(blurbId){
+    const r = await fetch(`/api/trip/${SLUG}/blurbs/${blurbId}/comments/`);
+    if(!r.ok) return;
+    const d = await r.json();
+    const list = document.getElementById(`comment-list-${blurbId}`);
+    if(!list) return;
+    list.innerHTML = (d.comments||[]).map(c =>
+        `<div class="pub-comment-item"><span class="pub-comment-author">${esc(c.author)}:</span> ${esc(c.text)}</div>`
+    ).join('');
+}
+
+async function postComment(blurbId){
+    const input = document.getElementById(`comment-input-${blurbId}`);
+    const text = input.value.trim();
+    if(!text) return;
+    if(!guestName){ document.getElementById('name-gate').style.display = 'flex'; return; }
+    const r = await fetch(`/api/trip/${SLUG}/blurbs/${blurbId}/comments/create/`, {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+        body: JSON.stringify({text, guest_name: guestName})
+    });
+    if(r.ok){ input.value = ''; loadComments(blurbId); }
+}
+
+// ── Map embed activation ──────────────────────────────────────────────────────
+function activateMapEmbed(wrapEl, locs, blurbFeatures){
+    const mapId = wrapEl.dataset.mapId;
+    const config = JSON.parse(wrapEl.dataset.config || '{}');
+    if(embeddedMaps[mapId]) return;
+
+    const theme = localStorage.getItem('roamly_theme') === 'light' ? 'Streets' : 'Dark';
+    const m = new maplibregl.Map({
+        container: mapId, style: mapStyles[theme],
+        center: config.center_lat && config.center_lng ? [config.center_lng, config.center_lat] : [0, 20],
+        zoom: config.zoom || 10,
+    });
+    embeddedMaps[mapId] = m;
+    m.addControl(new maplibregl.NavigationControl(), 'bottom-right');
+
+    m.on('load', () => {
+        if(config.show_track !== false && locs.length){
+            const coords = locs.map(l=>[l.lng,l.lat]);
+            m.addSource(mapId+'-track',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:coords}}});
+            m.addLayer({id:mapId+'-line',type:'line',source:mapId+'-track',paint:{'line-color':'#0DBFAC','line-width':2,'line-opacity':0.8}});
+            if(!config.center_lat){
+                const lngs=locs.map(l=>l.lng),lats=locs.map(l=>l.lat);
+                m.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]],{padding:40,maxZoom:14});
+            }
+        }
+        if(config.show_places !== false){
+            const features = Object.values(placesMap).map(p=>({type:'Feature',geometry:{type:'Point',coordinates:[p.longitude,p.latitude]},properties:{name:p.name,notes:p.notes||''}}));
+            if(features.length){
+                m.addSource(mapId+'-pl',{type:'geojson',data:{type:'FeatureCollection',features}});
+                m.addLayer({id:mapId+'-places',type:'circle',source:mapId+'-pl',paint:{'circle-color':'#9B8EF7','circle-radius':8,'circle-stroke-width':2,'circle-stroke-color':'#fff'}});
+                m.on('click',mapId+'-places',e=>{
+                    const p=e.features[0].properties;
+                    new maplibregl.Popup({offset:10}).setLngLat(e.features[0].geometry.coordinates.slice()).setHTML(`<strong>${esc(p.name)}</strong>${p.notes?`<div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">${esc(p.notes)}</div>`:''}`).addTo(m);
+                });
+            }
+        }
+        // Blurb pins on every map embed
+        const blurbFeat = blurbFeatures.filter(b=>b.geometry);
+        if(blurbFeat.length){
+            m.addSource(mapId+'-bl',{type:'geojson',data:{type:'FeatureCollection',features:blurbFeat}});
+            m.addLayer({id:mapId+'-blurbs',type:'circle',source:mapId+'-bl',paint:{'circle-color':'#FF6B6B','circle-radius':7,'circle-stroke-width':2,'circle-stroke-color':'#fff'}});
+            m.on('click',mapId+'-blurbs',e=>{
+                const p=e.features[0].properties;
+                new maplibregl.Popup({offset:10}).setLngLat(e.features[0].geometry.coordinates.slice()).setHTML(`<div style="font-weight:700;font-size:0.8125rem;">${esc(p.author)}</div><div style="font-size:0.8125rem;color:var(--text-muted);margin-top:2px;">${esc(p.text)}</div>`).addTo(m);
+            });
+        }
+    });
+    wrapEl.classList.remove('static');
+    wrapEl.classList.add('interactive');
+}
+
+// ── Load and render ────────────────────────────────────────────────────────────
+async function loadAndRender(){
+    const r = await fetch(`/api/trip/${SLUG}/detail/`);
+    if(!r.ok) return;
+    tripData = await r.json();
+
+    // Build placesMap
+    (tripData.places||[]).forEach(p => { placesMap[p.id] = p; });
+
+    // Build blurb GeoJSON features for maps
+    const blurbFeatures = (tripData.blurbs||[]).filter(b=>b.latitude&&b.longitude).map(b=>({
+        type:'Feature',
+        geometry:{type:'Point',coordinates:[b.longitude,b.latitude]},
+        properties:{id:b.id,author:b.author,text:(b.text||'').slice(0,120)}
+    }));
+
+    // Build photo lookup from blurbs (blurb photos are the photo store for now)
+    const allPhotos = {};
+    (tripData.blurbs||[]).forEach(b => {
+        (b.photos||[]).forEach(p => { allPhotos[p.id] = p; });
+    });
+
+    // Article meta
+    const metaEl = document.getElementById('pub-article-meta');
+    if(metaEl){
+        const start = new Date(tripData.start_time);
+        const end = new Date(tripData.end_time);
+        const fmt = d => d.toLocaleDateString([],{month:'short',day:'numeric',year:'numeric'});
+        metaEl.innerHTML = `<span>${fmt(start)}</span><span class="pub-meta-sep">—</span><span>${fmt(end)}</span>`;
+        if((tripData.members||[]).length){
+            metaEl.innerHTML += `<span class="pub-meta-sep">·</span><span>${tripData.members.length} traveller${tripData.members.length>1?'s':''}</span>`;
+        }
+    }
+
+    const locs = tripData.locations || [];
+
+    // Render body blocks
+    const bodyEl = document.getElementById('pub-body-blocks');
+    if(bodyEl){
+        const body = tripData.body || [];
+        if(body.length){
+            bodyEl.innerHTML = body.map(b => renderBlock(b, allPhotos)).join('');
+        } else if(tripData.description){
+            bodyEl.innerHTML = `<p class="pub-block pub-paragraph">${esc(tripData.description)}</p>`;
+        }
+
+        // Activate map embeds (click to interact)
+        bodyEl.querySelectorAll('.pub-map-embed').forEach(wrap => {
+            wrap.addEventListener('click', () => activateMapEmbed(wrap, locs, blurbFeatures));
+        });
+
+        // Photo lightbox
+        const photoImages = [];
+        bodyEl.querySelectorAll('.pub-photo-thumb').forEach(img => {
+            const fullUrl = img.dataset.full || img.src;
+            const idx = photoImages.length;
+            photoImages.push(fullUrl);
+            img.addEventListener('click', () => openLightbox(photoImages, idx));
+        });
+
+        // Pin badges
+        bodyEl.addEventListener('click', e => {
+            const badge = e.target.closest('.pin-badge');
+            if(!badge) return;
+            openPinPopup(parseInt(badge.dataset.pinId));
+        });
+
+        // Location card click → pin popup
+        bodyEl.querySelectorAll('.pub-location-card').forEach(card => {
+            card.addEventListener('click', () => openPinPopup(parseInt(card.dataset.placeId)));
+        });
+    }
+
+    // Render blurbs section
+    const blurbsEl = document.getElementById('pub-blurbs-section');
+    const blurbs = tripData.blurbs || [];
+    if(blurbsEl && blurbs.length){
+        blurbsEl.innerHTML = `<div class="pub-blurbs-section">
+            <div class="pub-blurbs-title">pins & notes</div>
+            ${blurbs.map(renderBlurb).join('')}
+        </div>`;
+        // Load comments for each blurb
+        blurbs.forEach(b => {
+            loadComments(b.id);
+            // Blurb photo lightbox
+            document.querySelectorAll(`#blurb-${b.id} .pub-blurb-photos img`).forEach((img,i) => {
+                const urls = (b.photos||[]).map(p=>p.url);
+                img.addEventListener('click', () => openLightbox(urls, i));
+            });
+        });
+    }
+}
+
+// ── Name gate init ────────────────────────────────────────────────────────────
+{% if not requires_pin %}
+(function(){
+    const prev = JSON.parse(localStorage.getItem('roamly_guest_names') || '[]');
+    const chips = document.getElementById('name-chips');
+    if(chips && prev.length){
+        chips.innerHTML = prev.map(n=>`<span class="name-chip" onclick="quickName('${esc(n)}')">${esc(n)}</span>`).join('');
+    }
+    if(guestName){
+        // Already have a name, skip the gate
+        const gate = document.getElementById('name-gate');
+        if(gate) gate.style.display = 'none';
+    }
+})();
+function quickName(n){ guestName = n; document.getElementById('name-gate').style.display = 'none'; }
+loadAndRender();
+{% endif %}
+</script>
+{% endblock %}
