@@ -1203,7 +1203,7 @@ async function loadTrip(){
     tripData = await r.json();
     blocks = (tripData.body||[]).map(b=>({...b, _id:uid()}));
     places = (tripData.places||[]).map(p=>({id:p.id,name:p.name,latitude:p.latitude,longitude:p.longitude,notes:p.notes||''}));
-    blurbs = (tripData.blurbs_detail||[]);
+    // blurbs are loaded from timeline API in init(), not here
 
     if(tripData.cover_image){
         showCoverPreview(tripData.cover_image);
