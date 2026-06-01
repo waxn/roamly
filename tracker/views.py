@@ -2375,6 +2375,7 @@ def trip_public_view(request, slug):
         'seo_description': description,
         'seo_canonical': request.build_absolute_uri(),
         'requires_pin': requires_pin,
+        'standalone': True,
     })
 
 adventure_public_view = trip_public_view
