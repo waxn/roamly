@@ -87,10 +87,10 @@ Single Django app (`tracker/`) inside the `roamly` project. No separate services
 - `APIKey` — 64-char hex token for mobile push auth
 
 **Adventures** (named journeys, formerly "Trips"):
-- `Adventure` — time-bounded journey (device, creator, start_time, end_time, public_slug). `.locations` property filters Location by device + time range.
-- `AdventurePlace` — named map pin within an adventure
+- `Adventure` — time-bounded journey (device, creator, start_time, end_time, public_slug, subtitle, cover_image, cover_image_thumbnail, body). `body` is a JSONField storing an ordered list of typed blocks (heading, paragraph, map_embed, photo_grid, divider, callout, location_card). `.locations` property filters Location by device + time range.
+- `AdventurePlace` — named map pin within an adventure; referenced in paragraph blocks via `[^pin:ID]` inline refs
 - `AdventureMember` — shared access (roles: creator, member)
-- `AdventureBlurb` — timeline post with optional photos and map location
+- `AdventureBlurb` — map pin with a note (latitude/longitude required for pin display); rendered as coral map markers, not as timeline cards
 - `AdventureBlurbPhoto` — photo attached to a blurb (max 5)
 - `AdventureMilestone` — titled event with emoji and date
 - `AdventureComment` — comment on a blurb
@@ -110,7 +110,15 @@ Single Django app (`tracker/`) inside the `roamly` project. No separate services
 
 Adventure API URLs still use `/api/trips/` paths (kept for backward compat with existing clients). The view functions are also still named `trips_api`, `trip_detail`, etc. internally — only the UI and model classes use "adventure" naming.
 
-Public adventure pages use `/adventure/<slug>/`; public API uses `/api/trip/<slug>/`.
+Public adventure pages use `/adventure/<slug>/` (renders `adventure_public.html`); public API uses `/api/trip/<slug>/`.
+
+Adventure CMS editor lives at `/adventures/<id>/edit/` (requires login + membership). New API endpoints added:
+- `PATCH /api/trips/<id>/body/` — save document body JSON (also accepts `name`, `subtitle`)
+- `POST /api/trips/<id>/cover/` — upload cover image
+- `POST /api/trips/<id>/cover/delete/` — remove cover image
+- `POST /api/trips/<id>/blurbs/<id>/update/` — edit a blurb (text, lat/lng, location_name)
+
+Inline pin refs: `[^pin:42]` in paragraph block text references an `AdventurePlace` by id. Rendered as numbered superscript badges at display time; number computed from document order, not stored in DB.
 
 ## Map rendering
 
