@@ -130,8 +130,8 @@
 .editor-hero[data-has-cover] .editor-subtitle { color: rgba(255,255,255,0.78); }
 .editor-title::placeholder, .editor-subtitle::placeholder { opacity: 0.35; }
 
-/* ── Blocks area ── */
-.blocks-area { flex: 1; padding: 0.5rem 1.5rem 4rem; }
+/* ── Blocks area — extra left padding for the hover toolbar gutter ── */
+.blocks-area { flex: 1; padding: 0.5rem 1.5rem 4rem 3rem; }
 
 /* Block wrapper */
 .block-wrap { position: relative; margin-bottom: 0.125rem; border-radius: 10px; transition: background 0.1s; }
@@ -139,19 +139,20 @@
 .block-wrap.drag-over-bottom { border-bottom: 2px solid var(--primary); }
 .block-wrap:hover > .block-toolbar { opacity: 1; }
 
+/* Toolbar lives in the left gutter, inside the doc pane (never clipped) */
 .block-toolbar {
-    position: absolute; right: -44px; top: 50%; transform: translateY(-50%);
+    position: absolute; left: -2.5rem; top: 2px;
     display: flex; flex-direction: column; gap: 2px;
     opacity: 0; transition: opacity 0.1s; z-index: 10;
 }
 .block-tool-btn {
-    width: 32px; height: 32px; background: var(--bg-elevated);
-    border: 1px solid var(--border); border-radius: 9px;
+    width: 28px; height: 28px; background: var(--bg-elevated);
+    border: 1px solid var(--border); border-radius: 8px;
     color: var(--text-muted); cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     transition: all 0.1s;
 }
-.block-tool-btn svg { width: 14px; height: 14px; }
+.block-tool-btn svg { width: 13px; height: 13px; }
 .block-tool-btn:hover { color: var(--text); border-color: var(--text-muted); background: var(--bg-card); }
 .block-tool-btn.drag-handle { cursor: grab; }
 .block-tool-btn.danger:hover { color: var(--danger); border-color: var(--danger); }
@@ -423,7 +424,6 @@
     .editor-shell { flex-direction: column; }
     .editor-doc { flex: 0 0 55vh; max-width: none; border-right: none; border-bottom: 1px solid var(--border); }
     .editor-map-pane { flex: 1; min-height: 240px; }
-    .block-toolbar { right: -38px; }
     .settings-panel { width: 100%; border-left: none; border-top: 1px solid var(--border); }
 }
 {% endblock %}
