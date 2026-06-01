@@ -1460,6 +1460,17 @@ def _get_trip_for_user(trip_id, user):
     return trip
 
 
+def _body_word_count(body):
+    """Count words across all text-bearing blocks in a document body list."""
+    words = 0
+    for block in body:
+        btype = block.get('type')
+        content = block.get('content', {})
+        if btype in ('heading', 'paragraph', 'callout'):
+            words += len(content.get('text', '').split())
+    return words
+
+
 @login_required
 def trips_api(request):
     owned_ids = Adventure.objects.filter(device__user=request.user).values_list('id', flat=True)
@@ -1471,10 +1482,13 @@ def trips_api(request):
         loc_count = trip.locations.count()
         member_count = trip.members.count()
         is_creator = trip.device.user == request.user or (trip.creator == request.user)
+        word_count = _body_word_count(trip.body or [])
+        read_time_min = max(1, round(word_count / 200)) if word_count else 0
         data.append({
             "id": trip.id,
             "name": trip.name,
             "description": trip.description,
+            "subtitle": trip.subtitle,
             "device": trip.device.name or trip.device.device_id,
             "start_time": trip.start_time.isoformat(),
             "end_time": trip.end_time.isoformat(),
@@ -1482,6 +1496,9 @@ def trips_api(request):
             "member_count": member_count,
             "is_public": bool(trip.public_slug),
             "is_creator": is_creator,
+            "cover_thumbnail": trip.cover_image_thumbnail.url if trip.cover_image_thumbnail else None,
+            "word_count": word_count,
+            "read_time_min": read_time_min,
         })
     return JsonResponse({"trips": data})
 
@@ -1642,6 +1659,10 @@ def _trip_detail_inner(request, trip_id):
         "id": trip.id,
         "name": trip.name,
         "description": trip.description,
+        "subtitle": trip.subtitle,
+        "body": trip.body or [],
+        "cover_image": trip.cover_image.url if trip.cover_image else None,
+        "cover_thumbnail": trip.cover_image_thumbnail.url if trip.cover_image_thumbnail else None,
         "device_name": trip.device.name or trip.device.device_id,
         "start_time": trip.start_time.isoformat(),
         "end_time": trip.end_time.isoformat(),
@@ -1679,6 +1700,8 @@ def update_trip(request, trip_id):
         trip.description = data['description']
     if 'name' in data:
         trip.name = data['name']
+    if 'subtitle' in data:
+        trip.subtitle = data['subtitle'][:400]
     if 'start_time' in data and data['start_time']:
         try:
             start = datetime.fromisoformat(data['start_time'].replace('Z', '+00:00'))
@@ -2134,14 +2157,35 @@ def trip_public_detail_api(request, slug):
         "city": l.city, "country": l.country,
     } for l in locations]
     members = [{"username": m.user.username, "role": m.role} for m in trip.members.select_related('user')]
+    places = [{"id": p.id, "name": p.name, "latitude": p.latitude, "longitude": p.longitude, "notes": p.notes}
+              for p in trip.places.all()]
+    blurbs = []
+    for b in trip.blurbs.select_related('author').prefetch_related('photos'):
+        blurbs.append({
+            "id": b.id,
+            "author": b.author.username,
+            "text": b.text,
+            "latitude": b.latitude,
+            "longitude": b.longitude,
+            "location_name": b.location_name,
+            "photos": [{"id": p.id, "url": p.image.url, "thumb": p.thumbnail.url if p.thumbnail else p.image.url}
+                       for p in b.photos.all()],
+            "created_at": b.created_at.isoformat(),
+        })
     return JsonResponse({
         "id": trip.id,
         "name": trip.name,
         "description": trip.description,
+        "subtitle": trip.subtitle,
+        "body": trip.body or [],
+        "cover_image": trip.cover_image.url if trip.cover_image else None,
+        "cover_thumbnail": trip.cover_image_thumbnail.url if trip.cover_image_thumbnail else None,
         "start_time": trip.start_time.isoformat(),
         "end_time": trip.end_time.isoformat(),
         "locations": locs,
         "members": members,
+        "places": places,
+        "blurbs": blurbs,
     })
 
 
