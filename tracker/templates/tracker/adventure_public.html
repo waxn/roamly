@@ -155,7 +155,8 @@
     margin: 0.5rem 0;
 }
 .pub-location-card:hover { border-color: var(--primary); }
-.pub-lc-icon { font-size: 1.625rem; flex-shrink: 0; }
+.pub-lc-icon { flex-shrink: 0; color: var(--clay-lavender); display: flex; }
+.pub-lc-icon svg { width: 24px; height: 24px; }
 .pub-lc-name { font-weight: 700; font-size: 0.9375rem; }
 .pub-lc-notes { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.125rem; }
 
@@ -483,7 +484,7 @@ function renderBlock(block, allPhotos){
         const place = placesMap[c.place_id];
         if(!place) return '';
         return `<div class="pub-block pub-location-card" data-place-id="${c.place_id}">
-            <span class="pub-lc-icon">📍</span>
+            <span class="pub-lc-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
             <div><div class="pub-lc-name">${esc(place.name)}</div>${place.notes?`<div class="pub-lc-notes">${esc(place.notes)}</div>`:''}</div>
         </div>`;
     }
@@ -501,7 +502,7 @@ function renderBlurb(b){
             <span class="pub-blurb-author">${esc(b.author)}</span>
             <span class="pub-blurb-time">${timeStr}</span>
         </div>
-        ${b.location_name ? `<div class="pub-blurb-loc">📍 ${esc(b.location_name)}</div>` : ''}
+        ${b.location_name ? `<div class="pub-blurb-loc"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;vertical-align:-1px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg> ${esc(b.location_name)}</div>` : ''}
         <div class="pub-blurb-text">${esc(b.text)}</div>
         ${photoHtml}
         <div class="pub-comment-thread" id="comments-${b.id}">

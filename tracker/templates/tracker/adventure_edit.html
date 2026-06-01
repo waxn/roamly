@@ -816,14 +816,15 @@ function buildBlockEl(block, index){
             <div class="photo-grid-inner layout-${esc(layout)}">${thumbs||'<span style="color:var(--text-muted);font-size:0.8125rem;padding:0.5rem 0;">no photos — click edit to add</span>'}</div>
         </div>`;
     } else if(block.type === 'location_card'){
+        const pinSvg = `<span class="loc-card-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></span>`;
         const pl = places.find(p => p.id === c.place_id);
         if(pl){
             inner = `<div class="block-location-card">
-                <span class="loc-card-icon">📍</span>
+                ${pinSvg}
                 <div><div class="loc-card-name">${esc(pl.name)}</div>${pl.notes?`<div class="loc-card-notes">${esc(pl.notes)}</div>`:''}</div>
             </div>`;
         } else {
-            inner = `<div class="block-location-card"><span class="loc-card-icon">📍</span><div class="loc-card-name" style="color:var(--text-muted)">place not found</div></div>`;
+            inner = `<div class="block-location-card">${pinSvg}<div class="loc-card-name" style="color:var(--text-muted)">place not found</div></div>`;
         }
     }
 
