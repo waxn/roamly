@@ -313,6 +313,19 @@ def adventures_view(request):
 
 
 @login_required
+def adventure_edit_view(request, trip_id):
+    trip = _get_trip_for_user(trip_id, request.user)
+    devices = Device.objects.filter(user=request.user)
+    is_creator = trip.device.user == request.user or trip.creator == request.user
+    return render(request, 'tracker/adventure_edit.html', {
+        'trip': trip,
+        'trip_id': trip_id,
+        'devices': devices,
+        'is_creator': is_creator,
+    })
+
+
+@login_required
 def settings_view(request):
     api_keys = APIKey.objects.filter(user=request.user)
     devices = Device.objects.filter(user=request.user)
@@ -2046,6 +2059,90 @@ def trip_delete_milestone(request, trip_id, milestone_id):
     if milestone.author != request.user and trip.device.user != request.user:
         return JsonResponse({"error": "Permission denied"}, status=403)
     milestone.delete()
+    return JsonResponse({"status": "ok"})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["PATCH", "POST"])
+def trip_update_body(request, trip_id):
+    trip = _get_trip_for_user(trip_id, request.user)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    body = data.get('body')
+    if not isinstance(body, list):
+        return JsonResponse({"error": "body must be a list"}, status=400)
+    if 'name' in data:
+        trip.name = data['name']
+    if 'subtitle' in data:
+        trip.subtitle = data['subtitle'][:400]
+    trip.body = body
+    trip.save(update_fields=['body', 'name', 'subtitle'])
+    return JsonResponse({"status": "ok", "word_count": _body_word_count(body)})
+
+
+@login_required
+@require_http_methods(["POST"])
+def trip_upload_cover(request, trip_id):
+    trip = _get_trip_for_user(trip_id, request.user)
+    photo_file = request.FILES.get('cover')
+    if not photo_file:
+        return JsonResponse({"error": "cover file required"}, status=400)
+    if photo_file.size > 20 * 1024 * 1024:
+        return JsonResponse({"error": "File too large (max 20 MB)"}, status=400)
+    full_file, thumb_file = resize_photo(photo_file, max_width=2000, thumb_size=600)
+    if trip.cover_image:
+        trip.cover_image.delete(save=False)
+    if trip.cover_image_thumbnail:
+        trip.cover_image_thumbnail.delete(save=False)
+    trip.cover_image = full_file
+    trip.cover_image_thumbnail = thumb_file
+    trip.save(update_fields=['cover_image', 'cover_image_thumbnail'])
+    return JsonResponse({
+        "status": "ok",
+        "cover_image": trip.cover_image.url,
+        "cover_thumbnail": trip.cover_image_thumbnail.url if trip.cover_image_thumbnail else None,
+    })
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_delete_cover(request, trip_id):
+    trip = _get_trip_for_user(trip_id, request.user)
+    if trip.cover_image:
+        trip.cover_image.delete(save=False)
+    if trip.cover_image_thumbnail:
+        trip.cover_image_thumbnail.delete(save=False)
+    trip.cover_image = None
+    trip.cover_image_thumbnail = None
+    trip.save(update_fields=['cover_image', 'cover_image_thumbnail'])
+    return JsonResponse({"status": "ok"})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_update_blurb(request, trip_id, blurb_id):
+    trip = _get_trip_for_user(trip_id, request.user)
+    blurb = get_object_or_404(AdventureBlurb, id=blurb_id, adventure=trip)
+    if blurb.author != request.user and trip.device.user != request.user:
+        return JsonResponse({"error": "Permission denied"}, status=403)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    if 'text' in data:
+        blurb.text = data['text']
+    if 'latitude' in data:
+        blurb.latitude = float(data['latitude']) if data['latitude'] is not None else None
+    if 'longitude' in data:
+        blurb.longitude = float(data['longitude']) if data['longitude'] is not None else None
+    if 'location_name' in data:
+        blurb.location_name = data['location_name']
+    blurb.save()
     return JsonResponse({"status": "ok"})
 
 

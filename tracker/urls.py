@@ -46,6 +46,7 @@ urlpatterns = [
 
     # Trips pages
     path('adventure/<slug:slug>/', views.adventure_public_view, name='adventure_public'),
+    path('adventures/<int:trip_id>/edit/', views.adventure_edit_view, name='adventure_edit'),
 
     # Adventures API
     path('api/trips/', views.trips_api, name='trips_api'),
@@ -60,7 +61,11 @@ urlpatterns = [
     path('api/trips/<int:trip_id>/members/<int:user_id>/remove/', views.trip_remove_member, name='trip_remove_member'),
     path('api/trips/<int:trip_id>/toggle-public/', views.trip_toggle_public, name='trip_toggle_public'),
     path('api/trips/<int:trip_id>/timeline/', views.trip_timeline_api, name='trip_timeline_api'),
+    path('api/trips/<int:trip_id>/body/', views.trip_update_body, name='trip_update_body'),
+    path('api/trips/<int:trip_id>/cover/', views.trip_upload_cover, name='trip_upload_cover'),
+    path('api/trips/<int:trip_id>/cover/delete/', views.trip_delete_cover, name='trip_delete_cover'),
     path('api/trips/<int:trip_id>/blurbs/create/', views.trip_create_blurb, name='trip_create_blurb'),
+    path('api/trips/<int:trip_id>/blurbs/<int:blurb_id>/update/', views.trip_update_blurb, name='trip_update_blurb'),
     path('api/trips/<int:trip_id>/blurbs/<int:blurb_id>/delete/', views.trip_delete_blurb, name='trip_delete_blurb'),
     path('api/trips/<int:trip_id>/blurbs/<int:blurb_id>/comments/', views.trip_blurb_comments, name='trip_blurb_comments'),
     path('api/trips/<int:trip_id>/blurbs/<int:blurb_id>/comments/create/', views.trip_create_comment, name='trip_create_comment'),
