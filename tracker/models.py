@@ -220,11 +220,15 @@ class Adventure(models.Model):
     creator = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_adventures')
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
+    subtitle = models.CharField(max_length=400, blank=True)
     start_time = models.DateTimeField()
     end_time = models.DateTimeField()
     public_slug = models.SlugField(max_length=64, unique=True, null=True, blank=True)
     access_pin = models.CharField(max_length=20, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    cover_image = models.ImageField(upload_to='adventures/covers/', null=True, blank=True)
+    cover_image_thumbnail = models.ImageField(upload_to='adventures/covers/thumbs/', null=True, blank=True)
+    body = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ['-start_time']
@@ -384,7 +388,7 @@ class AdventureBlurb(models.Model):
     latitude = models.FloatField(null=True, blank=True)
     longitude = models.FloatField(null=True, blank=True)
     location_name = models.CharField(max_length=300, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
         ordering = ['created_at']
@@ -415,7 +419,7 @@ class AdventureMilestone(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     emoji = models.CharField(max_length=10, blank=True, default='\U0001f3c1')
-    date = models.DateTimeField()
+    date = models.DateTimeField(db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
