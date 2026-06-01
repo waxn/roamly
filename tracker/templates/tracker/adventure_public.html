@@ -462,11 +462,8 @@ function renderBlock(block, allPhotos){
     if(block.type === 'map_embed'){
         const height = c.height_px || 360;
         const mapId = 'embed-map-' + Math.random().toString(36).slice(2,8);
-        return `<div class="pub-block pub-map-embed static" id="${mapId}-wrap" data-map-id="${mapId}" data-config='${JSON.stringify(c)}'>
+        return `<div class="pub-block pub-map-embed interactive" id="${mapId}-wrap" data-map-id="${mapId}" data-config='${JSON.stringify(c)}'>
             <div id="${mapId}" class="pub-map-inner" style="height:${height}px;"></div>
-            <div class="pub-map-overlay">
-                <span class="interact-hint">click to interact</span>
-            </div>
         </div>`;
     }
     if(block.type === 'photo_grid'){
@@ -638,9 +635,9 @@ async function loadAndRender(){
             bodyEl.innerHTML = `<p class="pub-block pub-paragraph">${esc(tripData.description)}</p>`;
         }
 
-        // Activate map embeds (click to interact)
+        // Map embeds render live by default — track, notes and places all shown
         bodyEl.querySelectorAll('.pub-map-embed').forEach(wrap => {
-            wrap.addEventListener('click', () => activateMapEmbed(wrap, locs, blurbFeatures));
+            activateMapEmbed(wrap, locs, blurbFeatures);
         });
 
         // Photo lightbox
