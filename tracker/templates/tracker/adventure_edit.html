@@ -1,0 +1,1232 @@
+{% extends "tracker/base.html" %}
+{% block title %}Edit — {{ trip.name }} — Roamly{% endblock %}
+
+{% block extra_css %}
+/* ── Editor layout ── */
+.editor-shell {
+    display: flex; height: calc(100vh - var(--nav-h));
+    overflow: hidden;
+}
+
+/* Left pane: document editor */
+.editor-doc {
+    flex: 0 0 54%; min-width: 340px; max-width: 760px;
+    display: flex; flex-direction: column;
+    overflow-y: auto; overflow-x: hidden;
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+}
+
+/* Right pane: map */
+.editor-map-pane {
+    flex: 1; position: relative; min-width: 0;
+    background: var(--bg-card);
+}
+#edit-map { width: 100%; height: 100%; }
+
+/* Cover image area */
+.editor-cover {
+    position: relative; min-height: 180px;
+    background: var(--bg-card);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; overflow: hidden;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.editor-cover.drag-over { background: var(--primary-soft); }
+.editor-cover img {
+    width: 100%; height: 220px; object-fit: cover; display: block;
+}
+.editor-cover-placeholder {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 0.5rem; color: var(--text-muted); font-size: 0.8125rem;
+    padding: 2rem;
+}
+.editor-cover-placeholder svg { opacity: 0.5; }
+.editor-cover-overlay {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.4);
+    display: flex; gap: 0.5rem; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity 0.15s;
+}
+.editor-cover:hover .editor-cover-overlay { opacity: 1; }
+.editor-cover-btn {
+    background: rgba(0,0,0,0.7); color: #fff; border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 8px; padding: 0.4rem 0.875rem; font-family: var(--font-body);
+    font-size: 0.75rem; font-weight: 700; cursor: pointer;
+}
+
+/* Title / subtitle */
+.editor-header {
+    padding: 1.25rem 1.5rem 0.5rem;
+    flex-shrink: 0;
+}
+.editor-title {
+    width: 100%; background: none; border: none; outline: none;
+    color: var(--text); font-family: var(--font-display); font-size: 1.625rem;
+    font-weight: 800; line-height: 1.2; resize: none; overflow: hidden;
+    text-transform: lowercase;
+}
+.editor-subtitle {
+    width: 100%; background: none; border: none; outline: none;
+    color: var(--text-muted); font-family: var(--font-body); font-size: 0.9375rem;
+    font-weight: 500; margin-top: 0.375rem; resize: none; overflow: hidden;
+}
+.editor-title::placeholder, .editor-subtitle::placeholder { opacity: 0.4; }
+
+/* Save status */
+.editor-save-bar {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.5rem 1.5rem;
+    flex-shrink: 0; border-bottom: 1px solid var(--border);
+}
+.save-status {
+    font-size: 0.75rem; color: var(--text-muted);
+    transition: color 0.2s;
+}
+.save-status.saved { color: var(--success); }
+.save-status.saving { color: var(--clay-amber); }
+.save-status.error { color: var(--danger); }
+.editor-back-btn {
+    background: none; border: 1px solid var(--border);
+    border-radius: 8px; padding: 0.3rem 0.75rem;
+    color: var(--text-muted); font-family: var(--font-body);
+    font-size: 0.75rem; font-weight: 700; cursor: pointer;
+    text-decoration: none; display: inline-flex; align-items: center; gap: 0.375rem;
+    transition: all 0.15s;
+}
+.editor-back-btn:hover { color: var(--text); border-color: var(--text-muted); }
+.save-btn {
+    margin-left: auto;
+    background: var(--primary); color: #fff; border: none;
+    border-radius: 8px; padding: 0.3rem 0.875rem;
+    font-family: var(--font-body); font-size: 0.75rem; font-weight: 700;
+    cursor: pointer; box-shadow: var(--clay-shadow-btn);
+    transition: all 0.15s;
+}
+.save-btn:hover { background: var(--primary-hover); }
+
+/* Blocks container */
+.blocks-area {
+    flex: 1; padding: 0.5rem 1.5rem 4rem;
+    min-height: 0;
+}
+
+/* Block wrapper */
+.block-wrap {
+    position: relative; margin-bottom: 0.25rem;
+    border-radius: var(--radius-clay-sm); transition: background 0.1s;
+}
+.block-wrap.drag-over-top { border-top: 2px solid var(--primary); }
+.block-wrap.drag-over-bottom { border-bottom: 2px solid var(--primary); }
+.block-wrap:hover > .block-toolbar { opacity: 1; }
+
+.block-toolbar {
+    position: absolute; right: -42px; top: 50%;
+    transform: translateY(-50%);
+    display: flex; flex-direction: column; gap: 2px;
+    opacity: 0; transition: opacity 0.1s; z-index: 10;
+}
+.block-tool-btn {
+    width: 30px; height: 30px; background: var(--bg-elevated);
+    border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-muted); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.8125rem; transition: all 0.1s;
+}
+.block-tool-btn:hover { color: var(--text); border-color: var(--text-muted); background: var(--bg-card); }
+.block-tool-btn.drag-handle { cursor: grab; }
+.block-tool-btn.danger:hover { color: var(--danger); border-color: var(--danger); }
+
+/* Block insert button */
+.block-insert-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    margin: 0.125rem 0; opacity: 0; transition: opacity 0.15s;
+    padding: 0.1rem 0;
+}
+.block-insert-row:hover { opacity: 1; }
+.block-insert-btn {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    color: var(--text-muted); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1rem; line-height: 1; transition: all 0.15s;
+    flex-shrink: 0;
+}
+.block-insert-btn:hover { background: var(--primary); border-color: var(--primary); color: #fff; }
+.block-insert-line { flex: 1; height: 1px; background: var(--border); }
+
+/* Block type menu */
+.block-type-menu {
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: var(--radius-clay-sm); box-shadow: var(--clay-shadow);
+    padding: 0.5rem; display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 0.25rem; min-width: 280px;
+    position: absolute; z-index: 100;
+}
+.block-type-item {
+    display: flex; flex-direction: column; align-items: center; gap: 0.25rem;
+    padding: 0.5rem 0.25rem; border-radius: 8px; cursor: pointer;
+    font-size: 0.6875rem; color: var(--text-muted); text-align: center;
+    transition: all 0.1s; border: 1px solid transparent;
+}
+.block-type-item:hover { background: var(--primary-soft); color: var(--primary); border-color: var(--border-bright); }
+.block-type-icon { font-size: 1.25rem; }
+
+/* Individual block renderings */
+.block-heading { padding: 0.5rem 0 0.25rem; }
+.block-heading[data-level="1"] .block-text { font-family: var(--font-display); font-size: 1.5rem; font-weight: 800; }
+.block-heading[data-level="2"] .block-text { font-family: var(--font-display); font-size: 1.2rem; font-weight: 700; }
+.block-heading[data-level="3"] .block-text { font-family: var(--font-body); font-size: 1rem; font-weight: 700; color: var(--text-muted); }
+
+.block-paragraph { padding: 0.25rem 0; }
+
+.block-text {
+    width: 100%; background: none; border: none; outline: none;
+    color: var(--text); font-family: var(--font-body); font-size: 0.9375rem;
+    line-height: 1.6; resize: none; overflow: hidden;
+    min-height: 1.5em; text-transform: lowercase;
+}
+.block-text:focus { background: rgba(255,255,255,0.02); border-radius: 4px; }
+
+.block-divider { padding: 0.75rem 0; }
+.block-divider hr { border: none; border-top: 1px solid var(--border); margin: 0; }
+
+.block-callout {
+    border-radius: var(--radius-clay-sm); padding: 0.75rem 1rem;
+    display: flex; gap: 0.625rem; align-items: flex-start;
+    box-shadow: var(--clay-shadow-sm); margin: 0.25rem 0;
+}
+.block-callout[data-color="mint"]     { background: rgba(13,191,172,0.1);  border: 1px solid rgba(13,191,172,0.3); }
+.block-callout[data-color="coral"]    { background: rgba(255,107,107,0.1); border: 1px solid rgba(255,107,107,0.3); }
+.block-callout[data-color="amber"]    { background: rgba(247,183,49,0.1);  border: 1px solid rgba(247,183,49,0.3); }
+.block-callout[data-color="lavender"] { background: rgba(155,142,247,0.1); border: 1px solid rgba(155,142,247,0.3); }
+.block-callout[data-color="sky"]      { background: rgba(91,164,229,0.1);  border: 1px solid rgba(91,164,229,0.3); }
+.callout-emoji { font-size: 1.125rem; flex-shrink: 0; margin-top: 1px; }
+.callout-text { flex: 1; background: none; border: none; outline: none; color: var(--text); font-family: var(--font-body); font-size: 0.875rem; line-height: 1.5; resize: none; overflow: hidden; min-height: 1.5em; text-transform: lowercase; }
+
+.block-map-embed {
+    border-radius: var(--radius-clay-sm); overflow: hidden;
+    border: 1px solid var(--border); margin: 0.25rem 0;
+    background: var(--bg-card); position: relative;
+}
+.block-map-embed .map-placeholder {
+    height: 200px; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 0.5rem; color: var(--text-muted); font-size: 0.8125rem;
+    background: var(--bg-input);
+}
+.block-map-embed .map-placeholder svg { opacity: 0.4; }
+.block-map-embed .inline-map { width: 100%; height: 240px; }
+
+.block-photo-grid { margin: 0.25rem 0; }
+.block-photo-grid .photo-grid-inner { display: flex; gap: 4px; flex-wrap: wrap; }
+.block-photo-grid .photo-grid-inner.layout-single .grid-thumb { width: 100%; max-height: 320px; }
+.block-photo-grid .photo-grid-inner.layout-strip .grid-thumb { height: 120px; flex: 1; }
+.block-photo-grid .photo-grid-inner.layout-grid .grid-thumb { width: calc(33.33% - 3px); aspect-ratio: 1; }
+.grid-thumb { object-fit: cover; border-radius: 8px; cursor: pointer; }
+.photo-grid-upload {
+    margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center;
+}
+
+.block-location-card {
+    border-radius: var(--radius-clay-sm); border: 1px solid var(--border);
+    background: var(--bg-card); padding: 0.75rem 1rem;
+    box-shadow: var(--clay-shadow-sm); margin: 0.25rem 0;
+    display: flex; gap: 0.75rem; align-items: center;
+}
+.loc-card-icon { font-size: 1.5rem; flex-shrink: 0; }
+.loc-card-name { font-weight: 700; font-size: 0.9375rem; }
+.loc-card-notes { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.125rem; }
+
+/* Inline pin badge (superscript) */
+.pin-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--primary); color: #fff; font-size: 0.6rem; font-weight: 800;
+    vertical-align: super; cursor: pointer; margin: 0 1px;
+    box-shadow: 0 2px 6px rgba(13,191,172,0.4);
+    user-select: none;
+}
+
+/* Pin popup overlay */
+.pin-popup-overlay {
+    position: fixed; inset: 0; z-index: 5000;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.5);
+}
+.pin-popup-overlay.open { display: flex; }
+.pin-popup-card {
+    background: var(--bg-elevated); border: 1px solid var(--border-bright);
+    border-radius: var(--radius-clay); box-shadow: var(--clay-shadow);
+    padding: 1.25rem; max-width: 340px; width: 90vw; position: relative;
+}
+.pin-popup-close {
+    position: absolute; top: 0.5rem; right: 0.75rem;
+    background: none; border: none; color: var(--text-muted);
+    cursor: pointer; font-size: 1.25rem; line-height: 1;
+    transition: color 0.1s;
+}
+.pin-popup-close:hover { color: var(--text); }
+.pin-popup-name { font-family: var(--font-display); font-weight: 700; font-size: 1.0625rem; margin-bottom: 0.375rem; }
+.pin-popup-notes { font-size: 0.8125rem; color: var(--text-muted); line-height: 1.5; }
+.pin-popup-mini-map { width: 100%; height: 140px; border-radius: 10px; margin-top: 0.75rem; overflow: hidden; }
+
+/* Block modals */
+.block-modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    display: none; align-items: center; justify-content: center; z-index: 4000;
+}
+.block-modal-overlay.open { display: flex; }
+.block-modal {
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: var(--radius-clay); box-shadow: var(--clay-shadow);
+    padding: 1.5rem; max-width: 440px; width: 90vw;
+}
+.block-modal h3 { font-family: var(--font-display); font-size: 1.0625rem; margin-bottom: 1rem; }
+.bm-field { margin-bottom: 0.875rem; }
+.bm-label { font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.25rem; display: block; text-transform: uppercase; letter-spacing: 0.07em; }
+.bm-input, .bm-select {
+    width: 100%; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 10px; color: var(--text); font-family: var(--font-body);
+    font-size: 0.875rem; padding: 0.45rem 0.75rem; outline: none;
+}
+.bm-input:focus, .bm-select:focus { border-color: var(--primary); }
+.bm-row { display: flex; gap: 0.5rem; }
+.bm-row .bm-field { flex: 1; }
+.bm-emoji-row { display: flex; gap: 0.375rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+.bm-emoji-btn {
+    width: 32px; height: 32px; border-radius: 8px; background: var(--bg-input);
+    border: 1px solid var(--border); cursor: pointer; font-size: 1.125rem;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.1s;
+}
+.bm-emoji-btn.active { border-color: var(--primary); background: var(--primary-soft); }
+.bm-color-row { display: flex; gap: 0.375rem; }
+.bm-color-swatch {
+    width: 28px; height: 28px; border-radius: 8px; cursor: pointer;
+    border: 2px solid transparent; transition: all 0.1s;
+}
+.bm-color-swatch.active { border-color: #fff; transform: scale(1.15); }
+.bm-btns { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
+.bm-cancel-btn {
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-muted); font-family: var(--font-body); font-size: 0.8125rem;
+    font-weight: 700; padding: 0.45rem 1rem; cursor: pointer;
+}
+.bm-ok-btn {
+    background: var(--primary); border: none; border-radius: 8px;
+    color: #fff; font-family: var(--font-body); font-size: 0.8125rem;
+    font-weight: 700; padding: 0.45rem 1rem; cursor: pointer;
+    box-shadow: var(--clay-shadow-btn);
+}
+
+/* Map toolbar (right pane) */
+.edit-map-toolbar {
+    position: absolute; top: 12px; left: 12px; z-index: 10;
+    display: flex; flex-direction: column; gap: 6px;
+}
+.edit-map-btn {
+    background: var(--bg-glass); backdrop-filter: blur(8px);
+    border: 1px solid var(--border); border-radius: 10px;
+    color: var(--text); font-family: var(--font-body); font-size: 0.75rem;
+    font-weight: 700; padding: 0.4rem 0.75rem; cursor: pointer;
+    transition: all 0.15s;
+}
+.edit-map-btn:hover { border-color: var(--primary); color: var(--primary); }
+.edit-map-btn.active { background: var(--primary-soft); border-color: var(--border-bright); color: var(--primary); }
+
+/* Blurb pins on map */
+.blurb-popup {
+    max-width: 240px; font-family: var(--font-body);
+}
+.blurb-popup-author { font-weight: 700; font-size: 0.8125rem; }
+.blurb-popup-text { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.2rem; line-height: 1.4; }
+
+/* Responsive */
+@media (max-width: 820px) {
+    .editor-shell { flex-direction: column; }
+    .editor-doc { flex: 0 0 55vh; max-width: none; border-right: none; border-bottom: 1px solid var(--border); }
+    .editor-map-pane { flex: 1; min-height: 240px; }
+    .block-toolbar { right: -36px; }
+}
+{% endblock %}
+
+{% block content %}
+<input type="file" id="cover-file-input" accept="image/*" style="display:none">
+<input type="file" id="photo-file-input" accept="image/*" multiple style="display:none">
+
+<div class="editor-shell">
+    <!-- ── LEFT: Document editor ── -->
+    <div class="editor-doc">
+        <!-- Cover image -->
+        <div class="editor-cover" id="cover-drop-zone">
+            <div class="editor-cover-placeholder" id="cover-placeholder">
+                <svg width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="3" stroke-width="1.5"/><circle cx="8.5" cy="8.5" r="1.5" stroke-width="1.5"/><path d="M21 15l-5-5L5 21" stroke-width="1.5"/></svg>
+                <span>drag & drop cover image or click to upload</span>
+            </div>
+            <img id="cover-preview" src="" alt="" style="display:none">
+            <div class="editor-cover-overlay">
+                <button class="editor-cover-btn" id="cover-change-btn">change cover</button>
+                <button class="editor-cover-btn" id="cover-remove-btn" style="display:none">remove</button>
+            </div>
+        </div>
+
+        <!-- Save bar -->
+        <div class="editor-save-bar">
+            <a href="/adventures/" class="editor-back-btn">
+                <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+                adventures
+            </a>
+            <span class="save-status" id="save-status">unsaved</span>
+            <button class="save-btn" id="save-btn">save</button>
+        </div>
+
+        <!-- Title / subtitle -->
+        <div class="editor-header">
+            <textarea class="editor-title" id="editor-title" rows="1" placeholder="adventure title…">{{ trip.name }}</textarea>
+            <textarea class="editor-subtitle" id="editor-subtitle" rows="1" placeholder="one-line subtitle…">{{ trip.subtitle }}</textarea>
+        </div>
+
+        <!-- Blocks -->
+        <div class="blocks-area" id="blocks-area">
+            <!-- Blocks are rendered by JS -->
+        </div>
+    </div>
+
+    <!-- ── RIGHT: Map ── -->
+    <div class="editor-map-pane">
+        <div id="edit-map"></div>
+        <div class="edit-map-toolbar">
+            <button class="edit-map-btn active" id="toggle-track-btn">track</button>
+            <button class="edit-map-btn active" id="toggle-blurbs-btn">pins</button>
+            <button class="edit-map-btn active" id="toggle-places-btn">places</button>
+            <button class="edit-map-btn" id="drop-pin-btn">+ pin</button>
+        </div>
+    </div>
+</div>
+
+<!-- Pin popup overlay (inline map pin refs) -->
+<div class="pin-popup-overlay" id="pin-popup-overlay">
+    <div class="pin-popup-card">
+        <button class="pin-popup-close" id="pin-popup-close">×</button>
+        <div class="pin-popup-name" id="pin-popup-name"></div>
+        <div class="pin-popup-notes" id="pin-popup-notes"></div>
+        <div class="pin-popup-mini-map" id="pin-popup-mini-map"></div>
+    </div>
+</div>
+
+<!-- Block type selector popup (injected near + button by JS) -->
+<div id="block-type-menu" class="block-type-menu" style="display:none">
+    <div class="block-type-item" data-type="heading"><span class="block-type-icon">H</span>heading</div>
+    <div class="block-type-item" data-type="paragraph"><span class="block-type-icon">¶</span>paragraph</div>
+    <div class="block-type-item" data-type="map_embed"><span class="block-type-icon">🗺️</span>map</div>
+    <div class="block-type-item" data-type="photo_grid"><span class="block-type-icon">📷</span>photos</div>
+    <div class="block-type-item" data-type="divider"><span class="block-type-icon">─</span>divider</div>
+    <div class="block-type-item" data-type="callout"><span class="block-type-icon">💬</span>callout</div>
+    <div class="block-type-item" data-type="location_card"><span class="block-type-icon">📍</span>place card</div>
+</div>
+
+<!-- Block edit modals -->
+<div class="block-modal-overlay" id="heading-modal">
+    <div class="block-modal">
+        <h3>heading block</h3>
+        <div class="bm-field">
+            <label class="bm-label">level</label>
+            <select class="bm-select" id="hm-level">
+                <option value="1">h1 — large title</option>
+                <option value="2" selected>h2 — section heading</option>
+                <option value="3">h3 — sub-heading</option>
+            </select>
+        </div>
+        <div class="bm-field">
+            <label class="bm-label">text</label>
+            <input class="bm-input" id="hm-text" placeholder="heading text…">
+        </div>
+        <div class="bm-btns">
+            <button class="bm-cancel-btn" data-modal="heading-modal">cancel</button>
+            <button class="bm-ok-btn" id="hm-ok">insert</button>
+        </div>
+    </div>
+</div>
+
+<div class="block-modal-overlay" id="callout-modal">
+    <div class="block-modal">
+        <h3>callout block</h3>
+        <div class="bm-field">
+            <label class="bm-label">emoji</label>
+            <div class="bm-emoji-row" id="cm-emojis">
+                {% for emoji in "📍✈️🏕️🌄🍜🎉🏖️⛵🚂🗻" %}
+                <button class="bm-emoji-btn{% if forloop.first %} active{% endif %}" data-emoji="{{ emoji }}">{{ emoji }}</button>
+                {% endfor %}
+            </div>
+            <input class="bm-input" id="cm-emoji-custom" placeholder="or type an emoji…" maxlength="4" style="width:80px; margin-top:0.25rem;">
+        </div>
+        <div class="bm-field">
+            <label class="bm-label">color</label>
+            <div class="bm-color-row">
+                <div class="bm-color-swatch active" data-color="mint" style="background:rgba(13,191,172,0.35)"></div>
+                <div class="bm-color-swatch" data-color="coral" style="background:rgba(255,107,107,0.35)"></div>
+                <div class="bm-color-swatch" data-color="amber" style="background:rgba(247,183,49,0.35)"></div>
+                <div class="bm-color-swatch" data-color="lavender" style="background:rgba(155,142,247,0.35)"></div>
+                <div class="bm-color-swatch" data-color="sky" style="background:rgba(91,164,229,0.35)"></div>
+            </div>
+        </div>
+        <div class="bm-field">
+            <label class="bm-label">text</label>
+            <textarea class="bm-input" id="cm-text" rows="3" placeholder="callout text…" style="resize:vertical;"></textarea>
+        </div>
+        <div class="bm-btns">
+            <button class="bm-cancel-btn" data-modal="callout-modal">cancel</button>
+            <button class="bm-ok-btn" id="cm-ok">insert</button>
+        </div>
+    </div>
+</div>
+
+<div class="block-modal-overlay" id="map-embed-modal">
+    <div class="block-modal">
+        <h3>map embed</h3>
+        <div class="bm-row">
+            <div class="bm-field">
+                <label class="bm-label">height (px)</label>
+                <input class="bm-input" id="mem-height" type="number" value="360" min="200" max="800">
+            </div>
+            <div class="bm-field">
+                <label class="bm-label">zoom level</label>
+                <input class="bm-input" id="mem-zoom" type="number" value="10" min="2" max="18">
+            </div>
+        </div>
+        <div class="bm-row">
+            <div class="bm-field">
+                <label class="bm-label">center lat (optional)</label>
+                <input class="bm-input" id="mem-lat" type="number" step="any" placeholder="auto">
+            </div>
+            <div class="bm-field">
+                <label class="bm-label">center lng (optional)</label>
+                <input class="bm-input" id="mem-lng" type="number" step="any" placeholder="auto">
+            </div>
+        </div>
+        <div class="bm-field" style="display:flex;gap:1rem;align-items:center;">
+            <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.8125rem;cursor:pointer;">
+                <input type="checkbox" id="mem-track" checked> show track
+            </label>
+            <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.8125rem;cursor:pointer;">
+                <input type="checkbox" id="mem-places" checked> show places
+            </label>
+        </div>
+        <div class="bm-btns">
+            <button class="bm-cancel-btn" data-modal="map-embed-modal">cancel</button>
+            <button class="bm-ok-btn" id="mem-ok">insert</button>
+        </div>
+    </div>
+</div>
+
+<div class="block-modal-overlay" id="location-card-modal">
+    <div class="block-modal">
+        <h3>place card</h3>
+        <div class="bm-field">
+            <label class="bm-label">select a place</label>
+            <select class="bm-select" id="lcm-place"></select>
+        </div>
+        <div class="bm-btns">
+            <button class="bm-cancel-btn" data-modal="location-card-modal">cancel</button>
+            <button class="bm-ok-btn" id="lcm-ok">insert</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const TRIP_ID = {{ trip_id }};
+const CSRF = '{{ csrf_token }}';
+const mapStyles = {
+    'Dark': { version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+        sources:{carto:{type:'raster',tiles:['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'],tileSize:256}},
+        layers:[{id:'carto',type:'raster',source:'carto'}] },
+    'Streets': { version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+        sources:{osm:{type:'raster',tiles:['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'],tileSize:256}},
+        layers:[{id:'osm',type:'raster',source:'osm'}] },
+};
+
+// ── State ──────────────────────────────────────────────────────────────────
+let blocks = [];     // [{type, content, id}]
+let places = [];     // [{id, name, lat, lng, notes}]
+let blurbs = [];     // [{id, lat, lng, text, author, photos}]
+let tripData = {};
+let saveTimer = null;
+let pinMiniMap = null;
+let editMap = null;
+let pendingInsertIndex = null;  // where next block goes
+let pendingModal = null;        // which modal is open for editing an existing block
+let pendingEditIndex = null;    // index of block being edited
+let currentPhotoBlockIndex = null;
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function uid(){ return Math.random().toString(36).slice(2,10); }
+
+function autoResize(el){
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+}
+
+// ── Block body serialisation (what gets sent to server) ────────────────────
+function serialiseBlocks(){
+    return blocks.map(b => ({type: b.type, content: b.content}));
+}
+
+// ── Save ───────────────────────────────────────────────────────────────────
+function scheduleAutoSave(){
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(doSave, 1800);
+}
+
+async function doSave(){
+    setSaveStatus('saving');
+    const title = document.getElementById('editor-title').value.trim();
+    const subtitle = document.getElementById('editor-subtitle').value.trim();
+    try {
+        const r = await fetch(`/api/trips/${TRIP_ID}/body/`, {
+            method: 'PATCH',
+            headers: {'Content-Type':'application/json','X-CSRFToken': CSRF},
+            body: JSON.stringify({body: serialiseBlocks(), name: title, subtitle})
+        });
+        if(!r.ok) throw new Error(await r.text());
+        setSaveStatus('saved');
+    } catch(e){
+        setSaveStatus('error', e.message);
+    }
+}
+
+function setSaveStatus(state, msg=''){
+    const el = document.getElementById('save-status');
+    el.className = 'save-status ' + state;
+    el.textContent = state === 'saving' ? 'saving…' : state === 'saved' ? 'saved' : state === 'error' ? 'save failed' : 'unsaved';
+}
+
+// ── Block rendering ────────────────────────────────────────────────────────
+function renderPinRefs(text, placesMap){
+    // Replace [^pin:ID] with superscript badge spans
+    let counter = 0;
+    const rendered = esc(text).replace(/\[\^pin:(\d+)\]/g, (_, id) => {
+        counter++;
+        const place = placesMap[parseInt(id)];
+        const title = place ? esc(place.name) : '?';
+        return `<span class="pin-badge" title="${title}" data-pin-id="${id}">${counter}</span>`;
+    });
+    return rendered;
+}
+
+function buildBlockEl(block, index){
+    const wrap = document.createElement('div');
+    wrap.className = 'block-wrap';
+    wrap.dataset.index = index;
+    wrap.draggable = true;
+
+    const c = block.content;
+    let inner = '';
+
+    if(block.type === 'heading'){
+        inner = `<div class="block-heading" data-level="${c.level||2}">
+            <textarea class="block-text" data-field="text" rows="1">${esc(c.text||'')}</textarea>
+        </div>`;
+    } else if(block.type === 'paragraph'){
+        inner = `<div class="block-paragraph">
+            <textarea class="block-text" data-field="text" rows="2">${esc(c.text||'')}</textarea>
+        </div>`;
+    } else if(block.type === 'divider'){
+        inner = `<div class="block-divider"><hr></div>`;
+    } else if(block.type === 'callout'){
+        inner = `<div class="block-callout" data-color="${esc(c.color||'mint')}">
+            <span class="callout-emoji">${esc(c.emoji||'📍')}</span>
+            <textarea class="callout-text" data-field="text" rows="2">${esc(c.text||'')}</textarea>
+        </div>`;
+    } else if(block.type === 'map_embed'){
+        inner = `<div class="block-map-embed">
+            <div class="map-placeholder" id="map-embed-${block._id}">
+                <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" stroke-width="1.5"/></svg>
+                <span>map embed · zoom ${c.zoom||10}</span>
+            </div>
+        </div>`;
+    } else if(block.type === 'photo_grid'){
+        const ids = c.photo_ids || [];
+        const layout = c.layout || 'grid';
+        const thumbs = ids.map(pid => {
+            const ph = (tripData.photos||{})[pid];
+            if(!ph) return '';
+            return `<img class="grid-thumb" src="${esc(ph.thumb||ph.url)}" title="${esc(ph.name||'')}" loading="lazy">`;
+        }).join('');
+        inner = `<div class="block-photo-grid">
+            <div class="photo-grid-inner layout-${esc(layout)}">${thumbs||'<span style="color:var(--text-muted);font-size:0.8125rem;padding:0.5rem 0;">no photos — click edit to add</span>'}</div>
+        </div>`;
+    } else if(block.type === 'location_card'){
+        const pl = places.find(p => p.id === c.place_id);
+        if(pl){
+            inner = `<div class="block-location-card">
+                <span class="loc-card-icon">📍</span>
+                <div><div class="loc-card-name">${esc(pl.name)}</div>${pl.notes?`<div class="loc-card-notes">${esc(pl.notes)}</div>`:''}</div>
+            </div>`;
+        } else {
+            inner = `<div class="block-location-card"><span class="loc-card-icon">📍</span><div class="loc-card-name" style="color:var(--text-muted)">place not found</div></div>`;
+        }
+    }
+
+    // Toolbar
+    const toolbar = `<div class="block-toolbar">
+        <button class="block-tool-btn drag-handle" title="drag to reorder">⠿</button>
+        <button class="block-tool-btn" title="edit block" data-action="edit">✏️</button>
+        <button class="block-tool-btn danger" title="delete block" data-action="delete">🗑️</button>
+    </div>`;
+
+    wrap.innerHTML = inner + toolbar;
+    return wrap;
+}
+
+function renderBlocks(){
+    const area = document.getElementById('blocks-area');
+    area.innerHTML = '';
+
+    blocks.forEach((block, index) => {
+        // Insert row before block
+        area.appendChild(buildInsertRow(index));
+        const wrap = buildBlockEl(block, index);
+        area.appendChild(wrap);
+        setupBlockWrap(wrap, index);
+    });
+    // Final insert row (after all blocks)
+    area.appendChild(buildInsertRow(blocks.length));
+
+    // Auto-resize all textareas
+    area.querySelectorAll('textarea').forEach(t => {
+        autoResize(t);
+        t.addEventListener('input', () => { autoResize(t); blockTextChanged(t); });
+        t.addEventListener('blur', scheduleAutoSave);
+    });
+}
+
+function buildInsertRow(afterIndex){
+    const row = document.createElement('div');
+    row.className = 'block-insert-row';
+    row.innerHTML = `<div class="block-insert-line"></div>
+        <button class="block-insert-btn" title="insert block" data-after="${afterIndex}">+</button>
+        <div class="block-insert-line"></div>`;
+    row.querySelector('.block-insert-btn').addEventListener('click', e => {
+        pendingInsertIndex = afterIndex;
+        pendingEditIndex = null;
+        showBlockTypeMenu(e.currentTarget);
+    });
+    return row;
+}
+
+function setupBlockWrap(wrap, index){
+    // Toolbar actions
+    wrap.addEventListener('click', e => {
+        const btn = e.target.closest('[data-action]');
+        if(!btn) return;
+        const action = btn.dataset.action;
+        if(action === 'delete'){
+            blocks.splice(index, 1);
+            renderBlocks();
+            scheduleAutoSave();
+        } else if(action === 'edit'){
+            openEditModal(index);
+        }
+    });
+
+    // Drag-and-drop reorder
+    wrap.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('text/plain', String(index));
+        wrap.style.opacity = '0.5';
+    });
+    wrap.addEventListener('dragend', () => { wrap.style.opacity = ''; clearDragIndicators(); });
+    wrap.addEventListener('dragover', e => {
+        e.preventDefault();
+        clearDragIndicators();
+        const rect = wrap.getBoundingClientRect();
+        if(e.clientY < rect.top + rect.height/2){
+            wrap.classList.add('drag-over-top');
+        } else {
+            wrap.classList.add('drag-over-bottom');
+        }
+    });
+    wrap.addEventListener('dragleave', () => clearDragIndicators());
+    wrap.addEventListener('drop', e => {
+        e.preventDefault();
+        clearDragIndicators();
+        const from = parseInt(e.dataTransfer.getData('text/plain'));
+        const rect = wrap.getBoundingClientRect();
+        const to = e.clientY < rect.top + rect.height/2 ? index : index + 1;
+        if(from === to || from === to - 1) return;
+        const [moved] = blocks.splice(from, 1);
+        const dest = to > from ? to - 1 : to;
+        blocks.splice(dest, 0, moved);
+        renderBlocks();
+        scheduleAutoSave();
+    });
+}
+
+function clearDragIndicators(){
+    document.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(el => {
+        el.classList.remove('drag-over-top', 'drag-over-bottom');
+    });
+}
+
+function blockTextChanged(textarea){
+    const wrap = textarea.closest('.block-wrap');
+    if(!wrap) return;
+    const index = parseInt(wrap.dataset.index);
+    const field = textarea.dataset.field;
+    if(field && blocks[index]) {
+        blocks[index].content[field] = textarea.value;
+    }
+    setSaveStatus('unsaved');
+}
+
+// ── Block type menu ────────────────────────────────────────────────────────
+function showBlockTypeMenu(anchor){
+    const menu = document.getElementById('block-type-menu');
+    const rect = anchor.getBoundingClientRect();
+    menu.style.display = 'grid';
+    menu.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+    menu.style.left = (rect.left + window.scrollX) + 'px';
+    menu.style.position = 'absolute';
+
+    const hide = (e) => {
+        if(!menu.contains(e.target) && e.target !== anchor){
+            menu.style.display = 'none';
+            document.removeEventListener('click', hide);
+        }
+    };
+    setTimeout(() => document.addEventListener('click', hide), 10);
+}
+
+document.getElementById('block-type-menu').addEventListener('click', e => {
+    const item = e.target.closest('.block-type-item');
+    if(!item) return;
+    document.getElementById('block-type-menu').style.display = 'none';
+    insertNewBlock(item.dataset.type);
+});
+
+function insertNewBlock(type){
+    const defaults = {
+        heading:       {level: 2, text: ''},
+        paragraph:     {text: ''},
+        map_embed:     {zoom: 10, center_lat: null, center_lng: null, show_track: true, show_places: true, height_px: 360},
+        photo_grid:    {photo_ids: [], layout: 'grid'},
+        divider:       {},
+        callout:       {text: '', emoji: '📍', color: 'mint'},
+        location_card: {place_id: places.length ? places[0].id : null},
+    };
+    if(type === 'heading'){
+        pendingModal = {type, editIndex: pendingEditIndex};
+        document.getElementById('heading-modal').classList.add('open');
+        return;
+    }
+    if(type === 'callout'){
+        pendingModal = {type, editIndex: pendingEditIndex};
+        document.getElementById('callout-modal').classList.add('open');
+        return;
+    }
+    if(type === 'map_embed'){
+        pendingModal = {type, editIndex: pendingEditIndex};
+        document.getElementById('map-embed-modal').classList.add('open');
+        return;
+    }
+    if(type === 'location_card'){
+        populatePlaceSelect();
+        pendingModal = {type, editIndex: pendingEditIndex};
+        document.getElementById('location-card-modal').classList.add('open');
+        return;
+    }
+    commitBlock({type, content: defaults[type], _id: uid()});
+}
+
+function commitBlock(block){
+    if(pendingEditIndex !== null && pendingEditIndex !== undefined){
+        blocks[pendingEditIndex] = block;
+        pendingEditIndex = null;
+    } else {
+        const idx = pendingInsertIndex !== null ? pendingInsertIndex : blocks.length;
+        blocks.splice(idx, 0, block);
+        pendingInsertIndex = null;
+    }
+    renderBlocks();
+    scheduleAutoSave();
+}
+
+// ── Edit existing block ────────────────────────────────────────────────────
+function openEditModal(index){
+    const block = blocks[index];
+    pendingEditIndex = index;
+    const c = block.content;
+    if(block.type === 'heading'){
+        document.getElementById('hm-level').value = c.level || 2;
+        document.getElementById('hm-text').value = c.text || '';
+        document.getElementById('heading-modal').classList.add('open');
+    } else if(block.type === 'callout'){
+        document.getElementById('cm-text').value = c.text || '';
+        document.querySelectorAll('.bm-emoji-btn').forEach(b => b.classList.toggle('active', b.dataset.emoji === c.emoji));
+        document.querySelectorAll('.bm-color-swatch').forEach(s => s.classList.toggle('active', s.dataset.color === c.color));
+        document.getElementById('callout-modal').classList.add('open');
+    } else if(block.type === 'map_embed'){
+        document.getElementById('mem-height').value = c.height_px || 360;
+        document.getElementById('mem-zoom').value = c.zoom || 10;
+        document.getElementById('mem-lat').value = c.center_lat || '';
+        document.getElementById('mem-lng').value = c.center_lng || '';
+        document.getElementById('mem-track').checked = c.show_track !== false;
+        document.getElementById('mem-places').checked = c.show_places !== false;
+        document.getElementById('map-embed-modal').classList.add('open');
+    } else if(block.type === 'location_card'){
+        populatePlaceSelect(c.place_id);
+        document.getElementById('location-card-modal').classList.add('open');
+    } else if(block.type === 'photo_grid'){
+        currentPhotoBlockIndex = index;
+        document.getElementById('photo-file-input').click();
+    }
+}
+
+// ── Modal OK handlers ──────────────────────────────────────────────────────
+document.getElementById('hm-ok').addEventListener('click', () => {
+    const block = {type:'heading', content:{
+        level: parseInt(document.getElementById('hm-level').value),
+        text: document.getElementById('hm-text').value,
+    }, _id: uid()};
+    document.getElementById('heading-modal').classList.remove('open');
+    commitBlock(block);
+});
+
+document.getElementById('cm-ok').addEventListener('click', () => {
+    const activeEmoji = document.querySelector('.bm-emoji-btn.active');
+    const customEmoji = document.getElementById('cm-emoji-custom').value.trim();
+    const activeColor = document.querySelector('.bm-color-swatch.active');
+    const block = {type:'callout', content:{
+        text: document.getElementById('cm-text').value,
+        emoji: customEmoji || (activeEmoji ? activeEmoji.dataset.emoji : '📍'),
+        color: activeColor ? activeColor.dataset.color : 'mint',
+    }, _id: uid()};
+    document.getElementById('callout-modal').classList.remove('open');
+    commitBlock(block);
+});
+
+document.getElementById('mem-ok').addEventListener('click', () => {
+    const latVal = parseFloat(document.getElementById('mem-lat').value);
+    const lngVal = parseFloat(document.getElementById('mem-lng').value);
+    const block = {type:'map_embed', content:{
+        zoom: parseInt(document.getElementById('mem-zoom').value) || 10,
+        center_lat: isNaN(latVal) ? null : latVal,
+        center_lng: isNaN(lngVal) ? null : lngVal,
+        show_track: document.getElementById('mem-track').checked,
+        show_places: document.getElementById('mem-places').checked,
+        height_px: parseInt(document.getElementById('mem-height').value) || 360,
+    }, _id: uid()};
+    document.getElementById('map-embed-modal').classList.remove('open');
+    commitBlock(block);
+});
+
+document.getElementById('lcm-ok').addEventListener('click', () => {
+    const sel = document.getElementById('lcm-place');
+    const block = {type:'location_card', content:{place_id: parseInt(sel.value)}, _id: uid()};
+    document.getElementById('location-card-modal').classList.remove('open');
+    commitBlock(block);
+});
+
+// Cancel buttons
+document.querySelectorAll('.bm-cancel-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.getElementById(btn.dataset.modal).classList.remove('open');
+        pendingEditIndex = null;
+    });
+});
+
+// Callout emoji/color pickers
+document.getElementById('cm-emojis').addEventListener('click', e => {
+    const btn = e.target.closest('.bm-emoji-btn');
+    if(!btn) return;
+    document.querySelectorAll('.bm-emoji-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('cm-emoji-custom').value = '';
+});
+document.querySelectorAll('.bm-color-swatch').forEach(sw => {
+    sw.addEventListener('click', () => {
+        document.querySelectorAll('.bm-color-swatch').forEach(s => s.classList.remove('active'));
+        sw.classList.add('active');
+    });
+});
+
+function populatePlaceSelect(selectedId){
+    const sel = document.getElementById('lcm-place');
+    sel.innerHTML = '';
+    places.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        if(p.id === selectedId) opt.selected = true;
+        sel.appendChild(opt);
+    });
+    if(!places.length){
+        const opt = document.createElement('option');
+        opt.textContent = 'no places yet — add them on the map';
+        sel.appendChild(opt);
+    }
+}
+
+// ── Photo upload for photo_grid block ─────────────────────────────────────
+document.getElementById('photo-file-input').addEventListener('change', async function(){
+    if(currentPhotoBlockIndex === null) return;
+    const files = Array.from(this.files);
+    if(!files.length) return;
+    const formData = new FormData();
+    files.forEach(f => formData.append('photos', f));
+    formData.append('latitude', '');
+    formData.append('longitude', '');
+    formData.append('text', '(photo grid upload)');
+    try {
+        const r = await fetch(`/api/trips/${TRIP_ID}/blurbs/create/`, {
+            method:'POST', headers:{'X-CSRFToken':CSRF}, body: formData
+        });
+        const d = await r.json();
+        // Re-fetch trip to get updated photo list
+        await loadTrip();
+        renderBlocks();
+    } catch(e){ console.error(e); }
+    this.value = '';
+    currentPhotoBlockIndex = null;
+});
+
+// ── Cover image ────────────────────────────────────────────────────────────
+const coverDropZone = document.getElementById('cover-drop-zone');
+const coverPreview = document.getElementById('cover-preview');
+const coverPlaceholder = document.getElementById('cover-placeholder');
+const coverRemoveBtn = document.getElementById('cover-remove-btn');
+
+function showCoverPreview(url){
+    coverPreview.src = url;
+    coverPreview.style.display = 'block';
+    coverPlaceholder.style.display = 'none';
+    coverRemoveBtn.style.display = '';
+}
+function hideCoverPreview(){
+    coverPreview.src = '';
+    coverPreview.style.display = 'none';
+    coverPlaceholder.style.display = '';
+    coverRemoveBtn.style.display = 'none';
+}
+
+coverDropZone.addEventListener('click', e => {
+    if(e.target === coverRemoveBtn) return;
+    document.getElementById('cover-file-input').click();
+});
+document.getElementById('cover-change-btn').addEventListener('click', e => {
+    e.stopPropagation();
+    document.getElementById('cover-file-input').click();
+});
+document.getElementById('cover-remove-btn').addEventListener('click', async e => {
+    e.stopPropagation();
+    await fetch(`/api/trips/${TRIP_ID}/cover/delete/`, {method:'POST',headers:{'X-CSRFToken':CSRF}});
+    hideCoverPreview();
+});
+coverDropZone.addEventListener('dragover', e => { e.preventDefault(); coverDropZone.classList.add('drag-over'); });
+coverDropZone.addEventListener('dragleave', () => coverDropZone.classList.remove('drag-over'));
+coverDropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    coverDropZone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if(file && file.type.startsWith('image/')) uploadCover(file);
+});
+document.getElementById('cover-file-input').addEventListener('change', function(){
+    if(this.files[0]) uploadCover(this.files[0]);
+    this.value = '';
+});
+
+async function uploadCover(file){
+    const fd = new FormData();
+    fd.append('cover', file);
+    const r = await fetch(`/api/trips/${TRIP_ID}/cover/`, {method:'POST',headers:{'X-CSRFToken':CSRF},body:fd});
+    if(r.ok){
+        const d = await r.json();
+        showCoverPreview(d.cover_image);
+    }
+}
+
+// ── Save button + title/subtitle auto-save ─────────────────────────────────
+document.getElementById('save-btn').addEventListener('click', doSave);
+['editor-title','editor-subtitle'].forEach(id => {
+    const el = document.getElementById(id);
+    el.addEventListener('input', () => { autoResize(el); setSaveStatus('unsaved'); });
+    el.addEventListener('blur', scheduleAutoSave);
+});
+
+// ── Map (right pane) ───────────────────────────────────────────────────────
+let showTrack = true, showBlurbs = true, showPlaces = true;
+let droppingPin = false;
+
+function initMap(locs){
+    const theme = localStorage.getItem('roamly_theme') === 'light' ? 'Streets' : 'Dark';
+    editMap = new maplibregl.Map({
+        container: 'edit-map',
+        style: mapStyles[theme],
+        center: [0, 20],
+        zoom: 2,
+    });
+    editMap.addControl(new maplibregl.NavigationControl(), 'bottom-right');
+
+    editMap.on('load', () => {
+        if(locs.length){
+            const coords = locs.map(l => [l.lng, l.lat]);
+            editMap.addSource('track', {type:'geojson', data:{type:'Feature',geometry:{type:'LineString',coordinates:coords}}});
+            editMap.addLayer({id:'track-line',type:'line',source:'track',paint:{'line-color':'#0DBFAC','line-width':2,'line-opacity':0.8}});
+
+            const lngs = locs.map(l=>l.lng), lats = locs.map(l=>l.lat);
+            editMap.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]], {padding:40});
+        }
+
+        renderBlurbPins();
+        renderPlacePins();
+    });
+
+    editMap.on('click', e => {
+        if(!droppingPin) return;
+        const name = prompt('name this pin:');
+        if(!name) return;
+        createPlace(name, e.lngLat.lat, e.lngLat.lng);
+        droppingPin = false;
+        document.getElementById('drop-pin-btn').classList.remove('active');
+        editMap.getCanvas().style.cursor = '';
+    });
+}
+
+function renderBlurbPins(){
+    if(!editMap || !editMap.loaded()) return;
+    if(editMap.getLayer('blurb-pins')) editMap.removeLayer('blurb-pins');
+    if(editMap.getSource('blurbs')) editMap.removeSource('blurbs');
+    if(!showBlurbs) return;
+    const features = blurbs.filter(b=>b.latitude&&b.longitude).map(b=>({
+        type:'Feature',
+        geometry:{type:'Point',coordinates:[b.longitude,b.latitude]},
+        properties:{id:b.id,author:b.author,text:b.text.slice(0,120)}
+    }));
+    editMap.addSource('blurbs',{type:'geojson',data:{type:'FeatureCollection',features}});
+    editMap.addLayer({id:'blurb-pins',type:'circle',source:'blurbs',paint:{
+        'circle-color':'#FF6B6B','circle-radius':8,'circle-stroke-width':2,'circle-stroke-color':'#fff'
+    }});
+    editMap.on('click','blurb-pins',e=>{
+        const p = e.features[0].properties;
+        new maplibregl.Popup({offset:10}).setLngLat(e.features[0].geometry.coordinates.slice())
+            .setHTML(`<div class="blurb-popup"><div class="blurb-popup-author">${esc(p.author)}</div><div class="blurb-popup-text">${esc(p.text)}</div></div>`)
+            .addTo(editMap);
+    });
+}
+
+function renderPlacePins(){
+    if(!editMap || !editMap.loaded()) return;
+    if(editMap.getLayer('place-pins')) editMap.removeLayer('place-pins');
+    if(editMap.getSource('places-src')) editMap.removeSource('places-src');
+    if(!showPlaces) return;
+    const features = places.map(p=>({
+        type:'Feature',
+        geometry:{type:'Point',coordinates:[p.longitude,p.latitude]},
+        properties:{id:p.id,name:p.name,notes:p.notes||''}
+    }));
+    editMap.addSource('places-src',{type:'geojson',data:{type:'FeatureCollection',features}});
+    editMap.addLayer({id:'place-pins',type:'circle',source:'places-src',paint:{
+        'circle-color':'#9B8EF7','circle-radius':8,'circle-stroke-width':2,'circle-stroke-color':'#fff'
+    }});
+    editMap.on('click','place-pins',e=>{
+        const p = e.features[0].properties;
+        new maplibregl.Popup({offset:10}).setLngLat(e.features[0].geometry.coordinates.slice())
+            .setHTML(`<div><strong>${esc(p.name)}</strong>${p.notes?`<div style="color:var(--text-muted);font-size:0.75rem;margin-top:2px;">${esc(p.notes)}</div>`:''}</div>`)
+            .addTo(editMap);
+    });
+}
+
+// Map toolbar toggle buttons
+document.getElementById('toggle-track-btn').addEventListener('click', function(){
+    showTrack = !showTrack;
+    this.classList.toggle('active', showTrack);
+    if(editMap && editMap.getLayer('track-line')){
+        editMap.setLayoutProperty('track-line','visibility', showTrack ? 'visible' : 'none');
+    }
+});
+document.getElementById('toggle-blurbs-btn').addEventListener('click', function(){
+    showBlurbs = !showBlurbs;
+    this.classList.toggle('active', showBlurbs);
+    renderBlurbPins();
+});
+document.getElementById('toggle-places-btn').addEventListener('click', function(){
+    showPlaces = !showPlaces;
+    this.classList.toggle('active', showPlaces);
+    renderPlacePins();
+});
+document.getElementById('drop-pin-btn').addEventListener('click', function(){
+    droppingPin = !droppingPin;
+    this.classList.toggle('active', droppingPin);
+    if(editMap) editMap.getCanvas().style.cursor = droppingPin ? 'crosshair' : '';
+});
+
+async function createPlace(name, lat, lng){
+    const r = await fetch(`/api/trips/${TRIP_ID}/places/create/`, {
+        method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+        body: JSON.stringify({name,latitude:lat,longitude:lng})
+    });
+    if(r.ok){
+        await loadTrip();
+        renderPlacePins();
+        renderBlocks();
+    }
+}
+
+// ── Pin popup (inline pin refs) ─────────────────────────────────────────────
+document.getElementById('pin-popup-close').addEventListener('click', () => {
+    document.getElementById('pin-popup-overlay').classList.remove('open');
+    if(pinMiniMap){ pinMiniMap.remove(); pinMiniMap = null; }
+});
+document.getElementById('blocks-area').addEventListener('click', e => {
+    const badge = e.target.closest('.pin-badge');
+    if(!badge) return;
+    const pinId = parseInt(badge.dataset.pinId);
+    const place = places.find(p => p.id === pinId);
+    if(!place) return;
+    document.getElementById('pin-popup-name').textContent = place.name;
+    document.getElementById('pin-popup-notes').textContent = place.notes || '';
+    document.getElementById('pin-popup-overlay').classList.add('open');
+    const miniEl = document.getElementById('pin-popup-mini-map');
+    miniEl.innerHTML = '';
+    if(pinMiniMap){ pinMiniMap.remove(); pinMiniMap = null; }
+    const theme = localStorage.getItem('roamly_theme') === 'light' ? 'Streets' : 'Dark';
+    pinMiniMap = new maplibregl.Map({container: miniEl, style: mapStyles[theme], center:[place.longitude,place.latitude], zoom:12, interactive:false});
+    pinMiniMap.on('load',()=>{
+        new maplibregl.Marker().setLngLat([place.longitude,place.latitude]).addTo(pinMiniMap);
+    });
+});
+
+// ── Load trip data ─────────────────────────────────────────────────────────
+async function loadTrip(){
+    const r = await fetch(`/api/trips/${TRIP_ID}/`);
+    tripData = await r.json();
+    blocks = (tripData.body||[]).map(b=>({...b, _id:uid()}));
+    places = (tripData.places||[]).map(p=>({id:p.id,name:p.name,latitude:p.latitude,longitude:p.longitude,notes:p.notes||''}));
+    blurbs = (tripData.blurbs_detail||[]);
+
+    if(tripData.cover_image){
+        showCoverPreview(tripData.cover_image);
+    }
+    return tripData;
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+async function init(){
+    await loadTrip();
+
+    // Load blurbs for map pins from timeline API
+    const tr = await fetch(`/api/trips/${TRIP_ID}/timeline/`);
+    const td = await tr.json();
+    blurbs = (td.events||[]).filter(e=>e.type==='blurb'&&e.latitude&&e.longitude);
+
+    renderBlocks();
+
+    // Init map with track
+    const locs = tripData.locations || [];
+    initMap(locs);
+}
+
+init();
+</script>
+{% endblock %}
