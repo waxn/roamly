@@ -418,6 +418,14 @@
 /* Popup styles */
 .blurb-popup-author { font-weight: 700; font-size: 0.8125rem; }
 .blurb-popup-text   { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.2rem; line-height: 1.4; }
+.popup-actions { display: flex; gap: 0.375rem; margin-top: 0.5rem; }
+.popup-actions button {
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text-muted); font-family: var(--font-body); font-size: 0.7rem;
+    font-weight: 700; padding: 0.2rem 0.55rem; cursor: pointer; transition: all 0.12s;
+}
+.popup-actions button:hover { color: var(--text); border-color: var(--text-muted); }
+.popup-actions button.danger:hover { color: var(--danger); border-color: var(--danger); }
 
 /* Responsive */
 @media (max-width: 820px) {
@@ -511,8 +519,12 @@
             <!-- Actions -->
             <div class="edit-map-group">
                 <button class="edit-map-btn" id="drop-pin-btn">
-                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
                     add place
+                </button>
+                <button class="edit-map-btn" id="drop-note-btn">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                    add note
                 </button>
             </div>
         </div>
@@ -1250,7 +1262,7 @@ document.getElementById('hero-add-block-btn').addEventListener('click', function
 
 // ── Map (right pane) ───────────────────────────────────────────────────────
 let showTrack = true, showBlurbs = true, showPlaces = true;
-let droppingPin = false;
+let droppingPin = false, droppingNote = false;
 
 function initMap(locs){
     const theme = localStorage.getItem('roamly_theme') === 'light' ? 'Streets' : 'Dark';
@@ -1277,15 +1289,23 @@ function initMap(locs){
     });
 
     editMap.on('click', e => {
-        if(!droppingPin) return;
-        const name = prompt('name this pin:');
-        if(!name) return;
-        createPlace(name, e.lngLat.lat, e.lngLat.lng);
-        droppingPin = false;
-        document.getElementById('drop-pin-btn').classList.remove('active');
-        editMap.getCanvas().style.cursor = '';
+        if(droppingPin){
+            const name = prompt('name this place:');
+            if(name) createPlace(name, e.lngLat.lat, e.lngLat.lng);
+            droppingPin = false;
+            document.getElementById('drop-pin-btn').classList.remove('active');
+            editMap.getCanvas().style.cursor = '';
+        } else if(droppingNote){
+            const text = prompt('write a note for this spot:');
+            if(text) createNote(text, e.lngLat.lat, e.lngLat.lng);
+            droppingNote = false;
+            document.getElementById('drop-note-btn').classList.remove('active');
+            editMap.getCanvas().style.cursor = '';
+        }
     });
 }
+
+let blurbClickBound = false, placeClickBound = false;
 
 function renderBlurbPins(){
     if(!editMap || !editMap.loaded()) return;
@@ -1295,18 +1315,29 @@ function renderBlurbPins(){
     const features = blurbs.filter(b=>b.latitude&&b.longitude).map(b=>({
         type:'Feature',
         geometry:{type:'Point',coordinates:[b.longitude,b.latitude]},
-        properties:{id:b.id,author:b.author,text:b.text.slice(0,120)}
+        properties:{id:b.id,author:b.author,text:b.text.slice(0,200)}
     }));
     editMap.addSource('blurbs',{type:'geojson',data:{type:'FeatureCollection',features}});
     editMap.addLayer({id:'blurb-pins',type:'circle',source:'blurbs',paint:{
         'circle-color':'#FF6B6B','circle-radius':8,'circle-stroke-width':2,'circle-stroke-color':'#fff'
     }});
-    editMap.on('click','blurb-pins',e=>{
-        const p = e.features[0].properties;
-        new maplibregl.Popup({offset:10}).setLngLat(e.features[0].geometry.coordinates.slice())
-            .setHTML(`<div class="blurb-popup"><div class="blurb-popup-author">${esc(p.author)}</div><div class="blurb-popup-text">${esc(p.text)}</div></div>`)
-            .addTo(editMap);
-    });
+    if(!blurbClickBound){
+        editMap.on('click','blurb-pins',e=>{
+            const p = e.features[0].properties;
+            new maplibregl.Popup({offset:10}).setLngLat(e.features[0].geometry.coordinates.slice())
+                .setHTML(`<div class="blurb-popup">
+                    <div class="blurb-popup-author">${esc(p.author)}</div>
+                    <div class="blurb-popup-text">${esc(p.text)}</div>
+                    <div class="popup-actions">
+                        <button onclick="editNote(${p.id})">edit</button>
+                        <button class="danger" onclick="deleteNote(${p.id})">delete</button>
+                    </div>
+                </div>`).addTo(editMap);
+        });
+        editMap.on('mouseenter','blurb-pins',()=>{ editMap.getCanvas().style.cursor='pointer'; });
+        editMap.on('mouseleave','blurb-pins',()=>{ editMap.getCanvas().style.cursor=''; });
+        blurbClickBound = true;
+    }
 }
 
 function renderPlacePins(){
@@ -1323,12 +1354,23 @@ function renderPlacePins(){
     editMap.addLayer({id:'place-pins',type:'circle',source:'places-src',paint:{
         'circle-color':'#9B8EF7','circle-radius':8,'circle-stroke-width':2,'circle-stroke-color':'#fff'
     }});
-    editMap.on('click','place-pins',e=>{
-        const p = e.features[0].properties;
-        new maplibregl.Popup({offset:10}).setLngLat(e.features[0].geometry.coordinates.slice())
-            .setHTML(`<div><strong>${esc(p.name)}</strong>${p.notes?`<div style="color:var(--text-muted);font-size:0.75rem;margin-top:2px;">${esc(p.notes)}</div>`:''}</div>`)
-            .addTo(editMap);
-    });
+    if(!placeClickBound){
+        editMap.on('click','place-pins',e=>{
+            const p = e.features[0].properties;
+            new maplibregl.Popup({offset:10}).setLngLat(e.features[0].geometry.coordinates.slice())
+                .setHTML(`<div>
+                    <strong>${esc(p.name)}</strong>
+                    ${p.notes?`<div style="color:var(--text-muted);font-size:0.75rem;margin-top:2px;">${esc(p.notes)}</div>`:''}
+                    <div class="popup-actions">
+                        <button onclick="editPlace(${p.id})">rename</button>
+                        <button class="danger" onclick="deletePlace(${p.id})">delete</button>
+                    </div>
+                </div>`).addTo(editMap);
+        });
+        editMap.on('mouseenter','place-pins',()=>{ editMap.getCanvas().style.cursor='pointer'; });
+        editMap.on('mouseleave','place-pins',()=>{ editMap.getCanvas().style.cursor=''; });
+        placeClickBound = true;
+    }
 }
 
 // Map toolbar toggle buttons
@@ -1351,9 +1393,26 @@ document.getElementById('toggle-places-btn').addEventListener('click', function(
 });
 document.getElementById('drop-pin-btn').addEventListener('click', function(){
     droppingPin = !droppingPin;
+    droppingNote = false;
+    document.getElementById('drop-note-btn').classList.remove('active');
     this.classList.toggle('active', droppingPin);
     if(editMap) editMap.getCanvas().style.cursor = droppingPin ? 'crosshair' : '';
 });
+document.getElementById('drop-note-btn').addEventListener('click', function(){
+    droppingNote = !droppingNote;
+    droppingPin = false;
+    document.getElementById('drop-pin-btn').classList.remove('active');
+    this.classList.toggle('active', droppingNote);
+    if(editMap) editMap.getCanvas().style.cursor = droppingNote ? 'crosshair' : '';
+});
+
+function closeMapPopups(){ document.querySelectorAll('.maplibregl-popup').forEach(p=>p.remove()); }
+
+async function reloadBlurbs(){
+    const tr = await fetch(`/api/trips/${TRIP_ID}/timeline/`);
+    const td = await tr.json();
+    blurbs = (td.events||[]).filter(e=>e.type==='blurb'&&e.latitude&&e.longitude);
+}
 
 async function createPlace(name, lat, lng){
     const r = await fetch(`/api/trips/${TRIP_ID}/places/create/`, {
@@ -1365,6 +1424,51 @@ async function createPlace(name, lat, lng){
         renderPlacePins();
         renderBlocks();
     }
+}
+
+async function createNote(text, lat, lng){
+    const fd = new FormData();
+    fd.append('text', text);
+    fd.append('latitude', lat);
+    fd.append('longitude', lng);
+    const r = await fetch(`/api/trips/${TRIP_ID}/blurbs/create/`, {
+        method:'POST', headers:{'X-CSRFToken':CSRF}, body: fd
+    });
+    if(r.ok){ await reloadBlurbs(); renderBlurbPins(); }
+}
+
+async function editNote(id){
+    const b = blurbs.find(x=>x.id===id);
+    const text = prompt('edit note:', b ? b.text : '');
+    if(text===null) return;
+    const r = await fetch(`/api/trips/${TRIP_ID}/blurbs/${id}/update/`, {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+        body: JSON.stringify({text})
+    });
+    if(r.ok){ await reloadBlurbs(); renderBlurbPins(); closeMapPopups(); }
+}
+
+async function deleteNote(id){
+    if(!confirm('delete this note?')) return;
+    const r = await fetch(`/api/trips/${TRIP_ID}/blurbs/${id}/delete/`, {method:'POST',headers:{'X-CSRFToken':CSRF}});
+    if(r.ok){ await reloadBlurbs(); renderBlurbPins(); closeMapPopups(); }
+}
+
+async function editPlace(id){
+    const pl = places.find(x=>x.id===id);
+    const name = prompt('rename place:', pl ? pl.name : '');
+    if(!name) return;
+    const r = await fetch(`/api/trips/${TRIP_ID}/places/${id}/update/`, {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+        body: JSON.stringify({name})
+    });
+    if(r.ok){ await loadTrip(); renderPlacePins(); renderBlocks(); closeMapPopups(); }
+}
+
+async function deletePlace(id){
+    if(!confirm('delete this place? any place cards or pin refs using it will show as missing.')) return;
+    const r = await fetch(`/api/trips/${TRIP_ID}/places/${id}/delete/`, {method:'POST',headers:{'X-CSRFToken':CSRF}});
+    if(r.ok){ await loadTrip(); renderPlacePins(); renderBlocks(); closeMapPopups(); }
 }
 
 // ── Pin popup (inline pin refs) ─────────────────────────────────────────────
