@@ -1178,7 +1178,6 @@ document.getElementById('photo-file-input').addEventListener('change', async fun
     currentPhotoBlockIndex = null;
 });
 
-// ── Cover image ────────────────────────────────────────────────────────────
 // ── Cover hero ─────────────────────────────────────────────────────────────
 const heroEl = document.getElementById('editor-hero');
 const heroBg  = document.getElementById('hero-bg');
@@ -1195,7 +1194,12 @@ function hideCoverPreview(){
 }
 
 heroEl.addEventListener('click', e => {
-    if(e.target.closest('#cover-change-btn') || e.target.closest('#cover-remove-btn')) return;
+    // Only the empty cover / placeholder area opens the file picker — not the
+    // toolbar buttons, cover actions, back link, or the title/subtitle fields.
+    if(e.target.closest('.editor-hero-toolbar') ||
+       e.target.closest('.editor-hero-actions') ||
+       e.target.closest('.editor-hero-back') ||
+       e.target.closest('.editor-hero-text')) return;
     document.getElementById('cover-file-input').click();
 });
 document.getElementById('cover-change-btn').addEventListener('click', e => {
