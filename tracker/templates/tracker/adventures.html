@@ -71,15 +71,20 @@
 .adv-card-meta { display: flex; gap: 0.75rem; margin-top: 0.5rem; font-size: 0.75rem; color: var(--text-muted); flex-wrap: wrap; }
 .adv-card-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .adv-card-badges { display: flex; gap: 0.375rem; margin-top: 0.625rem; align-items: center; }
-.adv-card-read-time { margin-left: auto; font-size: 0.65rem; color: var(--text-dim); }
-.adv-card-edit-btn {
+.adv-card-read-time { font-size: 0.65rem; color: var(--text-dim); }
+.adv-card-actions {
+    display: flex; gap: 0.375rem; align-items: center;
+    margin-top: 0.625rem; flex-wrap: wrap;
+}
+.adv-card-map-btn, .adv-card-pub-btn {
     display: inline-flex; align-items: center; gap: 0.2rem;
     background: var(--bg-elevated); border: 1px solid var(--border);
     border-radius: 6px; padding: 2px 7px; font-size: 0.65rem; font-weight: 700;
     color: var(--text-muted); cursor: pointer; transition: all 0.12s;
-    text-decoration: none; margin-left: auto;
+    text-decoration: none; font-family: var(--font-body);
 }
-.adv-card-edit-btn:hover { color: var(--primary); border-color: var(--border-bright); }
+.adv-card-map-btn:hover { color: var(--clay-sky); border-color: var(--clay-sky); }
+.adv-card-pub-btn:hover { color: var(--clay-mint); border-color: var(--clay-mint); }
 .adv-badge { border-radius: 6px; padding: 2px 8px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
 .adv-badge-public { background: rgba(34,197,94,0.12); color: #22c55e; }
 .adv-badge-active { background: rgba(249,115,22,0.12); color: #f97316; }
@@ -918,15 +923,20 @@ function renderAdventureCards() {
         if (isActive) badges.push('<span class="adv-badge adv-badge-active">active</span>');
         const readTime = trip.read_time_min ? `${trip.read_time_min} min read` : '';
         const coverHtml = trip.cover_thumbnail ? `<img class="adv-card-cover" src="${escHtml(trip.cover_thumbnail)}" alt="" loading="lazy">` : '';
-        return `<div class="adv-card" onclick="openTrip(${trip.id})">
+        return `<div class="adv-card" onclick="location.href='/adventures/${trip.id}/edit/'">
             ${coverHtml}
             <div class="adv-card-body">
                 <div class="adv-card-name">${escHtml(trip.name)}</div>
                 ${trip.subtitle ? `<div class="adv-card-subtitle">${escHtml(trip.subtitle)}</div>` : ''}
                 <div class="adv-card-dates">${dateStr}</div>
                 <div class="adv-card-meta"><span>${escHtml(trip.device)}</span><span>${pts} pts</span>${trip.member_count > 1 ? `<span>${trip.member_count} members</span>` : ''}</div>
-                ${badges.length || readTime ? `<div class="adv-card-badges">${badges.join('')}${readTime ? `<span class="adv-card-read-time">${readTime}</span>` : ''}<a class="adv-card-edit-btn" href="/adventures/${trip.id}/edit/" onclick="event.stopPropagation()">✏️ edit</a></div>` : ''}
                 ${!trip.subtitle && trip.description ? `<div class="adv-card-desc">${escHtml(trip.description)}</div>` : ''}
+                <div class="adv-card-actions">
+                    ${badges.join('')}
+                    ${readTime ? `<span class="adv-card-read-time">${readTime}</span>` : ''}
+                    <button class="adv-card-map-btn" onclick="event.stopPropagation();openTrip(${trip.id})" title="open map view">🗺️ map</button>
+                    ${trip.is_public ? `<a class="adv-card-pub-btn" href="/adventure/${escHtml(trip.public_slug)}/" onclick="event.stopPropagation()" target="_blank">🔗 public</a>` : ''}
+                </div>
             </div>
         </div>`;
     }).join('');
