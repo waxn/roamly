@@ -52,21 +52,34 @@
 
 .adv-card {
     background: var(--bg-card); border: 1px solid var(--border);
-    border-radius: 14px; padding: 1.125rem 1.25rem;
-    cursor: pointer; position: relative; overflow: hidden;
+    border-radius: 14px; overflow: hidden;
+    cursor: pointer; position: relative;
     transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+    display: flex; flex-direction: column;
 }
 .adv-card::after {
     content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-    background: var(--primary); opacity: 0; transition: opacity 0.15s;
+    background: var(--primary); opacity: 0; transition: opacity 0.15s; z-index: 1;
 }
 .adv-card:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(0,0,0,0.28); border-color: rgba(59,130,246,0.4); }
 .adv-card:hover::after { opacity: 1; }
-.adv-card-name { font-size: 0.9375rem; font-weight: 700; margin: 0 0 0.25rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.adv-card-cover { width: 100%; height: 120px; object-fit: cover; display: block; }
+.adv-card-body { padding: 0.875rem 1.125rem 1rem; flex: 1; display: flex; flex-direction: column; }
+.adv-card-name { font-size: 0.9375rem; font-weight: 700; margin: 0 0 0.125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.adv-card-subtitle { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .adv-card-dates { font-size: 0.8rem; color: var(--text-muted); }
 .adv-card-meta { display: flex; gap: 0.75rem; margin-top: 0.5rem; font-size: 0.75rem; color: var(--text-muted); flex-wrap: wrap; }
 .adv-card-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.adv-card-badges { display: flex; gap: 0.375rem; margin-top: 0.625rem; }
+.adv-card-badges { display: flex; gap: 0.375rem; margin-top: 0.625rem; align-items: center; }
+.adv-card-read-time { margin-left: auto; font-size: 0.65rem; color: var(--text-dim); }
+.adv-card-edit-btn {
+    display: inline-flex; align-items: center; gap: 0.2rem;
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: 6px; padding: 2px 7px; font-size: 0.65rem; font-weight: 700;
+    color: var(--text-muted); cursor: pointer; transition: all 0.12s;
+    text-decoration: none; margin-left: auto;
+}
+.adv-card-edit-btn:hover { color: var(--primary); border-color: var(--border-bright); }
 .adv-badge { border-radius: 6px; padding: 2px 8px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
 .adv-badge-public { background: rgba(34,197,94,0.12); color: #22c55e; }
 .adv-badge-active { background: rgba(249,115,22,0.12); color: #f97316; }
@@ -903,12 +916,18 @@ function renderAdventureCards() {
         const badges = [];
         if (trip.is_public) badges.push('<span class="adv-badge adv-badge-public">public</span>');
         if (isActive) badges.push('<span class="adv-badge adv-badge-active">active</span>');
+        const readTime = trip.read_time_min ? `${trip.read_time_min} min read` : '';
+        const coverHtml = trip.cover_thumbnail ? `<img class="adv-card-cover" src="${escHtml(trip.cover_thumbnail)}" alt="" loading="lazy">` : '';
         return `<div class="adv-card" onclick="openTrip(${trip.id})">
-            <div class="adv-card-name">${escHtml(trip.name)}</div>
-            <div class="adv-card-dates">${dateStr}</div>
-            <div class="adv-card-meta"><span>${escHtml(trip.device)}</span><span>${pts} pts</span></div>
-            ${badges.length ? `<div class="adv-card-badges">${badges.join('')}</div>` : ''}
-            ${trip.description ? `<div class="adv-card-desc">${escHtml(trip.description)}</div>` : ''}
+            ${coverHtml}
+            <div class="adv-card-body">
+                <div class="adv-card-name">${escHtml(trip.name)}</div>
+                ${trip.subtitle ? `<div class="adv-card-subtitle">${escHtml(trip.subtitle)}</div>` : ''}
+                <div class="adv-card-dates">${dateStr}</div>
+                <div class="adv-card-meta"><span>${escHtml(trip.device)}</span><span>${pts} pts</span>${trip.member_count > 1 ? `<span>${trip.member_count} members</span>` : ''}</div>
+                ${badges.length || readTime ? `<div class="adv-card-badges">${badges.join('')}${readTime ? `<span class="adv-card-read-time">${readTime}</span>` : ''}<a class="adv-card-edit-btn" href="/adventures/${trip.id}/edit/" onclick="event.stopPropagation()">✏️ edit</a></div>` : ''}
+                ${!trip.subtitle && trip.description ? `<div class="adv-card-desc">${escHtml(trip.description)}</div>` : ''}
+            </div>
         </div>`;
     }).join('');
 }
