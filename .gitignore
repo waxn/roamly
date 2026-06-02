@@ -48,3 +48,6 @@ dist/
 .DS_Store
 Thumbs.db
 .aider*
+
+# Local agent briefs
+adventure-rewrite-1.md
