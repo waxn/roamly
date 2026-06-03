@@ -33,7 +33,8 @@ class UploadWorker @AssistedInject constructor(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
-        val deviceId = prefs.deviceId.first() ?: run {
+        val deviceId = prefs.deviceId.first()?.trim().orEmpty()
+        if (deviceId.isBlank()) {
             writeSyncResult(false, 0, "Device ID not set")
             return Result.success()
         }
@@ -103,6 +104,7 @@ class UploadWorker @AssistedInject constructor(
                             )
                             .build()
                     )
+                    .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                     .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                     .addTag(ONETIME_TAG)
                     .build()

@@ -6,8 +6,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BarChart
-import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -17,6 +17,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -76,41 +77,43 @@ fun RoamlyNavHost() {
     Scaffold(
         bottomBar = {
             if (showBottomBar) {
-                NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 0.dp
-                ) {
-                    bottomNavItems.forEach { screen ->
-                        NavigationBarItem(
-                            icon = {
-                                Icon(
-                                    imageVector = when (screen) {
-                                        Screen.Map -> Icons.Rounded.Map
-                                        Screen.Adventures -> Icons.Rounded.Explore
-                                        Screen.Stats -> Icons.Rounded.BarChart
-                                        else -> Icons.Rounded.Settings
-                                    },
-                                    contentDescription = screen.label,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            },
-                            label = { Text(screen.label.lowercase()) },
-                            selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                indicatorColor = Color.Transparent
-                            ),
-                            onClick = {
-                                navController.navigate(screen.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
+                Surface(tonalElevation = 6.dp, shadowElevation = 8.dp) {
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 0.dp
+                    ) {
+                        bottomNavItems.forEach { screen ->
+                            NavigationBarItem(
+                                icon = {
+                                    Icon(
+                                        imageVector = when (screen) {
+                                            Screen.Map -> Icons.Rounded.Map
+                                            Screen.Adventures -> Icons.Rounded.Explore
+                                            Screen.Stats -> Icons.Rounded.BarChart
+                                            else -> Icons.Rounded.Settings
+                                        },
+                                        contentDescription = screen.label,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                },
+                                label = { Text(screen.label.lowercase()) },
+                                selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                ),
+                                onClick = {
+                                    navController.navigate(screen.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
             }

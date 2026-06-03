@@ -43,6 +43,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.roamly.data.api.TripResponse
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Route
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,7 +61,7 @@ fun TripsScreen(
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Route, contentDescription = null)
+                        Icon(Icons.Rounded.Route, contentDescription = null)
                         Spacer(Modifier.width(10.dp))
                         Text("Trips")
                     }
@@ -70,7 +74,7 @@ fun TripsScreen(
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
             ) {
-                Icon(Icons.Filled.Add, contentDescription = "New Trip")
+                Icon(Icons.Rounded.Add, contentDescription = "New Trip")
             }
         }
     ) { padding ->
@@ -82,9 +86,10 @@ fun TripsScreen(
                         modifier = Modifier.align(Alignment.Center),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Icon(Icons.Filled.Route, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Rounded.Route, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.height(8.dp))
                         Text("No trips yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Create one from the web app to group a journey.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 else -> {
@@ -126,7 +131,8 @@ private fun TripCard(trip: TripResponse, onClick: () -> Unit, onDelete: () -> Un
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -147,9 +153,9 @@ private fun TripCard(trip: TripResponse, onClick: () -> Unit, onDelete: () -> Un
                 }
             }
             Spacer(Modifier.width(8.dp))
-            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             IconButton(onClick = onDelete) {
-                Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Rounded.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

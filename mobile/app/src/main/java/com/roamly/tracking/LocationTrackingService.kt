@@ -16,12 +16,15 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 private const val TAG = "LocationTrackingService"
 private const val NOTIFICATION_ID = 1001
 private const val UPLOAD_SCHEDULE_MIN_INTERVAL_MS = 60_000L
 private const val UPLOAD_BATCH_TRIGGER_COUNT = 10
+private const val DEFAULT_MIN_DISTANCE_METRES = 10f
+private const val REQUEST_ACCURATE_LOCATION_MS = 30_000L
 
 const val ACTION_STOP    = "com.roamly.STOP"
 const val ACTION_PAUSE   = "com.roamly.PAUSE"
@@ -41,8 +44,13 @@ class LocationTrackingService : Service() {
     private var lastUploadScheduleAt = System.currentTimeMillis()
     private var syncOnMobileData = true
     @Volatile
+    private var lastAcceptedLocation: android.location.Location? = null
+    @Volatile
+    private var lastAcceptedAtMs: Long = 0L
+    @Volatile
     private var observingPrefs = false
     private var prefsObserverJob: Job? = null
+    private var maxAccuracyJob: Job? = null
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -69,6 +77,7 @@ class LocationTrackingService : Service() {
     override fun onDestroy() {
         stopLocationUpdates()
         prefsObserverJob?.cancel()
+        maxAccuracyJob?.cancel()
         scope.cancel()
         // Must use runBlocking here — scope is already cancelled so a coroutine launch
         // would be a no-op and isTracking would stay true in the UI forever.
@@ -81,8 +90,9 @@ class LocationTrackingService : Service() {
     // ── Location ───────────────────────────────────────────────────────────
 
     private fun applyFilterSettings() {
-        scope.launch {
-            filter.maxAccuracyMetres = prefs.maxAccuracyM.first().toFloat()
+        maxAccuracyJob?.cancel()
+        maxAccuracyJob = scope.launch {
+            prefs.maxAccuracyM.collect { filter.maxAccuracyMetres = it.toFloat() }
         }
     }
 
@@ -96,6 +106,7 @@ class LocationTrackingService : Service() {
 
     @Suppress("MissingPermission")
     private fun startLocationUpdates() {
+        stopLocationUpdates()
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 for (loc in result.locations) {
@@ -115,12 +126,23 @@ class LocationTrackingService : Service() {
     private fun buildRequest(): LocationRequest {
         val intervalMs = runBlocking { prefs.trackingIntervalSecs.first() }
             .coerceIn(5, 3600) * 1000L
-        // Use HIGH_ACCURACY for short intervals (≤30s), BALANCED otherwise
-        val priority = if (intervalMs <= 30_000L)
+        val fastestIntervalMs = (intervalMs / 2).coerceAtLeast(5_000L)
+        val maxDelayMs = when {
+            intervalMs <= 15_000L -> intervalMs
+            intervalMs <= 60_000L -> intervalMs * 2
+            else -> minOf(intervalMs * 3, TimeUnit.MINUTES.toMillis(15))
+        }
+        // Use HIGH_ACCURACY for frequent fixes, BALANCED otherwise.
+        val priority = if (intervalMs <= REQUEST_ACCURATE_LOCATION_MS)
             Priority.PRIORITY_HIGH_ACCURACY
         else
             Priority.PRIORITY_BALANCED_POWER_ACCURACY
-        return LocationRequest.Builder(priority, intervalMs).build()
+        return LocationRequest.Builder(priority, intervalMs)
+            .setMinUpdateIntervalMillis(fastestIntervalMs)
+            .setMaxUpdateDelayMillis(maxDelayMs)
+            .setMinUpdateDistanceMeters(DEFAULT_MIN_DISTANCE_METRES)
+            .setWaitForAccurateLocation(priority == Priority.PRIORITY_HIGH_ACCURACY)
+            .build()
     }
 
     private suspend fun savePoint(loc: android.location.Location) {
@@ -138,6 +160,8 @@ class LocationTrackingService : Service() {
             provider  = loc.provider,
         )
         db.pointDao().insert(point)
+        lastAcceptedLocation = loc
+        lastAcceptedAtMs = System.currentTimeMillis()
         runCatching { CsvPointLogger.appendPoint(applicationContext, point) }
             .onFailure { Log.e(TAG, "Failed to append point CSV", it) }
         Log.d(TAG, "Saved ${loc.latitude},${loc.longitude} acc=${loc.accuracy}m")
@@ -148,6 +172,7 @@ class LocationTrackingService : Service() {
             lastUploadScheduleAt = now
             UploadWorker.scheduleNow(applicationContext, syncOnMobileData)
         }
+        updateNotification()
     }
 
     // ── Notification ───────────────────────────────────────────────────────
@@ -172,17 +197,29 @@ class LocationTrackingService : Service() {
         }
 
         return NotificationCompat.Builder(this, RoamlyApp.CHANNEL_TRACKING)
-            .setContentTitle(if (isPaused) "Roamly — Paused" else "Roamly — Tracking")
-            .setContentText(if (isPaused) "Tap to open" else "Collecting location in background")
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .setContentTitle(if (isPaused) "Roamly paused" else "Roamly tracking")
+            .setContentText(notificationBody())
+            .setSmallIcon(R.drawable.ic_roamly_mark)
             .setContentIntent(openIntent)
-            .addAction(android.R.drawable.ic_media_pause,
-                if (isPaused) "Resume" else "Pause", toggleIntent)
+            .addAction(
+                if (isPaused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
+                if (isPaused) "Resume" else "Pause",
+                toggleIntent
+            )
             .addAction(android.R.drawable.ic_delete, "Stop", stopIntent)
             .setOngoing(true)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setSilent(true)
             .build()
+    }
+
+    private fun notificationBody(): String {
+        if (isPaused) return "Tracking is paused"
+        val loc = lastAcceptedLocation
+        if (loc == null) return "Waiting for the next fix"
+        val ageSec = ((System.currentTimeMillis() - lastAcceptedAtMs) / 1000L).coerceAtLeast(0)
+        val accuracy = if (loc.hasAccuracy()) "${loc.accuracy.toInt()}m" else "unknown accuracy"
+        return "Last fix $ageSec s ago · $accuracy"
     }
 
     private fun updateNotification() {
