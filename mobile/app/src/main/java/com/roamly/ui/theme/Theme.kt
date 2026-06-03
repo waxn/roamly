@@ -6,6 +6,9 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.Shapes
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.dp
 
 // Matched to the darker website palette.
 private val Primary        = Color(0xFF3B82F6)
@@ -62,6 +65,14 @@ private val LightColors = lightColorScheme(
     onSecondaryContainer = Color(0xFF14532D),
 )
 
+private val RoamlyShapes = Shapes(
+    extraSmall = RoundedCornerShape(10.dp),
+    small = RoundedCornerShape(14.dp),
+    medium = RoundedCornerShape(18.dp),
+    large = RoundedCornerShape(24.dp),
+    extraLarge = RoundedCornerShape(30.dp),
+)
+
 @Composable
 fun RoamlyTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -69,6 +80,7 @@ fun RoamlyTheme(
 ) {
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
+        shapes = RoamlyShapes,
         content = content
     )
 }

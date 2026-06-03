@@ -14,7 +14,11 @@ class LocationFilter(
     var maxAccuracyMetres: Float = 100f,
     /** Reject fixes older than this (ms). */
     var maxAgeMs: Long = 30_000L,
+    /** Reject fixes that are basically the same spot again. */
+    var minDistanceMetres: Float = 10f,
 ) {
+    private var lastAcceptedLocation: Location? = null
+
     fun accept(loc: Location): Boolean {
         val ageMs = System.currentTimeMillis() - loc.time
         if (ageMs > maxAgeMs) {
@@ -25,8 +29,17 @@ class LocationFilter(
             Log.d(TAG, "Rejected inaccurate fix: ${loc.accuracy}m > max ${maxAccuracyMetres}m")
             return false
         }
+        lastAcceptedLocation?.let { prev ->
+            if (loc.distanceTo(prev) < minDistanceMetres) {
+                Log.d(TAG, "Rejected duplicate fix: < ${minDistanceMetres}m from last accepted point")
+                return false
+            }
+        }
+        lastAcceptedLocation = Location(loc)
         return true
     }
 
-    fun reset() { /* nothing stateful to clear */ }
+    fun reset() {
+        lastAcceptedLocation = null
+    }
 }

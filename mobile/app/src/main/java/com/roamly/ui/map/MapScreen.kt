@@ -26,13 +26,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.MyLocation
-import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.MyLocation
+import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -201,10 +201,10 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
         ) {
             Box {
                 TextButton(onClick = { showTimeMenu = true }) {
-                    Icon(Icons.Filled.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Rounded.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(state.timePeriod.label, style = MaterialTheme.typography.labelLarge)
-                    Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(18.dp))
                 }
                 DropdownMenu(expanded = showTimeMenu, onDismissRequest = { showTimeMenu = false }) {
                     TimePeriod.entries.forEach { period ->
@@ -249,8 +249,8 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                 .padding(end = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            ZoomFab(icon = Icons.Filled.Add, desc = "Zoom in") { mapView.controller.zoomIn() }
-            ZoomFab(icon = Icons.Filled.Remove, desc = "Zoom out") { mapView.controller.zoomOut() }
+            ZoomFab(icon = Icons.Rounded.Add, desc = "Zoom in") { mapView.controller.zoomIn() }
+            ZoomFab(icon = Icons.Rounded.Remove, desc = "Zoom out") { mapView.controller.zoomOut() }
         }
 
         // "Have I been here?" action
@@ -276,7 +276,7 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
             text = { Text("have i been here?") },
             icon = {
                 Icon(
-                    Icons.Filled.MyLocation,
+                Icons.Rounded.MyLocation,
                     contentDescription = null,
                     modifier = Modifier.size(20.dp)
                 )
@@ -457,7 +457,7 @@ private fun NearHereDialog(
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text("show all ${result.days.size} days")
-                            Icon(Icons.Filled.ChevronRight, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Rounded.ChevronRight, contentDescription = null, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
@@ -486,7 +486,7 @@ private fun AllDaysScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.Filled.ArrowBack, contentDescription = "back")
+                    Icon(Icons.Rounded.ArrowBack, contentDescription = "back")
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text("all visits to this spot", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -542,7 +542,7 @@ private fun DayRow(day: NearHereDay, onClick: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

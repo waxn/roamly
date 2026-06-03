@@ -65,6 +65,8 @@ Single Django app (`tracker/`) inside the `roamly` project. No separate services
 
 **Auth:** Session-based for web. `ApiKeyAuthMiddleware` also accepts `Authorization: Bearer <key>` headers, allowing mobile apps (GPSLogger, OwnTracks) to push locations without a session.
 
+**Mobile tracking:** The Android tracker now uses adaptive fused-location requests, duplicate suppression, and richer foreground notification state to stay battery-aware while still running continuously.
+
 ## Key files
 
 | File | Purpose |

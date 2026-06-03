@@ -45,15 +45,15 @@ import com.roamly.data.api.PeriodStats
 import com.roamly.data.api.StatsResponse
 import com.roamly.data.api.YearlyOverviewResponse
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Flag
-import androidx.compose.material.icons.filled.LocationCity
-import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Place
-import androidx.compose.material.icons.filled.TrendingDown
-import androidx.compose.material.icons.filled.TrendingFlat
-import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material.icons.rounded.LocationCity
+import androidx.compose.material.icons.rounded.Place
+import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.TrendingDown
+import androidx.compose.material.icons.rounded.TrendingFlat
+import androidx.compose.material.icons.rounded.TrendingUp
 import kotlin.math.max
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -66,7 +66,7 @@ fun StatsScreen(viewModel: StatsViewModel = hiltViewModel()) {
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.BarChart, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Rounded.BarChart, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(10.dp))
                         Text("stats", fontWeight = FontWeight.SemiBold)
                     }
@@ -202,23 +202,23 @@ private fun SummaryCard(stats: StatsResponse) {
     StatsCard {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.BarChart, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Rounded.BarChart, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
                 Text("overview", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             }
             Spacer(Modifier.height(14.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                StatBlock("${stats.totalPoints}", "points", Icons.Filled.Flag)
-                StatBlock("${stats.countries}", "countries", Icons.Filled.Public)
-                StatBlock("${stats.cities}", "cities", Icons.Filled.LocationCity)
-                StatBlock("${stats.states}", "states", Icons.Filled.Place)
+                StatBlock("${stats.totalPoints}", "points", Icons.Rounded.Flag)
+                StatBlock("${stats.countries}", "countries", Icons.Rounded.Public)
+                StatBlock("${stats.cities}", "cities", Icons.Rounded.LocationCity)
+                StatBlock("${stats.states}", "states", Icons.Rounded.Place)
             }
             if (stats.firstLocation != null) {
                 Spacer(Modifier.height(10.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.CalendarMonth, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Rounded.CalendarMonth, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(
                         "tracking since ${stats.firstLocation.take(10)}",
@@ -251,9 +251,9 @@ private fun PeriodBlock(label: String, current: PeriodStats, previous: PeriodSta
     val delta = current.points - previous.points
     val pct = if (previous.points > 0) (delta.toFloat() / previous.points * 100f) else null
     val (deltaColor, deltaIcon) = when {
-        delta > 0 -> MaterialTheme.colorScheme.secondary to Icons.Filled.TrendingUp
-        delta < 0 -> MaterialTheme.colorScheme.error to Icons.Filled.TrendingDown
-        else -> MaterialTheme.colorScheme.onSurfaceVariant to Icons.Filled.TrendingFlat
+        delta > 0 -> MaterialTheme.colorScheme.secondary to Icons.Rounded.TrendingUp
+        delta < 0 -> MaterialTheme.colorScheme.error to Icons.Rounded.TrendingDown
+        else -> MaterialTheme.colorScheme.onSurfaceVariant to Icons.Rounded.TrendingFlat
     }
     Surface(
         modifier = modifier,
@@ -346,7 +346,7 @@ private fun CountryRow(country: CountryVisit) {
             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Filled.Public, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            Icon(Icons.Rounded.Public, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(country.country, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
@@ -364,7 +364,7 @@ private fun CityRow(city: CityVisit) {
             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Filled.Place, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            Icon(Icons.Rounded.Place, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(city.city, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)

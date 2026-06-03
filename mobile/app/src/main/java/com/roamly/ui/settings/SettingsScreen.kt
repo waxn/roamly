@@ -12,7 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -162,7 +162,7 @@ fun SettingsScreen(
         topBar = {
             TopAppBar(title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Settings, contentDescription = null)
+                    Icon(Icons.Rounded.Settings, contentDescription = null)
                     Spacer(Modifier.width(10.dp))
                     Text("Settings")
                 }
@@ -179,15 +179,15 @@ fun SettingsScreen(
 
             // ── Connection ─────────────────────────────────────────────────
             SettingsCard {
-                SectionHeader("Connection", Icons.Filled.Link)
+                SectionHeader("Connection", Icons.Rounded.Link)
 
-                LabeledValue(Icons.Filled.Link, "Server", state.serverUrl.ifBlank { "Not set" })
+                LabeledValue(Icons.Rounded.Link, "Server", state.serverUrl.ifBlank { "Not set" })
 
-                LabeledValue(Icons.Filled.Person, "Username", state.username.ifBlank { "Not set" })
+                LabeledValue(Icons.Rounded.Person, "Username", state.username.ifBlank { "Not set" })
 
                 // Device ID — tappable
                 EditableRow(
-                    icon = Icons.Filled.Devices,
+                    icon = Icons.Rounded.Devices,
                     label = "Device ID",
                     value = state.deviceId.ifBlank { "Tap to set" },
                     mono = true,
@@ -202,7 +202,7 @@ fun SettingsScreen(
 
                 // API key — tappable, masked
                 EditableRow(
-                    icon = Icons.Filled.Key,
+                    icon = Icons.Rounded.Key,
                     label = "API Key",
                     value = if (state.apiKey.isBlank()) "Tap to set"
                             else "••••${state.apiKey.takeLast(6)}",
@@ -221,7 +221,7 @@ fun SettingsScreen(
 
             // ── Tracking ───────────────────────────────────────────────────
             SettingsCard {
-                SectionHeader("Tracking", Icons.Filled.LocationOn)
+                SectionHeader("Tracking", Icons.Rounded.LocationOn)
 
                 // Start / Stop
                 Row(
@@ -344,7 +344,7 @@ fun SettingsScreen(
 
                 // Interval input
                 EditableRow(
-                    icon = Icons.Filled.Timer,
+                    icon = Icons.Rounded.Timer,
                     label = "Interval (seconds)",
                     value = state.trackingIntervalSecs.toString(),
                     onClick = {
@@ -358,7 +358,7 @@ fun SettingsScreen(
 
                 // Accuracy input
                 EditableRow(
-                    icon = Icons.Filled.GpsFixed,
+                    icon = Icons.Rounded.GpsFixed,
                     label = "Min accuracy (m)",
                     value = state.maxAccuracyM.toString(),
                     subLabel = "Only send if GPS is within this many metres",
@@ -374,12 +374,12 @@ fun SettingsScreen(
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
                 LabeledValue(
-                    Icons.Filled.Save,
+                    Icons.Rounded.Save,
                     "CSV export",
                     state.csvPath.ifBlank { "Preparing..." }
                 )
                 LabeledValue(
-                    Icons.Filled.BatteryFull,
+                    Icons.Rounded.BatteryFull,
                     "Battery optimization",
                     if (state.batteryOptimizationDisabled) "Disabled for Roamly" else "Enabled"
                 )
@@ -395,7 +395,7 @@ fun SettingsScreen(
 
             // ── Appearance ─────────────────────────────────────────────────
             SettingsCard {
-                SectionHeader("Appearance", Icons.Filled.DarkMode)
+                SectionHeader("Appearance", Icons.Rounded.DarkMode)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -409,9 +409,9 @@ fun SettingsScreen(
 
             // ── About ──────────────────────────────────────────────────────
             SettingsCard {
-                SectionHeader("About", Icons.Filled.Info)
-                LabeledValue(Icons.Filled.Info,    "App",     "Roamly for Android")
-                LabeledValue(Icons.Filled.Devices, "Version", "1.0.0")
+                SectionHeader("About", Icons.Rounded.Info)
+                LabeledValue(Icons.Rounded.Info,    "App",     "Roamly for Android")
+                LabeledValue(Icons.Rounded.Devices, "Version", "1.0.0")
             }
 
             Spacer(Modifier.height(24.dp))
@@ -421,7 +421,7 @@ fun SettingsScreen(
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Icon(Icons.Filled.Logout, contentDescription = null)
+                Icon(Icons.Rounded.Logout, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
                 Text("Disconnect")
             }
@@ -461,7 +461,7 @@ private fun EditDialog(
                         {
                             IconButton(onClick = { showKey = !showKey }) {
                                 Icon(
-                                    if (showKey) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                    if (showKey) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
                                     contentDescription = if (showKey) "Hide" else "Show"
                                 )
                             }
@@ -568,7 +568,7 @@ private fun EditableRow(
         )
         Spacer(Modifier.width(4.dp))
         Icon(
-            Icons.Filled.Edit,
+            Icons.Rounded.Edit,
             contentDescription = "Edit",
             modifier = Modifier.size(14.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant
