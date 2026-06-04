@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -99,6 +100,10 @@ fun RoamlyNavHost() {
 
     Scaffold(
         containerColor = Color.Transparent,
+        // Screens manage their own status-bar inset (via statusBarsPadding); zero the
+        // Scaffold's top inset so we don't double it. The bottom-bar height is still
+        // reserved automatically. Map screens get a true edge-to-edge canvas this way.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             if (showBottomBar) {
                 ClayBottomBar(
