@@ -327,7 +327,9 @@ fun SettingsScreen(
             ToggleRow(
                 title = "Dark mode",
                 subtitle = "Switch between the night and day clay themes",
-                checked = state.darkMode,
+                // Until the user picks explicitly, mirror the system theme so the
+                // switch matches what's actually on screen.
+                checked = state.darkModeOverride ?: androidx.compose.foundation.isSystemInDarkTheme(),
                 onCheckedChange = viewModel::setDarkMode,
             )
         }

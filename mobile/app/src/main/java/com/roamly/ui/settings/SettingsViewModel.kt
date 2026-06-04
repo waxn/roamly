@@ -22,7 +22,8 @@ data class SettingsUiState(
     val username: String = "",
     val deviceId: String = "",
     val apiKey: String = "",
-    val darkMode: Boolean = false,
+    /** null = follow system; the switch falls back to the system theme for display. */
+    val darkModeOverride: Boolean? = null,
     // Tracking
     val isTracking: Boolean = false,
     val trackingIntervalSecs: Int = 30,
@@ -55,7 +56,7 @@ class SettingsViewModel @Inject constructor(
         collect(prefs.username)              { v -> _state.update { it.copy(username = v ?: "") } }
         collect(prefs.deviceId)              { v -> _state.update { it.copy(deviceId = v ?: "") } }
         collect(prefs.apiKey)                { v -> _state.update { it.copy(apiKey = v ?: "") } }
-        collect(prefs.darkMode)              { v -> _state.update { it.copy(darkMode = v ?: false) } }
+        collect(prefs.darkMode)              { v -> _state.update { it.copy(darkModeOverride = v) } }
         collect(prefs.isTrackingActive)      { v -> _state.update { it.copy(isTracking = v) } }
         collect(prefs.trackingIntervalSecs)  { v -> _state.update { it.copy(trackingIntervalSecs = v) } }
         collect(prefs.maxAccuracyM)          { v -> _state.update { it.copy(maxAccuracyM = v) } }
