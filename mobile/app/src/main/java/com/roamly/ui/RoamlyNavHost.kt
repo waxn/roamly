@@ -1,9 +1,23 @@
 package com.roamly.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Explore
@@ -12,18 +26,18 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -41,6 +55,8 @@ import com.roamly.ui.map.MapScreen
 import com.roamly.ui.pals.PalDetailScreen
 import com.roamly.ui.settings.SettingsScreen
 import com.roamly.ui.stats.StatsScreen
+import com.roamly.ui.theme.Clay
+import com.roamly.ui.theme.claySoftShadow
 import com.roamly.ui.trips.TripDetailScreen
 
 sealed class Screen(val route: String, val label: String) {
@@ -54,6 +70,13 @@ sealed class Screen(val route: String, val label: String) {
 }
 
 private val bottomNavItems = listOf(Screen.Map, Screen.Adventures, Screen.Stats, Screen.Settings)
+
+private fun iconFor(screen: Screen): ImageVector = when (screen) {
+    Screen.Map -> Icons.Rounded.Map
+    Screen.Adventures -> Icons.Rounded.Explore
+    Screen.Stats -> Icons.Rounded.BarChart
+    else -> Icons.Rounded.Settings
+}
 
 @Composable
 fun RoamlyNavHost() {
@@ -75,47 +98,19 @@ fun RoamlyNavHost() {
             currentDestination?.route != Screen.PalDetail.route
 
     Scaffold(
+        containerColor = Color.Transparent,
         bottomBar = {
             if (showBottomBar) {
-                Surface(tonalElevation = 6.dp, shadowElevation = 8.dp) {
-                    NavigationBar(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 0.dp
-                    ) {
-                        bottomNavItems.forEach { screen ->
-                            NavigationBarItem(
-                                icon = {
-                                    Icon(
-                                        imageVector = when (screen) {
-                                            Screen.Map -> Icons.Rounded.Map
-                                            Screen.Adventures -> Icons.Rounded.Explore
-                                            Screen.Stats -> Icons.Rounded.BarChart
-                                            else -> Icons.Rounded.Settings
-                                        },
-                                        contentDescription = screen.label,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                },
-                                label = { Text(screen.label.lowercase()) },
-                                selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                ),
-                                onClick = {
-                                    navController.navigate(screen.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                }
-                            )
+                ClayBottomBar(
+                    current = currentDestination?.hierarchy,
+                    onSelect = { screen ->
+                        navController.navigate(screen.route) {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
                         }
                     }
-                }
+                )
             }
         }
     ) { innerPadding ->
@@ -127,7 +122,7 @@ fun RoamlyNavHost() {
                     .padding(innerPadding),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator()
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
             return@Scaffold
         }
@@ -181,6 +176,96 @@ fun RoamlyNavHost() {
                     }
                 )
             }
+        }
+    }
+}
+
+/** A floating, puffy clay navigation bar. The selected tab inflates into a
+ *  gradient pill with its label; the others stay compact icons. */
+@Composable
+private fun ClayBottomBar(
+    current: Sequence<androidx.navigation.NavDestination>?,
+    onSelect: (Screen) -> Unit,
+) {
+    val clay = Clay.colors
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 18.dp, vertical = 14.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .claySoftShadow(28.dp, clay.shadowDark, clay.shadowLight, depth = 18.dp)
+                .background(
+                    Brush.verticalGradient(listOf(clay.surfaceTop, clay.surfaceBottom)),
+                    RoundedCornerShape(28.dp),
+                )
+                .padding(horizontal = 10.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            bottomNavItems.forEach { screen ->
+                val selected = current?.any { it.route == screen.route } == true
+                NavPill(
+                    screen = screen,
+                    selected = selected,
+                    modifier = Modifier.weight(if (selected) 1.4f else 1f),
+                    onClick = { onSelect(screen) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NavPill(
+    screen: Screen,
+    selected: Boolean,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    val clay = Clay.colors
+    val height by animateDpAsState(if (selected) 48.dp else 46.dp, spring(), label = "pillH")
+    val iconColor by animateColorAsState(
+        if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+        label = "pillIcon",
+    )
+    val shape = RoundedCornerShape(20.dp)
+    val bg = if (selected) Brush.verticalGradient(clay.primaryGradient)
+    else Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
+
+    Row(
+        modifier = modifier
+            .height(height)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            )
+            .then(
+                if (selected) Modifier.claySoftShadow(20.dp, clay.primaryGradient.last().copy(alpha = 0.4f), Color.Transparent, depth = 8.dp, drawLight = false)
+                else Modifier
+            )
+            .background(bg, shape),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = iconFor(screen),
+            contentDescription = screen.label,
+            tint = iconColor,
+            modifier = Modifier.size(22.dp),
+        )
+        if (selected) {
+            Spacer(Modifier.width(8.dp))
+            Text(
+                screen.label,
+                color = Color.White,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+            )
         }
     }
 }
