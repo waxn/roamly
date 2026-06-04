@@ -118,7 +118,7 @@ class SettingsViewModel @Inject constructor(
     fun setAutoStartTracking(enabled: Boolean) {
         viewModelScope.launch {
             prefs.setAutoStartTracking(enabled)
-            if (enabled) TrackingCoordinator.startTrackingIfAutoStartEnabled(context, prefs)
+            if (enabled) TrackingCoordinator.resumeTrackingIfNeeded(context, prefs)
         }
     }
 

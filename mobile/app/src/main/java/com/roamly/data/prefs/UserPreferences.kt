@@ -30,8 +30,11 @@ class UserPreferences @Inject constructor(
 
         // Tracking state
         private val KEY_TRACKING_ACTIVE        = booleanPreferencesKey("tracking_active")
+        private val KEY_TRACKING_ENABLED       = booleanPreferencesKey("tracking_enabled")
         private val KEY_TRACKING_INTERVAL_SECS = intPreferencesKey("tracking_interval_secs")
         private val KEY_MAX_ACCURACY_M         = intPreferencesKey("max_accuracy_m")
+        private val KEY_MIN_DISTANCE_M         = intPreferencesKey("min_distance_m")
+        private val KEY_LOCATION_PRIORITY      = stringPreferencesKey("location_priority")
         private val KEY_AUTO_START_TRACKING    = booleanPreferencesKey("auto_start_tracking")
         private val KEY_SYNC_ON_MOBILE_DATA    = booleanPreferencesKey("sync_on_mobile_data")
 
@@ -53,9 +56,16 @@ class UserPreferences @Inject constructor(
 
     // ── Tracking ───────────────────────────────────────────────────────────
 
+    /** Runtime status — is the foreground service currently running. */
     val isTrackingActive:      Flow<Boolean> = context.dataStore.data.map { it[KEY_TRACKING_ACTIVE] ?: false }
+    /** User intent — tracking should be on (survives reboots and OS kills). */
+    val trackingEnabled:       Flow<Boolean> = context.dataStore.data.map { it[KEY_TRACKING_ENABLED] ?: false }
     val trackingIntervalSecs:  Flow<Int>     = context.dataStore.data.map { it[KEY_TRACKING_INTERVAL_SECS] ?: 30 }
     val maxAccuracyM:          Flow<Int>     = context.dataStore.data.map { it[KEY_MAX_ACCURACY_M] ?: 100 }
+    /** Minimum metres of movement before a new point is recorded (0 = record every fix). */
+    val minDistanceM:          Flow<Int>     = context.dataStore.data.map { it[KEY_MIN_DISTANCE_M] ?: 10 }
+    /** "auto" | "high" | "balanced" | "low" — GPS power/accuracy tradeoff. */
+    val locationPriority:      Flow<String>  = context.dataStore.data.map { it[KEY_LOCATION_PRIORITY] ?: "auto" }
     val autoStartTracking:     Flow<Boolean> = context.dataStore.data.map { it[KEY_AUTO_START_TRACKING] ?: true }
     val syncOnMobileData:      Flow<Boolean> = context.dataStore.data.map { it[KEY_SYNC_ON_MOBILE_DATA] ?: true }
 
@@ -101,12 +111,24 @@ class UserPreferences @Inject constructor(
         context.dataStore.edit { it[KEY_TRACKING_ACTIVE] = active }
     }
 
+    suspend fun setTrackingEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_TRACKING_ENABLED] = enabled }
+    }
+
     suspend fun setTrackingIntervalSecs(secs: Int) {
         context.dataStore.edit { it[KEY_TRACKING_INTERVAL_SECS] = secs }
     }
 
     suspend fun setMaxAccuracyM(metres: Int) {
         context.dataStore.edit { it[KEY_MAX_ACCURACY_M] = metres }
+    }
+
+    suspend fun setMinDistanceM(metres: Int) {
+        context.dataStore.edit { it[KEY_MIN_DISTANCE_M] = metres }
+    }
+
+    suspend fun setLocationPriority(priority: String) {
+        context.dataStore.edit { it[KEY_LOCATION_PRIORITY] = priority }
     }
 
     suspend fun setAutoStartTracking(enabled: Boolean) {

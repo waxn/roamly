@@ -15,9 +15,15 @@ object TrackingCoordinator {
                 PermissionChecker.PERMISSION_GRANTED
     }
 
-    suspend fun startTrackingIfAutoStartEnabled(context: Context, prefs: UserPreferences) {
-        val shouldAutoStart = prefs.autoStartTracking.first()
-        if (!shouldAutoStart || !canTrack(context)) return
+    /**
+     * Resume tracking after a reboot or app launch — only when the user previously
+     * turned it on (durable intent) AND has "auto-resume" enabled AND we can track.
+     * This is what makes tracking "keep working" across reboots and OS kills.
+     */
+    suspend fun resumeTrackingIfNeeded(context: Context, prefs: UserPreferences) {
+        val enabled = prefs.trackingEnabled.first()
+        val autoResume = prefs.autoStartTracking.first()
+        if (!enabled || !autoResume || !canTrack(context)) return
         LocationTrackingService.start(context)
     }
 

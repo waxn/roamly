@@ -30,11 +30,15 @@ class BootReceiver : BroadcastReceiver() {
             )
         ) return
 
-        val (shouldAutoStart, syncOnMobileData) = runBlocking {
-            prefs.autoStartTracking.first() to prefs.syncOnMobileData.first()
+        val (enabled, autoResume, syncOnMobileData) = runBlocking {
+            Triple(
+                prefs.trackingEnabled.first(),
+                prefs.autoStartTracking.first(),
+                prefs.syncOnMobileData.first(),
+            )
         }
-        Log.i(TAG, "Boot received — auto start tracking: $shouldAutoStart")
-        if (shouldAutoStart && TrackingCoordinator.canTrack(context)) {
+        Log.i(TAG, "Boot received — trackingEnabled=$enabled autoResume=$autoResume")
+        if (enabled && autoResume && TrackingCoordinator.canTrack(context)) {
             LocationTrackingService.start(context)
         }
         UploadWorker.schedulePeriodic(context, syncOnMobileData)
