@@ -60,12 +60,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.roamly.data.api.Comment
 import com.roamly.data.api.PalMember
 import com.roamly.data.api.TimelineEvent
+import com.roamly.ui.theme.Clay
+import com.roamly.ui.theme.ClayCard
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,12 +86,18 @@ fun PalDetailScreen(
     val isCreator = state.pal?.role == "creator"
 
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
-                title = { Text(state.pal?.name ?: "Group Trip") },
+                title = { Text(state.pal?.name ?: "Group Trip", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "Back") }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                ),
             )
         },
         floatingActionButton = {
@@ -418,26 +430,32 @@ private fun BlurbCard(
     onPostComment: (String) -> Unit,
     onDeleteComment: (Int) -> Unit,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+    ClayCard(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        contentPadding = 14.dp,
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top
             ) {
-                Column {
-                    Text(
-                        event.author ?: "",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        event.createdAt?.take(10) ?: "",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    GradientAvatar(event.author, 34.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            event.author ?: "",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            event.createdAt?.take(10) ?: "",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
                 if (event.canDelete) {
                     IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
@@ -526,24 +544,11 @@ private fun CommentRow(comment: Comment, onDelete: () -> Unit) {
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         verticalAlignment = Alignment.Top
     ) {
-        // Avatar initial circle
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                comment.author.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        GradientAvatar(comment.author, 28.dp)
         Spacer(Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(comment.author, style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary)
+                color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
             Text(comment.text, style = MaterialTheme.typography.bodySmall)
         }
         if (comment.canDelete) {
@@ -557,23 +562,39 @@ private fun CommentRow(comment: Comment, onDelete: () -> Unit) {
 }
 
 @Composable
-private fun MilestoneCard(event: TimelineEvent) {
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+private fun GradientAvatar(name: String?, size: androidx.compose.ui.unit.Dp) {
+    Box(
+        modifier = Modifier.size(size).clip(CircleShape).background(Brush.linearGradient(Clay.colors.tertiaryGradient)),
+        contentAlignment = Alignment.Center,
     ) {
-        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            name?.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+            style = MaterialTheme.typography.labelMedium,
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+@Composable
+private fun MilestoneCard(event: TimelineEvent) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(22.dp))
+            .background(Brush.linearGradient(Clay.colors.secondaryGradient))
+            .padding(16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(event.emoji ?: "🏆", style = MaterialTheme.typography.headlineMedium)
-            Column(modifier = Modifier.padding(start = 12.dp)) {
-                Text(event.title ?: "", style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer)
-                event.description?.let {
-                    if (it.isNotBlank()) Text(it, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer)
+            Column(modifier = Modifier.padding(start = 14.dp)) {
+                Text(event.title ?: "", style = MaterialTheme.typography.titleSmall, color = Color(0xFF052B26), fontWeight = FontWeight.Bold)
+                event.description?.takeIf { it.isNotBlank() }?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = Color(0xFF052B26).copy(alpha = 0.85f))
                 }
                 event.date?.let {
-                    Text(it.take(10), style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Text(it.take(10), style = MaterialTheme.typography.labelSmall, color = Color(0xFF052B26).copy(alpha = 0.7f))
                 }
             }
         }
@@ -586,19 +607,7 @@ private fun MemberRow(member: PalMember, isCreator: Boolean, onRemove: () -> Uni
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                member.username.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        GradientAvatar(member.username, 36.dp)
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(member.username, style = MaterialTheme.typography.bodyMedium)
