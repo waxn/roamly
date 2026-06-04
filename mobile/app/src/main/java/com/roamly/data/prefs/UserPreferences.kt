@@ -81,6 +81,14 @@ class UserPreferences @Inject constructor(
         context.dataStore.edit { it[KEY_DEVICE_ID] = deviceId }
     }
 
+    /** Set a device id only if one isn't already stored. Used to make the
+     *  tracker work out of the box right after login (uploads need a device id). */
+    suspend fun setDeviceIdIfUnset(deviceId: String) {
+        context.dataStore.edit { prefs ->
+            if (prefs[KEY_DEVICE_ID].isNullOrBlank()) prefs[KEY_DEVICE_ID] = deviceId
+        }
+    }
+
     suspend fun setDarkMode(enabled: Boolean) {
         context.dataStore.edit { it[KEY_DARK_MODE] = enabled }
     }
@@ -118,13 +126,18 @@ class UserPreferences @Inject constructor(
         }
     }
 
+    /**
+     * Full sign-out. Removes the credentials that gate "logged in" — including the
+     * API key, which is now the durable credential (the session cookie is optional
+     * because the server authenticates the Bearer key on every endpoint). Tracking
+     * preferences, device id and dark mode are kept so a re-login feels seamless.
+     */
     suspend fun clear() {
         context.dataStore.edit { prefs ->
             prefs.remove(KEY_SERVER_URL)
             prefs.remove(KEY_SESSION_ID)
+            prefs.remove(KEY_API_KEY)
             prefs.remove(KEY_USERNAME)
-            // Keep API key, device ID, dark mode, and tracking prefs across logout
-            // so re-login reuses the same key and device name
         }
     }
 }

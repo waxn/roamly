@@ -81,9 +81,26 @@ class AuthRepository @Inject constructor(
             }
 
             prefs.save(base, sessionId, apiKey, username)
+
+            // Give this device a stable id automatically so the uploader works out of
+            // the box — without it, cached points pile up locally and never sync.
+            prefs.setDeviceIdIfUnset(defaultDeviceId())
+
             Result.Success(Unit)
         } catch (e: Exception) {
             Result.Error("${e.javaClass.simpleName}: ${e.message ?: "no message"}")
         }
+    }
+
+    /** A friendly, URL-safe id derived from the phone model, e.g. "pixel-8-pro". */
+    private fun defaultDeviceId(): String {
+        val raw = "${android.os.Build.MODEL}".trim().ifBlank { "android" }
+        val slug = raw.lowercase()
+            .replace(Regex("[^a-z0-9]+"), "-")
+            .trim('-')
+            .ifBlank { "android" }
+        // A short random suffix avoids collisions when two of the same model share an account.
+        val suffix = (1000..9999).random()
+        return "$slug-$suffix"
     }
 }
