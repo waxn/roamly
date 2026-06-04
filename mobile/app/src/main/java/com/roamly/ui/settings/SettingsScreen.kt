@@ -6,9 +6,12 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -17,10 +20,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -28,10 +34,17 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.roamly.ui.theme.Clay
+import com.roamly.ui.theme.ClayButton
+import com.roamly.ui.theme.ClayCard
+import com.roamly.ui.theme.ClayIconBadge
+import com.roamly.ui.theme.ClaySectionHeader
+import com.roamly.ui.theme.Coral
+import com.roamly.ui.theme.Sunshine
+import com.roamly.ui.theme.Teal
 import java.text.SimpleDateFormat
 import java.util.*
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
@@ -39,19 +52,16 @@ fun SettingsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val clay = Clay.colors
     LaunchedEffect(Unit) { viewModel.refreshBatteryOptimizationState() }
 
     // ── Permission handling ────────────────────────────────────────────────
     var showBgLocationRationale by remember { mutableStateOf(false) }
 
-    // Step 2: background location (Android 10+) — only asked after fine is granted
     val bgLocationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { /* granted or not — service starts either way; bg location just makes it more reliable */
-        viewModel.toggleTracking()
-    }
+    ) { viewModel.toggleTracking() }
 
-    // Step 1: fine location
     val fineLocationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -59,86 +69,65 @@ fun SettingsScreen(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
                 != PermissionChecker.PERMISSION_GRANTED
-        ) {
-            showBgLocationRationale = true
-        } else {
-            viewModel.toggleTracking()
-        }
+        ) showBgLocationRationale = true else viewModel.toggleTracking()
     }
 
-    // Notification permission (Android 13+)
     val notifLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { /* proceed regardless */ }
+    ) { }
     val batteryOptLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { viewModel.refreshBatteryOptimizationState() }
 
     fun startTrackingWithPermissions() {
-        // Request notification permission on Android 13+ (non-blocking)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
                 != PermissionChecker.PERMISSION_GRANTED
-        ) {
-            notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        // Check fine location
+        ) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
             != PermissionChecker.PERMISSION_GRANTED
-        ) {
-            fineLocationLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+        ) fineLocationLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
                 != PermissionChecker.PERMISSION_GRANTED
-        ) {
-            showBgLocationRationale = true
-        } else {
-            viewModel.toggleTracking()
-        }
+        ) showBgLocationRationale = true
+        else viewModel.toggleTracking()
     }
 
-    // Background location rationale dialog
     if (showBgLocationRationale) {
         AlertDialog(
             onDismissRequest = { showBgLocationRationale = false; viewModel.toggleTracking() },
-            title = { Text("Background Location") },
-            text = { Text("For tracking while the screen is off, select \"Allow all the time\" on the next screen. You can skip this and tracking will still work while the app is open.") },
+            title = { Text("Background location") },
+            text = { Text("For tracking while the screen is off, choose \"Allow all the time\" on the next screen. You can skip it — tracking still works while the app is open.") },
             confirmButton = {
                 TextButton(onClick = {
                     showBgLocationRationale = false
                     bgLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-                }) { Text("Open Settings") }
+                }) { Text("Open settings") }
             },
             dismissButton = {
-                TextButton(onClick = { showBgLocationRationale = false; viewModel.toggleTracking() }) {
-                    Text("Skip")
-                }
+                TextButton(onClick = { showBgLocationRationale = false; viewModel.toggleTracking() }) { Text("Skip") }
             }
         )
     }
 
-    // Stop-tracking confirmation
     var showStopConfirm by remember { mutableStateOf(false) }
     if (showStopConfirm) {
         AlertDialog(
             onDismissRequest = { showStopConfirm = false },
             title = { Text("Stop tracking?") },
-            text = { Text("Location tracking will stop and no more points will be sent. Any cached points will still be uploaded when you reconnect.") },
+            text = { Text("Location tracking will stop. Cached points still upload when you reconnect.") },
             confirmButton = {
-                TextButton(onClick = {
-                    showStopConfirm = false
-                    viewModel.toggleTracking()
-                }) { Text("Stop", color = MaterialTheme.colorScheme.error) }
+                TextButton(onClick = { showStopConfirm = false; viewModel.toggleTracking() }) {
+                    Text("Stop", color = MaterialTheme.colorScheme.error)
+                }
             },
-            dismissButton = {
-                TextButton(onClick = { showStopConfirm = false }) { Text("Cancel") }
-            }
+            dismissButton = { TextButton(onClick = { showStopConfirm = false }) { Text("Cancel") } }
         )
     }
 
-    // Edit dialog state
     var editTarget by remember { mutableStateOf<EditTarget?>(null) }
-
     editTarget?.let { target ->
         EditDialog(
             title = target.title,
@@ -147,10 +136,10 @@ fun SettingsScreen(
             hint = target.hint,
             onConfirm = { value ->
                 when (target) {
-                    is EditTarget.DeviceId   -> viewModel.setDeviceId(value)
-                    is EditTarget.ApiKey     -> viewModel.setApiKey(value)
-                    is EditTarget.Interval   -> value.toIntOrNull()?.let { viewModel.setTrackingIntervalSecs(it) }
-                    is EditTarget.Accuracy   -> value.toIntOrNull()?.let { viewModel.setMaxAccuracyM(it) }
+                    is EditTarget.DeviceId -> viewModel.setDeviceId(value)
+                    is EditTarget.ApiKey   -> viewModel.setApiKey(value)
+                    is EditTarget.Interval -> value.toIntOrNull()?.let { viewModel.setTrackingIntervalSecs(it) }
+                    is EditTarget.Accuracy -> value.toIntOrNull()?.let { viewModel.setMaxAccuracyM(it) }
                 }
                 editTarget = null
             },
@@ -158,274 +147,359 @@ fun SettingsScreen(
         )
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Settings, contentDescription = null)
-                    Spacer(Modifier.width(10.dp))
-                    Text("Settings")
-                }
-            })
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .statusBarsPadding()
+            .padding(horizontal = 16.dp)
+            .padding(top = 8.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        // Title
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+            ClayIconBadge(Icons.Rounded.Settings, gradient = clay.tertiaryGradient, size = 40.dp)
+            Spacer(Modifier.width(12.dp))
+            Text("Settings", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
         }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp)
-        ) {
 
-            // ── Connection ─────────────────────────────────────────────────
-            SettingsCard {
-                SectionHeader("Connection", Icons.Rounded.Link)
+        // ── Tracking hero ────────────────────────────────────────────────
+        TrackingHero(
+            isTracking = state.isTracking,
+            onToggle = { if (state.isTracking) showStopConfirm = true else startTrackingWithPermissions() },
+        )
 
-                LabeledValue(Icons.Rounded.Link, "Server", state.serverUrl.ifBlank { "Not set" })
+        // ── GPS settings ─────────────────────────────────────────────────
+        ClayCard {
+            ClaySectionHeader("GPS & accuracy", Icons.Rounded.GpsFixed, gradient = clay.secondaryGradient)
+            Spacer(Modifier.height(14.dp))
 
-                LabeledValue(Icons.Rounded.Person, "Username", state.username.ifBlank { "Not set" })
-
-                // Device ID — tappable
-                EditableRow(
-                    icon = Icons.Rounded.Devices,
-                    label = "Device ID",
-                    value = state.deviceId.ifBlank { "Tap to set" },
-                    mono = true,
-                    onClick = {
-                        editTarget = EditTarget.DeviceId(
-                            currentValue = state.deviceId,
-                            title = "Device ID",
-                            hint = "e.g. pixel9pro — identifies this device on the map"
-                        )
-                    }
-                )
-
-                // API key — tappable, masked
-                EditableRow(
-                    icon = Icons.Rounded.Key,
-                    label = "API Key",
-                    value = if (state.apiKey.isBlank()) "Tap to set"
-                            else "••••${state.apiKey.takeLast(6)}",
-                    mono = true,
-                    onClick = {
-                        editTarget = EditTarget.ApiKey(
-                            currentValue = state.apiKey,
-                            title = "API Key",
-                            hint = "64-char hex key from Roamly → Settings → API Keys"
-                        )
-                    }
-                )
-            }
+            SettingLabel("Update interval", "How often to record a fix")
+            Spacer(Modifier.height(8.dp))
+            ChipSelector(
+                options = intervalOptions.map { it.first },
+                selectedIndex = intervalOptions.indexOfFirst { it.second == state.trackingIntervalSecs }.let { if (it < 0) -1 else it },
+                onSelect = { viewModel.setTrackingIntervalSecs(intervalOptions[it].second) },
+                onLongEdit = { editTarget = EditTarget.Interval(state.trackingIntervalSecs.toString(), "Update interval", "Seconds between fixes (5–3600)") },
+                customLabel = if (intervalOptions.none { it.second == state.trackingIntervalSecs }) "${state.trackingIntervalSecs}s" else null,
+            )
 
             Spacer(Modifier.height(16.dp))
-
-            // ── Tracking ───────────────────────────────────────────────────
-            SettingsCard {
-                SectionHeader("Tracking", Icons.Rounded.LocationOn)
-
-                // Start / Stop
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text(
-                            if (state.isTracking) "Tracking active" else "Tracking stopped",
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                        Text(
-                            if (state.isTracking) "Sending location in background"
-                            else "Tap to start sending location",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Button(
-                        onClick = {
-                            if (state.isTracking) showStopConfirm = true
-                            else startTrackingWithPermissions()
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (state.isTracking) MaterialTheme.colorScheme.error
-                                             else MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Text(if (state.isTracking) "Stop" else "Start")
-                    }
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "Start tracking on startup",
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Switch(
-                        checked = state.autoStartTracking,
-                        onCheckedChange = viewModel::setAutoStartTracking
-                    )
-                }
-                Text(
-                    "Automatically starts background tracking after device boot or app launch (when location permission is granted).",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Spacer(Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "Sync on mobile data",
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Switch(
-                        checked = state.syncOnMobileData,
-                        onCheckedChange = viewModel::setSyncOnMobileData
-                    )
-                }
-                Text(
-                    "When off, uploads wait for unmetered Wi-Fi.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-                // Sync status
-                val syncColor = when {
-                    state.lastSyncTime == 0L -> MaterialTheme.colorScheme.onSurfaceVariant
-                    state.lastSyncSuccess    -> Color(0xFF16A34A)
-                    else                     -> MaterialTheme.colorScheme.error
-                }
-                val syncText = when {
-                    state.lastSyncTime == 0L -> "Never synced"
-                    state.lastSyncSuccess    -> {
-                        val pts = when (state.lastSyncCount) {
-                            0    -> "nothing to send"
-                            1    -> "1 point sent"
-                            else -> "${state.lastSyncCount} points sent"
-                        }
-                        "Last sync: ${relativeTime(state.lastSyncTime)} ($pts)"
-                    }
-                    else -> "Last sync failed: ${relativeTime(state.lastSyncTime)}" +
-                            if (state.lastSyncError.isNotBlank()) " — ${state.lastSyncError}" else ""
-                }
-                Text(
-                    syncText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = syncColor,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(
-                        onClick = { viewModel.syncNow() },
-                        enabled = !state.isSyncing
-                    ) {
-                        Text(if (state.isSyncing) "Syncing…" else "Sync Now")
-                    }
-                    if (state.isSyncing) {
-                        Spacer(Modifier.width(10.dp))
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                    }
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-                // Interval input
-                EditableRow(
-                    icon = Icons.Rounded.Timer,
-                    label = "Interval (seconds)",
-                    value = state.trackingIntervalSecs.toString(),
-                    onClick = {
-                        editTarget = EditTarget.Interval(
-                            currentValue = state.trackingIntervalSecs.toString(),
-                            title = "Update Interval",
-                            hint = "Seconds between GPS fixes (5–3600)"
-                        )
-                    }
-                )
-
-                // Accuracy input
-                EditableRow(
-                    icon = Icons.Rounded.GpsFixed,
-                    label = "Min accuracy (m)",
-                    value = state.maxAccuracyM.toString(),
-                    subLabel = "Only send if GPS is within this many metres",
-                    onClick = {
-                        editTarget = EditTarget.Accuracy(
-                            currentValue = state.maxAccuracyM.toString(),
-                            title = "Min Accuracy (metres)",
-                            hint = "Discard fixes with accuracy worse than this (e.g. 50)"
-                        )
-                    }
-                )
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-                LabeledValue(
-                    Icons.Rounded.Save,
-                    "CSV export",
-                    state.csvPath.ifBlank { "Preparing..." }
-                )
-                LabeledValue(
-                    Icons.Rounded.BatteryFull,
-                    "Battery optimization",
-                    if (state.batteryOptimizationDisabled) "Disabled for Roamly" else "Enabled"
-                )
-                OutlinedButton(
-                    onClick = {
-                        val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                        batteryOptLauncher.launch(intent)
-                    }
-                ) { Text("Improve background reliability") }
-            }
+            SettingLabel("GPS priority", "Higher accuracy uses more battery")
+            Spacer(Modifier.height(8.dp))
+            ChipSelector(
+                options = priorityOptions.map { it.first },
+                selectedIndex = priorityOptions.indexOfFirst { it.second == state.locationPriority },
+                onSelect = { viewModel.setLocationPriority(priorityOptions[it].second) },
+            )
 
             Spacer(Modifier.height(16.dp))
-
-            // ── Appearance ─────────────────────────────────────────────────
-            SettingsCard {
-                SectionHeader("Appearance", Icons.Rounded.DarkMode)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Dark Mode", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                    Switch(checked = state.darkMode, onCheckedChange = viewModel::setDarkMode)
-                }
-            }
+            SettingLabel("Minimum movement", "Skip points closer than this to the last")
+            Spacer(Modifier.height(8.dp))
+            ChipSelector(
+                options = distanceOptions.map { it.first },
+                selectedIndex = distanceOptions.indexOfFirst { it.second == state.minDistanceM },
+                onSelect = { viewModel.setMinDistanceM(distanceOptions[it].second) },
+            )
 
             Spacer(Modifier.height(16.dp))
+            SettingLabel("Discard fixes worse than", "Reject low-accuracy GPS readings")
+            Spacer(Modifier.height(8.dp))
+            ChipSelector(
+                options = accuracyOptions.map { it.first },
+                selectedIndex = accuracyOptions.indexOfFirst { it.second == state.maxAccuracyM },
+                onSelect = { viewModel.setMaxAccuracyM(accuracyOptions[it].second) },
+                onLongEdit = { editTarget = EditTarget.Accuracy(state.maxAccuracyM.toString(), "Min accuracy (m)", "Discard fixes worse than this many metres") },
+                customLabel = if (accuracyOptions.none { it.second == state.maxAccuracyM }) "${state.maxAccuracyM}m" else null,
+            )
+        }
 
-            // ── About ──────────────────────────────────────────────────────
-            SettingsCard {
-                SectionHeader("About", Icons.Rounded.Info)
-                LabeledValue(Icons.Rounded.Info,    "App",     "Roamly for Android")
-                LabeledValue(Icons.Rounded.Devices, "Version", "1.0.0")
+        // ── Sync ─────────────────────────────────────────────────────────
+        ClayCard {
+            ClaySectionHeader("Sync", Icons.Rounded.CloudSync, gradient = clay.secondaryGradient)
+            Spacer(Modifier.height(12.dp))
+
+            ToggleRow(
+                title = "Sync on mobile data",
+                subtitle = "Off = upload only on Wi-Fi",
+                checked = state.syncOnMobileData,
+                onCheckedChange = viewModel::setSyncOnMobileData,
+            )
+
+            Spacer(Modifier.height(12.dp))
+            val syncColor = when {
+                state.lastSyncTime == 0L -> MaterialTheme.colorScheme.onSurfaceVariant
+                state.lastSyncSuccess    -> Teal
+                else                     -> MaterialTheme.colorScheme.error
             }
+            val syncText = when {
+                state.lastSyncTime == 0L -> "Never synced yet"
+                state.lastSyncSuccess    -> {
+                    val pts = when (state.lastSyncCount) {
+                        0 -> "nothing to send"; 1 -> "1 point sent"; else -> "${state.lastSyncCount} points sent"
+                    }
+                    "Last sync ${relativeTime(state.lastSyncTime)} · $pts"
+                }
+                else -> "Last sync failed ${relativeTime(state.lastSyncTime)}" +
+                        if (state.lastSyncError.isNotBlank()) " — ${state.lastSyncError}" else ""
+            }
+            Text(syncText, style = MaterialTheme.typography.bodySmall, color = syncColor)
 
-            Spacer(Modifier.height(24.dp))
-
-            Button(
-                onClick = { viewModel.logout(onLoggedOut) },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                modifier = Modifier.fillMaxWidth()
+            Spacer(Modifier.height(12.dp))
+            ClayButton(
+                onClick = viewModel::syncNow,
+                enabled = !state.isSyncing,
+                gradient = clay.secondaryGradient,
+                contentColor = Color(0xFF052B26),
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                Icon(Icons.Rounded.Logout, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Disconnect")
+                if (state.isSyncing) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Color(0xFF052B26))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Syncing…", fontWeight = FontWeight.Bold)
+                } else {
+                    Icon(Icons.Rounded.CloudUpload, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Sync now", fontWeight = FontWeight.Bold)
+                }
             }
         }
+
+        // ── Reliability ──────────────────────────────────────────────────
+        ClayCard {
+            ClaySectionHeader("Reliability", Icons.Rounded.Bolt, gradient = listOf(Sunshine, Coral))
+            Spacer(Modifier.height(12.dp))
+            ToggleRow(
+                title = "Keep running in background",
+                subtitle = "Auto-resume after reboot or if the system stops it",
+                checked = state.autoStartTracking,
+                onCheckedChange = viewModel::setAutoStartTracking,
+            )
+            Spacer(Modifier.height(8.dp))
+            InfoRow(
+                Icons.Rounded.BatteryFull,
+                "Battery optimization",
+                if (state.batteryOptimizationDisabled) "Disabled for Roamly ✓" else "Enabled (may pause tracking)",
+                valueColor = if (state.batteryOptimizationDisabled) Teal else MaterialTheme.colorScheme.error,
+            )
+            if (!state.batteryOptimizationDisabled) {
+                Spacer(Modifier.height(10.dp))
+                ClayButton(
+                    onClick = {
+                        batteryOptLauncher.launch(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                    },
+                    gradient = listOf(Sunshine, Coral),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Rounded.Bolt, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Improve background reliability", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        // ── Connection ───────────────────────────────────────────────────
+        ClayCard {
+            ClaySectionHeader("Connection", Icons.Rounded.Link, gradient = clay.tertiaryGradient)
+            Spacer(Modifier.height(12.dp))
+            InfoRow(Icons.Rounded.Cloud, "Server", state.serverUrl.ifBlank { "Not set" })
+            Spacer(Modifier.height(8.dp))
+            InfoRow(Icons.Rounded.Person, "Username", state.username.ifBlank { "Not set" })
+            Spacer(Modifier.height(8.dp))
+            EditableRow(
+                Icons.Rounded.Smartphone, "Device ID", state.deviceId.ifBlank { "Tap to set" }, mono = true,
+                onClick = { editTarget = EditTarget.DeviceId(state.deviceId, "Device ID", "Identifies this device on the map") },
+            )
+            Spacer(Modifier.height(8.dp))
+            EditableRow(
+                Icons.Rounded.Key, "API key",
+                if (state.apiKey.isBlank()) "Tap to set" else "••••${state.apiKey.takeLast(6)}", mono = true,
+                onClick = { editTarget = EditTarget.ApiKey(state.apiKey, "API Key", "64-char hex key from Roamly → Settings → API Keys") },
+            )
+            Spacer(Modifier.height(8.dp))
+            InfoRow(Icons.Rounded.Save, "CSV export", state.csvPath.ifBlank { "Preparing…" })
+        }
+
+        // ── Appearance ───────────────────────────────────────────────────
+        ClayCard {
+            ClaySectionHeader("Appearance", Icons.Rounded.Palette, gradient = clay.tertiaryGradient)
+            Spacer(Modifier.height(12.dp))
+            ToggleRow(
+                title = "Dark mode",
+                subtitle = "Switch between the night and day clay themes",
+                checked = state.darkMode,
+                onCheckedChange = viewModel::setDarkMode,
+            )
+        }
+
+        // ── About ────────────────────────────────────────────────────────
+        ClayCard {
+            ClaySectionHeader("About", Icons.Rounded.Info, gradient = clay.secondaryGradient)
+            Spacer(Modifier.height(12.dp))
+            InfoRow(Icons.Rounded.Explore, "App", "Roamly for Android")
+            Spacer(Modifier.height(8.dp))
+            InfoRow(Icons.Rounded.Tag, "Version", "1.1.0")
+        }
+
+        ClayButton(
+            onClick = { viewModel.logout(onLoggedOut) },
+            gradient = listOf(Color(0xFFF4604D), Color(0xFFD23B57)),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Rounded.Logout, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Sign out", fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+// ── Tracking hero ────────────────────────────────────────────────────────────
+
+@Composable
+private fun TrackingHero(isTracking: Boolean, onToggle: () -> Unit) {
+    val clay = Clay.colors
+    ClayCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ClayIconBadge(
+                if (isTracking) Icons.Rounded.MyLocation else Icons.Rounded.LocationDisabled,
+                gradient = if (isTracking) clay.secondaryGradient else listOf(MaterialTheme.colorScheme.onSurfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant),
+                size = 52.dp,
+                cornerRadius = 18.dp,
+            )
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (isTracking) "Tracking is on" else "Tracking is off",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                Text(
+                    if (isTracking) "Recording your location in the background"
+                    else "Tap start to begin recording your journey",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        ClayButton(
+            onClick = onToggle,
+            gradient = if (isTracking) listOf(Color(0xFFF4604D), Color(0xFFD23B57)) else clay.secondaryGradient,
+            contentColor = if (isTracking) Color.White else Color(0xFF052B26),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(if (isTracking) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, null, Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(if (isTracking) "Stop tracking" else "Start tracking", fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+// ── Reusable rows ──────────────────────────────────────────────────────────────
+
+@Composable
+private fun SettingLabel(title: String, subtitle: String) {
+    Column {
+        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onBackground)
+        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun ChipSelector(
+    options: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    onLongEdit: (() -> Unit)? = null,
+    customLabel: String? = null,
+) {
+    val clay = Clay.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        options.forEachIndexed { i, label ->
+            val selected = i == selectedIndex
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .then(
+                        if (selected) Modifier.background(Brush.verticalGradient(clay.primaryGradient))
+                        else Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    )
+                    .clickable { onSelect(i) }
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (customLabel != null && onLongEdit != null) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Brush.verticalGradient(clay.primaryGradient))
+                    .clickable { onLongEdit() }
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+            ) {
+                Text(customLabel, style = MaterialTheme.typography.labelLarge, color = Color.White)
+            }
+        }
+        if (onLongEdit != null) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    .clickable { onLongEdit() }
+                    .padding(10.dp),
+            ) {
+                Icon(Icons.Rounded.Edit, "Custom value", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onBackground)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+@Composable
+private fun InfoRow(icon: ImageVector, label: String, value: String, valueColor: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.weight(1f))
+        Text(value, style = MaterialTheme.typography.bodySmall, color = valueColor)
+    }
+}
+
+@Composable
+private fun EditableRow(icon: ImageVector, label: String, value: String, mono: Boolean = false, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.weight(1f))
+        Text(
+            value, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
+            fontFamily = if (mono) FontFamily.Monospace else FontFamily.Default,
+        )
+        Spacer(Modifier.width(6.dp))
+        Icon(Icons.Rounded.Edit, "Edit", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -455,37 +529,26 @@ private fun EditDialog(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-                    visualTransformation = if (isApiKey && !showKey)
-                        PasswordVisualTransformation() else VisualTransformation.None,
+                    visualTransformation = if (isApiKey && !showKey) PasswordVisualTransformation() else VisualTransformation.None,
                     trailingIcon = if (isApiKey) {
                         {
                             IconButton(onClick = { showKey = !showKey }) {
-                                Icon(
-                                    if (showKey) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                                    contentDescription = if (showKey) "Hide" else "Show"
-                                )
+                                Icon(if (showKey) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, null)
                             }
                         }
                     } else null,
-                    label = { Text(title) }
+                    label = { Text(title) },
                 )
                 if (hint.isNotBlank()) {
                     Spacer(Modifier.height(6.dp))
-                    Text(hint, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(value) }) { Text("Save") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
+        confirmButton = { TextButton(onClick = { onConfirm(value) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
-
-// ── Sealed edit targets ────────────────────────────────────────────────────
 
 private sealed class EditTarget(
     val currentValue: String,
@@ -493,90 +556,26 @@ private sealed class EditTarget(
     val hint: String,
     val keyboardType: KeyboardType = KeyboardType.Text,
 ) {
-    class DeviceId(currentValue: String, title: String, hint: String) :
-        EditTarget(currentValue, title, hint, KeyboardType.Text)
-    class ApiKey(currentValue: String, title: String, hint: String) :
-        EditTarget(currentValue, title, hint, KeyboardType.Text)
-    class Interval(currentValue: String, title: String, hint: String) :
-        EditTarget(currentValue, title, hint, KeyboardType.Number)
-    class Accuracy(currentValue: String, title: String, hint: String) :
-        EditTarget(currentValue, title, hint, KeyboardType.Number)
+    class DeviceId(currentValue: String, title: String, hint: String) : EditTarget(currentValue, title, hint, KeyboardType.Text)
+    class ApiKey(currentValue: String, title: String, hint: String) : EditTarget(currentValue, title, hint, KeyboardType.Text)
+    class Interval(currentValue: String, title: String, hint: String) : EditTarget(currentValue, title, hint, KeyboardType.Number)
+    class Accuracy(currentValue: String, title: String, hint: String) : EditTarget(currentValue, title, hint, KeyboardType.Number)
 }
 
-// ── Row composables ────────────────────────────────────────────────────────
+// ── Option tables ──────────────────────────────────────────────────────────────
 
-@Composable
-private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(modifier = Modifier.padding(16.dp), content = content)
-    }
-}
-
-@Composable
-private fun SectionHeader(title: String, icon: ImageVector) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.width(8.dp))
-        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-    }
-}
-
-@Composable
-private fun LabeledValue(icon: ImageVector, label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.width(10.dp))
-        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-        Text(value, style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-private fun EditableRow(
-    icon: ImageVector,
-    label: String,
-    value: String,
-    subLabel: String = "",
-    mono: Boolean = false,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.width(10.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(label, style = MaterialTheme.typography.bodyMedium)
-            if (subLabel.isNotBlank()) {
-                Text(subLabel, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        Text(
-            value,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary,
-            fontFamily = if (mono) FontFamily.Monospace else FontFamily.Default
-        )
-        Spacer(Modifier.width(4.dp))
-        Icon(
-            Icons.Rounded.Edit,
-            contentDescription = "Edit",
-            modifier = Modifier.size(14.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-// ── Helpers ────────────────────────────────────────────────────────────────
+private val intervalOptions = listOf(
+    "5s" to 5, "10s" to 10, "30s" to 30, "1m" to 60, "2m" to 120, "5m" to 300,
+)
+private val priorityOptions = listOf(
+    "Auto" to "auto", "High" to "high", "Balanced" to "balanced", "Low" to "low",
+)
+private val distanceOptions = listOf(
+    "Every fix" to 0, "5m" to 5, "10m" to 10, "25m" to 25, "50m" to 50, "100m" to 100,
+)
+private val accuracyOptions = listOf(
+    "20m" to 20, "50m" to 50, "100m" to 100, "200m" to 200,
+)
 
 private fun relativeTime(epochMs: Long): String {
     val diff = System.currentTimeMillis() - epochMs
