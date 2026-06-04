@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -58,8 +59,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.platform.LocalContext
+import com.roamly.ui.theme.Clay
+import com.roamly.ui.theme.claySoftShadow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -190,32 +195,30 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
         )
 
         // Top-center time period chip
-        Surface(
+        Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 12.dp),
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-            shadowElevation = 6.dp,
-            tonalElevation = 0.dp,
+                .statusBarsPadding()
+                .padding(top = 12.dp)
+                .claySoftShadow(20.dp, Clay.colors.shadowDark, Clay.colors.shadowLight, depth = 12.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(Brush.verticalGradient(listOf(Clay.colors.surfaceTop, Clay.colors.surfaceBottom)))
         ) {
-            Box {
-                TextButton(onClick = { showTimeMenu = true }) {
-                    Icon(Icons.Rounded.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(state.timePeriod.label, style = MaterialTheme.typography.labelLarge)
-                    Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(18.dp))
-                }
-                DropdownMenu(expanded = showTimeMenu, onDismissRequest = { showTimeMenu = false }) {
-                    TimePeriod.entries.forEach { period ->
-                        DropdownMenuItem(
-                            text = { Text(period.label) },
-                            onClick = {
-                                showTimeMenu = false
-                                viewModel.setTimePeriod(period)
-                            }
-                        )
-                    }
+            TextButton(onClick = { showTimeMenu = true }) {
+                Icon(Icons.Rounded.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(6.dp))
+                Text(state.timePeriod.label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onBackground)
+                Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            DropdownMenu(expanded = showTimeMenu, onDismissRequest = { showTimeMenu = false }) {
+                TimePeriod.entries.forEach { period ->
+                    DropdownMenuItem(
+                        text = { Text(period.label) },
+                        onClick = {
+                            showTimeMenu = false
+                            viewModel.setTimePeriod(period)
+                        }
+                    )
                 }
             }
         }
@@ -298,25 +301,21 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
 
         // Bottom stats strip
         state.stats?.let { stats ->
-            Surface(
+            Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 16.dp),
-                shape = RoundedCornerShape(18.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-                shadowElevation = 8.dp,
-                tonalElevation = 0.dp,
+                    .padding(horizontal = 16.dp, vertical = 16.dp)
+                    .claySoftShadow(22.dp, Clay.colors.shadowDark, Clay.colors.shadowLight, depth = 16.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(Brush.verticalGradient(listOf(Clay.colors.surfaceTop, Clay.colors.surfaceBottom)))
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    StatChip("${stats.totalPoints}", "points")
-                    StatChip("${stats.cities}", "cities")
-                    StatChip("${stats.countries}", "countries")
-                }
+                StatChip("${stats.totalPoints}", "points")
+                StatChip("${stats.cities}", "cities")
+                StatChip("${stats.countries}", "countries")
             }
         }
 
@@ -361,13 +360,14 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
 
 @Composable
 private fun ZoomFab(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, onClick: () -> Unit) {
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 4.dp,
+    Box(
+        modifier = Modifier
+            .claySoftShadow(14.dp, Clay.colors.shadowDark, Clay.colors.shadowLight, depth = 8.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Brush.verticalGradient(listOf(Clay.colors.surfaceTop, Clay.colors.surfaceBottom))),
     ) {
         IconButton(onClick = onClick, modifier = Modifier.size(44.dp)) {
-            Icon(icon, contentDescription = desc, tint = MaterialTheme.colorScheme.onSurface)
+            Icon(icon, contentDescription = desc, tint = MaterialTheme.colorScheme.onBackground)
         }
     }
 }
@@ -375,7 +375,7 @@ private fun ZoomFab(icon: androidx.compose.ui.graphics.vector.ImageVector, desc:
 @Composable
 private fun StatChip(value: String, label: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        Text(value, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
