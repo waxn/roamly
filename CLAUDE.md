@@ -65,7 +65,9 @@ Single Django app (`tracker/`) inside the `roamly` project. No separate services
 
 **Auth:** Session-based for web. `ApiKeyAuthMiddleware` also accepts `Authorization: Bearer <key>` headers, allowing mobile apps (GPSLogger, OwnTracks) to push locations without a session.
 
-**Mobile tracking:** The Android tracker now uses adaptive fused-location requests, duplicate suppression, and richer foreground notification state to stay battery-aware while still running continuously.
+**Mobile tracking:** The Android app (`mobile/`, Kotlin + Jetpack Compose) uses a claymorphism design system (`ui/theme/Theme.kt` + `ui/theme/Clay.kt`: soft dual-shadow surfaces, gradient accents, puffy press-animated buttons). Login is API-key-based — the stored API key (not the session cookie) is the durable credential, so the app stays signed in forever even after the Django session expires (`ApiKeyAuthMiddleware` authenticates the Bearer key on every endpoint). A device id is auto-assigned at login so uploads work immediately.
+
+The location tracker (`tracking/LocationTrackingService.kt`) is a foreground service that survives reboots and OS kills via a durable `trackingEnabled` intent flag (distinct from the runtime `trackingActive` flag), START_STICKY, the boot receiver, and a watchdog coroutine that re-arms location updates if fixes stall under Doze/battery saver. Tracking knobs (interval, GPS priority auto/high/balanced/low, min movement distance, max accuracy) are observed as a flow and applied to the running request live. Points are cached in Room and uploaded by `UploadWorker` (offline-first); a local CSV mirror is also written.
 
 ## Key files
 
