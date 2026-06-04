@@ -121,6 +121,15 @@ data class VisitsResponse(
 
 // --- Trips ---
 
+data class TripLatLng(
+    val lat: Double,
+    val lng: Double,
+    val timestamp: String? = null,
+    val speed: Double? = null,
+    val city: String? = null,
+    val country: String? = null,
+)
+
 data class TripResponse(
     val id: Int,
     val name: String,
@@ -128,12 +137,22 @@ data class TripResponse(
     val device: String? = null,
     @SerializedName("start_time")     val startTime: String,
     @SerializedName("end_time")       val endTime: String,
+    // The list endpoint sends location_count/member_count; the detail endpoint
+    // instead sends total_location_count + the full locations[] and members[].
     @SerializedName("location_count") val locationCount: Int = 0,
     @SerializedName("member_count")   val memberCount: Int = 0,
+    @SerializedName("total_location_count") val totalLocationCount: Int = 0,
+    val locations: List<TripLatLng> = emptyList(),
+    val members: List<PalMember>? = null,
     @SerializedName("is_public")      val isPublic: Boolean = false,
     @SerializedName("is_creator")     val isCreator: Boolean = false,
     @SerializedName("public_slug")    val publicSlug: String? = null,
-)
+) {
+    /** Best available point count regardless of which endpoint produced this. */
+    val pointCount: Int get() = if (totalLocationCount > 0) totalLocationCount else maxOf(locationCount, locations.size)
+    /** Best available member count regardless of endpoint. */
+    val memberCountResolved: Int get() = members?.size ?: memberCount
+}
 
 data class TripsListResponse(val trips: List<TripResponse>)
 

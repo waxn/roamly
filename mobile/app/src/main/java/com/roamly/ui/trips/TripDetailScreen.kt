@@ -39,6 +39,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -50,14 +51,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.roamly.data.api.Comment
 import com.roamly.data.api.TimelineEvent
+import com.roamly.data.api.TripLatLng
 import com.roamly.ui.theme.Clay
 import com.roamly.ui.theme.ClayCard
 import com.roamly.ui.theme.ClayIconBadge
+import com.roamly.ui.theme.ClaySurface
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.BoundingBox
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Polyline
 
 @Composable
 fun TripDetailScreen(
@@ -121,11 +132,26 @@ fun TripDetailScreen(
                                     }
                                     Spacer(Modifier.height(12.dp))
                                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                        HeroStat("${trip.locationCount}", "points")
-                                        HeroStat("${trip.memberCount}", "members")
+                                        HeroStat("${trip.pointCount}", "points")
+                                        HeroStat("${trip.memberCountResolved}", "members")
                                         val days = listOfNotNull(trip.startTime?.take(10), trip.endTime?.take(10)).joinToString(" → ")
                                         if (days.isNotEmpty()) HeroStat(days, "")
                                     }
+                                }
+                            }
+                        }
+
+                        // Map of the adventure's track (like the website)
+                        if (trip.locations.isNotEmpty()) {
+                            item {
+                                ClaySurface(modifier = Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
+                                    AdventureMap(
+                                        points = trip.locations,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(240.dp)
+                                            .clip(RoundedCornerShape(22.dp)),
+                                    )
                                 }
                             }
                         }
@@ -222,6 +248,56 @@ fun TripDetailScreen(
             onConfirm = { emoji, title, desc, date -> viewModel.createMilestone(emoji, title, desc, date) }
         )
     }
+}
+
+/** A small osmdroid map drawing the adventure's track as a coral polyline,
+ *  auto-fit to the route — the mobile equivalent of the website's trip map. */
+@Composable
+private fun AdventureMap(points: List<TripLatLng>, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val mapView = remember {
+        Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
+        Configuration.getInstance().userAgentValue = "Roamly/1.0"
+        Configuration.getInstance().osmdroidBasePath = context.cacheDir
+        Configuration.getInstance().osmdroidTileCache = java.io.File(context.cacheDir, "osmdroid_tiles").apply { mkdirs() }
+        MapView(context).apply {
+            setTileSource(TileSourceFactory.MAPNIK)
+            setMultiTouchControls(true)
+            controller.setZoom(12.0)
+        }
+    }
+
+    LaunchedEffect(points) {
+        mapView.overlays.clear()
+        if (points.isNotEmpty()) {
+            val geo = points.map { GeoPoint(it.lat, it.lng) }
+            val line = Polyline(mapView).apply {
+                setPoints(geo)
+                outlinePaint.color = android.graphics.Color.rgb(249, 115, 79)
+                outlinePaint.strokeWidth = 7f
+                outlinePaint.isAntiAlias = true
+            }
+            mapView.overlays.add(line)
+            // Fit after the view has a measured size, otherwise zoomToBoundingBox no-ops.
+            mapView.post {
+                if (geo.size == 1) {
+                    mapView.controller.setZoom(14.0)
+                    mapView.controller.setCenter(geo.first())
+                } else {
+                    runCatching { mapView.zoomToBoundingBox(BoundingBox.fromGeoPoints(geo), false, 64) }
+                }
+                mapView.invalidate()
+            }
+        }
+        mapView.invalidate()
+    }
+
+    DisposableEffect(mapView) {
+        mapView.onResume()
+        onDispose { mapView.onPause() }
+    }
+
+    AndroidView(factory = { mapView }, modifier = modifier)
 }
 
 @Composable
