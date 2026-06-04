@@ -127,6 +127,7 @@ fun SettingsScreen(
         )
     }
 
+    var advancedGps by remember { mutableStateOf(false) }
     var editTarget by remember { mutableStateOf<EditTarget?>(null) }
     editTarget?.let { target ->
         EditDialog(
@@ -212,6 +213,22 @@ fun SettingsScreen(
                 onLongEdit = { editTarget = EditTarget.Accuracy(state.maxAccuracyM.toString(), "Min accuracy (m)", "Discard fixes worse than this many metres") },
                 customLabel = if (accuracyOptions.none { it.second == state.maxAccuracyM }) "${state.maxAccuracyM}m" else null,
             )
+
+            Spacer(Modifier.height(16.dp))
+            ToggleRow(
+                title = "Advanced",
+                subtitle = "Type exact values for each setting",
+                checked = advancedGps,
+                onCheckedChange = { advancedGps = it },
+            )
+            if (advancedGps) {
+                Spacer(Modifier.height(12.dp))
+                AdvancedNumberField("Interval (seconds)", state.trackingIntervalSecs, "5–3600") { viewModel.setTrackingIntervalSecs(it) }
+                Spacer(Modifier.height(10.dp))
+                AdvancedNumberField("Min movement (metres)", state.minDistanceM, "0 = every fix") { viewModel.setMinDistanceM(it) }
+                Spacer(Modifier.height(10.dp))
+                AdvancedNumberField("Max accuracy (metres)", state.maxAccuracyM, "discard worse fixes") { viewModel.setMaxAccuracyM(it) }
+            }
         }
 
         // ── Sync ─────────────────────────────────────────────────────────
@@ -464,6 +481,25 @@ private fun ChipSelector(
             }
         }
     }
+}
+
+@Composable
+private fun AdvancedNumberField(label: String, value: Int, hint: String, onApply: (Int) -> Unit) {
+    // Seed from the current value but let the user type freely; apply valid numbers.
+    var text by remember(value) { mutableStateOf(value.toString()) }
+    OutlinedTextField(
+        value = text,
+        onValueChange = {
+            text = it.filter { c -> c.isDigit() }
+            text.toIntOrNull()?.let(onApply)
+        },
+        label = { Text(label) },
+        supportingText = { Text(hint) },
+        singleLine = true,
+        shape = RoundedCornerShape(14.dp),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @Composable
