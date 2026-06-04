@@ -153,7 +153,7 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
     ) { permissions ->
         val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
                 permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
-        if (granted) checkNearHere(context, state.locations) { nearHereResult = it }
+        if (granted) checkNearHere(context, viewModel) { nearHereResult = it }
     }
 
     // Apply new points to both overlays + auto-fit when not following a focus
@@ -278,7 +278,7 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                     context, Manifest.permission.ACCESS_COARSE_LOCATION
                 ) == PackageManager.PERMISSION_GRANTED
                 if (hasFine || hasCoarse) {
-                    checkNearHere(context, state.locations) { nearHereResult = it }
+                    checkNearHere(context, viewModel) { nearHereResult = it }
                 } else {
                     locationPermissionLauncher.launch(
                         arrayOf(
@@ -680,14 +680,15 @@ private fun speedColor(speed: Double?): Int {
 
 private fun checkNearHere(
     context: android.content.Context,
-    locations: List<LocationPoint>,
+    viewModel: MapViewModel,
     onResult: (NearHereResult) -> Unit,
 ) {
     val client = LocationServices.getFusedLocationProviderClient(context)
     try {
         client.lastLocation.addOnSuccessListener { location ->
             if (location == null) return@addOnSuccessListener
-            onResult(buildNearHere(location.latitude, location.longitude, locations))
+            // VM fetches all-time history near this spot, then computes the result.
+            viewModel.checkHaveIBeenHere(location.latitude, location.longitude, onResult)
         }
     } catch (_: SecurityException) { /* permission not granted */ }
 }

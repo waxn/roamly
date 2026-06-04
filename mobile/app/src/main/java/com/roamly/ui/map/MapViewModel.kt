@@ -72,6 +72,27 @@ class MapViewModel @Inject constructor(
         _uiState.update { it.copy(focus = MapFocus(lat, lng, zoom)) }
     }
 
+    /**
+     * "Have I been here?" — fetches ALL-TIME history within ~11km of the user
+     * (independent of the current time-period view, which is usually just 24h) so
+     * it can actually surface every past day spent at this spot.
+     */
+    fun checkHaveIBeenHere(userLat: Double, userLng: Double, onResult: (NearHereResult) -> Unit) {
+        viewModelScope.launch {
+            val pad = 0.1 // ~11 km
+            val result = locationRepository.getLocationsInBbox(
+                minLat = userLat - pad, maxLat = userLat + pad,
+                minLng = userLng - pad, maxLng = userLng + pad,
+                hours = null, limit = 25_000,
+            )
+            val points = when (result) {
+                is Result.Success -> result.data.devices.flatMap { it.locations }
+                is Result.Error -> _uiState.value.locations // fall back to what's loaded
+            }
+            onResult(buildNearHere(userLat, userLng, points))
+        }
+    }
+
     fun clearFocus() {
         _uiState.update { it.copy(focus = null) }
     }
