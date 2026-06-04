@@ -103,6 +103,10 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
     val mapView = remember {
         Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
         Configuration.getInstance().userAgentValue = "Roamly/1.0"
+        // Pin osmdroid's tile cache to app-private storage so it never depends on
+        // external-storage permission (which would crash on re-entry/older devices).
+        Configuration.getInstance().osmdroidBasePath = context.cacheDir
+        Configuration.getInstance().osmdroidTileCache = java.io.File(context.cacheDir, "osmdroid_tiles").apply { mkdirs() }
         MapView(context).apply {
             setTileSource(org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)
@@ -183,8 +187,11 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
     DisposableEffect(mapView) {
         mapView.onResume()
         onDispose {
+            // Only pause on leave. Calling onDetach() here tears down osmdroid's
+            // shared tile cache; the next time this screen is entered a fresh
+            // MapView reopens it and crashes ("attempt to re-open an already-closed
+            // object"). Pausing avoids that and the View is GC'd normally.
             mapView.onPause()
-            mapView.onDetach()
         }
     }
 
