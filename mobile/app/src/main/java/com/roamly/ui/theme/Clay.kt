@@ -1,6 +1,5 @@
 package com.roamly.ui.theme
 
-import android.graphics.BlurMaskFilter
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
@@ -35,16 +34,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Paint
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -59,51 +53,28 @@ import androidx.compose.ui.unit.dp
  * Together they read as a puffy, moulded surface rather than a flat rectangle.
  */
 
-private fun DrawScope.drawClayShadow(
-    color: Color,
-    cornerRadiusPx: Float,
-    blurPx: Float,
-    dx: Float,
-    dy: Float,
-) {
-    if (color.alpha == 0f) return
-    val paint = Paint()
-    val frameworkPaint = paint.asFrameworkPaint()
-    frameworkPaint.isAntiAlias = true
-    frameworkPaint.color = color.toArgb()
-    if (blurPx > 0f) {
-        frameworkPaint.maskFilter = BlurMaskFilter(blurPx, BlurMaskFilter.Blur.NORMAL)
-    }
-    drawIntoCanvas { canvas ->
-        canvas.nativeCanvas.drawRoundRect(
-            dx,
-            dy,
-            size.width + dx,
-            size.height + dy,
-            cornerRadiusPx,
-            cornerRadiusPx,
-            frameworkPaint,
-        )
-    }
-}
-
 /**
- * The core clay shadow modifier — paints the dual soft shadows behind whatever
- * it's applied to. Use a smaller [depth] for inline rows, larger for hero cards.
+ * The core clay shadow modifier — a soft, rounded drop shadow behind whatever it's
+ * applied to. Uses Compose's [shadow] (GPU-rendered, always soft and perfectly
+ * rounded) tinted with the clay shadow colour. Use a smaller [depth] for inline
+ * rows, larger for hero cards. The top "light" highlight is provided separately by
+ * the 1px gradient border on ClaySurface, so [shadowLight]/[drawLight] are kept
+ * only for call-site compatibility.
  */
+@Suppress("UNUSED_PARAMETER")
 fun Modifier.claySoftShadow(
     cornerRadius: Dp,
     shadowDark: Color,
     shadowLight: Color,
     depth: Dp = 14.dp,
     drawLight: Boolean = true,
-): Modifier = drawBehind {
-    val r = cornerRadius.toPx()
-    val blur = depth.toPx()
-    val off = depth.toPx() * 0.45f
-    drawClayShadow(shadowDark, r, blur, off, off)
-    if (drawLight) drawClayShadow(shadowLight, r, blur, -off, -off)
-}
+): Modifier = this.shadow(
+    elevation = depth * 0.7f,
+    shape = RoundedCornerShape(cornerRadius),
+    clip = false,
+    ambientColor = shadowDark.copy(alpha = (shadowDark.alpha * 1.4f).coerceAtMost(1f)),
+    spotColor = shadowDark.copy(alpha = (shadowDark.alpha * 1.4f).coerceAtMost(1f)),
+)
 
 /**
  * A moulded clay surface — the most-used building block (cards, panels, chips).
