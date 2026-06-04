@@ -2,6 +2,7 @@ package com.roamly.ui.trips
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,34 +13,31 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Chat
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.EmojiEvents
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.ChatBubbleOutline
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.EmojiEvents
+import androidx.compose.material.icons.rounded.Place
+import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -50,13 +48,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.roamly.data.api.Comment
 import com.roamly.data.api.TimelineEvent
+import com.roamly.ui.theme.Clay
+import com.roamly.ui.theme.ClayCard
+import com.roamly.ui.theme.ClayIconBadge
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TripDetailScreen(
     tripId: Int,
@@ -64,109 +66,124 @@ fun TripDetailScreen(
     viewModel: TripDetailViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
+    val clay = Clay.colors
     LaunchedEffect(tripId) { viewModel.load(tripId) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(state.trip?.name ?: "Trip") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "Back") }
-                },
-                actions = {
-                    IconButton(onClick = viewModel::togglePublic) {
-                        Icon(Icons.Filled.Share, "Toggle public")
-                    }
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+            // Top bar
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ClayBackButton(onBack)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    state.trip?.name ?: "Adventure",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = viewModel::togglePublic) {
+                    Icon(
+                        Icons.Rounded.Public,
+                        "Toggle public",
+                        tint = if (state.trip?.isPublic == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = viewModel::showAddTypeDialog) {
-                Icon(Icons.Filled.Add, "Add")
             }
-        }
-    ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+
             if (state.isLoading) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                }
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    // Trip header
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp, 4.dp, 16.dp, 120.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
                     state.trip?.let { trip ->
                         item {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                trip.description?.let {
-                                    if (it.isNotBlank()) {
-                                        Text(it, style = MaterialTheme.typography.bodyMedium)
+                            // Hero card
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(26.dp))
+                                    .background(Brush.linearGradient(clay.primaryGradient))
+                                    .padding(20.dp)
+                            ) {
+                                Column {
+                                    Text(trip.name, style = MaterialTheme.typography.headlineSmall, color = Color.White, fontWeight = FontWeight.Bold)
+                                    trip.description?.takeIf { it.isNotBlank() }?.let {
                                         Spacer(Modifier.height(4.dp))
+                                        Text(it, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f))
+                                    }
+                                    Spacer(Modifier.height(12.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                        HeroStat("${trip.locationCount}", "points")
+                                        HeroStat("${trip.memberCount}", "members")
+                                        val days = listOfNotNull(trip.startTime?.take(10), trip.endTime?.take(10)).joinToString(" → ")
+                                        if (days.isNotEmpty()) HeroStat(days, "")
                                     }
                                 }
-                                val dateRange = listOfNotNull(
-                                    trip.startTime?.take(10),
-                                    trip.endTime?.take(10)
-                                ).joinToString(" → ")
-                                if (dateRange.isNotEmpty()) {
-                                    Text(dateRange, style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text("${trip.memberCount} members · ${trip.locationCount} pts",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    if (trip.isPublic) {
-                                        Text("· public",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.primary)
-                                    }
-                                }
-                                HorizontalDivider(modifier = Modifier.padding(top = 12.dp))
                             }
                         }
                     }
 
-                    // Timeline events
-                    if (state.events.isEmpty() && !state.isLoading) {
+                    if (state.events.isEmpty()) {
                         item {
-                            Box(
-                                modifier = Modifier.fillMaxWidth().padding(48.dp),
-                                contentAlignment = Alignment.Center
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(top = 48.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
-                                Text("No updates yet. Tap + to add one.",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                ClayIconBadge(Icons.Rounded.ChatBubbleOutline, size = 56.dp, cornerRadius = 20.dp)
+                                Spacer(Modifier.height(12.dp))
+                                Text("No updates yet", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
+                                Text("Tap + to add an update or milestone", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     } else {
                         items(state.events) { event ->
-                            if (event.type == "milestone") {
-                                TripMilestoneCard(event)
-                            } else {
-                                TripBlurbCard(
-                                    event = event,
-                                    comments = state.comments[event.id],
-                                    isExpanded = state.expandedBlurbId == event.id,
-                                    onDelete = { viewModel.deleteBlurb(event.id) },
-                                    onToggleComments = { viewModel.toggleComments(event.id) },
-                                    onPostComment = { text -> viewModel.createComment(event.id, text) },
-                                    onDeleteComment = { cid -> viewModel.deleteComment(event.id, cid) },
-                                )
-                            }
+                            if (event.type == "milestone") MilestoneCard(event)
+                            else BlurbCard(
+                                event = event,
+                                comments = state.comments[event.id],
+                                isExpanded = state.expandedBlurbId == event.id,
+                                onDelete = { viewModel.deleteBlurb(event.id) },
+                                onToggleComments = { viewModel.toggleComments(event.id) },
+                                onPostComment = { text -> viewModel.createComment(event.id, text) },
+                                onDeleteComment = { cid -> viewModel.deleteComment(event.id, cid) },
+                            )
                         }
                     }
                 }
             }
+        }
 
-            state.error?.let {
-                Card(
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
-                ) {
-                    Text(it, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(12.dp))
-                }
-            }
+        // FAB
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 20.dp, bottom = 24.dp)
+                .size(60.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(Brush.verticalGradient(clay.primaryGradient))
+                .clickable { viewModel.showAddTypeDialog() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Rounded.Add, "Add", tint = Color.White, modifier = Modifier.size(28.dp))
+        }
+
+        state.error?.let {
+            Text(
+                it, color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp),
+            )
         }
     }
 
-    // --- Add type picker ---
+    // --- Dialogs ---
     if (state.showAddTypeDialog) {
         AlertDialog(
             onDismissRequest = viewModel::hideAddTypeDialog,
@@ -174,14 +191,10 @@ fun TripDetailScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = viewModel::showBlurbDialog, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Filled.Chat, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Update / Post")
+                        Icon(Icons.Rounded.ChatBubbleOutline, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Update / Post")
                     }
                     OutlinedButton(onClick = viewModel::showMilestoneDialog, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Filled.EmojiEvents, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Milestone")
+                        Icon(Icons.Rounded.EmojiEvents, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Milestone")
                     }
                 }
             },
@@ -194,15 +207,9 @@ fun TripDetailScreen(
         var text by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = viewModel::hideBlurbDialog,
-            title = { Text("Add Update") },
+            title = { Text("Add update") },
             text = {
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    label = { Text("What's happening?") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 3
-                )
+                OutlinedTextField(value = text, onValueChange = { text = it }, label = { Text("What's happening?") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
             },
             confirmButton = { TextButton(onClick = { viewModel.createBlurb(text) }) { Text("Post") } },
             dismissButton = { TextButton(onClick = viewModel::hideBlurbDialog) { Text("Cancel") } }
@@ -210,7 +217,7 @@ fun TripDetailScreen(
     }
 
     if (state.showMilestoneDialog) {
-        TripMilestoneCreateDialog(
+        MilestoneCreateDialog(
             onDismiss = viewModel::hideMilestoneDialog,
             onConfirm = { emoji, title, desc, date -> viewModel.createMilestone(emoji, title, desc, date) }
         )
@@ -218,7 +225,29 @@ fun TripDetailScreen(
 }
 
 @Composable
-private fun TripBlurbCard(
+private fun ClayBackButton(onBack: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(42.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+            .clickable(onClick = onBack),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.Rounded.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onBackground)
+    }
+}
+
+@Composable
+private fun HeroStat(value: String, label: String) {
+    Column {
+        Text(value, style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.Bold)
+        if (label.isNotEmpty()) Text(label, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.85f))
+    }
+}
+
+@Composable
+private fun BlurbCard(
     event: TimelineEvent,
     comments: List<Comment>?,
     isExpanded: Boolean,
@@ -227,87 +256,64 @@ private fun TripBlurbCard(
     onPostComment: (String) -> Unit,
     onDeleteComment: (Int) -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                Column {
-                    Text(
-                        event.author ?: "",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(event.createdAt?.take(10) ?: "",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                if (event.canDelete) {
-                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Filled.Delete, "Delete",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp))
-                    }
+    ClayCard(contentPadding = 16.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Avatar(event.author)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(event.author ?: "", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                Text(event.createdAt?.take(10) ?: "", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (event.canDelete) {
+                IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Rounded.Delete, "Delete", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                 }
             }
-
-            if (!event.text.isNullOrBlank()) {
-                Spacer(Modifier.height(6.dp))
-                Text(event.text, style = MaterialTheme.typography.bodyMedium)
-            }
-            event.locationName?.let {
-                Spacer(Modifier.height(4.dp))
-                Text("📍 $it", style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-
+        }
+        if (!event.text.isNullOrBlank()) {
             Spacer(Modifier.height(8.dp))
-            TextButton(onClick = onToggleComments, modifier = Modifier.padding(0.dp)) {
-                Icon(Icons.Filled.Chat, null, Modifier.size(14.dp))
+            Text(event.text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground)
+        }
+        event.locationName?.let {
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Place, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.width(4.dp))
-                val count = comments?.size ?: event.commentCount
-                Text(
-                    if (count > 0) "$count comment${if (count != 1) "s" else ""}" else "Comment",
-                    style = MaterialTheme.typography.labelMedium
-                )
+                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
 
-            AnimatedVisibility(visible = isExpanded) {
-                Column {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                    if (comments == null) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp).align(Alignment.CenterHorizontally))
-                    } else {
-                        comments.forEach { comment ->
-                            TripCommentRow(comment, onDelete = { onDeleteComment(comment.id) })
-                        }
-                    }
-                    var commentText by remember { mutableStateOf("") }
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = commentText,
-                            onValueChange = { commentText = it },
-                            placeholder = { Text("Add a comment…", style = MaterialTheme.typography.bodySmall) },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            textStyle = MaterialTheme.typography.bodySmall
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        IconButton(onClick = {
-                            if (commentText.isNotBlank()) {
-                                onPostComment(commentText)
-                                commentText = ""
-                            }
-                        }) {
-                            Icon(Icons.Filled.CheckCircle, "Post",
-                                tint = MaterialTheme.colorScheme.primary)
-                        }
-                    }
+        Spacer(Modifier.height(6.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onToggleComments).padding(vertical = 4.dp, horizontal = 2.dp),
+        ) {
+            Icon(Icons.Rounded.ChatBubbleOutline, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(4.dp))
+            val count = comments?.size ?: event.commentCount
+            Text(if (count > 0) "$count comment${if (count != 1) "s" else ""}" else "Comment", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        AnimatedVisibility(visible = isExpanded) {
+            Column {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                if (comments == null) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.primary)
+                } else {
+                    comments.forEach { c -> CommentRow(c, onDelete = { onDeleteComment(c.id) }) }
+                }
+                var commentText by remember { mutableStateOf("") }
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = commentText, onValueChange = { commentText = it },
+                        placeholder = { Text("Add a comment…", style = MaterialTheme.typography.bodySmall) },
+                        modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(14.dp),
+                        textStyle = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    IconButton(onClick = {
+                        if (commentText.isNotBlank()) { onPostComment(commentText); commentText = "" }
+                    }) { Icon(Icons.Rounded.Send, "Post", tint = MaterialTheme.colorScheme.primary) }
                 }
             }
         }
@@ -315,64 +321,59 @@ private fun TripBlurbCard(
 }
 
 @Composable
-private fun TripCommentRow(comment: Comment, onDelete: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.Top
+private fun Avatar(name: String?) {
+    val clay = Clay.colors
+    Box(
+        modifier = Modifier.size(34.dp).clip(CircleShape).background(Brush.linearGradient(clay.tertiaryGradient)),
+        contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = Modifier.size(28.dp).clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                comment.author.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        Text(name?.firstOrNull()?.uppercaseChar()?.toString() ?: "?", style = MaterialTheme.typography.labelMedium, color = Color.White, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun CommentRow(comment: Comment, onDelete: () -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
+        Avatar(comment.author)
         Spacer(Modifier.width(8.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(comment.author, style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary)
-            Text(comment.text, style = MaterialTheme.typography.bodySmall)
+        Column(Modifier.weight(1f)) {
+            Text(comment.author, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            Text(comment.text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onBackground)
         }
         if (comment.canDelete) {
             IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
-                Icon(Icons.Filled.Delete, "Delete",
-                    modifier = Modifier.size(14.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Rounded.Delete, "Delete", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
 }
 
 @Composable
-private fun TripMilestoneCard(event: TimelineEvent) {
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+private fun MilestoneCard(event: TimelineEvent) {
+    val clay = Clay.colors
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(Brush.linearGradient(clay.secondaryGradient))
+            .padding(16.dp)
     ) {
-        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(event.emoji ?: "🏆", style = MaterialTheme.typography.headlineMedium)
-            Column(modifier = Modifier.padding(start = 12.dp)) {
-                Text(event.title ?: "", style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer)
-                event.description?.let {
-                    if (it.isNotBlank()) Text(it, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer)
+            Spacer(Modifier.width(14.dp))
+            Column {
+                Text(event.title ?: "", style = MaterialTheme.typography.titleSmall, color = Color(0xFF052B26), fontWeight = FontWeight.Bold)
+                event.description?.takeIf { it.isNotBlank() }?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = Color(0xFF052B26).copy(alpha = 0.85f))
                 }
-                event.date?.let {
-                    Text(it.take(10), style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer)
-                }
+                event.date?.let { Text(it.take(10), style = MaterialTheme.typography.labelSmall, color = Color(0xFF052B26).copy(alpha = 0.7f)) }
             }
         }
     }
 }
 
 @Composable
-private fun TripMilestoneCreateDialog(
+private fun MilestoneCreateDialog(
     onDismiss: () -> Unit,
     onConfirm: (emoji: String, title: String, description: String, date: String) -> Unit
 ) {
@@ -383,45 +384,18 @@ private fun TripMilestoneCreateDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add Milestone") },
+        title = { Text("Add milestone") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = emoji,
-                        onValueChange = { emoji = it },
-                        label = { Text("Emoji") },
-                        modifier = Modifier.width(80.dp),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = title,
-                        onValueChange = { title = it },
-                        label = { Text("Title *") },
-                        modifier = Modifier.weight(1f),
-                        singleLine = true
-                    )
+                    OutlinedTextField(value = emoji, onValueChange = { emoji = it }, label = { Text("Emoji") }, modifier = Modifier.width(84.dp), singleLine = true)
+                    OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title *") }, modifier = Modifier.weight(1f), singleLine = true)
                 }
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Description") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 2
-                )
-                OutlinedTextField(
-                    value = date,
-                    onValueChange = { date = it },
-                    label = { Text("Date (YYYY-MM-DD) *") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("2025-01-15") }
-                )
+                OutlinedTextField(value = description, onValueChange = { description = it }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+                OutlinedTextField(value = date, onValueChange = { date = it }, label = { Text("Date (YYYY-MM-DD) *") }, singleLine = true, modifier = Modifier.fillMaxWidth(), placeholder = { Text("2025-01-15") })
             }
         },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(emoji, title, description, date) }) { Text("Add") }
-        },
+        confirmButton = { TextButton(onClick = { onConfirm(emoji, title, description, date) }) { Text("Add") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
