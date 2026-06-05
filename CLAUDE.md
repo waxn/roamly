@@ -69,6 +69,10 @@ Single Django app (`tracker/`) inside the `roamly` project. No separate services
 
 The location tracker (`tracking/LocationTrackingService.kt`) is a foreground service that survives reboots and OS kills via a durable `trackingEnabled` intent flag (distinct from the runtime `trackingActive` flag), START_STICKY, the boot receiver, and a watchdog coroutine that re-arms location updates if fixes stall under Doze/battery saver. Tracking knobs (interval, GPS priority auto/high/balanced/low, min movement distance, max accuracy) are observed as a flow and applied to the running request live. Points are cached in Room and uploaded by `UploadWorker` (offline-first); a local CSV mirror is also written.
 
+**Mobile caching:** `data/cache/DiskCache.kt` is a Gson-backed JSON file cache (under `cacheDir/api_cache`) that persists the last successful response per screen so cold starts and offline opens paint last-known data instantly and refresh in the background, instead of showing an empty skeleton. Wired into the Stats, Map (per time-period), Adventures, and Pals view models. The cache is wiped on sign-out (`disk.clearAll()` in both logout paths). The process-lived `StatsCache` is still the fast warm-cache layer; `DiskCache` is the cold-start fallback beneath it.
+
+**Mobile feature parity:** The app mirrors the web's core consumer features — Map (time periods, heatmap, "have I been here?"), Adventures, Pals, Stats (with yearly overview + top places), Settings, and history Search (`ui/search/`, hits `/api/search/` — text queries return named POI matches that focus the map plus the days you visited a matching city/state/place). Power-user/admin features (data table, import/export, backups, geocoding/POI jobs, API-key CRUD, profile pictures) remain web-only.
+
 ## Key files
 
 | File | Purpose |
