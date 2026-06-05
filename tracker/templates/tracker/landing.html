@@ -1103,7 +1103,7 @@
                     self-hosted · open source · your hardware
                 </div>
                 <h1>every mile you log<br>stays <span class="gradient">yours.</span></h1>
-                <p class="hero-sub">a private gps journal on your own server — maplibre heatmaps, adventure timelines, visit analytics, group pals trips, and push from gpslogger or owntracks.</p>
+                <p class="hero-sub">a private gps journal on your own server — maplibre heatmaps, adventure journals, dwell-time analytics, group pals trips, a native android app, and push from gpslogger, owntracks, or anything that speaks http.</p>
                 <div class="hero-actions">
                     <a href="{% url 'tracker:signup' %}" class="btn btn-primary btn-lg">start tracking free →</a>
                     {% if user.is_authenticated %}
@@ -1158,6 +1158,7 @@
                 <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></span> adventures &amp; pals</span>
                 <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></span> visit dwell analytics</span>
                 <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></span> gpslogger &amp; owntracks</span>
+                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></span> native android app</span>
                 <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg></span> csv · gpx · takeout import</span>
                 <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span> s3 auto backups</span>
                 <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span> zero telemetry</span>
@@ -1168,8 +1169,9 @@
                 <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></span> adventures &amp; pals</span>
                 <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></span> visit dwell analytics</span>
                 <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></span> gpslogger &amp; owntracks</span>
+                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></span> native android app</span>
                 <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg></span> csv · gpx · takeout import</span>
-                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s9-1.34 9-3V5"/></svg></span> s3 auto backups</span>
+                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span> s3 auto backups</span>
                 <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span> zero telemetry</span>
             </div>
         </div>
@@ -1180,7 +1182,7 @@
             <div class="features-head reveal">
                 <p class="section-eyebrow">built for real tracking</p>
                 <h2 class="section-title">not another saas map widget</h2>
-                <p class="section-sub">roamly is a full django app you self-host — map, stats, adventures, pals, search, imports, and backups in one place.</p>
+                <p class="section-sub">roamly is a full django app you self-host — map, stats, adventures, pals, search, imports, backups, and a native android client, all in one place.</p>
             </div>
 
             <div class="feature-tabs reveal" role="tablist">
@@ -1188,6 +1190,7 @@
                 <button class="feature-tab" role="tab" aria-selected="false" data-tab="adventures">adventures</button>
                 <button class="feature-tab" role="tab" data-tab="analytics">analytics</button>
                 <button class="feature-tab" role="tab" data-tab="social">pals</button>
+                <button class="feature-tab" role="tab" data-tab="app">android app</button>
                 <button class="feature-tab" role="tab" data-tab="privacy">your server</button>
             </div>
 
@@ -1286,6 +1289,47 @@
                         <div class="panel-tags">
                             <span class="panel-tag">multi-track map</span>
                             <span class="panel-tag amber">shared timeline</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="feature-panel" data-panel="app" role="tabpanel">
+                    <div class="panel-visual" style="display:flex;align-items:center;justify-content:center;">
+                        <svg width="110" height="170" viewBox="0 0 110 170" fill="none" aria-hidden="true">
+                            <rect x="6" y="4" width="98" height="162" rx="20" fill="#0d1119" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
+                            <rect x="42" y="11" width="26" height="5" rx="2.5" fill="rgba(255,255,255,0.12)"/>
+                            <rect x="14" y="24" width="82" height="64" rx="10" fill="url(#appMap)"/>
+                            <path d="M22,72 Q40,40 56,58 T92,40" fill="none" stroke="#0DBFAC" stroke-width="2.5" stroke-linecap="round"/>
+                            <circle cx="22" cy="72" r="4" fill="#0DBFAC"/>
+                            <circle cx="92" cy="40" r="4.5" fill="#9B8EF7"/>
+                            <rect x="14" y="96" width="38" height="26" rx="8" fill="#141d30"/>
+                            <rect x="58" y="96" width="38" height="26" rx="8" fill="#141d30"/>
+                            <rect x="20" y="103" width="20" height="4" rx="2" fill="#0DBFAC"/>
+                            <rect x="20" y="111" width="26" height="4" rx="2" fill="rgba(255,255,255,0.18)"/>
+                            <rect x="64" y="103" width="20" height="4" rx="2" fill="#F7B731"/>
+                            <rect x="64" y="111" width="26" height="4" rx="2" fill="rgba(255,255,255,0.18)"/>
+                            <rect x="14" y="130" width="82" height="26" rx="13" fill="url(#appBtn)"/>
+                            <circle cx="32" cy="143" r="5" fill="#fff" opacity="0.9"/>
+                            <rect x="44" y="140" width="40" height="6" rx="3" fill="#fff" opacity="0.85"/>
+                            <defs>
+                                <linearGradient id="appMap" x1="0" y1="0" x2="1" y2="1">
+                                    <stop offset="0%" stop-color="#1a2238"/>
+                                    <stop offset="100%" stop-color="#0d1119"/>
+                                </linearGradient>
+                                <linearGradient id="appBtn" x1="0" y1="0" x2="1" y2="0">
+                                    <stop offset="0%" stop-color="#0DBFAC"/>
+                                    <stop offset="100%" stop-color="#0aa898"/>
+                                </linearGradient>
+                            </defs>
+                        </svg>
+                    </div>
+                    <div class="panel-copy">
+                        <h3>a native android app, built in</h3>
+                        <p>sign in with an api key — it stays signed in forever, even after the web session expires. a foreground tracking service survives reboots, doze, and battery saver, with live-tunable interval, gps priority, movement distance, and accuracy. points cache in room and upload offline-first, plus a local csv mirror. browse your map, stats, adventures, and pals from your phone.</p>
+                        <div class="panel-tags">
+                            <span class="panel-tag">kotlin + compose</span>
+                            <span class="panel-tag">offline-first upload</span>
+                            <span class="panel-tag amber">survives reboots</span>
                         </div>
                     </div>
                 </div>
