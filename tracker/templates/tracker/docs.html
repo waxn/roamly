@@ -844,6 +844,7 @@
         </div>
         <div class="sidebar-group">
             <div class="sidebar-group-label">tutorials</div>
+            <a href="#android-app" class="sidebar-link">android app</a>
             <a href="#gpslogger" class="sidebar-link">gpslogger setup</a>
             <a href="#api-guide" class="sidebar-link">sending locations</a>
             <a href="#trips-tutorial" class="sidebar-link">adventures</a>
@@ -900,6 +901,7 @@
                 <li><strong>reverse geocoding</strong> — nominatim with spatial clustering (background job in settings)</li>
                 <li><strong>import & export</strong> — csv, gpx, google takeout json, owntracks json, full backup restore</li>
                 <li><strong>s3 backups</strong> — scheduled data + image backups to any s3-compatible storage</li>
+                <li><strong>native android app</strong> — first-party kotlin client with a reboot-proof background tracker, offline-first uploads, and your map, stats, adventures & pals on your phone</li>
                 <li><strong>gpslogger & owntracks</strong> — or any client that can post json to <code>/api/push/</code></li>
                 <li><strong>pwa</strong> — installable; dark and light themes</li>
             </ul>
@@ -1088,7 +1090,7 @@ docker compose exec -T db psql -U roamly roamly &lt; backup.sql</code></pre>
                     <div class="step-num">3</div>
                     <div class="step-content">
                         <h4>set up a tracking app</h4>
-                        <p>install <a href="https://gpslogger.app/" target="_blank">gpslogger</a> on android (or <a href="https://owntracks.org/" target="_blank">owntracks</a> on ios/android) and point it at your server. see the <a href="#gpslogger">gpslogger setup</a> section for step-by-step instructions.</p>
+                        <p>easiest path: build and install the <a href="#android-app">roamly android app</a> and paste your api key. or use <a href="https://gpslogger.app/" target="_blank">gpslogger</a> on android / <a href="https://owntracks.org/" target="_blank">owntracks</a> on ios — see the <a href="#gpslogger">gpslogger setup</a> section.</p>
                     </div>
                 </div>
                 <div class="step-card">
@@ -1177,6 +1179,72 @@ CSRF_TRUSTED_ORIGINS=https://roamly.yourdomain.com</code></pre>
 
             <h2>generating a secret key</h2>
             <pre><code>python3 -c "import secrets; print(secrets.token_urlsafe(64))"</code></pre>
+        </section>
+
+        <!-- Android App -->
+        <section id="android-app" class="doc-section">
+            <h1>roamly android app</h1>
+            <p>roamly ships with a first-party android client (in the <code>mobile/</code> directory of the repo). it's the easiest way to track from a phone — no custom-url wiring, and a background service designed to keep logging through reboots, doze, and battery saver.</p>
+
+            <div class="callout info">
+                <div class="callout-icon"></div>
+                <div>there's no play store or f-droid listing yet. build the app from source with android studio (or <code>./gradlew assembleRelease</code>) and sideload the apk. it targets android 8.0+ (minsdk 26).</div>
+            </div>
+
+            <h2>signing in</h2>
+            <p>the app authenticates with an <strong>api key</strong>, not a password — and the key is the durable credential, so the app stays signed in even after the django web session expires. on first launch:</p>
+            <div class="steps">
+                <div class="step-card">
+                    <div class="step-num">1</div>
+                    <div class="step-content">
+                        <h4>enter your server url</h4>
+                        <p>point the app at your instance, e.g. <code>https://roamly.yourdomain.com</code>.</p>
+                    </div>
+                </div>
+                <div class="step-card">
+                    <div class="step-num">2</div>
+                    <div class="step-content">
+                        <h4>paste an api key</h4>
+                        <p>create one under <strong>settings → api keys</strong> on the web, then paste it into the app. a device id is assigned automatically, so uploads start working immediately.</p>
+                    </div>
+                </div>
+                <div class="step-card">
+                    <div class="step-num">3</div>
+                    <div class="step-content">
+                        <h4>grant location & allow background</h4>
+                        <p>allow precise location <strong>all the time</strong> and exempt roamly from battery optimization when prompted — that's what lets the tracker keep running with the screen off.</p>
+                    </div>
+                </div>
+            </div>
+
+            <h2>how tracking works</h2>
+            <ul>
+                <li><strong>foreground service</strong> — tracking runs as a persistent foreground service with a notification, so android won't kill it under memory pressure. it restarts on reboot via a boot receiver and re-arms itself with <code>START_STICKY</code>.</li>
+                <li><strong>doze-proof</strong> — a watchdog coroutine re-requests location updates if fixes stall under doze or battery saver.</li>
+                <li><strong>offline-first</strong> — points are cached locally in a room database and uploaded by a background worker when there's a connection. nothing is lost if your server or network is down. a local csv mirror is written alongside.</li>
+            </ul>
+
+            <h2>tracking settings</h2>
+            <p>everything is tunable live from the settings screen and applied to the running tracker without a restart:</p>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>setting</th><th>what it does</th></tr></thead>
+                    <tbody>
+                        <tr><td>interval</td><td>how often to request a new fix</td></tr>
+                        <tr><td>gps priority</td><td>auto, high accuracy, balanced, or low power</td></tr>
+                        <tr><td>min movement distance</td><td>skip points you haven't moved far enough from</td></tr>
+                        <tr><td>max accuracy</td><td>discard fixes worse than this many meters</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <h2>beyond tracking</h2>
+            <p>the app isn't just an uploader — it's a full client. browse your <strong>map</strong>, check <strong>stats</strong>, and open your <strong>adventures</strong> and <strong>pals</strong> from your phone, all in the same claymorphism design as the web app.</p>
+
+            <div class="callout info">
+                <div class="callout-icon"></div>
+                <div>prefer not to build an app? <a href="#gpslogger">gpslogger</a> (android) and <a href="#gpslogger">owntracks</a> (ios/android) push to the same <code>/api/push/</code> endpoint with no build step.</div>
+            </div>
         </section>
 
         <!-- GPSLogger -->
@@ -1443,7 +1511,7 @@ print(resp.json())</code></pre>
             <ul>
                 <li><strong>csv</strong> — all locations as a spreadsheet. columns: device, lat, lng, altitude, accuracy, speed, battery, timestamp, city, state, country, country_code.</li>
                 <li><strong>gpx 1.1</strong> — compatible with google earth, qgis, garmin, most gps software.</li>
-                <li><strong>json backup</strong> — everything: devices, locations, trips, places, api keys. use this to migrate servers or take a complete snapshot.</li>
+                <li><strong>json backup</strong> — everything: devices, locations, adventures, places, api keys. use this to migrate servers or take a complete snapshot.</li>
             </ul>
 
             <h2>import formats</h2>
@@ -1533,9 +1601,15 @@ print(resp.json())</code></pre>
             </div>
 
             <h2>backup format</h2>
-            <p>backups are json files containing all your devices, locations, trips, places, and api keys:</p>
+            <p>data backups are json files containing all your devices, locations, adventures, places, and api keys:</p>
             <pre><code>{prefix}{username}/backup_{YYYY-MM-DD_HHmmss}.json
 # e.g.: roamly-backups/alice/backup_2026-02-17_143022.json</code></pre>
+
+            <h2>image backups</h2>
+            <p>your uploaded photos (adventure covers, blurb photos, profile pictures) are backed up separately from the json data, since they're much larger. enable <strong>image backups</strong> in the same settings panel and either reuse your data-backup credentials or point images at a different bucket, prefix, or even a different provider entirely.</p>
+
+            <h2>retention</h2>
+            <p>set a <strong>max backups to keep</strong> value to have roamly prune the oldest data backups automatically. leave it at <code>0</code> to keep everything.</p>
 
             <div class="callout info">
                 <div class="callout-icon"></div>
@@ -1662,8 +1736,10 @@ docker compose up -d</code></pre>
                     <thead><tr><th>method</th><th>endpoint</th><th>auth</th><th>description</th></tr></thead>
                     <tbody>
                         <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/stats/</code></td><td>session</td><td>summary: total points, countries, cities, date range</td></tr>
+                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/stats/yearly/</code></td><td>session</td><td>week/month/year overview with period-over-period comparisons and top places</td></tr>
                         <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/visits/</code></td><td>session</td><td>city/state/country visit counts with time spent</td></tr>
                         <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/distance/</code></td><td>session</td><td>daily distance in km</td></tr>
+                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/search/</code></td><td>session</td><td>search history by date, place, or cached osm poi</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -1704,7 +1780,9 @@ docker compose up -d</code></pre>
                     <tbody>
                         <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/export/csv/</code></td><td>session</td><td>download all locations as csv</td></tr>
                         <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/export/gpx/</code></td><td>session</td><td>download all locations as gpx 1.1</td></tr>
-                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/export/backup/</code></td><td>session</td><td>full json backup</td></tr>
+                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/export/backup/start/</code></td><td>session</td><td>kick off a full json backup (runs as a background job)</td></tr>
+                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/export/backup/status/&lt;job&gt;/</code></td><td>session</td><td>poll backup job progress</td></tr>
+                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/export/backup/download/&lt;job&gt;/</code></td><td>session</td><td>download the finished backup file</td></tr>
                         <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/import/csv/</code></td><td>session</td><td>upload and import csv</td></tr>
                         <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/import/gpx/</code></td><td>session</td><td>upload and import gpx</td></tr>
                         <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/import/backup/</code></td><td>session</td><td>restore from json backup</td></tr>
@@ -1761,18 +1839,29 @@ roamly web server (django + gunicorn)
 
 background threads
     ├── reverse geocoding (nominatim, spatial clustering)
-    ├── s3 backup scheduler (checks every 15 min)
+    ├── visit computation (precomputed stays per location)
+    ├── osm poi download (overpass, for search)
+    ├── s3 backup scheduler (data + images, checks every 15 min)
     └── auto-resume stale jobs on startup</code></pre>
 
             <h2>data model</h2>
             <pre><code>user (django auth)
-├── apikey         — 64-char hex keys for device auth
-├── device         — unique per (user, device_id)
-│   ├── location   — lat/lng/point, timestamp, geocoded fields
-│   └── trip       — name, start/end time
-│       └── tripplace — named waypoint with radius
-├── geocodingjob   — one per user, tracks batch progress
-└── backupconfig   — s3 credentials, schedule, retention</code></pre>
+├── apikey          — 64-char hex keys for device auth
+├── device          — unique per (user, device_id)
+│   ├── location    — lat/lng/point, timestamp, geocoded fields
+│   └── visit       — precomputed stay (start/end, point count, optional poi)
+├── adventure       — name, start/end time, public slug, block-based body
+│   ├── adventureplace     — named pin with radius (dwell time)
+│   ├── adventureblurb      — timeline post (+ photos, comments)
+│   ├── adventuremilestone  — titled event with emoji + date
+│   └── adventuremember     — shared access (creator / member)
+├── pal             — group trip; each member brings their own track
+│   ├── palmember / palblurb / palmilestone / palcomment
+├── poi             — cached openstreetmap points of interest
+├── userprofile     — profile picture
+├── geocodingjob / visitjob / poidownloadjob — one per user, track progress
+└── backupconfig    — s3 creds + schedule for data and (optionally) images</code></pre>
+            <p>adventures were renamed from "trips" — the api paths (<code>/api/trips/</code>) and internal view names keep the old word for backward compatibility, while the ui and models use "adventure".</p>
 
             <h2>vector tiles</h2>
             <p>the map uses postgis-generated mapbox vector tiles. instead of sending thousands of geojson points, the server generates compact binary tiles via <code>ST_AsMVT()</code>. each tile has two layers:</p>
