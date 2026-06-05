@@ -2,6 +2,7 @@ package com.roamly.data.repository
 
 import com.roamly.data.api.LocationsResponse
 import com.roamly.data.api.RoamlyApi
+import com.roamly.data.api.SearchResponse
 import com.roamly.data.api.StatsResponse
 import com.roamly.data.api.TrackResponse
 import com.roamly.data.api.VisitsResponse
@@ -53,6 +54,8 @@ class LocationRepository @Inject constructor(private val api: RoamlyApi) {
         }
 
     suspend fun getVisits(): Result<VisitsResponse> = safeApiCall { api.getVisits() }
+
+    suspend fun search(query: String): Result<SearchResponse> = safeApiCall { api.search(q = query) }
 
     suspend fun getYearlyOverview(): Result<YearlyOverviewResponse> = safeApiCall { api.getYearlyOverview() }
 }

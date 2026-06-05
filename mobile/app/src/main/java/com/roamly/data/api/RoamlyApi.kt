@@ -69,6 +69,12 @@ interface RoamlyApi {
     @GET("api/visits/")
     suspend fun getVisits(): Response<VisitsResponse>
 
+    @GET("api/search/")
+    suspend fun search(
+        @Query("q") q: String,
+        @Query("mode") mode: String = "text",
+    ): Response<SearchResponse>
+
     @GET("api/stats/yearly/")
     suspend fun getYearlyOverview(): Response<YearlyOverviewResponse>
 

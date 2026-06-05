@@ -286,3 +286,39 @@ data class LocationPushResponse(
     @SerializedName("location_id") val locationId: Long?,
     val device: String?,
 )
+
+// --- Search ---
+
+data class SearchCity(
+    val city: String = "",
+    val state: String = "",
+)
+
+data class SearchDay(
+    val date: String = "",
+    val count: Int = 0,
+    @SerializedName("first_ts") val firstTs: String? = null,
+    @SerializedName("last_ts")  val lastTs: String? = null,
+    @SerializedName("time_spent") val timeSpent: Int = 0,
+    val cities: List<SearchCity> = emptyList(),
+    val devices: List<String> = emptyList(),
+)
+
+data class SearchPlace(
+    @SerializedName("place_name") val placeName: String = "",
+    val lat: Double = 0.0,
+    val lng: Double = 0.0,
+    val days: List<SearchDay> = emptyList(),
+    @SerializedName("total_points") val totalPoints: Int = 0,
+)
+
+data class SearchResponse(
+    val query: String = "",
+    @SerializedName("query_type")      val queryType: String = "text",
+    @SerializedName("location_results") val locationResults: List<SearchDay> = emptyList(),
+    @SerializedName("total_days")      val totalDays: Int = 0,
+    @SerializedName("total_points")    val totalPoints: Int = 0,
+    @SerializedName("place_results")   val placeResults: List<SearchPlace> = emptyList(),
+    @SerializedName("places_checked")  val placesChecked: Int = 0,
+    @SerializedName("needs_download")  val needsDownload: Boolean = false,
+)

@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -64,6 +65,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.platform.LocalContext
+import com.roamly.ui.search.SearchScreen
 import com.roamly.ui.theme.Clay
 import com.roamly.ui.theme.claySoftShadow
 import androidx.compose.ui.text.font.FontWeight
@@ -147,6 +149,7 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
 
     var nearHereResult by remember { mutableStateOf<NearHereResult?>(null) }
     var showAllDays by remember { mutableStateOf(false) }
+    var showSearch by remember { mutableStateOf(false) }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -231,12 +234,27 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
             }
         }
 
+        // Top-right search button
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(top = 12.dp, end = 12.dp)
+                .claySoftShadow(20.dp, Clay.colors.shadowDark, Clay.colors.shadowLight, depth = 12.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(Brush.verticalGradient(listOf(Clay.colors.surfaceTop, Clay.colors.surfaceBottom)))
+        ) {
+            IconButton(onClick = { showSearch = true }) {
+                Icon(Icons.Rounded.Search, contentDescription = "search", tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+
         if (state.isLoadingMore) {
             Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()
-                    .padding(top = 12.dp, end = 12.dp)
+                    .padding(top = 64.dp, end = 12.dp)
                     .claySoftShadow(14.dp, Clay.colors.shadowDark, Clay.colors.shadowLight, depth = 8.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(Brush.verticalGradient(listOf(Clay.colors.surfaceTop, Clay.colors.surfaceBottom)))
@@ -342,6 +360,16 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                 Text(it, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(12.dp))
             }
         }
+    }
+
+    if (showSearch) {
+        SearchScreen(
+            onClose = { showSearch = false },
+            onPlaceClick = { lat, lng ->
+                viewModel.focusOn(lat, lng, zoom = 16.0)
+                showSearch = false
+            },
+        )
     }
 
     nearHereResult?.let { result ->
