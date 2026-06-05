@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import com.roamly.data.cache.DiskCache
 import com.roamly.data.prefs.UserPreferences
 import com.roamly.tracking.CsvPointLogger
 import com.roamly.tracking.LocationTrackingService
@@ -45,6 +46,7 @@ data class SettingsUiState(
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val prefs: UserPreferences,
+    private val disk: DiskCache,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -156,6 +158,7 @@ class SettingsViewModel @Inject constructor(
     fun logout(onLoggedOut: () -> Unit) {
         viewModelScope.launch {
             LocationTrackingService.stop(context)
+            disk.clearAll()
             prefs.clear()
             onLoggedOut()
         }

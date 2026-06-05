@@ -1,6 +1,7 @@
 package com.roamly.di
 
 import android.content.Context
+import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.roamly.data.api.RoamlyApi
 import com.roamly.data.prefs.UserPreferences
@@ -101,9 +102,12 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideRetrofit(okHttpClient: OkHttpClient): Retrofit {
+    fun provideGson(): Gson = GsonBuilder().setLenient().create()
+
+    @Provides
+    @Singleton
+    fun provideRetrofit(okHttpClient: OkHttpClient, gson: Gson): Retrofit {
         // Dummy base URL — BaseUrlInterceptor replaces host/port/scheme at runtime
-        val gson = GsonBuilder().setLenient().create()
         return Retrofit.Builder()
             .baseUrl("http://roamly.placeholder/")
             .client(okHttpClient)

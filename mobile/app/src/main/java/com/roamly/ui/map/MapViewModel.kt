@@ -3,7 +3,9 @@ package com.roamly.ui.map
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.roamly.data.api.LocationPoint
+import com.roamly.data.api.LocationsResponse
 import com.roamly.data.api.StatsResponse
+import com.roamly.data.cache.DiskCache
 import com.roamly.data.repository.LocationRepository
 import com.roamly.data.repository.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -47,7 +49,8 @@ data class MapUiState(
 
 @HiltViewModel
 class MapViewModel @Inject constructor(
-    private val locationRepository: LocationRepository
+    private val locationRepository: LocationRepository,
+    private val disk: DiskCache,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MapUiState())
@@ -127,23 +130,36 @@ class MapViewModel @Inject constructor(
     }
 
     fun loadData() {
-        val hours = _uiState.value.timePeriod.hours
+        val period = _uiState.value.timePeriod
+        val hours = period.hours
         accumulator.clear()
+
+        // Paint last-known points for this period instantly (cold start / offline),
+        // then refresh in the background. Only show the spinner when we have nothing.
+        val cachedLocs: LocationsResponse? = disk.get(DiskCache.mapLocations(period.name), LocationsResponse::class.java)
+        val cachedStats: StatsResponse? = disk.get(DiskCache.mapStats(period.name), StatsResponse::class.java)
+        cachedLocs?.devices?.forEach { dev ->
+            dev.locations.forEach { pt -> accumulator["${dev.deviceId}:${pt.timestamp}"] = pt }
+        }
         _uiState.update {
             it.copy(
-                isLoading = true,
+                isLoading = accumulator.isEmpty(),
                 error = null,
-                locations = emptyList()
+                locations = accumulator.values.toList(),
+                stats = cachedStats ?: it.stats,
             )
         }
+
         viewModelScope.launch {
             when (val result = locationRepository.getLocations(hours = hours, limit = PERIOD_LOAD_LIMIT)) {
                 is Result.Success -> {
+                    accumulator.clear()
                     result.data.devices.forEach { dev ->
                         dev.locations.forEach { pt ->
                             accumulator["${dev.deviceId}:${pt.timestamp}"] = pt
                         }
                     }
+                    disk.put(DiskCache.mapLocations(period.name), result.data)
                     _uiState.update {
                         it.copy(
                             locations = accumulator.values.toList(),
@@ -151,10 +167,13 @@ class MapViewModel @Inject constructor(
                         )
                     }
                 }
-                is Result.Error -> _uiState.update { it.copy(error = result.message, isLoading = false) }
+                is Result.Error -> _uiState.update { it.copy(error = if (accumulator.isEmpty()) result.message else null, isLoading = false) }
             }
             when (val result = locationRepository.getStats(hours = hours)) {
-                is Result.Success -> _uiState.update { it.copy(stats = result.data) }
+                is Result.Success -> {
+                    disk.put(DiskCache.mapStats(period.name), result.data)
+                    _uiState.update { it.copy(stats = result.data) }
+                }
                 is Result.Error -> { /* stats are optional */ }
             }
         }

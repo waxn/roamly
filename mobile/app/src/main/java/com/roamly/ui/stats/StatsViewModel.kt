@@ -2,10 +2,13 @@ package com.roamly.ui.stats
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.gson.reflect.TypeToken
 import com.roamly.data.api.CountryVisit
 import com.roamly.data.api.CityVisit
 import com.roamly.data.api.StatsResponse
+import com.roamly.data.api.VisitsResponse
 import com.roamly.data.api.YearlyOverviewResponse
+import com.roamly.data.cache.DiskCache
 import com.roamly.data.repository.LocationRepository
 import com.roamly.data.repository.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -28,13 +31,17 @@ data class StatsUiState(
 class StatsViewModel @Inject constructor(
     private val locationRepository: LocationRepository,
     private val cache: StatsCache,
+    private val disk: DiskCache,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(StatsUiState())
     val uiState: StateFlow<StatsUiState> = _uiState
 
     init {
-        // Paint last-known data instantly, then refresh quietly in the background.
+        // Warm in-process cache wins (set on a previous tab visit this session).
+        // Otherwise fall back to the disk cache so a cold start paints last-known
+        // data instantly instead of an empty skeleton.
+        if (!cache.hasData) hydrateFromDisk()
         if (cache.hasData) {
             _uiState.update {
                 it.copy(
@@ -49,6 +56,19 @@ class StatsViewModel @Inject constructor(
         load()
     }
 
+    private fun hydrateFromDisk() {
+        val stats: StatsResponse? = disk.get(DiskCache.STATS, StatsResponse::class.java)
+        val yearly: YearlyOverviewResponse? = disk.get(DiskCache.STATS_YEARLY, YearlyOverviewResponse::class.java)
+        val visits: VisitsResponse? = disk.get(DiskCache.VISITS, VisitsResponse::class.java)
+        if (stats != null) {
+            cache.stats = stats
+            cache.yearly = yearly
+            cache.topCountries = visits?.countries?.take(10) ?: emptyList()
+            cache.topCities = visits?.cities?.take(15) ?: emptyList()
+            cache.hasData = true
+        }
+    }
+
     fun load() {
         // Only show the skeleton when we have nothing cached to show.
         _uiState.update { it.copy(isLoading = !cache.hasData, error = null) }
@@ -56,6 +76,7 @@ class StatsViewModel @Inject constructor(
             when (val r = locationRepository.getStats()) {
                 is Result.Success -> {
                     cache.stats = r.data
+                    disk.put(DiskCache.STATS, r.data)
                     _uiState.update { it.copy(stats = r.data, isLoading = false) }
                 }
                 is Result.Error -> _uiState.update { it.copy(error = if (cache.hasData) null else r.message, isLoading = false) }
@@ -63,6 +84,7 @@ class StatsViewModel @Inject constructor(
             when (val r = locationRepository.getYearlyOverview()) {
                 is Result.Success -> {
                     cache.yearly = r.data
+                    disk.put(DiskCache.STATS_YEARLY, r.data)
                     _uiState.update { it.copy(yearly = r.data) }
                 }
                 is Result.Error -> { /* yearly is optional */ }
@@ -72,6 +94,7 @@ class StatsViewModel @Inject constructor(
                     cache.topCountries = r.data.countries.take(10)
                     cache.topCities = r.data.cities.take(15)
                     cache.hasData = true
+                    disk.put(DiskCache.VISITS, r.data)
                     _uiState.update { it.copy(topCountries = cache.topCountries, topCities = cache.topCities) }
                 }
                 is Result.Error -> { /* visits are optional */ }

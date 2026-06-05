@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.roamly.data.api.CreatePalRequest
 import com.roamly.data.api.PalResponse
+import com.roamly.data.api.PalsListResponse
+import com.roamly.data.cache.DiskCache
 import com.roamly.data.repository.PalRepository
 import com.roamly.data.repository.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -22,20 +24,29 @@ data class PalsUiState(
 
 @HiltViewModel
 class PalsViewModel @Inject constructor(
-    private val repository: PalRepository
+    private val repository: PalRepository,
+    private val disk: DiskCache,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PalsUiState())
     val uiState: StateFlow<PalsUiState> = _uiState
 
-    init { loadPals() }
+    init {
+        // Paint the last-known list instantly (cold start / offline), then refresh.
+        val cached: PalsListResponse? = disk.get(DiskCache.PALS, PalsListResponse::class.java)
+        if (cached != null) _uiState.update { it.copy(pals = cached.pals) }
+        loadPals()
+    }
 
     fun loadPals() {
-        _uiState.update { it.copy(isLoading = true, error = null) }
+        _uiState.update { it.copy(isLoading = it.pals.isEmpty(), error = null) }
         viewModelScope.launch {
             when (val result = repository.getPals()) {
-                is Result.Success -> _uiState.update { it.copy(pals = result.data.pals, isLoading = false) }
-                is Result.Error -> _uiState.update { it.copy(error = result.message, isLoading = false) }
+                is Result.Success -> {
+                    disk.put(DiskCache.PALS, result.data)
+                    _uiState.update { it.copy(pals = result.data.pals, isLoading = false) }
+                }
+                is Result.Error -> _uiState.update { it.copy(error = if (it.pals.isEmpty()) result.message else null, isLoading = false) }
             }
         }
     }
