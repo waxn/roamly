@@ -143,4 +143,9 @@ object AppModule {
     @Singleton
     fun provideTrackingDatabase(@ApplicationContext context: Context): TrackingDatabase =
         TrackingDatabase.getInstance(context)
+
+    @Provides
+    @Singleton
+    fun provideSyncedLocationDao(db: TrackingDatabase): com.roamly.tracking.SyncedLocationDao =
+        db.syncedLocationDao()
 }

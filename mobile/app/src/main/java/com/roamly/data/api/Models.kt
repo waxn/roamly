@@ -27,6 +27,11 @@ data class DeviceLocations(
 
 data class LocationsResponse(
     val devices: List<DeviceLocations>,
+    // Cursor-pagination metadata — used by the incremental sync to page through
+    // the full history in ascending order (see LocationStore.sync()).
+    @SerializedName("has_more")          val hasMore: Boolean = false,
+    @SerializedName("next_before_value") val nextBeforeValue: String? = null,
+    @SerializedName("next_before_id")    val nextBeforeId: Int? = null,
 )
 
 data class TrackPoint(

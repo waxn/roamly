@@ -46,6 +46,9 @@ interface RoamlyApi {
         @Query("max_lat") maxLat: Double? = null,
         @Query("min_lng") minLng: Double? = null,
         @Query("max_lng") maxLng: Double? = null,
+        @Query("sort_dir") sortDir: String? = null,
+        @Query("before_value") beforeValue: String? = null,
+        @Query("before_id") beforeId: Int? = null,
     ): Response<LocationsResponse>
 
     @GET("api/track/")
