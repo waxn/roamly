@@ -3,9 +3,8 @@ package com.roamly.ui.map
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.roamly.data.api.LocationPoint
-import com.roamly.data.api.LocationsResponse
 import com.roamly.data.api.StatsResponse
-import com.roamly.data.cache.DiskCache
+import com.roamly.data.local.LocationStore
 import com.roamly.data.repository.LocationRepository
 import com.roamly.data.repository.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -24,11 +23,11 @@ enum class TimePeriod(val label: String) {
 /** points loaded for the initial period view (heatmap-first) */
 private const val PERIOD_LOAD_LIMIT = 20_000
 /** points loaded for a single zoomed-in bbox request */
-private const val BBOX_LOAD_LIMIT = 5_000
+private const val BBOX_LOAD_LIMIT = 8_000
 /** zoom level above which we start fetching detailed dots */
 internal const val DETAIL_ZOOM = 12.0
-/** debounce for viewport-change-triggered requests */
-private const val VIEWPORT_DEBOUNCE_MS = 350L
+/** debounce for viewport-change-triggered queries */
+private const val VIEWPORT_DEBOUNCE_MS = 120L
 
 data class MapFocus(
     val lat: Double,
@@ -50,7 +49,7 @@ data class MapUiState(
 @HiltViewModel
 class MapViewModel @Inject constructor(
     private val locationRepository: LocationRepository,
-    private val disk: DiskCache,
+    private val store: LocationStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MapUiState())
@@ -71,44 +70,33 @@ class MapViewModel @Inject constructor(
         mapHolder = null
     }
 
-    // Accumulator cache: "deviceId:timestamp" → point. Survives pan/zoom so we
-    // never re-download points we've already seen.
-    private val accumulator: HashMap<String, LocationPoint> = HashMap()
+    // Accumulator cache: "id" → point. Holds the period overview plus any
+    // higher-resolution dots pulled in as the user zooms, so panning never drops
+    // what we've already painted.
+    private val accumulator: HashMap<Int, LocationPoint> = HashMap()
     private var viewportJob: Job? = null
 
     init {
-        loadData()
+        // Paint instantly from the local store, then refresh it from the server in
+        // the background. The first call returns whatever's already on-device.
+        loadFromStore(showSpinnerIfEmpty = true)
+        viewModelScope.launch {
+            store.syncIfDue()
+            // New points may have landed — repaint the current period silently.
+            loadFromStore(showSpinnerIfEmpty = false)
+        }
+        viewModelScope.launch { loadStats() }
     }
 
     fun setTimePeriod(period: TimePeriod) {
         accumulator.clear()
         _uiState.update { it.copy(timePeriod = period) }
-        loadData()
+        loadFromStore(showSpinnerIfEmpty = true)
+        viewModelScope.launch { loadStats() }
     }
 
     fun focusOn(lat: Double, lng: Double, zoom: Double = 15.0) {
         _uiState.update { it.copy(focus = MapFocus(lat, lng, zoom)) }
-    }
-
-    /**
-     * "Have I been here?" — fetches ALL-TIME history within ~11km of the user
-     * (independent of the current time-period view, which is usually just 24h) so
-     * it can actually surface every past day spent at this spot.
-     */
-    fun checkHaveIBeenHere(userLat: Double, userLng: Double, onResult: (NearHereResult) -> Unit) {
-        viewModelScope.launch {
-            val pad = 0.1 // ~11 km
-            val result = locationRepository.getLocationsInBbox(
-                minLat = userLat - pad, maxLat = userLat + pad,
-                minLng = userLng - pad, maxLng = userLng + pad,
-                hours = null, limit = 25_000,
-            )
-            val points = when (result) {
-                is Result.Success -> result.data.devices.flatMap { it.locations }
-                is Result.Error -> _uiState.value.locations // fall back to what's loaded
-            }
-            onResult(buildNearHere(userLat, userLng, points))
-        }
     }
 
     fun clearFocus() {
@@ -116,9 +104,23 @@ class MapViewModel @Inject constructor(
     }
 
     /**
-     * Called by the map screen on debounced pan/zoom. Fetches dots for the
-     * current viewport when the user has zoomed in past DETAIL_ZOOM, and
-     * accumulates them so subsequent moves don't lose what we already have.
+     * "Have I been here?" — scans the *entire* local history within ~11km of the
+     * user (independent of the current time-period view) so every past day spent
+     * at this spot is counted. Reading locally makes it instant and complete,
+     * fixing the old under-count from a server limit on the result set.
+     */
+    fun checkHaveIBeenHere(userLat: Double, userLng: Double, onResult: (NearHereResult) -> Unit) {
+        viewModelScope.launch {
+            val pad = 0.1 // ~11 km
+            val points = store.allTimeAround(userLat, userLng, pad)
+            onResult(buildNearHere(userLat, userLng, points))
+        }
+    }
+
+    /**
+     * Called by the map screen on debounced pan/zoom. Pulls full-resolution dots
+     * for the current viewport from the local store (instant) once the user has
+     * zoomed past DETAIL_ZOOM, accumulating them across moves.
      */
     fun onViewportChanged(zoom: Double, minLat: Double, maxLat: Double, minLng: Double, maxLng: Double) {
         if (zoom < DETAIL_ZOOM) return
@@ -126,71 +128,35 @@ class MapViewModel @Inject constructor(
         viewportJob = viewModelScope.launch {
             delay(VIEWPORT_DEBOUNCE_MS)
             val hours = _uiState.value.timePeriod.hours
-            _uiState.update { it.copy(isLoadingMore = true) }
-            when (val r = locationRepository.getLocationsInBbox(minLat, maxLat, minLng, maxLng, hours = hours, limit = BBOX_LOAD_LIMIT)) {
-                is Result.Success -> {
-                    var added = 0
-                    r.data.devices.forEach { dev ->
-                        dev.locations.forEach { pt ->
-                            val key = "${dev.deviceId}:${pt.timestamp}"
-                            if (accumulator.put(key, pt) == null) added++
-                        }
-                    }
-                    if (added > 0) _uiState.update { it.copy(locations = accumulator.values.toList(), isLoadingMore = false) }
-                    else _uiState.update { it.copy(isLoadingMore = false) }
-                }
-                is Result.Error -> _uiState.update { it.copy(isLoadingMore = false) }
+            val detail = store.bbox(minLat, maxLat, minLng, maxLng, hours = hours, limit = BBOX_LOAD_LIMIT)
+            var added = 0
+            detail.forEach { pt -> if (accumulator.put(pt.id, pt) == null) added++ }
+            if (added > 0) _uiState.update { it.copy(locations = accumulator.values.toList()) }
+        }
+    }
+
+    /** Repaint the active time period from the local store. */
+    private fun loadFromStore(showSpinnerIfEmpty: Boolean) {
+        val hours = _uiState.value.timePeriod.hours
+        viewModelScope.launch {
+            if (showSpinnerIfEmpty && accumulator.isEmpty()) {
+                _uiState.update { it.copy(isLoading = true, error = null) }
+            }
+            val overview = store.periodOverview(hours, PERIOD_LOAD_LIMIT)
+            accumulator.clear()
+            overview.forEach { pt -> accumulator[pt.id] = pt }
+            _uiState.update {
+                it.copy(locations = accumulator.values.toList(), isLoading = false)
             }
         }
     }
 
-    fun loadData() {
-        val period = _uiState.value.timePeriod
-        val hours = period.hours
-        accumulator.clear()
-
-        // Paint last-known points for this period instantly (cold start / offline),
-        // then refresh in the background. Only show the spinner when we have nothing.
-        val cachedLocs: LocationsResponse? = disk.get(DiskCache.mapLocations(period.name), LocationsResponse::class.java)
-        val cachedStats: StatsResponse? = disk.get(DiskCache.mapStats(period.name), StatsResponse::class.java)
-        cachedLocs?.devices?.forEach { dev ->
-            dev.locations.forEach { pt -> accumulator["${dev.deviceId}:${pt.timestamp}"] = pt }
-        }
-        _uiState.update {
-            it.copy(
-                isLoading = accumulator.isEmpty(),
-                error = null,
-                locations = accumulator.values.toList(),
-                stats = cachedStats ?: it.stats,
-            )
-        }
-
-        viewModelScope.launch {
-            when (val result = locationRepository.getLocations(hours = hours, limit = PERIOD_LOAD_LIMIT)) {
-                is Result.Success -> {
-                    accumulator.clear()
-                    result.data.devices.forEach { dev ->
-                        dev.locations.forEach { pt ->
-                            accumulator["${dev.deviceId}:${pt.timestamp}"] = pt
-                        }
-                    }
-                    disk.put(DiskCache.mapLocations(period.name), result.data)
-                    _uiState.update {
-                        it.copy(
-                            locations = accumulator.values.toList(),
-                            isLoading = false,
-                        )
-                    }
-                }
-                is Result.Error -> _uiState.update { it.copy(error = if (accumulator.isEmpty()) result.message else null, isLoading = false) }
-            }
-            when (val result = locationRepository.getStats(hours = hours)) {
-                is Result.Success -> {
-                    disk.put(DiskCache.mapStats(period.name), result.data)
-                    _uiState.update { it.copy(stats = result.data) }
-                }
-                is Result.Error -> { /* stats are optional */ }
-            }
+    /** Stats come from the server endpoint (cheap, cached server-side). */
+    private suspend fun loadStats() {
+        val hours = _uiState.value.timePeriod.hours
+        when (val result = locationRepository.getStats(hours = hours)) {
+            is Result.Success -> _uiState.update { it.copy(stats = result.data) }
+            is Result.Error -> { /* stats are optional */ }
         }
     }
 }

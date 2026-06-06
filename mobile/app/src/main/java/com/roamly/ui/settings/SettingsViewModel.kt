@@ -51,6 +51,7 @@ data class SettingsUiState(
 class SettingsViewModel @Inject constructor(
     private val prefs: UserPreferences,
     private val disk: DiskCache,
+    private val store: com.roamly.data.local.LocationStore,
     private val authRepository: com.roamly.data.repository.AuthRepository,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
@@ -208,6 +209,7 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             LocationTrackingService.stop(context)
             disk.clearAll()
+            store.clear()
             prefs.clear()
             onLoggedOut()
         }

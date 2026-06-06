@@ -18,12 +18,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
+import com.roamly.data.local.LocationStore
 import com.roamly.data.prefs.UserPreferences
 import com.roamly.tracking.TrackingCoordinator
 import com.roamly.ui.theme.Clay
 import com.roamly.ui.RoamlyNavHost
 import com.roamly.ui.theme.RoamlyTheme
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -31,6 +33,7 @@ import javax.inject.Inject
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var prefs: UserPreferences
+    @Inject lateinit var locationStore: LocationStore
 
     /** True when the user tapped "Stop" in the tracking notification — drives the
      *  in-app confirmation dialog so the notification stop is gated too. */
@@ -78,6 +81,16 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Every time the app comes to the foreground, pull the delta from the
+        // server into the local store (throttled). Keeps on-device history fresh
+        // without the screens having to call the server themselves.
+        lifecycleScope.launch {
+            if (!prefs.sessionId.first().isNullOrBlank()) locationStore.syncIfDue()
         }
     }
 

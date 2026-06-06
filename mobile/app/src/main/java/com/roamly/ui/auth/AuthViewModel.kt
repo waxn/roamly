@@ -3,6 +3,7 @@ package com.roamly.ui.auth
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.roamly.data.cache.DiskCache
+import com.roamly.data.local.LocationStore
 import com.roamly.data.prefs.UserPreferences
 import com.roamly.data.repository.AuthRepository
 import com.roamly.data.repository.Result
@@ -29,6 +30,7 @@ class AuthViewModel @Inject constructor(
     private val prefs: UserPreferences,
     private val authRepository: AuthRepository,
     private val disk: DiskCache,
+    private val store: LocationStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LoginUiState())
@@ -66,6 +68,7 @@ class AuthViewModel @Inject constructor(
     fun logout() {
         viewModelScope.launch {
             disk.clearAll()
+            store.clear()
             prefs.clear()
         }
     }
