@@ -63,7 +63,9 @@ fun SplashScreen(onFinished: () -> Unit) {
         )
         launch { textAlpha.animateTo(1f, tween(420)) }
         textRise.animateTo(0f, tween(420))
-        delay(650)
+        // Short hold so the wordmark reads, then reveal — kept brief so cold-app
+        // open feels snappy (the host also waits on auth state resolving).
+        delay(250)
         onFinished()
     }
 

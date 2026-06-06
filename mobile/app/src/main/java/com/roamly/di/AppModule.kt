@@ -89,7 +89,10 @@ object AppModule {
         @AuthInterceptor authInterceptor: Interceptor,
         @BaseUrlInterceptor baseUrlInterceptor: Interceptor
     ): OkHttpClient {
-        val logging = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BODY }
+        // BASIC (request line + status only) — BODY serialized every full
+        // response (e.g. large location/sync payloads) to a string on each call,
+        // which is wasteful churn for no user benefit.
+        val logging = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC }
         return OkHttpClient.Builder()
             .addInterceptor(baseUrlInterceptor)   // rewrite URL first
             .addInterceptor(authInterceptor)       // then add auth header
