@@ -111,6 +111,7 @@ urlpatterns = [
     path('api/import/backup/', views.restore_backup, name='restore_backup'),
 
     # API Keys
+    path('api/keys/app/', views.app_api_key, name='app_api_key'),
     path('api/keys/create/', views.create_api_key, name='create_api_key'),
     path('api/keys/<int:key_id>/delete/', views.delete_api_key, name='delete_api_key'),
     path('api/keys/<int:key_id>/rename/', views.rename_api_key, name='rename_api_key'),

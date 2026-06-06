@@ -191,21 +191,43 @@ def _refresh_site_stats():
                 'total_meters': total_meters,
             },
         )
+        cache.set('site_stats', {
+            'site_total_points': total_points,
+            'site_total_cities': total_cities,
+            'site_total_meters': total_meters,
+        }, 3600)
     finally:
         cache.delete('site_stats_refresh_lock')
 
 
 def landing_view(request):
-    """Landing page - show marketing page for non-authenticated users."""
-    stat, created = SiteStat.objects.get_or_create(pk=1)
-    stale = created or (timezone.now() - stat.updated_at).total_seconds() > 86400
-    if stale:
-        threading.Thread(target=_refresh_site_stats, daemon=True).start()
-    return render(request, 'tracker/landing.html', {
-        'site_total_points': stat.total_points,
-        'site_total_cities': stat.total_cities,
-        'site_total_meters': stat.total_meters,
-    })
+    """Landing page - show marketing page for non-authenticated users.
+
+    The marketing copy is identical for everyone; only three hero stats vary
+    (refreshed daily). We serve those from the cache so the hot path never
+    touches the DB, and let anonymous responses be cached by the browser/CDN.
+    """
+    stats = cache.get('site_stats')
+    if stats is None:
+        stat, created = SiteStat.objects.get_or_create(pk=1)
+        stale = created or (timezone.now() - stat.updated_at).total_seconds() > 86400
+        if stale:
+            threading.Thread(target=_refresh_site_stats, daemon=True).start()
+        stats = {
+            'site_total_points': stat.total_points,
+            'site_total_cities': stat.total_cities,
+            'site_total_meters': stat.total_meters,
+        }
+        # Short TTL so a freshly refreshed stat shows up within the hour while
+        # still keeping the DB out of the request path for the common case.
+        cache.set('site_stats', stats, 3600)
+    response = render(request, 'tracker/landing.html', stats)
+    if not request.user.is_authenticated:
+        # Static marketing page — let browsers/proxies serve it instantly and
+        # revalidate lazily. Vary on Cookie so logged-in variants never leak.
+        response['Cache-Control'] = 'public, max-age=300, stale-while-revalidate=86400'
+        response['Vary'] = 'Cookie, Accept-Encoding'
+    return response
 
 
 def docs_view(request):
@@ -3216,6 +3238,27 @@ def create_api_key(request):
     name = request.POST.get('name', 'My Device')
     api_key = APIKey(user=request.user, name=name)
     api_key.save()
+    return JsonResponse({"status": "ok", "key": api_key.key, "name": api_key.name, "id": api_key.id})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def app_api_key(request):
+    """Return the caller's single app tracking key, creating one only if absent.
+
+    Idempotent by design: the mobile app calls this to obtain the one durable
+    key it pushes locations with. Logging in repeatedly therefore never spawns
+    duplicate keys — there is just one, and it works forever (keys don't expire).
+    Reuses the oldest active key if any already exist (e.g. created via the web)."""
+    api_key = (
+        APIKey.objects.filter(user=request.user, is_active=True)
+        .order_by('created_at')
+        .first()
+    )
+    if api_key is None:
+        api_key = APIKey(user=request.user, name="Roamly Android")
+        api_key.save()
     return JsonResponse({"status": "ok", "key": api_key.key, "name": api_key.name, "id": api_key.id})
 
 
