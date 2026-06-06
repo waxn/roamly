@@ -22,7 +22,7 @@ abstract class TrackingDatabase : RoomDatabase() {
          * hold points not yet pushed to the server — is never wiped.
          */
         private val MIGRATION_1_2 = object : Migration(1, 2) {
-            override fun migrate(connection: SQLiteConnection) {
+            override suspend fun migrate(connection: SQLiteConnection) {
                 connection.execSQL(
                     "CREATE TABLE IF NOT EXISTS `synced_locations` (" +
                         "`id` INTEGER NOT NULL, `lat` REAL NOT NULL, `lng` REAL NOT NULL, " +

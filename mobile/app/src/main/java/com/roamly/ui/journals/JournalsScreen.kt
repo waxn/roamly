@@ -238,7 +238,7 @@ private fun DayCell(day: Int, entry: JournalListItem?, isToday: Boolean, onClick
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            if (hasEntry && entry!!.mood.isNotBlank()) {
+            if (entry != null && entry.mood.isNotBlank()) {
                 Text(entry.mood, style = MaterialTheme.typography.bodyMedium)
             } else {
                 Text(
@@ -248,7 +248,7 @@ private fun DayCell(day: Int, entry: JournalListItem?, isToday: Boolean, onClick
                     fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
                 )
             }
-            if (hasEntry && (entry!!.isFavorite || entry.photoCount > 0)) {
+            if (entry != null && (entry.isFavorite || entry.photoCount > 0)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (entry.isFavorite) Text("★", style = MaterialTheme.typography.labelSmall, color = Color.White)
                     if (entry.photoCount > 0) Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(Color.White))

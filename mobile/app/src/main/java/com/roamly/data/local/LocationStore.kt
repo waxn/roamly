@@ -177,9 +177,13 @@ class LocationStore @Inject constructor(
         )
     }
 
+    // Explicit +00:00 offset (pattern XXX), not "Z" — Django's
+    // datetime.fromisoformat only accepts "Z" on Python 3.11+, so this stays safe
+    // on any server version when used as the incremental-sync cursor.
+    private val cursorFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX")
+
     private fun isoOf(ms: Long): String =
-        OffsetDateTime.ofInstant(java.time.Instant.ofEpochMilli(ms), ZoneOffset.UTC)
-            .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+        OffsetDateTime.ofInstant(java.time.Instant.ofEpochMilli(ms), ZoneOffset.UTC).format(cursorFmt)
 
     private fun parseIsoMs(ts: String?): Long? {
         if (ts.isNullOrBlank()) return null
