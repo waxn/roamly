@@ -26,7 +26,15 @@
     <link rel="apple-touch-icon" href="{% static 'tracker/icon-192.png' %}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
+    <!-- Load font CSS without blocking first paint: fetch as a no-op print
+         stylesheet, then promote to screen once it arrives. Text renders
+         immediately in the system fallback (font-display=swap) and swaps in. -->
+    <link rel="preload" as="style"
+          href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=Syne:wght@600;700;800&display=swap"
+          onload="this.onload=null;this.rel='stylesheet'">
+    <noscript>
+        <link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
+    </noscript>
     <style>
         :root {
             --bg: #0c1220;
@@ -75,8 +83,8 @@
             --radius-clay-lg: 32px;
             --radius-clay-xl: 44px;
 
-            --font-display: 'Syne', sans-serif;
-            --font-body: 'Nunito', sans-serif;
+            --font-display: 'Syne', system-ui, -apple-system, 'Segoe UI', sans-serif;
+            --font-body: 'Nunito', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
             --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
             --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
         }
@@ -1080,7 +1088,7 @@
 
     <nav class="nav" id="nav">
         <a href="{% url 'tracker:landing' %}" class="nav-logo">
-            <img src="{% static 'tracker/roamly.svg' %}" alt="Roamly">
+            <img src="{% static 'tracker/roamly.svg' %}" alt="Roamly" width="150" height="38" fetchpriority="high" decoding="async">
         </a>
         <div class="nav-links">
             <a href="#features" class="btn btn-ghost">features</a>
@@ -1489,6 +1497,9 @@
         (function () {
             const canvas = document.getElementById('bg-canvas');
             if (!canvas) return;
+            // Respect reduced-motion and keep the decorative animation off the
+            // critical render path entirely.
+            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
             const ctx = canvas.getContext('2d');
             const C = '13,191,172';
             let W, H, nodes, pings, trackers;
@@ -1578,14 +1589,19 @@
                 requestAnimationFrame(draw);
             }
 
-            resize(); draw();
-            setInterval(() => {
-                if (nodes?.length) {
-                    const n = nodes[Math.floor(Math.random() * nodes.length)];
-                    pings.push({ x: n.x, y: n.y, r: 0, alpha: 0.75 });
-                }
-            }, 1200);
-            window.addEventListener('resize', resize);
+            // Defer first frame until the browser is idle so it never competes
+            // with first contentful paint.
+            const startAnim = () => {
+                resize(); draw();
+                setInterval(() => {
+                    if (nodes?.length) {
+                        const n = nodes[Math.floor(Math.random() * nodes.length)];
+                        pings.push({ x: n.x, y: n.y, r: 0, alpha: 0.75 });
+                    }
+                }, 1200);
+                window.addEventListener('resize', resize);
+            };
+            (window.requestIdleCallback || window.requestAnimationFrame)(startAnim);
         })();
 
         // ── nav scroll ────────────────────────────────────────
