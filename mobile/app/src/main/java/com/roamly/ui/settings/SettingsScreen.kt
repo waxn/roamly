@@ -136,6 +136,45 @@ fun SettingsScreen(
 
     var advancedGps by remember { mutableStateOf(false) }
     var editTarget by remember { mutableStateOf<EditTarget?>(null) }
+
+    // Tracking needs an API key. When the user tries to start without one, offer to
+    // create the single durable key automatically or paste an existing one.
+    if (state.apiKeyRequired) {
+        AlertDialog(
+            onDismissRequest = { if (!state.apiKeyBusy) viewModel.dismissApiKeyRequired() },
+            title = { Text("Tracking needs an API key") },
+            text = {
+                Column {
+                    Text(
+                        "An API key authenticates your location uploads. Create one now — " +
+                            "it's a single key that works forever — or enter a key you already have."
+                    )
+                    if (state.apiKeyError != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(state.apiKeyError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.createApiKey() }, enabled = !state.apiKeyBusy) {
+                    if (state.apiKeyBusy) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text("Create key")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.dismissApiKeyRequired()
+                        editTarget = EditTarget.ApiKey(state.apiKey, "API Key", "64-char hex key from Roamly → Settings → API Keys")
+                    },
+                    enabled = !state.apiKeyBusy,
+                ) { Text("Enter manually") }
+            },
+        )
+    }
     editTarget?.let { target ->
         EditDialog(
             title = target.title,
@@ -395,7 +434,7 @@ fun SettingsScreen(
             Spacer(Modifier.height(12.dp))
             InfoRow(Icons.Rounded.Explore, "App", "Roamly for Android")
             Spacer(Modifier.height(8.dp))
-            InfoRow(Icons.Rounded.Tag, "Version", "1.1.0")
+            InfoRow(Icons.Rounded.Tag, "Version", "1.5.0")
         }
 
         ClayButton(

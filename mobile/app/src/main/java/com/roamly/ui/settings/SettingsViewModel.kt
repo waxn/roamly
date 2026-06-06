@@ -41,12 +41,17 @@ data class SettingsUiState(
     val lastSyncCount: Int = 0,
     val lastSyncError: String = "",
     val isSyncing: Boolean = false,
+    // API key (mandatory for tracking) — prompt shown when starting without one
+    val apiKeyRequired: Boolean = false,
+    val apiKeyBusy: Boolean = false,
+    val apiKeyError: String? = null,
 )
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val prefs: UserPreferences,
     private val disk: DiskCache,
+    private val authRepository: com.roamly.data.repository.AuthRepository,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -101,10 +106,41 @@ class SettingsViewModel @Inject constructor(
     }
 
     private fun startTracking() {
+        // An API key is mandatory for tracking (it authenticates location uploads).
+        // If none is set, prompt the user to create one in-app or enter their own
+        // instead of silently starting a tracker that can never sync.
+        if (_state.value.apiKey.isBlank()) {
+            _state.update { it.copy(apiKeyRequired = true, apiKeyError = null) }
+            return
+        }
+        doStartTracking()
+    }
+
+    private fun doStartTracking() {
         // Starting tracking implies it should survive reboots by default; the user
         // can still turn "start on boot" off afterward for a start-now-only session.
         viewModelScope.launch { prefs.setAutoStartTracking(true) }
         LocationTrackingService.start(context)
+    }
+
+    /** Create (or reuse) the account's single durable tracking key, then continue
+     *  starting tracking. Idempotent — never spawns duplicate keys. */
+    fun createApiKey() {
+        viewModelScope.launch {
+            _state.update { it.copy(apiKeyBusy = true, apiKeyError = null) }
+            when (val result = authRepository.ensureApiKey()) {
+                is com.roamly.data.repository.Result.Success -> {
+                    _state.update { it.copy(apiKeyBusy = false, apiKeyRequired = false) }
+                    doStartTracking()
+                }
+                is com.roamly.data.repository.Result.Error ->
+                    _state.update { it.copy(apiKeyBusy = false, apiKeyError = result.message) }
+            }
+        }
+    }
+
+    fun dismissApiKeyRequired() {
+        _state.update { it.copy(apiKeyRequired = false, apiKeyError = null) }
     }
 
     /** The Stop button (after its confirmation). Tears the whole stack down so
