@@ -118,13 +118,19 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showStopConfirm = false },
             title = { Text("Stop tracking?") },
-            text = { Text("Location tracking will stop. Cached points still upload when you reconnect.") },
+            text = {
+                Text(
+                    "This turns location tracking completely off — including the background " +
+                        "keep-alive and starting on reboot. It stays off until you turn it back " +
+                        "on. Cached points still upload when you reconnect."
+                )
+            },
             confirmButton = {
                 TextButton(onClick = { showStopConfirm = false; viewModel.toggleTracking() }) {
                     Text("Stop", color = MaterialTheme.colorScheme.error)
                 }
             },
-            dismissButton = { TextButton(onClick = { showStopConfirm = false }) { Text("Cancel") } }
+            dismissButton = { TextButton(onClick = { showStopConfirm = false }) { Text("Keep tracking") } }
         )
     }
 
@@ -288,8 +294,8 @@ fun SettingsScreen(
             ClaySectionHeader("Reliability", Icons.Rounded.Bolt, gradient = listOf(Sunshine, Coral))
             Spacer(Modifier.height(12.dp))
             ToggleRow(
-                title = "Keep running in background",
-                subtitle = "Auto-resume after reboot or if the system stops it",
+                title = "Start tracking on boot",
+                subtitle = "Turn tracking on automatically after a reboot — works even while tracking is off",
                 checked = state.autoStartTracking,
                 onCheckedChange = viewModel::setAutoStartTracking,
             )

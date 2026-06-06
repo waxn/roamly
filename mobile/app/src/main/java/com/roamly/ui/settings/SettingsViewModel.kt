@@ -96,8 +96,21 @@ class SettingsViewModel @Inject constructor(
     // ── Actions ────────────────────────────────────────────────────────────
 
     fun toggleTracking() {
-        if (_state.value.isTracking) LocationTrackingService.stop(context)
-        else LocationTrackingService.start(context)
+        if (_state.value.isTracking) stopTrackingCompletely()
+        else startTracking()
+    }
+
+    private fun startTracking() {
+        // Starting tracking implies it should survive reboots by default; the user
+        // can still turn "start on boot" off afterward for a start-now-only session.
+        viewModelScope.launch { prefs.setAutoStartTracking(true) }
+        LocationTrackingService.start(context)
+    }
+
+    /** The Stop button (after its confirmation). Tears the whole stack down so
+     *  tracking is completely off and stays off across reboot. */
+    fun stopTrackingCompletely() {
+        viewModelScope.launch { TrackingCoordinator.stopCompletely(context, prefs) }
     }
 
     fun syncNow() {

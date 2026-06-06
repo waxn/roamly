@@ -30,20 +30,22 @@ class BootReceiver : BroadcastReceiver() {
             )
         ) return
 
-        val (enabled, autoResume, syncOnMobileData) = runBlocking {
-            Triple(
-                prefs.trackingEnabled.first(),
+        val (startOnBoot, syncOnMobileData) = runBlocking {
+            Pair(
                 prefs.autoStartTracking.first(),
                 prefs.syncOnMobileData.first(),
             )
         }
-        Log.i(TAG, "Boot received — trackingEnabled=$enabled autoResume=$autoResume")
-        if (enabled && autoResume && TrackingCoordinator.canTrack(context)) {
+        Log.i(TAG, "Boot received — startOnBoot=$startOnBoot")
+        // "Start tracking on boot" is the single source of truth here. A full Stop
+        // clears it, so after the user stops, reboot leaves everything off; if the
+        // user has it on (even while tracking was off), reboot turns tracking on.
+        if (startOnBoot && TrackingCoordinator.canTrack(context)) {
             LocationTrackingService.start(context)
             // Arm the Doze-piercing heartbeat directly too, in case the OS throttles
             // the service start at boot — the alarm will then bring it up.
             TrackingAlarmReceiver.schedule(context)
+            UploadWorker.schedulePeriodic(context, syncOnMobileData)
         }
-        UploadWorker.schedulePeriodic(context, syncOnMobileData)
     }
 }

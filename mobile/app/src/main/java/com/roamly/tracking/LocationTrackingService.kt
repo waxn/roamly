@@ -81,11 +81,16 @@ class LocationTrackingService : Service() {
 
         when (intent?.action) {
             ACTION_STOP   -> {
-                // The user explicitly stopped — clear the intent flag so the watchdog,
-                // boot receiver, alarm heartbeat and START_STICKY restart all leave it
-                // stopped, and cancel the Doze heartbeat so it can't resurrect us.
-                runBlocking { prefs.setTrackingEnabled(false) }
+                // Authoritative teardown: clear BOTH durable flags so the watchdog,
+                // boot/update receiver, alarm heartbeat, restarter and START_STICKY all
+                // leave it stopped — and cancel the heartbeat + recurring upload so no
+                // invasive background work survives.
+                runBlocking {
+                    prefs.setTrackingEnabled(false)
+                    prefs.setAutoStartTracking(false)
+                }
                 TrackingAlarmReceiver.cancel(applicationContext)
+                UploadWorker.cancelPeriodic(applicationContext)
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -346,8 +351,15 @@ class LocationTrackingService : Service() {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
-        val stopIntent = PendingIntent.getService(this, 1,
-            Intent(this, LocationTrackingService::class.java).apply { action = ACTION_STOP },
+        // Stop from the notification opens the app to a confirmation dialog rather
+        // than stopping silently — stopping turns off a lot of machinery, so it's
+        // gated behind an explicit "yes" the same way the in-app button is.
+        val stopIntent = PendingIntent.getActivity(this, 3,
+            Intent(this, MainActivity::class.java).apply {
+                action = MainActivity.ACTION_CONFIRM_STOP
+                putExtra(MainActivity.EXTRA_CONFIRM_STOP, true)
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
         val toggleIntent = if (isPaused) {

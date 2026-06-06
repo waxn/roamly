@@ -32,7 +32,11 @@ class RoamlyApp : Application(), Configuration.Provider {
         super.onCreate()
         createNotificationChannels()
         appScope.launch {
-            UploadWorker.schedulePeriodic(this@RoamlyApp, prefs.syncOnMobileData.first())
+            // Only keep background upload running when tracking is on or set to start
+            // on boot. After a full Stop both are off, so we schedule nothing — there's
+            // no recurring background work while the user has tracking turned off.
+            val active = prefs.trackingEnabled.first() || prefs.autoStartTracking.first()
+            if (active) UploadWorker.schedulePeriodic(this@RoamlyApp, prefs.syncOnMobileData.first())
             TrackingCoordinator.resumeTrackingIfNeeded(this@RoamlyApp, prefs)
         }
     }

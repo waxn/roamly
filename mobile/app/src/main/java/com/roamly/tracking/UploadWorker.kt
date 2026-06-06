@@ -132,6 +132,11 @@ class UploadWorker @AssistedInject constructor(
             WorkManager.getInstance(context).cancelUniqueWork(PERIODIC_TAG)
             schedulePeriodic(context, syncOnMobileData)
         }
+
+        /** Stop the recurring background upload entirely (used by a full stop). */
+        fun cancelPeriodic(context: Context) {
+            WorkManager.getInstance(context).cancelUniqueWork(PERIODIC_TAG)
+        }
     }
 }
 
