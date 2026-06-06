@@ -6,6 +6,7 @@ import com.roamly.data.api.RoamlyApi
 import com.roamly.tracking.SyncedLocation
 import com.roamly.tracking.SyncedLocationDao
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -19,10 +20,14 @@ import javax.inject.Singleton
 
 private const val TAG = "LocationStore"
 
-/** Points per page when paging the full history. The server caps at 50k. */
-private const val SYNC_BATCH = 20_000
+/** Points per page when paging the full history. Kept modest so a big first
+ *  sync streams in steadily instead of saturating bandwidth (which would starve
+ *  map-tile downloads) or spiking memory. The server caps at 50k. */
+private const val SYNC_BATCH = 8_000
+/** Brief yield between pages so a long first sync stays a good citizen. */
+private const val PAGE_PAUSE_MS = 80L
 /** Safety bound on the paging loop. */
-private const val MAX_PAGES = 1_000
+private const val MAX_PAGES = 2_000
 /** Re-fetch this much of the tail on an incremental sync so a point that shares
  *  the boundary timestamp is never skipped (upsert dedups the overlap). */
 private const val OVERLAP_MS = 2_000L
@@ -110,6 +115,7 @@ class LocationStore @Inject constructor(
                 if (!body.hasMore || body.nextBeforeValue == null) break
                 cursorVal = body.nextBeforeValue
                 cursorId = body.nextBeforeId
+                delay(PAGE_PAUSE_MS)
             }
             return finish(added, null)
         } catch (e: Exception) {
