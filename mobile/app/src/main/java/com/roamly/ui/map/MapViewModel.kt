@@ -56,6 +56,21 @@ class MapViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(MapUiState())
     val uiState: StateFlow<MapUiState> = _uiState
 
+    // The osmdroid MapView is created once (with the application context) and
+    // retained here for the life of this ViewModel — which survives bottom-nav
+    // tab switches because the Map back-stack entry is saved. Re-creating a fresh
+    // MapView on every revisit reopens osmdroid's shared SQLite tile cache, and a
+    // stale MapView closing it on GC crashed the new one ("attempt to re-open an
+    // already-closed object"). Reusing one instance sidesteps that entirely.
+    // It's detached in onCleared(), i.e. only when the screen is truly gone.
+    internal var mapHolder: MapHolder? = null
+
+    override fun onCleared() {
+        super.onCleared()
+        mapHolder?.detach()
+        mapHolder = null
+    }
+
     // Accumulator cache: "deviceId:timestamp" → point. Survives pan/zoom so we
     // never re-download points we've already seen.
     private val accumulator: HashMap<String, LocationPoint> = HashMap()

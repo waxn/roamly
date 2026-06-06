@@ -100,26 +100,36 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
     val context = LocalContext.current
     var showTimeMenu by remember { mutableStateOf(false) }
 
-    val heatmapOverlay = remember { HeatmapOverlay() }
-    val pointsOverlay = remember { PointsOverlay() }
-
-    val mapView = remember {
-        Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
-        Configuration.getInstance().userAgentValue = "Roamly/1.0"
-        // Pin osmdroid's tile cache to app-private storage so it never depends on
-        // external-storage permission (which would crash on re-entry/older devices).
-        Configuration.getInstance().osmdroidBasePath = context.cacheDir
-        Configuration.getInstance().osmdroidTileCache = java.io.File(context.cacheDir, "osmdroid_tiles").apply { mkdirs() }
-        MapView(context).apply {
-            setTileSource(org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK)
-            setMultiTouchControls(true)
-            controller.setZoom(10.0)
-            controller.setCenter(GeoPoint(20.0, 0.0))
-            // heatmap below, dots on top
-            overlays.add(heatmapOverlay)
-            overlays.add(pointsOverlay)
+    // Reuse a single MapView for the life of the ViewModel (survives tab
+    // switches). Creating a new one per revisit reopens osmdroid's shared tile
+    // cache and crashes when a stale instance closes it on GC. Built with the
+    // application context so the VM-retained View never leaks the Activity.
+    val holder = remember(viewModel) {
+        viewModel.mapHolder ?: run {
+            val appContext = context.applicationContext
+            Configuration.getInstance().load(appContext, appContext.getSharedPreferences("osmdroid", 0))
+            Configuration.getInstance().userAgentValue = "Roamly/1.0"
+            // Pin osmdroid's tile cache to app-private storage so it never depends on
+            // external-storage permission (which would crash on re-entry/older devices).
+            Configuration.getInstance().osmdroidBasePath = appContext.cacheDir
+            Configuration.getInstance().osmdroidTileCache = java.io.File(appContext.cacheDir, "osmdroid_tiles").apply { mkdirs() }
+            val heatmap = HeatmapOverlay()
+            val points = PointsOverlay()
+            val mv = MapView(appContext).apply {
+                setTileSource(org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK)
+                setMultiTouchControls(true)
+                controller.setZoom(10.0)
+                controller.setCenter(GeoPoint(20.0, 0.0))
+                // heatmap below, dots on top
+                overlays.add(heatmap)
+                overlays.add(points)
+            }
+            MapHolder(mv, heatmap, points).also { viewModel.mapHolder = it }
         }
     }
+    val mapView = holder.mapView
+    val heatmapOverlay = holder.heatmap
+    val pointsOverlay = holder.points
 
     // Listen for pan/zoom and trigger debounced bbox loads
     DisposableEffect(mapView) {
@@ -201,7 +211,9 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
-            factory = { mapView },
+            // The MapView is reused across visits, so detach it from a previous
+            // container before this AndroidView re-parents it.
+            factory = { (mapView.parent as? android.view.ViewGroup)?.removeView(mapView); mapView },
             modifier = Modifier.fillMaxSize()
         )
 
@@ -589,7 +601,17 @@ private fun DayRow(day: NearHereDay, onClick: () -> Unit) {
 
 // ---- Heatmap overlay: translucent radial sprites accumulating into a heat blob ----
 
-private class HeatmapOverlay : Overlay() {
+/** Holds the single reusable MapView and its overlays so the ViewModel can
+ *  retain them across navigation and detach the map cleanly when destroyed. */
+internal class MapHolder(
+    val mapView: MapView,
+    val heatmap: HeatmapOverlay,
+    val points: PointsOverlay,
+) {
+    fun detach() { runCatching { mapView.onDetach() } }
+}
+
+internal class HeatmapOverlay : Overlay() {
     private var points: List<LocationPoint> = emptyList()
     private var sprite: android.graphics.Bitmap? = null
 
@@ -649,7 +671,7 @@ private class HeatmapOverlay : Overlay() {
 
 // ---- Speed-graded coloured dots; fades out at low zoom so the heatmap leads ----
 
-private class PointsOverlay : Overlay() {
+internal class PointsOverlay : Overlay() {
     private var points: List<LocationPoint> = emptyList()
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
