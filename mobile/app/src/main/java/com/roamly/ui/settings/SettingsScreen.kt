@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -371,7 +372,7 @@ fun SettingsScreen(
             // apps aggressively with no API to opt out — the only real fix is guiding
             // the user to the per-OEM settings catalogued at dontkillmyapp.com.
             Spacer(Modifier.height(10.dp))
-            InfoRow(
+            NoteRow(
                 Icons.Rounded.PhonelinkErase,
                 "Aggressive OEM battery killers",
                 "Xiaomi, Samsung, Huawei & others need a manual allowlist step",
@@ -434,7 +435,7 @@ fun SettingsScreen(
             Spacer(Modifier.height(12.dp))
             InfoRow(Icons.Rounded.Explore, "App", "Roamly for Android")
             Spacer(Modifier.height(8.dp))
-            InfoRow(Icons.Rounded.Tag, "Version", "1.5.0")
+            InfoRow(Icons.Rounded.Tag, "Version", "1.5.1")
         }
 
         ClayButton(
@@ -596,7 +597,32 @@ private fun InfoRow(icon: ImageVector, label: String, value: String, valueColor:
         Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(12.dp))
         Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.weight(1f))
-        Text(value, style = MaterialTheme.typography.bodySmall, color = valueColor)
+        Spacer(Modifier.width(8.dp))
+        // Cap the value at half the row and let it wrap. Without a weight an
+        // overflowing value (e.g. a long URL or sentence) is measured first and
+        // steals the whole row, collapsing the weighted label to ~1 char wide so
+        // it stacks vertically. fill=false keeps short values compact + right-hugged.
+        Text(
+            value,
+            style = MaterialTheme.typography.bodySmall,
+            color = valueColor,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+    }
+}
+
+/** Like InfoRow but for a label + a longer descriptive sentence that should
+ *  wrap as a left-aligned subtitle (not be squeezed into a right-hand value). */
+@Composable
+private fun NoteRow(icon: ImageVector, title: String, subtitle: String) {
+    Row(verticalAlignment = Alignment.Top) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
