@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
@@ -24,7 +23,6 @@ import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -32,7 +30,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -84,16 +85,22 @@ fun RoamlyNavHost() {
     val navController = rememberNavController()
     val authViewModel: AuthViewModel = hiltViewModel()
     val isLoggedIn by authViewModel.isLoggedIn.collectAsState()
-    val initialRoute = when (isLoggedIn) {
-        null -> null
-        true -> Screen.Map.route
-        false -> Screen.Login.route
+
+    // Play the animated opening screen at least once, and hold it until the saved
+    // auth state has resolved — so the app reveals straight into the right screen
+    // with no spinner or flicker in between.
+    var splashDone by rememberSaveable { mutableStateOf(false) }
+    if (!splashDone || isLoggedIn == null) {
+        SplashScreen(onFinished = { splashDone = true })
+        return
     }
+
+    val initialRoute = if (isLoggedIn == true) Screen.Map.route else Screen.Login.route
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
-    val showBottomBar = initialRoute != null &&
+    val showBottomBar =
             currentDestination?.route != Screen.Login.route &&
             currentDestination?.route != Screen.TripDetail.route &&
             currentDestination?.route != Screen.PalDetail.route
@@ -119,21 +126,9 @@ fun RoamlyNavHost() {
             }
         }
     ) { innerPadding ->
-        val destination = initialRoute
-        if (destination == null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-            }
-            return@Scaffold
-        }
         NavHost(
             navController = navController,
-            startDestination = destination,
+            startDestination = initialRoute,
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Screen.Login.route) {

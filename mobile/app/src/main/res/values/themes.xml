@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Roamly" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Black window background so the very first frame of a cold start is black
+         (matching the animated opening screen) instead of a white flash. -->
+    <style name="Theme.Roamly" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
 </resources>
