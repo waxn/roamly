@@ -4898,6 +4898,7 @@ def journal_delete_api(request, date_str):
 
 
 @login_required
+@csrf_exempt
 @require_http_methods(["POST"])
 def journal_photos_api(request, date_str):
     """Upload one or more photos to a day's entry (creates the entry if needed)."""
