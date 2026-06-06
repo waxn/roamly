@@ -176,13 +176,20 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
         pointsOverlay.setPoints(state.locations)
         if (!didAutoFit && state.focus == null && state.locations.isNotEmpty()) {
             val geoPoints = state.locations.map { GeoPoint(it.lat, it.lng) }
-            if (geoPoints.size == 1) {
-                mapView.controller.animateTo(geoPoints.first())
-                mapView.controller.setZoom(13.0)
-            } else {
-                val bbox = BoundingBox.fromGeoPoints(geoPoints)
-                mapView.zoomToBoundingBox(bbox, false, 96)
+            val fit = {
+                if (geoPoints.size == 1) {
+                    mapView.controller.animateTo(geoPoints.first())
+                    mapView.controller.setZoom(13.0)
+                } else {
+                    val bbox = BoundingBox.fromGeoPoints(geoPoints)
+                    mapView.zoomToBoundingBox(bbox, false, 96)
+                }
             }
+            // zoomToBoundingBox divides by the MapView's pixel size, so it crashes if
+            // run before the view is laid out (0×0). With the disk cache, locations can
+            // be ready on the very first composition — before layout — so defer the fit
+            // to after measurement when the view has no size yet.
+            if (mapView.width > 0 && mapView.height > 0) fit() else mapView.post { fit() }
             didAutoFit = true
         }
         mapView.invalidate()
