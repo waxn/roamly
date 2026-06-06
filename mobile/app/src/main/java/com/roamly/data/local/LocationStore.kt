@@ -5,10 +5,12 @@ import com.roamly.data.api.LocationPoint
 import com.roamly.data.api.RoamlyApi
 import com.roamly.tracking.SyncedLocation
 import com.roamly.tracking.SyncedLocationDao
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -70,6 +72,12 @@ class LocationStore @Inject constructor(
      * the last open. Concurrent callers share the single in-flight run.
      */
     suspend fun sync(): Result<Int> = syncMutex.withLock {
+        // All paging/JSON-mapping/DB work runs off the main thread — a full first
+        // sync can be tens of thousands of points and must never touch the UI thread.
+        withContext(Dispatchers.IO) { syncLocked() }
+    }
+
+    private suspend fun syncLocked(): Result<Int> {
         _state.value = _state.value.copy(syncing = true, error = null)
         try {
             val haveAny = dao.count() > 0
@@ -89,7 +97,7 @@ class LocationStore @Inject constructor(
                 if (!resp.isSuccessful) {
                     val msg = "sync failed: HTTP ${resp.code()}"
                     // Partial progress still counts as a win.
-                    return@withLock finish(added, if (added > 0) null else msg)
+                    return finish(added, if (added > 0) null else msg)
                 }
                 val body = resp.body() ?: break
                 val rows = body.devices.flatMap { dev ->
@@ -103,10 +111,10 @@ class LocationStore @Inject constructor(
                 cursorVal = body.nextBeforeValue
                 cursorId = body.nextBeforeId
             }
-            finish(added, null)
+            return finish(added, null)
         } catch (e: Exception) {
             Log.w(TAG, "sync error", e)
-            finish(0, e.message ?: "sync error")
+            return finish(0, e.message ?: "sync error")
         }
     }
 
@@ -128,7 +136,7 @@ class LocationStore @Inject constructor(
      * Overview points for a time window, decimated so the heatmap stays smooth no
      * matter how dense the history is. [hours] = null means all-time.
      */
-    suspend fun periodOverview(hours: Int?, maxPoints: Int): List<LocationPoint> {
+    suspend fun periodOverview(hours: Int?, maxPoints: Int): List<LocationPoint> = withContext(Dispatchers.IO) {
         val sinceMs = sinceMsFor(hours)
         val total = dao.countInPeriod(sinceMs)
         val rows = if (total > maxPoints) {
@@ -137,22 +145,24 @@ class LocationStore @Inject constructor(
         } else {
             dao.inPeriod(sinceMs)
         }
-        return rows.map { it.toPoint() }
+        rows.map { it.toPoint() }
     }
 
     /** Full-resolution points in a viewport, within the active time window. */
     suspend fun bbox(
         minLat: Double, maxLat: Double, minLng: Double, maxLng: Double,
         hours: Int?, limit: Int,
-    ): List<LocationPoint> =
+    ): List<LocationPoint> = withContext(Dispatchers.IO) {
         dao.inBbox(minLat, maxLat, minLng, maxLng, sinceMsFor(hours), limit).map { it.toPoint() }
+    }
 
     /** All-time points around a spot — powers an accurate "have I been here?". */
     suspend fun allTimeAround(
         lat: Double, lng: Double, padDegrees: Double,
-    ): List<LocationPoint> =
+    ): List<LocationPoint> = withContext(Dispatchers.IO) {
         dao.allTimeInBbox(lat - padDegrees, lat + padDegrees, lng - padDegrees, lng + padDegrees)
             .map { it.toPoint() }
+    }
 
     suspend fun clear() = dao.deleteAll()
 

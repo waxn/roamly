@@ -160,13 +160,25 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
     var nearHereResult by remember { mutableStateOf<NearHereResult?>(null) }
     var showAllDays by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
+    var checkingHere by remember { mutableStateOf(false) }
+    var nearHereError by remember { mutableStateOf<String?>(null) }
+
+    val startNearHere = {
+        checkingHere = true
+        nearHereError = null
+        checkNearHere(context, viewModel) { result ->
+            checkingHere = false
+            if (result != null) nearHereResult = result
+            else nearHereError = "couldn't get your current location — try again outdoors"
+        }
+    }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
                 permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
-        if (granted) checkNearHere(context, viewModel) { nearHereResult = it }
+        if (granted) startNearHere()
     }
 
     // Apply new points to both overlays + auto-fit when not following a focus
@@ -207,6 +219,13 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
 
     DisposableEffect(mapView) {
         mapView.onResume()
+        // After a tab switch the retained MapView is re-parented; nudge it to
+        // re-request tiles for the visible area so it doesn't come back as a blank
+        // grid. A post() ensures it runs after the view is laid out.
+        mapView.post {
+            mapView.invalidate()
+            mapView.controller.setZoom(mapView.zoomLevelDouble)
+        }
         onDispose {
             // Only pause on leave. Calling onDetach() here tears down osmdroid's
             // shared tile cache; the next time this screen is entered a fresh
@@ -315,7 +334,7 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                     context, Manifest.permission.ACCESS_COARSE_LOCATION
                 ) == PackageManager.PERMISSION_GRANTED
                 if (hasFine || hasCoarse) {
-                    checkNearHere(context, viewModel) { nearHereResult = it }
+                    startNearHere()
                 } else {
                     locationPermissionLauncher.launch(
                         arrayOf(
@@ -388,6 +407,30 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                 viewModel.focusOn(lat, lng, zoom = 16.0)
                 showSearch = false
             },
+        )
+    }
+
+    if (checkingHere) {
+        AlertDialog(
+            onDismissRequest = { checkingHere = false },
+            title = { Text("have you been here?") },
+            text = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(14.dp))
+                    Text("checking your history at this spot…")
+                }
+            },
+            confirmButton = {},
+        )
+    }
+
+    nearHereError?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { nearHereError = null },
+            title = { Text("have you been here?") },
+            text = { Text(msg) },
+            confirmButton = { TextButton(onClick = { nearHereError = null }) { Text("ok") } },
         )
     }
 
@@ -738,16 +781,32 @@ private fun speedColor(speed: Double?): Int {
 private fun checkNearHere(
     context: android.content.Context,
     viewModel: MapViewModel,
-    onResult: (NearHereResult) -> Unit,
+    onResult: (NearHereResult?) -> Unit,
 ) {
     val client = LocationServices.getFusedLocationProviderClient(context)
+    val compute = { lat: Double, lng: Double ->
+        viewModel.checkHaveIBeenHere(lat, lng) { onResult(it) }
+    }
     try {
-        client.lastLocation.addOnSuccessListener { location ->
-            if (location == null) return@addOnSuccessListener
-            // VM fetches all-time history near this spot, then computes the result.
-            viewModel.checkHaveIBeenHere(location.latitude, location.longitude, onResult)
-        }
-    } catch (_: SecurityException) { /* permission not granted */ }
+        // lastLocation is frequently null (esp. right after boot / fresh install),
+        // so fall back to an active fix before giving up.
+        client.lastLocation
+            .addOnSuccessListener { last ->
+                if (last != null) {
+                    compute(last.latitude, last.longitude)
+                } else {
+                    client.getCurrentLocation(
+                        com.google.android.gms.location.Priority.PRIORITY_BALANCED_POWER_ACCURACY,
+                        null,
+                    ).addOnSuccessListener { cur ->
+                        if (cur != null) compute(cur.latitude, cur.longitude) else onResult(null)
+                    }.addOnFailureListener { onResult(null) }
+                }
+            }
+            .addOnFailureListener { onResult(null) }
+    } catch (_: SecurityException) {
+        onResult(null)
+    }
 }
 
 // "Right here" — same store / same building / same spot

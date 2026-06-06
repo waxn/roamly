@@ -3,17 +3,20 @@ package com.roamly.ui.map
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.roamly.data.api.LocationPoint
+import com.roamly.data.api.LocationsResponse
 import com.roamly.data.api.StatsResponse
 import com.roamly.data.local.LocationStore
 import com.roamly.data.repository.LocationRepository
 import com.roamly.data.repository.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 enum class TimePeriod(val label: String) {
@@ -56,12 +59,10 @@ class MapViewModel @Inject constructor(
     val uiState: StateFlow<MapUiState> = _uiState
 
     // The osmdroid MapView is created once (with the application context) and
-    // retained here for the life of this ViewModel — which survives bottom-nav
-    // tab switches because the Map back-stack entry is saved. Re-creating a fresh
-    // MapView on every revisit reopens osmdroid's shared SQLite tile cache, and a
-    // stale MapView closing it on GC crashed the new one ("attempt to re-open an
-    // already-closed object"). Reusing one instance sidesteps that entirely.
-    // It's detached in onCleared(), i.e. only when the screen is truly gone.
+    // retained here for the life of this ViewModel — surviving bottom-nav tab
+    // switches. Re-creating a fresh MapView on every revisit reopens osmdroid's
+    // shared SQLite tile cache and a stale instance closing it on GC crashed the
+    // new one. Reusing one instance sidesteps that.
     internal var mapHolder: MapHolder? = null
 
     override fun onCleared() {
@@ -70,20 +71,19 @@ class MapViewModel @Inject constructor(
         mapHolder = null
     }
 
-    // Accumulator cache: "id" → point. Holds the period overview plus any
-    // higher-resolution dots pulled in as the user zooms, so panning never drops
-    // what we've already painted.
+    // Accumulator: server-id -> point. Holds the period overview plus any
+    // higher-resolution dots pulled in as the user zooms.
     private val accumulator: HashMap<Int, LocationPoint> = HashMap()
     private var viewportJob: Job? = null
 
     init {
-        // Paint instantly from the local store, then refresh it from the server in
-        // the background. The first call returns whatever's already on-device.
-        loadFromStore(showSpinnerIfEmpty = true)
+        loadData(showSpinnerIfEmpty = true)
+        // Build/refresh the on-device history in the background, then repaint so
+        // the local store becomes the instant source for subsequent opens and for
+        // an accurate "have I been here?".
         viewModelScope.launch {
             store.syncIfDue()
-            // New points may have landed — repaint the current period silently.
-            loadFromStore(showSpinnerIfEmpty = false)
+            loadData(showSpinnerIfEmpty = false)
         }
         viewModelScope.launch { loadStats() }
     }
@@ -91,7 +91,7 @@ class MapViewModel @Inject constructor(
     fun setTimePeriod(period: TimePeriod) {
         accumulator.clear()
         _uiState.update { it.copy(timePeriod = period) }
-        loadFromStore(showSpinnerIfEmpty = true)
+        loadData(showSpinnerIfEmpty = true)
         viewModelScope.launch { loadStats() }
     }
 
@@ -104,23 +104,34 @@ class MapViewModel @Inject constructor(
     }
 
     /**
-     * "Have I been here?" — scans the *entire* local history within ~11km of the
-     * user (independent of the current time-period view) so every past day spent
-     * at this spot is counted. Reading locally makes it instant and complete,
-     * fixing the old under-count from a server limit on the result set.
+     * "Have I been here?" — scans the on-device history within ~11km of the user
+     * (independent of the current time window) so every past day at this spot is
+     * counted. The heavy haversine scan runs off the main thread. If the local
+     * store isn't populated yet (first run, sync still going) it falls back to a
+     * server query so the feature still works immediately.
      */
     fun checkHaveIBeenHere(userLat: Double, userLng: Double, onResult: (NearHereResult) -> Unit) {
         viewModelScope.launch {
             val pad = 0.1 // ~11 km
-            val points = store.allTimeAround(userLat, userLng, pad)
-            onResult(buildNearHere(userLat, userLng, points))
+            var points = store.allTimeAround(userLat, userLng, pad)
+            if (points.isEmpty()) {
+                points = when (val r = locationRepository.getLocationsInBbox(
+                    minLat = userLat - pad, maxLat = userLat + pad,
+                    minLng = userLng - pad, maxLng = userLng + pad,
+                    hours = null, limit = 25_000,
+                )) {
+                    is Result.Success -> r.data.devices.flatMap { it.locations }
+                    is Result.Error -> emptyList()
+                }
+            }
+            val result = withContext(Dispatchers.Default) { buildNearHere(userLat, userLng, points) }
+            onResult(result)
         }
     }
 
     /**
-     * Called by the map screen on debounced pan/zoom. Pulls full-resolution dots
-     * for the current viewport from the local store (instant) once the user has
-     * zoomed past DETAIL_ZOOM, accumulating them across moves.
+     * Debounced pan/zoom handler. Pulls full-resolution dots for the viewport from
+     * the local store (instant) past DETAIL_ZOOM, accumulating across moves.
      */
     fun onViewportChanged(zoom: Double, minLat: Double, maxLat: Double, minLng: Double, maxLng: Double) {
         if (zoom < DETAIL_ZOOM) return
@@ -129,27 +140,53 @@ class MapViewModel @Inject constructor(
             delay(VIEWPORT_DEBOUNCE_MS)
             val hours = _uiState.value.timePeriod.hours
             val detail = store.bbox(minLat, maxLat, minLng, maxLng, hours = hours, limit = BBOX_LOAD_LIMIT)
+            if (detail.isEmpty()) return@launch
+            // The DAO query already ran off-main; accumulator ops stay confined to
+            // this (main) dispatcher so the map is only mutated from one thread.
             var added = 0
             detail.forEach { pt -> if (accumulator.put(pt.id, pt) == null) added++ }
             if (added > 0) _uiState.update { it.copy(locations = accumulator.values.toList()) }
         }
     }
 
-    /** Repaint the active time period from the local store. */
-    private fun loadFromStore(showSpinnerIfEmpty: Boolean) {
-        val hours = _uiState.value.timePeriod.hours
+    /**
+     * Load the active period. Paints instantly from the local store; on a fresh
+     * install (store empty for this period) it fetches the period straight from
+     * the server so points appear right away while the full sync runs.
+     */
+    fun loadData(showSpinnerIfEmpty: Boolean) {
+        val period = _uiState.value.timePeriod
+        val hours = period.hours
         viewModelScope.launch {
+            val local = store.periodOverview(hours, PERIOD_LOAD_LIMIT)
+            if (local.isNotEmpty()) {
+                setLocations(local)
+                return@launch
+            }
+            // Nothing local yet — show the spinner and fetch this period directly.
             if (showSpinnerIfEmpty && accumulator.isEmpty()) {
                 _uiState.update { it.copy(isLoading = true, error = null) }
             }
-            val overview = store.periodOverview(hours, PERIOD_LOAD_LIMIT)
-            accumulator.clear()
-            overview.forEach { pt -> accumulator[pt.id] = pt }
-            _uiState.update {
-                it.copy(locations = accumulator.values.toList(), isLoading = false)
+            when (val r = locationRepository.getLocations(hours = hours, limit = PERIOD_LOAD_LIMIT)) {
+                is Result.Success -> setLocations(flatten(r.data))
+                is Result.Error -> _uiState.update {
+                    it.copy(isLoading = false, error = if (accumulator.isEmpty()) r.message else null)
+                }
             }
         }
     }
+
+    private fun setLocations(points: List<LocationPoint>) {
+        // points already came off-main (DAO/JSON). The accumulator is only ever
+        // touched on this dispatcher, so there's no cross-thread race with the
+        // viewport loader.
+        accumulator.clear()
+        points.forEach { accumulator[it.id] = it }
+        _uiState.update { it.copy(locations = accumulator.values.toList(), isLoading = false, error = null) }
+    }
+
+    private fun flatten(resp: LocationsResponse): List<LocationPoint> =
+        resp.devices.flatMap { it.locations }
 
     /** Stats come from the server endpoint (cheap, cached server-side). */
     private suspend fun loadStats() {
