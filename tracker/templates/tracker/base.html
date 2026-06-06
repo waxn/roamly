@@ -275,6 +275,109 @@
             white-space: nowrap;
         }
 
+        /* ── Nav dropdowns ── */
+        .nav-dropdown {
+            position: relative;
+            display: flex;
+        }
+        .navbar-nav-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            color: var(--text-muted);
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 0.4rem 0.7rem 0.4rem 0.85rem;
+            border-radius: var(--radius-clay-sm);
+            font-family: inherit;
+            font-size: 0.825rem;
+            font-weight: 700;
+            white-space: nowrap;
+            transition: color 0.15s, background 0.2s, box-shadow 0.2s;
+        }
+        .navbar-nav-toggle:hover {
+            color: var(--text);
+            background: var(--bg-elevated);
+            box-shadow: var(--clay-shadow-sm);
+        }
+        .navbar-nav-toggle.active {
+            color: #fff;
+            background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+            box-shadow: var(--clay-shadow-btn);
+        }
+        .navbar-user-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 0.35rem 0.5rem;
+            border-radius: var(--radius-clay-sm);
+            color: var(--text-muted);
+            font-family: inherit;
+            font-size: 0.825rem;
+            font-weight: 600;
+            max-width: 12rem;
+            white-space: nowrap;
+            transition: color 0.15s, background 0.2s;
+        }
+        .navbar-user-toggle:hover { color: var(--text); background: var(--bg-elevated); }
+        .navbar-user-name {
+            max-width: 9rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .nav-caret {
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2.5;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            flex-shrink: 0;
+            transition: transform 0.2s var(--ease-spring);
+        }
+        .nav-dropdown.open .nav-caret { transform: rotate(180deg); }
+        .nav-dropdown-menu {
+            display: none;
+            position: absolute;
+            top: calc(100% + 0.5rem);
+            left: 0;
+            min-width: 11rem;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-clay-sm);
+            box-shadow: var(--clay-shadow);
+            padding: 0.4rem;
+            z-index: 1100;
+        }
+        .nav-dropdown-end .nav-dropdown-menu { left: auto; right: 0; }
+        .nav-dropdown.open .nav-dropdown-menu { display: block; }
+        .nav-dropdown-menu a {
+            display: block;
+            color: var(--text-muted);
+            text-decoration: none;
+            padding: 0.5rem 0.75rem;
+            border-radius: var(--radius-clay-sm);
+            font-size: 0.825rem;
+            font-weight: 700;
+            white-space: nowrap;
+            transition: color 0.15s, background 0.2s, box-shadow 0.2s;
+        }
+        .nav-dropdown-menu a:hover {
+            color: var(--text);
+            background: var(--bg-input);
+            box-shadow: var(--clay-shadow-sm);
+        }
+        .nav-dropdown-menu a.active {
+            color: #fff;
+            background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+            box-shadow: var(--clay-shadow-btn);
+        }
+        .navbar-logout-mobile { display: none; }
+
         /* ── Bottom Navigation (mobile) ── */
         .bottom-nav {
             display: none;
@@ -751,6 +854,8 @@
             }
             .navbar-center { display: none; }
             .navbar-user { display: none; }
+            .nav-dropdown-end { display: none; }
+            .navbar-logout-mobile { display: inline-flex; }
             .container { padding: 1rem; }
             .bottom-nav { display: block; }
         }
@@ -769,18 +874,34 @@
         <div class="navbar-center">
             <ul class="navbar-nav">
                 <li><a href="{% url 'tracker:map' %}" class="{% if request.resolver_match.url_name == 'map' %}active{% endif %}">Map</a></li>
-                <li><a href="{% url 'tracker:data' %}" class="{% if request.resolver_match.url_name == 'data' %}active{% endif %}">Data</a></li>
-                <li><a href="{% url 'tracker:stats' %}" class="{% if request.resolver_match.url_name == 'stats' %}active{% endif %}">Stats</a></li>
-                <li><a href="{% url 'tracker:visits' %}" class="{% if request.resolver_match.url_name == 'visits' %}active{% endif %}">Visits</a></li>
-                <li><a href="{% url 'tracker:search' %}" class="{% if request.resolver_match.url_name == 'search' %}active{% endif %}">Search</a></li>
                 <li><a href="{% url 'tracker:adventures' %}" class="{% if request.resolver_match.url_name == 'adventures' or request.resolver_match.url_name == 'adventure_edit' %}active{% endif %}">Adventures</a></li>
                 <li><a href="{% url 'tracker:journals' %}" class="{% if request.resolver_match.url_name == 'journals' %}active{% endif %}">Journals</a></li>
-                <li><a href="{% url 'tracker:settings' %}" class="{% if request.resolver_match.url_name == 'settings' %}active{% endif %}">Settings</a></li>
+                <li class="nav-dropdown">
+                    <button type="button" class="navbar-nav-toggle {% if request.resolver_match.url_name == 'stats' or request.resolver_match.url_name == 'visits' or request.resolver_match.url_name == 'search' or request.resolver_match.url_name == 'data' %}active{% endif %}" aria-haspopup="true" aria-expanded="false" aria-controls="insights-menu">
+                        Insights
+                        <svg class="nav-caret" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <div class="nav-dropdown-menu" id="insights-menu" role="menu">
+                        <a role="menuitem" href="{% url 'tracker:stats' %}" class="{% if request.resolver_match.url_name == 'stats' %}active{% endif %}">Stats</a>
+                        <a role="menuitem" href="{% url 'tracker:visits' %}" class="{% if request.resolver_match.url_name == 'visits' %}active{% endif %}">Visits</a>
+                        <a role="menuitem" href="{% url 'tracker:search' %}" class="{% if request.resolver_match.url_name == 'search' %}active{% endif %}">Search</a>
+                        <a role="menuitem" href="{% url 'tracker:data' %}" class="{% if request.resolver_match.url_name == 'data' %}active{% endif %}">Data</a>
+                    </div>
+                </li>
             </ul>
         </div>
         <div class="navbar-end">
-            <span class="navbar-user" title="{{ user.username }}">{{ user.username }}</span>
-            <a href="{% url 'tracker:logout' %}" class="btn btn-outline btn-sm">Logout</a>
+            <div class="nav-dropdown nav-dropdown-end">
+                <button type="button" class="navbar-user-toggle" title="{{ user.username }}" aria-haspopup="true" aria-expanded="false" aria-controls="user-menu">
+                    <span class="navbar-user-name">{{ user.username }}</span>
+                    <svg class="nav-caret" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <div class="nav-dropdown-menu" id="user-menu" role="menu">
+                    <a role="menuitem" href="{% url 'tracker:settings' %}" class="{% if request.resolver_match.url_name == 'settings' %}active{% endif %}">Settings</a>
+                    <a role="menuitem" href="{% url 'tracker:logout' %}">Logout</a>
+                </div>
+            </div>
+            <a href="{% url 'tracker:logout' %}" class="btn btn-outline btn-sm navbar-logout-mobile">Logout</a>
         </div>
     </nav>
 
@@ -890,6 +1011,37 @@
             const logo = document.querySelector('.navbar-logo');
             if (logo) logo.style.filter = theme === 'light' ? 'brightness(0)' : 'brightness(0) invert(1)';
             document.querySelector('meta[name="theme-color"]').content = theme === 'light' ? '#edf3ff' : '#0c1220';
+        })();
+
+        // Nav dropdowns (Insights + user menu)
+        (function() {
+            const dropdowns = Array.from(document.querySelectorAll('.nav-dropdown'));
+            if (!dropdowns.length) return;
+            function close(dd) {
+                dd.classList.remove('open');
+                const t = dd.querySelector('[aria-expanded]');
+                if (t) t.setAttribute('aria-expanded', 'false');
+            }
+            function closeAll(except) {
+                dropdowns.forEach(dd => { if (dd !== except) close(dd); });
+            }
+            dropdowns.forEach(dd => {
+                const toggle = dd.querySelector('.navbar-nav-toggle, .navbar-user-toggle');
+                if (!toggle) return;
+                toggle.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const willOpen = !dd.classList.contains('open');
+                    closeAll(dd);
+                    dd.classList.toggle('open', willOpen);
+                    toggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+                });
+            });
+            document.addEventListener('click', function(e) {
+                if (!e.target.closest('.nav-dropdown')) closeAll(null);
+            });
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') closeAll(null);
+            });
         })();
 
         if ('serviceWorker' in navigator) {
