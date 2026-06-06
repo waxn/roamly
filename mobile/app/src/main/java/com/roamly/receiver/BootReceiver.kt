@@ -40,6 +40,9 @@ class BootReceiver : BroadcastReceiver() {
         Log.i(TAG, "Boot received — trackingEnabled=$enabled autoResume=$autoResume")
         if (enabled && autoResume && TrackingCoordinator.canTrack(context)) {
             LocationTrackingService.start(context)
+            // Arm the Doze-piercing heartbeat directly too, in case the OS throttles
+            // the service start at boot — the alarm will then bring it up.
+            TrackingAlarmReceiver.schedule(context)
         }
         UploadWorker.schedulePeriodic(context, syncOnMobileData)
     }

@@ -1,8 +1,11 @@
 package com.roamly.tracking
 
 import android.app.*
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.location.LocationManager
 import android.os.*
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -12,6 +15,8 @@ import com.roamly.MainActivity
 import com.roamly.R
 import com.roamly.RoamlyApp
 import com.roamly.data.prefs.UserPreferences
+import com.roamly.receiver.RestarterReceiver
+import com.roamly.receiver.TrackingAlarmReceiver
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.combine
@@ -59,6 +64,7 @@ class LocationTrackingService : Service() {
     private var configJob: Job? = null
     private var watchdogJob: Job? = null
     private var syncPrefJob: Job? = null
+    private var providerReceiver: BroadcastReceiver? = null
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -68,11 +74,18 @@ class LocationTrackingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Defensive #1: enter the foreground immediately on EVERY start path, before
+        // anything else, so we always satisfy Android 8+'s 5-second deadline for a
+        // started foreground service and never get ANR-killed.
+        goForeground()
+
         when (intent?.action) {
             ACTION_STOP   -> {
                 // The user explicitly stopped — clear the intent flag so the watchdog,
-                // boot receiver and START_STICKY restart all leave it stopped.
+                // boot receiver, alarm heartbeat and START_STICKY restart all leave it
+                // stopped, and cancel the Doze heartbeat so it can't resurrect us.
                 runBlocking { prefs.setTrackingEnabled(false) }
+                TrackingAlarmReceiver.cancel(applicationContext)
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -80,8 +93,22 @@ class LocationTrackingService : Service() {
             ACTION_RESUME -> { isPaused = false; updateNotification(); return START_STICKY }
         }
 
-        // Normal start (user pressed Start, boot, app launch, or START_STICKY restart).
-        startForeground(NOTIFICATION_ID, buildNotification())
+        // A null intent means the OS re-created us after a low-memory kill (START_STICKY).
+        // Resume only if the user still wants tracking — read from persisted state, which
+        // survives process death.
+        if (intent == null) {
+            val shouldRun = runBlocking { prefs.trackingEnabled.first() }
+            if (!shouldRun) {
+                Log.i(TAG, "Null-intent restart but tracking disabled — stopping")
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            Log.i(TAG, "Null-intent restart — resuming from persisted state")
+        }
+
+        // Defensive #2.
+        goForeground()
+
         scope.launch {
             prefs.setTrackingEnabled(true)
             prefs.setTrackingActive(true)
@@ -90,22 +117,81 @@ class LocationTrackingService : Service() {
         observeConfig()
         startWatchdog()
         seedLastLocation()
+        registerProviderChangeReceiver()
+        TrackingAlarmReceiver.schedule(applicationContext)
+
+        // Defensive #3: startForeground is idempotent — a final call guarantees the
+        // foreground state held even if an earlier call raced with setup.
+        goForeground()
+
         Log.i(TAG, "Tracking started")
         return START_STICKY
     }
 
+    /** Promote to a foreground service. Idempotent; safe to call repeatedly. */
+    private fun goForeground() {
+        runCatching {
+            startForeground(NOTIFICATION_ID, buildNotification())
+        }.onFailure { Log.e(TAG, "startForeground failed", it) }
+    }
+
     override fun onDestroy() {
         stopLocationUpdates()
+        unregisterProviderChangeReceiver()
         configJob?.cancel()
         watchdogJob?.cancel()
         syncPrefJob?.cancel()
         scope.cancel()
-        // scope is cancelled, so use runBlocking to make sure the flag actually lands.
+        // scope is cancelled, so use runBlocking to make sure the flags actually land.
         runBlocking { prefs.setTrackingActive(false) }
+        // Self-resurrection: if we're being destroyed but the user still wants tracking
+        // on (i.e. this wasn't an explicit STOP), ask the standalone RestarterReceiver
+        // to bring us straight back. A dying service can't reliably restart itself, but
+        // a separate receiver can.
+        val shouldRun = runBlocking { prefs.trackingEnabled.first() }
+        if (shouldRun) {
+            Log.w(TAG, "Destroyed while still enabled — broadcasting restart")
+            RestarterReceiver.broadcast(applicationContext)
+        }
         super.onDestroy()
     }
 
+    /** Fired when the user swipes the app off the recents screen. With
+     *  stopWithTask=false the service keeps running, but we also rebroadcast a
+     *  restart as insurance on OEMs that kill the process anyway. */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        val shouldRun = runCatching { runBlocking { prefs.trackingEnabled.first() } }.getOrDefault(false)
+        if (shouldRun) RestarterReceiver.broadcast(applicationContext)
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
+
+    // ── Provider toggle (multi-provider graceful degradation) ─────────────────
+
+    /** Re-arm location updates whenever the set of enabled providers changes
+     *  (e.g. the user toggles GPS, or it flips on entering/leaving a tunnel).
+     *  FusedLocation already fuses GPS + network + passive internally; this makes
+     *  it recover immediately instead of waiting out the next interval. */
+    private fun registerProviderChangeReceiver() {
+        if (providerReceiver != null) return
+        val rcv = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                val cfg = currentConfig ?: return
+                Log.i(TAG, "Location providers changed — re-arming updates")
+                startLocationUpdates(cfg)
+                seedLastLocation()
+            }
+        }
+        providerReceiver = rcv
+        runCatching { registerReceiver(rcv, IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION)) }
+            .onFailure { Log.e(TAG, "Failed to register provider receiver", it) }
+    }
+
+    private fun unregisterProviderChangeReceiver() {
+        providerReceiver?.let { runCatching { unregisterReceiver(it) } }
+        providerReceiver = null
+    }
 
     // ── Config (live) ────────────────────────────────────────────────────────
 
@@ -310,10 +396,23 @@ class LocationTrackingService : Service() {
     }
 
     companion object {
-        fun start(context: Context) =
-            ContextCompat.startForegroundService(context, Intent(context, LocationTrackingService::class.java))
+        /**
+         * Start (or refresh) the tracker. Guarded because on Android 12+ starting a
+         * foreground service from the background throws unless the caller is exempt
+         * (exact alarm, boot, or battery-optimization allowlist). The Doze heartbeat
+         * alarm IS exempt and is the reliable restart path; other callers degrade
+         * gracefully instead of crashing if a particular start is disallowed.
+         */
+        fun start(context: Context) {
+            runCatching {
+                ContextCompat.startForegroundService(context, Intent(context, LocationTrackingService::class.java))
+            }.onFailure { Log.w(TAG, "startForegroundService blocked (will retry via heartbeat)", it) }
+        }
 
-        fun stop(context: Context) =
-            context.startService(Intent(context, LocationTrackingService::class.java).apply { action = ACTION_STOP })
+        fun stop(context: Context) {
+            runCatching {
+                context.startService(Intent(context, LocationTrackingService::class.java).apply { action = ACTION_STOP })
+            }.onFailure { Log.w(TAG, "stop failed", it) }
+        }
     }
 }

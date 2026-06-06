@@ -2,6 +2,7 @@ package com.roamly.ui.settings
 
 import android.Manifest
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -303,15 +304,46 @@ fun SettingsScreen(
                 Spacer(Modifier.height(10.dp))
                 ClayButton(
                     onClick = {
-                        batteryOptLauncher.launch(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                        // Fire the direct system dialog first; fall back to the
+                        // battery-optimization settings list if the OEM blocks it.
+                        val direct = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                            .setData(Uri.parse("package:${context.packageName}"))
+                        val ok = runCatching { batteryOptLauncher.launch(direct) }.isSuccess
+                        if (!ok) runCatching {
+                            batteryOptLauncher.launch(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                        }
                     },
                     gradient = listOf(Sunshine, Coral),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Icon(Icons.Rounded.Bolt, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Improve background reliability", fontWeight = FontWeight.Bold)
+                    Text("Disable battery optimization", fontWeight = FontWeight.Bold)
                 }
+            }
+
+            // OEM-killer onboarding. Xiaomi/Samsung/Huawei/Oppo etc. kill background
+            // apps aggressively with no API to opt out — the only real fix is guiding
+            // the user to the per-OEM settings catalogued at dontkillmyapp.com.
+            Spacer(Modifier.height(10.dp))
+            InfoRow(
+                Icons.Rounded.PhonelinkErase,
+                "Aggressive OEM battery killers",
+                "Xiaomi, Samsung, Huawei & others need a manual allowlist step",
+            )
+            Spacer(Modifier.height(10.dp))
+            ClayButton(
+                onClick = {
+                    val mfr = Build.MANUFACTURER.lowercase(Locale.ROOT).trim()
+                    val url = "https://dontkillmyapp.com/${if (mfr.isBlank()) "" else mfr}"
+                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                },
+                gradient = listOf(Coral, Sunshine),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Rounded.OpenInNew, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("How to keep Roamly alive on ${Build.MANUFACTURER}", fontWeight = FontWeight.Bold)
             }
         }
 

@@ -22,6 +22,11 @@
     <!-- Battery optimisation exemption -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- Doze-piercing exact alarms (heartbeat). USE_EXACT_ALARM is auto-granted;
+         SCHEDULE_EXACT_ALARM is the user-revocable fallback we check at runtime. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+
     <!-- Notifications (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -66,6 +71,26 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Self-resurrection: a standalone receiver that restarts the tracking
+             service when it is destroyed/killed while the user wants it on. -->
+        <receiver
+            android:name=".receiver.RestarterReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.roamly.RESTART_TRACKING" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Doze-piercing heartbeat alarm: verifies the service is alive and
+             re-arms itself, even in deep Doze. -->
+        <receiver
+            android:name=".receiver.TrackingAlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.roamly.TRACKING_HEARTBEAT" />
             </intent-filter>
         </receiver>
 
