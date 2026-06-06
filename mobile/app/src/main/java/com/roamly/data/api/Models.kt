@@ -292,6 +292,84 @@ data class LocationPushResponse(
     val device: String?,
 )
 
+// --- Journals ---
+
+data class JournalListItem(
+    val date: String = "",
+    val title: String = "",
+    val snippet: String = "",
+    val mood: String = "",
+    val weather: String = "",
+    @SerializedName("is_favorite") val isFavorite: Boolean = false,
+    @SerializedName("photo_count") val photoCount: Int = 0,
+    val cover: String? = null,
+    @SerializedName("word_count") val wordCount: Int = 0,
+    @SerializedName("location_name") val locationName: String? = null,
+)
+
+data class JournalListResponse(val entries: List<JournalListItem> = emptyList())
+
+data class JournalStatsResponse(
+    @SerializedName("current_streak") val currentStreak: Int = 0,
+    @SerializedName("longest_streak") val longestStreak: Int = 0,
+    @SerializedName("total_entries") val totalEntries: Int = 0,
+    @SerializedName("this_year")     val thisYear: Int = 0,
+    @SerializedName("this_month")    val thisMonth: Int = 0,
+    @SerializedName("total_words")   val totalWords: Int = 0,
+    @SerializedName("total_photos")  val totalPhotos: Int = 0,
+    @SerializedName("entry_dates")   val entryDates: List<String> = emptyList(),
+)
+
+data class JournalPhoto(
+    val id: Int = 0,
+    val url: String? = null,
+    val thumbnail: String? = null,
+    val caption: String? = null,
+    val order: Int = 0,
+)
+
+data class JournalEntryData(
+    val exists: Boolean = false,
+    val date: String = "",
+    val title: String = "",
+    val body: String = "",
+    val mood: String = "",
+    val weather: String = "",
+    @SerializedName("is_favorite")   val isFavorite: Boolean = false,
+    @SerializedName("location_name") val locationName: String? = null,
+    /** [lng, lat] or null */
+    val pin: List<Double>? = null,
+    val photos: List<JournalPhoto> = emptyList(),
+)
+
+data class JournalTrack(
+    /** ordered [lng, lat] pairs */
+    val points: List<List<Double>> = emptyList(),
+    @SerializedName("point_count") val pointCount: Int = 0,
+    @SerializedName("distance_km") val distanceKm: Double = 0.0,
+    val cities: List<String> = emptyList(),
+    /** [lng, lat] or null */
+    val centroid: List<Double>? = null,
+)
+
+data class JournalDetailResponse(
+    val entry: JournalEntryData = JournalEntryData(),
+    val track: JournalTrack = JournalTrack(),
+)
+
+data class JournalSaveRequest(
+    val title: String? = null,
+    val body: String? = null,
+    val mood: String? = null,
+    val weather: String? = null,
+    @SerializedName("is_favorite") val isFavorite: Boolean? = null,
+)
+
+data class JournalPhotosResponse(
+    val status: String = "",
+    val photos: List<JournalPhoto> = emptyList(),
+)
+
 // --- Search ---
 
 data class SearchCity(

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Map
@@ -53,6 +54,7 @@ import androidx.navigation.navArgument
 import com.roamly.ui.auth.AuthViewModel
 import com.roamly.ui.auth.LoginScreen
 import com.roamly.ui.groups.GroupsScreen
+import com.roamly.ui.journals.JournalsScreen
 import com.roamly.ui.map.MapScreen
 import com.roamly.ui.pals.PalDetailScreen
 import com.roamly.ui.settings.SettingsScreen
@@ -64,6 +66,7 @@ import com.roamly.ui.trips.TripDetailScreen
 sealed class Screen(val route: String, val label: String) {
     object Map : Screen("map", "Map")
     object Adventures : Screen("adventures", "Adventures")
+    object Journal : Screen("journal", "Journal")
     object Stats : Screen("stats", "Stats")
     object Settings : Screen("settings", "Settings")
     object Login : Screen("login", "Login")
@@ -71,11 +74,12 @@ sealed class Screen(val route: String, val label: String) {
     object PalDetail : Screen("pals/{palId}", "Pal")
 }
 
-private val bottomNavItems = listOf(Screen.Map, Screen.Adventures, Screen.Stats, Screen.Settings)
+private val bottomNavItems = listOf(Screen.Map, Screen.Adventures, Screen.Journal, Screen.Stats, Screen.Settings)
 
 private fun iconFor(screen: Screen): ImageVector = when (screen) {
     Screen.Map -> Icons.Rounded.Map
     Screen.Adventures -> Icons.Rounded.Explore
+    Screen.Journal -> Icons.Rounded.AutoStories
     Screen.Stats -> Icons.Rounded.BarChart
     else -> Icons.Rounded.Settings
 }
@@ -166,6 +170,7 @@ fun RoamlyNavHost() {
                     onBack = { navController.popBackStack() }
                 )
             }
+            composable(Screen.Journal.route) { JournalsScreen() }
             composable(Screen.Stats.route) { StatsScreen() }
             composable(Screen.Settings.route) {
                 SettingsScreen(
@@ -265,6 +270,9 @@ private fun NavPill(
                 color = Color.White,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
             )
         }
     }

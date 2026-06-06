@@ -63,6 +63,8 @@ class DiskCache @Inject constructor(
         const val VISITS = "visits"
         const val TRIPS = "trips"
         const val PALS = "pals"
+        const val JOURNAL_STATS = "journal_stats"
+        const val JOURNAL_LIST = "journal_list"
         /** Map locations are cached per time-period, e.g. map_locations_H24. */
         fun mapLocations(period: String) = "map_locations_$period"
         fun mapStats(period: String) = "map_stats_$period"

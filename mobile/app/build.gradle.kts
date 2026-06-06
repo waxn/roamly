@@ -87,6 +87,9 @@ dependencies {
     // Coroutines
     implementation(libs.coroutines.android)
 
+    // Image loading (journal photos)
+    implementation(libs.coil.compose)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

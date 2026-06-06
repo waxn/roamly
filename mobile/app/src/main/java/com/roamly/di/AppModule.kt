@@ -141,6 +141,11 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideJournalRepository(api: RoamlyApi): com.roamly.data.repository.JournalRepository =
+        com.roamly.data.repository.JournalRepository(api)
+
+    @Provides
+    @Singleton
     fun provideTrackingDatabase(@ApplicationContext context: Context): TrackingDatabase =
         TrackingDatabase.getInstance(context)
 

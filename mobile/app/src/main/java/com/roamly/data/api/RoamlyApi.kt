@@ -6,7 +6,9 @@ import retrofit2.http.Body
 import retrofit2.http.Field
 import retrofit2.http.FormUrlEncoded
 import retrofit2.http.GET
+import retrofit2.http.Multipart
 import retrofit2.http.POST
+import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
 
@@ -242,6 +244,39 @@ interface RoamlyApi {
         @Path("id") palId: Int,
         @Path("userId") userId: Int,
     ): Response<ResponseBody>
+
+    // --- Journals ---
+
+    @GET("api/journals/")
+    suspend fun getJournals(
+        @Query("year") year: Int? = null,
+        @Query("month") month: Int? = null,
+    ): Response<JournalListResponse>
+
+    @GET("api/journals/stats/")
+    suspend fun getJournalStats(): Response<JournalStatsResponse>
+
+    @GET("api/journals/{date}/")
+    suspend fun getJournalDetail(@Path("date") date: String): Response<JournalDetailResponse>
+
+    @POST("api/journals/{date}/save/")
+    suspend fun saveJournal(
+        @Path("date") date: String,
+        @Body body: JournalSaveRequest,
+    ): Response<ResponseBody>
+
+    @POST("api/journals/{date}/delete/")
+    suspend fun deleteJournal(@Path("date") date: String): Response<ResponseBody>
+
+    @Multipart
+    @POST("api/journals/{date}/photos/")
+    suspend fun uploadJournalPhotos(
+        @Path("date") date: String,
+        @Part photos: List<okhttp3.MultipartBody.Part>,
+    ): Response<JournalPhotosResponse>
+
+    @POST("api/journals/photos/{id}/delete/")
+    suspend fun deleteJournalPhoto(@Path("id") id: Int): Response<ResponseBody>
 
     // --- Devices ---
 
