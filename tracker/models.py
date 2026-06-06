@@ -560,3 +560,49 @@ class SiteStat(models.Model):
     total_cities = models.IntegerField(default=0)
     total_meters = models.BigIntegerField(default=0)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class JournalEntry(models.Model):
+    """A DayOne-style daily journal entry. One per user per calendar day.
+
+    The map of "where you went that day" is derived on the fly from the user's
+    Location points for that date, so no track data is stored on the entry."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='journal_entries')
+    date = models.DateField(db_index=True)
+    title = models.CharField(max_length=300, blank=True)
+    body = models.TextField(blank=True)
+    mood = models.CharField(max_length=20, blank=True, help_text="Emoji or short mood label")
+    weather = models.CharField(max_length=60, blank=True)
+    is_favorite = models.BooleanField(default=False)
+    # Optional manual pin chosen on the day's map (falls back to track centroid)
+    pin_latitude = models.FloatField(null=True, blank=True)
+    pin_longitude = models.FloatField(null=True, blank=True)
+    location_name = models.CharField(max_length=300, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date']
+        unique_together = ['user', 'date']
+        indexes = [
+            models.Index(fields=['user', '-date'], name='tracker_journal_user_date'),
+        ]
+
+    def __str__(self):
+        return f"Journal {self.user.username} {self.date}"
+
+
+class JournalPhoto(models.Model):
+    """Photo attached to a journal entry."""
+    entry = models.ForeignKey(JournalEntry, on_delete=models.CASCADE, related_name='photos')
+    image = models.ImageField(upload_to='journals/')
+    thumbnail = models.ImageField(upload_to='journals/thumbs/', null=True, blank=True)
+    caption = models.CharField(max_length=300, blank=True)
+    order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return f"Photo {self.order} on journal {self.entry_id}"

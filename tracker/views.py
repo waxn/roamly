@@ -34,7 +34,7 @@ from .models import (
     Device, Location, APIKey, Adventure, AdventurePlace, POI, BackupConfig,
     UserProfile, Pal, PalMember, PalBlurb, PalBlurbPhoto, PalMilestone, PalComment,
     AdventureMember, AdventureBlurb, AdventureBlurbPhoto, AdventureMilestone, AdventureComment,
-    SiteStat,
+    SiteStat, JournalEntry, JournalPhoto,
 )
 from .image_utils import resize_image, resize_photo
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding
@@ -4609,3 +4609,327 @@ def pal_public_create_comment(request, slug, blurb_id):
         return JsonResponse({"error": "Name too long"}, status=400)
     comment = PalComment.objects.create(blurb=blurb, author=None, guest_name=name, text=text)
     return JsonResponse({"status": "ok", "comment": _serialize_comment(comment)})
+
+
+# ---------------------------------------------------------------------------
+# Journals (DayOne-style daily journaling with an on-this-day map)
+# ---------------------------------------------------------------------------
+
+def _journal_parse_date(date_str):
+    """Parse an ISO YYYY-MM-DD string into a date, or None."""
+    try:
+        return datetime.fromisoformat(date_str).date()
+    except (ValueError, TypeError):
+        return None
+
+
+def _journal_day_bounds(d):
+    """Return timezone-aware (start, end) datetimes spanning the local calendar day."""
+    start = datetime.combine(d, dt_time.min)
+    end = datetime.combine(d, dt_time.max)
+    if timezone.is_naive(start):
+        start = timezone.make_aware(start)
+    if timezone.is_naive(end):
+        end = timezone.make_aware(end)
+    return start, end
+
+
+def _journal_serialize_photo(photo):
+    return {
+        'id': photo.id,
+        'url': photo.image.url if photo.image else None,
+        'thumbnail': photo.thumbnail.url if photo.thumbnail else (photo.image.url if photo.image else None),
+        'caption': photo.caption,
+        'order': photo.order,
+    }
+
+
+def _journal_day_track(user, d):
+    """Build the GPS track + summary stats for a user's calendar day.
+
+    Returns a dict with decimated points, total distance (km), the distinct
+    cities/places visited, the bounding centroid, and the raw point count.
+    """
+    start, end = _journal_day_bounds(d)
+    qs = (Location.objects
+          .filter(device__user=user, timestamp__gte=start, timestamp__lte=end,
+                  latitude__isnull=False, longitude__isnull=False)
+          .order_by('timestamp')
+          .values('latitude', 'longitude', 'timestamp', 'city', 'state', 'country'))
+
+    raw = list(qs)
+    total = len(raw)
+    if total == 0:
+        return {
+            'points': [], 'point_count': 0, 'distance_km': 0.0,
+            'places': [], 'cities': [], 'centroid': None,
+            'start_ts': None, 'end_ts': None,
+        }
+
+    # Distance from the full-resolution track.
+    distance_km = 0.0
+    for i in range(1, total):
+        distance_km += _haversine_km(
+            raw[i - 1]['latitude'], raw[i - 1]['longitude'],
+            raw[i]['latitude'], raw[i]['longitude'],
+        )
+
+    # Distinct ordered list of place labels visited that day.
+    places = []
+    seen = set()
+    for p in raw:
+        city = (p['city'] or '').strip()
+        if not city:
+            continue
+        label = city
+        if p['state']:
+            label = f"{city}, {p['state']}"
+        key = label.lower()
+        if key not in seen:
+            seen.add(key)
+            places.append({'name': label, 'city': city, 'state': p['state'], 'country': p['country']})
+
+    # Decimate for display — cap at ~1500 points.
+    MAX_POINTS = 1500
+    if total > MAX_POINTS:
+        stride = max(1, total // MAX_POINTS)
+        sampled = raw[::stride]
+        if sampled[-1] is not raw[-1]:
+            sampled.append(raw[-1])
+    else:
+        sampled = raw
+
+    points = [[_jf(p['longitude']), _jf(p['latitude'])] for p in sampled]
+
+    centroid = [
+        sum(p['longitude'] for p in raw) / total,
+        sum(p['latitude'] for p in raw) / total,
+    ]
+
+    return {
+        'points': points,
+        'point_count': total,
+        'distance_km': round(distance_km, 2),
+        'places': places,
+        'cities': [pl['name'] for pl in places],
+        'centroid': centroid,
+        'start_ts': int(raw[0]['timestamp'].timestamp()),
+        'end_ts': int(raw[-1]['timestamp'].timestamp()),
+    }
+
+
+def _journal_compute_streaks(dates):
+    """Given a set/list of date objects, compute current + longest streaks and counts."""
+    if not dates:
+        return {'current': 0, 'longest': 0, 'total': 0}
+    dateset = set(dates)
+    today = timezone.localdate()
+
+    # Current streak: walk back from today (or yesterday if today not journaled yet).
+    current = 0
+    cursor = today
+    if today not in dateset:
+        cursor = today - timedelta(days=1)
+    while cursor in dateset:
+        current += 1
+        cursor -= timedelta(days=1)
+
+    # Longest streak across all entries.
+    longest = 0
+    for d in dateset:
+        if (d - timedelta(days=1)) not in dateset:  # start of a run
+            run = 1
+            n = d + timedelta(days=1)
+            while n in dateset:
+                run += 1
+                n += timedelta(days=1)
+            longest = max(longest, run)
+
+    return {'current': current, 'longest': longest, 'total': len(dateset)}
+
+
+@login_required
+def journals_view(request):
+    return render(request, 'tracker/journals.html')
+
+
+@login_required
+def journals_list_api(request):
+    """List journal entries, optionally scoped to a year+month, for calendar rendering."""
+    qs = JournalEntry.objects.filter(user=request.user)
+
+    year = request.GET.get('year')
+    month = request.GET.get('month')
+    if year and month:
+        try:
+            y, m = int(year), int(month)
+            qs = qs.filter(date__year=y, date__month=m)
+        except ValueError:
+            pass
+
+    qs = qs.prefetch_related('photos').order_by('-date')
+    entries = []
+    for e in qs:
+        photos = list(e.photos.all())
+        snippet = e.body.strip().split('\n')[0][:140] if e.body else ''
+        entries.append({
+            'date': e.date.isoformat(),
+            'title': e.title,
+            'snippet': snippet,
+            'mood': e.mood,
+            'weather': e.weather,
+            'is_favorite': e.is_favorite,
+            'photo_count': len(photos),
+            'cover': (photos[0].thumbnail.url if photos[0].thumbnail else photos[0].image.url) if photos else None,
+            'word_count': len(e.body.split()) if e.body else 0,
+            'location_name': e.location_name,
+        })
+    return JsonResponse({'entries': entries})
+
+
+@login_required
+def journal_stats_api(request):
+    """Streaks + lifetime journaling stats."""
+    dates = list(JournalEntry.objects.filter(user=request.user).values_list('date', flat=True))
+    streaks = _journal_compute_streaks(dates)
+    today = timezone.localdate()
+    this_year = sum(1 for d in dates if d.year == today.year)
+    this_month = sum(1 for d in dates if d.year == today.year and d.month == today.month)
+    words = 0
+    for body in JournalEntry.objects.filter(user=request.user).values_list('body', flat=True):
+        if body:
+            words += len(body.split())
+    photos = JournalPhoto.objects.filter(entry__user=request.user).count()
+    return JsonResponse({
+        'current_streak': streaks['current'],
+        'longest_streak': streaks['longest'],
+        'total_entries': streaks['total'],
+        'this_year': this_year,
+        'this_month': this_month,
+        'total_words': words,
+        'total_photos': photos,
+        'entry_dates': [d.isoformat() for d in sorted(dates)],
+    })
+
+
+@login_required
+def journal_detail_api(request, date_str):
+    """Return one entry (or an empty shell) plus that day's track + map stats."""
+    d = _journal_parse_date(date_str)
+    if d is None:
+        return JsonResponse({'error': 'Invalid date'}, status=400)
+
+    entry = JournalEntry.objects.filter(user=request.user, date=d).prefetch_related('photos').first()
+    track = _journal_day_track(request.user, d)
+
+    if entry:
+        entry_data = {
+            'exists': True,
+            'date': entry.date.isoformat(),
+            'title': entry.title,
+            'body': entry.body,
+            'mood': entry.mood,
+            'weather': entry.weather,
+            'is_favorite': entry.is_favorite,
+            'location_name': entry.location_name,
+            'pin': [entry.pin_longitude, entry.pin_latitude] if entry.pin_latitude is not None else None,
+            'photos': [_journal_serialize_photo(p) for p in entry.photos.all()],
+            'created_at': entry.created_at.isoformat(),
+            'updated_at': entry.updated_at.isoformat(),
+        }
+    else:
+        entry_data = {
+            'exists': False,
+            'date': d.isoformat(),
+            'title': '', 'body': '', 'mood': '', 'weather': '',
+            'is_favorite': False, 'location_name': '', 'pin': None, 'photos': [],
+        }
+
+    return JsonResponse({'entry': entry_data, 'track': track})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def journal_save_api(request, date_str):
+    """Create or update the entry for a day (idempotent upsert)."""
+    d = _journal_parse_date(date_str)
+    if d is None:
+        return JsonResponse({'error': 'Invalid date'}, status=400)
+
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    entry, _ = JournalEntry.objects.get_or_create(user=request.user, date=d)
+    if 'title' in data:
+        entry.title = (data.get('title') or '')[:300]
+    if 'body' in data:
+        entry.body = data.get('body') or ''
+    if 'mood' in data:
+        entry.mood = (data.get('mood') or '')[:20]
+    if 'weather' in data:
+        entry.weather = (data.get('weather') or '')[:60]
+    if 'is_favorite' in data:
+        entry.is_favorite = bool(data.get('is_favorite'))
+    if 'location_name' in data:
+        entry.location_name = (data.get('location_name') or '')[:300]
+    if 'pin' in data:
+        pin = data.get('pin')
+        if pin and isinstance(pin, (list, tuple)) and len(pin) == 2:
+            entry.pin_longitude, entry.pin_latitude = float(pin[0]), float(pin[1])
+        else:
+            entry.pin_latitude = entry.pin_longitude = None
+    entry.save()
+
+    return JsonResponse({'status': 'ok', 'date': entry.date.isoformat()})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST", "DELETE"])
+def journal_delete_api(request, date_str):
+    d = _journal_parse_date(date_str)
+    if d is None:
+        return JsonResponse({'error': 'Invalid date'}, status=400)
+    JournalEntry.objects.filter(user=request.user, date=d).delete()
+    return JsonResponse({'status': 'ok'})
+
+
+@login_required
+@require_http_methods(["POST"])
+def journal_photos_api(request, date_str):
+    """Upload one or more photos to a day's entry (creates the entry if needed)."""
+    d = _journal_parse_date(date_str)
+    if d is None:
+        return JsonResponse({'error': 'Invalid date'}, status=400)
+
+    entry, _ = JournalEntry.objects.get_or_create(user=request.user, date=d)
+    existing = entry.photos.count()
+    photos = request.FILES.getlist('photos')
+    created = []
+    for i, photo_file in enumerate(photos):
+        if existing + len(created) >= 20:
+            break
+        if photo_file.size > 15 * 1024 * 1024:
+            continue
+        try:
+            full_file, thumb_file = resize_photo(photo_file)
+        except Exception:
+            continue
+        p = JournalPhoto.objects.create(
+            entry=entry, image=full_file, thumbnail=thumb_file,
+            order=existing + i,
+        )
+        created.append(_journal_serialize_photo(p))
+    return JsonResponse({'status': 'ok', 'photos': created})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST", "DELETE"])
+def journal_photo_delete_api(request, photo_id):
+    photo = get_object_or_404(JournalPhoto, id=photo_id, entry__user=request.user)
+    photo.delete()
+    return JsonResponse({'status': 'ok'})

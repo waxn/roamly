@@ -21,6 +21,7 @@ urlpatterns = [
     path('visits/', views.visits_view, name='visits'),
     path('search/', views.search_view, name='search'),
     path('adventures/', views.adventures_view, name='adventures'),
+    path('journals/', views.journals_view, name='journals'),
     path('settings/', views.settings_view, name='settings'),
 
     # Auth
@@ -79,6 +80,15 @@ urlpatterns = [
     path('api/trip/<slug:slug>/timeline/', views.trip_public_timeline_api, name='trip_public_timeline_api'),
     path('api/trip/<slug:slug>/blurbs/<int:blurb_id>/comments/', views.trip_public_blurb_comments, name='trip_public_blurb_comments'),
     path('api/trip/<slug:slug>/blurbs/<int:blurb_id>/comments/create/', views.trip_public_create_comment, name='trip_public_create_comment'),
+
+    # Journals API
+    path('api/journals/', views.journals_list_api, name='journals_list_api'),
+    path('api/journals/stats/', views.journal_stats_api, name='journal_stats_api'),
+    path('api/journals/photos/<int:photo_id>/delete/', views.journal_photo_delete_api, name='journal_photo_delete_api'),
+    path('api/journals/<str:date_str>/', views.journal_detail_api, name='journal_detail_api'),
+    path('api/journals/<str:date_str>/save/', views.journal_save_api, name='journal_save_api'),
+    path('api/journals/<str:date_str>/delete/', views.journal_delete_api, name='journal_delete_api'),
+    path('api/journals/<str:date_str>/photos/', views.journal_photos_api, name='journal_photos_api'),
 
     # Geocoding
     path('api/geocode/', views.geocode_api, name='geocode_api'),

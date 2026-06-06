@@ -123,6 +123,12 @@ The location tracker (`tracking/LocationTrackingService.kt`) is a foreground ser
 
 **Pals** — multi-user group trips where each member contributes their own location track. Same social structure as Adventures (PalMember, PalBlurb, PalBlurbPhoto, PalMilestone, PalComment).
 
+**Journals** (DayOne-style daily journaling with an on-this-day map):
+- `JournalEntry` — one entry per user per calendar day (`unique_together = user, date`). Fields: title, body (plain text), mood (emoji), weather, is_favorite, optional pin (pin_latitude/pin_longitude/location_name), created/updated. The "where you went that day" map is **not** stored — it's derived on the fly from the user's `Location` points for that date (`_journal_day_track` in `views.py` returns a decimated track, total distance, the distinct cities/places visited, and a centroid).
+- `JournalPhoto` — photo attached to an entry (image + thumbnail via `resize_photo`, caption, order; max 20 per entry).
+
+Streaks (`_journal_compute_streaks`: current run ending today/yesterday + longest) and lifetime totals (entries, words, photos, this-year/-month) are computed from the set of entry dates. The page (`journals.html`) is a Monday-first month calendar (entry days are highlighted and show the mood emoji / favorite star / photo dot), a recent-entries list, and a two-pane editor **modal**: left = title + mood picker + weather + autosaving body (debounced `PATCH`-style upsert) + photo grid; right = a MapLibre map of that day's track (teal line, blue start dot, coral end dot) with distance/places/points overlays. All journal endpoints live under `/api/journals/`; the `<str:date_str>` detail route is registered **after** `stats/` and `photos/<id>/delete/` so those concrete routes aren't shadowed. Journals are web-only (not yet in the mobile app).
+
 **Background jobs:**
 - `GeocodingJob` — tracks geocoding progress per user (one per user, replaced on restart)
 - `POIDownloadJob` — tracks OSM POI download progress
