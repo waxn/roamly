@@ -34,13 +34,14 @@ class AuthViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(LoginUiState())
     val uiState: StateFlow<LoginUiState> = _uiState
 
-    // Logged in == we have a server + an API key. The API key never expires and the
-    // server authenticates it on every request, so the session cookie can lapse
-    // without ever signing the user out. This is what makes login "once, forever".
+    // Logged in == we have a server + a session. Logging in is session-based and does
+    // NOT need an API key — the key is only set up later for tracking. (Browsing
+    // endpoints authenticate via the session cookie; the Bearer key, once created,
+    // also satisfies them, so the app stays usable even if the cookie lapses.)
     val isLoggedIn: StateFlow<Boolean?> = combine(
         prefs.serverUrl,
-        prefs.apiKey
-    ) { url, key -> !url.isNullOrBlank() && !key.isNullOrBlank() }
+        prefs.sessionId
+    ) { url, sid -> !url.isNullOrBlank() && !sid.isNullOrBlank() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     fun onServerUrlChange(value: String) = _uiState.update { it.copy(serverUrl = value) }

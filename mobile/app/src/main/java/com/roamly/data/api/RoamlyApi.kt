@@ -22,11 +22,11 @@ interface RoamlyApi {
         @Field("csrfmiddlewaretoken") csrfToken: String,
     ): Response<ResponseBody>
 
-    @FormUrlEncoded
-    @POST("api/keys/create/")
-    suspend fun createApiKey(
-        @Field("name") name: String = "Roamly Android",
-    ): Response<ApiKeyResponse>
+    /** Idempotent: returns the account's single durable tracking key, minting one
+     *  only if none exists. Used to set up tracking from the app without ever
+     *  creating duplicate keys. */
+    @POST("api/keys/app/")
+    suspend fun ensureAppApiKey(): Response<ApiKeyResponse>
 
     // --- Push location (native tracker) ---
 

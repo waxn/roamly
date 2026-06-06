@@ -65,28 +65,39 @@ class AuthRepository @Inject constructor(
                 ?.substringBefore(";")
                 ?: return Result.Error("Invalid username or password")
 
-            // Reuse an existing API key if one is already saved (so login doesn't
-            // create a new key every time — the user can also set their own key in Settings)
-            val existingKey = prefs.apiKey.first()
-            val apiKey = if (!existingKey.isNullOrBlank()) {
-                existingKey
-            } else {
-                prefs.save(base, sessionId, "", username)
-                val keyResponse = api.createApiKey()
-                if (!keyResponse.isSuccessful) {
-                    return Result.Error("Could not create API key (${keyResponse.code()})")
-                }
-                keyResponse.body()?.key
-                    ?: return Result.Error("API key response was empty")
-            }
-
-            prefs.save(base, sessionId, apiKey, username)
+            // Logging in does NOT create or require an API key. The session is what
+            // signs you in; the key is only needed for tracking and is set up later
+            // (in Settings, automatically or by hand). Keep any key already saved so a
+            // re-login stays connected, but never mint a new one here.
+            val existingKey = prefs.apiKey.first() ?: ""
+            prefs.save(base, sessionId, existingKey, username)
 
             // Give this device a stable id automatically so the uploader works out of
-            // the box — without it, cached points pile up locally and never sync.
+            // the box once tracking is enabled — without it, cached points pile up
+            // locally and never sync.
             prefs.setDeviceIdIfUnset(defaultDeviceId())
 
             Result.Success(Unit)
+        } catch (e: Exception) {
+            Result.Error("${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+        }
+    }
+
+    /**
+     * Obtain the account's single durable tracking key, creating it once if absent.
+     * Idempotent on the server (`/api/keys/app/`): there is just one key and it works
+     * forever, so calling this repeatedly never spawns duplicates. Saves it locally.
+     */
+    suspend fun ensureApiKey(): Result<String> {
+        return try {
+            val resp = api.ensureAppApiKey()
+            if (!resp.isSuccessful) {
+                return Result.Error("Could not get API key (${resp.code()})")
+            }
+            val key = resp.body()?.key
+                ?: return Result.Error("API key response was empty")
+            prefs.setApiKey(key)
+            Result.Success(key)
         } catch (e: Exception) {
             Result.Error("${e.javaClass.simpleName}: ${e.message ?: "no message"}")
         }
