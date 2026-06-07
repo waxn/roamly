@@ -81,6 +81,17 @@ fun SettingsScreen(
         ActivityResultContracts.StartActivityForResult()
     ) { viewModel.refreshBatteryOptimizationState() }
 
+    // Fire the direct system exemption dialog; fall back to the battery-optimization
+    // settings list if the OEM blocks the direct intent.
+    fun requestBatteryExemption() {
+        val direct = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+            .setData(Uri.parse("package:${context.packageName}"))
+        val ok = runCatching { batteryOptLauncher.launch(direct) }.isSuccess
+        if (!ok) runCatching {
+            batteryOptLauncher.launch(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        }
+    }
+
     fun startTrackingWithPermissions() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
@@ -110,6 +121,29 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showBgLocationRationale = false; viewModel.toggleTracking() }) { Text("Skip") }
+            }
+        )
+    }
+
+    // Raised by the ViewModel the moment tracking starts without the Doze exemption.
+    if (state.promptBatteryExemption) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissBatteryPrompt() },
+            title = { Text("Keep tracking reliable") },
+            text = {
+                Text(
+                    "Android pauses location tracking when the screen is off unless Roamly is " +
+                        "exempt from battery optimization. Allow it so your track doesn't go spotty."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.dismissBatteryPrompt()
+                    requestBatteryExemption()
+                }) { Text("Allow") }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissBatteryPrompt() }) { Text("Not now") }
             }
         )
     }
@@ -349,16 +383,7 @@ fun SettingsScreen(
             if (!state.batteryOptimizationDisabled) {
                 Spacer(Modifier.height(10.dp))
                 ClayButton(
-                    onClick = {
-                        // Fire the direct system dialog first; fall back to the
-                        // battery-optimization settings list if the OEM blocks it.
-                        val direct = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
-                            .setData(Uri.parse("package:${context.packageName}"))
-                        val ok = runCatching { batteryOptLauncher.launch(direct) }.isSuccess
-                        if (!ok) runCatching {
-                            batteryOptLauncher.launch(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                        }
-                    },
+                    onClick = { requestBatteryExemption() },
                     gradient = listOf(Sunshine, Coral),
                     modifier = Modifier.fillMaxWidth(),
                 ) {

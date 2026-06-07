@@ -45,6 +45,9 @@ data class SettingsUiState(
     val apiKeyRequired: Boolean = false,
     val apiKeyBusy: Boolean = false,
     val apiKeyError: String? = null,
+    // One-shot: raised when tracking actually starts and the app isn't yet exempt
+    // from battery optimization, so the screen can nudge the user to grant it.
+    val promptBatteryExemption: Boolean = false,
 )
 
 @HiltViewModel
@@ -122,6 +125,17 @@ class SettingsViewModel @Inject constructor(
         // can still turn "start on boot" off afterward for a start-now-only session.
         viewModelScope.launch { prefs.setAutoStartTracking(true) }
         LocationTrackingService.start(context)
+        // The Doze exemption is the single biggest factor in reliable screen-off
+        // tracking, so nudge for it the moment tracking starts — but only if it
+        // isn't already granted. Fires for every real start path (direct or after
+        // creating the API key), never on stop or a plain settings visit.
+        if (!TrackingCoordinator.isIgnoringBatteryOptimizations(context)) {
+            _state.update { it.copy(promptBatteryExemption = true) }
+        }
+    }
+
+    fun dismissBatteryPrompt() {
+        _state.update { it.copy(promptBatteryExemption = false) }
     }
 
     /** Create (or reuse) the account's single durable tracking key, then continue
