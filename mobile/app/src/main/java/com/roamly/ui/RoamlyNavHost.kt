@@ -3,6 +3,9 @@ package com.roamly.ui
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -133,7 +136,14 @@ fun RoamlyNavHost() {
         NavHost(
             navController = navController,
             startDestination = initialRoute,
-            modifier = Modifier.padding(innerPadding)
+            modifier = Modifier.padding(innerPadding),
+            // The library default is a 700ms crossfade, which makes every tab
+            // switch feel sluggish and exposes first-frame jank. A short fade
+            // reads as near-instant.
+            enterTransition = { fadeIn(tween(120)) },
+            exitTransition = { fadeOut(tween(120)) },
+            popEnterTransition = { fadeIn(tween(120)) },
+            popExitTransition = { fadeOut(tween(120)) },
         ) {
             composable(Screen.Login.route) {
                 LoginScreen(
