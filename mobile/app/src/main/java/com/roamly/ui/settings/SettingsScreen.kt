@@ -350,6 +350,18 @@ fun SettingsScreen(
             }
             Text(syncText, style = MaterialTheme.typography.bodySmall, color = syncColor)
 
+            Spacer(Modifier.height(6.dp))
+            val cached = state.cachedPointCount
+            Text(
+                when (cached) {
+                    0 -> "All points uploaded"
+                    1 -> "1 point waiting to upload"
+                    else -> "$cached points waiting to upload"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (cached == 0) Teal else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
             Spacer(Modifier.height(12.dp))
             ClayButton(
                 onClick = viewModel::syncNow,
