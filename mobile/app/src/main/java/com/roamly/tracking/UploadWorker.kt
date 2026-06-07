@@ -93,9 +93,13 @@ class UploadWorker @AssistedInject constructor(
         const val ONETIME_TAG  = "roamly_upload_now"
         private const val PERIODIC_TAG = "roamly_upload_periodic"
 
-        fun scheduleNow(context: Context, syncOnMobileData: Boolean = true) {
+        fun scheduleNow(context: Context, syncOnMobileData: Boolean = true, replace: Boolean = false) {
+            // Automatic (point-driven) syncs use KEEP so they don't pile up. A
+            // user-initiated sync passes replace=true so it cancels any job stuck
+            // in retry-backoff and runs a fresh attempt immediately instead of being
+            // silently dropped by KEEP.
             WorkManager.getInstance(context).enqueueUniqueWork(
-                ONETIME_TAG, ExistingWorkPolicy.KEEP,
+                ONETIME_TAG, if (replace) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
                 OneTimeWorkRequestBuilder<UploadWorker>()
                     .setConstraints(
                         Constraints.Builder()

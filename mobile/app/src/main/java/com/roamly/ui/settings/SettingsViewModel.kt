@@ -43,6 +43,8 @@ data class SettingsUiState(
     val lastSyncError: String = "",
     val isSyncing: Boolean = false,
     val isRefreshing: Boolean = false,
+    /** Points logged locally but not yet uploaded. */
+    val cachedPointCount: Int = 0,
     // API key (mandatory for tracking) — prompt shown when starting without one
     val apiKeyRequired: Boolean = false,
     val apiKeyBusy: Boolean = false,
@@ -58,6 +60,7 @@ class SettingsViewModel @Inject constructor(
     private val disk: DiskCache,
     private val store: com.roamly.data.local.LocationStore,
     private val authRepository: com.roamly.data.repository.AuthRepository,
+    private val db: com.roamly.tracking.TrackingDatabase,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -98,6 +101,10 @@ class SettingsViewModel @Inject constructor(
                     val syncing = infos.any { it.state == WorkInfo.State.RUNNING }
                     _state.update { it.copy(isSyncing = syncing) }
                 }
+        }
+
+        collect(db.pointDao().unsyncedCountFlow()) { n ->
+            _state.update { it.copy(cachedPointCount = n) }
         }
     }
 
@@ -169,7 +176,7 @@ class SettingsViewModel @Inject constructor(
 
     fun syncNow() {
         viewModelScope.launch {
-            UploadWorker.scheduleNow(context, prefs.syncOnMobileData.first())
+            UploadWorker.scheduleNow(context, prefs.syncOnMobileData.first(), replace = true)
         }
     }
 
@@ -179,7 +186,7 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isRefreshing = true) }
             refreshBatteryOptimizationState()
-            UploadWorker.scheduleNow(context, prefs.syncOnMobileData.first())
+            UploadWorker.scheduleNow(context, prefs.syncOnMobileData.first(), replace = true)
             withTimeoutOrNull(8_000) {
                 WorkManager.getInstance(context)
                     .getWorkInfosByTagFlow(UploadWorker.ONETIME_TAG)
