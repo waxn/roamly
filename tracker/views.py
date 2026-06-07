@@ -4650,34 +4650,52 @@ def _journal_day_track(user, d):
     Returns a dict with decimated points, total distance (km), the distinct
     cities/places visited, the bounding centroid, and the raw point count.
     """
+    # A gap larger than this (or a change of device) breaks the drawn line into
+    # a new segment, so we never draw a straight "teleport" across a tracking
+    # gap or zig-zag between two devices' interleaved points.
+    SEGMENT_GAP_S = 20 * 60
+
     start, end = _journal_day_bounds(d)
     qs = (Location.objects
           .filter(device__user=user, timestamp__gte=start, timestamp__lte=end,
                   latitude__isnull=False, longitude__isnull=False)
-          .order_by('timestamp')
-          .values('latitude', 'longitude', 'timestamp', 'city', 'state', 'country'))
+          .order_by('device_id', 'timestamp')
+          .values('latitude', 'longitude', 'timestamp', 'city', 'state', 'country', 'device_id'))
 
     raw = list(qs)
     total = len(raw)
     if total == 0:
         return {
-            'points': [], 'point_count': 0, 'distance_km': 0.0,
+            'points': [], 'segments': [], 'point_count': 0, 'distance_km': 0.0,
             'places': [], 'cities': [], 'centroid': None,
             'start_ts': None, 'end_ts': None,
         }
 
-    # Distance from the full-resolution track.
+    # Walk per-device, time-ordered points; split into contiguous segments and
+    # only accumulate distance within a segment (never across a gap/device hop).
+    segments = []         # list of lists of raw point dicts
     distance_km = 0.0
-    for i in range(1, total):
-        distance_km += _haversine_km(
-            raw[i - 1]['latitude'], raw[i - 1]['longitude'],
-            raw[i]['latitude'], raw[i]['longitude'],
-        )
+    cur_seg = None
+    prev = None
+    for p in raw:
+        if (prev is None
+                or p['device_id'] != prev['device_id']
+                or (p['timestamp'] - prev['timestamp']).total_seconds() > SEGMENT_GAP_S):
+            cur_seg = [p]
+            segments.append(cur_seg)
+        else:
+            distance_km += _haversine_km(
+                prev['latitude'], prev['longitude'], p['latitude'], p['longitude'])
+            cur_seg.append(p)
+        prev = p
+
+    # Chronological order for start/end markers and centroid (device-agnostic).
+    chrono = sorted(raw, key=lambda p: p['timestamp'])
 
     # Distinct ordered list of place labels visited that day.
     places = []
     seen = set()
-    for p in raw:
+    for p in chrono:
         city = (p['city'] or '').strip()
         if not city:
             continue
@@ -4689,17 +4707,23 @@ def _journal_day_track(user, d):
             seen.add(key)
             places.append({'name': label, 'city': city, 'state': p['state'], 'country': p['country']})
 
-    # Decimate for display — cap at ~1500 points.
+    # Decimate for display — cap at ~1500 points across all segments, keeping
+    # each segment's first and last point so the line endpoints stay put.
     MAX_POINTS = 1500
-    if total > MAX_POINTS:
-        stride = max(1, total // MAX_POINTS)
-        sampled = raw[::stride]
-        if sampled[-1] is not raw[-1]:
-            sampled.append(raw[-1])
-    else:
-        sampled = raw
+    stride = max(1, total // MAX_POINTS) if total > MAX_POINTS else 1
 
-    points = [[_jf(p['longitude']), _jf(p['latitude'])] for p in sampled]
+    def _coords(seg):
+        if stride == 1 or len(seg) <= 2:
+            kept = seg
+        else:
+            kept = seg[::stride]
+            if kept[-1] is not seg[-1]:
+                kept.append(seg[-1])
+        return [[_jf(p['longitude']), _jf(p['latitude'])] for p in kept]
+
+    seg_coords = [c for c in (_coords(s) for s in segments) if len(c) >= 2]
+    # Flat list of points (kept for back-compat / bounds fitting).
+    points = [c for seg in seg_coords for c in seg]
 
     centroid = [
         sum(p['longitude'] for p in raw) / total,
@@ -4708,13 +4732,16 @@ def _journal_day_track(user, d):
 
     return {
         'points': points,
+        'segments': seg_coords,
         'point_count': total,
         'distance_km': round(distance_km, 2),
         'places': places,
         'cities': [pl['name'] for pl in places],
         'centroid': centroid,
-        'start_ts': int(raw[0]['timestamp'].timestamp()),
-        'end_ts': int(raw[-1]['timestamp'].timestamp()),
+        'start': [_jf(chrono[0]['longitude']), _jf(chrono[0]['latitude'])],
+        'end': [_jf(chrono[-1]['longitude']), _jf(chrono[-1]['latitude'])],
+        'start_ts': int(chrono[0]['timestamp'].timestamp()),
+        'end_ts': int(chrono[-1]['timestamp'].timestamp()),
     }
 
 

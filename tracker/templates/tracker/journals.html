@@ -734,14 +734,19 @@ function renderDayMap(track) {
 
         if (!track.points || track.points.length === 0) return;
 
-        jmap.addSource('line', {type:'geojson', data:{type:'Feature', geometry:{type:'LineString', coordinates:track.points}}});
+        // Each segment is a contiguous run of points (split on tracking gaps /
+        // device changes) so the line never teleports straight across a gap.
+        const segs = (track.segments && track.segments.length) ? track.segments : [track.points];
+        jmap.addSource('line', {type:'geojson', data:{type:'Feature', geometry:{type:'MultiLineString', coordinates:segs}}});
         jmap.addLayer({id:'j-line', type:'line', source:'line',
             layout:{'line-join':'round','line-cap':'round'},
             paint:{'line-color':'#0DBFAC','line-width':4,'line-opacity':0.9,'line-blur':0.3}});
 
+        const startPt = track.start || track.points[0];
+        const endPt = track.end || track.points[track.points.length-1];
         const startend = {type:'FeatureCollection', features:[
-            {type:'Feature', properties:{kind:'start'}, geometry:{type:'Point', coordinates:track.points[0]}},
-            {type:'Feature', properties:{kind:'end'}, geometry:{type:'Point', coordinates:track.points[track.points.length-1]}},
+            {type:'Feature', properties:{kind:'start'}, geometry:{type:'Point', coordinates:startPt}},
+            {type:'Feature', properties:{kind:'end'}, geometry:{type:'Point', coordinates:endPt}},
         ]};
         jmap.addSource('startend', {type:'geojson', data:startend});
         jmap.addLayer({id:'j-start', type:'circle', source:'startend', filter:['==','kind','start'],
