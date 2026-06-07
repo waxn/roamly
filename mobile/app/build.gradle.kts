@@ -22,6 +22,10 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
+            // Signed with the auto-generated debug keystore so the optimized
+            // (R8, non-debuggable) build installs locally. Swap for a real
+            // upload keystore before publishing to the Play Store.
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
