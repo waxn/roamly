@@ -30,7 +30,6 @@ data class SettingsUiState(
     val isTracking: Boolean = false,
     val trackingIntervalSecs: Int = 30,
     val maxAccuracyM: Int = 100,
-    val minDistanceM: Int = 10,
     val locationPriority: String = "auto",
     val autoStartTracking: Boolean = true,
     val syncOnMobileData: Boolean = true,
@@ -76,7 +75,6 @@ class SettingsViewModel @Inject constructor(
         collect(prefs.isTrackingActive)      { v -> _state.update { it.copy(isTracking = v) } }
         collect(prefs.trackingIntervalSecs)  { v -> _state.update { it.copy(trackingIntervalSecs = v) } }
         collect(prefs.maxAccuracyM)          { v -> _state.update { it.copy(maxAccuracyM = v) } }
-        collect(prefs.minDistanceM)          { v -> _state.update { it.copy(minDistanceM = v) } }
         collect(prefs.locationPriority)      { v -> _state.update { it.copy(locationPriority = v) } }
         collect(prefs.autoStartTracking)     { v -> _state.update { it.copy(autoStartTracking = v) } }
         collect(prefs.syncOnMobileData)      { v -> _state.update { it.copy(syncOnMobileData = v) } }
@@ -208,15 +206,11 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setTrackingIntervalSecs(secs: Int) {
-        viewModelScope.launch { prefs.setTrackingIntervalSecs(secs.coerceIn(5, 3600)) }
+        viewModelScope.launch { prefs.setTrackingIntervalSecs(secs.coerceIn(5, 120)) }
     }
 
     fun setMaxAccuracyM(metres: Int) {
         viewModelScope.launch { prefs.setMaxAccuracyM(metres.coerceAtLeast(1)) }
-    }
-
-    fun setMinDistanceM(metres: Int) {
-        viewModelScope.launch { prefs.setMinDistanceM(metres.coerceIn(0, 1000)) }
     }
 
     fun setLocationPriority(priority: String) {

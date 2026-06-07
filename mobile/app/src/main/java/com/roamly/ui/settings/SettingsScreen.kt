@@ -269,7 +269,7 @@ fun SettingsScreen(
                 options = intervalOptions.map { it.first },
                 selectedIndex = intervalOptions.indexOfFirst { it.second == state.trackingIntervalSecs }.let { if (it < 0) -1 else it },
                 onSelect = { viewModel.setTrackingIntervalSecs(intervalOptions[it].second) },
-                onLongEdit = { editTarget = EditTarget.Interval(state.trackingIntervalSecs.toString(), "Update interval", "Seconds between fixes (5–3600)") },
+                onLongEdit = { editTarget = EditTarget.Interval(state.trackingIntervalSecs.toString(), "Update interval", "Seconds between fixes (5–120)") },
                 customLabel = if (intervalOptions.none { it.second == state.trackingIntervalSecs }) "${state.trackingIntervalSecs}s" else null,
             )
 
@@ -280,15 +280,6 @@ fun SettingsScreen(
                 options = priorityOptions.map { it.first },
                 selectedIndex = priorityOptions.indexOfFirst { it.second == state.locationPriority },
                 onSelect = { viewModel.setLocationPriority(priorityOptions[it].second) },
-            )
-
-            Spacer(Modifier.height(16.dp))
-            SettingLabel("Minimum movement", "Skip points closer than this to the last")
-            Spacer(Modifier.height(8.dp))
-            ChipSelector(
-                options = distanceOptions.map { it.first },
-                selectedIndex = distanceOptions.indexOfFirst { it.second == state.minDistanceM },
-                onSelect = { viewModel.setMinDistanceM(distanceOptions[it].second) },
             )
 
             Spacer(Modifier.height(16.dp))
@@ -311,9 +302,7 @@ fun SettingsScreen(
             )
             if (advancedGps) {
                 Spacer(Modifier.height(12.dp))
-                AdvancedNumberField("Interval (seconds)", state.trackingIntervalSecs, "5–3600") { viewModel.setTrackingIntervalSecs(it) }
-                Spacer(Modifier.height(10.dp))
-                AdvancedNumberField("Min movement (metres)", state.minDistanceM, "0 = every fix") { viewModel.setMinDistanceM(it) }
+                AdvancedNumberField("Interval (seconds)", state.trackingIntervalSecs, "5–120") { viewModel.setTrackingIntervalSecs(it) }
                 Spacer(Modifier.height(10.dp))
                 AdvancedNumberField("Max accuracy (metres)", state.maxAccuracyM, "discard worse fixes") { viewModel.setMaxAccuracyM(it) }
             }
@@ -751,13 +740,10 @@ private sealed class EditTarget(
 // ── Option tables ──────────────────────────────────────────────────────────────
 
 private val intervalOptions = listOf(
-    "5s" to 5, "10s" to 10, "30s" to 30, "1m" to 60, "2m" to 120, "5m" to 300,
+    "5s" to 5, "10s" to 10, "15s" to 15, "30s" to 30, "1m" to 60, "2m" to 120,
 )
 private val priorityOptions = listOf(
     "Auto" to "auto", "High" to "high", "Balanced" to "balanced", "Low" to "low",
-)
-private val distanceOptions = listOf(
-    "Every fix" to 0, "5m" to 5, "10m" to 10, "25m" to 25, "50m" to 50, "100m" to 100,
 )
 private val accuracyOptions = listOf(
     "20m" to 20, "50m" to 50, "100m" to 100, "200m" to 200,
