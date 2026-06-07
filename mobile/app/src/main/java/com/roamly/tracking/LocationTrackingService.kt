@@ -23,7 +23,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 private const val TAG = "LocationTrackingService"
@@ -245,6 +244,7 @@ class LocationTrackingService : Service() {
                 currentConfig = cfg
                 filter.minDistanceMetres = cfg.minDistanceM
                 filter.maxAccuracyMetres = cfg.maxAccuracyM
+                filter.minTimeBetweenMs = cfg.intervalMs
                 Log.i(TAG, "Applying config: interval=${cfg.intervalMs}ms priority=${cfg.priority} minDist=${cfg.minDistanceM}m maxAcc=${cfg.maxAccuracyM}m")
                 startLocationUpdates(cfg)
             }
@@ -298,11 +298,6 @@ class LocationTrackingService : Service() {
     private fun buildRequest(cfg: TrackingConfig): LocationRequest {
         val intervalMs = cfg.intervalMs
         val fastestIntervalMs = (intervalMs / 2).coerceAtLeast(5_000L)
-        val maxDelayMs = when {
-            intervalMs <= 15_000L -> intervalMs
-            intervalMs <= 60_000L -> intervalMs * 2
-            else -> minOf(intervalMs * 3, TimeUnit.MINUTES.toMillis(15))
-        }
         val priority = when (cfg.priority) {
             "high"     -> Priority.PRIORITY_HIGH_ACCURACY
             "balanced" -> Priority.PRIORITY_BALANCED_POWER_ACCURACY
@@ -312,9 +307,17 @@ class LocationTrackingService : Service() {
         }
         return LocationRequest.Builder(priority, intervalMs)
             .setMinUpdateIntervalMillis(fastestIntervalMs)
-            .setMaxUpdateDelayMillis(maxDelayMs)
-            .setMinUpdateDistanceMeters(cfg.minDistanceM)
-            .setWaitForAccurateLocation(priority == Priority.PRIORITY_HIGH_ACCURACY)
+            // No extra batching — deliver each fix as it's produced instead of
+            // letting the OS collect a burst and hand them over all at once.
+            .setMaxUpdateDelayMillis(intervalMs)
+            // CRITICAL: deliver on the time interval regardless of movement.
+            // Gating delivery on displacement (the old min-update-distance) meant
+            // the OS sent NOTHING while stopped or moving slowly — that's what
+            // produced "a few points then a multi-minute break". Dedup, if any,
+            // now happens in LocationFilter where it can't suppress the cadence.
+            .setMinUpdateDistanceMeters(0f)
+            // Don't withhold fixes waiting for a more-accurate one; take what comes.
+            .setWaitForAccurateLocation(false)
             .build()
     }
 
