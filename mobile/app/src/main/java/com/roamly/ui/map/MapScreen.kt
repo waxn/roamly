@@ -53,7 +53,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -188,9 +187,13 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
         if (granted) startNearHere()
     }
 
-    // Apply new points to both overlays + auto-fit when not following a focus
+    // Apply new points to both overlays + auto-fit when not following a focus.
+    // Keyed on the data (not a bare SideEffect) so it only rebuilds the overlay
+    // geometry when locations actually change — a SideEffect here re-pushed the
+    // whole point list and invalidated the map on every recomposition (e.g. during
+    // navigation transitions), hammering the main thread.
     var didAutoFit by remember { mutableStateOf(false) }
-    SideEffect {
+    LaunchedEffect(state.locations) {
         heatmapOverlay.setPoints(state.locations)
         pointsOverlay.setPoints(state.locations)
         if (!didAutoFit && state.focus == null && state.locations.isNotEmpty()) {
