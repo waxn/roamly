@@ -7,23 +7,19 @@ private const val TAG = "LocationFilter"
 
 /**
  * Rejects fixes that are stale or too inaccurate, and de-duplicates fixes that
- * land on essentially the same spot — but never at the cost of the time cadence:
- * once [minTimeBetweenMs] has elapsed since the last accepted point a fix is kept
- * even if the device hasn't moved, so a stationary user still logs a point every
- * interval instead of dropping out for minutes.
+ * arrive faster than the tracking interval. It **never filters by movement** — a
+ * stationary user keeps logging a point every interval on purpose, so dwelling in
+ * one place shows up as a dense cluster ("big dot") on the map.
  */
 class LocationFilter(
     /** Reject fixes with accuracy circle wider than this (metres). */
     var maxAccuracyMetres: Float = 100f,
     /** Reject fixes older than this (ms). */
     var maxAgeMs: Long = 30_000L,
-    /** De-dup threshold: a closer fix is dropped unless [minTimeBetweenMs] has passed. */
-    var minDistanceMetres: Float = 10f,
-    /** Always accept once this long has passed since the last accepted fix, even if
-     *  the device hasn't moved. Set to the tracking interval; 0 disables the escape. */
+    /** Drop fixes that arrive closer together in time than this (the tracking
+     *  interval). 0 disables de-dup. Purely time-based — no displacement check. */
     var minTimeBetweenMs: Long = 0L,
 ) {
-    private var lastAcceptedLocation: Location? = null
     private var lastAcceptedTimeMs: Long = 0L
 
     fun accept(loc: Location): Boolean {
@@ -36,24 +32,19 @@ class LocationFilter(
             Log.d(TAG, "Rejected inaccurate fix: ${loc.accuracy}m > max ${maxAccuracyMetres}m")
             return false
         }
-        lastAcceptedLocation?.let { prev ->
-            val movedEnough = loc.distanceTo(prev) >= minDistanceMetres
-            // Allow a little slack (80%) so the OS firing slightly early doesn't skip
-            // a whole cadence cycle.
-            val waitedEnough = minTimeBetweenMs > 0L &&
-                (loc.time - lastAcceptedTimeMs) >= minTimeBetweenMs * 8 / 10
-            if (!movedEnough && !waitedEnough) {
-                Log.d(TAG, "Rejected duplicate fix: < ${minDistanceMetres}m and within cadence")
-                return false
-            }
+        // Time-based de-dup only (with 80% slack so an early fire doesn't skip a
+        // cycle). Never a distance check — stationary points are kept by design.
+        if (minTimeBetweenMs > 0L && lastAcceptedTimeMs > 0L &&
+            (loc.time - lastAcceptedTimeMs) < minTimeBetweenMs * 8 / 10
+        ) {
+            Log.d(TAG, "Rejected fix arriving faster than the interval")
+            return false
         }
-        lastAcceptedLocation = Location(loc)
         lastAcceptedTimeMs = loc.time
         return true
     }
 
     fun reset() {
-        lastAcceptedLocation = null
         lastAcceptedTimeMs = 0L
     }
 }

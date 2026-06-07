@@ -31,6 +31,11 @@ private const val UPLOAD_SCHEDULE_MIN_INTERVAL_MS = 60_000L
 private const val UPLOAD_BATCH_TRIGGER_COUNT = 10
 private const val REQUEST_ACCURATE_LOCATION_MS = 30_000L
 private const val WATCHDOG_CHECK_MS = 60_000L
+// Only pin the CPU awake for short, high-fidelity intervals. There the GPS is in
+// continuous mode and the CPU is waking constantly anyway, so the marginal battery
+// cost is small and it keeps fixes/watchdog from stalling. At longer intervals we
+// let the CPU sleep between fixes to save battery.
+private const val WAKELOCK_MAX_INTERVAL_MS = 15_000L
 
 const val ACTION_STOP    = "com.roamly.STOP"
 const val ACTION_PAUSE   = "com.roamly.PAUSE"
@@ -40,7 +45,6 @@ const val ACTION_RESUME  = "com.roamly.RESUME"
 private data class TrackingConfig(
     val intervalMs: Long,
     val priority: String,
-    val minDistanceM: Float,
     val maxAccuracyM: Float,
 )
 
@@ -95,7 +99,7 @@ class LocationTrackingService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_PAUSE  -> { isPaused = true;  filter.reset(); releaseWakeLock(); updateNotification(); return START_STICKY }
-            ACTION_RESUME -> { isPaused = false; acquireWakeLock(); updateNotification(); return START_STICKY }
+            ACTION_RESUME -> { isPaused = false; updateWakeLock(); updateNotification(); return START_STICKY }
         }
 
         // A null intent means the OS re-created us after a low-memory kill (START_STICKY).
@@ -118,9 +122,8 @@ class LocationTrackingService : Service() {
             prefs.setTrackingEnabled(true)
             prefs.setTrackingActive(true)
         }
-        if (!isPaused) acquireWakeLock()
         observeRuntimePreferences()
-        observeConfig()
+        observeConfig()  // applies the live config and calls updateWakeLock()
         startWatchdog()
         seedLastLocation()
         registerProviderChangeReceiver()
@@ -134,12 +137,21 @@ class LocationTrackingService : Service() {
         return START_STICKY
     }
 
-    /** Hold a partial wake lock while actively tracking. The CPU otherwise sleeps
-     *  between fixes when the screen is off, deferring location callbacks and
-     *  freezing the watchdog's delay() loop — which is what left multi-minute gaps
-     *  in the track. An app exempt from battery optimization is allowed to hold this
-     *  through Doze, so paired with that exemption it keeps fixes flowing on cadence.
-     *  Not reference-counted, so acquire/release are idempotent. */
+    /** Acquire or release the wake lock based on the current interval + pause state:
+     *  pinned only for short intervals (<= [WAKELOCK_MAX_INTERVAL_MS]) where it's
+     *  cheap relative to the always-on GPS; otherwise released so the CPU can sleep
+     *  between fixes and save battery. */
+    private fun updateWakeLock() {
+        val cfg = currentConfig
+        if (!isPaused && cfg != null && cfg.intervalMs <= WAKELOCK_MAX_INTERVAL_MS) acquireWakeLock()
+        else releaseWakeLock()
+    }
+
+    /** Hold a partial wake lock so the CPU doesn't sleep between frequent fixes
+     *  (which would defer location callbacks and freeze the watchdog's delay() loop).
+     *  An app exempt from battery optimization may hold this through Doze. Gated by
+     *  [updateWakeLock] to short intervals only. Not reference-counted, so
+     *  acquire/release are idempotent. */
     private fun acquireWakeLock() {
         if (wakeLock?.isHeld == true) return
         runCatching {
@@ -231,22 +243,20 @@ class LocationTrackingService : Service() {
             combine(
                 prefs.trackingIntervalSecs,
                 prefs.locationPriority,
-                prefs.minDistanceM,
                 prefs.maxAccuracyM,
-            ) { interval, priority, minDist, maxAcc ->
+            ) { interval, priority, maxAcc ->
                 TrackingConfig(
-                    intervalMs = interval.coerceIn(5, 3600) * 1000L,
+                    intervalMs = interval.coerceIn(5, 120) * 1000L,
                     priority = priority,
-                    minDistanceM = minDist.coerceAtLeast(0).toFloat(),
                     maxAccuracyM = maxAcc.coerceAtLeast(1).toFloat(),
                 )
             }.distinctUntilChanged().collect { cfg ->
                 currentConfig = cfg
-                filter.minDistanceMetres = cfg.minDistanceM
                 filter.maxAccuracyMetres = cfg.maxAccuracyM
                 filter.minTimeBetweenMs = cfg.intervalMs
-                Log.i(TAG, "Applying config: interval=${cfg.intervalMs}ms priority=${cfg.priority} minDist=${cfg.minDistanceM}m maxAcc=${cfg.maxAccuracyM}m")
+                Log.i(TAG, "Applying config: interval=${cfg.intervalMs}ms priority=${cfg.priority} maxAcc=${cfg.maxAccuracyM}m")
                 startLocationUpdates(cfg)
+                updateWakeLock()
             }
         }
     }
@@ -297,7 +307,6 @@ class LocationTrackingService : Service() {
 
     private fun buildRequest(cfg: TrackingConfig): LocationRequest {
         val intervalMs = cfg.intervalMs
-        val fastestIntervalMs = (intervalMs / 2).coerceAtLeast(5_000L)
         val priority = when (cfg.priority) {
             "high"     -> Priority.PRIORITY_HIGH_ACCURACY
             "balanced" -> Priority.PRIORITY_BALANCED_POWER_ACCURACY
@@ -305,18 +314,16 @@ class LocationTrackingService : Service() {
             else       -> if (intervalMs <= REQUEST_ACCURATE_LOCATION_MS)
                 Priority.PRIORITY_HIGH_ACCURACY else Priority.PRIORITY_BALANCED_POWER_ACCURACY
         }
+        // One fix per interval, on time, regardless of movement:
+        //  - no setMinUpdateIntervalMillis: the floor defaults to the interval, so
+        //    the provider won't deliver (and burn battery on) extra sub-interval fixes.
+        //  - maxUpdateDelay == interval: no batching, deliver each fix as produced.
+        //  - minUpdateDistance 0: never gate delivery on displacement — stationary
+        //    still logs every interval (those stacked dots are the dwell feature).
+        //  - don't wait for an "accurate" fix; take what comes.
         return LocationRequest.Builder(priority, intervalMs)
-            .setMinUpdateIntervalMillis(fastestIntervalMs)
-            // No extra batching — deliver each fix as it's produced instead of
-            // letting the OS collect a burst and hand them over all at once.
             .setMaxUpdateDelayMillis(intervalMs)
-            // CRITICAL: deliver on the time interval regardless of movement.
-            // Gating delivery on displacement (the old min-update-distance) meant
-            // the OS sent NOTHING while stopped or moving slowly — that's what
-            // produced "a few points then a multi-minute break". Dedup, if any,
-            // now happens in LocationFilter where it can't suppress the cadence.
             .setMinUpdateDistanceMeters(0f)
-            // Don't withhold fixes waiting for a more-accurate one; take what comes.
             .setWaitForAccurateLocation(false)
             .build()
     }
