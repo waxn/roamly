@@ -116,6 +116,13 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
             val heatmap = HeatmapOverlay()
             val points = PointsOverlay()
             val mv = MapView(appContext).apply {
+                // CRITICAL for tab reuse: osmdroid's onDetachedFromWindow() calls
+                // onDetach() when destroyMode is true (the default), which destroys
+                // the tile provider AND overlays the moment we navigate away — so
+                // the retained MapView came back as a blank grid with no points.
+                // Turning it off keeps the view alive across tab switches; we still
+                // tear it down manually in the ViewModel's onCleared().
+                setDestroyMode(false)
                 setTileSource(org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK)
                 setMultiTouchControls(true)
                 controller.setZoom(10.0)
