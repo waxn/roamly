@@ -65,6 +65,7 @@ class LocationTrackingService : Service() {
     private var watchdogJob: Job? = null
     private var syncPrefJob: Job? = null
     private var providerReceiver: BroadcastReceiver? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -94,8 +95,8 @@ class LocationTrackingService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
-            ACTION_PAUSE  -> { isPaused = true;  filter.reset(); updateNotification(); return START_STICKY }
-            ACTION_RESUME -> { isPaused = false; updateNotification(); return START_STICKY }
+            ACTION_PAUSE  -> { isPaused = true;  filter.reset(); releaseWakeLock(); updateNotification(); return START_STICKY }
+            ACTION_RESUME -> { isPaused = false; acquireWakeLock(); updateNotification(); return START_STICKY }
         }
 
         // A null intent means the OS re-created us after a low-memory kill (START_STICKY).
@@ -118,6 +119,7 @@ class LocationTrackingService : Service() {
             prefs.setTrackingEnabled(true)
             prefs.setTrackingActive(true)
         }
+        if (!isPaused) acquireWakeLock()
         observeRuntimePreferences()
         observeConfig()
         startWatchdog()
@@ -133,6 +135,28 @@ class LocationTrackingService : Service() {
         return START_STICKY
     }
 
+    /** Hold a partial wake lock while actively tracking. The CPU otherwise sleeps
+     *  between fixes when the screen is off, deferring location callbacks and
+     *  freezing the watchdog's delay() loop — which is what left multi-minute gaps
+     *  in the track. An app exempt from battery optimization is allowed to hold this
+     *  through Doze, so paired with that exemption it keeps fixes flowing on cadence.
+     *  Not reference-counted, so acquire/release are idempotent. */
+    private fun acquireWakeLock() {
+        if (wakeLock?.isHeld == true) return
+        runCatching {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Roamly::tracking").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        }.onFailure { Log.e(TAG, "Failed to acquire wake lock", it) }
+    }
+
+    private fun releaseWakeLock() {
+        runCatching { if (wakeLock?.isHeld == true) wakeLock?.release() }
+        wakeLock = null
+    }
+
     /** Promote to a foreground service. Idempotent; safe to call repeatedly. */
     private fun goForeground() {
         runCatching {
@@ -142,6 +166,7 @@ class LocationTrackingService : Service() {
 
     override fun onDestroy() {
         stopLocationUpdates()
+        releaseWakeLock()
         unregisterProviderChangeReceiver()
         configJob?.cancel()
         watchdogJob?.cancel()
