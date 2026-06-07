@@ -15,6 +15,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 
 data class SettingsUiState(
@@ -41,6 +42,7 @@ data class SettingsUiState(
     val lastSyncCount: Int = 0,
     val lastSyncError: String = "",
     val isSyncing: Boolean = false,
+    val isRefreshing: Boolean = false,
     // API key (mandatory for tracking) — prompt shown when starting without one
     val apiKeyRequired: Boolean = false,
     val apiKeyBusy: Boolean = false,
@@ -90,9 +92,10 @@ class SettingsViewModel @Inject constructor(
             WorkManager.getInstance(context)
                 .getWorkInfosByTagFlow(UploadWorker.ONETIME_TAG)
                 .collect { infos ->
-                    val syncing = infos.any {
-                        it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED
-                    }
+                    // Only RUNNING is actually syncing. An ENQUEUED one-time worker is
+                    // just waiting (network constraint, or backoff after a failed try),
+                    // which previously made the indicator stick on "Syncing…" forever.
+                    val syncing = infos.any { it.state == WorkInfo.State.RUNNING }
                     _state.update { it.copy(isSyncing = syncing) }
                 }
         }
@@ -167,6 +170,25 @@ class SettingsViewModel @Inject constructor(
     fun syncNow() {
         viewModelScope.launch {
             UploadWorker.scheduleNow(context, prefs.syncOnMobileData.first())
+        }
+    }
+
+    /** Pull-to-refresh: kick a sync and re-read live state, holding the spinner until
+     *  the upload actually finishes (or 8s elapse so it can never stick). */
+    fun refresh() {
+        viewModelScope.launch {
+            _state.update { it.copy(isRefreshing = true) }
+            refreshBatteryOptimizationState()
+            UploadWorker.scheduleNow(context, prefs.syncOnMobileData.first())
+            withTimeoutOrNull(8_000) {
+                WorkManager.getInstance(context)
+                    .getWorkInfosByTagFlow(UploadWorker.ONETIME_TAG)
+                    // Skip the current snapshot so a lingering already-finished WorkInfo
+                    // can't end the refresh instantly; wait for the fresh run to finish.
+                    .drop(1)
+                    .first { infos -> infos.isNotEmpty() && infos.all { it.state.isFinished } }
+            }
+            _state.update { it.copy(isRefreshing = false) }
         }
     }
 
