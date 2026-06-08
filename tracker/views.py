@@ -12,6 +12,7 @@ import urllib.parse
 import urllib.request
 from collections import defaultdict
 from datetime import datetime, date, time as dt_time, timedelta, timezone as dt_timezone
+from itertools import groupby
 
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
@@ -1290,6 +1291,93 @@ def _haversine_km(lat1, lon1, lat2, lon2):
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
+# ── Distance accumulation (GPS-jitter resistant) ──────────────────────────────
+# Summing the straight line between every consecutive fix turns a stationary
+# device that logs rapidly (e.g. GPSLogger at 1 fix/sec) into thousands of phantom
+# miles: each fix jitters by metres-to-tens-of-metres and that random walk piles
+# up. Two-stage defence: (1) resample to a short time-window *centroid* — averaging
+# N jittery fixes collapses their noise by ~√N, so a stationary cluster's centroids
+# barely move; (2) *anchor-gate* the centroids — only credit movement that clears
+# the GPS error bars, and don't let a stray fix walk the anchor off true position.
+_DIST_WINDOW_S = 30            # resample window: centroid of all fixes in each 30s bin
+_DIST_MIN_GATE_M = 25.0        # ignore moves below this even with a perfect fix
+_DIST_ACC_GATE_MULT = 2.5      # ...otherwise require 2.5× the (worse) reported accuracy
+_DIST_DEFAULT_ACC_M = 15.0     # assumed accuracy when a fix reports none
+_DIST_MAX_ACCURACY_M = 100.0   # drop fixes less accurate than this from the distance stream
+_DIST_MAX_SPEED_MPS = 280.0    # ~1000 km/h: a faster segment is a GPS teleport, not travel
+_DIST_GAP_RESET_S = 7200       # >2h between fixes → separate trip, re-anchor
+
+
+def _seg_distance_m(anchor, pt):
+    """Metres to credit for moving anchor→pt, and whether to advance the anchor.
+
+    `anchor`/`pt` are ``(lat, lon, epoch_seconds, accuracy)``. Rejects
+    sub-uncertainty jitter and teleport spikes. Returns
+    ``(credit_metres, advance_anchor)``; the caller keeps the same anchor when
+    ``advance_anchor`` is False so back-and-forth noise can't add.
+    """
+    a_lat, a_lon, a_ts, a_acc = anchor
+    lat, lon, ts, acc = pt
+    dt = ts - a_ts
+    if dt <= 0 or dt > _DIST_GAP_RESET_S:
+        return 0.0, True   # out of order / separate trip → re-anchor, count nothing
+    d_m = _haversine_km(a_lat, a_lon, lat, lon) * 1000.0
+    # Must clear the combined position uncertainty (and a hard floor): a "move"
+    # smaller than your error bars is indistinguishable from noise.
+    gate = max(_DIST_MIN_GATE_M,
+               _DIST_ACC_GATE_MULT * max(a_acc or _DIST_DEFAULT_ACC_M, acc or _DIST_DEFAULT_ACC_M))
+    if d_m < gate:
+        return 0.0, False  # within noise → keep the anchor put
+    if d_m / dt > _DIST_MAX_SPEED_MPS:
+        return 0.0, False  # implausible jump → ignore the spike, keep the anchor
+    return d_m, True       # real movement → count it and advance
+
+
+def _gated_distance_segments(points):
+    """Yield ``(ts, km)`` for each credited travel segment of one device's track.
+
+    `points` is a time-ordered iterable of ``(lat, lon, ts, accuracy)`` (``ts`` a
+    datetime). Fixes are resampled to ``_DIST_WINDOW_S`` centroids to kill GPS
+    jitter, then gated by [_seg_distance_m]. ``ts`` of each yield is the window's
+    last fix time (for day/hour bucketing).
+    """
+    anchor = None     # (lat, lon, epoch, acc)
+    win = None        # [win_id, sum_lat, sum_lon, sum_epoch, sum_acc, n, last_dt]
+
+    def _finalize(w):
+        nonlocal anchor
+        n = w[5]
+        clat, clon, cep, cacc = w[1] / n, w[2] / n, w[3] / n, w[4] / n
+        cdt = w[6]
+        if anchor is None:
+            anchor = (clat, clon, cep, cacc)
+            return None
+        credit_m, advance = _seg_distance_m(anchor, (clat, clon, cep, cacc))
+        if advance:
+            anchor = (clat, clon, cep, cacc)
+        return (cdt, credit_m / 1000.0) if credit_m else None
+
+    for lat, lon, ts, acc in points:
+        if acc is not None and acc > _DIST_MAX_ACCURACY_M:
+            continue
+        epoch = ts.timestamp()
+        wid = int(epoch // _DIST_WINDOW_S)
+        a = acc if acc is not None else _DIST_DEFAULT_ACC_M
+        if win is None:
+            win = [wid, lat, lon, epoch, a, 1, ts]
+        elif wid == win[0]:
+            win[1] += lat; win[2] += lon; win[3] += epoch; win[4] += a; win[5] += 1; win[6] = ts
+        else:
+            seg = _finalize(win)
+            if seg:
+                yield seg
+            win = [wid, lat, lon, epoch, a, 1, ts]
+    if win is not None:
+        seg = _finalize(win)
+        if seg:
+            yield seg
+
+
 @login_required
 def distance_api(request):
     """Daily distance travelled, computed from sequential location points."""
@@ -1326,29 +1414,22 @@ def distance_api(request):
         locations = locations.filter(device__device_id=device_id)
 
     locations = locations.order_by('device', 'timestamp').values_list(
-        'device_id', 'latitude', 'longitude', 'timestamp'
+        'device_id', 'latitude', 'longitude', 'timestamp', 'accuracy'
     ).iterator(chunk_size=10000)
 
     granularity = request.GET.get("granularity", "daily")
     bucket_km = defaultdict(float)
     total_km = 0.0
-    prev = {}  # per-device previous point
 
-    for dev_id, lat, lon, ts in locations:
-        if granularity == "hourly":
-            key = ts.strftime('%Y-%m-%d %H')
-        else:
-            key = ts.strftime('%Y-%m-%d')
-        if dev_id in prev:
-            p_lat, p_lon, p_ts = prev[dev_id]
-            # Skip if gap > 2 hours (likely separate trips, not continuous travel)
-            if (ts - p_ts).total_seconds() <= 7200:
-                d = _haversine_km(p_lat, p_lon, lat, lon)
-                # Skip unreasonable jumps (> 500 km between consecutive points)
-                if 0.03 <= d <= 500:
-                    bucket_km[key] += d
-                    total_km += d
-        prev[dev_id] = (lat, lon, ts)
+    # The stream is ordered by device then time; per device, resample to ~30s
+    # centroids and gate (see _gated_distance_segments) so a stationary
+    # high-frequency log can't inflate mileage.
+    for _dev_id, grp in groupby(locations, key=lambda r: r[0]):
+        dev_points = ((lat, lon, ts, acc) for _d, lat, lon, ts, acc in grp)
+        for cdt, km in _gated_distance_segments(dev_points):
+            key = cdt.strftime('%Y-%m-%d %H') if granularity == "hourly" else cdt.strftime('%Y-%m-%d')
+            bucket_km[key] += km
+            total_km += km
 
     keys = sorted(bucket_km.keys())
     result = {
@@ -4800,7 +4881,7 @@ def _journal_day_track(user, d):
           .filter(device__user=user, timestamp__gte=start, timestamp__lte=end,
                   latitude__isnull=False, longitude__isnull=False)
           .order_by('device_id', 'timestamp')
-          .values('latitude', 'longitude', 'timestamp', 'city', 'state', 'country', 'device_id'))
+          .values('latitude', 'longitude', 'timestamp', 'city', 'state', 'country', 'device_id', 'accuracy'))
 
     raw = list(qs)
     total = len(raw)
@@ -4814,7 +4895,6 @@ def _journal_day_track(user, d):
     # Walk per-device, time-ordered points; split into contiguous segments and
     # only accumulate distance within a segment (never across a gap/device hop).
     segments = []         # list of lists of raw point dicts
-    distance_km = 0.0
     cur_seg = None
     prev = None
     for p in raw:
@@ -4824,10 +4904,17 @@ def _journal_day_track(user, d):
             cur_seg = [p]
             segments.append(cur_seg)
         else:
-            distance_km += _haversine_km(
-                prev['latitude'], prev['longitude'], p['latitude'], p['longitude'])
             cur_seg.append(p)
         prev = p
+
+    # Jitter-resistant distance: resample+gate each drawn segment the same way as
+    # distance_api, so a stationary high-frequency log doesn't inflate the day's
+    # mileage. The drawn polyline still uses every point; only this number is gated.
+    distance_km = 0.0
+    for seg in segments:
+        seg_points = ((p['latitude'], p['longitude'], p['timestamp'], p.get('accuracy')) for p in seg)
+        for _ts, km in _gated_distance_segments(seg_points):
+            distance_km += km
 
     # Chronological order for start/end markers and centroid (device-agnostic).
     chrono = sorted(raw, key=lambda p: p['timestamp'])
