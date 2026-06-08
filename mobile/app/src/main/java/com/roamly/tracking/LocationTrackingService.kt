@@ -29,6 +29,10 @@ private const val TAG = "LocationTrackingService"
 private const val NOTIFICATION_ID = 1001
 private const val UPLOAD_SCHEDULE_MIN_INTERVAL_MS = 60_000L
 private const val UPLOAD_BATCH_TRIGGER_COUNT = 10
+// Backlog size that signals the uploader is wedged (in WorkManager backoff) rather
+// than just keeping pace — at which point we REPLACE the stuck job instead of KEEP.
+// ~40 points ≈ 6+ min of a 10s-interval track: well beyond a healthy 0–10 backlog.
+private const val UPLOAD_STUCK_THRESHOLD = 40
 private const val REQUEST_ACCURATE_LOCATION_MS = 30_000L
 private const val WATCHDOG_CHECK_MS = 60_000L
 // Only pin the CPU awake for short, high-fidelity intervals. There the GPS is in
@@ -370,11 +374,19 @@ class LocationTrackingService : Service() {
             .onFailure { Log.e(TAG, "Failed to append point CSV", it) }
         Log.d(TAG, "Saved ${loc.latitude},${loc.longitude} acc=${loc.accuracy}m")
         val now = System.currentTimeMillis()
+        val unsynced = db.pointDao().unsyncedCount()
         val reachedTimeThreshold = now - lastUploadScheduleAt >= UPLOAD_SCHEDULE_MIN_INTERVAL_MS
-        val shouldSchedule = reachedTimeThreshold || db.pointDao().unsyncedCount() >= UPLOAD_BATCH_TRIGGER_COUNT
+        val shouldSchedule = reachedTimeThreshold || unsynced >= UPLOAD_BATCH_TRIGGER_COUNT
         if (shouldSchedule) {
             lastUploadScheduleAt = now
-            UploadWorker.scheduleNow(applicationContext, syncOnMobileData)
+            // If the backlog has grown well past one upload cycle, a prior job is
+            // almost certainly wedged in WorkManager's exponential backoff — and a
+            // KEEP enqueue would let it keep starving us for up to an hour. Force a
+            // fresh run with REPLACE to break the stuck job. Gated on the time
+            // threshold so REPLACE recurs at most once per cycle (never interrupting
+            // a healthy in-flight flush, which clears the backlog in well under it).
+            val backloggedStuck = unsynced >= UPLOAD_STUCK_THRESHOLD && reachedTimeThreshold
+            UploadWorker.scheduleNow(applicationContext, syncOnMobileData, replace = backloggedStuck)
         }
         updateNotification()
     }
