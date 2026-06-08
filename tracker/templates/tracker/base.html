@@ -362,6 +362,21 @@
         }
         .nav-dropdown-end .nav-dropdown-menu { left: auto; right: 0; }
         .nav-dropdown.open .nav-dropdown-menu { display: block; }
+        /* Open on hover (pointer devices), in addition to the click toggle below.
+           The ::before bridges the gap between the toggle and the menu so moving
+           the cursor across it doesn't drop the hover and snap the menu shut. */
+        @media (hover: hover) {
+            .nav-dropdown:hover > .nav-dropdown-menu { display: block; }
+            .nav-dropdown:hover .nav-caret { transform: rotate(180deg); }
+        }
+        .nav-dropdown-menu::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: -0.6rem;
+            height: 0.6rem;
+        }
         .nav-dropdown-menu a {
             display: block;
             color: var(--text-muted);
