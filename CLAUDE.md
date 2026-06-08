@@ -59,7 +59,14 @@ Templates and `tracker/migrations/` are volume-mounted, so template edits are li
 
 Single Django app (`tracker/`) inside the `roamly` project. No separate services or task queues — background work (geocoding, backups, POI download) runs in Python threads launched from views.
 
-**Geocoding is offline, and never on the push path.** `push_location` (`/api/push/`) creates points with `city=''` and returns immediately; labelling happens in a background thread. Two reasons it's off the request path: (1) a blocking reverse-geocode per point stalled uploads past the mobile client timeout and wedged WorkManager backoff, causing multi-minute-to-hour delivery gaps even screen-on; (2) the public OSM **Nominatim blocks the IP of a continuous tracker** (HTTP 429 on every call) — a self-hosted tracker pushing nonstop is exactly what its usage policy forbids, so a 40k+ backlog could never clear. Reverse geocoding is therefore done **offline**: `tracker/offline_geocode.py` (`offline_reverse_geocode`) matches each point to the nearest city in the bundled-GeoNames `reverse_geocode` package — no network, no rate limit, no 429 — at the same city/state/country granularity Roamly stores (Nominatim was only ever queried at zoom=10). The `geocoding_tasks._geocode_worker` drains the whole `city=''` backlog in instant chunks (no per-cluster sleep/clustering), groups ids by resulting label (one UPDATE per place), and busts the user cache after each chunk. It's kicked fire-and-forget from `push_location` via `ensure_auto_geocode(user_id)` (debounced per user, no-op while a geocode thread — manual or auto — already runs) and still runs on demand from Settings. The old Nominatim `reverse_geocode()` in `views.py` is retained, unused, as an optional fallback. **Adding the offline package is a new dependency → needs `docker compose up -d --build`, not just a restart.**
+**Geocoding is local, and never on the push path.** `push_location` (`/api/push/`) creates points with `city=''` and returns immediately; labelling happens in a background thread. Two reasons it's off the request path: (1) a blocking reverse-geocode per point stalled uploads past the mobile client timeout and wedged WorkManager backoff, causing multi-minute-to-hour delivery gaps even screen-on; (2) the public OSM **Nominatim blocks the IP of a continuous tracker** (HTTP 429 on every call) — a self-hosted tracker pushing nonstop is exactly what its usage policy forbids, so a 40k+ backlog could never clear. Reverse geocoding is therefore done **locally**, in `tracker/offline_geocode.py`:
+
+- **`local_reverse_geocode(lat, lon)`** is the entry point used by the worker. For US points it does **point-in-polygon** against the `Boundary` table (PostGIS `MultiPolygonField`, GiST-indexed) — incorporated places / CDPs first (`kind='place'`: Charlottesville, Ruckersville), then county subdivisions (`kind='cousub'`: New England towns) — so a point resolves to the town that *contains* it (**Waldo, not** the nearest-centroid Belfast). This is why nearest-city alone was rejected: in New England a point in Waldo is often physically closer to Belfast's centroid, and small towns aren't even in population-filtered datasets.
+- **`offline_reverse_geocode(coords)`** is the international / no-US-match fallback: nearest city from the bundled-GeoNames `reverse_geocode` package (numpy/scipy) — no network, no 429.
+
+Boundaries are loaded by the **`import_boundaries` management command** (`tracker/management/commands/`): downloads US Census TIGER cartographic-boundary shapefiles (`cb_<year>_<fips>_{place,cousub}_500k.zip`) per state, reads them with GDAL, transforms to 4326, and `bulk_create`s into `Boundary`. `--states ME,VA` limits to specific states; **`--regeocode`** then relabels *all* stored locations with the new boundaries (overwriting any nearest-city fallback labels), caching one lookup per ~111m cell so a 600k-point history is fast.
+
+The `geocoding_tasks._geocode_worker` drains the `city=''` backlog in chunks, resolving one lookup per ~111m cell (cached for the whole run), grouping ids by resulting label (one UPDATE per place), and busting the user cache after each chunk. It's kicked fire-and-forget from `push_location` via `ensure_auto_geocode(user_id)` (debounced per user, no-op while a geocode thread — manual or auto — already runs) and still runs on demand from Settings. The old Nominatim `reverse_geocode()` in `views.py` is retained, unused, as an optional fallback. **New deps (`reverse-geocode`) + a migration + the boundary import mean `docker compose up -d --build`, then `python manage.py migrate` and `python manage.py import_boundaries --regeocode` — not just a restart.**
 
 **Database:** SQLite by default (dev); PostgreSQL + PostGIS when `DATABASE_URL` is set. PostGIS enables vector tile generation and spatial queries. Code checks `HAS_POSTGIS` at runtime and falls back gracefully. The `Location` model has dual backends for this reason.
 
@@ -113,7 +120,9 @@ The location tracker (`tracking/LocationTrackingService.kt`) is a foreground ser
 | `tracker/forms.py` | `SignUpForm`, `APIKeyForm`, `AdventureForm` |
 | `tracker/middleware.py` | API key Bearer auth |
 | `tracker/backup_tasks.py` | S3 backup logic (runs in threads) |
-| `tracker/geocoding_tasks.py` | Nominatim reverse geocoding (runs in threads) |
+| `tracker/geocoding_tasks.py` | Background geocode worker + `ensure_auto_geocode` (runs in threads) |
+| `tracker/offline_geocode.py` | `local_reverse_geocode` (TIGER point-in-polygon) + `offline_reverse_geocode` (intl nearest-city) |
+| `tracker/management/commands/import_boundaries.py` | Load US Census TIGER place/cousub boundaries; `--regeocode` relabels all points |
 | `tracker/poi_tasks.py` | OSM POI download (runs in threads) |
 | `tracker/image_utils.py` | `resize_image`, `resize_photo` helpers |
 
@@ -149,6 +158,9 @@ Streaks (`_journal_compute_streaks`: current run ending today/yesterday + longes
 **User:**
 - `UserProfile` — profile picture; created via `get_or_create` in `settings_view`
 - `POI` — locally cached OpenStreetMap points of interest
+
+**Geocoding reference data:**
+- `Boundary` — US Census TIGER admin polygon (`name`, `state`, `kind` = `place`|`cousub`, PostGIS `geom` MultiPolygon, GiST-indexed) used for point-in-polygon town lookup. Populated by `import_boundaries`; PostGIS-only (the SQLite branch omits `geom`, like `Location`/`Visit`).
 
 ## URL / API conventions
 
