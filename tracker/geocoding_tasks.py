@@ -2,7 +2,6 @@ import time
 import threading
 import logging
 from collections import defaultdict
-from datetime import timedelta
 
 from django.utils import timezone
 
@@ -11,71 +10,46 @@ logger = logging.getLogger(__name__)
 # In-memory reference to the running thread so we can check if it's alive
 _running_threads = {}
 
-# Round to 3 decimal places ≈ ~111m grid cells
-GRID_PRECISION = 3
-
-
-def _build_clusters(user_id):
-    """Load all un-geocoded coordinates and group into spatial clusters.
-    Returns list of (representative_lat, representative_lon, [location_ids]).
-    Uses values_list to keep memory low.
-    """
-    from .models import Location
-
-    rows = (
-        Location.objects.filter(device__user_id=user_id, city='')
-        .values_list('id', 'latitude', 'longitude')
-    )
-
-    grid = defaultdict(list)
-    rep = {}  # grid_key -> (lat, lon) of first point
-    for loc_id, lat, lon in rows:
-        key = (round(lat, GRID_PRECISION), round(lon, GRID_PRECISION))
-        grid[key].append(loc_id)
-        if key not in rep:
-            rep[key] = (lat, lon)
-
-    clusters = []
-    for key, loc_ids in grid.items():
-        lat, lon = rep[key]
-        clusters.append((lat, lon, loc_ids))
-
-    return clusters
+# How many points to reverse-geocode per loop iteration. Offline lookups are
+# instant, so this is purely a memory/progress-granularity knob, not a rate limit.
+_CHUNK = 2000
 
 
 def _geocode_worker(user_id):
-    """Worker that geocodes all un-geocoded locations for a user using spatial clustering."""
-    from .views import reverse_geocode
+    """Label every un-geocoded point for a user via offline reverse geocoding.
+
+    Offline lookups are instant and unlimited (no Nominatim, no `429`), so this
+    drains the entire backlog in chunks with no per-request network call and no
+    rate-limit sleep. Points are grouped by resulting label so each distinct place
+    is a single UPDATE, and the user's cache is busted after each chunk so labels
+    surface in the UI promptly.
+    """
     from .models import Location, GeocodingJob
+    from .offline_geocode import offline_reverse_geocode
+    from .views import _bust_user_cache
 
     points_done = 0
     errors = 0
+    job = None
 
     try:
-        # Build all clusters upfront
-        clusters = _build_clusters(user_id)
-        if not clusters:
-            return
-
-        total_clusters = len(clusters)
-        total_points = sum(len(ids) for _, _, ids in clusters)
-
         try:
             job = GeocodingJob.objects.get(user_id=user_id)
-            job.total = total_clusters
-            job.processed = 0
-            job.errors = 0
-            job.save(update_fields=['total', 'processed', 'errors', 'updated_at'])
         except GeocodingJob.DoesNotExist:
             return
 
-        logger.info(
-            f"Geocoding user {user_id}: {total_points} points in "
-            f"{total_clusters} clusters"
-        )
+        total = Location.objects.filter(device__user_id=user_id, city='').count()
+        if total == 0:
+            return
+        job.total = total
+        job.processed = 0
+        job.errors = 0
+        job.save(update_fields=['total', 'processed', 'errors', 'updated_at'])
 
-        for i, (lat, lon, loc_ids) in enumerate(clusters):
-            # Check stop flag
+        logger.info(f"Offline-geocoding user {user_id}: {total} points")
+
+        while True:
+            # Honour a stop request raised from the UI.
             try:
                 job.refresh_from_db()
                 if job.status != 'running':
@@ -83,30 +57,49 @@ def _geocode_worker(user_id):
             except GeocodingJob.DoesNotExist:
                 break
 
+            rows = list(
+                Location.objects
+                .filter(device__user_id=user_id, city='')
+                .values_list('id', 'latitude', 'longitude')[:_CHUNK]
+            )
+            if not rows:
+                break
+
+            coords = [(lat, lon) for _id, lat, lon in rows]
             try:
-                result = reverse_geocode(lat, lon)
-
-                if result:
-                    Location.objects.filter(id__in=loc_ids).update(
-                        city=result['city'],
-                        state=result['state'],
-                        country=result['country'],
-                        country_code=result['country_code'],
-                        place_name=result['place_name'],
-                    )
-                    points_done += len(loc_ids)
-                else:
-                    errors += 1
+                results = offline_reverse_geocode(coords)
             except Exception as e:
-                logger.error(f"Geocoding error: {e}")
-                errors += 1
+                # e.g. ImportError if the image hasn't been rebuilt with the new
+                # requirement yet — fail loudly into the job rather than spinning.
+                logger.error(f"Offline geocoding failed: {e}")
+                errors += len(rows)
+                job.errors = errors
+                job.save(update_fields=['errors', 'updated_at'])
+                break
 
-            # Update progress after every cluster
-            job.processed = i + 1
-            job.errors = errors
-            job.save(update_fields=['processed', 'errors', 'updated_at'])
+            # Group ids by resulting label → one UPDATE per distinct place.
+            groups = defaultdict(list)
+            for (loc_id, _lat, _lon), res in zip(rows, results):
+                # Never leave city='' or the filter above would re-select it forever.
+                city = res['city'] or 'Unknown'
+                key = (city, res['state'], res['country'], res['country_code'], res['place_name'])
+                groups[key].append(loc_id)
 
-            time.sleep(1.1)
+            updated = 0
+            for (city, state, country, cc, place), ids in groups.items():
+                Location.objects.filter(id__in=ids).update(
+                    city=city, state=state, country=country,
+                    country_code=cc, place_name=place,
+                )
+                updated += len(ids)
+
+            points_done += updated
+            job.processed = points_done
+            job.save(update_fields=['processed', 'updated_at'])
+            _bust_user_cache(user_id)
+
+            if updated == 0:
+                break  # safety: nothing advanced, don't loop forever
 
     finally:
         try:
@@ -119,8 +112,7 @@ def _geocode_worker(user_id):
 
         _running_threads.pop(user_id, None)
         logger.info(
-            f"Geocoding done for user {user_id}: {points_done} points, "
-            f"{errors} errors, {job.processed}/{job.total} clusters"
+            f"Offline-geocoding done for user {user_id}: {points_done} points, {errors} errors"
         )
 
 
