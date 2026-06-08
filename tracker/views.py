@@ -42,6 +42,7 @@ from .poi_tasks import start_poi_download, get_poi_status, stop_poi_download
 from .backup_tasks import (
     test_s3_connection, run_backup_now, get_backup_status, stop_backup_now,
     run_image_backup_now, get_image_backup_status, _build_pals_data,
+    _build_adventures_data, _build_journals_data,
 )
 
 logger = logging.getLogger(__name__)
@@ -2492,34 +2493,25 @@ def _write_backup_json(user, f):
     """Write backup JSON to a file-like object row-by-row to avoid OOM on large datasets."""
     encoder = DjangoJSONEncoder()
 
-    meta = {'version': 2, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 4, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
-    trips = [
-        {'device_id': t.device.device_id, 'name': t.name, 'description': t.description,
-         'start_time': t.start_time, 'end_time': t.end_time}
-        for t in Adventure.objects.filter(device__user=user).select_related('device')
-    ]
-    trip_places = [
-        {'trip_name': tp.adventure.name, 'trip_device_id': tp.adventure.device.device_id,
-         'trip_start_time': tp.adventure.start_time, 'name': tp.name,
-         'latitude': tp.latitude, 'longitude': tp.longitude, 'radius': tp.radius,
-         'notes': tp.notes, 'visited_at': tp.visited_at}
-        for tp in AdventurePlace.objects.filter(adventure__device__user=user).select_related('adventure', 'adventure__device')
-    ]
+    # Same complete, nested schema as the S3 backup (_build_backup_json) so the
+    # downloaded file and the automatic S3 backup contain identical data.
+    adventures = _build_adventures_data(user)
     api_keys = [
         {'name': k.name, 'key': k.key, 'is_active': k.is_active, 'created_at': k.created_at}
         for k in APIKey.objects.filter(user=user)
     ]
-
     pals = _build_pals_data(user)
+    journals = _build_journals_data(user)
 
     f.write(b'{"meta":' + encoder.encode(meta).encode() + b',')
     f.write(b'"devices":' + encoder.encode(devices).encode() + b',')
-    f.write(b'"trips":' + encoder.encode(trips).encode() + b',')
-    f.write(b'"trip_places":' + encoder.encode(trip_places).encode() + b',')
+    f.write(b'"adventures":' + encoder.encode(adventures).encode() + b',')
     f.write(b'"api_keys":' + encoder.encode(api_keys).encode() + b',')
     f.write(b'"pals":' + encoder.encode(pals).encode() + b',')
+    f.write(b'"journals":' + encoder.encode(journals).encode() + b',')
 
     f.write(b'"locations":[')
     first = True
@@ -2618,7 +2610,8 @@ def restore_backup(request):
         return JsonResponse({'error': 'Not a valid Roamly backup file (missing meta.version)'}, status=400)
 
     user = request.user
-    counts = {'devices': 0, 'locations': 0, 'trips': 0, 'trip_places': 0, 'api_keys': 0, 'pals': 0}
+    counts = {'devices': 0, 'locations': 0, 'trips': 0, 'trip_places': 0,
+              'adventures': 0, 'api_keys': 0, 'pals': 0, 'journals': 0}
     errors = 0
 
     try:
@@ -2630,6 +2623,8 @@ def restore_backup(request):
                 all_device_ids.add(loc.get('device_id', ''))
             for t in data.get('trips', []):
                 all_device_ids.add(t.get('device_id', ''))
+            for a in data.get('adventures', []):
+                all_device_ids.add(a.get('device_id', ''))
             for d in data.get('devices', []):
                 all_device_ids.add(d.get('device_id', ''))
             all_device_ids.discard('')
@@ -2802,6 +2797,13 @@ def restore_backup(request):
                                     longitude=b['longitude'],
                                     location_name=b.get('location_name', ''),
                                 )
+                                for ph in b.get('photos', []):
+                                    if ph.get('image'):
+                                        PalBlurbPhoto.objects.create(
+                                            blurb=blurb, image=ph['image'],
+                                            thumbnail=ph.get('thumbnail') or '',
+                                            order=ph.get('order', 0),
+                                        )
                                 for c in b.get('comments', []):
                                     try:
                                         comment_author = None
@@ -2843,6 +2845,150 @@ def restore_backup(request):
                 except Exception as e:
                     errors += 1
                     logger.warning(f"Backup restore pal error: {e}")
+
+            # Restore adventures (rich nested format, v4+). Legacy v2/v3 backups
+            # carry their adventures under "trips"/"trip_places" (handled above);
+            # this block is a no-op for those.
+            for a in data.get('adventures', []):
+                try:
+                    device = device_map.get(a.get('device_id'))
+                    if not device:
+                        errors += 1
+                        continue
+                    start = _parse_timestamp(a['start_time'])
+                    end = _parse_timestamp(a.get('end_time')) or start
+                    creator = user
+                    if a.get('creator_username'):
+                        creator = AuthUser.objects.filter(username=a['creator_username']).first() or user
+                    adv, adv_created = Adventure.objects.get_or_create(
+                        device=device, name=a['name'], start_time=start,
+                        defaults={
+                            'description': a.get('description', ''),
+                            'subtitle': a.get('subtitle', ''),
+                            'access_pin': a.get('access_pin', ''),
+                            'end_time': end,
+                            'creator': creator,
+                            'public_slug': a.get('public_slug') or None,
+                            'body': a.get('body') or [],
+                        }
+                    )
+                    if adv_created:
+                        counts['adventures'] += 1
+                    else:
+                        # Backfill the CMS body/subtitle onto a pre-existing adventure
+                        # so re-importing an enriched backup fills in blank fields.
+                        update_fields = []
+                        if not adv.body and a.get('body'):
+                            adv.body = a['body']
+                            update_fields.append('body')
+                        if not adv.subtitle and a.get('subtitle'):
+                            adv.subtitle = a['subtitle']
+                            update_fields.append('subtitle')
+                        if update_fields:
+                            adv.save(update_fields=update_fields)
+
+                    # Places
+                    for p in a.get('places', []):
+                        try:
+                            _, created = AdventurePlace.objects.get_or_create(
+                                adventure=adv, name=p['name'],
+                                latitude=p['latitude'], longitude=p['longitude'],
+                                defaults={
+                                    'radius': p.get('radius', 100),
+                                    'notes': p.get('notes', ''),
+                                    'visited_at': _parse_timestamp(p['visited_at']) if p.get('visited_at') else None,
+                                }
+                            )
+                            if created:
+                                counts['trip_places'] += 1
+                        except Exception:
+                            pass
+
+                    # Members
+                    for m in a.get('members', []):
+                        member_user = AuthUser.objects.filter(username=m.get('username')).first()
+                        if member_user:
+                            AdventureMember.objects.get_or_create(
+                                adventure=adv, user=member_user,
+                                defaults={'role': m.get('role', 'member')}
+                            )
+
+                    # Blurbs + milestones only on freshly-created adventures (avoid dupes)
+                    if adv_created:
+                        for b in a.get('blurbs', []):
+                            try:
+                                blurb_author = AuthUser.objects.filter(username=b.get('author_username')).first() or user
+                                blurb = AdventureBlurb.objects.create(
+                                    adventure=adv, author=blurb_author,
+                                    text=b.get('text', ''),
+                                    latitude=b.get('latitude'), longitude=b.get('longitude'),
+                                    location_name=b.get('location_name', ''),
+                                )
+                                for ph in b.get('photos', []):
+                                    if ph.get('image'):
+                                        AdventureBlurbPhoto.objects.create(
+                                            blurb=blurb, image=ph['image'],
+                                            thumbnail=ph.get('thumbnail') or '',
+                                            order=ph.get('order', 0),
+                                        )
+                                for c in b.get('comments', []):
+                                    comment_author = None
+                                    if c.get('author_username'):
+                                        comment_author = AuthUser.objects.filter(username=c['author_username']).first()
+                                    AdventureComment.objects.create(
+                                        blurb=blurb, author=comment_author,
+                                        guest_name=c.get('guest_name', ''),
+                                        text=c.get('text', ''),
+                                    )
+                            except Exception as e:
+                                errors += 1
+                                logger.warning(f"Backup restore adventure blurb error: {e}")
+                        for m in a.get('milestones', []):
+                            try:
+                                milestone_author = AuthUser.objects.filter(username=m.get('author_username')).first() or user
+                                AdventureMilestone.objects.create(
+                                    adventure=adv, author=milestone_author,
+                                    title=m['title'], description=m.get('description', ''),
+                                    emoji=m.get('emoji', '🏁'),
+                                    date=_parse_timestamp(m['date']),
+                                )
+                            except Exception as e:
+                                errors += 1
+                                logger.warning(f"Backup restore adventure milestone error: {e}")
+                except Exception as e:
+                    errors += 1
+                    logger.warning(f"Backup restore adventure error: {e}")
+
+            # Restore journals
+            for j in data.get('journals', []):
+                try:
+                    jdate = datetime.date.fromisoformat(str(j['date'])[:10])
+                    entry, j_created = JournalEntry.objects.get_or_create(
+                        user=user, date=jdate,
+                        defaults={
+                            'title': j.get('title', ''),
+                            'body': j.get('body', ''),
+                            'mood': j.get('mood', ''),
+                            'weather': j.get('weather', ''),
+                            'is_favorite': j.get('is_favorite', False),
+                            'pin_latitude': j.get('pin_latitude'),
+                            'pin_longitude': j.get('pin_longitude'),
+                            'location_name': j.get('location_name', ''),
+                        }
+                    )
+                    if j_created:
+                        counts['journals'] += 1
+                        for ph in j.get('photos', []):
+                            if ph.get('image'):
+                                JournalPhoto.objects.create(
+                                    entry=entry, image=ph['image'],
+                                    thumbnail=ph.get('thumbnail') or '',
+                                    caption=ph.get('caption', ''),
+                                    order=ph.get('order', 0),
+                                )
+                except Exception as e:
+                    errors += 1
+                    logger.warning(f"Backup restore journal error: {e}")
 
     except Exception as e:
         logger.error(f"Backup restore failed: {e}")
