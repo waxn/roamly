@@ -10,27 +10,34 @@ logger = logging.getLogger(__name__)
 # In-memory reference to the running thread so we can check if it's alive
 _running_threads = {}
 
-# How many points to reverse-geocode per loop iteration. Offline lookups are
-# instant, so this is purely a memory/progress-granularity knob, not a rate limit.
+# How many points to reverse-geocode per loop iteration. Local lookups are fast,
+# so this is purely a memory/progress-granularity knob, not a rate limit.
 _CHUNK = 2000
+# Grid precision for de-duping lookups. Within a ~111m cell the containing town
+# (and the offline nearest-city) is identical, so we resolve each cell once and
+# reuse it for every point in it — collapsing a 40k backlog to a few thousand
+# point-in-polygon queries.
+_CELL_PRECISION = 3
 
 
 def _geocode_worker(user_id):
-    """Label every un-geocoded point for a user via offline reverse geocoding.
+    """Label every un-geocoded point for a user via local reverse geocoding.
 
-    Offline lookups are instant and unlimited (no Nominatim, no `429`), so this
-    drains the entire backlog in chunks with no per-request network call and no
-    rate-limit sleep. Points are grouped by resulting label so each distinct place
-    is a single UPDATE, and the user's cache is busted after each chunk so labels
-    surface in the UI promptly.
+    Lookups are local (TIGER point-in-polygon for the US, offline nearest-city
+    fallback abroad) — no Nominatim, no `429`, no rate-limit sleep — so this drains
+    the entire backlog in chunks. Each ~111m cell is resolved once and cached for
+    the whole run; points are then grouped by resulting label so each distinct
+    place is a single UPDATE, and the user's cache is busted after each chunk so
+    labels surface in the UI promptly.
     """
     from .models import Location, GeocodingJob
-    from .offline_geocode import offline_reverse_geocode
+    from .offline_geocode import local_reverse_geocode
     from .views import _bust_user_cache
 
     points_done = 0
     errors = 0
     job = None
+    cell_cache = {}
 
     try:
         try:
@@ -46,7 +53,7 @@ def _geocode_worker(user_id):
         job.errors = 0
         job.save(update_fields=['total', 'processed', 'errors', 'updated_at'])
 
-        logger.info(f"Offline-geocoding user {user_id}: {total} points")
+        logger.info(f"Geocoding user {user_id}: {total} points")
 
         while True:
             # Honour a stop request raised from the UI.
@@ -65,25 +72,31 @@ def _geocode_worker(user_id):
             if not rows:
                 break
 
-            coords = [(lat, lon) for _id, lat, lon in rows]
+            # Group ids by resulting label → one UPDATE per distinct place. Each
+            # ~111m cell is resolved once (cached for the whole run).
+            groups = defaultdict(list)
             try:
-                results = offline_reverse_geocode(coords)
+                for loc_id, lat, lon in rows:
+                    cell = (round(lat, _CELL_PRECISION), round(lon, _CELL_PRECISION))
+                    res = cell_cache.get(cell)
+                    if res is None:
+                        res = local_reverse_geocode(lat, lon) or {
+                            'city': '', 'state': '', 'country': '',
+                            'country_code': '', 'place_name': '',
+                        }
+                        cell_cache[cell] = res
+                    # Never leave city='' or the filter above would re-select it forever.
+                    city = res['city'] or 'Unknown'
+                    key = (city, res['state'], res['country'], res['country_code'], res['place_name'])
+                    groups[key].append(loc_id)
             except Exception as e:
                 # e.g. ImportError if the image hasn't been rebuilt with the new
                 # requirement yet — fail loudly into the job rather than spinning.
-                logger.error(f"Offline geocoding failed: {e}")
+                logger.error(f"Geocoding failed: {e}")
                 errors += len(rows)
                 job.errors = errors
                 job.save(update_fields=['errors', 'updated_at'])
                 break
-
-            # Group ids by resulting label → one UPDATE per distinct place.
-            groups = defaultdict(list)
-            for (loc_id, _lat, _lon), res in zip(rows, results):
-                # Never leave city='' or the filter above would re-select it forever.
-                city = res['city'] or 'Unknown'
-                key = (city, res['state'], res['country'], res['country_code'], res['place_name'])
-                groups[key].append(loc_id)
 
             updated = 0
             for (city, state, country, cc, place), ids in groups.items():
@@ -112,7 +125,7 @@ def _geocode_worker(user_id):
 
         _running_threads.pop(user_id, None)
         logger.info(
-            f"Offline-geocoding done for user {user_id}: {points_done} points, {errors} errors"
+            f"Geocoding done for user {user_id}: {points_done} points, {errors} errors"
         )
 
 

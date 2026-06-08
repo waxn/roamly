@@ -129,6 +129,39 @@ else:
             return f"{self.device} @ {self.timestamp}"
 
 
+# Administrative boundary polygons for offline point-in-polygon reverse geocoding
+# (US Census TIGER places + county subdivisions). Loaded by the import_boundaries
+# management command. Lets a tracked point resolve to the town that actually
+# CONTAINS it — e.g. Waldo, not the nearest bigger town a centroid lookup returns.
+# PostGIS-only (PIP needs a spatial backend); the SQLite branch omits the geometry
+# the same way the SQLite Location omits its PointField.
+if HAS_POSTGIS and gis_models:
+    class Boundary(gis_models.Model):
+        name = gis_models.CharField(max_length=200, db_index=True)
+        state = gis_models.CharField(max_length=100, blank=True)
+        country_code = gis_models.CharField(max_length=3, default='US')
+        kind = gis_models.CharField(max_length=20)  # 'place' | 'cousub'
+        geom = gis_models.MultiPolygonField(srid=4326)
+
+        class Meta:
+            indexes = [models.Index(fields=['kind'], name='tracker_boundary_kind_idx')]
+
+        def __str__(self):
+            return f"{self.name}, {self.state} ({self.kind})"
+else:
+    class Boundary(models.Model):
+        name = models.CharField(max_length=200, db_index=True)
+        state = models.CharField(max_length=100, blank=True)
+        country_code = models.CharField(max_length=3, default='US')
+        kind = models.CharField(max_length=20)
+
+        class Meta:
+            indexes = [models.Index(fields=['kind'], name='tracker_boundary_kind_idx')]
+
+        def __str__(self):
+            return f"{self.name}, {self.state} ({self.kind})"
+
+
 if HAS_POSTGIS and gis_models:
     class Visit(gis_models.Model):
         """Precomputed stay at a specific location."""

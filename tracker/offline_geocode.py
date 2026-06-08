@@ -54,3 +54,43 @@ def offline_reverse_geocode(coords):
             "place_name": ", ".join(parts),
         })
     return out
+
+
+def local_reverse_geocode(lat, lon):
+    """Town-level reverse geocode for a single ``(lat, lon)``.
+
+    US points resolve by **point-in-polygon** against the TIGER boundaries loaded
+    into PostGIS by the ``import_boundaries`` command — i.e. the town that actually
+    *contains* the point (Waldo), not the nearest centroid (Belfast). Incorporated
+    places / CDPs (Charlottesville, Ruckersville) are tried first, then county
+    subdivisions (New England towns like Waldo). Anything with no US boundary match
+    — i.e. abroad, or before boundaries are imported — falls back to nearest-city
+    offline geocoding, so international travel is still labelled.
+
+    Returns ``{city, state, country, country_code, place_name}`` or ``None``.
+    """
+    try:
+        from django.conf import settings
+        has_postgis = "postgis" in settings.DATABASES.get("default", {}).get("ENGINE", "")
+        if has_postgis:
+            from django.contrib.gis.geos import Point
+            from .models import Boundary
+
+            pt = Point(lon, lat, srid=4326)
+            b = (Boundary.objects.filter(kind="place", geom__contains=pt).first()
+                 or Boundary.objects.filter(kind="cousub", geom__contains=pt).first())
+            if b:
+                parts = [p for p in (b.name, b.state, "United States") if p]
+                return {
+                    "city": b.name,
+                    "state": b.state,
+                    "country": "United States",
+                    "country_code": "US",
+                    "place_name": ", ".join(parts),
+                }
+    except Exception as e:
+        logger.warning("Boundary lookup failed for %s,%s: %s", lat, lon, e)
+
+    # International / no US match / boundaries not loaded yet → nearest-city offline.
+    res = offline_reverse_geocode([(lat, lon)])
+    return res[0] if res else None
