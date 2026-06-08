@@ -211,6 +211,10 @@ All map display preferences are stored in `localStorage` with `roamly_` prefix:
 
 `/api/visits/` and trip-scoped visit stats sum gaps between consecutive geocoded points, attributed to the earlier point's city/state/country. If the next point has the **same** place label, the full gap counts (e.g. 1pm→6pm in one town = 5h). If the label **changes**, the gap credited to the previous place is capped at 1 hour (`_visits_dwell_gap` in `views.py`).
 
+## Distance travelled
+
+`distance_api` (`/api/distance/`) and the journal day track (`_journal_day_track`) compute travel distance through `_gated_distance_segments`, which is **GPS-jitter resistant** — a stationary device logging rapidly (e.g. GPSLogger at 1 fix/sec) otherwise turns metres of per-fix noise into thousands of phantom miles. Two stages: (1) resample each device track to `_DIST_WINDOW_S` (30s) **centroids** so averaging collapses jitter ~√N; (2) **anchor-gate** the centroids — credit only movement beyond `max(25m, 2.5× reported accuracy)`, drop fixes worse than 100m, reject >1000 km/h teleports, re-anchor across >2h gaps. The drawn polylines still use every point; only the distance number is gated. The site-wide `_refresh_site_stats` total still uses a raw PostGIS `ST_MakeLine` sum (a global vanity stat, not gated).
+
 ## Import formats
 
 `/api/import/csv/` — broad column alias matching (Garmin, Strava, GPSLogger, generic)
