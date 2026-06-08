@@ -51,7 +51,7 @@ def _build_pals_data(user):
                 'location_name': b.location_name,
                 'created_at': b.created_at,
                 'photos': [
-                    {'image': p.image.name, 'order': p.order}
+                    {'image': p.image.name, 'thumbnail': p.thumbnail.name if p.thumbnail else '', 'order': p.order}
                     for p in b.photos.all()
                 ],
                 'comments': [
@@ -120,7 +120,7 @@ def _build_adventures_data(user):
                 'location_name': b.location_name,
                 'created_at': b.created_at,
                 'photos': [
-                    {'image': p.image.name, 'order': p.order}
+                    {'image': p.image.name, 'thumbnail': p.thumbnail.name if p.thumbnail else '', 'order': p.order}
                     for p in b.photos.all()
                 ],
                 'comments': [
@@ -138,11 +138,16 @@ def _build_adventures_data(user):
             'device_id': adv.device.device_id,
             'name': adv.name,
             'description': adv.description,
+            'subtitle': adv.subtitle,
+            'access_pin': adv.access_pin,
             'start_time': adv.start_time,
             'end_time': adv.end_time,
             'creator_username': adv.creator.username if adv.creator else None,
             'public_slug': adv.public_slug,
             'created_at': adv.created_at,
+            'cover_image': adv.cover_image.name if adv.cover_image else '',
+            'cover_image_thumbnail': adv.cover_image_thumbnail.name if adv.cover_image_thumbnail else '',
+            'body': adv.body,
             'members': [
                 {'username': m.user.username, 'role': m.role}
                 for m in adv.members.all()
@@ -175,6 +180,44 @@ def _build_adventures_data(user):
     return result
 
 
+def _build_journals_data(user):
+    """Build serializable journal entries (with photo metadata) for a user's backup."""
+    from .models import JournalEntry
+
+    entries = (
+        JournalEntry.objects.filter(user=user)
+        .prefetch_related('photos')
+        .order_by('date')
+    )
+
+    result = []
+    for e in entries:
+        result.append({
+            'date': e.date,
+            'title': e.title,
+            'body': e.body,
+            'mood': e.mood,
+            'weather': e.weather,
+            'is_favorite': e.is_favorite,
+            'pin_latitude': e.pin_latitude,
+            'pin_longitude': e.pin_longitude,
+            'location_name': e.location_name,
+            'created_at': e.created_at,
+            'updated_at': e.updated_at,
+            'photos': [
+                {
+                    'image': p.image.name if p.image else '',
+                    'thumbnail': p.thumbnail.name if p.thumbnail else '',
+                    'caption': p.caption,
+                    'order': p.order,
+                }
+                for p in e.photos.all()
+            ],
+        })
+
+    return result
+
+
 def _build_backup_json(user):
     """Build the backup JSON data dict for a user (same format as export_backup view)."""
     from .models import Device, Location, APIKey
@@ -185,7 +228,7 @@ def _build_backup_json(user):
 
     data = {
         'meta': {
-            'version': 3,
+            'version': 4,
             'exported_at': timezone.now().isoformat(),
             'username': user.username,
         },
@@ -222,6 +265,7 @@ def _build_backup_json(user):
             for k in api_keys
         ],
         'pals': _build_pals_data(user),
+        'journals': _build_journals_data(user),
     }
     return json.dumps(data, cls=DjangoJSONEncoder)
 
@@ -463,7 +507,9 @@ def _get_image_s3_client(config):
 
 def _get_user_media_files(user):
     """Collect all media file paths (relative to MEDIA_ROOT) belonging to a user."""
-    from .models import UserProfile, AdventureBlurbPhoto, PalBlurbPhoto
+    from .models import (
+        UserProfile, AdventureBlurbPhoto, PalBlurbPhoto, Adventure, JournalPhoto,
+    )
 
     files = []
 
@@ -476,6 +522,12 @@ def _get_user_media_files(user):
     except UserProfile.DoesNotExist:
         pass
 
+    for adv in Adventure.objects.filter(device__user=user):
+        if adv.cover_image:
+            files.append(adv.cover_image.name)
+        if adv.cover_image_thumbnail:
+            files.append(adv.cover_image_thumbnail.name)
+
     for photo in AdventureBlurbPhoto.objects.filter(blurb__adventure__device__user=user):
         if photo.image:
             files.append(photo.image.name)
@@ -483,6 +535,12 @@ def _get_user_media_files(user):
             files.append(photo.thumbnail.name)
 
     for photo in PalBlurbPhoto.objects.filter(blurb__pal__creator=user):
+        if photo.image:
+            files.append(photo.image.name)
+        if photo.thumbnail:
+            files.append(photo.thumbnail.name)
+
+    for photo in JournalPhoto.objects.filter(entry__user=user):
         if photo.image:
             files.append(photo.image.name)
         if photo.thumbnail:
