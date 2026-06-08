@@ -111,10 +111,15 @@ class Command(BaseCommand):
             for feat in layer:
                 g = feat.geom
                 if g.srid and g.srid != 4326:
-                    g.transform(4326)
+                    g.transform(4326)  # TIGER cb files are NAD83 (4269)
                 geos = g.geos
                 if geos.geom_type == 'Polygon':
                     geos = MultiPolygon(geos)
+                # The MultiPolygon(...) wrap (and occasionally .geos) drops the SRID,
+                # and a NULL/0 SRID makes ST_Contains error against the 4326 query
+                # point — which my caller swallows into a silent offline fallback
+                # (everything reads as the nearest city). Stamp it so PIP matches.
+                geos.srid = 4326
                 name = (feat.get('NAME') or '').strip()
                 state = (feat.get('STATE_NAME') or '').strip()
                 if not name:
