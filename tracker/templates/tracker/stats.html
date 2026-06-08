@@ -48,6 +48,27 @@
     transition: opacity 0.15s;
     z-index: 10;
 }
+.chart-hover-line {
+    position: absolute;
+    width: 1px;
+    background: var(--border-bright);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s;
+}
+.chart-hover-dot {
+    position: absolute;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--primary);
+    border: 2px solid var(--bg-card);
+    box-shadow: 0 0 0 4px var(--primary-soft);
+    transform: translate(-50%, -50%);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s;
+}
 {% endblock %}
 
 {% block content %}
@@ -96,6 +117,8 @@
             <div class="card-header">Distance Travelled</div>
             <div class="chart-container">
                 <canvas id="distance-chart"></canvas>
+                <div class="chart-hover-line" id="chart-hline"></div>
+                <div class="chart-hover-dot" id="chart-hdot"></div>
                 <div class="chart-tooltip" id="chart-tooltip"></div>
             </div>
         </div>
@@ -144,6 +167,9 @@
                 <div class="card-header" id="monthly-chart-title">Monthly Activity</div>
                 <div class="chart-container" style="height: 160px;" id="yearly-chart-wrap">
                     <canvas id="yearly-chart"></canvas>
+                    <div class="chart-hover-line" id="yearly-hline"></div>
+                    <div class="chart-hover-dot" id="yearly-hdot"></div>
+                    <div class="chart-tooltip" id="yearly-tooltip"></div>
                 </div>
             </div>
 
@@ -227,7 +253,71 @@ function loadStats() {
         });
 }
 
-let chartBars = [];
+let chartPoints = [];   // distance chart hover points: {x, y, tip, mapUrl}
+let chartGeom = null;   // {top, height} plot area for the hover guide line
+let yearlyPoints = [];  // monthly chart hover points
+let yearlyGeom = null;
+
+// "#rrggbb" + alpha → "rgba(...)"; falls back to the teal accent.
+function hexA(hex, a) {
+    const m = (hex || '').trim().match(/^#?([0-9a-f]{6})$/i);
+    if (!m) return `rgba(13,191,172,${a})`;
+    const n = parseInt(m[1], 16);
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
+// Attach nearest-point hover (guide line + dot + tooltip, optional click-through)
+// to a canvas line chart. getState() returns {points, geom, width}.
+function attachChartHover(canvas, els, getState) {
+    function nearest(mx, points) {
+        let best = null, bestD = Infinity;
+        for (const p of points) {
+            const d = Math.abs(p.x - mx);
+            if (d < bestD) { bestD = d; best = p; }
+        }
+        return best;
+    }
+    function hide() {
+        els.tooltip.style.opacity = '0';
+        if (els.hline) els.hline.style.opacity = '0';
+        if (els.hdot) els.hdot.style.opacity = '0';
+        canvas.style.cursor = '';
+    }
+    canvas.addEventListener('mousemove', function(e) {
+        const { points, geom, width } = getState();
+        if (!points || !points.length || !geom) { hide(); return; }
+        const rect = canvas.getBoundingClientRect();
+        const hit = nearest(e.clientX - rect.left, points);
+        if (!hit) { hide(); return; }
+        els.tooltip.innerHTML = hit.tip.replace('\n', '<br>');
+        els.tooltip.style.opacity = '1';
+        const tx = Math.max(48, Math.min((width || rect.width) - 48, hit.x));
+        els.tooltip.style.left = tx + 'px';
+        els.tooltip.style.bottom = (rect.height - hit.y + 14) + 'px';
+        els.tooltip.style.top = '';
+        els.tooltip.style.transform = 'translateX(-50%)';
+        if (els.hline) {
+            els.hline.style.left = hit.x + 'px';
+            els.hline.style.top = geom.top + 'px';
+            els.hline.style.height = geom.height + 'px';
+            els.hline.style.opacity = '1';
+        }
+        if (els.hdot) {
+            els.hdot.style.left = hit.x + 'px';
+            els.hdot.style.top = hit.y + 'px';
+            els.hdot.style.opacity = '1';
+        }
+        canvas.style.cursor = hit.mapUrl ? 'pointer' : 'default';
+    });
+    canvas.addEventListener('mouseleave', hide);
+    canvas.addEventListener('click', function(e) {
+        const { points } = getState();
+        if (!points || !points.length) return;
+        const rect = canvas.getBoundingClientRect();
+        const hit = nearest(e.clientX - rect.left, points);
+        if (hit && hit.mapUrl) window.location.href = hit.mapUrl;
+    });
+}
 
 // Advance a 'YYYY-MM-DD' string by N days without timezone issues
 function addDays(dateStr, n) {
@@ -405,7 +495,7 @@ function drawChart(days, distancesKm, range) {
 
     canvas.width = rect.width * dpr;
     canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     const W = rect.width;
     const H = rect.height;
@@ -413,12 +503,18 @@ function drawChart(days, distancesKm, range) {
     const cW = W - pad.left - pad.right;
     const cH = H - pad.top - pad.bottom;
 
+    const css = getComputedStyle(document.documentElement);
+    const accent = (css.getPropertyValue('--primary') || '#0DBFAC').trim();
+    const gridCol = (css.getPropertyValue('--border') || '#2d3040').trim();
+    const textCol = (css.getPropertyValue('--text-muted') || '#8b8fa3').trim();
+
     ctx.clearRect(0, 0, W, H);
-    chartBars = [];
+    chartPoints = [];
+    chartGeom = { top: pad.top, height: cH };
 
     if (!days.length) {
-        ctx.fillStyle = '#8b8fa3';
-        ctx.font = '13px Space Grotesk, sans-serif';
+        ctx.fillStyle = textCol;
+        ctx.font = "13px 'Space Grotesk', sans-serif";
         ctx.textAlign = 'center';
         ctx.fillText('No distance data in this range', W / 2, H / 2);
         return;
@@ -434,68 +530,89 @@ function drawChart(days, distancesKm, range) {
     const maxVal = Math.max(...values, 0.1);
     const niceMax = Math.ceil(maxVal / (maxVal > 100 ? 50 : maxVal > 10 ? 5 : 1)) * (maxVal > 100 ? 50 : maxVal > 10 ? 5 : 1);
 
-    // Grid lines
+    // Grid + y-axis labels
     const gridLines = 4;
-    ctx.strokeStyle = '#2d3040';
     ctx.lineWidth = 1;
-    ctx.fillStyle = '#8b8fa3';
-    ctx.font = '11px Space Grotesk, sans-serif';
-    ctx.textAlign = 'right';
-
+    ctx.font = "11px 'Space Grotesk', sans-serif";
     for (let i = 0; i <= gridLines; i++) {
         const y = pad.top + cH - (cH * i / gridLines);
-        const val = (niceMax * i / gridLines);
+        ctx.strokeStyle = gridCol;
         ctx.beginPath();
         ctx.moveTo(pad.left, y);
         ctx.lineTo(W - pad.right, y);
         ctx.stroke();
+        ctx.fillStyle = textCol;
+        ctx.textAlign = 'right';
+        const val = (niceMax * i / gridLines);
         ctx.fillText(val % 1 === 0 ? val.toString() : val.toFixed(1), pad.left - 8, y + 4);
     }
 
     // Unit label
-    ctx.fillStyle = '#8b8fa3';
-    ctx.font = '10px Space Grotesk, sans-serif';
+    ctx.fillStyle = textCol;
+    ctx.font = "10px 'Space Grotesk', sans-serif";
     ctx.textAlign = 'left';
     ctx.fillText(imperial ? 'mi' : 'km', pad.left - 8, pad.top - 6);
 
-    // Bars
-    const barGap = Math.max(1, Math.floor(cW / n * 0.15));
-    const barW = Math.max(2, (cW / n) - barGap);
+    // Point coordinates
+    const xOf = (i) => n === 1 ? pad.left + cW / 2 : pad.left + (i / (n - 1)) * cW;
+    const yOf = (v) => pad.top + cH - (v / niceMax) * cH;
+    const pts = values.map((v, i) => ({ x: xOf(i), y: yOf(v) }));
 
-    const gradient = ctx.createLinearGradient(0, pad.top, 0, pad.top + cH);
-    gradient.addColorStop(0, '#3b82f6');
-    gradient.addColorStop(1, '#1d4ed8');
-
-    for (let i = 0; i < n; i++) {
-        const x = pad.left + (i * (barW + barGap)) + barGap / 2;
-        const barH = (values[i] / niceMax) * cH;
-        const y = pad.top + cH - barH;
-
-        ctx.fillStyle = gradient;
+    // Smooth path through the points (midpoint quadratics)
+    const trace = () => {
         ctx.beginPath();
-        const r = Math.min(3, barW / 2);
-        ctx.roundRect(x, y, barW, barH, [r, r, 0, 0]);
-        ctx.fill();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 0; i < pts.length - 1; i++) {
+            const xc = (pts[i].x + pts[i + 1].x) / 2;
+            const yc = (pts[i].y + pts[i + 1].y) / 2;
+            ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
+        }
+        ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+    };
 
-        // Build tooltip text
-        let tip;
+    if (pts.length >= 2) {
+        // Gradient area fill under the line
+        const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + cH);
+        grad.addColorStop(0, hexA(accent, 0.30));
+        grad.addColorStop(1, hexA(accent, 0.02));
+        trace();
+        ctx.lineTo(pts[pts.length - 1].x, pad.top + cH);
+        ctx.lineTo(pts[0].x, pad.top + cH);
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+        // The line itself
+        trace();
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 2;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.stroke();
+    }
+
+    // Dots (only when sparse enough to stay clean) + hover points + map links
+    const showDots = n <= 31;
+    for (let i = 0; i < n; i++) {
+        if (pts.length === 1 || showDots) {
+            ctx.beginPath();
+            ctx.arc(pts[i].x, pts[i].y, pts.length === 1 ? 4 : 3, 0, Math.PI * 2);
+            ctx.fillStyle = accent;
+            ctx.fill();
+        }
         const dist = formatDistance(rawValues[i]);
+        let tip;
         if (isGrouped) {
             const s = grouped.sublabels[i];
             tip = `${s.range}\n${dist} (${s.days} ${s.unit}${s.days !== 1 ? 's' : ''})`;
         } else if (grouped.mode === 'hourly') {
-            // Label like "14:00" from "2026-02-18 14"
             const hour = grouped.labels[i].slice(11);
             tip = `${grouped.labels[i].slice(0, 10)} ${hour}:00–${hour}:59\n${dist}`;
         } else {
             tip = `${grouped.labels[i]}\n${dist}`;
         }
-        // Compute map URL date range for this bar
         let mapStart, mapEnd;
         if (isGrouped) {
-            const s = grouped.sublabels[i];
-            const rangeStr = s.range || '';
-            const parts = rangeStr.split(' – ');
+            const parts = (grouped.sublabels[i].range || '').split(' – ');
             mapStart = parts[0].slice(0, 10);
             mapEnd = parts[parts.length - 1].slice(0, 10);
         } else if (grouped.mode === 'hourly') {
@@ -505,26 +622,22 @@ function drawChart(days, distancesKm, range) {
             mapStart = grouped.labels[i];
             mapEnd = grouped.labels[i];
         }
-        const mapUrl = `/map/?start=${mapStart}&end=${mapEnd}`;
-        chartBars.push({ x, y, w: barW, h: barH, tip, mapUrl });
+        chartPoints.push({ x: pts[i].x, y: pts[i].y, tip, mapUrl: `/map/?start=${mapStart}&end=${mapEnd}` });
     }
 
     // X-axis labels
-    ctx.fillStyle = '#8b8fa3';
-    ctx.font = '10px Space Grotesk, sans-serif';
+    ctx.fillStyle = textCol;
+    ctx.font = "10px 'Space Grotesk', sans-serif";
     ctx.textAlign = 'center';
-
     const maxLabels = Math.floor(cW / 60);
     const step = Math.max(1, Math.ceil(n / maxLabels));
-
     for (let i = 0; i < n; i += step) {
-        const x = pad.left + (i * (barW + barGap)) + barW / 2;
+        const x = pts[i].x;
         const y = H - pad.bottom + 16;
         if (isGrouped) {
             ctx.fillText(grouped.sublabels[i].label, x, y);
         } else if (grouped.mode === 'hourly') {
-            const hour = grouped.labels[i].slice(11);
-            ctx.fillText(`${hour}:00`, x, y);
+            ctx.fillText(`${grouped.labels[i].slice(11)}:00`, x, y);
         } else {
             const parts = grouped.labels[i].split('-');
             ctx.fillText(`${parts[1]}/${parts[2]}`, x, y);
@@ -532,63 +645,35 @@ function drawChart(days, distancesKm, range) {
     }
 }
 
-// Tooltip handling
-(function() {
-    const canvas = document.getElementById('distance-chart');
-    const tooltip = document.getElementById('chart-tooltip');
-    const container = canvas.parentElement;
+// Distance chart hover (guide line + dot + tooltip, click-through to the map)
+attachChartHover(
+    document.getElementById('distance-chart'),
+    {
+        tooltip: document.getElementById('chart-tooltip'),
+        hline: document.getElementById('chart-hline'),
+        hdot: document.getElementById('chart-hdot'),
+    },
+    () => ({
+        points: chartPoints,
+        geom: chartGeom,
+        width: document.getElementById('distance-chart').parentElement.getBoundingClientRect().width,
+    })
+);
 
-    canvas.addEventListener('mousemove', function(e) {
-        const rect = canvas.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
-
-        let hit = null;
-        for (const bar of chartBars) {
-            if (mx >= bar.x && mx <= bar.x + bar.w && my >= bar.y && my <= bar.y + bar.h) {
-                hit = bar;
-                break;
-            }
-        }
-
-        if (hit) {
-            tooltip.innerHTML = hit.tip.replace('\n', '<br>');
-            tooltip.style.opacity = '1';
-            canvas.style.cursor = 'pointer';
-            // Position tooltip above the bar
-            let tx = hit.x + hit.w / 2;
-            let ty = hit.y - 8;
-            // Adjust if near edges
-            tooltip.style.left = tx + 'px';
-            tooltip.style.bottom = (rect.height - ty) + 'px';
-            tooltip.style.top = '';
-            tooltip.style.transform = 'translateX(-50%)';
-        } else {
-            tooltip.style.opacity = '0';
-            canvas.style.cursor = '';
-        }
-    });
-
-    canvas.addEventListener('mouseleave', function() {
-        tooltip.style.opacity = '0';
-        canvas.style.cursor = '';
-    });
-
-    canvas.addEventListener('click', function(e) {
-        const rect = canvas.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
-
-        for (const bar of chartBars) {
-            const hitY = bar.h > 0 ? bar.y : bar.y - 8;
-            const hitH = bar.h > 0 ? bar.h : 16;
-            if (mx >= bar.x && mx <= bar.x + bar.w && my >= hitY && my <= hitY + hitH) {
-                window.location.href = bar.mapUrl;
-                break;
-            }
-        }
-    });
-})();
+// Monthly Activity chart hover (month + point count, click-through to the map)
+attachChartHover(
+    document.getElementById('yearly-chart'),
+    {
+        tooltip: document.getElementById('yearly-tooltip'),
+        hline: document.getElementById('yearly-hline'),
+        hdot: document.getElementById('yearly-hdot'),
+    },
+    () => ({
+        points: yearlyPoints,
+        geom: yearlyGeom,
+        width: document.getElementById('yearly-chart').parentElement.getBoundingClientRect().width,
+    })
+);
 
 // Event listeners
 document.getElementById('stats-range').addEventListener('change', () => {
@@ -621,6 +706,7 @@ window.addEventListener('resize', () => {
         fetch(`/api/distance/?${distParams}`)
             .then(r => r.json())
             .then(data => drawChart(data.days, data.distances, range));
+        if (yearlyData) drawYearlyChart(yearlyData.monthly_breakdown, yearlyData.year);
     }, 200);
 });
 
@@ -672,53 +758,89 @@ function loadYearlyOverview() {
             document.getElementById('year-places').textContent =
                 `${data.this_year.countries} countr${data.this_year.countries !== 1 ? 'ies' : 'y'} · ${data.this_year.cities} cit${data.this_year.cities !== 1 ? 'ies' : 'y'}`;
 
-            drawYearlyChart(data.monthly_breakdown);
+            drawYearlyChart(data.monthly_breakdown, data.year);
             renderMostVisited(data);
         });
 }
 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-function drawYearlyChart(monthly) {
+function drawYearlyChart(monthly, year) {
     const canvas = document.getElementById('yearly-chart');
     const wrap = document.getElementById('yearly-chart-wrap');
     if (!canvas || !monthly.length) return;
-    canvas.width = wrap.offsetWidth;
-    canvas.height = 160;
+    const dpr = window.devicePixelRatio || 1;
+    const W = wrap.offsetWidth, H = 160;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
     const ctx = canvas.getContext('2d');
-    const W = canvas.width, H = canvas.height;
-    const PAD = { top: 12, right: 8, bottom: 24, left: 10 };
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const PAD = { top: 14, right: 10, bottom: 24, left: 10 };
     const cw = W - PAD.left - PAD.right;
     const ch = H - PAD.top - PAD.bottom;
     const maxPts = Math.max(...monthly.map(m => m.points), 1);
-    const barGap = 4;
-    const barW = (cw - (monthly.length - 1) * barGap) / monthly.length;
-    const primary = getComputedStyle(document.documentElement).getPropertyValue('--primary') || '#3b82f6';
+
+    const css = getComputedStyle(document.documentElement);
+    const accent = (css.getPropertyValue('--primary') || '#0DBFAC').trim();
+    const textCol = (css.getPropertyValue('--text-muted') || '#888').trim();
 
     ctx.clearRect(0, 0, W, H);
-    monthly.forEach((m, i) => {
-        const x = PAD.left + i * (barW + barGap);
-        const barH = (m.points / maxPts) * ch;
-        const y = PAD.top + ch - barH;
-        ctx.fillStyle = primary.trim();
-        ctx.globalAlpha = 0.85;
-        const r = Math.min(3, barW / 2);
-        ctx.beginPath();
-        ctx.moveTo(x + r, y);
-        ctx.lineTo(x + barW - r, y);
-        ctx.quadraticCurveTo(x + barW, y, x + barW, y + r);
-        ctx.lineTo(x + barW, y + barH);
-        ctx.lineTo(x, y + barH);
-        ctx.lineTo(x, y + r);
-        ctx.quadraticCurveTo(x, y, x + r, y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.globalAlpha = 1;
+    yearlyPoints = [];
+    yearlyGeom = { top: PAD.top, height: ch };
 
-        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-muted') || '#888';
+    const n = monthly.length;
+    const xOf = (i) => n === 1 ? PAD.left + cw / 2 : PAD.left + (i / (n - 1)) * cw;
+    const yOf = (v) => PAD.top + ch - (v / maxPts) * ch;
+    const pts = monthly.map((m, i) => ({ x: xOf(i), y: yOf(m.points) }));
+
+    const trace = () => {
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 0; i < pts.length - 1; i++) {
+            const xc = (pts[i].x + pts[i + 1].x) / 2;
+            const yc = (pts[i].y + pts[i + 1].y) / 2;
+            ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
+        }
+        ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+    };
+
+    if (pts.length >= 2) {
+        const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + ch);
+        grad.addColorStop(0, hexA(accent, 0.28));
+        grad.addColorStop(1, hexA(accent, 0.02));
+        trace();
+        ctx.lineTo(pts[pts.length - 1].x, PAD.top + ch);
+        ctx.lineTo(pts[0].x, PAD.top + ch);
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+        trace();
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 2;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.stroke();
+    }
+
+    ctx.textAlign = 'center';
+    monthly.forEach((m, i) => {
+        ctx.beginPath();
+        ctx.arc(pts[i].x, pts[i].y, pts.length === 1 ? 4 : 3, 0, Math.PI * 2);
+        ctx.fillStyle = accent;
+        ctx.fill();
+
+        ctx.fillStyle = textCol;
         ctx.font = `600 10px 'Space Grotesk', sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.fillText(MONTH_NAMES[m.month - 1], x + barW / 2, H - 6);
+        ctx.fillText(MONTH_NAMES[m.month - 1], pts[i].x, H - 6);
+
+        const mm = String(m.month).padStart(2, '0');
+        const lastDay = new Date(year, m.month, 0).getDate();
+        yearlyPoints.push({
+            x: pts[i].x, y: pts[i].y,
+            tip: `${MONTH_NAMES[m.month - 1]} ${year}\n${m.points.toLocaleString()} points`,
+            mapUrl: `/map/?start=${year}-${mm}-01&end=${year}-${mm}-${lastDay}`,
+        });
     });
 }
 
