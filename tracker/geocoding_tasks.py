@@ -124,6 +124,45 @@ def _geocode_worker(user_id):
         )
 
 
+# Per-user debounce for the auto-trigger fired from the location push path.
+_last_auto_trigger = {}
+_AUTO_TRIGGER_DEBOUNCE_S = 30
+
+
+def ensure_auto_geocode(user_id):
+    """Fire-and-forget background geocode for freshly-pushed points.
+
+    Keeps the /api/push/ request path free of any blocking Nominatim call: new
+    points land with city='' and get labelled here, by the rate-limited cluster
+    worker, instead of stalling each upload for up to 10s (which was wedging the
+    mobile uploader into long backoff gaps). Debounced per user and a no-op while
+    a geocode thread (manual or auto) is already running, so a burst of pushes
+    spawns at most one worker. Never blocks the caller.
+    """
+    from .models import GeocodingJob, Location
+
+    now = time.monotonic()
+    if now - _last_auto_trigger.get(user_id, 0.0) < _AUTO_TRIGGER_DEBOUNCE_S:
+        return
+    if _is_thread_alive(user_id):
+        return
+    # Nothing to do if every point is already labelled.
+    if not Location.objects.filter(device__user_id=user_id, city='').exists():
+        return
+
+    _last_auto_trigger[user_id] = now
+    job, created = GeocodingJob.objects.get_or_create(
+        user_id=user_id, defaults={'status': 'running', 'total': 0},
+    )
+    if not created and job.status != 'running':
+        job.status = 'running'
+        job.total = 0
+        job.processed = 0
+        job.errors = 0
+        job.save(update_fields=['status', 'total', 'processed', 'errors', 'updated_at'])
+    _start_thread(user_id)
+
+
 def start_geocoding(user_id, total_points):
     """Start (or resume) geocoding for a user. Returns the job."""
     from .models import GeocodingJob

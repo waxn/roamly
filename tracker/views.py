@@ -37,7 +37,7 @@ from .models import (
     SiteStat, JournalEntry, JournalPhoto,
 )
 from .image_utils import resize_image, resize_photo
-from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding
+from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
 from .poi_tasks import start_poi_download, get_poi_status, stop_poi_download
 from .backup_tasks import (
     test_s3_connection, run_backup_now, get_backup_status, stop_backup_now,
@@ -469,18 +469,12 @@ def push_location(request):
         created = False
 
     if created and location:
-        # Attempt inline geocode (up to 10s timeout)
-        try:
-            result = reverse_geocode(latitude, longitude)
-            if result:
-                location.city = result['city']
-                location.state = result['state']
-                location.country = result['country']
-                location.country_code = result['country_code']
-                location.place_name = result['place_name']
-                location.save(update_fields=['city', 'state', 'country', 'country_code', 'place_name'])
-        except Exception:
-            pass
+        # Geocoding is deliberately OFF the request path. A blocking Nominatim call
+        # here (up to 10s/point, and rate-limited above ~1 req/sec) was stalling
+        # every upload and starving the mobile uploader into multi-minute backoff
+        # gaps. New points land with city='' and get labelled by the background
+        # cluster worker instead — kicked here, fire-and-forget, debounced.
+        ensure_auto_geocode(user.id)
 
     _bust_user_cache(user.id)
     loc_id = location.id if location else None
