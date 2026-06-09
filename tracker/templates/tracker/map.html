@@ -11,49 +11,204 @@
 }
 #map { width: 100%; height: 100%; }
 
-.map-controls {
+/* ── Floating collapsible sidebar ── */
+.map-sidebar {
     position: absolute;
     top: 12px;
     left: 12px;
+    bottom: 52px;
     z-index: 10;
     display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
+    flex-direction: row;
+    align-items: flex-start;
+    width: 220px;
+    transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
 }
-.map-controls select, .map-controls input {
+.map-sidebar.collapsed { width: 0; }
+
+.sidebar-content {
+    width: 220px;
+    flex-shrink: 0;
     background: var(--bg-glass);
-    backdrop-filter: blur(12px);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 12px;
+    overflow: hidden;
+    pointer-events: all;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.22);
+    transition: opacity 0.18s ease, transform 0.22s ease;
+}
+.map-sidebar.collapsed .sidebar-content {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-10px);
+}
+
+.sidebar-toggle {
+    flex-shrink: 0;
+    align-self: center;
+    margin-left: 6px;
+    width: 22px;
+    height: 44px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 0 10px 10px 0;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    cursor: pointer;
+    pointer-events: all;
+    box-shadow: 4px 0 12px rgba(0, 0, 0, 0.18);
+    transition: color 0.15s, background 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+.sidebar-toggle:hover {
+    color: var(--text);
+    background: var(--bg-glass);
+}
+
+/* When collapsed the sidebar has 0 width so the toggle floats at left:12px */
+.map-sidebar.collapsed .sidebar-toggle {
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
+    height: 52px;
+    width: 28px;
+}
+
+.sidebar-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.sidebar-label {
+    font-size: 0.625rem;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--text-muted);
+    padding-bottom: 2px;
+}
+.sidebar-content select,
+.sidebar-content input[type="date"] {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.18);
     color: var(--text);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 6px 12px;
-    font-size: 0.8125rem;
-    font-family: var(--font-body);
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-size: 0.775rem;
+    font-family: 'Space Grotesk', sans-serif;
     font-weight: 600;
     text-transform: lowercase;
     outline: none;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    box-sizing: border-box;
+    appearance: auto;
+}
+.sidebar-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
+}
+.sidebar-row input[type="date"] {
+    font-size: 0.7rem;
+    padding: 5px 6px;
 }
 
+/* Basemap button group */
+.sidebar-btn-group {
+    display: flex;
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 3px;
+    gap: 2px;
+}
+.style-btn {
+    flex: 1;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    padding: 4px 4px;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    text-transform: lowercase;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.12s, color 0.12s;
+}
+.style-btn.active { background: var(--primary); color: #fff; }
+.style-btn:not(.active):hover { color: var(--text); }
+
+/* Layer toggle buttons */
+.sidebar-tools { display: flex; flex-direction: column; gap: 4px; }
+.tool-btn {
+    background: rgba(0, 0, 0, 0.12);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-size: 0.775rem;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    text-transform: lowercase;
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.tool-btn:hover:not(.active) { color: var(--text); border-color: var(--text-muted); }
+.tool-btn.active {
+    background: rgba(59, 130, 246, 0.14);
+    color: var(--primary);
+    border-color: var(--primary);
+}
+.tool-btn-badge {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    font-weight: 700;
+}
+.tool-btn.active .tool-btn-badge { color: var(--primary); }
+
+/* map info — bottom left */
 .map-info {
     position: absolute;
-    bottom: 24px;
+    bottom: 12px;
     left: 12px;
     z-index: 10;
     background: var(--bg-glass);
     backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border);
-    border-radius: 14px;
-    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
     border-radius: 10px;
-    padding: 8px 12px;
-    font-size: 0.8125rem;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    padding: 6px 12px;
+    font-size: 0.75rem;
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 700;
     text-transform: lowercase;
     color: var(--text-muted);
+    max-width: calc(100% - 80px);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
+/* load-more prompt — centered top */
 .map-detail-controls {
     position: absolute;
     top: 12px;
@@ -73,7 +228,6 @@
     text-transform: lowercase;
     color: var(--text-muted);
 }
-
 .map-detail-controls button {
     border: 1px solid var(--border);
     background: var(--primary);
@@ -86,41 +240,9 @@
     padding: 5px 10px;
     cursor: pointer;
 }
+.map-detail-controls button[disabled] { opacity: 0.6; cursor: default; }
 
-.map-detail-controls button[disabled] {
-    opacity: 0.6;
-    cursor: default;
-}
-
-.style-switcher {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    z-index: 10;
-    display: flex;
-    gap: 4px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 4px;
-}
-.style-btn {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    padding: 4px 10px;
-    border-radius: 10px;
-    font-size: 0.75rem;
-    font-family: 'Space Grotesk', sans-serif;
-    font-weight: 700;
-    text-transform: lowercase;
-    cursor: pointer;
-}
-.style-btn.active {
-    background: var(--primary);
-    color: #fff;
-}
-
+/* Popup theming */
 .maplibregl-popup-content {
     background: var(--bg-card) !important;
     color: var(--text) !important;
@@ -133,20 +255,12 @@
     text-transform: lowercase !important;
     box-shadow: 0 4px 12px rgba(0,0,0,0.4);
 }
-.maplibregl-popup-tip {
-    border-top-color: var(--bg-card) !important;
-}
+.maplibregl-popup-tip { border-top-color: var(--bg-card) !important; }
 .maplibregl-popup-close-button {
     color: var(--text-muted) !important;
-    width: 28px;
-    height: 28px;
-    line-height: 28px;
-    font-size: 1.25rem;
-    font-weight: 700;
-    border-radius: 999px;
-    top: 8px;
-    right: 8px;
-    background: rgba(0, 0, 0, 0.08);
+    width: 28px; height: 28px; line-height: 28px;
+    font-size: 1.25rem; font-weight: 700; border-radius: 999px;
+    top: 8px; right: 8px; background: rgba(0, 0, 0, 0.08);
 }
 .maplibregl-map, .maplibregl-ctrl {
     font-family: 'Space Grotesk', sans-serif !important;
@@ -154,72 +268,33 @@
     text-transform: lowercase !important;
 }
 
+/* Loading bar */
 #map-loading-bar {
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
+    top: 0; left: 0; right: 0;
     height: 5px;
     z-index: 20;
     overflow: hidden;
     display: none;
     pointer-events: none;
 }
-/* Layer tools (globe / scratch / replay) — sit just under the style switcher */
-.map-tools {
+#map-loading-bar.active { display: block; }
+#map-loading-bar::after {
+    content: '';
     position: absolute;
-    top: 56px;
-    right: 12px;
-    z-index: 10;
-    display: flex;
-    gap: 4px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 4px;
+    top: 0; left: -60%; width: 60%; height: 100%;
+    background: var(--primary, #3b82f6);
+    animation: loading-sweep 1.4s infinite cubic-bezier(0.4, 0, 0.2, 1);
 }
-.tool-btn {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    padding: 4px 10px;
-    border-radius: 10px;
-    font-size: 0.75rem;
-    font-family: 'Space Grotesk', sans-serif;
-    font-weight: 700;
-    text-transform: lowercase;
-    cursor: pointer;
-}
-.tool-btn.active {
-    background: var(--primary);
-    color: #fff;
+@keyframes loading-sweep {
+    0% { left: -60%; }
+    100% { left: 160%; }
 }
 
-/* Scratch-map readout pill */
-.scratch-info {
-    position: absolute;
-    top: 56px;
-    left: 12px;
-    z-index: 10;
-    display: none;
-    background: var(--bg-glass);
-    backdrop-filter: blur(12px);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-    padding: 8px 12px;
-    font-size: 0.8125rem;
-    font-family: 'Space Grotesk', sans-serif;
-    font-weight: 700;
-    text-transform: lowercase;
-    color: var(--text);
-}
-.scratch-info.active { display: block; }
-
-/* Replay panel */
+/* Replay panel — bottom center */
 .replay-panel {
     position: absolute;
-    bottom: 24px;
+    bottom: 52px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 12;
@@ -229,6 +304,7 @@
     width: min(640px, calc(100% - 24px));
     background: var(--bg-glass);
     backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
     border: 1px solid var(--border);
     border-radius: 14px;
     box-shadow: 0 10px 32px rgba(0, 0, 0, 0.3);
@@ -240,113 +316,103 @@
 }
 .replay-panel.active { display: flex; }
 .replay-panel input[type="date"] {
-    background: var(--bg-card);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 5px 8px;
-    font-size: 0.75rem;
-    font-family: 'Space Grotesk', sans-serif;
-    font-weight: 700;
+    background: var(--bg-card); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 5px 8px; font-size: 0.75rem;
+    font-family: 'Space Grotesk', sans-serif; font-weight: 700;
 }
 .replay-panel button.rp-btn {
-    border: 1px solid var(--border);
-    background: var(--primary);
-    color: #fff;
-    border-radius: 10px;
-    font-size: 0.75rem;
-    font-family: 'Space Grotesk', sans-serif;
-    font-weight: 700;
-    text-transform: lowercase;
-    padding: 5px 12px;
-    cursor: pointer;
+    border: 1px solid var(--border); background: var(--primary); color: #fff;
+    border-radius: 8px; font-size: 0.75rem;
+    font-family: 'Space Grotesk', sans-serif; font-weight: 700;
+    text-transform: lowercase; padding: 5px 12px; cursor: pointer;
 }
 .replay-panel button.rp-btn[disabled] { opacity: 0.5; cursor: default; }
 .replay-panel input[type="range"] {
-    flex: 1;
-    min-width: 80px;
-    accent-color: var(--primary);
-    cursor: pointer;
+    flex: 1; min-width: 80px; accent-color: var(--primary); cursor: pointer;
 }
 .replay-panel select {
-    background: var(--bg-card);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 5px 6px;
-    font-size: 0.7rem;
-    font-family: 'Space Grotesk', sans-serif;
-    font-weight: 700;
+    background: var(--bg-card); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 5px 6px; font-size: 0.7rem;
+    font-family: 'Space Grotesk', sans-serif; font-weight: 700;
 }
 .replay-clock {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    min-width: 132px;
-    text-align: right;
-    white-space: nowrap;
+    font-size: 0.75rem; color: var(--text-muted);
+    min-width: 132px; text-align: right; white-space: nowrap;
 }
 .replay-close {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    font-size: 1.1rem;
-    cursor: pointer;
-    padding: 0 2px;
-}
-
-#map-loading-bar.active { display: block; }
-#map-loading-bar::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -60%;
-    width: 60%;
-    height: 100%;
-    background: var(--primary, #3b82f6);
-    animation: loading-sweep 1.4s infinite cubic-bezier(0.4, 0, 0.2, 1);
-}
-@keyframes loading-sweep {
-    0% { left: -60%; }
-    100% { left: 160%; }
+    background: none; border: none; color: var(--text-muted);
+    font-size: 1.1rem; cursor: pointer; padding: 0 2px;
 }
 {% endblock %}
 
 {% block content %}
 <div id="map-container">
-    <div class="map-controls">
-        <select id="time-range">
-            <option value="1">Last hour</option>
-            <option value="6">Last 6 hours</option>
-            <option value="24">Last 24 hours</option>
-            <option value="72">Last 3 days</option>
-            <option value="168">Last week</option>
-            <option value="720">Last 30 days</option>
-            <option value="all">All time</option>
-        </select>
-        <select id="device-filter">
-            <option value="">All devices</option>
-            {% for device in devices %}
-            <option value="{{ device.device_id }}">{{ device.name|default:device.device_id }}</option>
-            {% endfor %}
-        </select>
-        <input type="date" id="start-date" title="Start date">
-        <input type="date" id="end-date" title="End date">
+
+    <!-- Floating left sidebar -->
+    <div class="map-sidebar" id="map-sidebar">
+        <div class="sidebar-content">
+
+            <div class="sidebar-section">
+                <div class="sidebar-label">time range</div>
+                <select id="time-range">
+                    <option value="1">Last hour</option>
+                    <option value="6">Last 6 hours</option>
+                    <option value="24">Last 24 hours</option>
+                    <option value="72">Last 3 days</option>
+                    <option value="168">Last week</option>
+                    <option value="720">Last 30 days</option>
+                    <option value="all">All time</option>
+                </select>
+                <div class="sidebar-row">
+                    <input type="date" id="start-date" title="Start date">
+                    <input type="date" id="end-date" title="End date">
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-label">device</div>
+                <select id="device-filter">
+                    <option value="">All devices</option>
+                    {% for device in devices %}
+                    <option value="{{ device.device_id }}">{{ device.name|default:device.device_id }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-label">basemap</div>
+                <div class="sidebar-btn-group">
+                    <button class="style-btn active" data-style="Streets">streets</button>
+                    <button class="style-btn" data-style="Dark">dark</button>
+                    <button class="style-btn" data-style="Satellite">satellite</button>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-label">layers</div>
+                <div class="sidebar-tools">
+                    <button class="tool-btn" id="globe-btn" type="button">
+                        globe
+                        <span class="tool-btn-badge" id="globe-badge"></span>
+                    </button>
+                    <button class="tool-btn" id="scratch-btn" type="button">
+                        scratch map
+                        <span class="tool-btn-badge" id="scratch-badge"></span>
+                    </button>
+                    <button class="tool-btn" id="replay-btn" type="button">
+                        replay day
+                        <span class="tool-btn-badge" id="replay-badge"></span>
+                    </button>
+                </div>
+            </div>
+
+        </div>
+        <button class="sidebar-toggle" id="sidebar-toggle" type="button" title="Toggle panel">&#8249;</button>
     </div>
 
-    <div class="style-switcher">
-        <button class="style-btn active" data-style="Streets">Streets</button>
-        <button class="style-btn" data-style="Dark">Dark</button>
-        <button class="style-btn" data-style="Satellite">Satellite</button>
-    </div>
-
-    <div class="map-tools">
-        <button class="tool-btn" id="globe-btn" type="button" title="Toggle 3D globe">globe</button>
-        <button class="tool-btn" id="scratch-btn" type="button" title="Highlight countries visited">scratch</button>
-        <button class="tool-btn" id="replay-btn" type="button" title="Replay a day">replay</button>
-    </div>
-
-    <div class="scratch-info" id="scratch-info"></div>
-
+    <!-- Replay panel (contextual, bottom center) -->
     <div class="replay-panel" id="replay-panel">
         <input type="date" id="replay-date" title="Day to replay">
         <button class="rp-btn" id="replay-play" type="button" disabled>play</button>
@@ -801,7 +867,6 @@ function loadViewport(limit) {
             const hitLim = features.length >= limit * 0.95;
             lastViewportHitLimit = hitLim;
             if (!hitLim) {
-                // Complete coverage — record this bbox so we don't re-fetch it
                 fetchedAreas.push({ w: b.getWest(), s: b.getSouth(), e: b.getEast(), n: b.getNorth() });
             }
 
@@ -828,7 +893,6 @@ function maybeLoadViewport() {
     if (detailLoading || map.getZoom() < DETAIL_MIN_ZOOM || lastTrackData.length === 0) return;
     const b = map.getBounds();
     if (isViewportCovered(b)) {
-        // Already have all points for this area — just clear the "load more" prompt
         lastViewportHitLimit = false;
         updateDetailControls();
         return;
@@ -851,7 +915,6 @@ async function fetchAndFocusSelected(id, dateStr) {
         if (!resp.ok) return;
         const data = await resp.json();
 
-        // search flat locations
         let found = null;
         if (Array.isArray(data.locations)) {
             found = data.locations.find(l => String(l.id) === String(id));
@@ -860,12 +923,7 @@ async function fetchAndFocusSelected(id, dateStr) {
             for (const dev of data.devices) {
                 if (!dev.locations) continue;
                 const f = dev.locations.find(l => String(l.id) === String(id));
-                if (f) {
-                    // attach device name if available
-                    if (!f.device) f.device = dev.name || dev.device_id;
-                    found = f;
-                    break;
-                }
+                if (f) { if (!f.device) f.device = dev.name || dev.device_id; found = f; break; }
             }
         }
         if (!found) return;
@@ -875,12 +933,8 @@ async function fetchAndFocusSelected(id, dateStr) {
             ts: Math.floor(new Date(found.timestamp).getTime() / 1000),
             device_name: found.device || found.device_name || '',
             speed: found.speed ?? null,
-            city: found.city,
-            state: found.state,
-            country: found.country,
+            city: found.city, state: found.state, country: found.country,
         };
-
-        // fly to and show popup
         map.once('idle', () => {
             try { map.flyTo({ center: coords, zoom: 15 }); } catch (e) {}
             showPointPopup(props, coords);
@@ -901,7 +955,6 @@ function renderTrack(devices, autoFit) {
         const srcId = `track-${i}`;
         const color = deviceColor(device.id);
 
-        // Build a single GeoJSON with individual points only
         const features = [];
         device.points.forEach(p => {
             features.push({
@@ -985,7 +1038,7 @@ function loadTrack(autoFit) {
             const shown = data.devices.reduce((s, d) => s + d.points.length, 0);
             const hidden = data.devices.reduce((s, d) => s + (d.hidden || 0), 0);
             const info = total !== shown
-                ? `${total.toLocaleString()} pts · ${data.devices.length} device(s) · showing ${shown.toLocaleString()} (${hidden.toLocaleString()} dense/stationary hidden)`
+                ? `${total.toLocaleString()} pts · ${data.devices.length} device(s) · showing ${shown.toLocaleString()} (${hidden.toLocaleString()} hidden)`
                 : `${total.toLocaleString()} points · ${data.devices.length} device(s)`;
             document.getElementById('map-info').textContent = info;
         })
@@ -1001,7 +1054,6 @@ function loadTrack(autoFit) {
 // Init + filter handlers
 // ═══════════════════════════════════════════════════════════════════
 
-// URL params: date pre-fill and fly-to (used by search page links)
 (function() {
     const p = new URLSearchParams(window.location.search);
     if (p.get('start') && p.get('end')) {
@@ -1009,7 +1061,6 @@ function loadTrack(autoFit) {
         document.getElementById('end-date').value = p.get('end');
         document.getElementById('time-range').value = 'all';
     }
-    // support legacy 'date' + 'selected' query params from data table
     if (p.get('date')) {
         const d = p.get('date');
         document.getElementById('start-date').value = d;
@@ -1017,7 +1068,6 @@ function loadTrack(autoFit) {
         document.getElementById('time-range').value = 'all';
     }
     if (p.get('selected')) {
-        // remember for after initial track load
         window.__selectedFromURL = p.get('selected');
         window.__selectedDateFromURL = p.get('date') || null;
     }
@@ -1032,21 +1082,15 @@ function loadTrack(autoFit) {
 map.on('load', () => {
     loadTrack(true);
     if (window.__selectedFromURL) {
-        // attempt to fetch the exact location and focus it
         fetchAndFocusSelected(window.__selectedFromURL, window.__selectedDateFromURL);
     }
 });
 
-// Update the "load more" panel visibility when zoom changes
 map.on('zoomend', () => updateDetailControls());
 
-// Auto-load detail points after any map move (pan or zoom), debounced
 map.on('moveend', () => {
     if (moveDebounce) clearTimeout(moveDebounce);
-    moveDebounce = setTimeout(() => {
-        moveDebounce = null;
-        maybeLoadViewport();
-    }, 400);
+    moveDebounce = setTimeout(() => { moveDebounce = null; maybeLoadViewport(); }, 400);
 });
 
 document.getElementById('map-load-more-btn').addEventListener('click', () => {
@@ -1073,6 +1117,26 @@ document.getElementById('map-load-more-btn').addEventListener('click', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
+// Sidebar collapse/expand
+// ═══════════════════════════════════════════════════════════════════
+const sidebar = document.getElementById('map-sidebar');
+const sidebarToggle = document.getElementById('sidebar-toggle');
+let sidebarOpen = localStorage.getItem('roamly_sidebar_open') !== 'false';
+
+function applySidebar() {
+    sidebar.classList.toggle('collapsed', !sidebarOpen);
+    sidebarToggle.innerHTML = sidebarOpen ? '&#8249;' : '&#8250;';
+    sidebarToggle.title = sidebarOpen ? 'collapse panel' : 'expand panel';
+}
+applySidebar();
+
+sidebarToggle.addEventListener('click', () => {
+    sidebarOpen = !sidebarOpen;
+    localStorage.setItem('roamly_sidebar_open', sidebarOpen);
+    applySidebar();
+});
+
+// ═══════════════════════════════════════════════════════════════════
 // 3D globe projection (MapLibre GL v5)
 // ═══════════════════════════════════════════════════════════════════
 const globeBtn = document.getElementById('globe-btn');
@@ -1082,6 +1146,7 @@ function applyProjection() {
     try { map.setProjection({ type: globeOn ? 'globe' : 'mercator' }); } catch (e) {}
 }
 globeBtn.classList.toggle('active', globeOn);
+
 globeBtn.addEventListener('click', () => {
     globeOn = !globeOn;
     localStorage.setItem('roamly_globe', globeOn ? 'on' : 'off');
@@ -1094,7 +1159,7 @@ globeBtn.addEventListener('click', () => {
 // ═══════════════════════════════════════════════════════════════════
 const SCRATCH_URL = "{% static 'tracker/data/world-countries.json' %}";
 const scratchBtn = document.getElementById('scratch-btn');
-const scratchInfo = document.getElementById('scratch-info');
+const scratchBadge = document.getElementById('scratch-badge');
 let scratchOn = false;
 let scratchGeo = null;
 let visitedCodes = [];
@@ -1138,11 +1203,10 @@ scratchBtn.addEventListener('click', async () => {
         await loadScratchData();
         addScratchLayers();
         const n = visitedCount || visitedCodes.length;
-        scratchInfo.textContent = `${n} ${n === 1 ? 'country' : 'countries'} visited`;
-        scratchInfo.classList.add('active');
+        scratchBadge.textContent = n ? `${n} ${n === 1 ? 'country' : 'countries'}` : '';
     } else {
         removeScratchLayers();
-        scratchInfo.classList.remove('active');
+        scratchBadge.textContent = '';
     }
 });
 
@@ -1163,14 +1227,15 @@ const replaySlider = document.getElementById('replay-slider');
 const replaySpeedEl = document.getElementById('replay-speed');
 const replayClock = document.getElementById('replay-clock');
 const replayCloseBtn = document.getElementById('replay-close');
+const replayBadge = document.getElementById('replay-badge');
 
 const REPLAY_TRAIL_SRC = 'replay-trail';
 const REPLAY_HEAD_SRC = 'replay-head';
-const REPLAY_STEPS = 1000;          // slider resolution
-const REPLAY_BASE_MS = 60000;       // whole day in 60s at 1×
+const REPLAY_STEPS = 1000;
+const REPLAY_BASE_MS = 60000;  // whole day = 60s at 1×
 
 let replayActive = false;
-let replayDevices = [];   // [{color, pts:[{t,c}]}]
+let replayDevices = [];
 let replayTMin = 0, replayTMax = 0;
 let replayRAF = null;
 let replayPlaying = false;
@@ -1222,9 +1287,11 @@ function todayLocalISO() {
 }
 
 async function loadReplayDay(dateStr) {
+    if (!dateStr) return;
     replayPlayBtn.disabled = true;
     replaySlider.disabled = true;
     replayClock.textContent = 'loading…';
+    replayBadge.textContent = dateStr;
     stopReplayPlayback();
 
     const params = new URLSearchParams();
@@ -1242,7 +1309,7 @@ async function loadReplayDay(dateStr) {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         data = await r.json();
     } catch (e) {
-        replayClock.textContent = 'error';
+        replayClock.textContent = 'error loading';
         replayDevices = [];
         return;
     }
@@ -1263,7 +1330,7 @@ async function loadReplayDay(dateStr) {
     });
 
     if (!replayDevices.length) {
-        replayClock.textContent = 'no points that day';
+        replayClock.textContent = 'no data this day';
         ensureReplayLayers();
         map.getSource(REPLAY_TRAIL_SRC).setData({ type: 'FeatureCollection', features: [] });
         map.getSource(REPLAY_HEAD_SRC).setData({ type: 'FeatureCollection', features: [] });
@@ -1278,7 +1345,6 @@ async function loadReplayDay(dateStr) {
     replaySlider.value = 0;
     renderReplayAt(0);
 
-    // Frame the day's extent.
     let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
     replayDevices.forEach(d => d.pts.forEach(p => {
         minLng = Math.min(minLng, p.c[0]); maxLng = Math.max(maxLng, p.c[0]);
@@ -1287,12 +1353,10 @@ async function loadReplayDay(dateStr) {
     if (minLng !== Infinity) map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 80, maxZoom: 15, duration: 600 });
 }
 
-// frac: 0..1 of the day's [tMin,tMax] window
 function renderReplayAt(frac) {
     if (!replayDevices.length) return;
     const t = replayTMin + (replayTMax - replayTMin) * frac;
-    const trail = [];
-    const heads = [];
+    const trail = [], heads = [];
     replayDevices.forEach(d => {
         const coords = [];
         let head = null;
@@ -1326,7 +1390,7 @@ function startReplayPlayback() {
         const speed = parseFloat(replaySpeedEl.value) || 1;
         const dur = REPLAY_BASE_MS / speed;
         let frac = replayAnimFrom + (now - replayAnimStart) / dur;
-        if (frac >= 1) { frac = 1; }
+        if (frac >= 1) frac = 1;
         replaySlider.value = Math.round(frac * REPLAY_STEPS);
         renderReplayAt(frac);
         if (frac >= 1) { stopReplayPlayback(); return; }
@@ -1341,23 +1405,24 @@ replayBtn.addEventListener('click', () => {
     replayPanel.classList.toggle('active', replayActive);
     if (replayActive) {
         setBaseLayersVisible(false);
-        if (!replayDateEl.value) {
-            const s = document.getElementById('start-date').value;
-            replayDateEl.value = s || todayLocalISO();
-        }
+        const s = document.getElementById('start-date').value;
+        if (!replayDateEl.value) replayDateEl.value = s || todayLocalISO();
         loadReplayDay(replayDateEl.value);
     } else {
         closeReplay();
     }
 });
+
 function closeReplay() {
     replayActive = false;
     replayBtn.classList.remove('active');
     replayPanel.classList.remove('active');
+    replayBadge.textContent = '';
     stopReplayPlayback();
     removeReplayLayers();
     setBaseLayersVisible(true);
 }
+
 replayCloseBtn.addEventListener('click', closeReplay);
 replayDateEl.addEventListener('change', () => { if (replayActive) loadReplayDay(replayDateEl.value); });
 replayPlayBtn.addEventListener('click', () => { replayPlaying ? stopReplayPlayback() : startReplayPlayback(); });
