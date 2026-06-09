@@ -184,6 +184,27 @@
     background: var(--primary);
     color: #fff;
 }
+
+/* Scratch-map readout pill */
+.scratch-info {
+    position: absolute;
+    top: 56px;
+    left: 12px;
+    z-index: 10;
+    display: none;
+    background: var(--bg-glass);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    padding: 8px 12px;
+    font-size: 0.8125rem;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    text-transform: lowercase;
+    color: var(--text);
+}
+.scratch-info.active { display: block; }
 #map-loading-bar {
     position: absolute;
     top: 0;
@@ -242,7 +263,10 @@
 
     <div class="map-tools">
         <button class="tool-btn" id="globe-btn" type="button" title="Toggle 3D globe">globe</button>
+        <button class="tool-btn" id="scratch-btn" type="button" title="Highlight countries visited">scratch</button>
     </div>
+
+    <div class="scratch-info" id="scratch-info"></div>
 
     <div id="map-loading-bar"></div>
     <div class="map-info" id="map-info">loading...</div>
@@ -971,9 +995,67 @@ globeBtn.addEventListener('click', () => {
     applyProjection();
 });
 
-// Re-apply projection after any basemap style swap.
+
+// ═══════════════════════════════════════════════════════════════════
+// Scratch map — highlight countries visited
+// ═══════════════════════════════════════════════════════════════════
+const SCRATCH_URL = "{% static 'tracker/data/world-countries.json' %}";
+const scratchBtn = document.getElementById('scratch-btn');
+const scratchInfo = document.getElementById('scratch-info');
+let scratchOn = false;
+let scratchGeo = null;
+let visitedCodes = [];
+let visitedCount = 0;
+
+async function loadScratchData() {
+    if (!scratchGeo) scratchGeo = await fetch(SCRATCH_URL).then(r => r.json());
+    if (!visitedCodes.length) {
+        try {
+            const d = await fetch('/api/countries/').then(r => r.json());
+            visitedCodes = d.codes || [];
+            visitedCount = d.count || visitedCodes.length;
+        } catch (e) { visitedCodes = []; }
+    }
+}
+
+function addScratchLayers() {
+    if (!scratchGeo || map.getSource('scratch-src')) return;
+    map.addSource('scratch-src', { type: 'geojson', data: scratchGeo });
+    map.addLayer({
+        id: 'scratch-fill', type: 'fill', source: 'scratch-src',
+        filter: ['in', ['get', 'cc'], ['literal', visitedCodes]],
+        paint: { 'fill-color': '#ff6b5e', 'fill-opacity': 0.45 },
+    });
+    map.addLayer({
+        id: 'scratch-line', type: 'line', source: 'scratch-src',
+        filter: ['in', ['get', 'cc'], ['literal', visitedCodes]],
+        paint: { 'line-color': '#ff6b5e', 'line-width': 1, 'line-opacity': 0.9 },
+    });
+}
+
+function removeScratchLayers() {
+    ['scratch-fill', 'scratch-line'].forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
+    if (map.getSource('scratch-src')) map.removeSource('scratch-src');
+}
+
+scratchBtn.addEventListener('click', async () => {
+    scratchOn = !scratchOn;
+    scratchBtn.classList.toggle('active', scratchOn);
+    if (scratchOn) {
+        await loadScratchData();
+        addScratchLayers();
+        const n = visitedCount || visitedCodes.length;
+        scratchInfo.textContent = `${n} ${n === 1 ? 'country' : 'countries'} visited`;
+        scratchInfo.classList.add('active');
+    } else {
+        removeScratchLayers();
+        scratchInfo.classList.remove('active');
+    }
+});
+// Re-apply projection + scratch layers after any basemap style swap.
 map.on('style.load', () => {
     applyProjection();
+    if (scratchOn) addScratchLayers();
 });
 
 // Apply saved globe projection on first load.

@@ -1221,6 +1221,44 @@ def stats_api(request):
 
 
 @login_required
+def countries_api(request):
+    """Distinct visited country (and US state) codes for the scratch map."""
+    gen = cache.get(f"cache_gen:{request.user.id}", 0)
+    cache_key = f"countries:{request.user.id}:{gen}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached)
+
+    qs = Location.objects.filter(device__user=request.user)
+    rows = (
+        qs.exclude(country_code__isnull=True).exclude(country_code='')
+        .values('country_code', 'country').distinct()
+    )
+    names = {}
+    for r in rows:
+        cc = (r['country_code'] or '').upper()
+        if cc:
+            names.setdefault(cc, r['country'] or cc)
+
+    # US states the user has set foot in (postal-abbrev or full name as stored).
+    states = sorted(
+        s for s in qs.filter(country_code__iexact='US')
+        .exclude(state='').exclude(state__isnull=True)
+        .values_list('state', flat=True).distinct()
+        if s
+    )
+
+    result = {
+        'codes': sorted(names.keys()),
+        'names': names,
+        'count': len(names),
+        'states': states,
+    }
+    cache.set(cache_key, result, timeout=600)
+    return JsonResponse(result)
+
+
+@login_required
 def yearly_overview_api(request):
     """Yearly overview: week/month/year stats with comparisons and top places."""
     gen = cache.get(f"cache_gen:{request.user.id}", 0)
