@@ -205,9 +205,10 @@
     border-radius: var(--radius-clay-lg);
     box-shadow: var(--clay-shadow-hover);
     width: 100%; max-width: 1000px;
-    max-height: 92vh; min-height: 520px;
+    height: 92vh; max-height: 92vh; min-height: 520px;
     display: grid;
     grid-template-columns: 1.1fr 1fr;
+    grid-template-rows: 1fr;
     overflow: hidden;
     transform: translateY(16px) scale(0.98);
     transition: transform 0.3s var(--ease-spring);
@@ -265,7 +266,7 @@
     width: 100%; margin-bottom: 0.7rem;
 }
 .j-body-input {
-    flex: 1; min-height: 180px; width: 100%; resize: vertical;
+    flex: 1; min-height: 100px; width: 100%; resize: vertical;
     background: var(--bg-input); border: 1px solid var(--border);
     border-radius: var(--radius-clay-sm); padding: 0.85rem 1rem;
     color: var(--text); font-family: var(--font-body); font-size: 0.95rem;
