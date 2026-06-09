@@ -72,6 +72,8 @@ The `geocoding_tasks._geocode_worker` drains the `city=''` backlog in chunks, re
 
 **Caching:** Redis when `REDIS_URL` is set, in-memory otherwise. Per-user cache generation keys (`cache_gen:{user_id}`) are incremented by `_bust_user_cache()` whenever location data changes, invalidating all cached API responses for that user.
 
+**Analytics / custom JS:** Set `CUSTOM_JS_SNIPPET` to a raw JS string (no `<script>` tags) and it will be injected inside a `<script>` block just before `</body>` on every page. Unset by default so self-hosters get nothing extra. Works with any snippet-based tool (PostHog, Plausible, Fathom, etc.). The value is passed via `tracker.context_processors.custom_js_snippet` and rendered with `|safe` in `base.html`.
+
 **Response compression:** `django.middleware.gzip.GZipMiddleware` (first after SecurityMiddleware) gzips all dynamic HTML/JSON responses. WhiteNoise serves its own pre-compressed static assets and sets `Content-Encoding`, so GZipMiddleware skips those (no double-compression). The ~60KB landing HTML drops to ~8KB on the wire.
 
 **Landing page performance:** `landing_view` is tuned for the fastest possible cold load (it's the public entry point). The three hero stats are read from the `site_stats` cache key (1h TTL, also primed by `_refresh_site_stats`) so the hot path never hits the DB; only a cache miss does a `SiteStat` lookup. Anonymous responses get `Cache-Control: public, max-age=300, stale-while-revalidate=86400` + `Vary: Cookie, Accept-Encoding` so browsers/CDNs serve repeat visits instantly without leaking the logged-in nav variant.
