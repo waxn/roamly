@@ -3642,22 +3642,51 @@ def _cluster_pois(pois):
 
 def _search_local_pois(query, user_locations_qs, radius_m=150):
     """Search the local POI table and match against user's location history."""
+    from rapidfuzz import fuzz as _fuzz
     query = query.strip()
     if not query:
         return []
 
-    matching_pois = list(
-        POI.objects.filter(name__icontains=query)
-        .annotate(
-            match_rank=Case(
-                When(name__iexact=query, then=Value(0)),
-                When(name__istartswith=query, then=Value(1)),
-                default=Value(2),
-                output_field=IntegerField(),
-            )
-        )
-        .order_by('match_rank', 'name')[:120]
+    # Stage 1: broad DB fetch using prefix tokens so typos at word-endings still
+    # retrieve the right candidates ("walmaert" → prefix "walm" → Walmart).
+    words = [w for w in query.split() if len(w) >= 4]
+    from django.db.models import Q
+    candidate_filter = Q(name__icontains=query)
+    for w in words:
+        candidate_filter |= Q(name__icontains=w[:4])
+    candidates = list(
+        POI.objects.filter(candidate_filter).distinct()[:400]
     )
+
+    if not candidates:
+        return []
+
+    # Stage 2: score with rapidfuzz token_set_ratio (handles word reordering and
+    # partial matches, e.g. "trader joes" → "Trader Joe's" = high score).
+    _FUZZY_THRESHOLD = 65
+    scored = []
+    q_lower = query.lower()
+    for poi in candidates:
+        score = _fuzz.token_set_ratio(q_lower, poi.name.lower())
+        if score >= _FUZZY_THRESHOLD:
+            scored.append((score, poi))
+
+    if not scored:
+        return []
+
+    # Sort best matches first so the visit-filter pipeline sees them in priority order.
+    scored.sort(key=lambda x: -x[0])
+    matching_pois = [poi for _, poi in scored]
+
+    # Attach a synthetic match_rank (0 = exact, 1 = high-score fuzzy, 2 = rest)
+    # so downstream sorting still works.
+    for score, poi in scored:
+        if score == 100 and poi.name.lower() == q_lower:
+            poi.match_rank = 0
+        elif score >= 85:
+            poi.match_rank = 1
+        else:
+            poi.match_rank = 2
 
     if not matching_pois:
         return []
