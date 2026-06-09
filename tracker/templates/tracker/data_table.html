@@ -38,6 +38,7 @@
                         <th class="sortable" data-key="city" onclick="sortBy('city')">City <span class="sort-arrow"></span></th>
                         <th class="sortable" data-key="state" onclick="sortBy('state')">State <span class="sort-arrow"></span></th>
                         <th class="sortable" data-key="country_code" onclick="sortBy('country_code')">Country <span class="sort-arrow"></span></th>
+                        <th>Place</th>
                         <th class="sortable" data-key="speed" onclick="sortBy('speed')">Speed <span class="sort-arrow"></span></th>
                         <th class="sortable" data-key="battery" onclick="sortBy('battery')">Battery <span class="sort-arrow"></span></th>
                         <th class="sortable active-sort" data-key="timestamp" onclick="sortBy('timestamp')">Timestamp <span class="sort-arrow">&#9660;</span></th>
@@ -45,7 +46,7 @@
                     </tr>
                 </thead>
                 <tbody id="data-table-body">
-                    <tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                    <tr><td colspan="11" style="text-align: center; color: var(--text-muted); padding: 2rem;">
                         <span class="spinner"></span> Loading...
                     </td></tr>
                 </tbody>
@@ -85,24 +86,36 @@ function formatSpeed(speedMs) {
     return (speedMs * 3.6).toFixed(1) + ' km/h';
 }
 
+function escHtml(s) {
+    if (!s) return '';
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
 function renderRows() {
-    const html = allRows.map(r => `<tr id="loc-${r.id}" data-ts="${r.timestamp}" style="cursor:pointer">
-        <td>${r.device}</td>
+    const html = allRows.map(r => {
+        const place = r.poi_name || r.place_name || '';
+        const placeCell = place
+            ? '<span style="color:var(--primary);font-size:0.8125rem;" title="' + escHtml(place) + '">' + escHtml(place) + '</span>'
+            : '-';
+        return `<tr id="loc-${r.id}" data-ts="${r.timestamp}" style="cursor:pointer">
+        <td>${escHtml(r.device)}</td>
         <td>${r.lat.toFixed(5)}</td>
         <td>${r.lng.toFixed(5)}</td>
-        <td>${r.city || '-'}</td>
-        <td>${r.state || '-'}</td>
-        <td>${r.country_code || '-'}</td>
+        <td>${escHtml(r.city) || '-'}</td>
+        <td>${escHtml(r.state) || '-'}</td>
+        <td>${escHtml(r.country_code) || '-'}</td>
+        <td>${placeCell}</td>
         <td>${r.speed !== null && r.speed !== undefined ? formatSpeed(r.speed) : '-'}</td>
         <td>${r.battery !== null && r.battery !== undefined ? r.battery + '%' : '-'}</td>
         <td style="color:var(--text-muted)">${new Date(r.timestamp).toLocaleString()}</td>
         <td><button onclick="event.stopPropagation(); deleteLocation(${r.id})" class="btn-icon" title="Delete point" style="color:var(--text-muted);cursor:pointer;background:none;border:none;padding:0.25rem;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
         </button></td>
-    </tr>`).join('');
+    </tr>`;
+    }).join('');
 
     document.getElementById('data-table-body').innerHTML = html ||
-        '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);">No data</td></tr>';
+        '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);">No data</td></tr>';
 
     // attach click handlers to rows to open map focused on that point's day
     document.querySelectorAll('#data-table-body tr[id^="loc-"]').forEach(tr => {
@@ -175,7 +188,7 @@ function loadData(append = false) {
 
     if (!append) {
         document.getElementById('data-table-body').innerHTML =
-            '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:2rem;"><span class="spinner"></span> Loading...</td></tr>';
+            '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);padding:2rem;"><span class="spinner"></span> Loading...</td></tr>';
     }
 
     const loadMoreBtn = document.getElementById('load-more-btn');
@@ -218,6 +231,8 @@ function loadData(append = false) {
                         city: loc.city,
                         state: loc.state,
                         country_code: loc.country_code,
+                        place_name: loc.place_name || '',
+                        poi_name: loc.poi_name || '',
                         speed: loc.speed,
                         battery: loc.battery,
                         timestamp: loc.timestamp,
@@ -236,6 +251,8 @@ function loadData(append = false) {
                             city: loc.city,
                             state: loc.state,
                             country_code: loc.country_code,
+                            place_name: loc.place_name || '',
+                            poi_name: loc.poi_name || '',
                             speed: loc.speed,
                             battery: loc.battery,
                             timestamp: loc.timestamp,
@@ -269,7 +286,7 @@ function loadData(append = false) {
         .catch(err => {
             console.error('Failed to load data:', err);
             document.getElementById('data-table-body').innerHTML =
-                `<tr><td colspan="10" style="text-align:center;color:var(--danger);padding:2rem;">Error loading data: ${err._serverMsg || err.message}. Check the server logs for details.</td></tr>`;
+                `<tr><td colspan="11" style="text-align:center;color:var(--danger);padding:2rem;">Error loading data: ${err._serverMsg || err.message}. Check the server logs for details.</td></tr>`;
             document.getElementById('data-info').textContent = '';
             loadMoreBtn.disabled = false;
             loadMoreBtn.textContent = 'Retry';
@@ -327,6 +344,8 @@ async function loadAll() {
                         city: loc.city,
                         state: loc.state,
                         country_code: loc.country_code,
+                        place_name: loc.place_name || '',
+                        poi_name: loc.poi_name || '',
                         speed: loc.speed,
                         battery: loc.battery,
                         timestamp: loc.timestamp,
@@ -345,6 +364,8 @@ async function loadAll() {
                             city: loc.city,
                             state: loc.state,
                             country_code: loc.country_code,
+                            place_name: loc.place_name || '',
+                            poi_name: loc.poi_name || '',
                             speed: loc.speed,
                             battery: loc.battery,
                             timestamp: loc.timestamp,

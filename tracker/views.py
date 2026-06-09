@@ -36,7 +36,7 @@ from .models import (
     Device, Location, APIKey, Adventure, AdventurePlace, POI, BackupConfig,
     UserProfile, Pal, PalMember, PalBlurb, PalBlurbPhoto, PalMilestone, PalComment,
     AdventureMember, AdventureBlurb, AdventureBlurbPhoto, AdventureMilestone, AdventureComment,
-    SiteStat, JournalEntry, JournalPhoto, AIConfig, AISummary,
+    SiteStat, JournalEntry, JournalPhoto, AIConfig, AISummary, Visit,
 )
 from .image_utils import resize_image, resize_photo
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
@@ -863,6 +863,16 @@ def _locations_api_inner(request):
 
     order_fields = [f'{order_prefix}{sort_lookup}', f'{order_prefix}id']
 
+    # Annotate each point with the POI name from any Visit that contains it.
+    from django.db.models import Subquery, OuterRef, CharField as _CharField
+    poi_subq = Visit.objects.filter(
+        device_id=OuterRef('device_id'),
+        start_time__lte=OuterRef('timestamp'),
+        end_time__gte=OuterRef('timestamp'),
+        poi__isnull=False,
+    ).values('poi__name')[:1]
+    locations = locations.annotate(poi_name=Subquery(poi_subq, output_field=_CharField()))
+
     locations = locations.select_related('device').order_by(*order_fields)
     page = list(locations[: limit + 1])
     has_more = len(page) > limit
@@ -894,6 +904,8 @@ def _locations_api_inner(request):
             "state": loc.state,
             "country": loc.country,
             "country_code": loc.country_code,
+            "place_name": loc.place_name,
+            "poi_name": getattr(loc, 'poi_name', None) or '',
         })
         locations_data.append({
             "id": loc.id,
@@ -909,6 +921,8 @@ def _locations_api_inner(request):
             "state": loc.state,
             "country": loc.country,
             "country_code": loc.country_code,
+            "place_name": loc.place_name,
+            "poi_name": getattr(loc, 'poi_name', None) or '',
         })
         # track last cursor (the last item in this page — remember results are desc)
         last_cursor_ts = loc.timestamp
