@@ -187,6 +187,11 @@ Detail points (individual GPS dots) load progressively via `/api/locations/` as 
 
 The adventure map loads all points at once from `/api/trips/<id>/` (capped at 30k). Adventures under 20k points show all dots immediately; larger ones show heatmap-first with dots appearing on zoom.
 
+**Map tools (top-right, below the basemap switcher) — `map.html` only:**
+- **Globe** — toggles MapLibre's native 3D globe via `map.setProjection({type:'globe'|'mercator'})`. Requires **MapLibre GL v5** (loaded globally in `base.html`; bumped from 4.1.2 to 5.24.0 — affects every map page). State persists in `roamly_globe`; re-applied on `style.load` (basemap swaps reset projection).
+- **Scratch** — highlights countries visited. `/api/countries/` (`countries_api`, per-user-cache-gen keyed) returns the distinct visited `country_code`s (uppercase ISO-2, plus a US `states` list for a future state-scratch variant); the client fills matching features of the bundled `tracker/static/tracker/data/world-countries.json` (Natural Earth 110m, slimmed to a `cc`/`name` prop set, ~170KB) via an `['in', ['get','cc'], ['literal', codes]]` filter. **New static file ⇒ needs `collectstatic` (manifest storage) — a `--build` runs it on container start.**
+- **Replay** — scrubs/animates one day's track. Fetches the day from `/api/locations/` (start/end of the local day, `all=1`), builds per-device time-sorted point arrays, and on a slider/`requestAnimationFrame` loop draws a growing trail + head dot (whole day = 60s at 1×, scaled by the speed selector). Base track/heatmap layers are hidden while replaying and restored on close.
+
 ## User-facing preferences
 
 All map display preferences are stored in `localStorage` with `roamly_` prefix:
@@ -206,6 +211,7 @@ All map display preferences are stored in `localStorage` with `roamly_` prefix:
 | `roamly_point_limit` | 2000–25000 | 5000 |
 | `roamly_cluster_radius` | 30 / 50 / 80 | 50 |
 | `roamly_default_time_range` | hours or 'all' | 24 |
+| `roamly_globe` | on / off | off |
 
 ## Visit time spent
 

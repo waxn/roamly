@@ -154,8 +154,18 @@
     text-transform: lowercase !important;
 }
 
-
-/* Layer tools (globe) — sits just under the style switcher */
+#map-loading-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 5px;
+    z-index: 20;
+    overflow: hidden;
+    display: none;
+    pointer-events: none;
+}
+/* Layer tools (globe / scratch / replay) — sit just under the style switcher */
 .map-tools {
     position: absolute;
     top: 56px;
@@ -205,17 +215,85 @@
     color: var(--text);
 }
 .scratch-info.active { display: block; }
-#map-loading-bar {
+
+/* Replay panel */
+.replay-panel {
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 5px;
-    z-index: 20;
-    overflow: hidden;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 12;
     display: none;
-    pointer-events: none;
+    align-items: center;
+    gap: 10px;
+    width: min(640px, calc(100% - 24px));
+    background: var(--bg-glass);
+    backdrop-filter: blur(14px);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.3);
+    padding: 10px 14px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    text-transform: lowercase;
+    color: var(--text);
 }
+.replay-panel.active { display: flex; }
+.replay-panel input[type="date"] {
+    background: var(--bg-card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 5px 8px;
+    font-size: 0.75rem;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+}
+.replay-panel button.rp-btn {
+    border: 1px solid var(--border);
+    background: var(--primary);
+    color: #fff;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    text-transform: lowercase;
+    padding: 5px 12px;
+    cursor: pointer;
+}
+.replay-panel button.rp-btn[disabled] { opacity: 0.5; cursor: default; }
+.replay-panel input[type="range"] {
+    flex: 1;
+    min-width: 80px;
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+.replay-panel select {
+    background: var(--bg-card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 5px 6px;
+    font-size: 0.7rem;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+}
+.replay-clock {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    min-width: 132px;
+    text-align: right;
+    white-space: nowrap;
+}
+.replay-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    cursor: pointer;
+    padding: 0 2px;
+}
+
 #map-loading-bar.active { display: block; }
 #map-loading-bar::after {
     content: '';
@@ -264,9 +342,25 @@
     <div class="map-tools">
         <button class="tool-btn" id="globe-btn" type="button" title="Toggle 3D globe">globe</button>
         <button class="tool-btn" id="scratch-btn" type="button" title="Highlight countries visited">scratch</button>
+        <button class="tool-btn" id="replay-btn" type="button" title="Replay a day">replay</button>
     </div>
 
     <div class="scratch-info" id="scratch-info"></div>
+
+    <div class="replay-panel" id="replay-panel">
+        <input type="date" id="replay-date" title="Day to replay">
+        <button class="rp-btn" id="replay-play" type="button" disabled>play</button>
+        <input type="range" id="replay-slider" min="0" max="100" value="0" disabled>
+        <select id="replay-speed" title="Playback speed">
+            <option value="1">1×</option>
+            <option value="2">2×</option>
+            <option value="4" selected>4×</option>
+            <option value="8">8×</option>
+            <option value="16">16×</option>
+        </select>
+        <span class="replay-clock" id="replay-clock">—</span>
+        <button class="replay-close" id="replay-close" type="button" title="Close replay">&times;</button>
+    </div>
 
     <div id="map-loading-bar"></div>
     <div class="map-info" id="map-info">loading...</div>
@@ -995,7 +1089,6 @@ globeBtn.addEventListener('click', () => {
     applyProjection();
 });
 
-
 // ═══════════════════════════════════════════════════════════════════
 // Scratch map — highlight countries visited
 // ═══════════════════════════════════════════════════════════════════
@@ -1052,10 +1145,225 @@ scratchBtn.addEventListener('click', async () => {
         scratchInfo.classList.remove('active');
     }
 });
+
 // Re-apply projection + scratch layers after any basemap style swap.
 map.on('style.load', () => {
     applyProjection();
     if (scratchOn) addScratchLayers();
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Daily replay — scrub/animate a single day's track
+// ═══════════════════════════════════════════════════════════════════
+const replayBtn = document.getElementById('replay-btn');
+const replayPanel = document.getElementById('replay-panel');
+const replayDateEl = document.getElementById('replay-date');
+const replayPlayBtn = document.getElementById('replay-play');
+const replaySlider = document.getElementById('replay-slider');
+const replaySpeedEl = document.getElementById('replay-speed');
+const replayClock = document.getElementById('replay-clock');
+const replayCloseBtn = document.getElementById('replay-close');
+
+const REPLAY_TRAIL_SRC = 'replay-trail';
+const REPLAY_HEAD_SRC = 'replay-head';
+const REPLAY_STEPS = 1000;          // slider resolution
+const REPLAY_BASE_MS = 60000;       // whole day in 60s at 1×
+
+let replayActive = false;
+let replayDevices = [];   // [{color, pts:[{t,c}]}]
+let replayTMin = 0, replayTMax = 0;
+let replayRAF = null;
+let replayPlaying = false;
+let replayAnimStart = 0, replayAnimFrom = 0;
+
+function baseLayerIds() {
+    const ids = [];
+    activeSources.forEach(id => { [`${id}-heat`, `${id}-dots`].forEach(l => ids.push(l)); });
+    [ACC_HEAT_LAYER, ACC_LINES_LAYER, ACC_DOTS_LAYER].forEach(l => ids.push(l));
+    return ids;
+}
+function setBaseLayersVisible(visible) {
+    baseLayerIds().forEach(l => {
+        if (map.getLayer(l)) map.setLayoutProperty(l, 'visibility', visible ? 'visible' : 'none');
+    });
+}
+
+function ensureReplayLayers() {
+    if (!map.getSource(REPLAY_TRAIL_SRC)) {
+        map.addSource(REPLAY_TRAIL_SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        map.addLayer({
+            id: REPLAY_TRAIL_SRC, type: 'line', source: REPLAY_TRAIL_SRC,
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: { 'line-color': ['get', 'color'], 'line-width': 4, 'line-opacity': 0.85 },
+        });
+    }
+    if (!map.getSource(REPLAY_HEAD_SRC)) {
+        map.addSource(REPLAY_HEAD_SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        map.addLayer({
+            id: REPLAY_HEAD_SRC, type: 'circle', source: REPLAY_HEAD_SRC,
+            paint: {
+                'circle-radius': 7, 'circle-color': ['get', 'color'],
+                'circle-stroke-width': 2, 'circle-stroke-color': '#fff',
+            },
+        });
+    }
+}
+function removeReplayLayers() {
+    [REPLAY_TRAIL_SRC, REPLAY_HEAD_SRC].forEach(id => {
+        if (map.getLayer(id)) map.removeLayer(id);
+        if (map.getSource(id)) map.removeSource(id);
+    });
+}
+
+function todayLocalISO() {
+    const d = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+async function loadReplayDay(dateStr) {
+    replayPlayBtn.disabled = true;
+    replaySlider.disabled = true;
+    replayClock.textContent = 'loading…';
+    stopReplayPlayback();
+
+    const params = new URLSearchParams();
+    params.set('start_date', toLocalDateTimeParam(dateStr, 'start'));
+    params.set('end_date', toLocalDateTimeParam(dateStr, 'end'));
+    params.set('all', '1');
+    params.set('limit', '50000');
+    params.set('offset', '0');
+    const deviceId = document.getElementById('device-filter').value;
+    if (deviceId) params.set('device_id', deviceId);
+
+    let data;
+    try {
+        const r = await fetch(`/api/locations/?${params.toString()}`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        data = await r.json();
+    } catch (e) {
+        replayClock.textContent = 'error';
+        replayDevices = [];
+        return;
+    }
+
+    replayDevices = [];
+    let tMin = Infinity, tMax = -Infinity;
+    (data.devices || []).forEach(device => {
+        const color = deviceColor(device.device_id || device.name || 'default');
+        const pts = (device.locations || [])
+            .map(loc => ({ t: new Date(loc.timestamp).getTime(), c: [loc.lng, loc.lat] }))
+            .filter(p => !isNaN(p.t))
+            .sort((a, b) => a.t - b.t);
+        if (pts.length) {
+            replayDevices.push({ color, pts });
+            tMin = Math.min(tMin, pts[0].t);
+            tMax = Math.max(tMax, pts[pts.length - 1].t);
+        }
+    });
+
+    if (!replayDevices.length) {
+        replayClock.textContent = 'no points that day';
+        ensureReplayLayers();
+        map.getSource(REPLAY_TRAIL_SRC).setData({ type: 'FeatureCollection', features: [] });
+        map.getSource(REPLAY_HEAD_SRC).setData({ type: 'FeatureCollection', features: [] });
+        return;
+    }
+
+    replayTMin = tMin;
+    replayTMax = tMax;
+    ensureReplayLayers();
+    replaySlider.disabled = false;
+    replayPlayBtn.disabled = false;
+    replaySlider.value = 0;
+    renderReplayAt(0);
+
+    // Frame the day's extent.
+    let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+    replayDevices.forEach(d => d.pts.forEach(p => {
+        minLng = Math.min(minLng, p.c[0]); maxLng = Math.max(maxLng, p.c[0]);
+        minLat = Math.min(minLat, p.c[1]); maxLat = Math.max(maxLat, p.c[1]);
+    }));
+    if (minLng !== Infinity) map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 80, maxZoom: 15, duration: 600 });
+}
+
+// frac: 0..1 of the day's [tMin,tMax] window
+function renderReplayAt(frac) {
+    if (!replayDevices.length) return;
+    const t = replayTMin + (replayTMax - replayTMin) * frac;
+    const trail = [];
+    const heads = [];
+    replayDevices.forEach(d => {
+        const coords = [];
+        let head = null;
+        for (const p of d.pts) {
+            if (p.t <= t) { coords.push(p.c); head = p.c; }
+            else break;
+        }
+        if (coords.length >= 2) trail.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: { color: d.color } });
+        if (head) heads.push({ type: 'Feature', geometry: { type: 'Point', coordinates: head }, properties: { color: d.color } });
+    });
+    map.getSource(REPLAY_TRAIL_SRC).setData({ type: 'FeatureCollection', features: trail });
+    map.getSource(REPLAY_HEAD_SRC).setData({ type: 'FeatureCollection', features: heads });
+    replayClock.textContent = new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function stopReplayPlayback() {
+    replayPlaying = false;
+    if (replayRAF) { cancelAnimationFrame(replayRAF); replayRAF = null; }
+    replayPlayBtn.textContent = 'play';
+}
+
+function startReplayPlayback() {
+    if (!replayDevices.length) return;
+    if (parseInt(replaySlider.value, 10) >= REPLAY_STEPS) replaySlider.value = 0;
+    replayPlaying = true;
+    replayPlayBtn.textContent = 'pause';
+    replayAnimFrom = parseInt(replaySlider.value, 10) / REPLAY_STEPS;
+    replayAnimStart = performance.now();
+    const tick = now => {
+        if (!replayPlaying) return;
+        const speed = parseFloat(replaySpeedEl.value) || 1;
+        const dur = REPLAY_BASE_MS / speed;
+        let frac = replayAnimFrom + (now - replayAnimStart) / dur;
+        if (frac >= 1) { frac = 1; }
+        replaySlider.value = Math.round(frac * REPLAY_STEPS);
+        renderReplayAt(frac);
+        if (frac >= 1) { stopReplayPlayback(); return; }
+        replayRAF = requestAnimationFrame(tick);
+    };
+    replayRAF = requestAnimationFrame(tick);
+}
+
+replayBtn.addEventListener('click', () => {
+    replayActive = !replayActive;
+    replayBtn.classList.toggle('active', replayActive);
+    replayPanel.classList.toggle('active', replayActive);
+    if (replayActive) {
+        setBaseLayersVisible(false);
+        if (!replayDateEl.value) {
+            const s = document.getElementById('start-date').value;
+            replayDateEl.value = s || todayLocalISO();
+        }
+        loadReplayDay(replayDateEl.value);
+    } else {
+        closeReplay();
+    }
+});
+function closeReplay() {
+    replayActive = false;
+    replayBtn.classList.remove('active');
+    replayPanel.classList.remove('active');
+    stopReplayPlayback();
+    removeReplayLayers();
+    setBaseLayersVisible(true);
+}
+replayCloseBtn.addEventListener('click', closeReplay);
+replayDateEl.addEventListener('change', () => { if (replayActive) loadReplayDay(replayDateEl.value); });
+replayPlayBtn.addEventListener('click', () => { replayPlaying ? stopReplayPlayback() : startReplayPlayback(); });
+replaySlider.addEventListener('input', () => {
+    stopReplayPlayback();
+    renderReplayAt(parseInt(replaySlider.value, 10) / REPLAY_STEPS);
 });
 
 // Apply saved globe projection on first load.
