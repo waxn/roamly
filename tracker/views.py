@@ -5046,6 +5046,68 @@ def journals_view(request):
 
 
 @login_required
+def journal_search_api(request):
+    q = request.GET.get('q', '').strip()
+    if not q:
+        return JsonResponse({'entries': [], 'count': 0})
+
+    qs = JournalEntry.objects.filter(user=request.user).prefetch_related('photos')
+
+    today = timezone.localdate()
+    q_lower = q.lower()
+    date_match = None
+    if q_lower == 'today':
+        date_match = today
+    elif q_lower == 'yesterday':
+        date_match = today - timedelta(days=1)
+    else:
+        for fmt in ('%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%B %d %Y', '%b %d %Y'):
+            try:
+                date_match = datetime.strptime(q, fmt).date()
+                break
+            except ValueError:
+                pass
+
+    if date_match:
+        qs = qs.filter(date=date_match)
+    else:
+        qs = qs.filter(
+            Q(title__icontains=q) |
+            Q(body__icontains=q) |
+            Q(mood__icontains=q) |
+            Q(weather__icontains=q) |
+            Q(location_name__icontains=q)
+        )
+
+    qs = qs.order_by('-date')[:50]
+
+    entries = []
+    for e in qs:
+        photos = list(e.photos.all())
+        snippet = ''
+        if e.body:
+            idx = e.body.lower().find(q.lower())
+            if idx >= 0:
+                start = max(0, idx - 60)
+                end = min(len(e.body), idx + len(q) + 60)
+                snippet = ('…' if start > 0 else '') + e.body[start:end] + ('…' if end < len(e.body) else '')
+            else:
+                snippet = e.body.strip().split('\n')[0][:140]
+        entries.append({
+            'date': e.date.isoformat(),
+            'title': e.title,
+            'snippet': snippet,
+            'mood': e.mood,
+            'weather': e.weather,
+            'is_favorite': e.is_favorite,
+            'photo_count': len(photos),
+            'cover': (photos[0].thumbnail.url if photos[0].thumbnail else photos[0].image.url) if photos else None,
+            'location_name': e.location_name,
+        })
+    return JsonResponse({'entries': entries, 'count': len(entries)})
+
+
+@login_required
 def journals_list_api(request):
     """List journal entries, optionally scoped to a year+month, for calendar rendering."""
     qs = JournalEntry.objects.filter(user=request.user)

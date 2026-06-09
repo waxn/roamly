@@ -85,6 +85,7 @@ urlpatterns = [
     # Journals API
     path('api/journals/', views.journals_list_api, name='journals_list_api'),
     path('api/journals/stats/', views.journal_stats_api, name='journal_stats_api'),
+    path('api/journals/search/', views.journal_search_api, name='journal_search_api'),
     path('api/journals/photos/<int:photo_id>/delete/', views.journal_photo_delete_api, name='journal_photo_delete_api'),
     path('api/journals/<str:date_str>/', views.journal_detail_api, name='journal_detail_api'),
     path('api/journals/<str:date_str>/save/', views.journal_save_api, name='journal_save_api'),

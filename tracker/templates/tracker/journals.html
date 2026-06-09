@@ -188,6 +188,27 @@
 .j-entry-foot { display: flex; gap: 0.6rem; margin-top: 0.3rem; font-size: 0.7rem; color: var(--text-dim); font-weight: 700; }
 .j-empty-state { text-align: center; color: var(--text-muted); padding: 1.5rem 0.5rem; font-size: 0.85rem; }
 
+/* ── Search ── */
+.j-search-wrap { position: relative; margin-bottom: 0.8rem; }
+.j-search-input {
+    width: 100%; padding: 0.55rem 2.2rem 0.55rem 0.85rem;
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: var(--radius-clay-sm); color: var(--text);
+    font-size: 0.88rem; outline: none;
+    transition: border-color 0.18s;
+    box-sizing: border-box;
+}
+.j-search-input:focus { border-color: var(--primary); }
+.j-search-input::placeholder { color: var(--text-dim); }
+.j-search-clear {
+    position: absolute; right: 0.55rem; top: 50%; transform: translateY(-50%);
+    background: none; border: none; color: var(--text-dim); cursor: pointer;
+    font-size: 1rem; line-height: 1; padding: 0; display: none;
+}
+.j-search-results { display: none; }
+.j-search-results.active { display: block; }
+.j-search-count { font-size: 0.72rem; color: var(--text-dim); font-weight: 700; margin-bottom: 0.6rem; text-transform: uppercase; letter-spacing: 0.04em; }
+
 /* ── Editor modal ── */
 .j-modal-overlay {
     position: fixed; inset: 0; z-index: 2000;
@@ -379,7 +400,15 @@
                 <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
                 write today's entry
             </button>
-            <div class="card">
+            <div class="j-search-wrap">
+                <input class="j-search-input" id="j-search" type="text" placeholder="search entries…" autocomplete="off">
+                <button class="j-search-clear" id="j-search-clear" title="Clear">×</button>
+            </div>
+            <div class="j-search-results" id="j-search-results">
+                <div class="j-search-count" id="j-search-count"></div>
+                <div class="j-recent" id="j-search-list"></div>
+            </div>
+            <div class="card" id="j-recent-card">
                 <div class="j-side-title">recent entries</div>
                 <div class="j-recent" id="j-recent">
                     <div class="j-empty-state">loading…</div>
@@ -536,7 +565,8 @@ function loadRecent() {
             el.innerHTML = `<div class="j-empty-state">no entries yet — start with today ✍️</div>`;
             return;
         }
-        el.innerHTML = data.entries.slice(0,12).map(e=>{
+        const entries = data.entries.slice(0, 12).map(e => ({...e, word_count: e.word_count}));
+        el.innerHTML = entries.map(e=>{
             const cover = e.cover
                 ? `<div class="j-entry-cover" style="background-image:url('${e.cover}')"></div>`
                 : `<div class="j-entry-cover">${e.mood||'📓'}</div>`;
@@ -558,6 +588,71 @@ function loadRecent() {
 }
 
 function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function renderEntryCards(entries, container) {
+    if (!entries.length) {
+        container.innerHTML = `<div class="j-empty-state">no matches found</div>`;
+        return;
+    }
+    container.innerHTML = entries.map(e=>{
+        const cover = e.cover
+            ? `<div class="j-entry-cover" style="background-image:url('${e.cover}')"></div>`
+            : `<div class="j-entry-cover">${e.mood||'📓'}</div>`;
+        const foot = [];
+        if (e.photo_count) foot.push(`${e.photo_count} 📷`);
+        if (e.location_name) foot.push(`📍 ${e.location_name}`);
+        return `<div class="j-entry-card" onclick="openEntry('${e.date}')">
+            ${cover}
+            <div class="j-entry-meta">
+                <div class="j-entry-date">${fmtLong(e.date)}</div>
+                <div class="j-entry-title">${e.title ? escapeHtml(e.title) : 'untitled'}</div>
+                ${e.snippet ? `<div class="j-entry-snippet">${escapeHtml(e.snippet)}</div>` : ''}
+                ${foot.length ? `<div class="j-entry-foot">${foot.map(escapeHtml).join(' · ')}</div>` : ''}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// ── Search ──
+let searchTimer = null;
+const searchInput = document.getElementById('j-search');
+const searchClear = document.getElementById('j-search-clear');
+const searchResults = document.getElementById('j-search-results');
+const searchList = document.getElementById('j-search-list');
+const searchCount = document.getElementById('j-search-count');
+const recentCard = document.getElementById('j-recent-card');
+
+function runSearch(q) {
+    if (!q.trim()) {
+        clearSearch();
+        return;
+    }
+    fetch(`/api/journals/search/?q=${encodeURIComponent(q)}`)
+        .then(r=>r.json())
+        .then(data=>{
+            searchCount.textContent = `${data.count} result${data.count===1?'':'s'}`;
+            renderEntryCards(data.entries, searchList);
+            searchResults.classList.add('active');
+            recentCard.style.display = 'none';
+        });
+}
+
+function clearSearch() {
+    searchInput.value = '';
+    searchClear.style.display = 'none';
+    searchResults.classList.remove('active');
+    recentCard.style.display = '';
+    searchList.innerHTML = '';
+}
+
+searchInput.addEventListener('input', ()=>{
+    const q = searchInput.value;
+    searchClear.style.display = q ? 'block' : 'none';
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(()=> runSearch(q), 300);
+});
+
+searchClear.addEventListener('click', clearSearch);
 
 // ── Editor ──
 function openEntry(dateStr) {
