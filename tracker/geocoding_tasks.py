@@ -114,6 +114,14 @@ def _geocode_worker(user_id):
             if updated == 0:
                 break  # safety: nothing advanced, don't loop forever
 
+        # Kick off visit/POI assignment for the newly-geocoded points.
+        if points_done > 0:
+            try:
+                from .visit_tasks import ensure_auto_visits
+                ensure_auto_visits(user_id)
+            except Exception as e:
+                logger.warning(f"Could not start visit computation after geocoding: {e}")
+
     finally:
         try:
             job = GeocodingJob.objects.get(user_id=user_id)

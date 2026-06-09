@@ -230,6 +230,42 @@ def _visit_worker(user_id):
         )
 
 
+_last_auto_trigger = {}
+_AUTO_TRIGGER_DEBOUNCE_S = 60
+
+
+def ensure_auto_visits(user_id):
+    """Fire-and-forget visit computation for newly-geocoded points.
+
+    Mirrors ensure_auto_geocode: debounced, no-op while a thread already runs,
+    no-op if there's nothing to process. Called at the tail of the geocode
+    worker so POI assignment happens automatically without user intervention.
+    """
+    from .models import VisitJob, Location
+
+    now = time.monotonic()
+    if now - _last_auto_trigger.get(user_id, 0.0) < _AUTO_TRIGGER_DEBOUNCE_S:
+        return
+    if _is_thread_alive(user_id):
+        return
+    if not Location.objects.filter(
+        device__user_id=user_id, processed_for_visits=False
+    ).exclude(city='').exists():
+        return
+
+    _last_auto_trigger[user_id] = now
+    job, created = VisitJob.objects.get_or_create(
+        user_id=user_id, defaults={'status': 'running', 'total': 0},
+    )
+    if not created and job.status != 'running':
+        job.status = 'running'
+        job.total = 0
+        job.processed = 0
+        job.visits_added = 0
+        job.save(update_fields=['status', 'total', 'processed', 'visits_added', 'updated_at'])
+    _start_thread(user_id)
+
+
 def start_visit_computation(user_id):
     from .models import VisitJob
 
