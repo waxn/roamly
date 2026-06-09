@@ -121,6 +121,11 @@ def _geocode_worker(user_id):
                 ensure_auto_visits(user_id)
             except Exception as e:
                 logger.warning(f"Could not start visit computation after geocoding: {e}")
+            try:
+                from .ai_tasks import ensure_auto_summary
+                ensure_auto_summary(user_id)
+            except Exception as e:
+                logger.warning(f"Could not start auto summary after geocoding: {e}")
 
     finally:
         try:

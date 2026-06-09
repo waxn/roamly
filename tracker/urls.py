@@ -95,6 +95,7 @@ urlpatterns = [
 
     # AI Summaries
     path('api/summaries/', views.summaries_list_api, name='summaries_list_api'),
+    path('api/summaries/bulk/', views.summary_bulk_api, name='summary_bulk_api'),
     path('api/summaries/<str:date_str>/generate/', views.summary_generate_api, name='summary_generate_api'),
     path('api/summaries/<str:date_str>/delete/', views.summary_delete_api, name='summary_delete_api'),
     path('api/summaries/<str:date_str>/', views.summary_detail_api, name='summary_detail_api'),

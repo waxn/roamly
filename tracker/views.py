@@ -4,7 +4,6 @@ import json
 import logging
 import math
 import os
-import requests as http_requests
 import tempfile
 import threading
 import time
@@ -5481,105 +5480,19 @@ def summary_detail_api(request, date_str):
 @login_required
 @require_POST
 def summary_generate_api(request, date_str):
+    from .ai_tasks import generate_one
     d = _journal_parse_date(date_str)
     if d is None:
         return JsonResponse({'error': 'Invalid date'}, status=400)
 
     try:
-        ai_cfg = AIConfig.objects.get(user=request.user)
+        AIConfig.objects.get(user=request.user, enabled=True)
     except AIConfig.DoesNotExist:
-        return JsonResponse({'error': 'AI not configured. Go to Settings to set it up.'}, status=400)
+        return JsonResponse({'error': 'AI not configured or disabled. Go to Settings to set it up.'}, status=400)
 
-    if not ai_cfg.enabled:
-        return JsonResponse({'error': 'AI summaries are disabled. Enable them in Settings.'}, status=400)
-
-    track = _journal_day_track(request.user, d)
-    if track['point_count'] == 0:
-        return JsonResponse({'error': 'No location data found for this day.'}, status=400)
-
-    entry = JournalEntry.objects.filter(user=request.user, date=d).first()
-
-    # Gather nearby POIs from the bounding box of the day's locations
-    poi_names = []
-    if track['points']:
-        lons = [p[0] for p in track['points']]
-        lats = [p[1] for p in track['points']]
-        min_lat, max_lat = min(lats), max(lats)
-        min_lon, max_lon = min(lons), max(lons)
-        pois = POI.objects.filter(
-            latitude__range=(min_lat, max_lat),
-            longitude__range=(min_lon, max_lon),
-        ).values('name', 'category')[:20]
-        seen_poi = set()
-        for p in pois:
-            label = p['name']
-            if p['category']:
-                label = f"{p['name']} ({p['category']})"
-            if label not in seen_poi:
-                seen_poi.add(label)
-                poi_names.append(label)
-            if len(poi_names) >= 10:
-                break
-
-    places_str = ', '.join(track['cities']) if track['cities'] else 'unknown'
-    poi_str = ', '.join(poi_names) if poi_names else 'none recorded'
-    journal_title = (entry.title if entry else '') or ''
-    journal_mood = (entry.mood if entry else '') or ''
-    journal_body = (entry.body if entry else '') or ''
-
-    prompt = (
-        "You are a travel journal assistant. Write a short, vivid, first-person paragraph "
-        "(3–5 sentences) summarising this person's day based on the data below. "
-        "Do not invent details beyond what is provided. "
-        "If location data is sparse, focus on what is known.\n\n"
-        f"Date: {d.strftime('%A, %B %-d, %Y')}\n"
-        f"Distance travelled: {track['distance_km']} km\n"
-        f"Places visited (in order): {places_str}\n"
-        f"Nearby points of interest: {poi_str}\n"
-        f"Journal title: {journal_title or '(none)'}\n"
-        f"Mood: {journal_mood or '(none)'}\n"
-        f"Journal entry: {journal_body[:2000] or '(none)'}"
-    )
-
-    api_url = ai_cfg.api_url.rstrip('/')
-    headers = {'Content-Type': 'application/json'}
-    if ai_cfg.api_key:
-        headers['Authorization'] = f'Bearer {ai_cfg.api_key}'
-
-    payload = {
-        'model': ai_cfg.model_name,
-        'messages': [{'role': 'user', 'content': prompt}],
-        'max_tokens': 400,
-        'temperature': 0.7,
-    }
-
-    try:
-        resp = http_requests.post(
-            f'{api_url}/chat/completions',
-            headers=headers,
-            json=payload,
-            timeout=120,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        summary_text = data['choices'][0]['message']['content'].strip()
-    except http_requests.exceptions.Timeout:
-        return JsonResponse({'error': 'AI request timed out. Is the server running?'}, status=502)
-    except http_requests.exceptions.ConnectionError:
-        return JsonResponse({'error': f'Could not connect to AI server at {api_url}.'}, status=502)
-    except Exception as exc:
-        return JsonResponse({'error': f'AI request failed: {exc}'}, status=502)
-
-    summary_obj, _ = AISummary.objects.update_or_create(
-        user=request.user,
-        date=d,
-        defaults={
-            'summary': summary_text,
-            'places_json': track['places'],
-            'distance_km': track['distance_km'],
-            'model_used': ai_cfg.model_name,
-        },
-    )
+    summary_obj, err = generate_one(request.user, d)
+    if err:
+        return JsonResponse({'error': err}, status=502)
 
     return JsonResponse({
         'date': summary_obj.date.isoformat(),
@@ -5589,6 +5502,21 @@ def summary_generate_api(request, date_str):
         'generated_at': summary_obj.generated_at.isoformat(),
         'model_used': summary_obj.model_used,
     })
+
+
+@csrf_exempt
+@login_required
+def summary_bulk_api(request):
+    """POST: start bulk generation. GET: status."""
+    from .ai_tasks import start_summary_generation, stop_summary_generation, get_summary_status
+    if request.method == 'POST':
+        action = request.POST.get('action', 'start')
+        if action == 'stop':
+            stop_summary_generation(request.user.id)
+            return JsonResponse({'status': 'stopped'})
+        start_summary_generation(request.user.id)
+        return JsonResponse(get_summary_status(request.user.id))
+    return JsonResponse(get_summary_status(request.user.id))
 
 
 @csrf_exempt
