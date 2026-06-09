@@ -35,14 +35,18 @@
     -webkit-backdrop-filter: blur(18px);
     border: 1px solid var(--border);
     border-radius: 14px;
-    padding: 14px 12px;
-    overflow: hidden;
+    padding: 12px 10px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    max-height: 100%;
     pointer-events: all;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 12px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.22);
     transition: opacity 0.18s ease, transform 0.22s ease;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
 }
 .map-sidebar.collapsed .sidebar-content {
     opacity: 0;
@@ -87,16 +91,16 @@
 .sidebar-section {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 5px;
 }
 .sidebar-label {
-    font-size: 0.625rem;
+    font-size: 0.6rem;
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.09em;
     color: var(--text-muted);
-    padding-bottom: 2px;
+    padding-bottom: 1px;
 }
 .sidebar-content select,
 .sidebar-content input[type="date"] {
@@ -114,14 +118,13 @@
     box-sizing: border-box;
     appearance: auto;
 }
-.sidebar-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 5px;
+.sidebar-date-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }
-.sidebar-row input[type="date"] {
-    font-size: 0.7rem;
-    padding: 5px 6px;
+.sidebar-date-row input[type="date"] {
+    font-size: 0.75rem;
 }
 
 /* Basemap button group */
@@ -365,9 +368,9 @@
                     <option value="720">Last 30 days</option>
                     <option value="all">All time</option>
                 </select>
-                <div class="sidebar-row">
-                    <input type="date" id="start-date" title="Start date">
-                    <input type="date" id="end-date" title="End date">
+                <div class="sidebar-date-row">
+                    <input type="date" id="start-date" title="From date">
+                    <input type="date" id="end-date" title="To date">
                 </div>
             </div>
 
@@ -386,7 +389,7 @@
                 <div class="sidebar-btn-group">
                     <button class="style-btn active" data-style="Streets">streets</button>
                     <button class="style-btn" data-style="Dark">dark</button>
-                    <button class="style-btn" data-style="Satellite">satellite</button>
+                    <button class="style-btn" data-style="Satellite">sat</button>
                 </div>
             </div>
 
