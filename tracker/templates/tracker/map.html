@@ -16,16 +16,19 @@
     position: absolute;
     top: 12px;
     left: 12px;
-    bottom: 68px;
+    bottom: 12px;
     z-index: 10;
-    width: 220px;
-    transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
     pointer-events: none;
 }
-.map-sidebar.collapsed { width: 0; }
 
 .sidebar-content {
     width: 220px;
+    flex: 1;
+    min-height: 0;
     background: var(--bg-glass);
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
@@ -34,7 +37,6 @@
     padding: 12px 10px;
     overflow-y: auto;
     overflow-x: hidden;
-    max-height: 100%;
     pointer-events: all;
     display: flex;
     flex-direction: column;
@@ -50,12 +52,9 @@
     transform: translateX(-10px);
 }
 
-/* FAB — squircle button at the bottom-left corner */
+/* FAB — squircle at the bottom of the sidebar column */
 .sidebar-fab {
-    position: absolute;
-    bottom: 12px;
-    left: 12px;
-    z-index: 11;
+    flex-shrink: 0;
     width: 44px;
     height: 44px;
     border-radius: 14px;
@@ -70,19 +69,12 @@
     justify-content: center;
     color: var(--text-muted);
     pointer-events: all;
-    transition: color 0.15s, background 0.15s, border-color 0.15s, box-shadow 0.15s;
+    transition: color 0.15s, background 0.15s, border-color 0.15s;
     padding: 0;
 }
-.sidebar-fab:hover {
-    color: var(--text);
-    background: var(--bg-card);
-}
-.sidebar-fab.fab-open {
-    color: var(--text-dim);
-}
+.sidebar-fab:hover { color: var(--text); background: var(--bg-card); }
 .sidebar-fab.fab-closed {
     background: var(--bg-card);
-    border-color: var(--border);
     color: var(--text);
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.36);
 }
@@ -411,11 +403,11 @@
             </div>
 
         </div>
+        <!-- Sidebar FAB: sits at the bottom of the sidebar flex column -->
+        <button class="sidebar-fab fab-open" id="sidebar-fab" type="button" title="Collapse panel">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
     </div>
-    <!-- Sidebar FAB: squircle at bottom-left corner -->
-    <button class="sidebar-fab fab-open" id="sidebar-fab" type="button" title="Collapse panel">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-    </button>
 
     <!-- Replay panel (contextual, bottom center) -->
     <div class="replay-panel" id="replay-panel">
