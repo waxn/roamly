@@ -656,6 +656,7 @@ searchClear.addEventListener('click', clearSearch);
 
 // ── Editor ──
 function openEntry(dateStr) {
+    flushSave();
     currentDate = dateStr;
     document.getElementById('j-modal-overlay').classList.add('open');
     document.body.style.overflow = 'hidden';
