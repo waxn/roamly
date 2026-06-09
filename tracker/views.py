@@ -5409,6 +5409,8 @@ def journal_photo_delete_api(request, photo_id):
 
 @login_required
 def summaries_view(request):
+    if not AIConfig.objects.filter(user=request.user, enabled=True).exists():
+        return redirect('tracker:map')
     return render(request, 'tracker/summaries.html', {})
 
 
