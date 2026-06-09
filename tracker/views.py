@@ -1310,6 +1310,32 @@ def yearly_overview_api(request):
         qs.exclude(country='').values('country').annotate(count=Count('id')).order_by('-count')[:10]
     )
 
+    # Top POI places by visit count (from pre-computed Visit table)
+    from .models import Visit as VisitModel
+    from django.db.models import ExpressionWrapper, DurationField, F, Sum
+    top_places_raw = list(
+        VisitModel.objects.filter(device__user=request.user, poi__isnull=False)
+        .values('poi_id', 'poi__name', 'poi__address')
+        .annotate(
+            visit_count=Count('id'),
+            total_duration=Sum(ExpressionWrapper(
+                F('end_time') - F('start_time'), output_field=DurationField()
+            )),
+        )
+        .order_by('-visit_count')[:10]
+    )
+    top_places = []
+    for p in top_places_raw:
+        dur_s = int(p['total_duration'].total_seconds()) if p['total_duration'] else 0
+        label = p['poi__name']
+        if p['poi__address']:
+            label = f"{p['poi__name']}, {p['poi__address']}"
+        top_places.append({
+            'name': label,
+            'count': p['visit_count'],
+            'total_time': dur_s,
+        })
+
     result = {
         "this_week": this_week, "last_week": last_week,
         "this_month": this_month, "last_month": last_month,
@@ -1317,6 +1343,7 @@ def yearly_overview_api(request):
         "monthly_breakdown": monthly,
         "top_cities": top_cities,
         "top_countries": top_countries,
+        "top_places": top_places,
         "year": now.year,
     }
     cache.set(cache_key, result, timeout=1800)

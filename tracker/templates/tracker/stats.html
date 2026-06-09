@@ -179,6 +179,7 @@
                 <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
                     <button class="btn btn-outline btn-sm" id="mv-cities-btn" onclick="switchMV('cities')" style="border-color: var(--primary); color: var(--primary);">cities</button>
                     <button class="btn btn-outline btn-sm" id="mv-countries-btn" onclick="switchMV('countries')">countries</button>
+                    <button class="btn btn-outline btn-sm" id="mv-places-btn" onclick="switchMV('places')">places</button>
                 </div>
                 <div id="most-visited-list" style="font-size: 0.8125rem;"></div>
             </div>
@@ -844,30 +845,48 @@ function drawYearlyChart(monthly, year) {
     });
 }
 
+function _fmtDuration(secs) {
+    if (secs < 3600) return `${Math.round(secs / 60)}m`;
+    const h = Math.floor(secs / 3600), m = Math.round((secs % 3600) / 60);
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
 function renderMostVisited(data) {
     const list = document.getElementById('most-visited-list');
-    const items = mvMode === 'cities'
-        ? data.top_cities.map(c => ({ label: `${c.city}, ${c.country}`, count: c.count }))
-        : data.top_countries.map(c => ({ label: c.country, count: c.count }));
+    let items;
+    if (mvMode === 'cities') {
+        items = (data.top_cities || []).map(c => ({ label: `${c.city}, ${c.country}`, count: c.count, sub: null }));
+    } else if (mvMode === 'countries') {
+        items = (data.top_countries || []).map(c => ({ label: c.country, count: c.count, sub: null }));
+    } else {
+        items = (data.top_places || []).map(p => ({ label: p.name, count: p.count, sub: _fmtDuration(p.total_time) }));
+    }
+    if (!items.length) {
+        list.innerHTML = mvMode === 'places'
+            ? '<span style="color:var(--text-muted);font-size:0.8125rem;">No place visits yet — download places on the search page and let location data accumulate.</span>'
+            : '<span style="color:var(--text-muted);">No data yet</span>';
+        return;
+    }
     const max = items[0]?.count || 1;
     list.innerHTML = items.slice(0, 8).map(item => {
         const pct = Math.round((item.count / max) * 100);
         return `<div style="margin-bottom:0.5rem;">
             <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
-                <span>${escHtmlStats(item.label)}</span>
-                <span style="color:var(--text-muted);font-size:0.75rem;">${item.count.toLocaleString()}</span>
+                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%;">${escHtmlStats(item.label)}</span>
+                <span style="color:var(--text-muted);font-size:0.75rem;white-space:nowrap;">${item.sub ? item.sub + ' · ' : ''}${item.count.toLocaleString()} visit${item.count !== 1 ? 's' : ''}</span>
             </div>
             <div style="height:4px;background:var(--bg-input);border-radius:2px;">
                 <div style="height:100%;width:${pct}%;background:var(--primary);border-radius:2px;"></div>
             </div>
         </div>`;
-    }).join('') || '<span style="color:var(--text-muted);">No data yet</span>';
+    }).join('');
 }
 
 function switchMV(mode) {
     mvMode = mode;
     document.getElementById('mv-cities-btn').style.cssText = mode === 'cities' ? 'border-color:var(--primary);color:var(--primary);' : '';
     document.getElementById('mv-countries-btn').style.cssText = mode === 'countries' ? 'border-color:var(--primary);color:var(--primary);' : '';
+    document.getElementById('mv-places-btn').style.cssText = mode === 'places' ? 'border-color:var(--primary);color:var(--primary);' : '';
     if (yearlyData) renderMostVisited(yearlyData);
 }
 
