@@ -100,6 +100,7 @@ urlpatterns = [
     path('api/summaries/<str:date_str>/delete/', views.summary_delete_api, name='summary_delete_api'),
     path('api/summaries/<str:date_str>/', views.summary_detail_api, name='summary_detail_api'),
     path('api/ai/config/', views.ai_config_api, name='ai_config_api'),
+    path('api/ai/test/', views.ai_test_api, name='ai_test_api'),
 
     # Geocoding
     path('api/geocode/', views.geocode_api, name='geocode_api'),

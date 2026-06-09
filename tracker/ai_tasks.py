@@ -88,18 +88,65 @@ def _call_llm(ai_cfg, prompt):
     last_exc = None
     for url in urls_to_try:
         try:
+            logger.info(f"Trying LLM at {url}/chat/completions")
             resp = http_requests.post(
                 f'{url}/chat/completions',
                 headers=headers,
                 json=payload,
-                timeout=120,
+                timeout=(10, 120),  # 10s connect, 120s read
             )
             resp.raise_for_status()
             return resp.json()['choices'][0]['message']['content'].strip()
         except Exception as exc:
+            logger.warning(f"LLM request to {url} failed: {type(exc).__name__}: {exc}")
             last_exc = exc
 
     raise last_exc
+
+
+def test_connection(ai_cfg):
+    """Test connectivity to the configured LLM endpoint.
+
+    Returns a dict with keys: ok (bool), tried (list), error (str or None),
+    models (list or None).
+    """
+    api_url = ai_cfg.api_url.rstrip('/')
+    headers = {}
+    if ai_cfg.api_key:
+        headers['Authorization'] = f'Bearer {ai_cfg.api_key}'
+
+    urls_to_try = [api_url]
+    for old in ('localhost', '127.0.0.1'):
+        if old in api_url:
+            urls_to_try.append(api_url.replace(old, 'host.docker.internal', 1))
+            break
+
+    tried = []
+    for url in urls_to_try:
+        result = {'url': f'{url}/v1/models', 'status': None, 'error': None}
+        try:
+            resp = http_requests.get(
+                f'{url}/models',
+                headers=headers,
+                timeout=(5, 15),
+            )
+            result['status'] = resp.status_code
+            if resp.ok:
+                body = resp.json()
+                result['models'] = [m.get('id', str(m)) for m in body.get('data', [])]
+                tried.append(result)
+                return {'ok': True, 'tried': tried, 'error': None, 'models': result['models']}
+            else:
+                result['error'] = f'HTTP {resp.status_code}: {resp.text[:200]}'
+        except http_requests.exceptions.ConnectionError as exc:
+            result['error'] = f'Connection refused / unreachable: {exc}'
+        except http_requests.exceptions.Timeout:
+            result['error'] = 'Connection timed out (5s)'
+        except Exception as exc:
+            result['error'] = f'{type(exc).__name__}: {exc}'
+        tried.append(result)
+
+    return {'ok': False, 'tried': tried, 'error': tried[-1]['error'] if tried else 'No URL to try', 'models': None}
 
 
 def generate_one(user, date):

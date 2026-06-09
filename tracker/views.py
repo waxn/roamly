@@ -5559,3 +5559,14 @@ def ai_config_api(request):
         },
     )
     return JsonResponse({'ok': True})
+
+
+@login_required
+def ai_test_api(request):
+    """GET: test connectivity to the configured LLM endpoint."""
+    from .ai_tasks import test_connection
+    ai_cfg = AIConfig.objects.filter(user=request.user).first()
+    if not ai_cfg:
+        return JsonResponse({'ok': False, 'error': 'No AI config saved yet. Save your settings first.', 'tried': [], 'models': None})
+    result = test_connection(ai_cfg)
+    return JsonResponse(result)

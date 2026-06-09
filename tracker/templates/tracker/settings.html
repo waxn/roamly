@@ -624,6 +624,7 @@
 
             <div class="settings-actions">
                 <button class="btn btn-primary btn-sm" onclick="saveAiConfig()">Save</button>
+                <button class="btn btn-outline btn-sm" id="ai-test-btn" onclick="testAiConnection()">Test Connection</button>
             </div>
 
             <div id="ai-config-status" style="font-size: 0.8125rem; margin-top: 0.75rem;">
@@ -1704,6 +1705,33 @@ function saveAiConfig() {
     .catch(() => {
         statusEl.innerHTML = '<span style="color: var(--danger);">Request failed.</span>';
     });
+}
+
+async function testAiConnection() {
+    const statusEl = document.getElementById('ai-config-status');
+    const btn = document.getElementById('ai-test-btn');
+    btn.disabled = true;
+    btn.textContent = 'Testing…';
+    statusEl.innerHTML = 'Testing connection…';
+    try {
+        const r = await fetch('/api/ai/test/');
+        const data = await r.json();
+        if (data.ok) {
+            const models = data.models && data.models.length ? data.models.join(', ') : '(none listed)';
+            statusEl.innerHTML = `<span style="color: var(--success);">✓ Connected! Models available: ${models}</span>`;
+        } else {
+            let detail = '';
+            if (data.tried && data.tried.length) {
+                detail = data.tried.map(t => `<br><code style="font-size:0.72rem;">${t.url}</code>: ${t.error || 'OK'}`).join('');
+            }
+            statusEl.innerHTML = `<span style="color: var(--danger);">Connection failed: ${data.error || 'Unknown error'}${detail}</span>`;
+        }
+    } catch (e) {
+        statusEl.innerHTML = `<span style="color: var(--danger);">Test request failed: ${e.message}</span>`;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Test Connection';
+    }
 }
 </script>
 {% endblock %}
