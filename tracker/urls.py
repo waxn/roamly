@@ -22,6 +22,7 @@ urlpatterns = [
     path('search/', views.search_view, name='search'),
     path('adventures/', views.adventures_view, name='adventures'),
     path('journals/', views.journals_view, name='journals'),
+    path('summaries/', views.summaries_view, name='summaries'),
     path('settings/', views.settings_view, name='settings'),
 
     # Auth
@@ -91,6 +92,13 @@ urlpatterns = [
     path('api/journals/<str:date_str>/save/', views.journal_save_api, name='journal_save_api'),
     path('api/journals/<str:date_str>/delete/', views.journal_delete_api, name='journal_delete_api'),
     path('api/journals/<str:date_str>/photos/', views.journal_photos_api, name='journal_photos_api'),
+
+    # AI Summaries
+    path('api/summaries/', views.summaries_list_api, name='summaries_list_api'),
+    path('api/summaries/<str:date_str>/generate/', views.summary_generate_api, name='summary_generate_api'),
+    path('api/summaries/<str:date_str>/delete/', views.summary_delete_api, name='summary_delete_api'),
+    path('api/summaries/<str:date_str>/', views.summary_detail_api, name='summary_detail_api'),
+    path('api/ai/config/', views.ai_config_api, name='ai_config_api'),
 
     # Geocoding
     path('api/geocode/', views.geocode_api, name='geocode_api'),
