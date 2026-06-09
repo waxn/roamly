@@ -25,6 +25,7 @@
 
 .sidebar-content {
     width: 220px;
+    max-width: 220px;
     max-height: calc(100vh - var(--nav-h, 56px) - 80px);
     background: var(--bg-glass);
     backdrop-filter: blur(18px);
@@ -39,7 +40,7 @@
     flex-direction: column;
     gap: 12px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.22);
-    transition: opacity 0.18s ease, transform 0.22s ease;
+    transition: opacity 0.18s ease, transform 0.22s ease, max-width 0.22s ease, padding 0.18s ease;
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
 }
@@ -47,6 +48,10 @@
     opacity: 0;
     pointer-events: none;
     transform: translateX(-10px);
+    max-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    overflow: hidden;
 }
 
 /* Small chevron toggle — right edge of sidebar, bottom-aligned */
@@ -1231,7 +1236,7 @@ let replayDevices = [];
 let replayTMin = 0, replayTMax = 0;
 let replayRAF = null;
 let replayPlaying = false;
-let replayAnimStart = 0, replayAnimFrom = 0;
+let replayCurrentFrac = 0;
 
 function baseLayerIds() {
     const ids = [];
@@ -1375,17 +1380,19 @@ function startReplayPlayback() {
     if (parseInt(replaySlider.value, 10) >= REPLAY_STEPS) replaySlider.value = 0;
     replayPlaying = true;
     replayPlayBtn.textContent = 'pause';
-    replayAnimFrom = parseInt(replaySlider.value, 10) / REPLAY_STEPS;
-    replayAnimStart = performance.now();
+    replayCurrentFrac = parseInt(replaySlider.value, 10) / REPLAY_STEPS;
+    let lastTick = null;
     const tick = now => {
         if (!replayPlaying) return;
-        const speed = parseFloat(replaySpeedEl.value) || 1;
-        const dur = REPLAY_BASE_MS / speed;
-        let frac = replayAnimFrom + (now - replayAnimStart) / dur;
-        if (frac >= 1) frac = 1;
-        replaySlider.value = Math.round(frac * REPLAY_STEPS);
-        renderReplayAt(frac);
-        if (frac >= 1) { stopReplayPlayback(); return; }
+        if (lastTick !== null) {
+            const speed = parseFloat(replaySpeedEl.value) || 1;
+            replayCurrentFrac += (now - lastTick) / (REPLAY_BASE_MS / speed);
+        }
+        lastTick = now;
+        if (replayCurrentFrac >= 1) replayCurrentFrac = 1;
+        replaySlider.value = Math.round(replayCurrentFrac * REPLAY_STEPS);
+        renderReplayAt(replayCurrentFrac);
+        if (replayCurrentFrac >= 1) { stopReplayPlayback(); return; }
         replayRAF = requestAnimationFrame(tick);
     };
     replayRAF = requestAnimationFrame(tick);
@@ -1420,7 +1427,8 @@ replayDateEl.addEventListener('change', () => { if (replayActive) loadReplayDay(
 replayPlayBtn.addEventListener('click', () => { replayPlaying ? stopReplayPlayback() : startReplayPlayback(); });
 replaySlider.addEventListener('input', () => {
     stopReplayPlayback();
-    renderReplayAt(parseInt(replaySlider.value, 10) / REPLAY_STEPS);
+    replayCurrentFrac = parseInt(replaySlider.value, 10) / REPLAY_STEPS;
+    renderReplayAt(replayCurrentFrac);
 });
 
 // Apply saved globe projection on first load.
