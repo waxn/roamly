@@ -1,4 +1,5 @@
 {% extends "tracker/base.html" %}
+{% load static %}
 {% block title %}Map - Roamly{% endblock %}
 
 {% block extra_css %}
@@ -153,6 +154,36 @@
     text-transform: lowercase !important;
 }
 
+
+/* Layer tools (globe) — sits just under the style switcher */
+.map-tools {
+    position: absolute;
+    top: 56px;
+    right: 12px;
+    z-index: 10;
+    display: flex;
+    gap: 4px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 4px;
+}
+.tool-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    padding: 4px 10px;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    text-transform: lowercase;
+    cursor: pointer;
+}
+.tool-btn.active {
+    background: var(--primary);
+    color: #fff;
+}
 #map-loading-bar {
     position: absolute;
     top: 0;
@@ -207,6 +238,10 @@
         <button class="style-btn active" data-style="Streets">Streets</button>
         <button class="style-btn" data-style="Dark">Dark</button>
         <button class="style-btn" data-style="Satellite">Satellite</button>
+    </div>
+
+    <div class="map-tools">
+        <button class="tool-btn" id="globe-btn" type="button" title="Toggle 3D globe">globe</button>
     </div>
 
     <div id="map-loading-bar"></div>
@@ -918,5 +953,30 @@ document.getElementById('map-load-more-btn').addEventListener('click', () => {
         }
     });
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// 3D globe projection (MapLibre GL v5)
+// ═══════════════════════════════════════════════════════════════════
+const globeBtn = document.getElementById('globe-btn');
+let globeOn = localStorage.getItem('roamly_globe') === 'on';
+
+function applyProjection() {
+    try { map.setProjection({ type: globeOn ? 'globe' : 'mercator' }); } catch (e) {}
+}
+globeBtn.classList.toggle('active', globeOn);
+globeBtn.addEventListener('click', () => {
+    globeOn = !globeOn;
+    localStorage.setItem('roamly_globe', globeOn ? 'on' : 'off');
+    globeBtn.classList.toggle('active', globeOn);
+    applyProjection();
+});
+
+// Re-apply projection after any basemap style swap.
+map.on('style.load', () => {
+    applyProjection();
+});
+
+// Apply saved globe projection on first load.
+map.on('load', applyProjection);
 </script>
 {% endblock %}
