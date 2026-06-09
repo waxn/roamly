@@ -14,7 +14,11 @@ _running_threads = {}
 OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
 OVERPASS_HEADERS = {'User-Agent': 'Roamly/0.6.1 (self-hosted location tracker)'}
 SEARCH_RADIUS = 15000  # 15km around each city center
-POI_TAGS = ['shop', 'amenity', 'aeroway', 'tourism', 'leisure']
+POI_TAGS = [
+    'shop', 'amenity', 'aeroway', 'tourism', 'leisure',
+    'historic', 'office', 'craft', 'healthcare', 'sport',
+    'military', 'natural', 'man_made',
+]
 
 
 def _download_city_pois(lat, lng, radius=SEARCH_RADIUS):
