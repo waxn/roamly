@@ -16,19 +16,16 @@
     position: absolute;
     top: 12px;
     left: 12px;
-    bottom: 12px;
     z-index: 10;
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
+    flex-direction: row;
+    align-items: flex-end;
     pointer-events: none;
 }
 
 .sidebar-content {
     width: 220px;
-    flex: 1;
-    min-height: 0;
+    max-height: calc(100vh - var(--nav-h, 56px) - 80px);
     background: var(--bg-glass);
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
@@ -52,32 +49,29 @@
     transform: translateX(-10px);
 }
 
-/* FAB — squircle at the bottom of the sidebar column */
+/* Small chevron toggle — right edge of sidebar, bottom-aligned */
 .sidebar-fab {
     flex-shrink: 0;
-    width: 44px;
-    height: 44px;
-    border-radius: 14px;
+    margin-left: 5px;
+    margin-bottom: 8px;
+    width: 20px;
+    height: 32px;
+    border-radius: 8px;
     background: var(--bg-glass);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.28);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--text-muted);
+    color: var(--text-dim);
     pointer-events: all;
-    transition: color 0.15s, background 0.15s, border-color 0.15s;
+    transition: color 0.15s, background 0.15s;
     padding: 0;
 }
 .sidebar-fab:hover { color: var(--text); background: var(--bg-card); }
-.sidebar-fab.fab-closed {
-    background: var(--bg-card);
-    color: var(--text);
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.36);
-}
 
 .sidebar-section {
     display: flex;
@@ -403,10 +397,8 @@
             </div>
 
         </div>
-        <!-- Sidebar FAB: sits at the bottom of the sidebar flex column -->
-        <button class="sidebar-fab fab-open" id="sidebar-fab" type="button" title="Collapse panel">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-        </button>
+        <!-- Chevron toggle: bottom-right of sidebar, set by JS -->
+        <button class="sidebar-fab" id="sidebar-fab" type="button"></button>
     </div>
 
     <!-- Replay panel (contextual, bottom center) -->
@@ -1120,15 +1112,13 @@ const sidebar = document.getElementById('map-sidebar');
 const sidebarFab = document.getElementById('sidebar-fab');
 let sidebarOpen = localStorage.getItem('roamly_sidebar_open') !== 'false';
 
-const ICON_CHEVRON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>`;
-const ICON_LAYERS = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>`;
+const ICON_COLLAPSE = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>`;
+const ICON_EXPAND  = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`;
 
 function applySidebar() {
     sidebar.classList.toggle('collapsed', !sidebarOpen);
-    sidebarFab.innerHTML = sidebarOpen ? ICON_CHEVRON : ICON_LAYERS;
-    sidebarFab.title = sidebarOpen ? 'collapse panel' : 'open layers';
-    sidebarFab.classList.toggle('fab-open', sidebarOpen);
-    sidebarFab.classList.toggle('fab-closed', !sidebarOpen);
+    sidebarFab.innerHTML = sidebarOpen ? ICON_COLLAPSE : ICON_EXPAND;
+    sidebarFab.title = sidebarOpen ? 'collapse panel' : 'expand panel';
 }
 applySidebar();
 
