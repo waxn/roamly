@@ -17,7 +17,7 @@ SEARCH_RADIUS = 15000  # 15km around each city center
 POI_TAGS = [
     'shop', 'amenity', 'aeroway', 'tourism', 'leisure',
     'historic', 'office', 'craft', 'healthcare', 'sport',
-    'military', 'natural', 'man_made',
+    'military', 'natural', 'man_made', 'railway', 'club',
 ]
 
 
