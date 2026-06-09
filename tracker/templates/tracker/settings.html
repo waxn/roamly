@@ -571,6 +571,45 @@
             </div>
         </div>
 
+        <!-- AI Summaries -->
+        <div class="card settings-span-12">
+            <div class="card-header">AI Summaries</div>
+            <p class="settings-section-desc">
+                Connect to any OpenAI-compatible API (local Ollama, OpenAI, etc.) to generate prose summaries of your days from location data and journal entries.
+            </p>
+
+            <div class="pref-grid" style="margin-bottom: 1rem;">
+                <div>
+                    <label style="font-size: 0.8125rem; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">API URL</label>
+                    <input type="url" id="ai-api-url" class="form-control" placeholder="http://localhost:11434/v1" value="{{ ai_config.api_url|default:'' }}">
+                </div>
+                <div>
+                    <label style="font-size: 0.8125rem; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">API Key <span style="color:var(--text-dim); font-size: 0.72rem;">(leave empty for local Ollama)</span></label>
+                    <input type="password" id="ai-api-key" class="form-control" placeholder="sk-…" value="{% if ai_config.api_key %}••••••••{% endif %}">
+                </div>
+                <div>
+                    <label style="font-size: 0.8125rem; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Model</label>
+                    <input type="text" id="ai-model" class="form-control" placeholder="tinyllama" value="{{ ai_config.model_name|default:'' }}">
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.6rem; padding-top: 1.5rem;">
+                    <input type="checkbox" id="ai-enabled" {% if ai_config.enabled %}checked{% endif %} style="width: 1rem; height: 1rem; accent-color: var(--primary);">
+                    <label for="ai-enabled" style="font-size: 0.875rem; cursor: pointer; margin: 0;">Enable AI summaries</label>
+                </div>
+            </div>
+
+            <div class="settings-actions">
+                <button class="btn btn-primary btn-sm" onclick="saveAiConfig()">Save</button>
+            </div>
+
+            <div id="ai-config-status" style="font-size: 0.8125rem; margin-top: 0.75rem;">
+                {% if ai_config and ai_config.enabled %}
+                    <span style="color: var(--success);">✓ Enabled — {{ ai_config.model_name }} at {{ ai_config.api_url }}</span>
+                {% elif ai_config %}
+                    <span style="color: var(--text-muted);">Configured but disabled.</span>
+                {% endif %}
+            </div>
+        </div>
+
         <!-- API Keys -->
         <div class="card settings-span-12">
             <div class="card-header">API Keys</div>
@@ -1535,6 +1574,43 @@ function deleteAccount() {
     })
     .catch(() => {
         alert('Something went wrong. Please try again.');
+    });
+}
+
+function saveAiConfig() {
+    const statusEl = document.getElementById('ai-config-status');
+    const apiUrl = document.getElementById('ai-api-url').value.trim();
+    const apiKey = document.getElementById('ai-api-key').value;
+    const model = document.getElementById('ai-model').value.trim();
+    const enabled = document.getElementById('ai-enabled').checked;
+
+    if (!apiUrl) { alert('API URL is required.'); return; }
+    if (!model) { alert('Model name is required.'); return; }
+
+    statusEl.innerHTML = 'Saving…';
+    const csrfToken = document.cookie.match(/csrftoken=([^;]+)/);
+    fetch('/api/ai/config/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken ? csrfToken[1] : '',
+        },
+        body: JSON.stringify({ api_url: apiUrl, api_key: apiKey, model_name: model, enabled }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) {
+            if (enabled) {
+                statusEl.innerHTML = `<span style="color: var(--success);">✓ Enabled — ${model} at ${apiUrl}</span>`;
+            } else {
+                statusEl.innerHTML = '<span style="color: var(--text-muted);">Configured but disabled.</span>';
+            }
+        } else {
+            statusEl.innerHTML = `<span style="color: var(--danger);">${data.error || 'Save failed.'}</span>`;
+        }
+    })
+    .catch(() => {
+        statusEl.innerHTML = '<span style="color: var(--danger);">Request failed.</span>';
     });
 }
 </script>
