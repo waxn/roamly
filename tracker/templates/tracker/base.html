@@ -1070,5 +1070,6 @@
             navigator.serviceWorker.register('/sw.js', { scope: '/' });
         }
     </script>
+    {% if CUSTOM_JS_SNIPPET %}<script>{{ CUSTOM_JS_SNIPPET|safe }}</script>{% endif %}
 </body>
 </html>
