@@ -1,0 +1,427 @@
+{% extends 'tracker/base.html' %}
+{% block title %}Summaries - Roamly{% endblock %}
+
+{% block extra_css %}
+.sum-wrap { max-width: 1150px; }
+
+.sum-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+.sum-header h1 {
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin: 0;
+    flex: none;
+}
+.sum-search-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 180px;
+}
+.sum-search-input {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-clay);
+    box-shadow: var(--clay-shadow-inset);
+    padding: 0.55rem 2.2rem 0.55rem 0.85rem;
+    color: var(--text);
+    font-size: 0.875rem;
+    outline: none;
+    box-sizing: border-box;
+}
+.sum-search-input:focus { border-color: var(--primary); }
+.sum-search-input::placeholder { color: var(--text-dim); }
+.sum-search-clear {
+    position: absolute;
+    right: 0.6rem;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 1.1rem;
+    line-height: 1;
+    display: none;
+}
+
+.sum-layout {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: 1.25rem;
+    align-items: start;
+}
+@media (max-width: 800px) {
+    .sum-layout { grid-template-columns: 1fr; }
+    .sum-detail-panel { display: none; }
+    .sum-detail-panel.mobile-visible { display: block; }
+}
+
+/* List panel */
+.sum-list { display: flex; flex-direction: column; gap: 0.6rem; }
+.sum-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-clay);
+    padding: 0.85rem 1rem;
+    cursor: pointer;
+    box-shadow: var(--clay-shadow-sm);
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+.sum-card:hover { border-color: var(--primary); }
+.sum-card.active {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 25%, transparent);
+}
+.sum-card-date {
+    font-family: var(--font-display);
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.3rem;
+}
+.sum-card-preview {
+    font-size: 0.84rem;
+    color: var(--text);
+    line-height: 1.45;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.sum-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.55rem;
+}
+.sum-chip {
+    font-size: 0.71rem;
+    font-weight: 600;
+    padding: 0.2rem 0.5rem;
+    border-radius: 99px;
+    background: color-mix(in srgb, var(--primary) 15%, transparent);
+    color: var(--primary);
+    white-space: nowrap;
+}
+.sum-chip.dist {
+    background: color-mix(in srgb, var(--text-muted) 12%, transparent);
+    color: var(--text-muted);
+}
+
+.sum-empty {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 2.5rem 1rem;
+    font-size: 0.9rem;
+    line-height: 1.6;
+}
+
+/* Detail panel */
+.sum-detail-panel {
+    position: sticky;
+    top: calc(var(--navbar-height, 56px) + 1rem);
+}
+.sum-detail-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-clay);
+    padding: 1.4rem 1.5rem;
+    box-shadow: var(--clay-shadow-sm);
+}
+.sum-detail-date {
+    font-family: var(--font-display);
+    font-size: 1rem;
+    font-weight: 800;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.75rem;
+}
+.sum-detail-text {
+    font-size: 0.92rem;
+    line-height: 1.7;
+    color: var(--text);
+    white-space: pre-wrap;
+    margin-bottom: 1rem;
+}
+.sum-detail-places {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-bottom: 1rem;
+}
+.sum-detail-foot {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
+}
+.sum-detail-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.sum-placeholder {
+    text-align: center;
+    color: var(--text-dim);
+    padding: 3rem 1rem;
+    font-size: 0.88rem;
+    line-height: 1.6;
+}
+.sum-load-more {
+    text-align: center;
+    margin-top: 0.75rem;
+}
+{% endblock %}
+
+{% block content %}
+<div class="sum-wrap">
+    <div class="sum-header">
+        <h1>✨ Summaries</h1>
+        <div class="sum-search-wrap">
+            <input class="sum-search-input" id="sum-search" type="text" placeholder="search summaries…" autocomplete="off">
+            <button class="sum-search-clear" id="sum-search-clear" title="Clear">×</button>
+        </div>
+    </div>
+
+    <div class="sum-layout">
+        <!-- List -->
+        <div>
+            <div class="sum-list" id="sum-list">
+                <div class="sum-empty">loading…</div>
+            </div>
+            <div class="sum-load-more" id="sum-load-more" style="display:none;">
+                <button class="btn btn-outline btn-sm" id="sum-load-more-btn">load more</button>
+            </div>
+        </div>
+
+        <!-- Detail -->
+        <div class="sum-detail-panel" id="sum-detail-panel">
+            <div class="sum-detail-card">
+                <div class="sum-placeholder" id="sum-placeholder">
+                    Select a summary to read it in full.
+                </div>
+                <div id="sum-detail-content" style="display:none;">
+                    <div class="sum-detail-date" id="sum-detail-date"></div>
+                    <div class="sum-detail-places" id="sum-detail-places"></div>
+                    <div class="sum-detail-text" id="sum-detail-text"></div>
+                    <div class="sum-detail-foot">
+                        <span id="sum-detail-meta"></span>
+                        <div class="sum-detail-actions">
+                            <button class="btn btn-outline btn-sm" id="sum-regen-btn">↻ Regenerate</button>
+                            <button class="btn btn-outline btn-sm" id="sum-delete-btn" style="color:var(--danger)">delete</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const SUMMARIES_URL = '{% url "tracker:summaries_list_api" %}';
+const GENERATE_BASE = '/api/summaries/';
+
+let currentPage = 1;
+let hasMore = false;
+let currentQuery = '';
+let activeDate = null;
+let searchTimer = null;
+
+function fmtDate(iso) {
+    const d = new Date(iso + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+function fmtTs(iso) {
+    return new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function renderCard(s, prepend) {
+    const li = document.createElement('div');
+    li.className = 'sum-card';
+    li.dataset.date = s.date;
+
+    const places = (s.places || []).slice(0, 5).map(p =>
+        `<span class="sum-chip">${escHtml(p.name || p)}</span>`).join('');
+    const dist = s.distance_km != null ? `<span class="sum-chip dist">${s.distance_km} km</span>` : '';
+
+    li.innerHTML = `
+        <div class="sum-card-date">${fmtDate(s.date)}</div>
+        <div class="sum-card-preview">${escHtml(s.summary_preview || '')}</div>
+        <div class="sum-card-meta">${places}${dist}</div>
+    `;
+    li.addEventListener('click', () => selectCard(s.date, li));
+    return li;
+}
+
+function escHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function selectCard(dateStr, cardEl) {
+    document.querySelectorAll('.sum-card').forEach(c => c.classList.remove('active'));
+    if (cardEl) cardEl.classList.add('active');
+    activeDate = dateStr;
+    loadDetail(dateStr);
+}
+
+async function loadDetail(dateStr) {
+    document.getElementById('sum-placeholder').style.display = 'none';
+    document.getElementById('sum-detail-content').style.display = 'none';
+    document.getElementById('sum-placeholder').textContent = 'Loading…';
+    document.getElementById('sum-placeholder').style.display = '';
+
+    try {
+        const r = await fetch(`/api/summaries/${dateStr}/`);
+        if (!r.ok) throw new Error('not found');
+        const s = await r.json();
+        showDetail(s);
+    } catch {
+        document.getElementById('sum-placeholder').textContent = 'Could not load summary.';
+    }
+}
+
+function showDetail(s) {
+    document.getElementById('sum-placeholder').style.display = 'none';
+    document.getElementById('sum-detail-content').style.display = '';
+    document.getElementById('sum-detail-date').textContent = fmtDate(s.date);
+
+    const places = (s.places || []).map(p =>
+        `<span class="sum-chip">${escHtml(p.name || p)}</span>`).join('');
+    const dist = s.distance_km != null ? `<span class="sum-chip dist">${s.distance_km} km</span>` : '';
+    document.getElementById('sum-detail-places').innerHTML = places + dist;
+
+    document.getElementById('sum-detail-text').textContent = s.summary;
+    const gen = fmtTs(s.generated_at);
+    document.getElementById('sum-detail-meta').textContent = `Generated ${gen} · ${s.model_used}`;
+
+    document.getElementById('sum-regen-btn').onclick = () => generateSummary(s.date);
+    document.getElementById('sum-delete-btn').onclick = () => deleteSummary(s.date);
+}
+
+async function generateSummary(dateStr) {
+    const btn = document.getElementById('sum-regen-btn');
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+    try {
+        const r = await fetch(`/api/summaries/${dateStr}/generate/`, { method: 'POST', headers: { 'X-CSRFToken': getCsrf() } });
+        const data = await r.json();
+        if (!r.ok) { alert(data.error || 'Generation failed.'); return; }
+        showDetail(data);
+        // refresh card preview in list
+        const card = document.querySelector(`.sum-card[data-date="${dateStr}"]`);
+        if (card) {
+            const prev = card.querySelector('.sum-card-preview');
+            if (prev) prev.textContent = (data.summary || '').slice(0, 250) + ((data.summary || '').length > 250 ? '…' : '');
+        }
+    } catch (e) {
+        alert('Request failed: ' + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '↻ Regenerate';
+    }
+}
+
+async function deleteSummary(dateStr) {
+    if (!confirm('Delete this summary?')) return;
+    const r = await fetch(`/api/summaries/${dateStr}/delete/`, { method: 'POST', headers: { 'X-CSRFToken': getCsrf() } });
+    if (!r.ok) { alert('Delete failed.'); return; }
+    // Remove from list and clear detail
+    const card = document.querySelector(`.sum-card[data-date="${dateStr}"]`);
+    if (card) card.remove();
+    activeDate = null;
+    document.getElementById('sum-detail-content').style.display = 'none';
+    document.getElementById('sum-placeholder').textContent = 'Select a summary to read it in full.';
+    document.getElementById('sum-placeholder').style.display = '';
+    checkEmpty();
+}
+
+function checkEmpty() {
+    const list = document.getElementById('sum-list');
+    if (!list.querySelector('.sum-card')) {
+        list.innerHTML = '<div class="sum-empty">No summaries yet.<br>Open a day in Journals and hit "Generate Summary".</div>';
+    }
+}
+
+async function loadSummaries(query, page, append) {
+    const url = new URL(SUMMARIES_URL, location.origin);
+    if (query) url.searchParams.set('q', query);
+    url.searchParams.set('page', page);
+    url.searchParams.set('per_page', 20);
+
+    const list = document.getElementById('sum-list');
+    if (!append) list.innerHTML = '<div class="sum-empty">loading…</div>';
+
+    try {
+        const r = await fetch(url);
+        const data = await r.json();
+        if (!append) list.innerHTML = '';
+
+        if (data.summaries.length === 0 && !append) {
+            list.innerHTML = '<div class="sum-empty">No summaries yet.<br>Open a day in Journals and hit "Generate Summary".</div>';
+        } else {
+            data.summaries.forEach(s => list.appendChild(renderCard(s)));
+        }
+
+        hasMore = data.has_more;
+        document.getElementById('sum-load-more').style.display = hasMore ? '' : 'none';
+    } catch {
+        list.innerHTML = '<div class="sum-empty">Failed to load summaries.</div>';
+    }
+}
+
+function getCsrf() {
+    const m = document.cookie.match(/csrftoken=([^;]+)/);
+    return m ? m[1] : '';
+}
+
+// Search
+const searchInput = document.getElementById('sum-search');
+const searchClear = document.getElementById('sum-search-clear');
+
+searchInput.addEventListener('input', () => {
+    const q = searchInput.value.trim();
+    searchClear.style.display = q ? '' : 'none';
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+        currentQuery = q;
+        currentPage = 1;
+        loadSummaries(currentQuery, currentPage, false);
+    }, 320);
+});
+searchClear.addEventListener('click', () => {
+    searchInput.value = '';
+    searchClear.style.display = 'none';
+    currentQuery = '';
+    currentPage = 1;
+    loadSummaries('', 1, false);
+});
+
+document.getElementById('sum-load-more-btn').addEventListener('click', () => {
+    currentPage++;
+    loadSummaries(currentQuery, currentPage, true);
+});
+
+// Initial load
+loadSummaries('', 1, false);
+</script>
+{% endblock %}
