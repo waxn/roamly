@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import os
+import requests as http_requests
 import tempfile
 import threading
 import time
@@ -35,7 +36,7 @@ from .models import (
     Device, Location, APIKey, Adventure, AdventurePlace, POI, BackupConfig,
     UserProfile, Pal, PalMember, PalBlurb, PalBlurbPhoto, PalMilestone, PalComment,
     AdventureMember, AdventureBlurb, AdventureBlurbPhoto, AdventureMilestone, AdventureComment,
-    SiteStat, JournalEntry, JournalPhoto,
+    SiteStat, JournalEntry, JournalPhoto, AIConfig, AISummary,
 )
 from .image_utils import resize_image, resize_photo
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
@@ -355,6 +356,7 @@ def settings_view(request):
     devices = Device.objects.filter(user=request.user)
     form = APIKeyForm()
     backup_config = BackupConfig.objects.filter(user=request.user).first()
+    ai_config = AIConfig.objects.filter(user=request.user).first()
     UserProfile.objects.get_or_create(user=request.user)
     return render(request, 'tracker/settings.html', {
         'api_keys': api_keys,
@@ -362,6 +364,7 @@ def settings_view(request):
         'form': form,
         'has_postgis': HAS_POSTGIS,
         'backup_config': backup_config,
+        'ai_config': ai_config,
     })
 
 
@@ -3641,52 +3644,106 @@ def _cluster_pois(pois):
 
 
 def _search_local_pois(query, user_locations_qs, radius_m=150):
-    """Search the local POI table and match against user's location history."""
+    """Search POIs against user history. Uses pre-computed Visit table when
+    available (fast); falls back to on-the-fly proximity scan otherwise."""
     from rapidfuzz import fuzz as _fuzz
+    from django.db.models import Q
+
     query = query.strip()
     if not query:
         return []
+    q_lower = query.lower()
+    _FUZZY_THRESHOLD = 65
 
-    # Stage 1: broad DB fetch using prefix tokens so typos at word-endings still
-    # retrieve the right candidates ("walmaert" → prefix "walm" → Walmart).
+    uid_row = user_locations_qs.values('device__user_id').first()
+    if not uid_row:
+        return []
+    user_id = uid_row['device__user_id']
+
+    # --- Fast path: pre-computed Visit table ---
+    from .models import Visit
     words = [w for w in query.split() if len(w) >= 4]
-    from django.db.models import Q
-    candidate_filter = Q(name__icontains=query)
+    vfilter = Q(poi__name__icontains=query)
     for w in words:
-        candidate_filter |= Q(name__icontains=w[:4])
-    candidates = list(
-        POI.objects.filter(candidate_filter).distinct()[:400]
+        vfilter |= Q(poi__name__icontains=w[:4])
+
+    visits = list(
+        Visit.objects.filter(vfilter, device__user_id=user_id, poi__isnull=False)
+        .select_related('poi')
+        .order_by('poi_id', 'start_time')
     )
 
+    has_any_visits = visits or Visit.objects.filter(device__user_id=user_id).exists()
+
+    if visits:
+        # Score POI names with fuzzy matching
+        poi_scores = {}
+        for v in visits:
+            if v.poi_id not in poi_scores:
+                sc = _fuzz.token_set_ratio(q_lower, v.poi.name.lower())
+                poi_scores[v.poi_id] = (sc, v.poi)
+
+        matching_ids = {pid for pid, (sc, _) in poi_scores.items() if sc >= _FUZZY_THRESHOLD}
+        if matching_ids:
+            from collections import defaultdict
+            poi_days = defaultdict(lambda: defaultdict(lambda: {'count': 0, 'time_spent': 0.0}))
+            for v in visits:
+                if v.poi_id not in matching_ids:
+                    continue
+                date_str = v.start_time.date().isoformat()
+                dur = (v.end_time - v.start_time).total_seconds()
+                poi_days[v.poi_id][date_str]['count'] += v.point_count
+                poi_days[v.poi_id][date_str]['time_spent'] += dur
+
+            results = []
+            for poi_id, days in poi_days.items():
+                sc, poi = poi_scores[poi_id]
+                day_list = [
+                    {'date': d, 'count': s['count'], 'time_spent': int(s['time_spent'])}
+                    for d, s in days.items() if s['time_spent'] >= 300
+                ]
+                if not day_list:
+                    continue
+                day_list.sort(key=lambda d: d['date'], reverse=True)
+                total_time = sum(d['time_spent'] for d in day_list)
+                total_pts = sum(d['count'] for d in day_list)
+                display = f"{poi.name}, {poi.address}" if poi.address else poi.name
+                rank = 0 if (sc == 100 and poi.name.lower() == q_lower) else (1 if sc >= 85 else 2)
+                results.append({
+                    'place_name': display,
+                    'lat': poi.latitude,
+                    'lng': poi.longitude,
+                    'days': day_list,
+                    'total_points': total_pts,
+                    '_sort': (rank, -total_time, -total_pts, display),
+                })
+            results.sort(key=lambda r: r['_sort'])
+            for r in results:
+                r.pop('_sort', None)
+            return results
+
+    # --- Fallback: on-the-fly proximity scan (used before visit computation runs) ---
+    if has_any_visits:
+        # Visit computation has run but returned nothing for this query.
+        return []
+
+    # No visits at all yet — scan location history directly.
+    cfilter = Q(name__icontains=query)
+    for w in words:
+        cfilter |= Q(name__icontains=w[:4])
+    candidates = list(POI.objects.filter(cfilter).distinct()[:400])
     if not candidates:
         return []
 
-    # Stage 2: score with rapidfuzz token_set_ratio (handles word reordering and
-    # partial matches, e.g. "trader joes" → "Trader Joe's" = high score).
-    _FUZZY_THRESHOLD = 65
-    scored = []
-    q_lower = query.lower()
-    for poi in candidates:
-        score = _fuzz.token_set_ratio(q_lower, poi.name.lower())
-        if score >= _FUZZY_THRESHOLD:
-            scored.append((score, poi))
-
+    scored = [(s, p) for p in candidates
+              for s in [_fuzz.token_set_ratio(q_lower, p.name.lower())]
+              if s >= _FUZZY_THRESHOLD]
     if not scored:
         return []
-
-    # Sort best matches first so the visit-filter pipeline sees them in priority order.
     scored.sort(key=lambda x: -x[0])
-    matching_pois = [poi for _, poi in scored]
-
-    # Attach a synthetic match_rank (0 = exact, 1 = high-score fuzzy, 2 = rest)
-    # so downstream sorting still works.
-    for score, poi in scored:
-        if score == 100 and poi.name.lower() == q_lower:
-            poi.match_rank = 0
-        elif score >= 85:
-            poi.match_rank = 1
-        else:
-            poi.match_rank = 2
+    matching_pois = [p for _, p in scored]
+    for sc, p in scored:
+        p.match_rank = 0 if (sc == 100 and p.name.lower() == q_lower) else (1 if sc >= 85 else 2)
 
     if not matching_pois:
         return []
@@ -5317,3 +5374,217 @@ def journal_photo_delete_api(request, photo_id):
     photo = get_object_or_404(JournalPhoto, id=photo_id, entry__user=request.user)
     photo.delete()
     return JsonResponse({'status': 'ok'})
+
+
+# ---------------------------------------------------------------------------
+# AI Summaries
+# ---------------------------------------------------------------------------
+
+@login_required
+def summaries_view(request):
+    return render(request, 'tracker/summaries.html', {})
+
+
+@login_required
+def summaries_list_api(request):
+    q = request.GET.get('q', '').strip()
+    page = max(1, int(request.GET.get('page', 1)))
+    per_page = min(50, max(1, int(request.GET.get('per_page', 20))))
+
+    qs = AISummary.objects.filter(user=request.user)
+    if q:
+        qs = qs.filter(summary__icontains=q)
+
+    total = qs.count()
+    offset = (page - 1) * per_page
+    summaries = qs[offset:offset + per_page]
+
+    def _ser(s):
+        preview = s.summary[:250] + ('…' if len(s.summary) > 250 else '')
+        return {
+            'date': s.date.isoformat(),
+            'summary_preview': preview,
+            'places': s.places_json,
+            'distance_km': s.distance_km,
+            'generated_at': s.generated_at.isoformat(),
+            'model_used': s.model_used,
+        }
+
+    return JsonResponse({
+        'summaries': [_ser(s) for s in summaries],
+        'total': total,
+        'page': page,
+        'has_more': offset + per_page < total,
+    })
+
+
+@login_required
+def summary_detail_api(request, date_str):
+    d = _journal_parse_date(date_str)
+    if d is None:
+        return JsonResponse({'error': 'Invalid date'}, status=400)
+    s = get_object_or_404(AISummary, user=request.user, date=d)
+    return JsonResponse({
+        'date': s.date.isoformat(),
+        'summary': s.summary,
+        'places': s.places_json,
+        'distance_km': s.distance_km,
+        'generated_at': s.generated_at.isoformat(),
+        'model_used': s.model_used,
+    })
+
+
+@csrf_exempt
+@login_required
+@require_POST
+def summary_generate_api(request, date_str):
+    d = _journal_parse_date(date_str)
+    if d is None:
+        return JsonResponse({'error': 'Invalid date'}, status=400)
+
+    try:
+        ai_cfg = AIConfig.objects.get(user=request.user)
+    except AIConfig.DoesNotExist:
+        return JsonResponse({'error': 'AI not configured. Go to Settings to set it up.'}, status=400)
+
+    if not ai_cfg.enabled:
+        return JsonResponse({'error': 'AI summaries are disabled. Enable them in Settings.'}, status=400)
+
+    track = _journal_day_track(request.user, d)
+    if track['point_count'] == 0:
+        return JsonResponse({'error': 'No location data found for this day.'}, status=400)
+
+    entry = JournalEntry.objects.filter(user=request.user, date=d).first()
+
+    # Gather nearby POIs from the bounding box of the day's locations
+    poi_names = []
+    if track['points']:
+        lons = [p[0] for p in track['points']]
+        lats = [p[1] for p in track['points']]
+        min_lat, max_lat = min(lats), max(lats)
+        min_lon, max_lon = min(lons), max(lons)
+        pois = POI.objects.filter(
+            latitude__range=(min_lat, max_lat),
+            longitude__range=(min_lon, max_lon),
+        ).values('name', 'category')[:20]
+        seen_poi = set()
+        for p in pois:
+            label = p['name']
+            if p['category']:
+                label = f"{p['name']} ({p['category']})"
+            if label not in seen_poi:
+                seen_poi.add(label)
+                poi_names.append(label)
+            if len(poi_names) >= 10:
+                break
+
+    places_str = ', '.join(track['cities']) if track['cities'] else 'unknown'
+    poi_str = ', '.join(poi_names) if poi_names else 'none recorded'
+    journal_title = (entry.title if entry else '') or ''
+    journal_mood = (entry.mood if entry else '') or ''
+    journal_body = (entry.body if entry else '') or ''
+
+    prompt = (
+        "You are a travel journal assistant. Write a short, vivid, first-person paragraph "
+        "(3–5 sentences) summarising this person's day based on the data below. "
+        "Do not invent details beyond what is provided. "
+        "If location data is sparse, focus on what is known.\n\n"
+        f"Date: {d.strftime('%A, %B %-d, %Y')}\n"
+        f"Distance travelled: {track['distance_km']} km\n"
+        f"Places visited (in order): {places_str}\n"
+        f"Nearby points of interest: {poi_str}\n"
+        f"Journal title: {journal_title or '(none)'}\n"
+        f"Mood: {journal_mood or '(none)'}\n"
+        f"Journal entry: {journal_body[:2000] or '(none)'}"
+    )
+
+    api_url = ai_cfg.api_url.rstrip('/')
+    headers = {'Content-Type': 'application/json'}
+    if ai_cfg.api_key:
+        headers['Authorization'] = f'Bearer {ai_cfg.api_key}'
+
+    payload = {
+        'model': ai_cfg.model_name,
+        'messages': [{'role': 'user', 'content': prompt}],
+        'max_tokens': 400,
+        'temperature': 0.7,
+    }
+
+    try:
+        resp = http_requests.post(
+            f'{api_url}/chat/completions',
+            headers=headers,
+            json=payload,
+            timeout=120,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        summary_text = data['choices'][0]['message']['content'].strip()
+    except http_requests.exceptions.Timeout:
+        return JsonResponse({'error': 'AI request timed out. Is the server running?'}, status=502)
+    except http_requests.exceptions.ConnectionError:
+        return JsonResponse({'error': f'Could not connect to AI server at {api_url}.'}, status=502)
+    except Exception as exc:
+        return JsonResponse({'error': f'AI request failed: {exc}'}, status=502)
+
+    summary_obj, _ = AISummary.objects.update_or_create(
+        user=request.user,
+        date=d,
+        defaults={
+            'summary': summary_text,
+            'places_json': track['places'],
+            'distance_km': track['distance_km'],
+            'model_used': ai_cfg.model_name,
+        },
+    )
+
+    return JsonResponse({
+        'date': summary_obj.date.isoformat(),
+        'summary': summary_obj.summary,
+        'places': summary_obj.places_json,
+        'distance_km': summary_obj.distance_km,
+        'generated_at': summary_obj.generated_at.isoformat(),
+        'model_used': summary_obj.model_used,
+    })
+
+
+@csrf_exempt
+@login_required
+@require_POST
+def summary_delete_api(request, date_str):
+    d = _journal_parse_date(date_str)
+    if d is None:
+        return JsonResponse({'error': 'Invalid date'}, status=400)
+    AISummary.objects.filter(user=request.user, date=d).delete()
+    return JsonResponse({'status': 'ok'})
+
+
+@csrf_exempt
+@login_required
+@require_POST
+def ai_config_api(request):
+    try:
+        body = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    api_url = body.get('api_url', '').strip()
+    api_key = body.get('api_key', '').strip()
+    model_name = body.get('model_name', '').strip()
+    enabled = bool(body.get('enabled', False))
+
+    if not api_url:
+        return JsonResponse({'error': 'API URL is required'}, status=400)
+    if not model_name:
+        return JsonResponse({'error': 'Model name is required'}, status=400)
+
+    AIConfig.objects.update_or_create(
+        user=request.user,
+        defaults={
+            'api_url': api_url,
+            'api_key': api_key,
+            'model_name': model_name,
+            'enabled': enabled,
+        },
+    )
+    return JsonResponse({'ok': True})
