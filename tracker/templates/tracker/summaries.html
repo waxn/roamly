@@ -2,18 +2,19 @@
 {% block title %}Summaries - Roamly{% endblock %}
 
 {% block extra_css %}
-.sum-wrap { max-width: 1150px; }
+<style>
+.sum-wrap { max-width: 1200px; }
 
-.sum-header {
+.sum-toolbar {
     display: flex;
     align-items: center;
-    gap: 1rem;
-    margin-bottom: 1.5rem;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
     flex-wrap: wrap;
 }
-.sum-header h1 {
+.sum-toolbar h1 {
     font-family: var(--font-display);
-    font-size: 1.6rem;
+    font-size: 1.5rem;
     font-weight: 800;
     letter-spacing: -0.02em;
     margin: 0;
@@ -22,39 +23,48 @@
 .sum-search-wrap {
     position: relative;
     flex: 1;
-    min-width: 180px;
+    min-width: 160px;
+    max-width: 320px;
 }
-.sum-search-input {
+.sum-search-wrap input {
     width: 100%;
     background: var(--bg-input);
     border: 1px solid var(--border);
     border-radius: var(--radius-clay);
     box-shadow: var(--clay-shadow-inset);
-    padding: 0.55rem 2.2rem 0.55rem 0.85rem;
+    padding: 0.5rem 2rem 0.5rem 0.8rem;
     color: var(--text);
     font-size: 0.875rem;
     outline: none;
     box-sizing: border-box;
 }
-.sum-search-input:focus { border-color: var(--primary); }
-.sum-search-input::placeholder { color: var(--text-dim); }
+.sum-search-wrap input:focus { border-color: var(--primary); }
 .sum-search-clear {
-    position: absolute;
-    right: 0.6rem;
-    top: 50%;
-    transform: translateY(-50%);
-    background: none;
-    border: none;
-    color: var(--text-dim);
-    cursor: pointer;
-    font-size: 1.1rem;
-    line-height: 1;
-    display: none;
+    position: absolute; right: 0.6rem; top: 50%; transform: translateY(-50%);
+    background: none; border: none; color: var(--text-dim); cursor: pointer;
+    font-size: 1.1rem; line-height: 1; display: none; padding: 0;
 }
+.sum-gen-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: auto;
+}
+.sum-gen-wrap input[type=date] {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-clay);
+    padding: 0.45rem 0.65rem;
+    color: var(--text);
+    font-size: 0.875rem;
+    outline: none;
+    color-scheme: dark;
+}
+.sum-gen-wrap input[type=date]:focus { border-color: var(--primary); }
 
 .sum-layout {
     display: grid;
-    grid-template-columns: 340px 1fr;
+    grid-template-columns: 320px 1fr;
     gap: 1.25rem;
     align-items: start;
 }
@@ -62,15 +72,17 @@
     .sum-layout { grid-template-columns: 1fr; }
     .sum-detail-panel { display: none; }
     .sum-detail-panel.mobile-visible { display: block; }
+    .sum-gen-wrap { margin-left: 0; }
+    .sum-toolbar { gap: 0.5rem; }
 }
 
-/* List panel */
-.sum-list { display: flex; flex-direction: column; gap: 0.6rem; }
+/* List */
+.sum-list { display: flex; flex-direction: column; gap: 0.5rem; }
 .sum-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius-clay);
-    padding: 0.85rem 1rem;
+    padding: 0.8rem 1rem;
     cursor: pointer;
     box-shadow: var(--clay-shadow-sm);
     transition: border-color 0.15s, box-shadow 0.15s;
@@ -78,15 +90,14 @@
 .sum-card:hover { border-color: var(--primary); }
 .sum-card.active {
     border-color: var(--primary);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 25%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 20%, transparent);
 }
 .sum-card-date {
-    font-family: var(--font-display);
-    font-size: 0.82rem;
+    font-size: 0.75rem;
     font-weight: 700;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
     margin-bottom: 0.3rem;
 }
 .sum-card-preview {
@@ -94,37 +105,29 @@
     color: var(--text);
     line-height: 1.45;
     display: -webkit-box;
-    -webkit-line-clamp: 3;
+    -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
 }
-.sum-card-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-    margin-top: 0.55rem;
+.sum-card-chips {
+    display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.45rem;
 }
-.sum-chip {
-    font-size: 0.71rem;
-    font-weight: 600;
-    padding: 0.2rem 0.5rem;
-    border-radius: 99px;
-    background: color-mix(in srgb, var(--primary) 15%, transparent);
-    color: var(--primary);
-    white-space: nowrap;
+.chip {
+    font-size: 0.7rem; font-weight: 600;
+    padding: 0.18rem 0.5rem; border-radius: 99px;
+    background: color-mix(in srgb, var(--primary) 14%, transparent);
+    color: var(--primary); white-space: nowrap;
 }
-.sum-chip.dist {
-    background: color-mix(in srgb, var(--text-muted) 12%, transparent);
+.chip.muted {
+    background: color-mix(in srgb, var(--text-muted) 10%, transparent);
     color: var(--text-muted);
 }
 
 .sum-empty {
-    text-align: center;
-    color: var(--text-muted);
-    padding: 2.5rem 1rem;
-    font-size: 0.9rem;
-    line-height: 1.6;
+    text-align: center; color: var(--text-muted);
+    padding: 2.5rem 1rem; font-size: 0.9rem; line-height: 1.7;
 }
+.sum-load-more { text-align: center; margin-top: 0.75rem; }
 
 /* Detail panel */
 .sum-detail-panel {
@@ -135,68 +138,66 @@
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius-clay);
-    padding: 1.4rem 1.5rem;
     box-shadow: var(--clay-shadow-sm);
+    overflow: hidden;
 }
-.sum-detail-date {
+.sum-detail-header {
+    padding: 1.1rem 1.4rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+.sum-detail-date-label {
     font-family: var(--font-display);
-    font-size: 1rem;
-    font-weight: 800;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 0.75rem;
+    font-size: 1rem; font-weight: 800;
+    color: var(--text);
 }
+.sum-detail-body { padding: 1.1rem 1.4rem; }
 .sum-detail-text {
-    font-size: 0.92rem;
-    line-height: 1.7;
+    font-size: 0.9rem;
+    line-height: 1.75;
     color: var(--text);
     white-space: pre-wrap;
     margin-bottom: 1rem;
 }
-.sum-detail-places {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-    margin-bottom: 1rem;
-}
+.sum-detail-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 1rem; }
 .sum-detail-foot {
-    font-size: 0.72rem;
-    color: var(--text-dim);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
-    padding-top: 0.75rem;
+    font-size: 0.72rem; color: var(--text-dim);
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 0.5rem;
     border-top: 1px solid var(--border);
+    padding: 0.75rem 1.4rem;
 }
-.sum-detail-actions {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-}
+.sum-detail-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .sum-placeholder {
-    text-align: center;
-    color: var(--text-dim);
-    padding: 3rem 1rem;
-    font-size: 0.88rem;
-    line-height: 1.6;
+    text-align: center; color: var(--text-dim);
+    padding: 3.5rem 1.5rem; font-size: 0.875rem; line-height: 1.7;
 }
-.sum-load-more {
-    text-align: center;
-    margin-top: 0.75rem;
+
+/* Generating spinner state */
+.sum-generating {
+    display: flex; align-items: center; justify-content: center;
+    gap: 0.6rem; padding: 2.5rem 1rem; color: var(--text-muted); font-size: 0.875rem;
 }
+</style>
 {% endblock %}
 
 {% block content %}
 <div class="sum-wrap">
-    <div class="sum-header">
-        <h1>✨ Summaries</h1>
+    <div class="sum-toolbar">
+        <h1>Summaries</h1>
+
         <div class="sum-search-wrap">
-            <input class="sum-search-input" id="sum-search" type="text" placeholder="search summaries…" autocomplete="off">
+            <input id="sum-search" type="text" placeholder="search…" autocomplete="off">
             <button class="sum-search-clear" id="sum-search-clear" title="Clear">×</button>
+        </div>
+
+        <div class="sum-gen-wrap">
+            <input type="date" id="sum-gen-date" title="Pick a date to generate a summary">
+            <button class="btn btn-primary btn-sm" id="sum-gen-btn" onclick="generateForDate()">Generate</button>
         </div>
     </div>
 
@@ -215,19 +216,28 @@
         <div class="sum-detail-panel" id="sum-detail-panel">
             <div class="sum-detail-card">
                 <div class="sum-placeholder" id="sum-placeholder">
-                    Select a summary to read it in full.
+                    Select a summary to read it,<br>or pick a date above to generate one.
                 </div>
                 <div id="sum-detail-content" style="display:none;">
-                    <div class="sum-detail-date" id="sum-detail-date"></div>
-                    <div class="sum-detail-places" id="sum-detail-places"></div>
-                    <div class="sum-detail-text" id="sum-detail-text"></div>
-                    <div class="sum-detail-foot">
-                        <span id="sum-detail-meta"></span>
+                    <div class="sum-detail-header">
+                        <div>
+                            <div class="sum-detail-date-label" id="sum-detail-date"></div>
+                        </div>
                         <div class="sum-detail-actions">
                             <button class="btn btn-outline btn-sm" id="sum-regen-btn">↻ Regenerate</button>
-                            <button class="btn btn-outline btn-sm" id="sum-delete-btn" style="color:var(--danger)">delete</button>
+                            <button class="btn btn-outline btn-sm" id="sum-delete-btn" style="color:var(--danger)">Delete</button>
                         </div>
                     </div>
+                    <div class="sum-detail-body">
+                        <div class="sum-detail-chips" id="sum-detail-chips"></div>
+                        <div class="sum-detail-text" id="sum-detail-text"></div>
+                    </div>
+                    <div class="sum-detail-foot">
+                        <span id="sum-detail-meta"></span>
+                    </div>
+                </div>
+                <div id="sum-generating" class="sum-generating" style="display:none;">
+                    <span class="spinner"></span> Generating…
                 </div>
             </div>
         </div>
@@ -238,7 +248,6 @@
 {% block extra_js %}
 <script>
 const SUMMARIES_URL = '{% url "tracker:summaries_list_api" %}';
-const GENERATE_BASE = '/api/summaries/';
 
 let currentPage = 1;
 let hasMore = false;
@@ -246,13 +255,22 @@ let currentQuery = '';
 let activeDate = null;
 let searchTimer = null;
 
+// Default date picker to today
+document.getElementById('sum-gen-date').value = new Date().toISOString().slice(0, 10);
+
 function fmtDate(iso) {
     const d = new Date(iso + 'T00:00:00');
     return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 }
-
 function fmtTs(iso) {
     return new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+}
+function escHtml(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function getCsrf() {
+    const m = document.cookie.match(/csrftoken=([^;]+)/);
+    return m ? m[1] : '';
 }
 
 function renderCard(s, prepend) {
@@ -260,21 +278,21 @@ function renderCard(s, prepend) {
     li.className = 'sum-card';
     li.dataset.date = s.date;
 
-    const places = (s.places || []).slice(0, 5).map(p =>
-        `<span class="sum-chip">${escHtml(p.name || p)}</span>`).join('');
-    const dist = s.distance_km != null ? `<span class="sum-chip dist">${s.distance_km} km</span>` : '';
+    const chips = (s.places || []).slice(0, 4).map(p =>
+        `<span class="chip">${escHtml(p.name || p)}</span>`).join('');
+    const dist = s.distance_km != null
+        ? `<span class="chip muted">${s.distance_km} km</span>` : '';
 
     li.innerHTML = `
         <div class="sum-card-date">${fmtDate(s.date)}</div>
         <div class="sum-card-preview">${escHtml(s.summary_preview || '')}</div>
-        <div class="sum-card-meta">${places}${dist}</div>
-    `;
+        <div class="sum-card-chips">${chips}${dist}</div>`;
     li.addEventListener('click', () => selectCard(s.date, li));
+    if (prepend) {
+        const list = document.getElementById('sum-list');
+        list.prepend(li);
+    }
     return li;
-}
-
-function escHtml(str) {
-    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 function selectCard(dateStr, cardEl) {
@@ -282,84 +300,122 @@ function selectCard(dateStr, cardEl) {
     if (cardEl) cardEl.classList.add('active');
     activeDate = dateStr;
     loadDetail(dateStr);
+    // on mobile, scroll detail into view
+    if (window.innerWidth <= 800) {
+        const panel = document.getElementById('sum-detail-panel');
+        panel.classList.add('mobile-visible');
+        panel.scrollIntoView({ behavior: 'smooth' });
+    }
+}
+
+function setDetailState(state) {
+    document.getElementById('sum-placeholder').style.display   = state === 'placeholder' ? '' : 'none';
+    document.getElementById('sum-detail-content').style.display = state === 'content'     ? '' : 'none';
+    document.getElementById('sum-generating').style.display    = state === 'generating'   ? '' : 'none';
 }
 
 async function loadDetail(dateStr) {
-    document.getElementById('sum-placeholder').style.display = 'none';
-    document.getElementById('sum-detail-content').style.display = 'none';
-    document.getElementById('sum-placeholder').textContent = 'Loading…';
-    document.getElementById('sum-placeholder').style.display = '';
-
+    setDetailState('generating');
     try {
         const r = await fetch(`/api/summaries/${dateStr}/`);
         if (!r.ok) throw new Error('not found');
-        const s = await r.json();
-        showDetail(s);
+        showDetail(await r.json());
     } catch {
+        setDetailState('placeholder');
         document.getElementById('sum-placeholder').textContent = 'Could not load summary.';
     }
 }
 
 function showDetail(s) {
-    document.getElementById('sum-placeholder').style.display = 'none';
-    document.getElementById('sum-detail-content').style.display = '';
+    setDetailState('content');
     document.getElementById('sum-detail-date').textContent = fmtDate(s.date);
 
-    const places = (s.places || []).map(p =>
-        `<span class="sum-chip">${escHtml(p.name || p)}</span>`).join('');
-    const dist = s.distance_km != null ? `<span class="sum-chip dist">${s.distance_km} km</span>` : '';
-    document.getElementById('sum-detail-places').innerHTML = places + dist;
+    const chips = (s.places || []).map(p =>
+        `<span class="chip">${escHtml(p.name || p)}</span>`).join('');
+    const dist = s.distance_km != null
+        ? `<span class="chip muted">${s.distance_km} km</span>` : '';
+    document.getElementById('sum-detail-chips').innerHTML = chips + dist;
 
     document.getElementById('sum-detail-text').textContent = s.summary;
-    const gen = fmtTs(s.generated_at);
-    document.getElementById('sum-detail-meta').textContent = `Generated ${gen} · ${s.model_used}`;
+    document.getElementById('sum-detail-meta').textContent =
+        `Generated ${fmtTs(s.generated_at)} · ${escHtml(s.model_used)}`;
 
-    document.getElementById('sum-regen-btn').onclick = () => generateSummary(s.date);
+    document.getElementById('sum-regen-btn').onclick = () => generateForDateStr(s.date, true);
     document.getElementById('sum-delete-btn').onclick = () => deleteSummary(s.date);
+
+    activeDate = s.date;
+    const card = document.querySelector(`.sum-card[data-date="${s.date}"]`);
+    document.querySelectorAll('.sum-card').forEach(c => c.classList.remove('active'));
+    if (card) card.classList.add('active');
 }
 
-async function generateSummary(dateStr) {
-    const btn = document.getElementById('sum-regen-btn');
-    btn.disabled = true;
-    btn.textContent = 'Generating…';
+async function generateForDate() {
+    const dateStr = document.getElementById('sum-gen-date').value;
+    if (!dateStr) { alert('Pick a date first.'); return; }
+    await generateForDateStr(dateStr, false);
+}
+
+async function generateForDateStr(dateStr, isRegen) {
+    setDetailState('generating');
+    const btn = isRegen ? document.getElementById('sum-regen-btn') : document.getElementById('sum-gen-btn');
+    const origText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+
     try {
-        const r = await fetch(`/api/summaries/${dateStr}/generate/`, { method: 'POST', headers: { 'X-CSRFToken': getCsrf() } });
+        const r = await fetch(`/api/summaries/${dateStr}/generate/`, {
+            method: 'POST', headers: { 'X-CSRFToken': getCsrf() }
+        });
         const data = await r.json();
-        if (!r.ok) { alert(data.error || 'Generation failed.'); return; }
+        if (!r.ok) {
+            setDetailState('placeholder');
+            document.getElementById('sum-placeholder').textContent = data.error || 'Generation failed.';
+            return;
+        }
         showDetail(data);
-        // refresh card preview in list
-        const card = document.querySelector(`.sum-card[data-date="${dateStr}"]`);
-        if (card) {
-            const prev = card.querySelector('.sum-card-preview');
-            if (prev) prev.textContent = (data.summary || '').slice(0, 250) + ((data.summary || '').length > 250 ? '…' : '');
+
+        // Insert or update the card in the list
+        const existing = document.querySelector(`.sum-card[data-date="${dateStr}"]`);
+        if (existing) {
+            const prev = existing.querySelector('.sum-card-preview');
+            if (prev) prev.textContent = (data.summary || '').slice(0, 200);
+        } else {
+            const card = renderCard({
+                date: dateStr,
+                summary_preview: (data.summary || '').slice(0, 200),
+                places: data.places,
+                distance_km: data.distance_km,
+            }, true);
+            const list = document.getElementById('sum-list');
+            const empty = list.querySelector('.sum-empty');
+            if (empty) empty.remove();
+            list.prepend(card);
         }
     } catch (e) {
-        alert('Request failed: ' + e.message);
+        setDetailState('placeholder');
+        document.getElementById('sum-placeholder').textContent = 'Request failed: ' + e.message;
     } finally {
-        btn.disabled = false;
-        btn.textContent = '↻ Regenerate';
+        if (btn) { btn.disabled = false; btn.textContent = origText; }
     }
 }
 
 async function deleteSummary(dateStr) {
     if (!confirm('Delete this summary?')) return;
-    const r = await fetch(`/api/summaries/${dateStr}/delete/`, { method: 'POST', headers: { 'X-CSRFToken': getCsrf() } });
+    const r = await fetch(`/api/summaries/${dateStr}/delete/`, {
+        method: 'POST', headers: { 'X-CSRFToken': getCsrf() }
+    });
     if (!r.ok) { alert('Delete failed.'); return; }
-    // Remove from list and clear detail
     const card = document.querySelector(`.sum-card[data-date="${dateStr}"]`);
     if (card) card.remove();
     activeDate = null;
-    document.getElementById('sum-detail-content').style.display = 'none';
-    document.getElementById('sum-placeholder').textContent = 'Select a summary to read it in full.';
-    document.getElementById('sum-placeholder').style.display = '';
+    setDetailState('placeholder');
+    document.getElementById('sum-placeholder').textContent = 'Select a summary to read it, or pick a date above to generate one.';
     checkEmpty();
 }
 
 function checkEmpty() {
     const list = document.getElementById('sum-list');
-    if (!list.querySelector('.sum-card')) {
-        list.innerHTML = '<div class="sum-empty">No summaries yet.<br>Open a day in Journals and hit "Generate Summary".</div>';
-    }
+    if (!list.querySelector('.sum-card'))
+        list.innerHTML = '<div class="sum-empty">No summaries yet.<br>Pick a date above and hit Generate, or use Background Jobs in Settings to generate for all past days.</div>';
 }
 
 async function loadSummaries(query, page, append) {
@@ -376,12 +432,11 @@ async function loadSummaries(query, page, append) {
         const data = await r.json();
         if (!append) list.innerHTML = '';
 
-        if (data.summaries.length === 0 && !append) {
-            list.innerHTML = '<div class="sum-empty">No summaries yet.<br>Open a day in Journals and hit "Generate Summary".</div>';
+        if (!data.summaries.length && !append) {
+            list.innerHTML = '<div class="sum-empty">No summaries yet.<br>Pick a date above and hit Generate, or use Background Jobs in Settings to generate for all past days.</div>';
         } else {
             data.summaries.forEach(s => list.appendChild(renderCard(s)));
         }
-
         hasMore = data.has_more;
         document.getElementById('sum-load-more').style.display = hasMore ? '' : 'none';
     } catch {
@@ -389,15 +444,9 @@ async function loadSummaries(query, page, append) {
     }
 }
 
-function getCsrf() {
-    const m = document.cookie.match(/csrftoken=([^;]+)/);
-    return m ? m[1] : '';
-}
-
 // Search
 const searchInput = document.getElementById('sum-search');
 const searchClear = document.getElementById('sum-search-clear');
-
 searchInput.addEventListener('input', () => {
     const q = searchInput.value.trim();
     searchClear.style.display = q ? '' : 'none';
@@ -405,7 +454,7 @@ searchInput.addEventListener('input', () => {
     searchTimer = setTimeout(() => {
         currentQuery = q;
         currentPage = 1;
-        loadSummaries(currentQuery, currentPage, false);
+        loadSummaries(currentQuery, 1, false);
     }, 320);
 });
 searchClear.addEventListener('click', () => {
@@ -421,7 +470,6 @@ document.getElementById('sum-load-more-btn').addEventListener('click', () => {
     loadSummaries(currentQuery, currentPage, true);
 });
 
-// Initial load
 loadSummaries('', 1, false);
 </script>
 {% endblock %}
