@@ -396,21 +396,45 @@
             </div>
         </div>
 
-        <!-- Geocoding -->
-        <div class="card settings-span-6">
-            <div class="card-header">Reverse Geocoding</div>
-            <p class="settings-section-desc">
-                Geocode location points that don't have city/country data yet. Uses OpenStreetMap Nominatim with spatial clustering to minimize API calls.
-            </p>
-            <div class="settings-actions">
-                <button class="btn btn-primary" id="geocode-btn" onclick="startGeocoding()">Start Geocoding</button>
-                <button class="btn btn-outline" id="geocode-stop-btn" onclick="stopGeocoding()" style="display: none;">Stop</button>
-            </div>
-            <div id="geocode-progress-wrap" style="margin-top: 0.75rem; display: none;">
-                <div style="background: var(--bg-input); border-radius: 10px; height: 8px; overflow: hidden; margin-bottom: 0.5rem;">
-                    <div id="geocode-bar" style="height: 100%; width: 0%; background: var(--primary); border-radius: 10px; transition: width 0.4s ease;"></div>
+        <!-- Background Jobs -->
+        <div class="card settings-span-12">
+            <div class="card-header">Background Jobs</div>
+            <p class="settings-section-desc">Long-running tasks that process your location history. All run in the background — you can navigate away while they run.</p>
+
+            <div style="display:flex;flex-direction:column;gap:1.25rem;">
+                <!-- Geocoding -->
+                <div>
+                    <div style="font-size:0.875rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">Reverse Geocoding</div>
+                    <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;">Label un-geocoded points with city/country using local TIGER data. Runs automatically on new points.</div>
+                    <div class="settings-actions">
+                        <button class="btn btn-primary btn-sm" id="geocode-btn" onclick="startGeocoding()">Start</button>
+                        <button class="btn btn-outline btn-sm" id="geocode-stop-btn" onclick="stopGeocoding()" style="display:none;">Stop</button>
+                    </div>
+                    <div id="geocode-progress-wrap" style="margin-top:0.6rem;display:none;">
+                        <div style="background:var(--bg-input);border-radius:10px;height:6px;overflow:hidden;margin-bottom:0.35rem;">
+                            <div id="geocode-bar" style="height:100%;width:0%;background:var(--primary);border-radius:10px;transition:width 0.4s ease;"></div>
+                        </div>
+                        <div id="geocode-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
+                    </div>
                 </div>
-                <div id="geocode-status" style="font-size: 0.8125rem; color: var(--text-muted);"></div>
+
+                <div style="border-top:1px solid var(--border);"></div>
+
+                <!-- AI Summaries -->
+                <div>
+                    <div style="font-size:0.875rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">AI Day Summaries</div>
+                    <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;">Generate AI summaries for all past days that have location data but no summary yet. Requires AI configured below. Runs automatically for recent days after geocoding.</div>
+                    <div class="settings-actions">
+                        <button class="btn btn-primary btn-sm" id="sum-bulk-btn" onclick="startSummaryBulk()" {% if not ai_enabled %}disabled title="Enable AI in the AI Summaries section below"{% endif %}>Generate All</button>
+                        <button class="btn btn-outline btn-sm" id="sum-bulk-stop-btn" onclick="stopSummaryBulk()" style="display:none;">Stop</button>
+                    </div>
+                    <div id="sum-bulk-progress-wrap" style="margin-top:0.6rem;display:none;">
+                        <div style="background:var(--bg-input);border-radius:10px;height:6px;overflow:hidden;margin-bottom:0.35rem;">
+                            <div id="sum-bulk-bar" style="height:100%;width:0%;background:var(--primary);border-radius:10px;transition:width 0.4s ease;"></div>
+                        </div>
+                        <div id="sum-bulk-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -575,13 +599,14 @@
         <div class="card settings-span-12">
             <div class="card-header">AI Summaries</div>
             <p class="settings-section-desc">
-                Connect to any OpenAI-compatible API (local Ollama, OpenAI, etc.) to generate prose summaries of your days from location data and journal entries.
+                Connect to any OpenAI-compatible API — local <strong style="color:var(--text);">LM Studio</strong> (<code style="font-size:0.78rem;">http://localhost:1234/v1</code>), Ollama (<code style="font-size:0.78rem;">http://localhost:11434/v1</code>), or OpenAI — to generate prose summaries from your location data, visits, and journal entries.<br>
+                <span style="color:var(--text-dim);font-size:0.78rem;">Running in Docker? Replace <code>localhost</code> with <code>host.docker.internal</code> — the app tries this automatically, but setting it explicitly is more reliable.</span>
             </p>
 
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                 <div>
                     <label style="font-size: 0.8125rem; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">API URL</label>
-                    <input type="url" id="ai-api-url" class="form-control" placeholder="http://localhost:11434/v1" value="{{ ai_config.api_url|default:'' }}">
+                    <input type="url" id="ai-api-url" class="form-control" placeholder="http://host.docker.internal:1234/v1" value="{{ ai_config.api_url|default:'' }}">
                 </div>
                 <div>
                     <label style="font-size: 0.8125rem; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">API Key <span style="color:var(--text-dim); font-size: 0.72rem;">(leave empty for local Ollama)</span></label>
@@ -998,6 +1023,73 @@ fetch('/api/geocode/status/')
             pollGeocodingStatus();
         }
     })
+    .catch(() => {});
+
+// ── AI Bulk Summary ──────────────────────────────────────────────────────────
+let sumBulkPollInterval = null;
+
+function startSummaryBulk() {
+    fetch('/api/summaries/bulk/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'action=start',
+    }).then(r => r.json()).then(data => {
+        updateSumBulkUI(data);
+        pollSumBulk();
+    });
+}
+
+function stopSummaryBulk() {
+    fetch('/api/summaries/bulk/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'action=stop',
+    });
+    document.getElementById('sum-bulk-stop-btn').disabled = true;
+}
+
+function updateSumBulkUI(data) {
+    const wrap = document.getElementById('sum-bulk-progress-wrap');
+    const bar  = document.getElementById('sum-bulk-bar');
+    const status = document.getElementById('sum-bulk-status');
+    const startBtn = document.getElementById('sum-bulk-btn');
+    const stopBtn  = document.getElementById('sum-bulk-stop-btn');
+
+    const running = data.status === 'running';
+    startBtn.style.display = running ? 'none' : '';
+    stopBtn.style.display  = running ? '' : 'none';
+    stopBtn.disabled = false;
+    wrap.style.display = (running || data.processed > 0) ? '' : 'none';
+
+    const pct = data.total > 0 ? Math.round((data.processed / data.total) * 100) : 0;
+    bar.style.width = pct + '%';
+
+    if (running) {
+        const cur = data.current_date ? ` · ${data.current_date}` : '';
+        status.textContent = `${data.processed} / ${data.total} days${cur}${data.errors ? ' · ' + data.errors + ' errors' : ''}`;
+    } else if (data.status === 'completed') {
+        status.textContent = `Done — ${data.processed} summaries generated${data.errors ? ', ' + data.errors + ' errors' : ''}.`;
+    } else if (data.status === 'stopped') {
+        status.textContent = `Stopped at ${data.processed} / ${data.total}.`;
+    }
+}
+
+function pollSumBulk() {
+    if (sumBulkPollInterval) clearInterval(sumBulkPollInterval);
+    sumBulkPollInterval = setInterval(() => {
+        fetch('/api/summaries/bulk/')
+            .then(r => r.json())
+            .then(data => {
+                updateSumBulkUI(data);
+                if (data.status !== 'running') clearInterval(sumBulkPollInterval);
+            });
+    }, 2500);
+}
+
+// Resume bulk summary UI on page load
+fetch('/api/summaries/bulk/')
+    .then(r => r.ok ? r.json() : null)
+    .then(data => { if (data && data.status === 'running') { updateSumBulkUI(data); pollSumBulk(); } })
     .catch(() => {});
 
 // Theme
