@@ -50,6 +50,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'tracker.context_processors.custom_js_snippet',
             ],
         },
     },
@@ -107,6 +108,9 @@ else:
     CACHES = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}}
 
 SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
+
+# Optional JS snippet injected before </body> on every page (e.g. PostHog, Plausible, etc.)
+CUSTOM_JS_SNIPPET = os.environ.get('CUSTOM_JS_SNIPPET', '')
 
 LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/map/'
