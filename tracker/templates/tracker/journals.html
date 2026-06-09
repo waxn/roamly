@@ -446,6 +446,17 @@
             <div class="j-photos" id="j-photos"></div>
             <input type="file" id="j-photo-input" accept="image/*" multiple style="display:none">
 
+            <!-- AI Summary -->
+            <div id="j-ai-summary-wrap" style="margin-top:1rem; border-top:1px solid var(--border); padding-top:0.85rem; display:none;">
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.5rem;">
+                    <span style="font-size:0.78rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">✨ AI Summary</span>
+                    <button class="btn btn-outline btn-sm" id="j-ai-generate-btn" style="font-size:0.72rem; padding:0.2rem 0.6rem;">Generate</button>
+                </div>
+                <div id="j-ai-summary-text" style="font-size:0.84rem; line-height:1.6; color:var(--text); display:none;"></div>
+                <div id="j-ai-summary-meta" style="font-size:0.7rem; color:var(--text-dim); margin-top:0.3rem; display:none;"></div>
+                <div id="j-ai-summary-error" style="font-size:0.8rem; color:var(--danger); display:none;"></div>
+            </div>
+
             <div class="j-edit-footer">
                 <button class="btn btn-outline btn-sm" id="j-delete" style="color:var(--danger)">delete entry</button>
                 <span style="font-size:0.72rem;color:var(--text-dim);font-weight:700" id="j-wordcount"></span>
@@ -684,13 +695,14 @@ function openEntry(dateStr) {
         updateWordCount();
         renderDayMap(data.track);
     });
+    loadAiSummary(dateStr);
 }
 
 function closeEntry() {
     flushSave();
     document.getElementById('j-modal-overlay').classList.remove('open');
     document.body.style.overflow = '';
-    // refresh views that may have changed
+    document.getElementById('j-ai-summary-wrap').style.display = 'none';
     loadMonth(); loadRecent(); loadStats();
 }
 
@@ -880,6 +892,71 @@ document.getElementById('j-photo-input').addEventListener('change', e=>uploadPho
 ['j-title','j-weather'].forEach(id=>document.getElementById(id).addEventListener('input', scheduleSave));
 document.getElementById('j-body').addEventListener('input', ()=>{ updateWordCount(); scheduleSave(); });
 document.addEventListener('keydown', e=>{ if(e.key==='Escape' && document.getElementById('j-modal-overlay').classList.contains('open')) closeEntry(); });
+
+// ── AI Summary ──
+function loadAiSummary(dateStr) {
+    const wrap = document.getElementById('j-ai-summary-wrap');
+    const textEl = document.getElementById('j-ai-summary-text');
+    const metaEl = document.getElementById('j-ai-summary-meta');
+    const errEl = document.getElementById('j-ai-summary-error');
+    const btn = document.getElementById('j-ai-generate-btn');
+
+    wrap.style.display = '';
+    textEl.style.display = 'none';
+    metaEl.style.display = 'none';
+    errEl.style.display = 'none';
+    btn.textContent = 'Generate';
+    btn.disabled = false;
+
+    fetch(`/api/summaries/${dateStr}/`)
+        .then(r => { if (!r.ok) throw new Error('none'); return r.json(); })
+        .then(s => {
+            textEl.textContent = s.summary;
+            metaEl.textContent = `${new Date(s.generated_at).toLocaleString()} · ${s.model_used}`;
+            textEl.style.display = '';
+            metaEl.style.display = '';
+            btn.textContent = '↻ Regenerate';
+        })
+        .catch(() => {});  // no summary yet — just show the Generate button
+}
+
+document.getElementById('j-ai-generate-btn').addEventListener('click', async () => {
+    if (!currentDate) return;
+    const btn = document.getElementById('j-ai-generate-btn');
+    const textEl = document.getElementById('j-ai-summary-text');
+    const metaEl = document.getElementById('j-ai-summary-meta');
+    const errEl = document.getElementById('j-ai-summary-error');
+
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+    errEl.style.display = 'none';
+
+    const csrf = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || '';
+    try {
+        const r = await fetch(`/api/summaries/${currentDate}/generate/`, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': csrf },
+        });
+        const data = await r.json();
+        if (!r.ok) {
+            errEl.textContent = data.error || 'Generation failed.';
+            errEl.style.display = '';
+            btn.textContent = 'Generate';
+        } else {
+            textEl.textContent = data.summary;
+            metaEl.textContent = `${new Date(data.generated_at).toLocaleString()} · ${data.model_used}`;
+            textEl.style.display = '';
+            metaEl.style.display = '';
+            btn.textContent = '↻ Regenerate';
+        }
+    } catch (e) {
+        errEl.textContent = 'Request failed.';
+        errEl.style.display = '';
+        btn.textContent = 'Generate';
+    } finally {
+        btn.disabled = false;
+    }
+});
 
 // ── Init ──
 (function init(){
