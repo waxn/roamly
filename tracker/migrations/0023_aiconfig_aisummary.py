@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='AIConfig',
             fields=[
-                ('id', models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('api_url', models.URLField(default='http://localhost:11434/v1', max_length=500)),
                 ('api_key', models.CharField(blank=True, max_length=500)),
                 ('model_name', models.CharField(default='tinyllama', max_length=200)),
@@ -25,7 +25,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='AISummary',
             fields=[
-                ('id', models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('date', models.DateField(db_index=True)),
                 ('summary', models.TextField()),
                 ('places_json', models.JSONField(default=list)),
