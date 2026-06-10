@@ -659,6 +659,7 @@ class AISummary(models.Model):
     date = models.DateField(db_index=True)
     summary = models.TextField()
     places_json = models.JSONField(default=list)
+    tags_json = models.JSONField(default=list)
     distance_km = models.FloatField(null=True, blank=True)
     generated_at = models.DateTimeField(auto_now=True)
     model_used = models.CharField(max_length=200, blank=True)

@@ -122,6 +122,10 @@
     background: color-mix(in srgb, var(--text-muted) 10%, transparent);
     color: var(--text-muted);
 }
+.chip.tag {
+    background: color-mix(in srgb, var(--accent, #5BA4E5) 16%, transparent);
+    color: var(--accent, #5BA4E5);
+}
 
 .sum-empty {
     text-align: center; color: var(--text-muted);
@@ -278,15 +282,17 @@ function renderCard(s, prepend) {
     li.className = 'sum-card';
     li.dataset.date = s.date;
 
-    const chips = (s.places || []).slice(0, 4).map(p =>
+    const chips = (s.places || []).slice(0, 3).map(p =>
         `<span class="chip">${escHtml(p.name || p)}</span>`).join('');
+    const tags = (s.tags || []).slice(0, 4).map(t =>
+        `<span class="chip tag">#${escHtml(t)}</span>`).join('');
     const dist = s.distance_km != null
         ? `<span class="chip muted">${s.distance_km} km</span>` : '';
 
     li.innerHTML = `
         <div class="sum-card-date">${fmtDate(s.date)}</div>
         <div class="sum-card-preview">${escHtml(s.summary_preview || '')}</div>
-        <div class="sum-card-chips">${chips}${dist}</div>`;
+        <div class="sum-card-chips">${chips}${tags}${dist}</div>`;
     li.addEventListener('click', () => selectCard(s.date, li));
     if (prepend) {
         const list = document.getElementById('sum-list');
@@ -332,9 +338,11 @@ function showDetail(s) {
 
     const chips = (s.places || []).map(p =>
         `<span class="chip">${escHtml(p.name || p)}</span>`).join('');
+    const tags = (s.tags || []).map(t =>
+        `<span class="chip tag">#${escHtml(t)}</span>`).join('');
     const dist = s.distance_km != null
         ? `<span class="chip muted">${s.distance_km} km</span>` : '';
-    document.getElementById('sum-detail-chips').innerHTML = chips + dist;
+    document.getElementById('sum-detail-chips').innerHTML = chips + tags + dist;
 
     document.getElementById('sum-detail-text').textContent = s.summary;
     document.getElementById('sum-detail-meta').textContent =
@@ -383,6 +391,7 @@ async function generateForDateStr(dateStr, isRegen) {
                 date: dateStr,
                 summary_preview: (data.summary || '').slice(0, 200),
                 places: data.places,
+                tags: data.tags,
                 distance_km: data.distance_km,
             }, true);
             const list = document.getElementById('sum-list');

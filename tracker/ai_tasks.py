@@ -47,19 +47,55 @@ def _build_prompt(user, date):
     journal_body  = (entry.body  if entry else '') or ''
 
     prompt = (
-        "You are a travel journal assistant. Write a short, vivid, first-person paragraph "
-        "(3–5 sentences) summarising this person's day based on the data below. "
-        "Do not invent details beyond what is provided. "
-        "If location data is sparse, focus on what is known.\n\n"
+        "You are a travel journal assistant. Summarise this person's day from the data below.\n"
+        "Respond with ONLY a JSON object (no markdown, no code fences) of the form:\n"
+        '{"summary": "...", "tags": ["...", "..."]}\n'
+        "- summary: 1–4 short, vivid, first-person sentences about the day's places, "
+        "stops and activities. Do not invent details beyond what is provided; if the data "
+        "is sparse, keep it brief and factual.\n"
+        "- tags: 3–6 short lowercase tags describing the day — place types, activities or "
+        'mood (e.g. "coffee shop", "hiking", "road trip", "relaxed"). No "#".\n\n'
         f"Date: {date.strftime('%A, %B %-d, %Y')}\n"
         f"Distance travelled: {track['distance_km']} km\n"
-        f"Places visited (in order): {places_str}\n"
-        f"Places dwelled at: {poi_str}\n"
+        f"Cities/towns visited (in order): {places_str}\n"
+        f"Specific places dwelled at (POIs, e.g. stores): {poi_str}\n"
         f"Journal title: {journal_title or '(none)'}\n"
         f"Mood: {journal_mood or '(none)'}\n"
         f"Journal entry: {journal_body[:2000] or '(none)'}"
     )
     return prompt, track
+
+
+def _parse_summary_response(text):
+    """Parse the LLM reply into (summary_text, tags_list).
+
+    The model is asked for a JSON object but small local models often wrap it in
+    prose or code fences, so we extract the first balanced {...} and fall back to
+    treating the whole reply as the summary with no tags.
+    """
+    import json
+    import re
+
+    raw = (text or '').strip()
+    # Strip ```json … ``` fences if present.
+    fenced = re.search(r'```(?:json)?\s*(.*?)```', raw, re.DOTALL)
+    candidate = fenced.group(1).strip() if fenced else raw
+
+    # Grab the first {...} block.
+    brace = re.search(r'\{.*\}', candidate, re.DOTALL)
+    if brace:
+        try:
+            obj = json.loads(brace.group(0))
+            summary = str(obj.get('summary', '')).strip()
+            tags = obj.get('tags', []) or []
+            tags = [str(t).strip().lstrip('#').lower() for t in tags if str(t).strip()][:6]
+            if summary:
+                return summary, tags
+        except (ValueError, TypeError):
+            pass
+
+    # Fallback: no parseable JSON — use the cleaned reply as the summary.
+    return raw, []
 
 
 def _call_llm(ai_cfg, prompt):
@@ -163,7 +199,7 @@ def generate_one(user, date):
         return None, 'No location data for this day'
 
     try:
-        summary_text = _call_llm(ai_cfg, prompt)
+        raw_text = _call_llm(ai_cfg, prompt)
     except http_requests.exceptions.Timeout:
         return None, 'AI request timed out — is the server running?'
     except http_requests.exceptions.ConnectionError as exc:
@@ -175,12 +211,15 @@ def generate_one(user, date):
     except Exception as exc:
         return None, f'AI request failed: {exc}'
 
+    summary_text, tags = _parse_summary_response(raw_text)
+
     obj, _ = AISummary.objects.update_or_create(
         user=user,
         date=date,
         defaults={
             'summary': summary_text,
             'places_json': track['places'],
+            'tags_json': tags,
             'distance_km': track['distance_km'],
             'model_used': ai_cfg.model_name,
         },
