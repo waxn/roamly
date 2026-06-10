@@ -69,6 +69,8 @@ if HAS_POSTGIS and gis_models:
         country_code = gis_models.CharField(max_length=3, blank=True)
         place_name = gis_models.CharField(max_length=300, blank=True)
         processed_for_visits = gis_models.BooleanField(default=False)
+        # Nearest named POI to this point, populated by the "Match POIs" job.
+        poi = gis_models.ForeignKey('POI', on_delete=gis_models.SET_NULL, null=True, blank=True, related_name='located_points')
 
         class Meta:
             ordering = ['-timestamp']
@@ -110,6 +112,8 @@ else:
         country_code = models.CharField(max_length=3, blank=True)
         place_name = models.CharField(max_length=300, blank=True)
         processed_for_visits = models.BooleanField(default=False)
+        # Nearest named POI to this point, populated by the "Match POIs" job.
+        poi = models.ForeignKey('POI', on_delete=models.SET_NULL, null=True, blank=True, related_name='located_points')
 
         class Meta:
             ordering = ['-timestamp']
@@ -333,6 +337,25 @@ class POIDownloadJob(models.Model):
 
     def __str__(self):
         return f"POI Download {self.user.username}: {self.processed}/{self.total}"
+
+
+class POIMatchJob(models.Model):
+    """Persistent state for the background 'match nearest POI to each point' task."""
+    STATUS_CHOICES = [
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('stopped', 'Stopped'),
+    ]
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='poi_match_job')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='running')
+    processed = models.IntegerField(default=0)
+    total = models.IntegerField(default=0)
+    matched = models.IntegerField(default=0)
+    started_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"POI Match {self.user.username}: {self.processed}/{self.total}"
 
 
 class BackupConfig(models.Model):
