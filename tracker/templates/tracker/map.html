@@ -44,40 +44,6 @@
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
 }
-.map-sidebar.collapsed .sidebar-content {
-    opacity: 0;
-    pointer-events: none;
-    transform: translateX(-10px);
-    max-width: 0;
-    padding-left: 0;
-    padding-right: 0;
-    overflow: hidden;
-}
-
-/* Small chevron toggle — right edge of sidebar, bottom-aligned */
-.sidebar-fab {
-    flex-shrink: 0;
-    margin-left: 5px;
-    margin-bottom: 8px;
-    width: 20px;
-    height: 32px;
-    border-radius: 8px;
-    background: var(--bg-glass);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid var(--border);
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-dim);
-    pointer-events: all;
-    transition: color 0.15s, background 0.15s;
-    padding: 0;
-}
-.sidebar-fab:hover { color: var(--text); background: var(--bg-card); }
-
 .sidebar-section {
     display: flex;
     flex-direction: column;
@@ -402,8 +368,6 @@
             </div>
 
         </div>
-        <!-- Chevron toggle: bottom-right of sidebar, set by JS -->
-        <button class="sidebar-fab" id="sidebar-fab" type="button"></button>
     </div>
 
     <!-- Replay panel (contextual, bottom center) -->
@@ -1108,29 +1072,6 @@ document.getElementById('map-load-more-btn').addEventListener('click', () => {
             loadTrack(true);
         }
     });
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// Sidebar collapse/expand
-// ═══════════════════════════════════════════════════════════════════
-const sidebar = document.getElementById('map-sidebar');
-const sidebarFab = document.getElementById('sidebar-fab');
-let sidebarOpen = localStorage.getItem('roamly_sidebar_open') !== 'false';
-
-const ICON_COLLAPSE = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>`;
-const ICON_EXPAND  = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`;
-
-function applySidebar() {
-    sidebar.classList.toggle('collapsed', !sidebarOpen);
-    sidebarFab.innerHTML = sidebarOpen ? ICON_COLLAPSE : ICON_EXPAND;
-    sidebarFab.title = sidebarOpen ? 'collapse panel' : 'expand panel';
-}
-applySidebar();
-
-sidebarFab.addEventListener('click', () => {
-    sidebarOpen = !sidebarOpen;
-    localStorage.setItem('roamly_sidebar_open', sidebarOpen);
-    applySidebar();
 });
 
 // ═══════════════════════════════════════════════════════════════════
