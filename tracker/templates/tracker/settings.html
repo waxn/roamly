@@ -481,6 +481,24 @@
                         <div id="sum-bulk-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
                     </div>
                 </div>
+
+                <div style="border-top:1px solid var(--border);"></div>
+
+                <!-- Match POIs to points -->
+                <div>
+                    <div style="font-size:0.875rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">Match POIs to Points</div>
+                    <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;">Label every GPS point with the nearest named place (store, café, park, …) so it shows in the data table's <strong>Place</strong> column. Uses your downloaded POIs — run <strong>POI Download</strong> first if you haven't. Re-run any time to refresh after downloading more POIs.</div>
+                    <div class="settings-actions">
+                        <button class="btn btn-primary btn-sm" id="poi-match-btn" onclick="startPoiMatch()">Match POIs</button>
+                        <button class="btn btn-outline btn-sm" id="poi-match-stop-btn" onclick="stopPoiMatch()" style="display:none;">Stop</button>
+                    </div>
+                    <div id="poi-match-progress-wrap" style="margin-top:0.6rem;display:none;">
+                        <div style="background:var(--bg-input);border-radius:10px;height:6px;overflow:hidden;margin-bottom:0.35rem;">
+                            <div id="poi-match-bar" style="height:100%;width:0%;background:var(--primary);border-radius:10px;transition:width 0.4s ease;"></div>
+                        </div>
+                        <div id="poi-match-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1027,6 +1045,104 @@ fetch('/api/geocode/status/')
             geocodeStartTime = Date.now();
             updateGeocodeUI(data, false);
             pollGeocodingStatus();
+        }
+    })
+    .catch(() => {});
+
+// ── Match POIs to points ─────────────────────────────────────────────────────
+let poiMatchStartTime = null;
+
+function setPoiMatchUI(running) {
+    const btn = document.getElementById('poi-match-btn');
+    const stopBtn = document.getElementById('poi-match-stop-btn');
+    btn.disabled = running;
+    btn.style.opacity = running ? '0.5' : '';
+    stopBtn.disabled = false;
+    stopBtn.style.display = running ? 'inline-block' : 'none';
+}
+
+function updatePoiMatchUI(data, finished) {
+    const wrap = document.getElementById('poi-match-progress-wrap');
+    const bar = document.getElementById('poi-match-bar');
+    const statusEl = document.getElementById('poi-match-status');
+    wrap.style.display = 'block';
+
+    const pct = data.total > 0 ? Math.round(data.processed / data.total * 100) : 0;
+    bar.style.width = pct + '%';
+    const matched = (data.matched || 0).toLocaleString();
+
+    if (finished) {
+        bar.style.background = data.status === 'completed' ? 'var(--success)' : 'var(--text-muted)';
+        if (data.status === 'completed' && data.total === 0) {
+            statusEl.textContent = 'no POIs downloaded yet — run POI Download first.';
+        } else {
+            const label = data.status === 'completed' ? 'done' : 'stopped';
+            statusEl.textContent = `${label} — ${data.processed.toLocaleString()}/${data.total.toLocaleString()} points, ${matched} matched`;
+        }
+    } else {
+        const saved = geocodeStartTime;
+        geocodeStartTime = poiMatchStartTime;
+        const eta = formatEta(data.processed, data.total);
+        geocodeStartTime = saved;
+        bar.style.background = 'var(--primary)';
+        statusEl.innerHTML = `<span class="spinner"></span> ${data.processed.toLocaleString()}/${data.total.toLocaleString()} points${data.total > 0 ? ' (' + pct + '%)' : ''}, ${matched} matched${eta ? ' — ' + eta : ''}`;
+    }
+}
+
+function startPoiMatch() {
+    const wrap = document.getElementById('poi-match-progress-wrap');
+    const statusEl = document.getElementById('poi-match-status');
+    wrap.style.display = 'block';
+    statusEl.innerHTML = '<span class="spinner"></span> loading POIs...';
+    document.getElementById('poi-match-bar').style.width = '0%';
+    setPoiMatchUI(true);
+    poiMatchStartTime = Date.now();
+
+    fetch('/api/poi/match/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+    })
+    .then(r => r.json())
+    .then(() => pollPoiMatchStatus());
+}
+
+function stopPoiMatch() {
+    document.getElementById('poi-match-stop-btn').disabled = true;
+    document.getElementById('poi-match-status').innerHTML = '<span class="spinner"></span> stopping...';
+    fetch('/api/poi/match/stop/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+    });
+}
+
+function pollPoiMatchStatus() {
+    setPoiMatchUI(true);
+    const interval = setInterval(() => {
+        fetch('/api/poi/match/status/')
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'running') {
+                updatePoiMatchUI(data, false);
+            } else if (data.status === 'completed' || data.status === 'stopped') {
+                updatePoiMatchUI(data, true);
+                clearInterval(interval);
+                setPoiMatchUI(false);
+            } else {
+                clearInterval(interval);
+                setPoiMatchUI(false);
+            }
+        });
+    }, 2000);
+}
+
+// Resume UI if a match job is already running on page load
+fetch('/api/poi/match/status/')
+    .then(r => { if (r.ok) return r.json(); })
+    .then(data => {
+        if (data && data.status === 'running') {
+            poiMatchStartTime = Date.now();
+            updatePoiMatchUI(data, false);
+            pollPoiMatchStatus();
         }
     })
     .catch(() => {});
