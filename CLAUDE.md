@@ -23,7 +23,7 @@ The backup JSON format version (in `backup_tasks.py`) must also be bumped whenev
 
 ## Commits
 
-**Every individual fix or change gets its own commit — no batching.** This includes bug fixes, single-file edits, and CSS tweaks. Each commit must be signed:
+**Every individual fix or change gets its own commit — no batching.** This includes bug fixes, single-file edits, and CSS tweaks. Commit messages (subject and body) must be **properly capitalized** — start the subject with a capital letter (the `type(scope):` prefix stays lowercase, e.g. `fix(ai): Correct displayed URL`). Each commit must be signed:
 
 ```
 Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
