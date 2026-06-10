@@ -683,7 +683,7 @@ function openEntry(dateStr) {
     document.getElementById('j-save-pill').textContent = '';
     setFav(false);
 
-    fetch(`/api/journals/${dateStr}/`).then(r=>r.json()).then(data=>{
+    fetch(`/api/journals/${dateStr}/?tz=${new Date().getTimezoneOffset()}`).then(r=>r.json()).then(data=>{
         currentEntry = data.entry;
         document.getElementById('j-title').value = data.entry.title || '';
         document.getElementById('j-body').value = data.entry.body || '';

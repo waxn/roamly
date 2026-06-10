@@ -5008,10 +5008,19 @@ def _journal_parse_date(date_str):
         return None
 
 
-def _journal_day_bounds(d):
-    """Return timezone-aware (start, end) datetimes spanning the local calendar day."""
-    start = datetime.combine(d, dt_time.min)
-    end = datetime.combine(d, dt_time.max)
+def _journal_day_bounds(d, tz_offset=0):
+    """Return timezone-aware (start, end) datetimes spanning the user's calendar day.
+
+    ``tz_offset`` is the browser's ``Date.getTimezoneOffset()`` in minutes (UTC −
+    local), so local midnight expressed in UTC is ``local_midnight + tz_offset``.
+    With the default of 0 the bounds are the UTC calendar day (server TIME_ZONE).
+    """
+    try:
+        tz_offset = int(tz_offset)
+    except (TypeError, ValueError):
+        tz_offset = 0
+    start = datetime.combine(d, dt_time.min) + timedelta(minutes=tz_offset)
+    end = datetime.combine(d, dt_time.max) + timedelta(minutes=tz_offset)
     if timezone.is_naive(start):
         start = timezone.make_aware(start)
     if timezone.is_naive(end):
@@ -5029,18 +5038,19 @@ def _journal_serialize_photo(photo):
     }
 
 
-def _journal_day_track(user, d):
+def _journal_day_track(user, d, tz_offset=0):
     """Build the GPS track + summary stats for a user's calendar day.
 
     Returns a dict with decimated points, total distance (km), the distinct
     cities/places visited, the bounding centroid, and the raw point count.
+    ``tz_offset`` (browser minutes) bounds the day to the user's local midnight.
     """
     # A gap larger than this (or a change of device) breaks the drawn line into
     # a new segment, so we never draw a straight "teleport" across a tracking
     # gap or zig-zag between two devices' interleaved points.
     SEGMENT_GAP_S = 20 * 60
 
-    start, end = _journal_day_bounds(d)
+    start, end = _journal_day_bounds(d, tz_offset)
     qs = (Location.objects
           .filter(device__user=user, timestamp__gte=start, timestamp__lte=end,
                   latitude__isnull=False, longitude__isnull=False)
@@ -5300,7 +5310,7 @@ def journal_detail_api(request, date_str):
         return JsonResponse({'error': 'Invalid date'}, status=400)
 
     entry = JournalEntry.objects.filter(user=request.user, date=d).prefetch_related('photos').first()
-    track = _journal_day_track(request.user, d)
+    track = _journal_day_track(request.user, d, request.GET.get('tz', 0))
 
     if entry:
         entry_data = {
