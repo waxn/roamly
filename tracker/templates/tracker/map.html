@@ -375,12 +375,12 @@
         <input type="date" id="replay-date" title="Day to replay">
         <button class="rp-btn" id="replay-play" type="button" disabled>play</button>
         <input type="range" id="replay-slider" min="0" max="1000" value="0" disabled>
-        <select id="replay-speed" title="Playback speed">
-            <option value="1">1×</option>
-            <option value="2">2×</option>
-            <option value="4" selected>4×</option>
-            <option value="8">8×</option>
-            <option value="16">16×</option>
+        <select id="replay-speed" title="Playback speed (track time per real second)">
+            <option value="60">1 min/s</option>
+            <option value="300">5 min/s</option>
+            <option value="900" selected>15 min/s</option>
+            <option value="3600">1 hr/s</option>
+            <option value="10800">3 hr/s</option>
         </select>
         <span class="replay-clock" id="replay-clock">—</span>
         <button class="replay-close" id="replay-close" type="button" title="Close replay">&times;</button>
@@ -1170,7 +1170,6 @@ const replayBadge = document.getElementById('replay-badge');
 const REPLAY_TRAIL_SRC = 'replay-trail';
 const REPLAY_HEAD_SRC = 'replay-head';
 const REPLAY_STEPS = 1000;
-const REPLAY_BASE_MS = 60000;  // whole day = 60s at 1×
 
 let replayActive = false;
 let replayDevices = [];
@@ -1371,12 +1370,15 @@ function startReplayPlayback() {
     replayPlaying = true;
     replayPlayBtn.textContent = 'pause';
     replayCurrentFrac = parseInt(replaySlider.value, 10) / REPLAY_STEPS;
+    const spanMs = Math.max(1, replayTMax - replayTMin);
     let lastTick = null;
     const tick = now => {
         if (!replayPlaying) return;
         if (lastTick !== null) {
-            const speed = parseFloat(replaySpeedEl.value) || 1;
-            replayCurrentFrac += (now - lastTick) / (REPLAY_BASE_MS / speed);
+            // speed = track-seconds advanced per real second, so the clock ticks
+            // at exactly the rate the dropdown names (e.g. "15 min/s").
+            const speed = parseFloat(replaySpeedEl.value) || 900;
+            replayCurrentFrac += (now - lastTick) * speed / spanMs;
         }
         lastTick = now;
         if (replayCurrentFrac >= 1) replayCurrentFrac = 1;
