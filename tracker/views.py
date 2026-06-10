@@ -717,6 +717,7 @@ def _locations_api_inner(request):
         'state': {'field': 'sort_value', 'kind': 'text', 'source': 'state'},
         'country_code': {'field': 'sort_value', 'kind': 'text', 'source': 'country_code'},
         'country': {'field': 'sort_value', 'kind': 'text', 'source': 'country'},
+        'poi_name': {'field': 'sort_value', 'kind': 'text', 'source': 'poi_name'},
         'device': {'field': 'sort_value', 'kind': 'text', 'source': 'device_sort'},
     }
     if sort_key not in sort_config:
@@ -816,6 +817,17 @@ def _locations_api_inner(request):
     if country_code:
         locations = locations.filter(country_code__iexact=country_code)
 
+    # Annotate each point with the POI name from any Visit that contains it, up
+    # front so it can also be used as a sort key (Place column).
+    from django.db.models import Subquery, OuterRef, CharField as _CharField
+    poi_subq = Visit.objects.filter(
+        device_id=OuterRef('device_id'),
+        start_time__lte=OuterRef('timestamp'),
+        end_time__gte=OuterRef('timestamp'),
+        poi__isnull=False,
+    ).values('poi__name')[:1]
+    locations = locations.annotate(poi_name=Subquery(poi_subq, output_field=_CharField()))
+
     if sort_key == 'device':
         locations = locations.annotate(sort_value=Coalesce('device__name', 'device__device_id', Value('')))
     elif config['kind'] == 'text':
@@ -861,16 +873,6 @@ def _locations_api_inner(request):
         locations = locations.filter(cursor_filter)
 
     order_fields = [f'{order_prefix}{sort_lookup}', f'{order_prefix}id']
-
-    # Annotate each point with the POI name from any Visit that contains it.
-    from django.db.models import Subquery, OuterRef, CharField as _CharField
-    poi_subq = Visit.objects.filter(
-        device_id=OuterRef('device_id'),
-        start_time__lte=OuterRef('timestamp'),
-        end_time__gte=OuterRef('timestamp'),
-        poi__isnull=False,
-    ).values('poi__name')[:1]
-    locations = locations.annotate(poi_name=Subquery(poi_subq, output_field=_CharField()))
 
     locations = locations.select_related('device').order_by(*order_fields)
     page = list(locations[: limit + 1])
