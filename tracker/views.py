@@ -817,8 +817,9 @@ def _locations_api_inner(request):
     if country_code:
         locations = locations.filter(country_code__iexact=country_code)
 
-    # Annotate each point with the POI name from any Visit that contains it, up
-    # front so it can also be used as a sort key (Place column).
+    # Annotate each point's Place name, up front so it can also be a sort key.
+    # Prefer the per-point POI stored by the "Match POIs" job; fall back to the
+    # POI of any dwell Visit that contains the point's timestamp.
     from django.db.models import Subquery, OuterRef, CharField as _CharField
     poi_subq = Visit.objects.filter(
         device_id=OuterRef('device_id'),
@@ -826,7 +827,9 @@ def _locations_api_inner(request):
         end_time__gte=OuterRef('timestamp'),
         poi__isnull=False,
     ).values('poi__name')[:1]
-    locations = locations.annotate(poi_name=Subquery(poi_subq, output_field=_CharField()))
+    locations = locations.annotate(
+        poi_name=Coalesce('poi__name', Subquery(poi_subq, output_field=_CharField()), Value('')),
+    )
 
     if sort_key == 'device':
         locations = locations.annotate(sort_value=Coalesce('device__name', 'device__device_id', Value('')))
