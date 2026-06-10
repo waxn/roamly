@@ -111,6 +111,9 @@ urlpatterns = [
     path('api/poi/download/', views.poi_download_api, name='poi_download'),
     path('api/poi/status/', views.poi_status_api, name='poi_status'),
     path('api/poi/stop/', views.poi_stop_api, name='poi_stop'),
+    path('api/poi/match/', views.poi_match_api, name='poi_match'),
+    path('api/poi/match/status/', views.poi_match_status_api, name='poi_match_status'),
+    path('api/poi/match/stop/', views.poi_match_stop_api, name='poi_match_stop'),
 
     # Automatic Backups
     path('api/backup/config/', views.backup_config_api, name='backup_config'),

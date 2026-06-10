@@ -4185,6 +4185,30 @@ def poi_stop_api(request):
     return JsonResponse({'stopped': stopped})
 
 
+@login_required
+@require_http_methods(["POST"])
+def poi_match_api(request):
+    """Start matching the nearest POI to every point (data Place column)."""
+    from .poi_match_tasks import start_poi_match
+    job = start_poi_match(request.user.id)
+    return JsonResponse({'status': job.status, 'total': job.total})
+
+
+@login_required
+def poi_match_status_api(request):
+    """Check POI-match progress."""
+    from .poi_match_tasks import get_poi_match_status
+    return JsonResponse(get_poi_match_status(request.user.id))
+
+
+@login_required
+@require_http_methods(["POST"])
+def poi_match_stop_api(request):
+    """Stop a running POI-match job."""
+    from .poi_match_tasks import stop_poi_match
+    return JsonResponse({'stopped': stop_poi_match(request.user.id)})
+
+
 # ---------------------------------------------------------------------------
 # Automatic Backups (S3-compatible)
 # ---------------------------------------------------------------------------
