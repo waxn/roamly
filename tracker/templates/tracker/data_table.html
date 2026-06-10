@@ -93,7 +93,9 @@ function escHtml(s) {
 
 function renderRows() {
     const html = allRows.map(r => {
-        const place = r.poi_name || r.place_name || '';
+        // Place = the specific POI dwelled at (store, etc.), not the town —
+        // the town is already shown in the City column. No POI ⇒ blank.
+        const place = r.poi_name || '';
         const placeCell = place
             ? '<span style="color:var(--primary);font-size:0.8125rem;" title="' + escHtml(place) + '">' + escHtml(place) + '</span>'
             : '-';
