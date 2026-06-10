@@ -1315,12 +1315,17 @@ async function loadReplayDay(dateStr) {
     let tMin = Infinity, tMax = -Infinity;
     (data.devices || []).forEach(device => {
         const color = deviceColor(device.device_id || device.name || 'default');
-        const pts = (device.locations || [])
+        let pts = (device.locations || [])
             .map(loc => ({ t: new Date(loc.timestamp).getTime(), c: [loc.lng, loc.lat] }))
             .filter(p => !isNaN(p.t))
             .sort((a, b) => a.t - b.t);
+        // Drop teleport outliers (a single wildly-off fix that spikes the line
+        // out and back) and split the track into contiguous segments on big
+        // gaps, so we never draw a straight line across a tracking gap.
+        const segments = buildReplaySegments(pts);
+        pts = segments.flat();
         if (pts.length) {
-            replayDevices.push({ color, pts });
+            replayDevices.push({ color, pts, segments });
             tMin = Math.min(tMin, pts[0].t);
             tMax = Math.max(tMax, pts[pts.length - 1].t);
         }
@@ -1350,18 +1355,62 @@ async function loadReplayDay(dateStr) {
     if (minLng !== Infinity) map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 80, maxZoom: 15, duration: 600 });
 }
 
+const REPLAY_SEG_GAP_MS = 20 * 60 * 1000;  // gap that breaks the drawn line
+const REPLAY_MAX_SPEED_MS = 305;            // ~1100 km/h: faster ⇒ teleport outlier
+
+function _replayDistM(a, b) {
+    const R = 6371000, toR = Math.PI / 180;
+    const dLat = (b[1] - a[1]) * toR, dLon = (b[0] - a[0]) * toR;
+    const s = Math.sin(dLat / 2) ** 2 +
+        Math.cos(a[1] * toR) * Math.cos(b[1] * toR) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+}
+
+// Reject teleport outliers and split a time-sorted point list into contiguous
+// segments on large gaps. Returns an array of point arrays.
+function buildReplaySegments(pts) {
+    const segments = [];
+    let cur = null, prev = null;
+    for (const p of pts) {
+        const newSeg = prev === null || (p.t - prev.t) > REPLAY_SEG_GAP_MS;
+        if (!newSeg) {
+            const dt = (p.t - prev.t) / 1000;
+            if (dt > 0 && _replayDistM(prev.c, p.c) / dt > REPLAY_MAX_SPEED_MS) continue;
+            cur.push(p);
+        } else {
+            cur = [p];
+            segments.push(cur);
+        }
+        prev = p;
+    }
+    return segments.filter(s => s.length);
+}
+
 function renderReplayAt(frac) {
     if (!replayDevices.length) return;
     const t = replayTMin + (replayTMax - replayTMin) * frac;
     const trail = [], heads = [];
     replayDevices.forEach(d => {
-        const coords = [];
-        let head = null;
-        for (const p of d.pts) {
-            if (p.t <= t) { coords.push(p.c); head = p.c; }
-            else break;
-        }
-        if (coords.length >= 2) trail.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: { color: d.color } });
+        let head = null;  // smoothly-interpolated current position
+        (d.segments || [d.pts]).forEach(seg => {
+            const coords = [];
+            for (let i = 0; i < seg.length; i++) {
+                const p = seg[i];
+                if (p.t <= t) { coords.push(p.c); head = p.c; }
+                else {
+                    // Interpolate within this segment so the head glides along the
+                    // line with the clock instead of snapping point-to-point.
+                    if (i > 0 && seg[i - 1].t <= t) {
+                        const a = seg[i - 1], f = (t - a.t) / (p.t - a.t);
+                        const ic = [a.c[0] + (p.c[0] - a.c[0]) * f, a.c[1] + (p.c[1] - a.c[1]) * f];
+                        coords.push(ic);
+                        head = ic;
+                    }
+                    break;
+                }
+            }
+            if (coords.length >= 2) trail.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: { color: d.color } });
+        });
         if (head) heads.push({ type: 'Feature', geometry: { type: 'Point', coordinates: head }, properties: { color: d.color } });
     });
     map.getSource(REPLAY_TRAIL_SRC).setData({ type: 'FeatureCollection', features: trail });
