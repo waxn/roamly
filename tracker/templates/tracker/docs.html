@@ -1932,6 +1932,44 @@ background threads
                 <li>set <code>ALLOWED_HOSTS=roamly.yourdomain.com</code></li>
                 <li>for local access too: <code>ALLOWED_HOSTS=roamly.yourdomain.com,localhost</code></li>
             </ul>
+
+            <h2 id="ai-connection">ai summaries: "test connection" fails / connection refused or timed out</h2>
+            <p>roamly runs in docker, so the ai server (lm studio, ollama, etc.) needs to be reachable <strong>from inside the container</strong> — not just from your browser. a connection timeout almost always means a network/firewall issue between the container and the llm server, not a roamly bug.</p>
+
+            <h3>llm running on the same machine as docker</h3>
+            <ul>
+                <li>make sure the llm server is bound to <code>0.0.0.0</code>, not <code>127.0.0.1</code> (in lm studio, enable "serve on local network"). check with <code>ss -tlnp | grep 1234</code> — it should show <code>0.0.0.0:1234</code>, not <code>127.0.0.1:1234</code>.</li>
+                <li>use <code>http://host.docker.internal:1234/v1</code> as the api url. <code>docker-compose.yml</code> already maps this via <code>extra_hosts: host.docker.internal:host-gateway</code>.</li>
+                <li>find the container's actual gateway ip (what <code>host.docker.internal</code> should resolve to) with:
+                    <pre><code>docker compose exec web getent hosts host.docker.internal</code></pre>
+                    if connections still time out, use that ip directly as a fallback (e.g. <code>http://172.18.0.1:1234/v1</code>).
+                </li>
+            </ul>
+
+            <h3>firewall: ufw (debian/ubuntu)</h3>
+            <p>ufw's default <code>deny (routed)</code> policy blocks traffic between docker's bridge network and the host, even for the host's own services. allow the docker subnet through to the llm port:</p>
+            <pre><code># find the docker network's subnet (the gateway ip from the step above, /16)
+sudo ufw allow from 172.18.0.0/16 to any port 1234
+
+# if the llm server is on a *different* machine on your lan, the traffic
+# is routed/forwarded through the host instead — use:
+sudo ufw route allow from 172.18.0.0/16 to any port 1234</code></pre>
+
+            <h3>firewall: firewalld (fedora/rhel)</h3>
+            <p>if the llm server runs on a separate machine on your lan, check whether your lan zone has masquerading enabled:</p>
+            <pre><code>sudo firewall-cmd --list-all</code></pre>
+            <p>if <code>masquerade: no</code> and <code>forward: yes</code>, packets from the docker container (a private subnet like <code>172.21.0.0/16</code>) get forwarded to the llm machine but its replies have nowhere to route back to — the connection times out. enable masquerading on your lan zone:</p>
+            <pre><code>sudo firewall-cmd --zone=FedoraServer --add-masquerade --permanent
+sudo firewall-cmd --reload</code></pre>
+
+            <h3>llm on another machine on your lan</h3>
+            <ul>
+                <li>use that machine's real lan ip, e.g. <code>http://192.168.0.50:1234/v1</code></li>
+                <li>confirm the llm server is bound to <code>0.0.0.0</code> (see above) — otherwise it only accepts connections from itself</li>
+                <li>test from inside the container (no <code>curl</code> available, use python):
+                    <pre><code>docker compose exec web python -c "import requests; r=requests.get('http://192.168.0.50:1234/v1/models', timeout=5); print(r.status_code, r.text[:200])"</code></pre>
+                </li>
+            </ul>
         </section>
 
         <!-- FAQ -->
