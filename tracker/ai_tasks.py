@@ -123,7 +123,7 @@ def test_connection(ai_cfg):
 
     tried = []
     for url in urls_to_try:
-        result = {'url': f'{url}/v1/models', 'status': None, 'error': None}
+        result = {'url': f'{url}/models', 'status': None, 'error': None}
         try:
             resp = http_requests.get(
                 f'{url}/models',
