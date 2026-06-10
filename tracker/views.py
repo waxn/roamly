@@ -5068,17 +5068,30 @@ def _journal_day_track(user, d, tz_offset=0):
 
     # Walk per-device, time-ordered points; split into contiguous segments and
     # only accumulate distance within a segment (never across a gap/device hop).
+    # A teleport outlier (a single wildly-off GPS fix that implies an impossible
+    # speed) is dropped outright so the drawn line doesn't spike out to it and
+    # back — the cause of the "spaghetti" zig-zags.
+    MAX_SPEED_MS = 305.0  # ~1100 km/h; faster than any plausible real travel
     segments = []         # list of lists of raw point dicts
     cur_seg = None
     prev = None
     for p in raw:
-        if (prev is None
-                or p['device_id'] != prev['device_id']
-                or (p['timestamp'] - prev['timestamp']).total_seconds() > SEGMENT_GAP_S):
+        new_segment = (
+            prev is None
+            or p['device_id'] != prev['device_id']
+            or (p['timestamp'] - prev['timestamp']).total_seconds() > SEGMENT_GAP_S
+        )
+        if not new_segment:
+            dt = (p['timestamp'] - prev['timestamp']).total_seconds()
+            if dt > 0:
+                dist_m = _haversine_km(prev['latitude'], prev['longitude'],
+                                       p['latitude'], p['longitude']) * 1000.0
+                if dist_m / dt > MAX_SPEED_MS:
+                    continue  # teleport outlier — skip, keep prev as the anchor
+            cur_seg.append(p)
+        else:
             cur_seg = [p]
             segments.append(cur_seg)
-        else:
-            cur_seg.append(p)
         prev = p
 
     # Jitter-resistant distance: resample+gate each drawn segment the same way as
