@@ -267,6 +267,46 @@ function hexA(hex, a) {
     return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
 
+// Monotone cubic (Fritsch–Carlson) bezier control points for a set of {x,y}
+// points. The resulting curve passes through EVERY point and never overshoots,
+// so the line always intercepts the data dots. Returns one {cp1,cp2} per segment.
+function monotoneSpline(pts) {
+    const nseg = pts.length - 1;
+    const segs = [];
+    if (nseg < 1) return segs;
+    const dx = [], dy = [], m = [];
+    for (let i = 0; i < nseg; i++) {
+        dx[i] = pts[i + 1].x - pts[i].x;
+        dy[i] = pts[i + 1].y - pts[i].y;
+        m[i] = dx[i] === 0 ? 0 : dy[i] / dx[i];
+    }
+    const t = new Array(nseg + 1);
+    t[0] = m[0];
+    t[nseg] = m[nseg - 1];
+    for (let i = 1; i < nseg; i++) {
+        t[i] = (m[i - 1] * m[i] <= 0) ? 0 : (m[i - 1] + m[i]) / 2;
+    }
+    for (let i = 0; i < nseg; i++) {
+        if (m[i] === 0) { t[i] = 0; t[i + 1] = 0; continue; }
+        const a = t[i] / m[i], b = t[i + 1] / m[i];
+        const s = a * a + b * b;
+        if (s > 9) {
+            const tau = 3 / Math.sqrt(s);
+            t[i] = tau * a * m[i];
+            t[i + 1] = tau * b * m[i];
+        }
+    }
+    for (let i = 0; i < nseg; i++) {
+        segs.push({
+            cp1x: pts[i].x + dx[i] / 3,
+            cp1y: pts[i].y + t[i] * dx[i] / 3,
+            cp2x: pts[i + 1].x - dx[i] / 3,
+            cp2y: pts[i + 1].y - t[i + 1] * dx[i] / 3,
+        });
+    }
+    return segs;
+}
+
 // Attach nearest-point hover (guide line + dot + tooltip, optional click-through)
 // to a canvas line chart. getState() returns {points, geom, width}.
 function attachChartHover(canvas, els, getState) {
@@ -559,16 +599,14 @@ function drawChart(days, distancesKm, range) {
     const yOf = (v) => pad.top + cH - (v / niceMax) * cH;
     const pts = values.map((v, i) => ({ x: xOf(i), y: yOf(v) }));
 
-    // Smooth path through the points (midpoint quadratics)
+    // Smooth path that passes through every data point (monotone cubic)
+    const segs = monotoneSpline(pts);
     const trace = () => {
         ctx.beginPath();
         ctx.moveTo(pts[0].x, pts[0].y);
-        for (let i = 0; i < pts.length - 1; i++) {
-            const xc = (pts[i].x + pts[i + 1].x) / 2;
-            const yc = (pts[i].y + pts[i + 1].y) / 2;
-            ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
+        for (let i = 0; i < segs.length; i++) {
+            ctx.bezierCurveTo(segs[i].cp1x, segs[i].cp1y, segs[i].cp2x, segs[i].cp2y, pts[i + 1].x, pts[i + 1].y);
         }
-        ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
     };
 
     if (pts.length >= 2) {
@@ -795,15 +833,13 @@ function drawYearlyChart(monthly, year) {
     const yOf = (v) => PAD.top + ch - (v / maxPts) * ch;
     const pts = monthly.map((m, i) => ({ x: xOf(i), y: yOf(m.points) }));
 
+    const segs = monotoneSpline(pts);
     const trace = () => {
         ctx.beginPath();
         ctx.moveTo(pts[0].x, pts[0].y);
-        for (let i = 0; i < pts.length - 1; i++) {
-            const xc = (pts[i].x + pts[i + 1].x) / 2;
-            const yc = (pts[i].y + pts[i + 1].y) / 2;
-            ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
+        for (let i = 0; i < segs.length; i++) {
+            ctx.bezierCurveTo(segs[i].cp1x, segs[i].cp1y, segs[i].cp2x, segs[i].cp2y, pts[i + 1].x, pts[i + 1].y);
         }
-        ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
     };
 
     if (pts.length >= 2) {
