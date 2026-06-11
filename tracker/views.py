@@ -1366,6 +1366,23 @@ def yearly_overview_api(request):
             'total_time': dur_s,
         })
 
+    # User-defined custom places count as visits too — a "visit" is a distinct
+    # day with points inside the geofence; total_time is the dwell sum. Merged
+    # into the same Top Places list and re-ranked.
+    for p in CustomPlace.objects.filter(user=request.user):
+        nearby = _find_nearby_locations(qs, p.latitude, p.longitude, p.radius_m)
+        day_count = len(_group_by_day(nearby))
+        if not day_count:
+            continue
+        top_places.append({
+            'name': p.name,
+            'count': day_count,
+            'total_time': _calc_dwell_time(nearby),
+            'is_custom': True,
+        })
+    top_places.sort(key=lambda x: -x['count'])
+    top_places = top_places[:10]
+
     result = {
         "this_week": this_week, "last_week": last_week,
         "this_month": this_month, "last_month": last_month,

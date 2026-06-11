@@ -859,24 +859,26 @@ function renderMostVisited(data) {
     } else if (mvMode === 'countries') {
         items = (data.top_countries || []).map(c => ({ label: c.country, count: c.count, sub: null }));
     } else {
-        items = (data.top_places || []).map(p => ({ label: p.name, count: p.count, sub: _fmtDuration(p.total_time) }));
+        items = (data.top_places || []).map(p => ({ label: p.name, count: p.count, sub: _fmtDuration(p.total_time), custom: !!p.is_custom }));
     }
     if (!items.length) {
         list.innerHTML = mvMode === 'places'
-            ? '<span style="color:var(--text-muted);font-size:0.8125rem;">No place visits yet — download places on the search page and let location data accumulate.</span>'
+            ? '<span style="color:var(--text-muted);font-size:0.8125rem;">No place visits yet — add your own on the Places page, or download places on the search page and let location data accumulate.</span>'
             : '<span style="color:var(--text-muted);">No data yet</span>';
         return;
     }
     const max = items[0]?.count || 1;
     list.innerHTML = items.slice(0, 8).map(item => {
         const pct = Math.round((item.count / max) * 100);
+        const barColor = item.custom ? 'var(--accent)' : 'var(--primary)';
+        const dot = item.custom ? '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:5px;vertical-align:middle;"></span>' : '';
         return `<div style="margin-bottom:0.5rem;">
             <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
-                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%;">${escHtmlStats(item.label)}</span>
+                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%;">${dot}${escHtmlStats(item.label)}</span>
                 <span style="color:var(--text-muted);font-size:0.75rem;white-space:nowrap;">${item.sub ? item.sub + ' · ' : ''}${item.count.toLocaleString()} visit${item.count !== 1 ? 's' : ''}</span>
             </div>
             <div style="height:4px;background:var(--bg-input);border-radius:2px;">
-                <div style="height:100%;width:${pct}%;background:var(--primary);border-radius:2px;"></div>
+                <div style="height:100%;width:${pct}%;background:${barColor};border-radius:2px;"></div>
             </div>
         </div>`;
     }).join('');
