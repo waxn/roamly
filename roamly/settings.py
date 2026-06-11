@@ -109,8 +109,9 @@ else:
 
 SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
 
-# Optional JS snippet injected before </body> on every page (e.g. PostHog, Plausible, etc.)
-CUSTOM_JS_SNIPPET = os.environ.get('CUSTOM_JS_SNIPPET', '')
+# Secret key that, when entered on the signup form's "admin account" section,
+# creates an instance-admin account. Leave unset to disable admin signups.
+ADMIN_SIGNUP_KEY = os.environ.get('ADMIN_SIGNUP_KEY', '')
 
 LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/map/'
