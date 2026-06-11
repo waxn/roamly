@@ -22,6 +22,7 @@ urlpatterns = [
     path('search/', views.search_view, name='search'),
     path('adventures/', views.adventures_view, name='adventures'),
     path('journals/', views.journals_view, name='journals'),
+    path('places/', views.places_view, name='places'),
     path('settings/', views.settings_view, name='settings'),
 
     # Auth
@@ -45,6 +46,12 @@ urlpatterns = [
     path('api/countries/', views.countries_api, name='countries_api'),
     path('api/distance/', views.distance_api, name='distance_api'),
     path('api/search/', views.search_api, name='search_api'),
+
+    # Custom Places API
+    path('api/places/', views.places_api, name='places_api'),
+    path('api/places/<int:place_id>/', views.place_detail_api, name='place_detail_api'),
+    path('api/places/<int:place_id>/update/', views.place_update, name='place_update'),
+    path('api/places/<int:place_id>/delete/', views.place_delete, name='place_delete'),
 
     # Trips pages
     path('adventure/<slug:slug>/', views.adventure_public_view, name='adventure_public'),

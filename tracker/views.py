@@ -35,7 +35,7 @@ from .models import (
     Device, Location, APIKey, Adventure, AdventurePlace, POI, BackupConfig,
     UserProfile, Pal, PalMember, PalBlurb, PalBlurbPhoto, PalMilestone, PalComment,
     AdventureMember, AdventureBlurb, AdventureBlurbPhoto, AdventureMilestone, AdventureComment,
-    SiteStat, JournalEntry, JournalPhoto, Visit,
+    SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace,
 )
 from .image_utils import resize_image, resize_photo
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
@@ -347,6 +347,11 @@ def adventure_edit_view(request, trip_id):
         'devices': devices,
         'is_creator': is_creator,
     })
+
+
+@login_required
+def places_view(request):
+    return render(request, 'tracker/places.html', {'has_postgis': HAS_POSTGIS})
 
 
 @login_required
@@ -880,6 +885,11 @@ def _locations_api_inner(request):
     has_more = len(page) > limit
     locations = page[:limit]
 
+    # User-defined custom places override the Place column when a point falls
+    # inside one. Resolved in-Python over this small page (a user has only a few
+    # places) rather than as a spatial join; Place *sort* still uses poi_name.
+    custom_places = list(CustomPlace.objects.filter(user=request.user))
+
     devices_data = {}
     locations_data = []
     last_cursor_ts = None
@@ -893,6 +903,8 @@ def _locations_api_inner(request):
                 "name": loc.device.name or did,
                 "locations": [],
             }
+        cp = _place_membership(custom_places, loc.latitude, loc.longitude) if custom_places else None
+        custom_place = cp.name if cp else ''
         devices_data[did]["locations"].append({
             "id": loc.id,
             "lat": _jf(loc.latitude),
@@ -908,6 +920,7 @@ def _locations_api_inner(request):
             "country_code": loc.country_code,
             "place_name": loc.place_name,
             "poi_name": getattr(loc, 'poi_name', None) or '',
+            "custom_place": custom_place,
         })
         locations_data.append({
             "id": loc.id,
@@ -925,6 +938,7 @@ def _locations_api_inner(request):
             "country_code": loc.country_code,
             "place_name": loc.place_name,
             "poi_name": getattr(loc, 'poi_name', None) or '',
+            "custom_place": custom_place,
         })
         # track last cursor (the last item in this page — remember results are desc)
         last_cursor_ts = loc.timestamp
@@ -1532,7 +1546,8 @@ def _visits_dwell_gap(prev, cur, level):
     """Seconds between two points for visit time attribution.
 
     prev/cur: (timestamp, city, state, country, country_code).
-    Count the full interval when still at the same place; cap at 1 hour when the
+    Count the full interval when 
+    still at the same place; cap at 1 hour when the
     label changes (e.g. travel between towns with sparse pings).
     """
     raw = (cur[0] - prev[0]).total_seconds()
@@ -4143,6 +4158,25 @@ def search_api(request):
     elif not parsed_date:
         needs_download = True
 
+    # User-defined custom places matching the query rank above OSM POIs.
+    if not parsed_date:
+        custom_matches = []
+        for p in CustomPlace.objects.filter(user=request.user, name__icontains=q):
+            nearby = _find_nearby_locations(locations, p.latitude, p.longitude, p.radius_m)
+            p_days = _group_by_day(nearby)
+            if not p_days:
+                continue
+            custom_matches.append({
+                'place_name': p.name,
+                'lat': _jf(p.latitude),
+                'lng': _jf(p.longitude),
+                'total_points': sum(d['count'] for d in p_days),
+                'days': p_days,
+                'is_custom': True,
+            })
+        place_results = custom_matches + place_results
+        places_checked = len(place_results)
+
     payload = {
         'query': q,
         'query_type': 'date' if parsed_date else 'text',
@@ -4155,6 +4189,170 @@ def search_api(request):
     }
     cache.set(cache_key, payload, timeout=120)
     return JsonResponse(payload)
+
+
+# ---------------------------------------------------------------------------
+# Custom Places (user-defined named geofences)
+# ---------------------------------------------------------------------------
+
+# Auto-assigned accent colors, cycled by the user's place count (clay palette).
+_PLACE_COLORS = ['#0DBFAC', '#FF6B6B', '#9B8EF7', '#F7B731', '#5BA4E5']
+
+
+def _serialize_place(place):
+    return {
+        'id': place.id,
+        'name': place.name,
+        'lat': _jf(place.latitude),
+        'lng': _jf(place.longitude),
+        'radius_m': _jf(place.radius_m),
+        'color': place.color or _PLACE_COLORS[0],
+    }
+
+
+def _place_membership(places, lat, lng):
+    """Return the nearest CustomPlace (from a small in-memory list) that contains
+    (lat, lng), or None. Used to label data-table rows without a spatial join."""
+    best = None
+    best_dist = None
+    for p in places:
+        # bbox prefilter, then exact haversine
+        delta = (p.radius_m / 111000.0) + 1e-6
+        if abs(p.latitude - lat) > delta or abs(p.longitude - lng) > delta:
+            continue
+        dist_m = _haversine_km(lat, lng, p.latitude, p.longitude) * 1000.0
+        if dist_m <= p.radius_m and (best_dist is None or dist_m < best_dist):
+            best, best_dist = p, dist_m
+    return best
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def places_api(request):
+    """List the user's custom places (with light stats) or create a new one."""
+    if request.method == "POST":
+        try:
+            data = json.loads(request.body or '{}')
+        except (ValueError, TypeError):
+            return JsonResponse({'error': 'invalid JSON'}, status=400)
+        name = (data.get('name') or '').strip()
+        if not name:
+            return JsonResponse({'error': 'name required'}, status=400)
+        try:
+            lat = float(data['lat'])
+            lng = float(data['lng'])
+            radius_m = float(data.get('radius_m', 150))
+        except (KeyError, ValueError, TypeError):
+            return JsonResponse({'error': 'lat, lng required'}, status=400)
+        radius_m = max(10.0, min(radius_m, 50000.0))
+        count = CustomPlace.objects.filter(user=request.user).count()
+        place = CustomPlace.objects.create(
+            user=request.user, name=name[:200], latitude=lat, longitude=lng,
+            radius_m=radius_m, color=_PLACE_COLORS[count % len(_PLACE_COLORS)],
+        )
+        _bust_user_cache(request.user.id)
+        return JsonResponse(_serialize_place(place))
+
+    gen = cache.get(f"cache_gen:{request.user.id}", 0)
+    cache_key = f"places:{request.user.id}:{gen}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached)
+
+    base = Location.objects.filter(device__user=request.user)
+    places = []
+    for p in CustomPlace.objects.filter(user=request.user):
+        nearby = _find_nearby_locations(base, p.latitude, p.longitude, p.radius_m)
+        agg = nearby.aggregate(n=Count('id'), last=Max('timestamp'))
+        item = _serialize_place(p)
+        item['point_count'] = agg['n'] or 0
+        item['last_seen'] = agg['last'].isoformat() if agg['last'] else None
+        places.append(item)
+    payload = {'places': places}
+    cache.set(cache_key, payload, timeout=300)
+    return JsonResponse(payload)
+
+
+@login_required
+def place_detail_api(request, place_id):
+    """Full stats for one custom place: points, days, time spent, cities, sample track."""
+    place = get_object_or_404(CustomPlace, id=place_id, user=request.user)
+    base = Location.objects.filter(device__user=request.user)
+    nearby = _find_nearby_locations(base, place.latitude, place.longitude, place.radius_m)
+
+    agg = nearby.aggregate(n=Count('id'), first=Min('timestamp'), last=Max('timestamp'))
+    days = _group_by_day(nearby)
+    total_time = _calc_dwell_time(nearby)
+
+    cities = [
+        {'city': c['city'], 'state': c['state'], 'count': c['n']}
+        for c in nearby.exclude(city='')
+        .values('city', 'state').annotate(n=Count('id')).order_by('-n')[:12]
+    ]
+
+    # Decimated sample of inside-points to draw on the detail map (cap ~2000).
+    total = agg['n'] or 0
+    stride = max(1, total // 2000)
+    sample = [
+        {'lat': _jf(lat), 'lng': _jf(lng)}
+        for i, (lat, lng) in enumerate(
+            nearby.order_by('timestamp').values_list('latitude', 'longitude').iterator(chunk_size=5000)
+        )
+        if i % stride == 0
+    ]
+
+    data = _serialize_place(place)
+    data.update({
+        'point_count': total,
+        'first_seen': agg['first'].isoformat() if agg['first'] else None,
+        'last_seen': agg['last'].isoformat() if agg['last'] else None,
+        'time_spent': total_time,
+        'days': days,
+        'cities': cities,
+        'sample': sample,
+    })
+    return JsonResponse(data)
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def place_update(request, place_id):
+    place = get_object_or_404(CustomPlace, id=place_id, user=request.user)
+    try:
+        data = json.loads(request.body or '{}')
+    except (ValueError, TypeError):
+        return JsonResponse({'error': 'invalid JSON'}, status=400)
+    if 'name' in data:
+        name = (data.get('name') or '').strip()
+        if not name:
+            return JsonResponse({'error': 'name required'}, status=400)
+        place.name = name[:200]
+    if 'lat' in data and 'lng' in data:
+        try:
+            place.latitude = float(data['lat'])
+            place.longitude = float(data['lng'])
+        except (ValueError, TypeError):
+            return JsonResponse({'error': 'invalid lat/lng'}, status=400)
+    if 'radius_m' in data:
+        try:
+            place.radius_m = max(10.0, min(float(data['radius_m']), 50000.0))
+        except (ValueError, TypeError):
+            return JsonResponse({'error': 'invalid radius'}, status=400)
+    place.save()
+    _bust_user_cache(request.user.id)
+    return JsonResponse(_serialize_place(place))
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def place_delete(request, place_id):
+    place = get_object_or_404(CustomPlace, id=place_id, user=request.user)
+    place.delete()
+    _bust_user_cache(request.user.id)
+    return JsonResponse({'deleted': True})
 
 
 # ---------------------------------------------------------------------------
