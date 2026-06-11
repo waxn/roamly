@@ -36,7 +36,7 @@ from .models import (
     Device, Location, APIKey, Adventure, AdventurePlace, POI, BackupConfig,
     UserProfile, Pal, PalMember, PalBlurb, PalBlurbPhoto, PalMilestone, PalComment,
     AdventureMember, AdventureBlurb, AdventureBlurbPhoto, AdventureMilestone, AdventureComment,
-    SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace,
+    SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig,
 )
 from .image_utils import resize_image, resize_photo
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
@@ -368,14 +368,41 @@ def settings_view(request):
     devices = Device.objects.filter(user=request.user)
     form = APIKeyForm()
     backup_config = BackupConfig.objects.filter(user=request.user).first()
-    UserProfile.objects.get_or_create(user=request.user)
-    return render(request, 'tracker/settings.html', {
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    ctx = {
         'api_keys': api_keys,
         'devices': devices,
         'form': form,
         'has_postgis': HAS_POSTGIS,
         'backup_config': backup_config,
-    })
+        'is_admin': profile.is_admin,
+    }
+    if profile.is_admin:
+        ctx['site_custom_js'] = SiteConfig.load().custom_js
+    return render(request, 'tracker/settings.html', ctx)
+
+
+@login_required
+@require_POST
+def site_custom_js_api(request):
+    """Save the instance-wide custom JS snippet. Admins only."""
+    from .context_processors import CUSTOM_JS_CACHE_KEY
+    from django.core.cache import cache
+
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if not profile.is_admin:
+        return JsonResponse({'error': 'Admin access required.'}, status=403)
+
+    try:
+        custom_js = json.loads(request.body).get('custom_js', '')
+    except (json.JSONDecodeError, AttributeError):
+        custom_js = request.POST.get('custom_js', '')
+
+    config = SiteConfig.load()
+    config.custom_js = custom_js or ''
+    config.save(update_fields=['custom_js', 'updated_at'])
+    cache.delete(CUSTOM_JS_CACHE_KEY)
+    return JsonResponse({'ok': True})
 
 
 # ---------------------------------------------------------------------------

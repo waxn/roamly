@@ -438,6 +438,26 @@
             </div>
         </div>
 
+        {% if is_admin %}
+        <!-- Custom JavaScript (instance-wide, admin only) -->
+        <div class="card settings-span-12">
+            <div class="card-header" style="display:flex;align-items:center;gap:0.4rem;">
+                Custom JavaScript
+                <span class="badge badge-warning" style="font-size:0.65rem;">admin · instance-wide</span>
+            </div>
+            <p class="settings-section-desc">
+                Raw JavaScript injected just before <code>&lt;/body&gt;</code> on every page for <strong>all users of this instance</strong> — analytics snippets (PostHog, Plausible, Fathom…) or small tweaks. Do <strong>not</strong> include <code>&lt;script&gt;</code> tags. Leave empty to inject nothing.
+            </p>
+            <textarea id="custom-js-input" class="form-control" rows="8" spellcheck="false"
+                style="font-family:'Space Grotesk',monospace;font-size:0.8125rem;white-space:pre;resize:vertical;"
+                placeholder="// e.g. posthog.init('KEY', { api_host: 'https://...' })">{{ site_custom_js }}</textarea>
+            <div class="settings-actions" style="margin-top:0.75rem;">
+                <button class="btn btn-primary btn-sm" onclick="saveCustomJs()">Save</button>
+                <span id="custom-js-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- GPSLogger Setup -->
         <div class="card settings-span-12">
             <div class="card-header">GPSLogger for Android Setup</div>
@@ -1082,6 +1102,30 @@ fetch('/api/poi/match/status/')
         }
     })
     .catch(() => {});
+
+// ── Custom JS (admin, instance-wide) ─────────────────────────────────────────
+function saveCustomJs() {
+    const input = document.getElementById('custom-js-input');
+    const status = document.getElementById('custom-js-status');
+    if (!input) return;
+    status.textContent = 'saving…';
+    fetch('/api/site/custom-js/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ custom_js: input.value }),
+    })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+        if (ok && d.ok) {
+            status.textContent = 'saved — reload pages to apply.';
+            status.style.color = 'var(--success)';
+        } else {
+            status.textContent = d.error || 'save failed.';
+            status.style.color = 'var(--danger)';
+        }
+    })
+    .catch(() => { status.textContent = 'save failed.'; status.style.color = 'var(--danger)'; });
+}
 
 // Theme
 function saveTheme(theme) {
