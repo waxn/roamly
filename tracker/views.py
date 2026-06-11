@@ -10,7 +10,7 @@ import time
 import uuid
 import urllib.parse
 import urllib.request
-from collections import defaultdict
+from collections import defaultdict, Counter
 from datetime import datetime, date, time as dt_time, timedelta, timezone as dt_timezone
 from itertools import groupby
 
@@ -4332,6 +4332,7 @@ def _serialize_place(place):
         'lng': _jf(place.longitude),
         'radius_m': _jf(place.radius_m),
         'color': place.color or _PLACE_COLORS[0],
+        'notes': place.notes or '',
     }
 
 
@@ -4440,38 +4441,63 @@ def stats_recompute_status_api(request):
 
 @login_required
 def place_detail_api(request, place_id):
-    """Full stats for one custom place: points, days, time spent, cities, sample track."""
+    """Full stats for one custom place: points, days, time spent, cities, sample track.
+
+    Single DB pass: the inside-points are fetched once (ordered by time) and
+    counts / first-last / per-day dwell / cities / map sample are all derived in
+    Python. The previous version ran ~4 separate full scans of the geofence,
+    which made big places (tens of thousands of points) slow to open."""
     place = get_object_or_404(CustomPlace, id=place_id, user=request.user)
     base = Location.objects.filter(device__user=request.user)
     nearby = _find_nearby_locations(base, place.latitude, place.longitude, place.radius_m)
 
-    agg = nearby.aggregate(n=Count('id'), first=Min('timestamp'), last=Max('timestamp'))
-    days = _group_by_day(nearby)
-    total_time = _calc_dwell_time(nearby)
+    rows = list(
+        nearby.order_by('timestamp')
+        .values_list('timestamp', 'latitude', 'longitude', 'city', 'state')
+        .iterator(chunk_size=10000)
+    )
+    total = len(rows)
 
-    cities = [
-        {'city': c['city'], 'state': c['state'], 'count': c['n']}
-        for c in nearby.exclude(city='')
-        .values('city', 'state').annotate(n=Count('id')).order_by('-n')[:12]
-    ]
+    by_day = {}
+    city_counter = Counter()
+    total_dwell = 0
+    prev_ts = None
+    for ts, lat, lon, city, state in rows:
+        d = ts.date().isoformat()
+        day = by_day.get(d)
+        if day is None:
+            day = {'date': d, 'count': 0, 'time_spent': 0, 'prev': None}
+            by_day[d] = day
+        day['count'] += 1
+        if day['prev'] is not None:
+            g = (ts - day['prev']).total_seconds()
+            if 0 < g <= 600:
+                day['time_spent'] += int(g)
+        day['prev'] = ts
+        if prev_ts is not None:
+            g = (ts - prev_ts).total_seconds()
+            if 0 < g <= 600:
+                total_dwell += int(g)
+        prev_ts = ts
+        if city:
+            city_counter[(city, state or '')] += 1
+
+    days = sorted(
+        ({'date': v['date'], 'count': v['count'], 'time_spent': v['time_spent']} for v in by_day.values()),
+        key=lambda x: x['date'], reverse=True,
+    )[:100]
+    cities = [{'city': c, 'state': s, 'count': n} for (c, s), n in city_counter.most_common(12)]
 
     # Decimated sample of inside-points to draw on the detail map (cap ~2000).
-    total = agg['n'] or 0
     stride = max(1, total // 2000)
-    sample = [
-        {'lat': _jf(lat), 'lng': _jf(lng)}
-        for i, (lat, lng) in enumerate(
-            nearby.order_by('timestamp').values_list('latitude', 'longitude').iterator(chunk_size=5000)
-        )
-        if i % stride == 0
-    ]
+    sample = [{'lat': _jf(rows[i][1]), 'lng': _jf(rows[i][2])} for i in range(0, total, stride)]
 
     data = _serialize_place(place)
     data.update({
         'point_count': total,
-        'first_seen': agg['first'].isoformat() if agg['first'] else None,
-        'last_seen': agg['last'].isoformat() if agg['last'] else None,
-        'time_spent': total_time,
+        'first_seen': rows[0][0].isoformat() if rows else None,
+        'last_seen': rows[-1][0].isoformat() if rows else None,
+        'time_spent': total_dwell,
         'days': days,
         'cities': cities,
         'sample': sample,
@@ -4504,9 +4530,14 @@ def place_update(request, place_id):
             place.radius_m = max(10.0, min(float(data['radius_m']), 50000.0))
         except (ValueError, TypeError):
             return JsonResponse({'error': 'invalid radius'}, status=400)
+    if 'notes' in data:
+        place.notes = (data.get('notes') or '')[:10000]
     place.save()
     _bust_user_cache(request.user.id)
-    _refresh_places_snapshot(request.user)
+    # Only the geometry/name affect the cards + snapshot list; a notes-only
+    # autosave must not trigger the heavy per-place recompute.
+    if any(k in data for k in ('name', 'lat', 'lng', 'radius_m')):
+        _refresh_places_snapshot(request.user)
     return JsonResponse(_serialize_place(place))
 
 
