@@ -216,7 +216,17 @@
         </div>
         <div class="pl-body-pane">
             <div class="pl-modal-title" id="detail-title">place</div>
+            <div id="detail-loading" style="display:none;align-items:center;gap:0.6rem;color:var(--text-muted);font-weight:600;font-size:0.85rem;padding:0.5rem 0 1rem;">
+                <span class="spinner"></span> loading…
+            </div>
             <div class="pl-stat-grid" id="detail-stats"></div>
+            <div id="detail-notes-wrap" style="margin-bottom:1.25rem;">
+                <label style="display:flex;justify-content:space-between;align-items:center;font-size:0.7rem;font-weight:800;color:var(--text-muted);letter-spacing:0.04em;margin-bottom:0.4rem;">
+                    <span>details</span>
+                    <span id="detail-notes-status" style="font-weight:700;color:var(--text-dim);font-size:0.66rem;text-transform:none;letter-spacing:0;"></span>
+                </label>
+                <textarea id="detail-notes" class="form-control" rows="4" placeholder="add notes about this place — anything you want to remember…" style="resize:vertical;min-height:5rem;"></textarea>
+            </div>
             <div id="detail-cities-wrap" style="display:none;">
                 <label style="display:block;font-size:0.7rem;font-weight:800;color:var(--text-muted);letter-spacing:0.04em;margin-bottom:0.4rem;">cities</label>
                 <div class="pl-chips" id="detail-cities"></div>
@@ -410,14 +420,67 @@ function ensureDetailMap() {
 }
 function closeDetail() { document.getElementById('detail-overlay').classList.remove('open'); }
 
+function setDetailLoading(loading) {
+    document.getElementById('detail-loading').style.display = loading ? 'flex' : 'none';
+    document.getElementById('detail-stats').style.display = loading ? 'none' : 'grid';
+    document.getElementById('detail-notes-wrap').style.display = loading ? 'none' : 'block';
+    document.querySelector('#detail-overlay .pl-actions').style.display = loading ? 'none' : 'flex';
+    if (loading) {
+        document.getElementById('detail-cities-wrap').style.display = 'none';
+        document.getElementById('detail-days-wrap').style.display = 'none';
+        document.getElementById('detail-loading').innerHTML = '<span class="spinner"></span> loading…';
+    }
+}
+
+let _notesTimer = null;
+function setupDetailNotes(d) {
+    const ta = document.getElementById('detail-notes');
+    const status = document.getElementById('detail-notes-status');
+    ta.value = d.notes || '';
+    status.textContent = '';
+    ta.oninput = () => {
+        status.textContent = 'saving…';
+        clearTimeout(_notesTimer);
+        _notesTimer = setTimeout(() => saveNotes(d.id, ta.value, status), 700);
+    };
+}
+async function saveNotes(id, notes, status) {
+    try {
+        const res = await fetch(`/api/places/${id}/update/`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ notes }),
+        });
+        status.textContent = res.ok ? 'saved ✓' : 'save failed';
+    } catch (e) { status.textContent = 'save failed'; }
+    setTimeout(() => { if (status.textContent === 'saved ✓') status.textContent = ''; }, 1800);
+}
+
 async function openDetail(id) {
     detailId = id;
     document.getElementById('detail-overlay').classList.add('open');
     ensureDetailMap();
     detailMap.resize();
-    const res = await fetch(`/api/places/${id}/`);
-    const d = await res.json();
+
+    // Immediate feedback: show the name we already know + a loading state,
+    // clearing any stale content from the previously-opened place.
+    const known = placesCache.find(p => p.id === id);
+    document.getElementById('detail-title').textContent = known ? known.name : 'place';
+    setDetailLoading(true);
+
+    let d;
+    try {
+        const res = await fetch(`/api/places/${id}/`);
+        d = await res.json();
+    } catch (e) {
+        document.getElementById('detail-loading').innerHTML = 'failed to load — try again';
+        return;
+    }
+    if (detailId !== id) return;  // a different place was opened meanwhile
+    setDetailLoading(false);
     document.getElementById('detail-title').textContent = d.name;
+
+    // Notes (autosaving)
+    setupDetailNotes(d);
 
     document.getElementById('detail-stats').innerHTML = `
         <div class="pl-stat"><div class="pl-stat-num" style="color:${d.color};">${(d.point_count || 0).toLocaleString()}</div><div class="pl-stat-lbl">points</div></div>
