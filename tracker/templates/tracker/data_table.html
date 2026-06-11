@@ -93,11 +93,13 @@ function escHtml(s) {
 
 function renderRows() {
     const html = allRows.map(r => {
-        // Place = the specific POI dwelled at (store, etc.), not the town —
-        // the town is already shown in the City column. No POI ⇒ blank.
-        const place = r.poi_name || '';
+        // Place = your own custom place if the point falls inside one, else the
+        // specific POI dwelled at (store, etc.). The town is in the City column.
+        const isCustom = !!r.custom_place;
+        const place = r.custom_place || r.poi_name || '';
+        const placeColor = isCustom ? 'var(--accent)' : 'var(--primary)';
         const placeCell = place
-            ? '<span style="color:var(--primary);font-size:0.8125rem;" title="' + escHtml(place) + '">' + escHtml(place) + '</span>'
+            ? '<span style="color:' + placeColor + ';font-size:0.8125rem;" title="' + escHtml(place) + '">' + escHtml(place) + '</span>'
             : '-';
         return `<tr id="loc-${r.id}" data-ts="${r.timestamp}" style="cursor:pointer">
         <td>${escHtml(r.device)}</td>
@@ -235,6 +237,7 @@ function loadData(append = false) {
                         country_code: loc.country_code,
                         place_name: loc.place_name || '',
                         poi_name: loc.poi_name || '',
+                        custom_place: loc.custom_place || '',
                         speed: loc.speed,
                         battery: loc.battery,
                         timestamp: loc.timestamp,
@@ -255,6 +258,7 @@ function loadData(append = false) {
                             country_code: loc.country_code,
                             place_name: loc.place_name || '',
                             poi_name: loc.poi_name || '',
+                            custom_place: loc.custom_place || '',
                             speed: loc.speed,
                             battery: loc.battery,
                             timestamp: loc.timestamp,
@@ -348,6 +352,7 @@ async function loadAll() {
                         country_code: loc.country_code,
                         place_name: loc.place_name || '',
                         poi_name: loc.poi_name || '',
+                        custom_place: loc.custom_place || '',
                         speed: loc.speed,
                         battery: loc.battery,
                         timestamp: loc.timestamp,
@@ -368,6 +373,7 @@ async function loadAll() {
                             country_code: loc.country_code,
                             place_name: loc.place_name || '',
                             poi_name: loc.poi_name || '',
+                            custom_place: loc.custom_place || '',
                             speed: loc.speed,
                             battery: loc.battery,
                             timestamp: loc.timestamp,
