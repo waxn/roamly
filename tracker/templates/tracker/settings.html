@@ -446,11 +446,11 @@
                 <span class="badge badge-warning" style="font-size:0.65rem;">admin · instance-wide</span>
             </div>
             <p class="settings-section-desc">
-                Raw JavaScript injected just before <code>&lt;/body&gt;</code> on every page for <strong>all users of this instance</strong> — analytics snippets (PostHog, Plausible, Fathom…) or small tweaks. Do <strong>not</strong> include <code>&lt;script&gt;</code> tags. Leave empty to inject nothing.
+                HTML injected verbatim just before <code>&lt;/body&gt;</code> on every page for <strong>all users of this instance</strong> — paste analytics snippets exactly as the provider gives them, <strong>including <code>&lt;script&gt;</code> tags</strong> (GoatCounter, Plausible, Fathom, PostHog…). Leave empty to inject nothing.
             </p>
             <textarea id="custom-js-input" class="form-control" rows="8" spellcheck="false"
                 style="font-family:'Space Grotesk',monospace;font-size:0.8125rem;white-space:pre;resize:vertical;"
-                placeholder="// e.g. posthog.init('KEY', { api_host: 'https://...' })">{{ site_custom_js }}</textarea>
+                placeholder='&lt;script data-goatcounter="https://you.goatcounter.com/count" async src="//gc.zgo.at/count.js"&gt;&lt;/script&gt;'>{{ site_custom_js }}</textarea>
             <div class="settings-actions" style="margin-top:0.75rem;">
                 <button class="btn btn-primary btn-sm" onclick="saveCustomJs()">Save</button>
                 <span id="custom-js-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>

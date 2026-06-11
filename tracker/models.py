@@ -514,8 +514,9 @@ class UserProfile(models.Model):
 
 class SiteConfig(models.Model):
     """Singleton row (pk=1) of instance-wide settings editable by an admin."""
-    # Raw JS injected before </body> on every page (no <script> tags). Replaces
-    # the old CUSTOM_JS_SNIPPET env var so it can be edited live from Settings.
+    # Raw HTML injected verbatim before </body> on every page — paste analytics
+    # snippets as-is, *including* their <script> tags (so e.g. GoatCounter's
+    # <script src> tag works). Replaces the old CUSTOM_JS_SNIPPET env var.
     custom_js = models.TextField(blank=True, default='')
     updated_at = models.DateTimeField(auto_now=True)
 
