@@ -185,12 +185,12 @@ Inline pin refs: `[^pin:42]` in paragraph block text references an `AdventurePla
 
 ## Custom Places
 
-User-defined named geofences ("Home", "Work") — a top-nav **Places** tab (`/places/`, `places_view` → `places.html`). A `CustomPlace` is just `name` + center (`latitude`/`longitude`) + `radius_m` + an auto-assigned clay-palette `color` (cycled by the user's place count, no picker). **Membership is computed on the fly** via the existing `_find_nearby_locations(qs, lat, lng, radius_m)` helper (PostGIS `ST_DWithin` / SQLite bbox) — there is **no per-point FK on `Location`, no migration to it, and no background job** (unlike POI matching); a user has only a handful of places so checks are cheap.
+User-defined named geofences ("Home", "Work") — a top-nav **Places** tab (`/places/`, `places_view` → `places.html`). A `CustomPlace` is `name` + center (`latitude`/`longitude`) + `radius_m` + an auto-assigned clay-palette `color` (cycled by the user's place count, no picker) + a free-text `notes` field (migration `0030`). **Membership is computed on the fly** via the existing `_find_nearby_locations(qs, lat, lng, radius_m)` helper (PostGIS `ST_DWithin` / SQLite bbox) — there is **no per-point FK on `Location`, no migration to it, and no background job** (unlike POI matching); a user has only a handful of places so checks are cheap.
 
-The Places page is a card grid (point count + last-seen per place) with two MapLibre modals: a **create/edit** modal (click the map to set the center, drag a radius slider) and a **detail** modal (the circle + a decimated sample of inside-points, plus points/days/time-spent/first-seen stats and the cities covered). Endpoints (all `@login_required`, ownership-scoped):
+The Places page is a card grid (point count + last-seen per place) with two MapLibre modals: a **create/edit** modal (click the map to set the center, drag a radius slider) and a **detail** modal (the circle + a decimated sample of inside-points, plus points/days/time-spent/first-seen stats, the cities covered, and an autosaving free-text `notes` box). The detail modal shows a spinner while loading. Endpoints (all `@login_required`, ownership-scoped):
 - `GET/POST /api/places/` (`places_api`) — list (with light stats, cache-gen keyed) / create
-- `GET /api/places/<id>/` (`place_detail_api`) — full stats: `_group_by_day` for days, `_calc_dwell_time` for total time, a decimated point sample for the map
-- `POST /api/places/<id>/update/`, `POST /api/places/<id>/delete/`
+- `GET /api/places/<id>/` (`place_detail_api`) — full stats in a **single DB pass** (the inside-points are fetched once and counts/per-day dwell/cities/map-sample derived in Python; the old version ran ~4 full scans of the geofence, slow for big places)
+- `POST /api/places/<id>/update/` (name/center/radius/`notes`; a notes-only autosave skips the heavy `_refresh_places_snapshot`), `POST /api/places/<id>/delete/`
 
 Every mutation calls `_bust_user_cache`. Custom places are surfaced in three more places:
 - **Data table Place column** — `locations_api` resolves membership in-Python over the fetched page (`_place_membership`, a small bbox+haversine scan) and sets a `custom_place` field; the template prefers it over `poi_name` and renders it in coral (`--accent`). Place *sort* still uses the POI annotation.
