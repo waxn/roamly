@@ -1,0 +1,495 @@
+{% extends 'tracker/base.html' %}
+{% block title %}Places - Roamly{% endblock %}
+
+{% block extra_css %}
+.places-wrap { max-width: 1150px; }
+
+.places-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 1rem;
+}
+.place-card {
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+}
+.place-card .pc-top {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    margin-bottom: 1rem;
+}
+.place-card .pc-dot {
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: var(--clay-shadow-sm);
+}
+.place-card .pc-name {
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.place-card .pc-stats {
+    display: flex;
+    gap: 1.25rem;
+}
+.place-card .pc-stat .pc-num {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+}
+.place-card .pc-stat .pc-lbl {
+    font-size: 0.68rem;
+    font-weight: 800;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+    margin-top: 0.15rem;
+}
+.place-empty {
+    text-align: center;
+    padding: 2.5rem 1.5rem;
+    color: var(--text-muted);
+}
+.place-empty .pe-emoji { font-size: 2.5rem; }
+
+/* ── Modal ── */
+.pl-modal-overlay {
+    position: fixed; inset: 0; z-index: 2000;
+    background: rgba(4, 8, 18, 0.72);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: none; align-items: center; justify-content: center;
+    padding: 1.5rem;
+    opacity: 0; transition: opacity 0.25s var(--ease-out);
+}
+.pl-modal-overlay.open { display: flex; opacity: 1; }
+.pl-modal {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-clay-lg);
+    box-shadow: var(--clay-shadow-hover);
+    width: 100%; max-width: 940px;
+    max-height: 92vh;
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    overflow: hidden;
+    transform: translateY(16px) scale(0.98);
+    transition: transform 0.3s var(--ease-spring);
+}
+.pl-modal-overlay.open .pl-modal { transform: translateY(0) scale(1); }
+.pl-map-pane { position: relative; min-height: 360px; }
+.pl-map { position: absolute; inset: 0; }
+.pl-body-pane {
+    padding: 1.6rem;
+    overflow-y: auto;
+    display: flex; flex-direction: column;
+}
+.pl-modal-close {
+    position: absolute; top: 0.9rem; right: 0.9rem; z-index: 5;
+    width: 34px; height: 34px; border-radius: 50%;
+    border: none; cursor: pointer;
+    background: var(--bg-elevated); color: var(--text);
+    box-shadow: var(--clay-shadow-sm);
+    font-size: 1.2rem; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+}
+.pl-modal-title {
+    font-family: var(--font-display);
+    font-size: 1.3rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin-bottom: 1.1rem;
+}
+.pl-radius-row { display: flex; align-items: center; gap: 0.75rem; }
+.pl-radius-row input[type=range] { flex: 1; accent-color: var(--primary); }
+.pl-radius-val {
+    font-weight: 800; font-size: 0.85rem; color: var(--primary);
+    min-width: 4.5rem; text-align: right;
+}
+.pl-hint { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.35rem; }
+.pl-actions { display: flex; gap: 0.5rem; margin-top: auto; padding-top: 1.25rem; }
+
+/* Detail stats */
+.pl-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.6rem;
+    margin-bottom: 1.25rem;
+}
+.pl-stat {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-clay-sm);
+    padding: 0.75rem 0.9rem;
+    box-shadow: var(--clay-shadow-sm);
+}
+.pl-stat .pl-stat-num {
+    font-family: var(--font-display);
+    font-size: 1.35rem; font-weight: 800; letter-spacing: -0.02em;
+}
+.pl-stat .pl-stat-lbl {
+    font-size: 0.66rem; font-weight: 800; color: var(--text-muted);
+    letter-spacing: 0.04em; margin-top: 0.15rem;
+}
+.pl-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 1.25rem; }
+.pl-days-table th, .pl-days-table td { padding: 0.45rem 0.6rem; font-size: 0.82rem; }
+
+@media (max-width: 820px) {
+    .pl-modal { grid-template-columns: 1fr; grid-template-rows: 240px auto; max-height: 94vh; }
+    .pl-map-pane { min-height: 240px; }
+}
+{% endblock %}
+
+{% block content %}
+<div class="container places-wrap">
+    <div class="page-toolbar">
+        <h1>places</h1>
+        <div class="toolbar-actions">
+            <button class="btn btn-primary" onclick="openCreate()">+ new place</button>
+        </div>
+    </div>
+    <p class="page-lead" style="margin-top:-0.75rem;margin-bottom:1.5rem;">
+        name your own spots — home, work, the gym — and see when you were there.
+    </p>
+
+    <div id="places-grid" class="places-grid"></div>
+    <div id="places-empty" class="card place-empty" style="display:none;">
+        <div class="pe-emoji">📍</div>
+        <p style="margin-top:0.75rem;font-weight:700;">no places yet</p>
+        <p style="margin-top:0.35rem;">drop a pin on the map and give it a name to get started.</p>
+        <button class="btn btn-primary" style="margin-top:1rem;" onclick="openCreate()">+ new place</button>
+    </div>
+</div>
+
+<!-- Create / edit modal -->
+<div class="pl-modal-overlay" id="edit-overlay">
+    <div class="pl-modal">
+        <div class="pl-map-pane">
+            <div class="pl-map" id="edit-map"></div>
+            <button class="pl-modal-close" onclick="closeEdit()" aria-label="close">&times;</button>
+        </div>
+        <div class="pl-body-pane">
+            <div class="pl-modal-title" id="edit-title">new place</div>
+            <div class="form-group">
+                <label for="edit-name">name</label>
+                <input class="form-control" id="edit-name" type="text" maxlength="200" placeholder="home, work, mom's house…">
+            </div>
+            <div class="form-group">
+                <label>radius</label>
+                <div class="pl-radius-row">
+                    <input type="range" id="edit-radius" min="25" max="2000" step="25" value="150">
+                    <span class="pl-radius-val" id="edit-radius-val">150 m</span>
+                </div>
+                <div class="pl-hint">click the map to move the center.</div>
+            </div>
+            <div class="pl-actions">
+                <button class="btn btn-primary" id="edit-save" onclick="savePlace()" style="flex:1;">save</button>
+                <button class="btn btn-outline" onclick="closeEdit()">cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Detail modal -->
+<div class="pl-modal-overlay" id="detail-overlay">
+    <div class="pl-modal">
+        <div class="pl-map-pane">
+            <div class="pl-map" id="detail-map"></div>
+            <button class="pl-modal-close" onclick="closeDetail()" aria-label="close">&times;</button>
+        </div>
+        <div class="pl-body-pane">
+            <div class="pl-modal-title" id="detail-title">place</div>
+            <div class="pl-stat-grid" id="detail-stats"></div>
+            <div id="detail-cities-wrap" style="display:none;">
+                <label style="display:block;font-size:0.7rem;font-weight:800;color:var(--text-muted);letter-spacing:0.04em;margin-bottom:0.4rem;">cities</label>
+                <div class="pl-chips" id="detail-cities"></div>
+            </div>
+            <div id="detail-days-wrap" style="display:none;">
+                <label style="display:block;font-size:0.7rem;font-weight:800;color:var(--text-muted);letter-spacing:0.04em;margin-bottom:0.4rem;">recent days</label>
+                <div class="table-responsive">
+                    <table class="pl-days-table"><tbody id="detail-days"></tbody></table>
+                </div>
+            </div>
+            <div class="pl-actions">
+                <button class="btn btn-outline" id="detail-edit" style="flex:1;">edit</button>
+                <button class="btn btn-danger" id="detail-delete">delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+const basemapStyle = {
+    version: 8,
+    glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+    sources: { base: {
+        type: 'raster',
+        tiles: ['https://basemaps.cartocdn.com/' + (theme === 'light' ? 'light_all' : 'dark_all') + '/{z}/{x}/{y}.png'],
+        tileSize: 256,
+        attribution: '&copy; OpenStreetMap &copy; CARTO'
+    }},
+    layers: [{ id: 'base', type: 'raster', source: 'base' }]
+};
+
+// Build a circle polygon (GeoJSON) around a center for a given radius in metres.
+function circleGeoJSON(lat, lng, radiusM, steps = 72) {
+    const coords = [];
+    const latR = radiusM / 111320.0;
+    const lngR = radiusM / (111320.0 * Math.cos(lat * Math.PI / 180));
+    for (let i = 0; i <= steps; i++) {
+        const t = (i / steps) * 2 * Math.PI;
+        coords.push([lng + lngR * Math.cos(t), lat + latR * Math.sin(t)]);
+    }
+    return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] }, properties: {} };
+}
+
+function fmtDur(seconds) {
+    if (!seconds || seconds < 60) return (seconds || 0) + 's';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.round((seconds % 3600) / 60);
+    if (h && m) return h + 'h ' + m + 'm';
+    if (h) return h + 'h';
+    return m + 'm';
+}
+function fmtDate(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+function escHtml(s) {
+    return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ── Grid ──────────────────────────────────────────────────────────────────
+let placesCache = [];
+async function loadPlaces() {
+    const res = await fetch('/api/places/');
+    const data = await res.json();
+    placesCache = data.places || [];
+    const grid = document.getElementById('places-grid');
+    const empty = document.getElementById('places-empty');
+    if (!placesCache.length) {
+        grid.innerHTML = '';
+        empty.style.display = 'block';
+        return;
+    }
+    empty.style.display = 'none';
+    grid.innerHTML = placesCache.map(p => `
+        <div class="card place-card" onclick="openDetail(${p.id})">
+            <div class="pc-top">
+                <span class="pc-dot" style="background:${p.color};"></span>
+                <span class="pc-name">${escHtml(p.name)}</span>
+            </div>
+            <div class="pc-stats">
+                <div class="pc-stat">
+                    <div class="pc-num" style="color:${p.color};">${(p.point_count || 0).toLocaleString()}</div>
+                    <div class="pc-lbl">points</div>
+                </div>
+                <div class="pc-stat">
+                    <div class="pc-num">${p.last_seen ? fmtDate(p.last_seen) : '—'}</div>
+                    <div class="pc-lbl">last seen</div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+// ── Create / edit modal ──────────────────────────────────────────────────
+let editMap = null, editMarker = null, editId = null;
+let editCenter = null, editRadius = 150;
+
+function ensureEditMap() {
+    if (editMap) return;
+    editMap = new maplibregl.Map({ container: 'edit-map', style: basemapStyle, center: [0, 20], zoom: 1 });
+    editMap.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+    editMap.on('load', () => {
+        editMap.addSource('edit-circle', { type: 'geojson', data: circleGeoJSON(0, 0, 1) });
+        editMap.addLayer({ id: 'edit-circle-fill', type: 'fill', source: 'edit-circle',
+            paint: { 'fill-color': '#0DBFAC', 'fill-opacity': 0.18 } });
+        editMap.addLayer({ id: 'edit-circle-line', type: 'line', source: 'edit-circle',
+            paint: { 'line-color': '#0DBFAC', 'line-width': 2 } });
+        redrawEditCircle();
+    });
+    editMap.on('click', (e) => {
+        editCenter = [e.lngLat.lng, e.lngLat.lat];
+        editMarker.setLngLat(editCenter);
+        redrawEditCircle();
+    });
+    editMarker = new maplibregl.Marker({ color: '#0DBFAC', draggable: true });
+    editMarker.on('dragend', () => {
+        const ll = editMarker.getLngLat();
+        editCenter = [ll.lng, ll.lat];
+        redrawEditCircle();
+    });
+}
+function redrawEditCircle() {
+    if (!editMap || !editMap.getSource('edit-circle') || !editCenter) return;
+    editMap.getSource('edit-circle').setData(circleGeoJSON(editCenter[1], editCenter[0], editRadius));
+}
+
+function openCreate() { openEdit(null); }
+function openEdit(place) {
+    editId = place ? place.id : null;
+    document.getElementById('edit-title').textContent = place ? 'edit place' : 'new place';
+    document.getElementById('edit-name').value = place ? place.name : '';
+    editRadius = place ? Math.round(place.radius_m) : 150;
+    const slider = document.getElementById('edit-radius');
+    if (editRadius > parseInt(slider.max)) slider.max = Math.ceil(editRadius / 25) * 25;
+    slider.value = editRadius;
+    document.getElementById('edit-radius-val').textContent = editRadius + ' m';
+    document.getElementById('edit-overlay').classList.add('open');
+    ensureEditMap();
+    editMap.resize();
+    if (place) {
+        editCenter = [place.lng, place.lat];
+        editMap.jumpTo({ center: editCenter, zoom: 14 });
+        editMarker.setLngLat(editCenter).addTo(editMap);
+        redrawEditCircle();
+    } else {
+        editCenter = null;
+        editMarker.remove();
+        // center the map on the user's data if possible
+        fetch('/api/locations/bounds/?all=1').then(r => r.json()).then(b => {
+            if (b && b.bounds) {
+                const [[minLng, minLat], [maxLng, maxLat]] = b.bounds;
+                const c = [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
+                editCenter = c;
+                editMap.fitBounds(b.bounds, { padding: 60, maxZoom: 14, duration: 0 });
+                editMarker.setLngLat(c).addTo(editMap);
+                redrawEditCircle();
+            }
+        }).catch(() => {});
+    }
+    setTimeout(() => editMap.resize(), 60);
+}
+function closeEdit() { document.getElementById('edit-overlay').classList.remove('open'); }
+
+document.getElementById('edit-radius').addEventListener('input', (e) => {
+    editRadius = parseInt(e.target.value);
+    document.getElementById('edit-radius-val').textContent = editRadius + ' m';
+    redrawEditCircle();
+});
+
+async function savePlace() {
+    const name = document.getElementById('edit-name').value.trim();
+    if (!name) { document.getElementById('edit-name').focus(); return; }
+    if (!editCenter) { alert('click the map to set the center first'); return; }
+    const btn = document.getElementById('edit-save');
+    btn.disabled = true;
+    const payload = { name, lat: editCenter[1], lng: editCenter[0], radius_m: editRadius };
+    const url = editId ? `/api/places/${editId}/update/` : '/api/places/';
+    try {
+        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.error || 'save failed'); return; }
+        closeEdit();
+        await loadPlaces();
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// ── Detail modal ──────────────────────────────────────────────────────────
+let detailMap = null, detailId = null;
+function ensureDetailMap() {
+    if (detailMap) return;
+    detailMap = new maplibregl.Map({ container: 'detail-map', style: basemapStyle, center: [0, 20], zoom: 1 });
+    detailMap.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+}
+function closeDetail() { document.getElementById('detail-overlay').classList.remove('open'); }
+
+async function openDetail(id) {
+    detailId = id;
+    document.getElementById('detail-overlay').classList.add('open');
+    ensureDetailMap();
+    detailMap.resize();
+    const res = await fetch(`/api/places/${id}/`);
+    const d = await res.json();
+    document.getElementById('detail-title').textContent = d.name;
+
+    document.getElementById('detail-stats').innerHTML = `
+        <div class="pl-stat"><div class="pl-stat-num" style="color:${d.color};">${(d.point_count || 0).toLocaleString()}</div><div class="pl-stat-lbl">points</div></div>
+        <div class="pl-stat"><div class="pl-stat-num">${(d.days || []).length}</div><div class="pl-stat-lbl">days</div></div>
+        <div class="pl-stat"><div class="pl-stat-num">${fmtDur(d.time_spent)}</div><div class="pl-stat-lbl">time spent</div></div>
+        <div class="pl-stat"><div class="pl-stat-num" style="font-size:1rem;">${fmtDate(d.first_seen)}</div><div class="pl-stat-lbl">first seen</div></div>
+    `;
+
+    const citiesWrap = document.getElementById('detail-cities-wrap');
+    if (d.cities && d.cities.length) {
+        citiesWrap.style.display = 'block';
+        document.getElementById('detail-cities').innerHTML = d.cities.map(c =>
+            `<span class="badge badge-teal">${escHtml(c.city)}${c.state ? ', ' + escHtml(c.state) : ''}</span>`).join('');
+    } else { citiesWrap.style.display = 'none'; }
+
+    const daysWrap = document.getElementById('detail-days-wrap');
+    if (d.days && d.days.length) {
+        daysWrap.style.display = 'block';
+        document.getElementById('detail-days').innerHTML = d.days.slice(0, 12).map(day => {
+            const url = `/map/?start=${day.date}&end=${day.date}&lat=${d.lat}&lng=${d.lng}&zoom=15`;
+            return `<tr onclick="window.location='${url}'" style="cursor:pointer;" title="view on map">
+                <td style="white-space:nowrap;"><a href="${url}" style="color:var(--primary);text-decoration:none;">${fmtDate(day.date)}</a></td>
+                <td>${day.count} pts</td>
+                <td style="white-space:nowrap;">${fmtDur(day.time_spent)}</td>
+            </tr>`;
+        }).join('');
+    } else { daysWrap.style.display = 'none'; }
+
+    document.getElementById('detail-edit').onclick = () => {
+        closeDetail();
+        openEdit({ id: d.id, name: d.name, lat: d.lat, lng: d.lng, radius_m: d.radius_m });
+    };
+    document.getElementById('detail-delete').onclick = () => deletePlace(d.id, d.name);
+
+    // Draw circle + sample points
+    const draw = () => {
+        for (const id of ['d-circle-fill', 'd-circle-line', 'd-points']) {
+            if (detailMap.getLayer(id)) detailMap.removeLayer(id);
+        }
+        for (const id of ['d-circle', 'd-points-src']) {
+            if (detailMap.getSource(id)) detailMap.removeSource(id);
+        }
+        detailMap.addSource('d-circle', { type: 'geojson', data: circleGeoJSON(d.lat, d.lng, d.radius_m) });
+        detailMap.addLayer({ id: 'd-circle-fill', type: 'fill', source: 'd-circle',
+            paint: { 'fill-color': d.color, 'fill-opacity': 0.15 } });
+        detailMap.addLayer({ id: 'd-circle-line', type: 'line', source: 'd-circle',
+            paint: { 'line-color': d.color, 'line-width': 2 } });
+        const pts = (d.sample || []).map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: {} }));
+        detailMap.addSource('d-points-src', { type: 'geojson', data: { type: 'FeatureCollection', features: pts } });
+        detailMap.addLayer({ id: 'd-points', type: 'circle', source: 'd-points-src',
+            paint: { 'circle-radius': 3, 'circle-color': d.color, 'circle-opacity': 0.6 } });
+        // Fit to the circle bbox
+        const latR = d.radius_m / 111320.0;
+        const lngR = d.radius_m / (111320.0 * Math.cos(d.lat * Math.PI / 180));
+        detailMap.fitBounds([[d.lng - lngR, d.lat - latR], [d.lng + lngR, d.lat + latR]], { padding: 40, duration: 0 });
+    };
+    if (detailMap.isStyleLoaded()) draw(); else detailMap.once('load', draw);
+    setTimeout(() => detailMap.resize(), 60);
+}
+
+async function deletePlace(id, name) {
+    if (!confirm(`delete "${name}"? this only removes the place, not your location data.`)) return;
+    const res = await fetch(`/api/places/${id}/delete/`, { method: 'POST' });
+    if (res.ok) { closeDetail(); await loadPlaces(); }
+}
+
+// Close modals on overlay click / escape
+for (const id of ['edit-overlay', 'detail-overlay']) {
+    document.getElementById(id).addEventListener('click', (e) => {
+        if (e.target.id === id) e.currentTarget.classList.remove('open');
+    });
+}
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeEdit(); closeDetail();
+    }
+});
+
+loadPlaces();
+</script>
+{% endblock %}
