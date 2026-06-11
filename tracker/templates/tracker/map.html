@@ -360,6 +360,10 @@
                         scratch map
                         <span class="tool-btn-badge" id="scratch-badge"></span>
                     </button>
+                    <button class="tool-btn" id="places-btn" type="button">
+                        my places
+                        <span class="tool-btn-badge" id="places-badge"></span>
+                    </button>
                     <button class="tool-btn" id="replay-btn" type="button">
                         replay day
                         <span class="tool-btn-badge" id="replay-badge"></span>
@@ -1148,10 +1152,79 @@ scratchBtn.addEventListener('click', async () => {
     }
 });
 
-// Re-apply projection + scratch layers after any basemap style swap.
+// ═══════════════════════════════════════════════════════════════════
+// My Places — optional layer of the user's custom geofences
+// ═══════════════════════════════════════════════════════════════════
+const placesBtn = document.getElementById('places-btn');
+const placesBadge = document.getElementById('places-badge');
+let placesOn = localStorage.getItem('roamly_show_places') === 'on';
+let myPlaces = null;
+
+function placeCircleGeoJSON(lat, lng, radiusM, props, steps = 64) {
+    const coords = [];
+    const latR = radiusM / 111320.0;
+    const lngR = radiusM / (111320.0 * Math.cos(lat * Math.PI / 180));
+    for (let i = 0; i <= steps; i++) {
+        const t = (i / steps) * 2 * Math.PI;
+        coords.push([lng + lngR * Math.cos(t), lat + latR * Math.sin(t)]);
+    }
+    return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] }, properties: props };
+}
+
+async function loadMyPlaces() {
+    if (myPlaces) return;
+    try {
+        const d = await fetch('/api/places/').then(r => r.json());
+        myPlaces = d.places || [];
+    } catch (e) { myPlaces = []; }
+}
+
+function addPlacesLayers() {
+    if (!myPlaces || !myPlaces.length || map.getSource('myplaces-src')) return;
+    const circles = myPlaces.map(p => placeCircleGeoJSON(p.lat, p.lng, p.radius_m, { name: p.name, color: p.color }));
+    const labels = myPlaces.map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { name: p.name } }));
+    map.addSource('myplaces-src', { type: 'geojson', data: { type: 'FeatureCollection', features: circles } });
+    map.addSource('myplaces-labels', { type: 'geojson', data: { type: 'FeatureCollection', features: labels } });
+    map.addLayer({ id: 'myplaces-fill', type: 'fill', source: 'myplaces-src',
+        paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.15 } });
+    map.addLayer({ id: 'myplaces-line', type: 'line', source: 'myplaces-src',
+        paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.9 } });
+    map.addLayer({ id: 'myplaces-label', type: 'symbol', source: 'myplaces-labels',
+        layout: { 'text-field': ['get', 'name'], 'text-size': 13, 'text-offset': [0, 0.2], 'text-anchor': 'center' },
+        paint: { 'text-color': '#ffffff', 'text-halo-color': '#0c1220', 'text-halo-width': 1.4 } });
+}
+
+function removePlacesLayers() {
+    ['myplaces-fill', 'myplaces-line', 'myplaces-label'].forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
+    ['myplaces-src', 'myplaces-labels'].forEach(s => { if (map.getSource(s)) map.removeSource(s); });
+}
+
+async function applyPlacesToggle() {
+    placesBtn.classList.toggle('active', placesOn);
+    if (placesOn) {
+        await loadMyPlaces();
+        if (map.isStyleLoaded()) addPlacesLayers();  // else the style.load handler adds them
+        const n = (myPlaces || []).length;
+        placesBadge.textContent = n ? `${n} ${n === 1 ? 'place' : 'places'}` : 'none yet';
+    } else {
+        removePlacesLayers();
+        placesBadge.textContent = '';
+    }
+}
+
+placesBtn.addEventListener('click', async () => {
+    placesOn = !placesOn;
+    localStorage.setItem('roamly_show_places', placesOn ? 'on' : 'off');
+    await applyPlacesToggle();
+});
+
+if (placesOn) applyPlacesToggle();
+
+// Re-apply projection + scratch + places layers after any basemap style swap.
 map.on('style.load', () => {
     applyProjection();
     if (scratchOn) addScratchLayers();
+    if (placesOn) addPlacesLayers();
 });
 
 // ═══════════════════════════════════════════════════════════════════
