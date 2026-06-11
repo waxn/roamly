@@ -696,6 +696,7 @@ class CustomPlace(models.Model):
     longitude = models.FloatField()
     radius_m = models.FloatField(default=150)  # geofence radius in metres
     color = models.CharField(max_length=20, blank=True)  # auto-assigned from clay palette
+    notes = models.TextField(blank=True, default='')  # free-text details, editable on the detail panel
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
