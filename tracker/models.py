@@ -662,34 +662,3 @@ class JournalPhoto(models.Model):
 
     def __str__(self):
         return f"Photo {self.order} on journal {self.entry_id}"
-
-
-class AIConfig(models.Model):
-    """OpenAI-compatible API configuration for AI day summaries."""
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='ai_config')
-    api_url = models.URLField(max_length=500, default='http://localhost:11434/v1')
-    api_key = models.CharField(max_length=500, blank=True)
-    model_name = models.CharField(max_length=200, default='tinyllama')
-    enabled = models.BooleanField(default=False)
-
-    def __str__(self):
-        return f"AIConfig for {self.user.username}"
-
-
-class AISummary(models.Model):
-    """AI-generated prose summary of a user's day."""
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='ai_summaries')
-    date = models.DateField(db_index=True)
-    summary = models.TextField()
-    places_json = models.JSONField(default=list)
-    tags_json = models.JSONField(default=list)
-    distance_km = models.FloatField(null=True, blank=True)
-    generated_at = models.DateTimeField(auto_now=True)
-    model_used = models.CharField(max_length=200, blank=True)
-
-    class Meta:
-        ordering = ['-date']
-        unique_together = ['user', 'date']
-
-    def __str__(self):
-        return f"AISummary {self.user.username} {self.date}"

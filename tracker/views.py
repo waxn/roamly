@@ -35,7 +35,7 @@ from .models import (
     Device, Location, APIKey, Adventure, AdventurePlace, POI, BackupConfig,
     UserProfile, Pal, PalMember, PalBlurb, PalBlurbPhoto, PalMilestone, PalComment,
     AdventureMember, AdventureBlurb, AdventureBlurbPhoto, AdventureMilestone, AdventureComment,
-    SiteStat, JournalEntry, JournalPhoto, AIConfig, AISummary, Visit,
+    SiteStat, JournalEntry, JournalPhoto, Visit,
 )
 from .image_utils import resize_image, resize_photo
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
@@ -355,7 +355,6 @@ def settings_view(request):
     devices = Device.objects.filter(user=request.user)
     form = APIKeyForm()
     backup_config = BackupConfig.objects.filter(user=request.user).first()
-    ai_config = AIConfig.objects.filter(user=request.user).first()
     UserProfile.objects.get_or_create(user=request.user)
     return render(request, 'tracker/settings.html', {
         'api_keys': api_keys,
@@ -363,7 +362,6 @@ def settings_view(request):
         'form': form,
         'has_postgis': HAS_POSTGIS,
         'backup_config': backup_config,
-        'ai_config': ai_config,
     })
 
 
@@ -5466,162 +5464,3 @@ def journal_photo_delete_api(request, photo_id):
     photo = get_object_or_404(JournalPhoto, id=photo_id, entry__user=request.user)
     photo.delete()
     return JsonResponse({'status': 'ok'})
-
-
-# ---------------------------------------------------------------------------
-# AI Summaries
-# ---------------------------------------------------------------------------
-
-@login_required
-def summaries_view(request):
-    if not AIConfig.objects.filter(user=request.user, enabled=True).exists():
-        return redirect('tracker:map')
-    return render(request, 'tracker/summaries.html', {})
-
-
-@login_required
-def summaries_list_api(request):
-    q = request.GET.get('q', '').strip()
-    page = max(1, int(request.GET.get('page', 1)))
-    per_page = min(50, max(1, int(request.GET.get('per_page', 20))))
-
-    qs = AISummary.objects.filter(user=request.user)
-    if q:
-        qs = qs.filter(summary__icontains=q)
-
-    total = qs.count()
-    offset = (page - 1) * per_page
-    summaries = qs[offset:offset + per_page]
-
-    def _ser(s):
-        preview = s.summary[:250] + ('…' if len(s.summary) > 250 else '')
-        return {
-            'date': s.date.isoformat(),
-            'summary_preview': preview,
-            'places': s.places_json,
-            'tags': s.tags_json,
-            'distance_km': s.distance_km,
-            'generated_at': s.generated_at.isoformat(),
-            'model_used': s.model_used,
-        }
-
-    return JsonResponse({
-        'summaries': [_ser(s) for s in summaries],
-        'total': total,
-        'page': page,
-        'has_more': offset + per_page < total,
-    })
-
-
-@login_required
-def summary_detail_api(request, date_str):
-    d = _journal_parse_date(date_str)
-    if d is None:
-        return JsonResponse({'error': 'Invalid date'}, status=400)
-    s = get_object_or_404(AISummary, user=request.user, date=d)
-    return JsonResponse({
-        'date': s.date.isoformat(),
-        'summary': s.summary,
-        'places': s.places_json,
-        'tags': s.tags_json,
-        'distance_km': s.distance_km,
-        'generated_at': s.generated_at.isoformat(),
-        'model_used': s.model_used,
-    })
-
-
-@csrf_exempt
-@login_required
-@require_POST
-def summary_generate_api(request, date_str):
-    from .ai_tasks import generate_one
-    d = _journal_parse_date(date_str)
-    if d is None:
-        return JsonResponse({'error': 'Invalid date'}, status=400)
-
-    try:
-        AIConfig.objects.get(user=request.user, enabled=True)
-    except AIConfig.DoesNotExist:
-        return JsonResponse({'error': 'AI not configured or disabled. Go to Settings to set it up.'}, status=400)
-
-    summary_obj, err = generate_one(request.user, d)
-    if err:
-        return JsonResponse({'error': err}, status=502)
-
-    return JsonResponse({
-        'date': summary_obj.date.isoformat(),
-        'summary': summary_obj.summary,
-        'places': summary_obj.places_json,
-        'tags': summary_obj.tags_json,
-        'distance_km': summary_obj.distance_km,
-        'generated_at': summary_obj.generated_at.isoformat(),
-        'model_used': summary_obj.model_used,
-    })
-
-
-@csrf_exempt
-@login_required
-def summary_bulk_api(request):
-    """POST: start bulk generation. GET: status."""
-    from .ai_tasks import start_summary_generation, stop_summary_generation, get_summary_status
-    if request.method == 'POST':
-        action = request.POST.get('action', 'start')
-        if action == 'stop':
-            stop_summary_generation(request.user.id)
-            return JsonResponse({'status': 'stopped'})
-        start_summary_generation(request.user.id)
-        return JsonResponse(get_summary_status(request.user.id))
-    return JsonResponse(get_summary_status(request.user.id))
-
-
-@csrf_exempt
-@login_required
-@require_POST
-def summary_delete_api(request, date_str):
-    d = _journal_parse_date(date_str)
-    if d is None:
-        return JsonResponse({'error': 'Invalid date'}, status=400)
-    AISummary.objects.filter(user=request.user, date=d).delete()
-    return JsonResponse({'status': 'ok'})
-
-
-@csrf_exempt
-@login_required
-@require_POST
-def ai_config_api(request):
-    try:
-        body = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON'}, status=400)
-
-    api_url = body.get('api_url', '').strip()
-    api_key = body.get('api_key', '').strip()
-    model_name = body.get('model_name', '').strip()
-    enabled = bool(body.get('enabled', False))
-
-    if not api_url:
-        return JsonResponse({'error': 'API URL is required'}, status=400)
-    if not model_name:
-        return JsonResponse({'error': 'Model name is required'}, status=400)
-
-    AIConfig.objects.update_or_create(
-        user=request.user,
-        defaults={
-            'api_url': api_url,
-            'api_key': api_key,
-            'model_name': model_name,
-            'enabled': enabled,
-        },
-    )
-    return JsonResponse({'ok': True})
-
-
-@login_required
-def ai_test_api(request):
-    """GET: test connectivity to the configured LLM endpoint."""
-    from .ai_tasks import test_connection
-    ai_cfg = AIConfig.objects.filter(user=request.user).first()
-    if not ai_cfg:
-        return JsonResponse({'ok': False, 'error': 'No AI config saved yet. Save your settings first.', 'tried': [], 'models': None})
-    result = test_connection(ai_cfg)
-    return JsonResponse(result)
