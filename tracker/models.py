@@ -662,3 +662,26 @@ class JournalPhoto(models.Model):
 
     def __str__(self):
         return f"Photo {self.order} on journal {self.entry_id}"
+
+
+class CustomPlace(models.Model):
+    """A user-defined named geofence (center + radius) — e.g. "Home", "Work".
+
+    Membership is computed on the fly via the same radius query used elsewhere
+    (`_find_nearby_locations`), so there is no per-point FK and no background job;
+    a user has only a handful of these, so checks are cheap. The geometry lives on
+    Location, so this model needs no spatial column of its own."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='custom_places')
+    name = models.CharField(max_length=200)
+    latitude = models.FloatField()
+    longitude = models.FloatField()
+    radius_m = models.FloatField(default=150)  # geofence radius in metres
+    color = models.CharField(max_length=20, blank=True)  # auto-assigned from clay palette
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+        indexes = [models.Index(fields=['user'], name='tracker_custplace_user_idx')]
+
+    def __str__(self):
+        return f"{self.name} ({self.user.username})"
