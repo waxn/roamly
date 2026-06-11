@@ -172,7 +172,7 @@ compose file, or directly in your host's stack settings. Nothing is hardcoded.
 | `ALLOWED_HOSTS` | Yes | Comma-separated hostnames, no protocol (e.g. `roamly.example.com`). |
 | `CSRF_TRUSTED_ORIGINS` | Yes | Comma-separated origins **with** protocol (e.g. `https://roamly.example.com`). |
 | `REDIS_URL` | No | Redis connection string. Omit to use an in-memory cache. |
-| `CUSTOM_JS_SNIPPET` | No | Raw JS (no `<script>` tags) injected before `</body>` on every page. Use for analytics tools like PostHog, Plausible, or Fathom. Unset by default — self-hosters get nothing extra. |
+| `ADMIN_SIGNUP_KEY` | No | Secret key that, entered in the signup form's "admin account" section, creates an instance-admin account. Unset = no new admin accounts can be made. (Custom instance-wide JS is now edited in-app under Settings → Custom JavaScript by an admin, not via an env var.) |
 
 > Always change `SECRET_KEY` and `POSTGRES_PASSWORD` before exposing Roamly to
 > the internet, and put it behind HTTPS (nginx or Caddy + Let's Encrypt). Don't
