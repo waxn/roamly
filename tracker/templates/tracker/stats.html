@@ -92,6 +92,10 @@
             <input type="date" id="stats-end" title="End date">
         </div>
     </div>
+    <div id="snapshot-bar" style="display:flex;align-items:center;gap:0.6rem;justify-content:flex-end;margin-top:-0.5rem;margin-bottom:1rem;">
+        <span id="snapshot-updated" style="font-size:0.75rem;color:var(--text-muted);font-weight:600;white-space:nowrap;">updated …</span>
+        <button id="snapshot-recalc" class="btn btn-outline btn-sm" title="Recompute now">↻ recalculate</button>
+    </div>
 
     <div class="grid grid-4" id="stats-grid">
         <div class="card stat-card">
@@ -751,6 +755,7 @@ window.addEventListener('resize', () => {
 
 loadStats();
 loadYearlyOverview();
+window.onSnapshotReady = function() { loadStats(); loadYearlyOverview(); };
 
 // ─── Yearly Overview ───────────────────────────────────────────
 
@@ -775,6 +780,7 @@ function loadYearlyOverview() {
         .then(r => r.json())
         .then(data => {
             yearlyData = data;
+            if (window.setSnapshotUpdated) window.setSnapshotUpdated(data.computed_at);
             document.getElementById('yearly-heading').textContent = `${data.year} Overview`;
             document.getElementById('year-label').textContent = `${data.year}`;
             document.getElementById('monthly-chart-title').textContent = `${data.year} — Monthly Activity`;

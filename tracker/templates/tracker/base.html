@@ -978,6 +978,50 @@
     {% endif %}
 
     <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+    <script>
+        // Shared "updated X ago · ↻ recalculate" control for snapshot-backed
+        // pages (Stats / Visits / Places). A page includes #snapshot-bar in its
+        // header, calls setSnapshotUpdated(computed_at) when its data loads, and
+        // defines window.onSnapshotReady to re-fetch after a recalculation.
+        (function() {
+            function relTime(iso) {
+                if (!iso) return 'never';
+                const s = (Date.now() - new Date(iso)) / 1000;
+                if (s < 60) return 'just now';
+                if (s < 3600) return Math.floor(s / 60) + 'm ago';
+                if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+                return Math.floor(s / 86400) + 'd ago';
+            }
+            window.setSnapshotUpdated = function(iso) {
+                const el = document.getElementById('snapshot-updated');
+                if (!el) return;
+                el.textContent = iso ? ('updated ' + relTime(iso)) : 'not computed yet';
+                el.title = iso ? new Date(iso).toLocaleString() : '';
+            };
+            const btn = document.getElementById('snapshot-recalc');
+            if (!btn) return;
+            let polling = false;
+            async function poll() {
+                let s;
+                try { s = await fetch('/api/stats/recompute/status/').then(r => r.json()); }
+                catch (e) { s = { status: 'error' }; }
+                if (s.status === 'running') { setTimeout(poll, 2000); return; }
+                polling = false;
+                btn.disabled = false;
+                btn.innerHTML = '↻ recalculate';
+                window.setSnapshotUpdated(s.computed_at);
+                if (typeof window.onSnapshotReady === 'function') window.onSnapshotReady();
+            }
+            btn.addEventListener('click', async function() {
+                if (polling) return;
+                polling = true;
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner" style="width:0.85rem;height:0.85rem;border-width:2px;"></span> recalculating…';
+                try { await fetch('/api/stats/recompute/', { method: 'POST' }); } catch (e) {}
+                setTimeout(poll, 1200);
+            });
+        })();
+    </script>
     {% block extra_js %}{% endblock %}
     <script>
         // Button inflate + pop + clay particle burst

@@ -8,9 +8,15 @@
 
 {% block content %}
 <div class="container">
-    <div class="page-header">
-        <h1>visits</h1>
-        <p class="page-lead">dwell time and visit counts by country, state, and city — from your geocoded track history.</p>
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.75rem;">
+        <div>
+            <h1>visits</h1>
+            <p class="page-lead">dwell time and visit counts by country, state, and city — from your geocoded track history.</p>
+        </div>
+        <div id="snapshot-bar" style="display:inline-flex;align-items:center;gap:0.6rem;flex-shrink:0;">
+            <span id="snapshot-updated" style="font-size:0.75rem;color:var(--text-muted);font-weight:600;white-space:nowrap;">updated …</span>
+            <button id="snapshot-recalc" class="btn btn-outline btn-sm" title="Recompute now">↻ recalculate</button>
+        </div>
     </div>
 
     <div class="pill-tabs">
@@ -212,20 +218,25 @@ function prepCities(cities) {
     }));
 }
 
-fetch('/api/visits/')
-    .then(r => r.json())
-    .then(data => {
-        tableData.countries = data.countries;
-        tableData.states = data.states;
-        // Add numeric timestamps for sorting dates
-        tableData.cities = data.cities.map(c => ({
-            ...c,
-            first_seen: c.first_seen || '',
-            last_seen: c.last_seen || '',
-        }));
-        renderTable('countries');
-        renderTable('states');
-        renderTable('cities');
-    });
+function loadVisits() {
+    fetch('/api/visits/')
+        .then(r => r.json())
+        .then(data => {
+            tableData.countries = data.countries;
+            tableData.states = data.states;
+            // Add numeric timestamps for sorting dates
+            tableData.cities = data.cities.map(c => ({
+                ...c,
+                first_seen: c.first_seen || '',
+                last_seen: c.last_seen || '',
+            }));
+            renderTable('countries');
+            renderTable('states');
+            renderTable('cities');
+            if (window.setSnapshotUpdated) window.setSnapshotUpdated(data.computed_at);
+        });
+}
+window.onSnapshotReady = loadVisits;
+loadVisits();
 </script>
 {% endblock %}

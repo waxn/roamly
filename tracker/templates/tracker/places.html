@@ -159,7 +159,9 @@
 <div class="container places-wrap">
     <div class="page-toolbar">
         <h1>places</h1>
-        <div class="toolbar-actions">
+        <div class="toolbar-actions" id="snapshot-bar">
+            <span id="snapshot-updated" style="font-size:0.75rem;color:var(--text-muted);font-weight:600;white-space:nowrap;">updated …</span>
+            <button id="snapshot-recalc" class="btn btn-outline btn-sm" title="Recompute now">↻ recalculate</button>
             <button class="btn btn-primary" onclick="openCreate()">+ new place</button>
         </div>
     </div>
@@ -283,6 +285,7 @@ async function loadPlaces() {
     const res = await fetch('/api/places/');
     const data = await res.json();
     placesCache = data.places || [];
+    if (window.setSnapshotUpdated) window.setSnapshotUpdated(data.computed_at);
     const grid = document.getElementById('places-grid');
     const empty = document.getElementById('places-empty');
     if (!placesCache.length) {
@@ -493,6 +496,7 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+window.onSnapshotReady = loadPlaces;
 loadPlaces();
 </script>
 {% endblock %}
