@@ -33,22 +33,31 @@
     letter-spacing: -0.01em;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.place-card .pc-stats {
-    display: flex;
-    gap: 1.25rem;
-}
-.place-card .pc-stat .pc-num {
+.place-card .pc-num {
     font-family: var(--font-display);
-    font-size: 1.5rem;
+    font-size: 1.9rem;
     font-weight: 800;
     letter-spacing: -0.02em;
+    line-height: 1;
 }
-.place-card .pc-stat .pc-lbl {
+.place-card .pc-lbl {
     font-size: 0.68rem;
     font-weight: 800;
     color: var(--text-muted);
     letter-spacing: 0.04em;
-    margin-top: 0.15rem;
+    margin-top: 0.3rem;
+}
+.place-card .pc-meta {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-top: 0.9rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
+}
+.place-card .pc-meta strong {
+    color: var(--text);
+    font-weight: 800;
 }
 .place-empty {
     text-align: center;
@@ -288,16 +297,9 @@ async function loadPlaces() {
                 <span class="pc-dot" style="background:${p.color};"></span>
                 <span class="pc-name">${escHtml(p.name)}</span>
             </div>
-            <div class="pc-stats">
-                <div class="pc-stat">
-                    <div class="pc-num" style="color:${p.color};">${(p.point_count || 0).toLocaleString()}</div>
-                    <div class="pc-lbl">points</div>
-                </div>
-                <div class="pc-stat">
-                    <div class="pc-num">${p.last_seen ? fmtDate(p.last_seen) : '—'}</div>
-                    <div class="pc-lbl">last seen</div>
-                </div>
-            </div>
+            <div class="pc-num" style="color:${p.color};">${(p.point_count || 0).toLocaleString()}</div>
+            <div class="pc-lbl">points logged</div>
+            <div class="pc-meta">last seen <strong>${p.last_seen ? fmtDate(p.last_seen) : 'never'}</strong></div>
         </div>
     `).join('');
 }
