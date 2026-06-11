@@ -42,6 +42,8 @@ urlpatterns = [
     # Stats API
     path('api/stats/', views.stats_api, name='stats_api'),
     path('api/stats/yearly/', views.yearly_overview_api, name='yearly_overview_api'),
+    path('api/stats/recompute/', views.stats_recompute_api, name='stats_recompute'),
+    path('api/stats/recompute/status/', views.stats_recompute_status_api, name='stats_recompute_status'),
     path('api/visits/', views.visits_api, name='visits_api'),
     path('api/countries/', views.countries_api, name='countries_api'),
     path('api/distance/', views.distance_api, name='distance_api'),

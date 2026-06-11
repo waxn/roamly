@@ -36,7 +36,7 @@ from .models import (
     Device, Location, APIKey, Adventure, AdventurePlace, POI, BackupConfig,
     UserProfile, Pal, PalMember, PalBlurb, PalBlurbPhoto, PalMilestone, PalComment,
     AdventureMember, AdventureBlurb, AdventureBlurbPhoto, AdventureMilestone, AdventureComment,
-    SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig,
+    SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig, StatsSnapshot,
 )
 from .image_utils import resize_image, resize_photo
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
@@ -1231,19 +1231,97 @@ def locations_geojson_api(request):
 # Stats & Visits API
 # ---------------------------------------------------------------------------
 
+# ── Reusable compute helpers ───────────────────────────────────────────────
+# The heavy aggregations below are extracted so both the live API views and the
+# nightly StatsSnapshot worker (tracker/stats_tasks.py) run identical logic.
+# Each takes a prepared queryset / user and returns a plain dict — no request,
+# no caching.
+
+def _compute_overview_from_qs(locations, user):
+    """Overall counts (points, countries, cities, states, devices, span)."""
+    total = locations.count()
+    countries = locations.exclude(country='').values('country').distinct().count()
+    cities = locations.exclude(city='').values('city', 'country').distinct().count()
+    states = locations.exclude(state='').values('state', 'country').distinct().count()
+    devices = Device.objects.filter(user=user).count()
+    first = locations.order_by('timestamp').values_list('timestamp', flat=True).first()
+    last = locations.order_by('-timestamp').values_list('timestamp', flat=True).first()
+    return {
+        "total_points": total,
+        "countries": countries,
+        "cities": cities,
+        "states": states,
+        "devices": devices,
+        "first_location": first.isoformat() if first else None,
+        "last_location": last.isoformat() if last else None,
+    }
+
+
+def _compute_distance_from_qs(locations, granularity='daily'):
+    """Gated daily/hourly distance buckets + total_km for a location queryset."""
+    rows = locations.order_by('device', 'timestamp').values_list(
+        'device_id', 'latitude', 'longitude', 'timestamp', 'accuracy'
+    ).iterator(chunk_size=10000)
+    bucket_km = defaultdict(float)
+    total_km = 0.0
+    for _dev_id, grp in groupby(rows, key=lambda r: r[0]):
+        dev_points = ((lat, lon, ts, acc) for _d, lat, lon, ts, acc in grp)
+        for cdt, km in _gated_distance_segments(dev_points):
+            key = cdt.strftime('%Y-%m-%d %H') if granularity == "hourly" else cdt.strftime('%Y-%m-%d')
+            bucket_km[key] += km
+            total_km += km
+    keys = sorted(bucket_km.keys())
+    return {
+        "days": keys,
+        "distances": [round(bucket_km[k], 2) for k in keys],
+        "total_km": round(total_km, 2),
+    }
+
+
+def _get_snapshot_or_kick(user):
+    """Return the user's StatsSnapshot if a finished computation exists, else
+    trigger a background compute (once) and return None so the caller falls back
+    to a live computation for this one request. This is the bridge that makes the
+    Stats/Visits/Places pages instant: the all-time, unfiltered views read from
+    the snapshot instead of recomputing the whole history live."""
+    snap = StatsSnapshot.objects.filter(user=user).first()
+    if snap and snap.status == 'done' and snap.computed_at:
+        return snap
+    try:
+        from .stats_tasks import start_stats_compute
+        start_stats_compute(user.id)
+    except Exception:
+        pass
+    return None
+
+
+def _snapshot_response(snap, field):
+    """Serialize a snapshot JSON field with its freshness metadata attached."""
+    payload = dict(getattr(snap, field) or {})
+    payload['computed_at'] = snap.computed_at.isoformat() if snap.computed_at else None
+    payload['source'] = 'snapshot'
+    return JsonResponse(payload)
+
+
 @login_required
 def stats_api(request):
     """Overall statistics with time filtering."""
+    device_id = request.GET.get("device_id")
+    all_time = request.GET.get("all")
+    start_date = request.GET.get("start_date")
+    end_date = request.GET.get("end_date")
+
+    # Default all-time view (no filters) → serve the precomputed snapshot instantly.
+    if all_time and not device_id and not (start_date and end_date):
+        snap = _get_snapshot_or_kick(request.user)
+        if snap:
+            return _snapshot_response(snap, 'stats_json')
+
     gen = cache.get(f"cache_gen:{request.user.id}", 0)
     cache_key = f"stats:{request.user.id}:{gen}:{request.GET.urlencode()}"
     cached = cache.get(cache_key)
     if cached is not None:
         return JsonResponse(cached)
-
-    device_id = request.GET.get("device_id")
-    all_time = request.GET.get("all")
-    start_date = request.GET.get("start_date")
-    end_date = request.GET.get("end_date")
 
     locations = Location.objects.filter(device__user=request.user)
 
@@ -1266,24 +1344,7 @@ def stats_api(request):
     if device_id:
         locations = locations.filter(device__device_id=device_id)
 
-    total = locations.count()
-    countries = locations.exclude(country='').values('country').distinct().count()
-    cities = locations.exclude(city='').values('city', 'country').distinct().count()
-    states = locations.exclude(state='').values('state', 'country').distinct().count()
-    devices = Device.objects.filter(user=request.user).count()
-
-    first = locations.order_by('timestamp').values_list('timestamp', flat=True).first()
-    last = locations.order_by('-timestamp').values_list('timestamp', flat=True).first()
-
-    result = {
-        "total_points": total,
-        "countries": countries,
-        "cities": cities,
-        "states": states,
-        "devices": devices,
-        "first_location": first.isoformat() if first else None,
-        "last_location": last.isoformat() if last else None,
-    }
+    result = _compute_overview_from_qs(locations, request.user)
     cache.set(cache_key, result, timeout=600)
     return JsonResponse(result)
 
@@ -1329,14 +1390,27 @@ def countries_api(request):
 @login_required
 def yearly_overview_api(request):
     """Yearly overview: week/month/year stats with comparisons and top places."""
+    # Always all-time → serve the precomputed snapshot when available.
+    snap = _get_snapshot_or_kick(request.user)
+    if snap:
+        return _snapshot_response(snap, 'yearly_json')
+
     gen = cache.get(f"cache_gen:{request.user.id}", 0)
     cache_key = f"yearly:{request.user.id}:{gen}"
     cached = cache.get(cache_key)
     if cached is not None:
         return JsonResponse(cached)
 
+    result = _compute_yearly_payload(request.user)
+    cache.set(cache_key, result, timeout=1800)
+    return JsonResponse(result)
+
+
+def _compute_yearly_payload(user):
+    """Week/month/year comparison stats, monthly breakdown, and top
+    cities/countries/places (POI visits + custom places). Always all-time."""
     now = timezone.now()
-    qs = Location.objects.filter(device__user=request.user)
+    qs = Location.objects.filter(device__user=user)
 
     def _period_stats(start, end):
         period = qs.filter(timestamp__gte=start, timestamp__lt=end)
@@ -1379,7 +1453,7 @@ def yearly_overview_api(request):
     from .models import Visit as VisitModel
     from django.db.models import ExpressionWrapper, DurationField, F, Sum
     top_places_raw = list(
-        VisitModel.objects.filter(device__user=request.user, poi__isnull=False)
+        VisitModel.objects.filter(device__user=user, poi__isnull=False)
         .values('poi_id', 'poi__name', 'poi__address')
         .annotate(
             visit_count=Count('id'),
@@ -1404,7 +1478,7 @@ def yearly_overview_api(request):
     # User-defined custom places count as visits too — a "visit" is a distinct
     # day with points inside the geofence; total_time is the dwell sum. Merged
     # into the same Top Places list and re-ranked.
-    for p in CustomPlace.objects.filter(user=request.user):
+    for p in CustomPlace.objects.filter(user=user):
         nearby = _find_nearby_locations(qs, p.latitude, p.longitude, p.radius_m)
         day_count = len(_group_by_day(nearby))
         if not day_count:
@@ -1428,8 +1502,7 @@ def yearly_overview_api(request):
         "top_places": top_places,
         "year": now.year,
     }
-    cache.set(cache_key, result, timeout=1800)
-    return JsonResponse(result)
+    return result
 
 
 def _haversine_km(lat1, lon1, lat2, lon2):
@@ -1531,16 +1604,26 @@ def _gated_distance_segments(points):
 @login_required
 def distance_api(request):
     """Daily distance travelled, computed from sequential location points."""
+    device_id = request.GET.get("device_id")
+    all_time = request.GET.get("all")
+    start_date = request.GET.get("start_date")
+    end_date = request.GET.get("end_date")
+    granularity = request.GET.get("granularity", "daily")
+
+    # Default all-time daily view → serve the precomputed snapshot's distance.
+    if all_time and granularity == "daily" and not device_id and not (start_date and end_date):
+        snap = _get_snapshot_or_kick(request.user)
+        if snap:
+            dist = dict((snap.stats_json or {}).get('distance') or {})
+            dist['computed_at'] = snap.computed_at.isoformat() if snap.computed_at else None
+            dist['source'] = 'snapshot'
+            return JsonResponse(dist)
+
     gen = cache.get(f"cache_gen:{request.user.id}", 0)
     cache_key = f"distance:{request.user.id}:{gen}:{request.GET.urlencode()}"
     cached = cache.get(cache_key)
     if cached is not None:
         return JsonResponse(cached)
-
-    device_id = request.GET.get("device_id")
-    all_time = request.GET.get("all")
-    start_date = request.GET.get("start_date")
-    end_date = request.GET.get("end_date")
 
     locations = Location.objects.filter(device__user=request.user)
 
@@ -1563,30 +1646,7 @@ def distance_api(request):
     if device_id:
         locations = locations.filter(device__device_id=device_id)
 
-    locations = locations.order_by('device', 'timestamp').values_list(
-        'device_id', 'latitude', 'longitude', 'timestamp', 'accuracy'
-    ).iterator(chunk_size=10000)
-
-    granularity = request.GET.get("granularity", "daily")
-    bucket_km = defaultdict(float)
-    total_km = 0.0
-
-    # The stream is ordered by device then time; per device, resample to ~30s
-    # centroids and gate (see _gated_distance_segments) so a stationary
-    # high-frequency log can't inflate mileage.
-    for _dev_id, grp in groupby(locations, key=lambda r: r[0]):
-        dev_points = ((lat, lon, ts, acc) for _d, lat, lon, ts, acc in grp)
-        for cdt, km in _gated_distance_segments(dev_points):
-            key = cdt.strftime('%Y-%m-%d %H') if granularity == "hourly" else cdt.strftime('%Y-%m-%d')
-            bucket_km[key] += km
-            total_km += km
-
-    keys = sorted(bucket_km.keys())
-    result = {
-        "days": keys,
-        "distances": [round(bucket_km[k], 2) for k in keys],
-        "total_km": round(total_km, 2),
-    }
+    result = _compute_distance_from_qs(locations, granularity)
     cache.set(cache_key, result, timeout=600)
     return JsonResponse(result)
 
@@ -1617,17 +1677,32 @@ def _visits_dwell_gap(prev, cur, level):
 @login_required
 def visits_api(request):
     """Aggregated city/state/country visit statistics."""
+    device_id = request.GET.get("device_id")
+
+    # Default all-time view (no device filter) → serve the precomputed snapshot.
+    if not device_id:
+        snap = _get_snapshot_or_kick(request.user)
+        if snap:
+            return _snapshot_response(snap, 'visits_json')
+
     gen = cache.get(f"cache_gen:{request.user.id}", 0)
     cache_key = f"visits:{request.user.id}:{gen}:{request.GET.urlencode()}"
     cached = cache.get(cache_key)
     if cached is not None:
         return JsonResponse(cached)
 
-    device_id = request.GET.get("device_id")
     locations = Location.objects.filter(device__user=request.user).exclude(city='')
     if device_id:
         locations = locations.filter(device__device_id=device_id)
 
+    result = _compute_visits_from_qs(locations)
+    cache.set(cache_key, result, timeout=600)
+    return JsonResponse(result)
+
+
+def _compute_visits_from_qs(locations):
+    """Build the cities/states/countries visit payload (counts + dwell time)
+    from a prepared, city-excluded Location queryset."""
     city_stats = locations.values('city', 'state', 'country', 'country_code').annotate(
         count=Count('id'), first_seen=Min('timestamp'), last_seen=Max('timestamp')
     ).order_by('-count')
@@ -1699,9 +1774,7 @@ def visits_api(request):
     for c in countries:
         c['time_spent'] = round(time_country.get(c['country'], 0))
 
-    result = {"cities": cities, "states": states, "countries": countries}
-    cache.set(cache_key, result, timeout=600)
-    return JsonResponse(result)
+    return {"cities": cities, "states": states, "countries": countries}
 
 
 # ---------------------------------------------------------------------------
@@ -4304,7 +4377,13 @@ def places_api(request):
             radius_m=radius_m, color=_PLACE_COLORS[count % len(_PLACE_COLORS)],
         )
         _bust_user_cache(request.user.id)
+        _refresh_places_snapshot(request.user)
         return JsonResponse(_serialize_place(place))
+
+    # GET list → serve the precomputed snapshot when available.
+    snap = _get_snapshot_or_kick(request.user)
+    if snap:
+        return _snapshot_response(snap, 'places_json')
 
     gen = cache.get(f"cache_gen:{request.user.id}", 0)
     cache_key = f"places:{request.user.id}:{gen}"
@@ -4312,18 +4391,51 @@ def places_api(request):
     if cached is not None:
         return JsonResponse(cached)
 
-    base = Location.objects.filter(device__user=request.user)
+    payload = _compute_places_payload(request.user)
+    cache.set(cache_key, payload, timeout=300)
+    return JsonResponse(payload)
+
+
+def _compute_places_payload(user):
+    """Custom-places list with per-place point_count + last_seen."""
+    base = Location.objects.filter(device__user=user)
     places = []
-    for p in CustomPlace.objects.filter(user=request.user):
+    for p in CustomPlace.objects.filter(user=user):
         nearby = _find_nearby_locations(base, p.latitude, p.longitude, p.radius_m)
         agg = nearby.aggregate(n=Count('id'), last=Max('timestamp'))
         item = _serialize_place(p)
         item['point_count'] = agg['n'] or 0
         item['last_seen'] = agg['last'].isoformat() if agg['last'] else None
         places.append(item)
-    payload = {'places': places}
-    cache.set(cache_key, payload, timeout=300)
-    return JsonResponse(payload)
+    return {'places': places}
+
+
+def _refresh_places_snapshot(user):
+    """Keep the places list fresh right after a place is added/edited/deleted.
+    The snapshot is otherwise only refreshed nightly, but a just-created place
+    must appear immediately — and recomputing just the places list is cheap."""
+    snap = StatsSnapshot.objects.filter(user=user).first()
+    if snap and snap.status == 'done':
+        snap.places_json = _compute_places_payload(user)
+        snap.save(update_fields=['places_json'])
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def stats_recompute_api(request):
+    """Kick an on-demand recompute of the user's stats snapshot (the per-page
+    'recalculate now' button and Settings → Background Jobs)."""
+    from .stats_tasks import start_stats_compute, get_status
+    start_stats_compute(request.user.id)
+    return JsonResponse(get_status(request.user.id))
+
+
+@login_required
+def stats_recompute_status_api(request):
+    """Snapshot status + last-computed time for the recalculate UI."""
+    from .stats_tasks import get_status
+    return JsonResponse(get_status(request.user.id))
 
 
 @login_required
@@ -4394,6 +4506,7 @@ def place_update(request, place_id):
             return JsonResponse({'error': 'invalid radius'}, status=400)
     place.save()
     _bust_user_cache(request.user.id)
+    _refresh_places_snapshot(request.user)
     return JsonResponse(_serialize_place(place))
 
 
@@ -4404,6 +4517,7 @@ def place_delete(request, place_id):
     place = get_object_or_404(CustomPlace, id=place_id, user=request.user)
     place.delete()
     _bust_user_cache(request.user.id)
+    _refresh_places_snapshot(request.user)
     return JsonResponse({'deleted': True})
 
 
