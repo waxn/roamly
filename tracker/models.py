@@ -505,9 +505,27 @@ class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     profile_picture = models.ImageField(upload_to='profiles/', null=True, blank=True)
     profile_picture_thumbnail = models.ImageField(upload_to='profiles/thumbs/', null=True, blank=True)
+    # Instance admin: can edit instance-wide settings (e.g. the custom JS snippet).
+    is_admin = models.BooleanField(default=False)
 
     def __str__(self):
         return f"Profile: {self.user.username}"
+
+
+class SiteConfig(models.Model):
+    """Singleton row (pk=1) of instance-wide settings editable by an admin."""
+    # Raw JS injected before </body> on every page (no <script> tags). Replaces
+    # the old CUSTOM_JS_SNIPPET env var so it can be edited live from Settings.
+    custom_js = models.TextField(blank=True, default='')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def __str__(self):
+        return "Site configuration"
 
 
 class Pal(models.Model):
