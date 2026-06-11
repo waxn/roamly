@@ -704,3 +704,26 @@ class CustomPlace(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.user.username})"
+
+
+class StatsSnapshot(models.Model):
+    """Per-user nightly precomputation of the heavy Stats/Visits/Places payloads.
+
+    These pages aggregate the whole location history (dwell-time per city, gated
+    distance, per-place scans) which is too slow to do live — especially since a
+    tracking phone pushes points constantly and busts the per-user cache. This
+    snapshot is deliberately DECOUPLED from cache_gen: it is refreshed once a
+    night (stats_tasks scheduler) or on demand via the recalculate button, not
+    on every push. The pages serve the stored JSON instantly."""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='stats_snapshot')
+    stats_json = models.JSONField(default=dict, blank=True)    # overview counts + total distance
+    visits_json = models.JSONField(default=dict, blank=True)   # full visits payload
+    yearly_json = models.JSONField(default=dict, blank=True)   # yearly overview payload
+    places_json = models.JSONField(default=dict, blank=True)   # custom-places list payload
+    status = models.CharField(max_length=20, default='idle')   # idle|running|done|error
+    error = models.TextField(blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    computed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"StatsSnapshot {self.user.username} ({self.status})"
