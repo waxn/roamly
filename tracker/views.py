@@ -14,6 +14,7 @@ from collections import defaultdict
 from datetime import datetime, date, time as dt_time, timedelta, timezone as dt_timezone
 from itertools import groupby
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
@@ -288,11 +289,18 @@ def signup_view(request):
         form = SignUpForm(request.POST)
         if form.is_valid():
             user = form.save()
+            # A valid admin key (validated in the form) makes this an admin account.
+            UserProfile.objects.update_or_create(
+                user=user, defaults={'is_admin': form.is_admin_signup},
+            )
             login(request, user)
             return redirect('tracker:map')
     else:
         form = SignUpForm()
-    return render(request, 'tracker/signup.html', {'form': form})
+    return render(request, 'tracker/signup.html', {
+        'form': form,
+        'admin_signup_enabled': bool(getattr(settings, 'ADMIN_SIGNUP_KEY', '')),
+    })
 
 
 def logout_view(request):

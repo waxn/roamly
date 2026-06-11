@@ -261,6 +261,35 @@
             font-weight: 700;
             color: var(--text-dim);
         }
+
+        .admin-toggle {
+            margin: 0.25rem 0 1rem;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: var(--bg-input);
+            padding: 0 0.95rem;
+        }
+        .admin-toggle summary {
+            cursor: pointer;
+            list-style: none;
+            padding: 0.7rem 0;
+            font-size: 0.8rem;
+            font-weight: 800;
+            color: var(--text-muted);
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .admin-toggle summary::-webkit-details-marker { display: none; }
+        .admin-toggle summary::before {
+            content: '+';
+            font-size: 1rem;
+            line-height: 1;
+            color: var(--primary);
+        }
+        .admin-toggle[open] summary::before { content: '−'; }
+        .admin-toggle[open] { padding-bottom: 0.95rem; }
     </style>
 </head>
 <body>
@@ -280,6 +309,7 @@
         <form method="post">
             {% csrf_token %}
             {% for field in form %}
+            {% if field.name != 'admin_key' %}
             <div class="form-group">
                 <label for="{{ field.id_for_label }}">{{ field.label }}</label>
                 <input
@@ -296,7 +326,26 @@
                     <div class="form-hint">{{ field.help_text }}</div>
                 {% endif %}
             </div>
+            {% endif %}
             {% endfor %}
+
+            {% if admin_signup_enabled %}
+            <details class="admin-toggle"{% if form.admin_key.errors %} open{% endif %}>
+                <summary>admin account</summary>
+                <div class="form-group" style="margin-top:0.85rem;margin-bottom:0;">
+                    <label for="{{ form.admin_key.id_for_label }}">admin key</label>
+                    <input type="password" name="{{ form.admin_key.html_name }}"
+                        id="{{ form.admin_key.id_for_label }}"
+                        class="form-control{% if form.admin_key.errors %} has-error{% endif %}"
+                        autocomplete="off">
+                    {% if form.admin_key.errors %}
+                        <div class="form-errors">{{ form.admin_key.errors.0 }}</div>
+                    {% endif %}
+                    <div class="form-hint">leave blank for a normal account. enter the instance admin key to create an admin account.</div>
+                </div>
+            </details>
+            {% endif %}
+
             <button type="submit" class="btn-submit">create account →</button>
         </form>
 
