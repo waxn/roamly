@@ -160,6 +160,7 @@ Streaks (`_journal_compute_streaks`: current run ending today/yesterday + longes
 **User:**
 - `UserProfile` — profile picture; created via `get_or_create` in `settings_view`
 - `POI` — locally cached OpenStreetMap points of interest
+- `CustomPlace` — a user-defined named geofence (`name`, `latitude`, `longitude`, `radius_m`, auto-assigned `color`). See **Custom Places** below.
 
 **Geocoding reference data:**
 - `Boundary` — US Census TIGER admin polygon (`name`, `state`, `kind` = `place`|`cousub`, PostGIS `geom` MultiPolygon, GiST-indexed) used for point-in-polygon town lookup. Populated by `import_boundaries`; PostGIS-only (the SQLite branch omits `geom`, like `Location`/`Visit`).
@@ -177,6 +178,20 @@ Adventure CMS editor lives at `/adventures/<id>/edit/` (requires login + members
 - `POST /api/trips/<id>/blurbs/<id>/update/` — edit a blurb (text, lat/lng, location_name)
 
 Inline pin refs: `[^pin:42]` in paragraph block text references an `AdventurePlace` by id. Rendered as numbered superscript badges at display time; number computed from document order, not stored in DB.
+
+## Custom Places
+
+User-defined named geofences ("Home", "Work") — a top-nav **Places** tab (`/places/`, `places_view` → `places.html`). A `CustomPlace` is just `name` + center (`latitude`/`longitude`) + `radius_m` + an auto-assigned clay-palette `color` (cycled by the user's place count, no picker). **Membership is computed on the fly** via the existing `_find_nearby_locations(qs, lat, lng, radius_m)` helper (PostGIS `ST_DWithin` / SQLite bbox) — there is **no per-point FK on `Location`, no migration to it, and no background job** (unlike POI matching); a user has only a handful of places so checks are cheap.
+
+The Places page is a card grid (point count + last-seen per place) with two MapLibre modals: a **create/edit** modal (click the map to set the center, drag a radius slider) and a **detail** modal (the circle + a decimated sample of inside-points, plus points/days/time-spent/first-seen stats and the cities covered). Endpoints (all `@login_required`, ownership-scoped):
+- `GET/POST /api/places/` (`places_api`) — list (with light stats, cache-gen keyed) / create
+- `GET /api/places/<id>/` (`place_detail_api`) — full stats: `_group_by_day` for days, `_calc_dwell_time` for total time, a decimated point sample for the map
+- `POST /api/places/<id>/update/`, `POST /api/places/<id>/delete/`
+
+Every mutation calls `_bust_user_cache`. Custom places are surfaced in three more places:
+- **Data table Place column** — `locations_api` resolves membership in-Python over the fetched page (`_place_membership`, a small bbox+haversine scan) and sets a `custom_place` field; the template prefers it over `poi_name` and renders it in coral (`--accent`). Place *sort* still uses the POI annotation.
+- **Search** — `search_api` matches `CustomPlace.name__icontains` and prepends results (shape `{place_name, lat, lng, total_points, days, is_custom}`) above OSM POIs; the existing place-card renderer needs no change.
+- **Map layer** — an optional **"my places"** toggle in `map.html`'s layers panel draws labeled color circles (client-built from center+radius), persisted in `roamly_show_places`, re-added on `style.load` like Scratch.
 
 ## Map rendering
 
@@ -214,6 +229,7 @@ All map display preferences are stored in `localStorage` with `roamly_` prefix:
 | `roamly_cluster_radius` | 30 / 50 / 80 | 50 |
 | `roamly_default_time_range` | hours or 'all' | 24 |
 | `roamly_globe` | on / off | off |
+| `roamly_show_places` | on / off | off |
 
 ## Visit time spent
 
