@@ -14,3 +14,8 @@ class TrackerConfig(AppConfig):
                 start_backup_scheduler()
             except Exception:
                 pass
+            try:
+                from .stats_tasks import start_stats_scheduler
+                start_stats_scheduler()
+            except Exception:
+                pass
