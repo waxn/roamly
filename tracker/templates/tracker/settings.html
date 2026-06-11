@@ -435,6 +435,18 @@
                         <div id="poi-match-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
                     </div>
                 </div>
+
+                <div style="border-top:1px solid var(--border);"></div>
+
+                <!-- Recalculate stats snapshot -->
+                <div>
+                    <div style="font-size:0.875rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">Recalculate Stats</div>
+                    <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;">The <strong>Stats</strong>, <strong>Visits</strong> and <strong>Places</strong> pages are served from a snapshot that refreshes automatically every night. Recompute it now to pick up the latest data immediately.</div>
+                    <div class="settings-actions">
+                        <button class="btn btn-primary btn-sm" id="stats-recalc-btn" onclick="startStatsRecalc()">Recalculate Now</button>
+                    </div>
+                    <div id="stats-recalc-status" style="margin-top:0.6rem;font-size:0.8125rem;color:var(--text-muted);"></div>
+                </div>
             </div>
         </div>
 
@@ -1100,6 +1112,52 @@ fetch('/api/poi/match/status/')
             updatePoiMatchUI(data, false);
             pollPoiMatchStatus();
         }
+    })
+    .catch(() => {});
+
+// ── Recalculate stats snapshot ───────────────────────────────────────────────
+function _relTimeAgo(iso) {
+    if (!iso) return 'never';
+    const s = (Date.now() - new Date(iso)) / 1000;
+    if (s < 60) return 'just now';
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+    return Math.floor(s / 86400) + 'd ago';
+}
+function _renderStatsRecalc(data, running) {
+    const btn = document.getElementById('stats-recalc-btn');
+    const status = document.getElementById('stats-recalc-status');
+    if (running) {
+        btn.disabled = true;
+        status.innerHTML = '<span class="spinner"></span> recalculating…';
+    } else {
+        btn.disabled = false;
+        const when = data && data.computed_at ? `Last updated ${_relTimeAgo(data.computed_at)}.` : 'Not computed yet.';
+        status.textContent = (data && data.status === 'error') ? ('Error: ' + (data.error || 'failed')) : when;
+    }
+}
+function pollStatsRecalc() {
+    _renderStatsRecalc(null, true);
+    const interval = setInterval(() => {
+        fetch('/api/stats/recompute/status/').then(r => r.json()).then(data => {
+            if (data.status === 'running') return;
+            clearInterval(interval);
+            _renderStatsRecalc(data, false);
+        });
+    }, 2000);
+}
+function startStatsRecalc() {
+    _renderStatsRecalc(null, true);
+    fetch('/api/stats/recompute/', { method: 'POST' })
+        .then(r => r.json())
+        .then(() => pollStatsRecalc());
+}
+fetch('/api/stats/recompute/status/')
+    .then(r => { if (r.ok) return r.json(); })
+    .then(data => {
+        if (!data) return;
+        if (data.status === 'running') pollStatsRecalc();
+        else _renderStatsRecalc(data, false);
     })
     .catch(() => {});
 
