@@ -73,16 +73,17 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-clay-lg);
     box-shadow: var(--clay-shadow-hover);
-    width: 100%; max-width: 940px;
-    max-height: 92vh;
+    width: 100%; max-width: 1000px;
+    min-height: 560px;
+    max-height: 90vh;
     display: grid;
-    grid-template-columns: 1.2fr 1fr;
+    grid-template-columns: 1.1fr 1fr;
     overflow: hidden;
     transform: translateY(16px) scale(0.98);
     transition: transform 0.3s var(--ease-spring);
 }
 .pl-modal-overlay.open .pl-modal { transform: translateY(0) scale(1); }
-.pl-map-pane { position: relative; min-height: 360px; }
+.pl-map-pane { position: relative; min-height: 560px; }
 .pl-map { position: absolute; inset: 0; }
 .pl-body-pane {
     padding: 1.6rem;
