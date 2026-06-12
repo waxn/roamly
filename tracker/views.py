@@ -4184,6 +4184,52 @@ def _group_by_day(qs):
     return result
 
 
+def _compute_day_detail(user, date_str):
+    """Everything recorded on one local calendar day: every city/state/country,
+    named POIs, custom places entered, distance, and the active time range.
+    Read-only; used by the AI `get_day_detail` tool so it can name specific stops
+    rather than only a state-level match."""
+    try:
+        d = date.fromisoformat(str(date_str))
+    except (ValueError, TypeError):
+        return {"error": "date must be YYYY-MM-DD"}
+
+    base = Location.objects.filter(device__user=user, timestamp__date=d)
+    total = base.count()
+    if not total:
+        return {"date": str(date_str), "point_count": 0,
+                "note": "No location points were recorded that day."}
+
+    first = base.order_by('timestamp').values_list('timestamp', flat=True).first()
+    last = base.order_by('-timestamp').values_list('timestamp', flat=True).first()
+
+    cities = [
+        {"city": r['city'], "state": r['state'], "country": r['country']}
+        for r in base.exclude(city='').values('city', 'state', 'country').distinct()[:50]
+    ]
+    states = sorted({s for s in base.exclude(state='').values_list('state', flat=True).distinct()})[:50]
+    countries = sorted({c for c in base.exclude(country='').values_list('country', flat=True).distinct()})
+    pois = [p for p in base.filter(poi__isnull=False).values_list('poi__name', flat=True).distinct()[:50] if p]
+
+    # Custom places whose geofence contains any of the day's points.
+    custom = [p.name for p in CustomPlace.objects.filter(user=user)
+              if _find_nearby_locations(base, p.latitude, p.longitude, p.radius_m).exists()]
+
+    distance = _compute_distance_from_qs(base)
+    return {
+        "date": str(date_str),
+        "point_count": total,
+        "first_ts": first.isoformat() if first else None,
+        "last_ts": last.isoformat() if last else None,
+        "distance_km": distance.get("total_km", 0),
+        "cities": cities,
+        "states": states,
+        "countries": countries,
+        "pois": pois,
+        "custom_places": custom,
+    }
+
+
 def _group_by_day_dicts(locs):
     """Like _group_by_day but takes a pre-fetched list of dicts (sorted by timestamp).
 

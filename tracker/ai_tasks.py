@@ -59,6 +59,27 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "get_day_detail",
+            "description": (
+                "Everything recorded on one specific calendar day (YYYY-MM-DD): every "
+                "city, state, and country visited, named points of interest (stores, "
+                "venues), any saved custom places entered, total distance, and the time "
+                "range of activity. Use this to answer 'where did I go on <date>?' or to "
+                "name specific stops on a day a broader search only matched at the state "
+                "level."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "date": {"type": "string", "description": "The day to detail, YYYY-MM-DD."}
+                },
+                "required": ["date"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "list_visited_places",
             "description": (
                 "List the cities, states, or countries the user has visited, most-visited "
@@ -167,6 +188,13 @@ def _tool_search_history(user, query=None, **_):
     }
 
 
+def _tool_get_day_detail(user, date=None, **_):
+    if not date or not str(date).strip():
+        return {"error": "date is required (YYYY-MM-DD)"}
+    from . import views
+    return views._compute_day_detail(user, str(date).strip())
+
+
 def _tool_list_visited_places(user, level="city", **_):
     from . import views
     from .models import Location
@@ -263,6 +291,7 @@ def _tool_get_history_overview(user, **_):
 
 TOOL_DISPATCH = {
     "search_history": _tool_search_history,
+    "get_day_detail": _tool_get_day_detail,
     "list_visited_places": _tool_list_visited_places,
     "list_custom_places": _tool_list_custom_places,
     "get_custom_place_detail": _tool_get_custom_place_detail,
