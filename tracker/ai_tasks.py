@@ -454,9 +454,19 @@ def _error_message(resp):
 
 # ── Orchestration ──────────────────────────────────────────────────────────
 
+# Appended to every system prompt (custom or default) so the chat UI can turn
+# dates into links to that day on the map. The frontend only renders internal
+# ("/"-prefixed) markdown links.
+_DATE_LINK_DIRECTIVE = (
+    "Formatting: whenever you mention a specific calendar date, render it as a "
+    "Markdown link to that day on the map — friendly text, ISO date in the URL, "
+    "e.g. [Nov 27, 2025](/map/?date=2025-11-27). Only link real dates."
+)
+
+
 def _system_prompt(user, profile):
     if profile.ai_system_prompt and profile.ai_system_prompt.strip():
-        return profile.ai_system_prompt.strip()
+        return profile.ai_system_prompt.strip() + "\n\n" + _DATE_LINK_DIRECTIVE
     today = datetime.date.today().isoformat()
     name = user.first_name or user.username
     journals = (
@@ -475,7 +485,7 @@ def _system_prompt(user, profile):
         "to name specific cities and stops. If a tool returns no results, say so "
         "plainly. Be concise and conversational, and cite concrete dates from the "
         "tool results. Dwell/time values from tools are in seconds unless noted as "
-        f"hours.{journals}"
+        f"hours.{journals}\n\n" + _DATE_LINK_DIRECTIVE
     )
 
 

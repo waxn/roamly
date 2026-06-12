@@ -40,6 +40,13 @@
     border-bottom-left-radius: 5px;
 }
 .ask-bubble strong { font-weight: 700; }
+.ask-msg.assistant .ask-bubble a {
+    color: var(--primary);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.ask-msg.user .ask-bubble a { color: #fff; text-decoration: underline; }
 .ask-thinking {
     display: inline-flex;
     align-items: center;
@@ -149,9 +156,14 @@ const elError = document.getElementById('ask-error');
 function escapeHtml(s) {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
-// Minimal, safe formatting: escape, then **bold** and preserve newlines (CSS handles wrap).
+// Minimal, safe formatting: escape first, then **bold** and internal markdown
+// links [text](/path). Only "/"-prefixed URLs are linked (no quotes/brackets in
+// the path) so model output can't inject markup or external/JS URLs.
 function format(text) {
-    return escapeHtml(text).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    return escapeHtml(text)
+        .replace(/\[([^\]]+)\]\((\/[^)\s"'<>]+)\)/g,
+            '<a href="$2" target="_blank" rel="noopener">$1</a>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 }
 
 function addBubble(role, html) {
