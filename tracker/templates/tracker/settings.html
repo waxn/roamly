@@ -464,9 +464,13 @@
                 <br><em style="color:var(--text-muted);">Your questions and the matching history results are sent to the provider you configure.</em>
             </p>
 
-            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;cursor:pointer;margin-bottom:0.85rem;">
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;cursor:pointer;margin-bottom:0.6rem;">
                 <input type="checkbox" id="ai-ask-enabled" {% if ai_ask_enabled %}checked{% endif %}>
                 Enable the Ask tab for my account
+            </label>
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;cursor:pointer;margin-bottom:0.85rem;">
+                <input type="checkbox" id="ai-allow-journals" {% if ai_allow_journals %}checked{% endif %}>
+                Let the assistant read my journal entries <span style="color:var(--text-muted);font-size:0.8rem;">(can be personal — off by default)</span>
             </label>
 
             <div class="pref-grid" style="margin-bottom:1rem;">
@@ -1235,6 +1239,7 @@ function saveCustomJs() {
 function _aiConfigPayload() {
     return {
         ai_ask_enabled: document.getElementById('ai-ask-enabled').checked,
+        ai_allow_journals: document.getElementById('ai-allow-journals').checked,
         ai_base_url: document.getElementById('ai-base-url').value.trim(),
         ai_api_key: document.getElementById('ai-api-key').value.trim(),
         ai_model: document.getElementById('ai-model').value.trim(),

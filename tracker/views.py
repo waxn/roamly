@@ -390,6 +390,7 @@ def settings_view(request):
         'ai_base_url': profile.ai_base_url,
         'ai_model': profile.ai_model,
         'ai_system_prompt': profile.ai_system_prompt,
+        'ai_allow_journals': profile.ai_allow_journals,
         'ai_api_key_set': bool(profile.ai_api_key),
     }
     if profile.is_admin:
@@ -444,13 +445,15 @@ def profile_ai_config_api(request):
     profile.ai_base_url = (data.get('ai_base_url') or '').strip().rstrip('/')[:500]
     profile.ai_model = (data.get('ai_model') or '').strip()[:200]
     profile.ai_system_prompt = (data.get('ai_system_prompt') or '').strip()
+    profile.ai_allow_journals = bool(data.get('ai_allow_journals'))
 
     new_key = (data.get('ai_api_key') or '').strip()
     if new_key and new_key != _AI_KEY_MASK:
         profile.ai_api_key = new_key[:500]
 
     profile.save(update_fields=[
-        'ai_ask_enabled', 'ai_base_url', 'ai_model', 'ai_system_prompt', 'ai_api_key',
+        'ai_ask_enabled', 'ai_base_url', 'ai_model', 'ai_system_prompt',
+        'ai_allow_journals', 'ai_api_key',
     ])
     return JsonResponse({'ok': True, 'configured': profile.ai_configured})
 

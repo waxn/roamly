@@ -516,6 +516,9 @@ class UserProfile(models.Model):
     ai_api_key = models.CharField(max_length=500, blank=True, default='')
     ai_model = models.CharField(max_length=200, blank=True, default='')      # e.g. gpt-4o-mini
     ai_system_prompt = models.TextField(blank=True, default='')              # optional override
+    # Opt-in: let the Ask assistant read journal entries (they can be sensitive,
+    # so this is off by default and gated separately from ai_ask_enabled).
+    ai_allow_journals = models.BooleanField(default=False)
 
     @property
     def ai_configured(self):

@@ -159,6 +159,54 @@ TOOL_SCHEMAS = [
     },
 ]
 
+# Journal tools are only offered when the user has opted in (ai_allow_journals),
+# because journal entries can be personal/sensitive.
+JOURNAL_TOOL_SCHEMAS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_journals",
+            "description": (
+                "Search the user's personal journal entries by keyword (title/body), most "
+                "recent first. Returns dates, titles, moods, and short snippets. Use to find "
+                "which days the user wrote about a topic."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Keyword to search for. Omit to list recent entries."}
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_journal_entry",
+            "description": (
+                "Read the full journal entry for one date (YYYY-MM-DD): title, mood, weather, "
+                "favorite flag, location, and the full body text."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "date": {"type": "string", "description": "The entry date, YYYY-MM-DD."}
+                },
+                "required": ["date"],
+            },
+        },
+    },
+]
+
+_JOURNAL_TOOL_NAMES = {"search_journals", "read_journal_entry"}
+
+
+def build_tool_schemas(profile):
+    """Tools offered to the model — journal tools only when the user opted in."""
+    if getattr(profile, "ai_allow_journals", False):
+        return TOOL_SCHEMAS + JOURNAL_TOOL_SCHEMAS
+    return TOOL_SCHEMAS
+
 
 # ── Tool implementations (read-only, user-scoped, token-trimmed) ───────────
 
@@ -289,6 +337,47 @@ def _tool_get_history_overview(user, **_):
     return views._compute_overview_from_qs(locations, user)
 
 
+def _tool_search_journals(user, query=None, **_):
+    from django.db.models import Q
+    from .models import JournalEntry
+    qs = JournalEntry.objects.filter(user=user)
+    q = (query or "").strip()
+    if q:
+        qs = qs.filter(Q(title__icontains=q) | Q(body__icontains=q))
+    entries = []
+    for e in qs.order_by("-date")[:25]:
+        body = e.body or ""
+        entries.append({
+            "date": e.date.isoformat(),
+            "title": e.title,
+            "mood": e.mood,
+            "snippet": (body[:200] + "…") if len(body) > 200 else body,
+        })
+    return {"entries": entries}
+
+
+def _tool_read_journal_entry(user, date=None, **_):
+    from .models import JournalEntry
+    if not date or not str(date).strip():
+        return {"error": "date is required (YYYY-MM-DD)"}
+    try:
+        d = datetime.date.fromisoformat(str(date).strip())
+    except (ValueError, TypeError):
+        return {"error": "date must be YYYY-MM-DD"}
+    e = JournalEntry.objects.filter(user=user, date=d).first()
+    if not e:
+        return {"error": f"No journal entry on {date}."}
+    return {
+        "date": e.date.isoformat(),
+        "title": e.title,
+        "mood": e.mood,
+        "weather": e.weather,
+        "is_favorite": e.is_favorite,
+        "location_name": e.location_name,
+        "body": e.body or "",
+    }
+
+
 TOOL_DISPATCH = {
     "search_history": _tool_search_history,
     "get_day_detail": _tool_get_day_detail,
@@ -297,6 +386,8 @@ TOOL_DISPATCH = {
     "get_custom_place_detail": _tool_get_custom_place_detail,
     "get_distance": _tool_get_distance,
     "get_history_overview": _tool_get_history_overview,
+    "search_journals": _tool_search_journals,
+    "read_journal_entry": _tool_read_journal_entry,
 }
 
 
@@ -368,15 +459,23 @@ def _system_prompt(user, profile):
         return profile.ai_system_prompt.strip()
     today = datetime.date.today().isoformat()
     name = user.first_name or user.username
+    journals = (
+        " The user has allowed you to read their personal journal entries — use "
+        "search_journals / read_journal_entry when a question is about how they felt "
+        "or what they wrote, and treat that content as private."
+        if getattr(profile, "ai_allow_journals", False) else ""
+    )
     return (
         f"You are Roamly's location-history assistant for {name}. Today is {today}. "
         "All data you can access belongs to this one user — their own GPS location "
         "history (places they have physically been). Answer questions about where "
         "they have been, when, and how long. Always call the provided tools to look "
-        "up facts rather than guessing or relying on prior knowledge; if a tool "
-        "returns no results, say so plainly. Be concise and conversational, and cite "
-        "concrete dates from the tool results. Dwell/time values from tools are in "
-        "seconds unless noted as hours."
+        "up facts rather than guessing or relying on prior knowledge; if a search "
+        "only matches at the state level, call get_day_detail for the relevant dates "
+        "to name specific cities and stops. If a tool returns no results, say so "
+        "plainly. Be concise and conversational, and cite concrete dates from the "
+        "tool results. Dwell/time values from tools are in seconds unless noted as "
+        f"hours.{journals}"
     )
 
 
@@ -401,8 +500,11 @@ def run_ask(user, client_messages, profile):
     if len(messages) == 1:
         raise AIProviderError("No question was provided.")
 
+    tools = build_tool_schemas(profile)
+    journals_allowed = bool(getattr(profile, "ai_allow_journals", False))
+
     for _ in range(_MAX_TOOL_ITERATIONS):
-        data = _provider_chat(profile, messages, tools=TOOL_SCHEMAS)
+        data = _provider_chat(profile, messages, tools=tools)
         choice = data["choices"][0]
         msg = choice.get("message", {}) or {}
         tool_calls = msg.get("tool_calls")
@@ -426,7 +528,11 @@ def run_ask(user, client_messages, profile):
             except (ValueError, TypeError):
                 args = {}
             handler = TOOL_DISPATCH.get(name)
-            if handler is None:
+            if name in _JOURNAL_TOOL_NAMES and not journals_allowed:
+                # Defense in depth: never read journals unless opted in, even if a
+                # model hallucinates the tool name.
+                result = {"error": "Journal access is not enabled for this account."}
+            elif handler is None:
                 result = {"error": f"unknown tool '{name}'"}
             else:
                 try:
