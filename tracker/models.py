@@ -508,6 +508,19 @@ class UserProfile(models.Model):
     # Instance admin: can edit instance-wide settings (e.g. the custom JS snippet).
     is_admin = models.BooleanField(default=False)
 
+    # AI "Ask" — per-user, OpenAI-compatible provider config (see ai_tasks.py).
+    # The Ask tab only appears once ai_ask_enabled + base_url + api_key + model are set.
+    # ai_api_key is plaintext (like BackupConfig.secret_key) and masked on GET.
+    ai_ask_enabled = models.BooleanField(default=False)
+    ai_base_url = models.CharField(max_length=500, blank=True, default='')   # e.g. https://api.openai.com/v1
+    ai_api_key = models.CharField(max_length=500, blank=True, default='')
+    ai_model = models.CharField(max_length=200, blank=True, default='')      # e.g. gpt-4o-mini
+    ai_system_prompt = models.TextField(blank=True, default='')              # optional override
+
+    @property
+    def ai_configured(self):
+        return bool(self.ai_ask_enabled and self.ai_base_url and self.ai_api_key and self.ai_model)
+
     def __str__(self):
         return f"Profile: {self.user.username}"
 

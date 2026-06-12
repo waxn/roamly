@@ -450,6 +450,52 @@
             </div>
         </div>
 
+        <!-- AI Ask (per-user) -->
+        <div class="card settings-span-12">
+            <div class="card-header" style="display:flex;align-items:center;gap:0.4rem;">
+                AI Ask
+                <span class="badge" style="font-size:0.65rem;">per-account</span>
+            </div>
+            <p class="settings-section-desc">
+                Adds an <strong>Ask</strong> tab where you can ask questions about your location history in plain language
+                (“have I been to Old Orchard Beach?”, “when was I last at the spa?”). Bring your own
+                <strong>OpenAI-compatible</strong> provider — OpenAI, OpenRouter, a local Ollama/LiteLLM server, etc.
+                The tab only appears once this is enabled and a base URL, key, and model are set.
+                <br><em style="color:var(--text-muted);">Your questions and the matching history results are sent to the provider you configure.</em>
+            </p>
+
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;cursor:pointer;margin-bottom:0.85rem;">
+                <input type="checkbox" id="ai-ask-enabled" {% if ai_ask_enabled %}checked{% endif %}>
+                Enable the Ask tab for my account
+            </label>
+
+            <div class="pref-grid" style="margin-bottom:1rem;">
+                <div>
+                    <label style="font-size:0.8125rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">Base URL</label>
+                    <input type="url" id="ai-base-url" class="form-control" placeholder="https://api.openai.com/v1" value="{{ ai_base_url|default:'' }}">
+                </div>
+                <div>
+                    <label style="font-size:0.8125rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">API Key</label>
+                    <input type="password" id="ai-api-key" class="form-control" placeholder="sk-..." value="{% if ai_api_key_set %}••••••••{% endif %}">
+                </div>
+                <div>
+                    <label style="font-size:0.8125rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">Model</label>
+                    <input type="text" id="ai-model" class="form-control" placeholder="gpt-4o-mini" value="{{ ai_model|default:'' }}">
+                </div>
+            </div>
+
+            <div>
+                <label style="font-size:0.8125rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">System prompt <span style="opacity:0.7;">(optional override)</span></label>
+                <textarea id="ai-system-prompt" class="form-control" rows="3" placeholder="Leave blank to use the built-in prompt." style="resize:vertical;">{{ ai_system_prompt|default:'' }}</textarea>
+            </div>
+
+            <div class="settings-actions" style="margin-top:0.75rem;">
+                <button class="btn btn-outline btn-sm" onclick="testAiConnection()">Test connection</button>
+                <button class="btn btn-primary btn-sm" onclick="saveAiConfig()">Save</button>
+                <span id="ai-config-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+            </div>
+        </div>
+
         {% if is_admin %}
         <!-- Custom JavaScript (instance-wide, admin only) -->
         <div class="card settings-span-12">
@@ -1183,6 +1229,52 @@ function saveCustomJs() {
         }
     })
     .catch(() => { status.textContent = 'save failed.'; status.style.color = 'var(--danger)'; });
+}
+
+// ── AI Ask (per-user) ────────────────────────────────────────────────────────
+function _aiConfigPayload() {
+    return {
+        ai_ask_enabled: document.getElementById('ai-ask-enabled').checked,
+        ai_base_url: document.getElementById('ai-base-url').value.trim(),
+        ai_api_key: document.getElementById('ai-api-key').value.trim(),
+        ai_model: document.getElementById('ai-model').value.trim(),
+        ai_system_prompt: document.getElementById('ai-system-prompt').value,
+    };
+}
+function saveAiConfig() {
+    const status = document.getElementById('ai-config-status');
+    status.textContent = 'saving…'; status.style.color = 'var(--text-muted)';
+    fetch('/api/profile/ai-config/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' },
+        body: JSON.stringify(_aiConfigPayload()),
+    })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+        if (ok && d.ok) {
+            status.textContent = d.configured ? 'saved — reload to see the Ask tab.' : 'saved.';
+            status.style.color = 'var(--success)';
+        } else {
+            status.textContent = d.error || 'save failed.';
+            status.style.color = 'var(--danger)';
+        }
+    })
+    .catch(() => { status.textContent = 'save failed.'; status.style.color = 'var(--danger)'; });
+}
+function testAiConnection() {
+    const status = document.getElementById('ai-config-status');
+    status.textContent = 'testing…'; status.style.color = 'var(--text-muted)';
+    fetch('/api/ask/test/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' },
+        body: JSON.stringify(_aiConfigPayload()),
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.ok) { status.textContent = 'connection ok ✓'; status.style.color = 'var(--success)'; }
+        else { status.textContent = d.error || 'connection failed.'; status.style.color = 'var(--danger)'; }
+    })
+    .catch(() => { status.textContent = 'connection failed.'; status.style.color = 'var(--danger)'; });
 }
 
 // Theme

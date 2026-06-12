@@ -363,6 +363,15 @@ def places_view(request):
 
 
 @login_required
+def ask_view(request):
+    """The AI 'Ask' chat page — only reachable when the user has configured AI."""
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if not profile.ai_configured:
+        return redirect('tracker:map')
+    return render(request, 'tracker/ask.html')
+
+
+@login_required
 def settings_view(request):
     api_keys = APIKey.objects.filter(user=request.user)
     devices = Device.objects.filter(user=request.user)
@@ -376,6 +385,12 @@ def settings_view(request):
         'has_postgis': HAS_POSTGIS,
         'backup_config': backup_config,
         'is_admin': profile.is_admin,
+        # Per-user AI Ask config (key is never sent to the template — only a flag).
+        'ai_ask_enabled': profile.ai_ask_enabled,
+        'ai_base_url': profile.ai_base_url,
+        'ai_model': profile.ai_model,
+        'ai_system_prompt': profile.ai_system_prompt,
+        'ai_api_key_set': bool(profile.ai_api_key),
     }
     if profile.is_admin:
         ctx['site_custom_js'] = SiteConfig.load().custom_js
@@ -403,6 +418,96 @@ def site_custom_js_api(request):
     config.save(update_fields=['custom_js', 'updated_at'])
     cache.delete(CUSTOM_JS_CACHE_KEY)
     return JsonResponse({'ok': True})
+
+
+# ---------------------------------------------------------------------------
+# AI "Ask" — per-user config + chat (see tracker/ai_tasks.py)
+# ---------------------------------------------------------------------------
+
+# Shown in place of the real key on GET, and treated as "unchanged" on POST.
+_AI_KEY_MASK = '••••••••'
+
+
+@login_required
+@require_POST
+def profile_ai_config_api(request):
+    """Save the requesting user's own AI Ask config. The API key is only
+    overwritten when a new (non-masked) value is supplied — mirrors the
+    BackupConfig.secret_key pattern."""
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    profile.ai_ask_enabled = bool(data.get('ai_ask_enabled'))
+    profile.ai_base_url = (data.get('ai_base_url') or '').strip().rstrip('/')[:500]
+    profile.ai_model = (data.get('ai_model') or '').strip()[:200]
+    profile.ai_system_prompt = (data.get('ai_system_prompt') or '').strip()
+
+    new_key = (data.get('ai_api_key') or '').strip()
+    if new_key and new_key != _AI_KEY_MASK:
+        profile.ai_api_key = new_key[:500]
+
+    profile.save(update_fields=[
+        'ai_ask_enabled', 'ai_base_url', 'ai_model', 'ai_system_prompt', 'ai_api_key',
+    ])
+    return JsonResponse({'ok': True, 'configured': profile.ai_configured})
+
+
+@login_required
+@require_POST
+def ask_test_api(request):
+    """Probe the user's AI provider (no tools) so Settings can show a precise
+    diagnosis. Tests posted values when given (so you can test before saving),
+    falling back to the stored key when the key field is blank/masked."""
+    from . import ai_tasks
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        data = {}
+
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    # Build a transient (unsaved) profile view from posted overrides.
+    base_url = (data.get('ai_base_url') or profile.ai_base_url or '').strip().rstrip('/')
+    model = (data.get('ai_model') or profile.ai_model or '').strip()
+    posted_key = (data.get('ai_api_key') or '').strip()
+    api_key = posted_key if (posted_key and posted_key != _AI_KEY_MASK) else profile.ai_api_key
+    if not (base_url and api_key and model):
+        return JsonResponse({'ok': False, 'error': 'Enter a base URL, API key, and model first.'})
+
+    profile.ai_base_url, profile.ai_api_key, profile.ai_model = base_url, api_key, model
+    ok, err = ai_tasks.test_connection(profile)
+    return JsonResponse({'ok': ok, 'error': err})
+
+
+@login_required
+@require_POST
+def ask_api(request):
+    """Run one Ask turn: take the client's message history, run the tool-calling
+    loop scoped to this user, and return the assistant's reply."""
+    from . import ai_tasks
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if not profile.ai_ask_enabled:
+        return JsonResponse({'error': 'AI Ask is disabled.'}, status=403)
+    if not profile.ai_configured:
+        return JsonResponse({'error': 'AI Ask is not configured.'}, status=503)
+
+    try:
+        messages = json.loads(request.body or '{}').get('messages', [])
+    except (json.JSONDecodeError, ValueError, AttributeError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+    if not isinstance(messages, list):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+
+    try:
+        reply = ai_tasks.run_ask(request.user, messages, profile)
+    except ai_tasks.AIProviderError as e:
+        return JsonResponse({'error': str(e)}, status=502)
+    except Exception:
+        logger.exception('ask_api failed')
+        return JsonResponse({'error': 'Something went wrong answering that.'}, status=500)
+    return JsonResponse({'reply': reply})
 
 
 # ---------------------------------------------------------------------------
@@ -4252,6 +4357,17 @@ def search_api(request):
     if cached is not None:
         return JsonResponse(cached)
 
+    payload = _run_history_search(request.user, q)
+    cache.set(cache_key, payload, timeout=120)
+    return JsonResponse(payload)
+
+
+def _run_history_search(user, q):
+    """Core text/date history search shared by the search_api view and the AI
+    `search_history` tool. Returns the payload dict search_api serializes for
+    text/date queries (the `mode == 'here'` proximity branch stays in the view).
+    Caller is responsible for caching."""
+    locations = Location.objects.filter(device__user=user)
     parsed_date = _parse_date_search_query(q)
 
     # Location name results (city/state/place_name matches)
@@ -4286,7 +4402,7 @@ def search_api(request):
     # User-defined custom places matching the query rank above OSM POIs.
     if not parsed_date:
         custom_matches = []
-        for p in CustomPlace.objects.filter(user=request.user, name__icontains=q):
+        for p in CustomPlace.objects.filter(user=user, name__icontains=q):
             nearby = _find_nearby_locations(locations, p.latitude, p.longitude, p.radius_m)
             p_days = _group_by_day(nearby)
             if not p_days:
@@ -4302,7 +4418,7 @@ def search_api(request):
         place_results = custom_matches + place_results
         places_checked = len(place_results)
 
-    payload = {
+    return {
         'query': q,
         'query_type': 'date' if parsed_date else 'text',
         'location_results': days,
@@ -4312,8 +4428,6 @@ def search_api(request):
         'places_checked': places_checked,
         'needs_download': needs_download,
     }
-    cache.set(cache_key, payload, timeout=120)
-    return JsonResponse(payload)
 
 
 # ---------------------------------------------------------------------------
@@ -4441,14 +4555,20 @@ def stats_recompute_status_api(request):
 
 @login_required
 def place_detail_api(request, place_id):
+    """Full stats for one custom place: points, days, time spent, cities, sample track."""
+    place = get_object_or_404(CustomPlace, id=place_id, user=request.user)
+    return JsonResponse(_compute_place_detail(request.user, place))
+
+
+def _compute_place_detail(user, place):
     """Full stats for one custom place: points, days, time spent, cities, sample track.
 
     Single DB pass: the inside-points are fetched once (ordered by time) and
     counts / first-last / per-day dwell / cities / map sample are all derived in
     Python. The previous version ran ~4 separate full scans of the geofence,
-    which made big places (tens of thousands of points) slow to open."""
-    place = get_object_or_404(CustomPlace, id=place_id, user=request.user)
-    base = Location.objects.filter(device__user=request.user)
+    which made big places (tens of thousands of points) slow to open. Shared by
+    the place_detail_api view and the AI `get_custom_place_detail` tool."""
+    base = Location.objects.filter(device__user=user)
     nearby = _find_nearby_locations(base, place.latitude, place.longitude, place.radius_m)
 
     rows = list(
@@ -4502,7 +4622,7 @@ def place_detail_api(request, place_id):
         'cities': cities,
         'sample': sample,
     })
-    return JsonResponse(data)
+    return data
 
 
 @login_required

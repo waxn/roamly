@@ -23,6 +23,7 @@ urlpatterns = [
     path('adventures/', views.adventures_view, name='adventures'),
     path('journals/', views.journals_view, name='journals'),
     path('places/', views.places_view, name='places'),
+    path('ask/', views.ask_view, name='ask'),
     path('settings/', views.settings_view, name='settings'),
 
     # Auth
@@ -48,6 +49,11 @@ urlpatterns = [
     path('api/countries/', views.countries_api, name='countries_api'),
     path('api/distance/', views.distance_api, name='distance_api'),
     path('api/search/', views.search_api, name='search_api'),
+
+    # AI Ask API
+    path('api/ask/', views.ask_api, name='ask_api'),
+    path('api/ask/test/', views.ask_test_api, name='ask_test_api'),
+    path('api/profile/ai-config/', views.profile_ai_config_api, name='profile_ai_config'),
 
     # Custom Places API
     path('api/places/', views.places_api, name='places_api'),

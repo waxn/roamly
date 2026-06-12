@@ -17,10 +17,19 @@ def get_custom_js():
 
 
 def custom_js_snippet(request):
-    """Provide the instance custom JS and the viewer's admin flag to templates."""
+    """Provide the instance custom JS, the viewer's admin flag, and the per-user
+    AI Ask feature flag to all templates."""
     is_admin = False
+    ai_ask_enabled = False
     user = getattr(request, 'user', None)
     if user is not None and user.is_authenticated:
         profile = getattr(user, 'profile', None)
         is_admin = bool(profile and profile.is_admin)
-    return {'CUSTOM_JS_SNIPPET': get_custom_js(), 'IS_ADMIN': is_admin}
+        # Reuse the same profile object — the Ask tab shows only once the user
+        # has enabled AI and supplied a base URL, key, and model.
+        ai_ask_enabled = bool(profile and profile.ai_configured)
+    return {
+        'CUSTOM_JS_SNIPPET': get_custom_js(),
+        'IS_ADMIN': is_admin,
+        'AI_ASK_ENABLED': ai_ask_enabled,
+    }

@@ -78,6 +78,10 @@ The `geocoding_tasks._geocode_worker` drains the `city=''` backlog in chunks, re
 
 **Analytics / custom JS:** Instance-wide raw **HTML** injected verbatim just before `</body>` on every page via `base.html`'s `{{ CUSTOM_JS_SNIPPET|safe }}` (no wrapping `<script>` — paste snippets as the provider gives them, **including** their own `<script src>`/`<script>` tags, e.g. GoatCounter). It is **no longer an env var** — it lives in the `SiteConfig` singleton (`SiteConfig.load()`, pk=1) and is edited live from Settings → **Custom JavaScript** (an admin-only card; saved via `POST /api/site/custom-js/`, which is admin-gated). `context_processors.get_custom_js()` reads it cached (`site_custom_js`, 1h TTL) and the save endpoint busts that key. Works with any snippet tool (PostHog, Plausible, Fathom, etc.).
 
+**AI "Ask" (per-user, BYO OpenAI-compatible LLM).** An optional **Ask** tab (`/ask/`, `ask_view` → `ask.html`) where a user asks natural-language questions about their *own* location history ("have I been to Old Orchard Beach?", "when was I last at the spa?", "when did we go to Oklahoma?"). Config is **per-user**, stored on `UserProfile` (`ai_ask_enabled`, `ai_base_url`, `ai_api_key`, `ai_model`, `ai_system_prompt`; migration `0031`) and edited from a (non-admin) **AI Ask** card in Settings, saved via `POST /api/profile/ai-config/`. The API key is **plaintext, masked as `••••••••`** on GET and only overwritten on POST when the posted value ≠ the mask (the `BackupConfig.secret_key` pattern). A profile is "configured" when enabled + base_url + key + model are all set (`UserProfile.ai_configured`); the **Ask tab only renders** when the per-user `AI_ASK_ENABLED` flag is true — computed in `context_processors.custom_js_snippet` from the *same* profile object it already loads for `IS_ADMIN` (no extra query, no caching), and `ask_view`/`ask_api` re-check it (deep-link guard / 403).
+
+The model **never writes SQL** — `tracker/ai_tasks.py` exposes read-only, user-scoped *tools* and runs an OpenAI-compatible Chat Completions tool-call loop (`run_ask`: system prompt + sanitized client turns → `POST {base_url}/chat/completions` with `tools`/`tool_choice:auto` → execute each `tool_call` scoped to `request.user`, append `role:"tool"` results, repeat ≤5×). Tools (`TOOL_DISPATCH`) wrap existing helpers and **trim** their output for token budget: `search_history`→`views._run_history_search` (the shared search core extracted from `search_api` — **change search semantics in one place and both update**), `list_visited_places`→`_compute_visits_from_qs`, `list_custom_places`→`_compute_places_payload`, `get_custom_place_detail`→`_compute_place_detail` (extracted from `place_detail_api`), `get_distance`→`_compute_distance_from_qs`, `get_history_overview`→`_compute_overview_from_qs`. `POST /api/ask/` runs one turn (403 disabled / 503 unconfigured / 502 on `AIProviderError`); `POST /api/ask/test/` is the Settings "Test connection" probe (distinguishes bad key / unreachable / bad model). OpenAI-compatible only (works with OpenAI, OpenRouter, local Ollama/LiteLLM, Anthropic's OpenAI-compat endpoint). Chat is **ephemeral** (browser-only, no conversation tables). Not in the mobile app or backups (per-user AI config isn't user-authored content; `meta.version` stays 4). **New model field ⇒ build + migrate, not just a restart.**
+
 **Response compression:** `django.middleware.gzip.GZipMiddleware` (first after SecurityMiddleware) gzips all dynamic HTML/JSON responses. WhiteNoise serves its own pre-compressed static assets and sets `Content-Encoding`, so GZipMiddleware skips those (no double-compression). The ~60KB landing HTML drops to ~8KB on the wire.
 
 **Landing page performance:** `landing_view` is tuned for the fastest possible cold load (it's the public entry point). The three hero stats are read from the `site_stats` cache key (1h TTL, also primed by `_refresh_site_stats`) so the hot path never hits the DB; only a cache miss does a `SiteStat` lookup. Anonymous responses get `Cache-Control: public, max-age=300, stale-while-revalidate=86400` + `Vary: Cookie, Accept-Encoding` so browsers/CDNs serve repeat visits instantly without leaking the logged-in nav variant.
@@ -130,6 +134,7 @@ The location tracker (`tracking/LocationTrackingService.kt`) is a foreground ser
 | `tracker/offline_geocode.py` | `local_reverse_geocode` (TIGER point-in-polygon) + `offline_reverse_geocode` (intl nearest-city) |
 | `tracker/management/commands/import_boundaries.py` | Load US Census TIGER place/cousub boundaries; `--regeocode` relabels all points |
 | `tracker/poi_tasks.py` | OSM POI download (runs in threads) |
+| `tracker/ai_tasks.py` | AI "Ask" — OpenAI-compatible chat + read-only history tools (`run_ask`, `TOOL_DISPATCH`) |
 | `tracker/image_utils.py` | `resize_image`, `resize_photo` helpers |
 
 ## Models
@@ -162,7 +167,7 @@ Streaks (`_journal_compute_streaks`: current run ending today/yesterday + longes
 - `BackupConfig` — S3-compatible backup configuration + status
 
 **User:**
-- `UserProfile` — profile picture; created via `get_or_create` in `settings_view`
+- `UserProfile` — profile picture, `is_admin`, and per-user AI Ask config (`ai_ask_enabled`/`ai_base_url`/`ai_api_key`/`ai_model`/`ai_system_prompt` + `ai_configured` property); created via `get_or_create` in `settings_view`
 - `POI` — locally cached OpenStreetMap points of interest
 - `CustomPlace` — a user-defined named geofence (`name`, `latitude`, `longitude`, `radius_m`, auto-assigned `color`). See **Custom Places** below.
 
