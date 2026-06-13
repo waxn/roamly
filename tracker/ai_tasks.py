@@ -236,11 +236,11 @@ def _tool_search_history(user, query=None, **_):
     }
 
 
-def _tool_get_day_detail(user, date=None, **_):
+def _tool_get_day_detail(user, date=None, tz_offset=0, **_):
     if not date or not str(date).strip():
         return {"error": "date is required (YYYY-MM-DD)"}
     from . import views
-    return views._compute_day_detail(user, str(date).strip())
+    return views._compute_day_detail(user, str(date).strip(), tz_offset)
 
 
 def _tool_list_visited_places(user, level="city", **_):
@@ -464,10 +464,21 @@ _DATE_LINK_DIRECTIVE = (
 )
 
 
-def _system_prompt(user, profile):
+def _local_today(tz_offset):
+    """Today's date in the user's local time. ``tz_offset`` is the browser's
+    Date.getTimezoneOffset() (minutes, UTC − local), so local = UTC − offset."""
+    try:
+        tz_offset = int(tz_offset)
+    except (TypeError, ValueError):
+        tz_offset = 0
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    return (now_utc - datetime.timedelta(minutes=tz_offset)).date()
+
+
+def _system_prompt(user, profile, tz_offset=0):
     if profile.ai_system_prompt and profile.ai_system_prompt.strip():
         return profile.ai_system_prompt.strip() + "\n\n" + _DATE_LINK_DIRECTIVE
-    today = datetime.date.today().isoformat()
+    today = _local_today(tz_offset).isoformat()
     name = user.first_name or user.username
     journals = (
         " The user has allowed you to read their personal journal entries — use "
@@ -503,9 +514,11 @@ def _sanitize_client_messages(client_messages):
     return clean[-_MAX_CLIENT_TURNS:]
 
 
-def run_ask(user, client_messages, profile):
-    """Run the tool-calling loop and return the assistant's final text answer."""
-    messages = [{"role": "system", "content": _system_prompt(user, profile)}]
+def run_ask(user, client_messages, profile, tz_offset=0):
+    """Run the tool-calling loop and return the assistant's final text answer.
+    ``tz_offset`` (browser Date.getTimezoneOffset() minutes) anchors "today" and
+    per-day lookups to the user's local time, not the server's UTC day."""
+    messages = [{"role": "system", "content": _system_prompt(user, profile, tz_offset)}]
     messages.extend(_sanitize_client_messages(client_messages))
     if len(messages) == 1:
         raise AIProviderError("No question was provided.")
@@ -537,6 +550,7 @@ def run_ask(user, client_messages, profile):
                     args = {}
             except (ValueError, TypeError):
                 args = {}
+            args.pop("tz_offset", None)  # server-supplied only; never from the model
             handler = TOOL_DISPATCH.get(name)
             if name in _JOURNAL_TOOL_NAMES and not journals_allowed:
                 # Defense in depth: never read journals unless opted in, even if a
@@ -546,7 +560,9 @@ def run_ask(user, client_messages, profile):
                 result = {"error": f"unknown tool '{name}'"}
             else:
                 try:
-                    result = handler(user, **args)
+                    # tz_offset is passed to every handler; those that don't need
+                    # it absorb it via **_ (only day/date tools use it).
+                    result = handler(user, tz_offset=tz_offset, **args)
                 except Exception:
                     logger.exception("AI tool %s failed", name)
                     result = {"error": "tool failed to run"}

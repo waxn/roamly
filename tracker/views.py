@@ -497,14 +497,16 @@ def ask_api(request):
         return JsonResponse({'error': 'AI Ask is not configured.'}, status=503)
 
     try:
-        messages = json.loads(request.body or '{}').get('messages', [])
+        body = json.loads(request.body or '{}')
     except (json.JSONDecodeError, ValueError, AttributeError):
         return JsonResponse({'error': 'Invalid request.'}, status=400)
+    messages = body.get('messages', [])
+    tz_offset = body.get('tz_offset', 0)
     if not isinstance(messages, list):
         return JsonResponse({'error': 'Invalid request.'}, status=400)
 
     try:
-        reply = ai_tasks.run_ask(request.user, messages, profile)
+        reply = ai_tasks.run_ask(request.user, messages, profile, tz_offset=tz_offset)
     except ai_tasks.AIProviderError as e:
         return JsonResponse({'error': str(e)}, status=502)
     except Exception:
@@ -4187,17 +4189,19 @@ def _group_by_day(qs):
     return result
 
 
-def _compute_day_detail(user, date_str):
+def _compute_day_detail(user, date_str, tz_offset=0):
     """Everything recorded on one local calendar day: every city/state/country,
     named POIs, custom places entered, distance, and the active time range.
     Read-only; used by the AI `get_day_detail` tool so it can name specific stops
-    rather than only a state-level match."""
+    rather than only a state-level match. ``tz_offset`` (browser minutes) bounds
+    the day to the user's local midnight rather than the server's UTC day."""
     try:
         d = date.fromisoformat(str(date_str))
     except (ValueError, TypeError):
         return {"error": "date must be YYYY-MM-DD"}
 
-    base = Location.objects.filter(device__user=user, timestamp__date=d)
+    start, end = _journal_day_bounds(d, tz_offset)
+    base = Location.objects.filter(device__user=user, timestamp__gte=start, timestamp__lte=end)
     total = base.count()
     if not total:
         return {"date": str(date_str), "point_count": 0,

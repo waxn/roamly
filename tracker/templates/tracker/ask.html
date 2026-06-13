@@ -261,7 +261,7 @@ function sendAsk() {
     fetch('/api/ask/', {
         method: 'POST',
         headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages }),
+        body: JSON.stringify({ messages, tz_offset: new Date().getTimezoneOffset() }),
     })
     .then(r => r.json().then(d => ({ ok: r.ok, d })))
     .then(({ ok, d }) => {
