@@ -117,7 +117,7 @@
     width: 100%; background: none; border: none; outline: none;
     font-family: var(--font-display); font-size: 1.75rem;
     font-weight: 800; line-height: 1.15; resize: none; overflow: hidden;
-    text-transform: lowercase; color: var(--text); transition: color 0.3s;
+    text-transform: none; color: var(--text); transition: color 0.3s;
     text-shadow: none;
 }
 .editor-subtitle {
@@ -201,7 +201,7 @@
 .block-text {
     width: 100%; background: none; border: none; outline: none;
     color: var(--text); font-family: var(--font-body); font-size: 0.9375rem;
-    line-height: 1.6; resize: none; overflow: hidden; min-height: 1.5em; text-transform: lowercase;
+    line-height: 1.6; resize: none; overflow: hidden; min-height: 1.5em; text-transform: none;
 }
 .block-text:focus { background: rgba(255,255,255,0.025); border-radius: 4px; }
 
@@ -219,7 +219,7 @@
 .block-callout[data-color="lavender"] { background: rgba(155,142,247,0.1); border: 1px solid rgba(155,142,247,0.3); }
 .block-callout[data-color="sky"]      { background: rgba(91,164,229,0.1);  border: 1px solid rgba(91,164,229,0.3); }
 .callout-accent { font-size: 1.125rem; flex-shrink: 0; margin-top: 1px; }
-.callout-text { flex: 1; background: none; border: none; outline: none; color: var(--text); font-family: var(--font-body); font-size: 0.875rem; line-height: 1.5; resize: none; overflow: hidden; min-height: 1.5em; text-transform: lowercase; }
+.callout-text { flex: 1; background: none; border: none; outline: none; color: var(--text); font-family: var(--font-body); font-size: 0.875rem; line-height: 1.5; resize: none; overflow: hidden; min-height: 1.5em; text-transform: none; }
 
 .block-map-embed { border-radius: var(--radius-clay-sm); overflow: hidden; border: 1px solid var(--border); margin: 0.25rem 0; background: var(--bg-card); }
 .block-map-embed .map-placeholder { height: 200px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 0.5rem; color: var(--text-muted); font-size: 0.8125rem; background: var(--bg-input); }

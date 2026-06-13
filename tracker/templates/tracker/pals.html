@@ -82,11 +82,11 @@ function loadPals() {
                 return `<div class="card pal-card" onclick="location.href='/pals/${pal.id}/'">
                     <div style="display:flex;justify-content:space-between;align-items:center;">
                         <div>
-                            <strong style="font-size:1.0625rem;">${pal.name}</strong>
+                            <strong class="ugc" style="font-size:1.0625rem;">${pal.name}</strong>
                             <div style="font-size:0.8125rem;color:var(--text-muted);margin-top:0.25rem;">
                                 ${start} &mdash; ${end} &middot; ${pal.member_count} member${pal.member_count !== 1 ? 's' : ''} &middot; ${pal.role}
                             </div>
-                            ${pal.description ? `<div style="font-size:0.8125rem;color:var(--text-muted);margin-top:0.25rem;">${pal.description}</div>` : ''}
+                            ${pal.description ? `<div class="ugc" style="font-size:0.8125rem;color:var(--text-muted);margin-top:0.25rem;">${pal.description}</div>` : ''}
                         </div>
                         ${pal.is_public ? '<span class="badge badge-success">public</span>' : ''}
                     </div>

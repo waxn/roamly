@@ -151,6 +151,11 @@
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
+        /* User-generated content keeps the case the user typed — the site-wide
+           lowercase aesthetic is for chrome/labels, not for what people write.
+           Every typing surface, and any element tagged .ugc, opts out. */
+        input, textarea, select, [contenteditable="true"], .ugc { text-transform: none; }
+
         body {
             font-family: var(--font-body);
             text-transform: lowercase;

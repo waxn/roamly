@@ -65,11 +65,11 @@
 .adv-card:hover::after { opacity: 1; }
 .adv-card-cover { width: 100%; height: 120px; object-fit: cover; display: block; }
 .adv-card-body { padding: 0.875rem 1.125rem 1rem; flex: 1; display: flex; flex-direction: column; }
-.adv-card-name { font-size: 0.9375rem; font-weight: 700; margin: 0 0 0.125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.adv-card-subtitle { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.adv-card-name { font-size: 0.9375rem; font-weight: 700; margin: 0 0 0.125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: none; }
+.adv-card-subtitle { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: none; }
 .adv-card-dates { font-size: 0.8rem; color: var(--text-muted); }
-.adv-card-meta { display: flex; gap: 0.75rem; margin-top: 0.5rem; font-size: 0.75rem; color: var(--text-muted); flex-wrap: wrap; }
-.adv-card-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.adv-card-meta { display: flex; gap: 0.75rem; margin-top: 0.5rem; font-size: 0.75rem; color: var(--text-muted); flex-wrap: wrap; text-transform: none; }
+.adv-card-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: none; }
 .adv-card-badges { display: flex; gap: 0.375rem; margin-top: 0.625rem; align-items: center; }
 .adv-card-read-time { font-size: 0.65rem; color: var(--text-dim); }
 .adv-card-actions {
@@ -268,8 +268,8 @@
     border-radius: 12px; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem;
 }
 .adv-ms-emoji { font-size: 1.25rem; line-height: 1; flex-shrink: 0; }
-.adv-ms-title { font-size: 0.875rem; font-weight: 600; }
-.adv-ms-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.125rem; }
+.adv-ms-title { font-size: 0.875rem; font-weight: 600; text-transform: none; }
+.adv-ms-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.125rem; text-transform: none; }
 .adv-ms-date { font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.125rem; }
 
 /* Notes */
@@ -386,7 +386,7 @@
 /* Comments */
 .comment-item { display: flex; gap: 0.375rem; font-size: 0.75rem; padding: 3px 0; }
 .comment-author { font-weight: 600; flex-shrink: 0; }
-.comment-text { color: var(--text-muted); flex: 1; }
+.comment-text { color: var(--text-muted); flex: 1; text-transform: none; }
 .add-comment-row { display: flex; gap: 0.375rem; margin-top: 0.375rem; }
 .add-comment-row input {
     flex: 1; background: var(--bg-input); border: 1px solid var(--border);
@@ -466,7 +466,7 @@
     margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
 }
 .adv-post-body {
-    font-size: 0.9375rem; line-height: 1.75; margin-bottom: 1rem;
+    font-size: 0.9375rem; line-height: 1.75; margin-bottom: 1rem; text-transform: none;
 }
 .adv-post-body strong { font-weight: 700; }
 .adv-post-body em { font-style: italic; color: var(--text-muted); }
