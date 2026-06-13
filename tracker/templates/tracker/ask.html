@@ -124,12 +124,7 @@
             <div class="ask-empty" id="ask-empty">
                 <div style="font-size:2rem;margin-bottom:0.3rem;">🗺️</div>
                 <div>I can search your travel history. Ask me things like:</div>
-                <div class="ask-suggestions">
-                    <span class="ask-chip" onclick="askSuggestion(this)">Have I been to Old Orchard Beach?</span>
-                    <span class="ask-chip" onclick="askSuggestion(this)">When was I last at the spa?</span>
-                    <span class="ask-chip" onclick="askSuggestion(this)">When did we go to Oklahoma?</span>
-                    <span class="ask-chip" onclick="askSuggestion(this)">How many countries have I visited?</span>
-                </div>
+                <div class="ask-suggestions" id="ask-suggestions"></div>
             </div>
         </div>
         <div class="ask-error" id="ask-error" style="display:none;"></div>
@@ -180,9 +175,48 @@ function addBubble(role, html) {
 }
 
 function askSuggestion(el) {
-    elInput.value = el.textContent;
+    elInput.value = el.dataset.q || el.textContent;
     sendAsk();
 }
+
+// A daily-summary chip is always shown first; the rest are picked at random
+// from this pool on each load so it feels fresh.
+const DAILY_SUMMARY = 'Summarize my day today — where did I go?';
+const SUGGESTION_POOL = [
+    'Have I been to Old Orchard Beach?',
+    'When was I last at the spa?',
+    'When did we go to Oklahoma?',
+    'How many countries have I visited?',
+    'What cities did I visit last month?',
+    'How far did I travel this week?',
+    'Where did I go yesterday?',
+    'Which states have I been to?',
+    'When did I last visit the beach?',
+    'What did I do last weekend?',
+    'Summarize my travels this year',
+    'What are the places I visit most often?',
+];
+
+function renderSuggestions() {
+    const wrap = document.getElementById('ask-suggestions');
+    if (!wrap) return;
+    const pool = SUGGESTION_POOL.slice();
+    for (let i = pool.length - 1; i > 0; i--) {       // Fisher–Yates shuffle
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    const picks = [DAILY_SUMMARY, ...pool.slice(0, 3)];
+    wrap.innerHTML = '';
+    picks.forEach(q => {
+        const chip = document.createElement('span');
+        chip.className = 'ask-chip';
+        chip.dataset.q = q;
+        chip.textContent = q;
+        chip.onclick = () => askSuggestion(chip);
+        wrap.appendChild(chip);
+    });
+}
+renderSuggestions();
 
 function autoGrow() {
     elInput.style.height = 'auto';
