@@ -5,8 +5,10 @@
 .ask-wrap {
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 200px);
-    min-height: 420px;
+    /* Cap the height so the input bar sits at a comfortable height rather than
+       pinned to the very bottom of tall screens. */
+    height: min(calc(100vh - 280px), 600px);
+    min-height: 360px;
 }
 .ask-messages {
     flex: 1;
