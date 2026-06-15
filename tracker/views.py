@@ -1394,7 +1394,12 @@ def _get_snapshot_or_kick(user):
     to a live computation for this one request. This is the bridge that makes the
     Stats/Visits/Places pages instant: the all-time, unfiltered views read from
     the snapshot instead of recomputing the whole history live."""
-    snap = StatsSnapshot.objects.filter(user=user).first()
+    # Decide on the small status columns only; defer the heavy JSON blobs so the
+    # common (snapshot-ready) request loads just the one field it serves (via
+    # _snapshot_response's deferred attribute access) instead of all four.
+    snap = (StatsSnapshot.objects.filter(user=user)
+            .only('id', 'status', 'computed_at')
+            .first())
     if snap and snap.status == 'done' and snap.computed_at:
         return snap
     try:
