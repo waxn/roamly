@@ -148,7 +148,16 @@ if HAS_POSTGIS and gis_models:
         geom = gis_models.MultiPolygonField(srid=4326)
 
         class Meta:
-            indexes = [models.Index(fields=['kind'], name='tracker_boundary_kind_idx')]
+            indexes = [
+                models.Index(fields=['kind'], name='tracker_boundary_kind_idx'),
+                # Spatial index is essential: every reverse-geocode does a
+                # `geom__contains=point` lookup. Without a GiST index that's a
+                # sequential scan running ST_Contains against every polygon in
+                # the table — and because tracking pushes a point continuously,
+                # the background geocoder runs that full-table scan around the
+                # clock, pinning DB CPU. With the index it's an index probe.
+                GistIndex(fields=['geom'], name='tracker_boundary_geom_gist'),
+            ]
 
         def __str__(self):
             return f"{self.name}, {self.state} ({self.kind})"
