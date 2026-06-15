@@ -48,6 +48,10 @@ private const val CONTINUOUS_MAX_INTERVAL_MS = 10_000L
 private const val FIX_ACQUISITION_TIMEOUT_MS = 25_000L
 private const val FIX_WAKELOCK_MARGIN_MS = 5_000L
 private const val FIX_ALARM_REQUEST_CODE = 7013
+// GPS reports a phantom sub-walking-pace speed when the device is actually stationary
+// (each fix lands a metre or two from the last). Floor anything under ~1 mph to 0 so a
+// standing-still track shows 0, not a misleading 0.3 mph drift.
+private const val MIN_LOGGED_SPEED_MPS = 0.45f  // ≈ 1 mph (0.44704 m/s)
 
 const val ACTION_STOP     = "com.roamly.STOP"
 const val ACTION_PAUSE    = "com.roamly.PAUSE"
@@ -526,7 +530,11 @@ class LocationTrackingService : Service() {
             longitude = loc.longitude,
             accuracy  = if (loc.hasAccuracy()) loc.accuracy else null,
             altitude  = if (loc.hasAltitude()) loc.altitude else null,
-            speed     = if (loc.hasSpeed()) loc.speed else null,
+            speed     = when {
+                !loc.hasSpeed()                    -> null
+                loc.speed >= MIN_LOGGED_SPEED_MPS  -> loc.speed
+                else                               -> 0f   // stationary: drop GPS jitter speed
+            },
             battery   = battery,
             timestamp = loc.time,
             provider  = loc.provider,
