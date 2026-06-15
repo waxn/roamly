@@ -175,8 +175,18 @@ def _stats_scheduler_loop():
     while True:
         try:
             today = timezone.localdate()
+            # NOTE the .order_by(): Location has Meta.ordering = ['-timestamp'],
+            # and a values_list(...).distinct() inherits it — which forces the
+            # ordering column into the SELECT and *breaks* the DISTINCT, so this
+            # returned one row per timestamp (~700k rows, almost all the same
+            # user) instead of one row per user. The sweep then looped hundreds of
+            # thousands of times per pass, never reaching the sleep below, pinning
+            # CPU across every worker and streaming the whole table over the wire.
+            # order_by() clears the inherited ordering so DISTINCT is real.
             user_ids = list(
-                Location.objects.values_list('device__user_id', flat=True).distinct()
+                Location.objects.order_by()
+                .values_list('device__user_id', flat=True)
+                .distinct()
             )
             for uid in user_ids:
                 if uid is None:
