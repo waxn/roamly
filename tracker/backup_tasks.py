@@ -218,6 +218,24 @@ def _build_journals_data(user):
     return result
 
 
+def _build_custom_places_data(user):
+    """Build serializable custom places (user-defined geofences) for a user's backup."""
+    from .models import CustomPlace
+
+    return [
+        {
+            'name': p.name,
+            'latitude': p.latitude,
+            'longitude': p.longitude,
+            'radius_m': p.radius_m,
+            'color': p.color,
+            'notes': p.notes,
+            'created_at': p.created_at,
+        }
+        for p in CustomPlace.objects.filter(user=user)
+    ]
+
+
 def _build_backup_json(user):
     """Build the backup JSON data dict for a user (same format as export_backup view)."""
     from .models import Device, Location, APIKey
@@ -228,7 +246,7 @@ def _build_backup_json(user):
 
     data = {
         'meta': {
-            'version': 4,
+            'version': 5,
             'exported_at': timezone.now().isoformat(),
             'username': user.username,
         },
@@ -266,6 +284,7 @@ def _build_backup_json(user):
         ],
         'pals': _build_pals_data(user),
         'journals': _build_journals_data(user),
+        'custom_places': _build_custom_places_data(user),
     }
     return json.dumps(data, cls=DjangoJSONEncoder)
 

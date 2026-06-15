@@ -44,7 +44,7 @@ from .poi_tasks import start_poi_download, get_poi_status, stop_poi_download
 from .backup_tasks import (
     test_s3_connection, run_backup_now, get_backup_status, stop_backup_now,
     run_image_backup_now, get_image_backup_status, _build_pals_data,
-    _build_adventures_data, _build_journals_data,
+    _build_adventures_data, _build_journals_data, _build_custom_places_data,
 )
 
 logger = logging.getLogger(__name__)
@@ -2908,7 +2908,7 @@ def _write_backup_json(user, f):
     """Write backup JSON to a file-like object row-by-row to avoid OOM on large datasets."""
     encoder = DjangoJSONEncoder()
 
-    meta = {'version': 4, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 5, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # Same complete, nested schema as the S3 backup (_build_backup_json) so the
@@ -2920,6 +2920,7 @@ def _write_backup_json(user, f):
     ]
     pals = _build_pals_data(user)
     journals = _build_journals_data(user)
+    custom_places = _build_custom_places_data(user)
 
     f.write(b'{"meta":' + encoder.encode(meta).encode() + b',')
     f.write(b'"devices":' + encoder.encode(devices).encode() + b',')
@@ -2927,6 +2928,7 @@ def _write_backup_json(user, f):
     f.write(b'"api_keys":' + encoder.encode(api_keys).encode() + b',')
     f.write(b'"pals":' + encoder.encode(pals).encode() + b',')
     f.write(b'"journals":' + encoder.encode(journals).encode() + b',')
+    f.write(b'"custom_places":' + encoder.encode(custom_places).encode() + b',')
 
     f.write(b'"locations":[')
     first = True
@@ -3026,7 +3028,8 @@ def restore_backup(request):
 
     user = request.user
     counts = {'devices': 0, 'locations': 0, 'trips': 0, 'trip_places': 0,
-              'adventures': 0, 'api_keys': 0, 'pals': 0, 'journals': 0}
+              'adventures': 0, 'api_keys': 0, 'pals': 0, 'journals': 0,
+              'custom_places': 0}
     errors = 0
 
     try:
@@ -3405,9 +3408,34 @@ def restore_backup(request):
                     errors += 1
                     logger.warning(f"Backup restore journal error: {e}")
 
+            # Restore custom places (user-defined geofences). Idempotent on
+            # (user, name, lat, lng); color falls back to the clay palette.
+            for idx, cp in enumerate(data.get('custom_places', [])):
+                try:
+                    _, created = CustomPlace.objects.get_or_create(
+                        user=user, name=cp['name'],
+                        latitude=cp['latitude'], longitude=cp['longitude'],
+                        defaults={
+                            'radius_m': cp.get('radius_m', 150),
+                            'color': cp.get('color') or _PLACE_COLORS[idx % len(_PLACE_COLORS)],
+                            'notes': cp.get('notes', ''),
+                        }
+                    )
+                    if created:
+                        counts['custom_places'] += 1
+                except Exception as e:
+                    errors += 1
+                    logger.warning(f"Backup restore custom place error: {e}")
+
     except Exception as e:
         logger.error(f"Backup restore failed: {e}")
         return JsonResponse({'error': f'Restore failed: {e}'}, status=500)
+
+    # Refresh the Places snapshot so restored custom places show immediately
+    # rather than waiting for the nightly recompute.
+    if counts['custom_places']:
+        _bust_user_cache(user.id)
+        _refresh_places_snapshot(user)
 
     return JsonResponse({'status': 'ok', 'restored': counts, 'errors': errors})
 
