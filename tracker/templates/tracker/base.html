@@ -901,7 +901,7 @@
             display: inline-flex;
             align-items: center;
             gap: 0.45em;
-            background: var(--bg-input);
+            background: var(--bg-elevated);
             color: var(--text);
             border: 1px solid var(--border);
             border-radius: var(--radius-clay-sm);
@@ -911,15 +911,22 @@
             text-align: left;
             cursor: pointer;
             outline: none;
-            box-shadow: var(--clay-shadow-inset);
-            transition: border-color 0.18s, box-shadow 0.18s;
+            box-shadow: var(--clay-shadow-btn);
+            transition: transform 0.2s var(--ease-out), border-color 0.18s, box-shadow 0.2s;
         }
-        .rly-select-trigger:hover, .rly-date-trigger:hover { border-color: var(--text-dim); }
+        .rly-select-trigger:hover, .rly-date-trigger:hover {
+            border-color: var(--text-dim);
+            transform: translateY(-1px);
+        }
         .rly-select.open .rly-select-trigger,
         .rly-date.open .rly-date-trigger,
         .rly-select-trigger:focus-visible, .rly-date-trigger:focus-visible {
             border-color: var(--border-bright);
-            box-shadow: var(--clay-shadow-inset), 0 0 0 3px var(--primary-soft);
+            box-shadow: var(--clay-shadow-btn), 0 0 0 3px var(--primary-soft);
+        }
+        .rly-select-trigger:active, .rly-date-trigger:active {
+            transform: translateY(1px) scale(0.99);
+            box-shadow: var(--clay-shadow-sm);
         }
         .rly-select-trigger:disabled, .rly-date-trigger:disabled { opacity: 0.5; cursor: not-allowed; }
         .rly-select-label, .rly-date-label {
@@ -983,7 +990,12 @@
         /* Calendar */
         .rly-cal { width: 256px; padding: 12px; font-family: var(--font-body); user-select: none; }
         .rly-cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-        .rly-cal-title { font-weight: 800; font-size: 0.9rem; color: var(--text); font-family: var(--font-display); }
+        .rly-cal-title {
+            font-weight: 800; font-size: 0.9rem; color: var(--text); font-family: var(--font-display);
+            background: none; border: none; cursor: pointer; padding: 4px 10px; border-radius: 9px;
+            transition: background 0.15s, color 0.15s;
+        }
+        .rly-cal-title:hover { background: var(--primary-soft); color: var(--primary); }
         .rly-cal-nav {
             width: 28px; height: 28px; border-radius: 9px;
             background: var(--bg-input); border: 1px solid var(--border);
@@ -1017,6 +1029,18 @@
             font-weight: 700; text-transform: lowercase; font-family: var(--font-body);
         }
         .rly-cal-foot-btn:hover { color: var(--text); border-color: var(--text-dim); }
+        /* Month/year fast-pick view */
+        .rly-cal-months { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+        .rly-cal-month {
+            padding: 12px 4px; border: none; background: var(--bg-input);
+            border-radius: 11px; color: var(--text); cursor: pointer;
+            font-size: 0.8rem; font-weight: 700; font-family: var(--font-body);
+        }
+        .rly-cal-month:hover { background: var(--primary-soft); }
+        .rly-cal-month.selected { background: var(--accent); color: #fff; }
+        .rly-cal-month.current { box-shadow: inset 0 0 0 1.5px var(--border-bright); }
+        .rly-cal-month.disabled { opacity: 0.28; cursor: not-allowed; }
+        .rly-cal-month.disabled:hover { background: var(--bg-input); }
 
         {% block extra_css %}{% endblock %}
     </style>
@@ -1364,7 +1388,7 @@
                 syncLabel();
                 intercept(inp, HTMLInputElement.prototype, syncLabel);
 
-                let pop = null, vy, vm;
+                let pop = null, vy, vm, mode = 'days';
                 const bounds = () => ({ min: parseISO(inp.min), max: parseISO(inp.max) });
                 function close() {
                     if (!pop) return;
@@ -1386,33 +1410,61 @@
                     const { min, max } = bounds();
                     const sel = parseISO(inp.value);
                     const today = new Date(); today.setHours(0, 0, 0, 0);
-                    const startDow = (new Date(vy, vm, 1).getDay() + 6) % 7;
-                    const days = new Date(vy, vm + 1, 0).getDate();
-                    let h = '<div class="rly-cal-head">'
-                        + '<button type="button" class="rly-cal-nav" data-nav="-1" aria-label="Previous month">‹</button>'
-                        + `<span class="rly-cal-title">${MONTHS[vm]} ${vy}</span>`
-                        + '<button type="button" class="rly-cal-nav" data-nav="1" aria-label="Next month">›</button></div>'
-                        + '<div class="rly-cal-grid">' + DOW.map(d => `<span class="rly-cal-dow">${d}</span>`).join('');
-                    for (let i = 0; i < startDow; i++) h += '<span class="rly-cal-empty"></span>';
-                    for (let d = 1; d <= days; d++) {
-                        const dt = new Date(vy, vm, d);
-                        const dis = (min && dt < min) || (max && dt > max);
-                        let c = 'rly-cal-day';
-                        if (dis) c += ' disabled';
-                        if (sel && dt.getTime() === sel.getTime()) c += ' selected';
-                        if (dt.getTime() === today.getTime()) c += ' today';
-                        h += `<button type="button" class="${c}" data-day="${d}"${dis ? ' disabled' : ''}>${d}</button>`;
+                    let h;
+                    if (mode === 'months') {
+                        // Fast month/year jump: ‹ year › nav + a 12-month grid.
+                        h = '<div class="rly-cal-head">'
+                            + '<button type="button" class="rly-cal-nav" data-nav="-1" aria-label="Previous year">‹</button>'
+                            + `<button type="button" class="rly-cal-title" data-back>${vy}</button>`
+                            + '<button type="button" class="rly-cal-nav" data-nav="1" aria-label="Next year">›</button></div>'
+                            + '<div class="rly-cal-months">';
+                        for (let m = 0; m < 12; m++) {
+                            const dis = (max && new Date(vy, m, 1) > max) || (min && new Date(vy, m + 1, 0) < min);
+                            let c = 'rly-cal-month';
+                            if (dis) c += ' disabled';
+                            if (sel && sel.getFullYear() === vy && sel.getMonth() === m) c += ' selected';
+                            if (today.getFullYear() === vy && today.getMonth() === m) c += ' current';
+                            h += `<button type="button" class="${c}" data-month="${m}"${dis ? ' disabled' : ''}>${MONTHS[m].slice(0, 3)}</button>`;
+                        }
+                        h += '</div>';
+                    } else {
+                        const startDow = (new Date(vy, vm, 1).getDay() + 6) % 7;
+                        const days = new Date(vy, vm + 1, 0).getDate();
+                        h = '<div class="rly-cal-head">'
+                            + '<button type="button" class="rly-cal-nav" data-nav="-1" aria-label="Previous month">‹</button>'
+                            + `<button type="button" class="rly-cal-title" data-pick title="Pick month / year">${MONTHS[vm]} ${vy}</button>`
+                            + '<button type="button" class="rly-cal-nav" data-nav="1" aria-label="Next month">›</button></div>'
+                            + '<div class="rly-cal-grid">' + DOW.map(d => `<span class="rly-cal-dow">${d}</span>`).join('');
+                        for (let i = 0; i < startDow; i++) h += '<span class="rly-cal-empty"></span>';
+                        for (let d = 1; d <= days; d++) {
+                            const dt = new Date(vy, vm, d);
+                            const dis = (min && dt < min) || (max && dt > max);
+                            let c = 'rly-cal-day';
+                            if (dis) c += ' disabled';
+                            if (sel && dt.getTime() === sel.getTime()) c += ' selected';
+                            if (dt.getTime() === today.getTime()) c += ' today';
+                            h += `<button type="button" class="${c}" data-day="${d}"${dis ? ' disabled' : ''}>${d}</button>`;
+                        }
+                        h += '</div>';
                     }
-                    h += '</div><div class="rly-cal-foot">'
+                    h += '<div class="rly-cal-foot">'
                         + '<button type="button" class="rly-cal-foot-btn" data-today>today</button>'
                         + '<button type="button" class="rly-cal-foot-btn" data-clear>clear</button></div>';
                     pop.innerHTML = h;
+                    const reflow = () => { render(); placePopup(trigger, pop); };
                     pop.querySelectorAll('[data-nav]').forEach(b => b.addEventListener('click', e => {
                         e.stopPropagation();
-                        vm += +b.dataset.nav;
-                        if (vm < 0) { vm = 11; vy--; } if (vm > 11) { vm = 0; vy++; }
-                        render(); placePopup(trigger, pop);
+                        const d = +b.dataset.nav;
+                        if (mode === 'months') vy += d;
+                        else { vm += d; if (vm < 0) { vm = 11; vy--; } if (vm > 11) { vm = 0; vy++; } }
+                        reflow();
                     }));
+                    const pickBtn = pop.querySelector('[data-pick]');
+                    if (pickBtn) pickBtn.addEventListener('click', e => { e.stopPropagation(); mode = 'months'; reflow(); });
+                    const backBtn = pop.querySelector('[data-back]');
+                    if (backBtn) backBtn.addEventListener('click', e => { e.stopPropagation(); mode = 'days'; reflow(); });
+                    pop.querySelectorAll('.rly-cal-month:not(.disabled)').forEach(b =>
+                        b.addEventListener('click', e => { e.stopPropagation(); vm = +b.dataset.month; mode = 'days'; reflow(); }));
                     pop.querySelectorAll('.rly-cal-day:not(.disabled)').forEach(b =>
                         b.addEventListener('click', e => { e.stopPropagation(); pick(new Date(vy, vm, +b.dataset.day)); }));
                     pop.querySelector('[data-today]').addEventListener('click', e => {
@@ -1427,7 +1479,7 @@
                 function open() {
                     if (pop || inp.disabled) return;
                     const cur = parseISO(inp.value) || new Date();
-                    vy = cur.getFullYear(); vm = cur.getMonth();
+                    vy = cur.getFullYear(); vm = cur.getMonth(); mode = 'days';
                     pop = document.createElement('div');
                     pop.className = 'rly-cal';
                     pop.setAttribute('role', 'dialog');
