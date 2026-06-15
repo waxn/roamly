@@ -1485,10 +1485,13 @@ def countries_api(request):
             names.setdefault(cc, r['country'] or cc)
 
     # US states the user has set foot in (postal-abbrev or full name as stored).
+    # order_by() clears Location's Meta.ordering ['-timestamp']; without it the
+    # inherited ordering forces timestamp into the SELECT and breaks DISTINCT,
+    # returning a duplicate state per matching point (and scanning the whole set).
     states = sorted(
         s for s in qs.filter(country_code__iexact='US')
         .exclude(state='').exclude(state__isnull=True)
-        .values_list('state', flat=True).distinct()
+        .order_by().values_list('state', flat=True).distinct()
         if s
     )
 
@@ -4243,13 +4246,16 @@ def _compute_day_detail(user, date_str, tz_offset=0):
     first = base.order_by('timestamp').values_list('timestamp', flat=True).first()
     last = base.order_by('-timestamp').values_list('timestamp', flat=True).first()
 
+    # order_by() on each: Location's Meta.ordering ['-timestamp'] otherwise leaks
+    # into these DISTINCTs (timestamp forced into the SELECT), breaking them — the
+    # .distinct()[:50] ones in particular would return duplicate, incomplete rows.
     cities = [
         {"city": r['city'], "state": r['state'], "country": r['country']}
-        for r in base.exclude(city='').values('city', 'state', 'country').distinct()[:50]
+        for r in base.exclude(city='').order_by().values('city', 'state', 'country').distinct()[:50]
     ]
-    states = sorted({s for s in base.exclude(state='').values_list('state', flat=True).distinct()})[:50]
-    countries = sorted({c for c in base.exclude(country='').values_list('country', flat=True).distinct()})
-    pois = [p for p in base.filter(poi__isnull=False).values_list('poi__name', flat=True).distinct()[:50] if p]
+    states = sorted({s for s in base.exclude(state='').order_by().values_list('state', flat=True).distinct()})[:50]
+    countries = sorted({c for c in base.exclude(country='').order_by().values_list('country', flat=True).distinct()})
+    pois = [p for p in base.filter(poi__isnull=False).order_by().values_list('poi__name', flat=True).distinct()[:50] if p]
 
     # Custom places whose geofence contains any of the day's points.
     custom = [p.name for p in CustomPlace.objects.filter(user=user)

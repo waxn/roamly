@@ -83,8 +83,16 @@ def _visit_worker(user_id):
 
         logger.info(f"Computing visits for user {user_id}: {total_unprocessed} unprocessed points")
 
-        # Group by device
-        devices = Location.objects.filter(device__user_id=user_id, processed_for_visits=False).values_list('device_id', flat=True).distinct()
+        # Group by device. order_by() is required: Location has Meta.ordering =
+        # ['-timestamp'], which a values_list(...).distinct() inherits — forcing
+        # the timestamp into the SELECT and breaking the DISTINCT, so this would
+        # yield one row per point (~the whole unprocessed set) instead of one per
+        # device, and the loop below would re-run per duplicate.
+        devices = (Location.objects
+                   .filter(device__user_id=user_id, processed_for_visits=False)
+                   .order_by()
+                   .values_list('device_id', flat=True)
+                   .distinct())
         
         for device_id in devices:
             while True:
