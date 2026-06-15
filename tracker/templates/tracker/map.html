@@ -82,6 +82,31 @@
 .sidebar-date-row input[type="date"] {
     font-size: 0.75rem;
 }
+.date-hint {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: lowercase;
+    letter-spacing: 0.02em;
+    padding: 1px 2px;
+}
+.date-reset-btn {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.18);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 5px 8px;
+    font-size: 0.72rem;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 600;
+    text-transform: lowercase;
+    cursor: pointer;
+    outline: none;
+}
+.date-reset-btn:hover {
+    color: var(--text);
+    border-color: var(--text-muted);
+}
 
 /* Basemap button group */
 .sidebar-btn-group {
@@ -325,8 +350,10 @@
                     <option value="all">All time</option>
                 </select>
                 <div class="sidebar-date-row">
-                    <input type="date" id="start-date" title="From date">
-                    <input type="date" id="end-date" title="To date">
+                    <input type="date" id="start-date" title="Start day — leave the end blank to show the selected time range from this day">
+                    <input type="date" id="end-date" title="End day (optional) — set both for an exact range">
+                    <div class="date-hint" id="date-hint" hidden></div>
+                    <button class="date-reset-btn" id="date-reset" type="button" hidden>reset to default view</button>
                 </div>
             </div>
 
@@ -548,6 +575,10 @@ function buildFilterParams() {
     if (startDate && endDate) {
         params.set('start_date', toLocalDateTimeParam(startDate, 'start'));
         params.set('end_date', toLocalDateTimeParam(endDate, 'end'));
+    } else if (startDate) {
+        // Anchored mode: show the selected time range starting from this day.
+        params.set('start_date', toLocalDateTimeParam(startDate, 'start'));
+        params.set('end_date', toLocalDateTimeParam(anchoredEndDate(startDate, timeRange), 'end'));
     } else if (timeRange === 'all') {
         params.set('all', '1');
     } else {
@@ -555,6 +586,60 @@ function buildFilterParams() {
     }
     if (deviceId) params.set('device_id', deviceId);
     return params.toString();
+}
+
+// Given a start day (YYYY-MM-DD) and the time-range dropdown value, return the
+// inclusive end day (YYYY-MM-DD) that the time range spans forward from it.
+// Sub-day ranges collapse to the single start day; 'all' runs through today.
+function anchoredEndDate(startStr, timeRange) {
+    const [y, m, d] = startStr.split('-').map(Number);
+    const start = new Date(y, m - 1, d);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    let end;
+    if (timeRange === 'all') {
+        end = today > start ? today : start;
+    } else {
+        const days = Math.max(1, Math.round(parseInt(timeRange, 10) / 24));
+        end = new Date(start);
+        end.setDate(end.getDate() + days - 1);
+        if (end > today) end = today;
+    }
+    const pad = n => String(n).padStart(2, '0');
+    return `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}`;
+}
+
+// Toggle the reset button + active-window hint based on the date inputs.
+function updateDateFilterUI() {
+    const s = document.getElementById('start-date').value;
+    const e = document.getElementById('end-date').value;
+    const btn = document.getElementById('date-reset');
+    const hint = document.getElementById('date-hint');
+    btn.hidden = !(s || e);
+    if (s && !e) {
+        const endStr = anchoredEndDate(s, document.getElementById('time-range').value);
+        hint.textContent = endStr === s
+            ? `showing ${fmtHumanDate(s)}`
+            : `showing ${fmtHumanDate(s)} → ${fmtHumanDate(endStr)}`;
+        hint.hidden = false;
+    } else {
+        hint.hidden = true;
+        hint.textContent = '';
+    }
+}
+
+function fmtHumanDate(dateStr) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function resetDateFilter() {
+    document.getElementById('start-date').value = '';
+    document.getElementById('end-date').value = '';
+    document.getElementById('time-range').value = defaultTimeRange;
+    updateDateFilterUI();
+    clearAccumulated();
+    loadTrack(true);
 }
 
 function toLocalDateTimeParam(dateStr, kind) {
@@ -1039,6 +1124,7 @@ function loadTrack(autoFit) {
         const zoom = parseInt(p.get('zoom') || '16');
         map.once('load', () => setTimeout(() => map.flyTo({ center: [lng, lat], zoom }), 500));
     }
+    updateDateFilterUI();
 })();
 
 map.on('load', () => {
@@ -1061,6 +1147,7 @@ document.getElementById('map-load-more-btn').addEventListener('click', () => {
 
 ['time-range', 'device-filter'].forEach(id => {
     document.getElementById(id).addEventListener('change', () => {
+        updateDateFilterUI();
         clearAccumulated();
         loadTrack(true);
     });
@@ -1070,13 +1157,17 @@ document.getElementById('map-load-more-btn').addEventListener('click', () => {
     document.getElementById(id).addEventListener('change', () => {
         const s = document.getElementById('start-date').value;
         const e = document.getElementById('end-date').value;
-        if (s && e) {
+        if (e && !s) return;            // end without a start: nothing to anchor
+        if (s && e) {                   // exact range overrides the relative dropdown
             document.getElementById('time-range').value = 'all';
-            clearAccumulated();
-            loadTrack(true);
         }
+        updateDateFilterUI();
+        clearAccumulated();
+        loadTrack(true);
     });
 });
+
+document.getElementById('date-reset').addEventListener('click', resetDateFilter);
 
 // ═══════════════════════════════════════════════════════════════════
 // 3D globe projection (MapLibre GL v5)
