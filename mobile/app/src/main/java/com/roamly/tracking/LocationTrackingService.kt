@@ -11,6 +11,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.*
+import com.google.android.gms.tasks.CancellationTokenSource
 import com.roamly.MainActivity
 import com.roamly.R
 import com.roamly.RoamlyApp
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlin.coroutines.resume
 import javax.inject.Inject
 
 private const val TAG = "LocationTrackingService"
@@ -33,17 +35,24 @@ private const val UPLOAD_BATCH_TRIGGER_COUNT = 10
 // than just keeping pace — at which point we REPLACE the stuck job instead of KEEP.
 // ~40 points ≈ 6+ min of a 10s-interval track: well beyond a healthy 0–10 backlog.
 private const val UPLOAD_STUCK_THRESHOLD = 40
-private const val REQUEST_ACCURATE_LOCATION_MS = 30_000L
 private const val WATCHDOG_CHECK_MS = 60_000L
-// Only pin the CPU awake for short, high-fidelity intervals. There the GPS is in
-// continuous mode and the CPU is waking constantly anyway, so the marginal battery
-// cost is small and it keeps fixes/watchdog from stalling. At longer intervals we
-// let the CPU sleep between fixes to save battery.
 private const val WAKELOCK_MAX_INTERVAL_MS = 15_000L
+// Intervals at or below this run in *continuous* mode: a live FusedLocation stream with
+// a pinned wake lock (cheap, because at these rates the CPU is awake anyway and the
+// stream is the right tool). Anything slower runs in *alarm* mode — one discrete fix per
+// exact-alarm wake, then the CPU sleeps. This is the GPSLogger model and the reason it
+// survives Doze: an exact `setExactAndAllowWhileIdle` alarm is the per-point heartbeat,
+// instead of relying on a continuous stream (which the OS throttles in the background).
+private const val CONTINUOUS_MAX_INTERVAL_MS = 10_000L
+// How long a single fix request may run before we give up on this cycle and reschedule.
+private const val FIX_ACQUISITION_TIMEOUT_MS = 25_000L
+private const val FIX_WAKELOCK_MARGIN_MS = 5_000L
+private const val FIX_ALARM_REQUEST_CODE = 7013
 
-const val ACTION_STOP    = "com.roamly.STOP"
-const val ACTION_PAUSE   = "com.roamly.PAUSE"
-const val ACTION_RESUME  = "com.roamly.RESUME"
+const val ACTION_STOP     = "com.roamly.STOP"
+const val ACTION_PAUSE    = "com.roamly.PAUSE"
+const val ACTION_RESUME   = "com.roamly.RESUME"
+const val ACTION_TAKE_FIX = "com.roamly.TAKE_FIX"
 
 /** Snapshot of the user's tracking knobs. Changes restart the location request live. */
 private data class TrackingConfig(
@@ -63,8 +72,13 @@ class LocationTrackingService : Service() {
     private var locationCallback: LocationCallback? = null
     private val filter = LocationFilter()
     private var isPaused = false
+    private var initialized = false
     private var lastUploadScheduleAt = System.currentTimeMillis()
     private var syncOnMobileData = true
+    /** True while running the alarm-driven discrete-fix cadence (interval > continuous max);
+     *  false while running the continuous FusedLocation stream. */
+    @Volatile private var alarmMode = false
+    @Volatile private var fixInProgress = false
     @Volatile private var currentConfig: TrackingConfig? = null
     @Volatile private var lastAcceptedLocation: android.location.Location? = null
     @Volatile private var lastAcceptedAtMs: Long = 0L
@@ -91,19 +105,42 @@ class LocationTrackingService : Service() {
             ACTION_STOP   -> {
                 // Authoritative teardown: clear BOTH durable flags so the watchdog,
                 // boot/update receiver, alarm heartbeat, restarter and START_STICKY all
-                // leave it stopped — and cancel the heartbeat + recurring upload so no
-                // invasive background work survives.
+                // leave it stopped — and cancel the heartbeat + recurring upload + the
+                // per-point fix alarm so no invasive background work survives.
                 runBlocking {
                     prefs.setTrackingEnabled(false)
                     prefs.setAutoStartTracking(false)
                 }
+                cancelNextFix()
                 TrackingAlarmReceiver.cancel(applicationContext)
                 UploadWorker.cancelPeriodic(applicationContext)
                 stopSelf()
                 return START_NOT_STICKY
             }
-            ACTION_PAUSE  -> { isPaused = true;  filter.reset(); releaseWakeLock(); updateNotification(); return START_STICKY }
-            ACTION_RESUME -> { isPaused = false; updateWakeLock(); updateNotification(); return START_STICKY }
+            ACTION_PAUSE  -> {
+                isPaused = true; filter.reset(); cancelNextFix(); releaseWakeLock(); updateNotification()
+                return START_STICKY
+            }
+            ACTION_RESUME -> {
+                isPaused = false
+                currentConfig?.let { applyMode(it) } ?: updateWakeLock()
+                updateNotification()
+                return START_STICKY
+            }
+            ACTION_TAKE_FIX -> {
+                // The per-point exact alarm fired. Take one fix and re-arm the next.
+                val enabled = runBlocking { prefs.trackingEnabled.first() }
+                if (!enabled) { cancelNextFix(); stopSelf(); return START_NOT_STICKY }
+                if (!initialized) {
+                    // The OS killed us and the alarm is recreating us cold — full init
+                    // re-establishes config/observers and kicks the first fix itself.
+                    initTracking()
+                } else if (alarmMode && !isPaused) {
+                    runFixCycle()
+                }
+                goForeground()
+                return START_STICKY
+            }
         }
 
         // A null intent means the OS re-created us after a low-memory kill (START_STICKY).
@@ -122,16 +159,16 @@ class LocationTrackingService : Service() {
         // Defensive #2.
         goForeground()
 
-        scope.launch {
-            prefs.setTrackingEnabled(true)
-            prefs.setTrackingActive(true)
+        if (!initialized) {
+            initTracking()
+        } else if (alarmMode && !isPaused) {
+            // A repeat start of an already-running service (the 15-min heartbeat, a
+            // provider change, etc.). Only nudge the cadence if it looks stalled, so a
+            // healthy tracker isn't perturbed into extra fixes.
+            val cfg = currentConfig
+            val stale = cfg != null && (System.currentTimeMillis() - lastAcceptedAtMs) > cfg.intervalMs * 2
+            if (lastAcceptedAtMs == 0L || stale) runFixCycle()
         }
-        observeRuntimePreferences()
-        observeConfig()  // applies the live config and calls updateWakeLock()
-        startWatchdog()
-        seedLastLocation()
-        registerProviderChangeReceiver()
-        TrackingAlarmReceiver.schedule(applicationContext)
 
         // Defensive #3: startForeground is idempotent — a final call guarantees the
         // foreground state held even if an earlier call raced with setup.
@@ -141,28 +178,43 @@ class LocationTrackingService : Service() {
         return START_STICKY
     }
 
-    /** Acquire or release the wake lock based on the current interval + pause state:
-     *  pinned only for short intervals (<= [WAKELOCK_MAX_INTERVAL_MS]) where it's
-     *  cheap relative to the always-on GPS; otherwise released so the CPU can sleep
-     *  between fixes and save battery. */
+    /** One-time setup of the live observers, watchdog and heartbeat. The config
+     *  observer's first emission picks the mode and takes the first point. */
+    private fun initTracking() {
+        scope.launch {
+            prefs.setTrackingEnabled(true)
+            prefs.setTrackingActive(true)
+        }
+        observeRuntimePreferences()
+        observeConfig()  // first emit → applyMode(): starts the stream or the first fix
+        startWatchdog()
+        registerProviderChangeReceiver()
+        TrackingAlarmReceiver.schedule(applicationContext)
+        initialized = true
+    }
+
+    /** Acquire or release the pinned wake lock based on mode + interval + pause state.
+     *  Only continuous mode pins it (the CPU must stay awake for the live stream); alarm
+     *  mode uses a short time-boxed lock per fix instead, so the CPU can sleep between
+     *  fixes and save battery. */
     private fun updateWakeLock() {
         val cfg = currentConfig
-        if (!isPaused && cfg != null && cfg.intervalMs <= WAKELOCK_MAX_INTERVAL_MS) acquireWakeLock()
+        if (!isPaused && !alarmMode && cfg != null && cfg.intervalMs <= WAKELOCK_MAX_INTERVAL_MS) acquireWakeLock()
         else releaseWakeLock()
     }
 
-    /** Hold a partial wake lock so the CPU doesn't sleep between frequent fixes
-     *  (which would defer location callbacks and freeze the watchdog's delay() loop).
-     *  An app exempt from battery optimization may hold this through Doze. Gated by
-     *  [updateWakeLock] to short intervals only. Not reference-counted, so
+    /** Hold a partial wake lock so the CPU doesn't sleep during a fix (which would defer
+     *  the location callback). With a positive [timeoutMs] the lock auto-releases, so a
+     *  per-fix lock can never leak even if a cycle is interrupted. An app exempt from
+     *  battery optimization may hold this through Doze. Not reference-counted, so
      *  acquire/release are idempotent. */
-    private fun acquireWakeLock() {
+    private fun acquireWakeLock(timeoutMs: Long = 0L) {
         if (wakeLock?.isHeld == true) return
         runCatching {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Roamly::tracking").apply {
                 setReferenceCounted(false)
-                acquire()
+                if (timeoutMs > 0L) acquire(timeoutMs) else acquire()
             }
         }.onFailure { Log.e(TAG, "Failed to acquire wake lock", it) }
     }
@@ -192,7 +244,9 @@ class LocationTrackingService : Service() {
         // Self-resurrection: if we're being destroyed but the user still wants tracking
         // on (i.e. this wasn't an explicit STOP), ask the standalone RestarterReceiver
         // to bring us straight back. A dying service can't reliably restart itself, but
-        // a separate receiver can.
+        // a separate receiver can. The pending fix alarm (if any) is left armed on
+        // purpose — it's an extra independent restart path; the revived service re-anchors
+        // the cadence cleanly via applyMode().
         val shouldRun = runBlocking { prefs.trackingEnabled.first() }
         if (shouldRun) {
             Log.w(TAG, "Destroyed while still enabled — broadcasting restart")
@@ -214,18 +268,19 @@ class LocationTrackingService : Service() {
 
     // ── Provider toggle (multi-provider graceful degradation) ─────────────────
 
-    /** Re-arm location updates whenever the set of enabled providers changes
-     *  (e.g. the user toggles GPS, or it flips on entering/leaving a tunnel).
-     *  FusedLocation already fuses GPS + network + passive internally; this makes
-     *  it recover immediately instead of waiting out the next interval. */
+    /** Re-arm location capture whenever the set of enabled providers changes (e.g. the
+     *  user toggles GPS, or it flips on entering/leaving a tunnel). FusedLocation already
+     *  fuses GPS + network + passive internally; this makes it recover immediately
+     *  instead of waiting out the next interval. */
     private fun registerProviderChangeReceiver() {
         if (providerReceiver != null) return
         val rcv = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 val cfg = currentConfig ?: return
-                Log.i(TAG, "Location providers changed — re-arming updates")
-                startLocationUpdates(cfg)
-                seedLastLocation()
+                if (isPaused) return
+                Log.i(TAG, "Location providers changed — re-arming capture")
+                if (alarmMode) runFixCycle()
+                else { startLocationUpdates(cfg); seedLastLocation() }
             }
         }
         providerReceiver = rcv
@@ -240,7 +295,7 @@ class LocationTrackingService : Service() {
 
     // ── Config (live) ────────────────────────────────────────────────────────
 
-    /** Observe the tracking knobs; whenever any change, re-request location updates. */
+    /** Observe the tracking knobs; whenever any change, re-apply the capture mode. */
     private fun observeConfig() {
         configJob?.cancel()
         configJob = scope.launch {
@@ -258,10 +313,28 @@ class LocationTrackingService : Service() {
                 currentConfig = cfg
                 filter.maxAccuracyMetres = cfg.maxAccuracyM
                 filter.minTimeBetweenMs = cfg.intervalMs
+                // Allow a fix to be up to two intervals old before it's "stale", so a
+                // freshly-acquired or post-wake fix is never dropped for lagging now().
+                filter.maxAgeMs = (cfg.intervalMs * 2).coerceAtLeast(30_000L)
                 Log.i(TAG, "Applying config: interval=${cfg.intervalMs}ms priority=${cfg.priority} maxAcc=${cfg.maxAccuracyM}m")
-                startLocationUpdates(cfg)
-                updateWakeLock()
+                applyMode(cfg)
             }
+        }
+    }
+
+    /** Pick continuous vs alarm mode for the current interval and (re)establish capture. */
+    private fun applyMode(cfg: TrackingConfig) {
+        alarmMode = cfg.intervalMs > CONTINUOUS_MAX_INTERVAL_MS
+        if (alarmMode) {
+            stopLocationUpdates()        // no continuous stream in alarm mode
+            updateWakeLock()             // releases the pinned lock
+            cancelNextFix()              // re-anchor the cadence cleanly
+            if (!isPaused) runFixCycle() // take one now; it schedules the next
+        } else {
+            cancelNextFix()              // leaving alarm mode: drop any pending fix alarm
+            startLocationUpdates(cfg)    // live stream
+            updateWakeLock()             // pin the lock
+            seedLastLocation()           // immediate first point
         }
     }
 
@@ -272,7 +345,96 @@ class LocationTrackingService : Service() {
         }
     }
 
-    // ── Location ───────────────────────────────────────────────────────────
+    // ── Location: alarm-driven discrete fix ───────────────────────────────────
+
+    /** One cycle of the GPSLogger-style loop: wake → single fresh fix → save → schedule
+     *  the next exact alarm. The exact alarm (not a continuous stream) is what carries
+     *  the cadence through Doze. Reschedules even on a missed fix so the loop never dies. */
+    private fun runFixCycle() {
+        if (isPaused || fixInProgress) return
+        val cfg = currentConfig ?: return
+        fixInProgress = true
+        // Time-boxed lock: covers the acquisition window and auto-releases if anything
+        // interrupts the cycle, so it can never leak and pin the CPU between fixes.
+        acquireWakeLock(timeoutMs = FIX_ACQUISITION_TIMEOUT_MS + FIX_WAKELOCK_MARGIN_MS)
+        scope.launch {
+            try {
+                val loc = requestSingleFix(cfg)
+                if (loc != null && !isPaused && filter.accept(loc)) savePoint(loc)
+                else Log.d(TAG, "Fix cycle produced no usable point (null/filtered)")
+            } catch (t: Throwable) {
+                Log.e(TAG, "Fix cycle failed", t)
+            } finally {
+                releaseWakeLock()
+                fixInProgress = false
+                // Re-arm from the *current* config so an interval change mid-cycle takes
+                // effect on the next wake. Only while still in alarm mode and not paused.
+                if (alarmMode && !isPaused) currentConfig?.let { scheduleNextFix(it.intervalMs) }
+                updateNotification()
+            }
+        }
+    }
+
+    /** Request a single fresh location, honouring the user's priority ("auto" → high
+     *  accuracy for reliability), bounded by an acquisition timeout so a cycle can't hang. */
+    @Suppress("MissingPermission")
+    private suspend fun requestSingleFix(cfg: TrackingConfig): android.location.Location? {
+        val priority = when (cfg.priority) {
+            "high"     -> Priority.PRIORITY_HIGH_ACCURACY
+            "balanced" -> Priority.PRIORITY_BALANCED_POWER_ACCURACY
+            "low"      -> Priority.PRIORITY_LOW_POWER
+            else       -> Priority.PRIORITY_HIGH_ACCURACY  // "auto": reliability-first
+        }
+        val timeoutMs = minOf(cfg.intervalMs - 2_000L, FIX_ACQUISITION_TIMEOUT_MS).coerceAtLeast(8_000L)
+        val cts = CancellationTokenSource()
+        return try {
+            withTimeoutOrNull(timeoutMs) {
+                suspendCancellableCoroutine<android.location.Location?> { cont ->
+                    fusedClient.getCurrentLocation(priority, cts.token)
+                        .addOnSuccessListener { if (cont.isActive) cont.resume(it) }
+                        .addOnFailureListener { if (cont.isActive) cont.resume(null) }
+                    cont.invokeOnCancellation { cts.cancel() }
+                }
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Single fix request failed", t)
+            null
+        } finally {
+            cts.cancel()
+        }
+    }
+
+    /** Schedule the next discrete fix via an exact, Doze-piercing alarm targeting this
+     *  service directly (the GPSLogger pattern). `setExactAndAllowWhileIdle` fires even in
+     *  deep Doze, and on time when the app is battery-optimization-exempt. */
+    private fun scheduleNextFix(intervalMs: Long) {
+        val am = getSystemService(AlarmManager::class.java) ?: return
+        val triggerAt = SystemClock.elapsedRealtime() + intervalMs
+        val pi = fixPendingIntent()
+        val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms()
+        try {
+            if (canExact) am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
+            else am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Exact alarm denied, falling back to inexact", e)
+            am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
+        }
+    }
+
+    private fun cancelNextFix() {
+        getSystemService(AlarmManager::class.java)?.cancel(fixPendingIntent())
+    }
+
+    private fun fixPendingIntent(): PendingIntent {
+        val intent = Intent(this, LocationTrackingService::class.java).setAction(ACTION_TAKE_FIX)
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            PendingIntent.getForegroundService(this, FIX_ALARM_REQUEST_CODE, intent, flags)
+        else
+            PendingIntent.getService(this, FIX_ALARM_REQUEST_CODE, intent, flags)
+    }
+
+    // ── Location: continuous stream (short intervals only) ─────────────────────
 
     @Suppress("MissingPermission")
     private fun startLocationUpdates(cfg: TrackingConfig) {
@@ -315,8 +477,7 @@ class LocationTrackingService : Service() {
             "high"     -> Priority.PRIORITY_HIGH_ACCURACY
             "balanced" -> Priority.PRIORITY_BALANCED_POWER_ACCURACY
             "low"      -> Priority.PRIORITY_LOW_POWER
-            else       -> if (intervalMs <= REQUEST_ACCURATE_LOCATION_MS)
-                Priority.PRIORITY_HIGH_ACCURACY else Priority.PRIORITY_BALANCED_POWER_ACCURACY
+            else       -> Priority.PRIORITY_HIGH_ACCURACY  // "auto" continuous: short interval → high
         }
         // One fix per interval, on time, regardless of movement:
         //  - no setMinUpdateIntervalMillis: the floor defaults to the interval, so
@@ -332,14 +493,18 @@ class LocationTrackingService : Service() {
             .build()
     }
 
-    /** Periodically check fixes are still flowing; re-arm the request if they stall.
-     *  This recovers from the OS quietly dropping updates under Doze/battery saver. */
+    /** Continuous-mode watchdog: re-arm the live stream if fixes stall. It's a no-op in
+     *  alarm mode (the exact alarm carries the cadence there) and inherently can't run in
+     *  Doze anyway — coroutine delay() is frozen while the CPU sleeps, which is exactly
+     *  why alarm mode exists. The 15-min exact heartbeat is the deep-Doze liveness check. */
     private fun startWatchdog() {
         watchdogJob?.cancel()
         watchdogJob = scope.launch {
             while (isActive) {
                 delay(WATCHDOG_CHECK_MS)
                 if (isPaused) continue
+                updateNotification()
+                if (alarmMode) continue
                 val cfg = currentConfig ?: continue
                 val staleThreshold = maxOf(cfg.intervalMs * 4, 90_000L)
                 val sinceLast = System.currentTimeMillis() - lastAcceptedAtMs
@@ -348,7 +513,6 @@ class LocationTrackingService : Service() {
                     startLocationUpdates(cfg)
                     seedLastLocation()
                 }
-                updateNotification()
             }
         }
     }
