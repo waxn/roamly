@@ -1777,6 +1777,9 @@ def distance_api(request):
 # Cap the single-pass analysis so a huge range can't OOM a worker; ~300k ≈ 30 days at a
 # 10s interval. Beyond it the API asks the user to narrow the range.
 _DIAG_MAX_POINTS = 300_000
+# Number of equal-time buckets in the gap timeline sparkline (worst gap + point count
+# per bucket across the range) — enough resolution to spot where tracking dropped.
+_DIAG_TIMELINE_BUCKETS = 120
 
 
 def _fmt_duration(seconds):
@@ -1809,12 +1812,24 @@ def _compute_location_diagnostics(qs, dev_names):
     if total > _DIAG_MAX_POINTS:
         return {"count": total, "error": "too_many_points", "limit": _DIAG_MAX_POINTS}
 
+    # Global time span up front (cheap, indexed) so the gap timeline can be bucketed in
+    # the same streaming pass — rows are ordered by device then time, not globally.
+    span_agg = qs.aggregate(tmin=Min('timestamp'), tmax=Max('timestamp'))
+    ts_first, ts_last = span_agg['tmin'], span_agg['tmax']
+    tl_span = (ts_last - ts_first).total_seconds() if ts_first and ts_last else 0
+    tl_bucket = (tl_span / _DIAG_TIMELINE_BUCKETS) if tl_span > 0 else 0
+    tl_maxgap = [0.0] * _DIAG_TIMELINE_BUCKETS   # worst gap starting in each time bucket
+    tl_points = [0] * _DIAG_TIMELINE_BUCKETS     # point count per bucket (coverage)
+
+    def _bucket(ts):
+        if tl_bucket <= 0:
+            return 0
+        return min(_DIAG_TIMELINE_BUCKETS - 1, int((ts - ts_first).total_seconds() / tl_bucket))
+
     rows = qs.order_by('device_id', 'timestamp').values_list(
         'device_id', 'timestamp', 'accuracy', 'speed', 'altitude', 'battery',
         'latitude', 'longitude',
     ).iterator()
-
-    ts_first = ts_last = None
     acc_min = acc_max = None; acc_sum = 0.0; acc_n = 0; acc_missing = 0
     acc_u20 = acc_u50 = acc_o100 = 0
     spd_min = spd_max = None; spd_sum = 0.0; spd_n = 0; spd_missing = 0
@@ -1830,10 +1845,7 @@ def _compute_location_diagnostics(qs, dev_names):
         prev_ts = prev_lat = prev_lon = None
         dev_pts = []
         for (_d, ts, acc, spd, alt, bat, lat, lon) in grp:
-            if ts_first is None or ts < ts_first:
-                ts_first = ts
-            if ts_last is None or ts > ts_last:
-                ts_last = ts
+            tl_points[_bucket(ts)] += 1
             if acc is None:
                 acc_missing += 1
             else:
@@ -1864,6 +1876,9 @@ def _compute_location_diagnostics(qs, dev_names):
                 dt = (ts - prev_ts).total_seconds()
                 if dt > 0:
                     gaps.append(dt)
+                    b = _bucket(prev_ts)
+                    if dt > tl_maxgap[b]:
+                        tl_maxgap[b] = dt
                     if dt > 60:
                         n_over_60 += 1
                         notable_gaps.append((dt, prev_ts, ts, dev_id))
@@ -1894,6 +1909,14 @@ def _compute_location_diagnostics(qs, dev_names):
                  "seconds": span_s, "human": _fmt_duration(span_s)},
         "points_per_hour": round(total / (span_s / 3600.0), 1) if span_s > 0 else None,
         "distance_km": round(total_km, 2),
+        "timeline": {
+            "buckets": _DIAG_TIMELINE_BUCKETS,
+            "bucket_seconds": round(tl_bucket, 1),
+            "start": ts_first.isoformat(),
+            "end": ts_last.isoformat(),
+            "max_gap": [round(x) for x in tl_maxgap],
+            "points": tl_points,
+        },
         "gaps": {
             "min_s": gaps[0] if gaps else None,
             "max_s": gaps[-1] if gaps else None,
