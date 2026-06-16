@@ -38,12 +38,13 @@ private const val UPLOAD_STUCK_THRESHOLD = 40
 private const val WATCHDOG_CHECK_MS = 60_000L
 private const val WAKELOCK_MAX_INTERVAL_MS = 15_000L
 // Intervals at or below this run in *continuous* mode: a live FusedLocation stream with
-// a pinned wake lock (cheap, because at these rates the CPU is awake anyway and the
-// stream is the right tool). Anything slower runs in *alarm* mode — one discrete fix per
-// exact-alarm wake, then the CPU sleeps. This is the GPSLogger model and the reason it
-// survives Doze: an exact `setExactAndAllowWhileIdle` alarm is the per-point heartbeat,
-// instead of relying on a continuous stream (which the OS throttles in the background).
-private const val CONTINUOUS_MAX_INTERVAL_MS = 10_000L
+// a pinned wake lock. Only the very fastest setting (5s) qualifies — there a discrete
+// per-fix alarm would be too granular and the CPU is awake anyway. EVERYTHING slower
+// (10s, the 30s default, …) runs in *alarm* mode: one discrete fix per exact-alarm wake,
+// then the CPU sleeps. This is the GPSLogger model and the reason it survives Doze — the
+// exact `setExactAndAllowWhileIdle` alarm is the per-point heartbeat, instead of a
+// continuous stream (which the OS throttles in the background, the source of the stalls).
+private const val CONTINUOUS_MAX_INTERVAL_MS = 5_000L
 // How long a single fix request may run before we give up on this cycle and reschedule.
 private const val FIX_ACQUISITION_TIMEOUT_MS = 25_000L
 private const val FIX_WAKELOCK_MARGIN_MS = 5_000L
@@ -389,7 +390,7 @@ class LocationTrackingService : Service() {
             "low"      -> Priority.PRIORITY_LOW_POWER
             else       -> Priority.PRIORITY_HIGH_ACCURACY  // "auto": reliability-first
         }
-        val timeoutMs = minOf(cfg.intervalMs - 2_000L, FIX_ACQUISITION_TIMEOUT_MS).coerceAtLeast(8_000L)
+        val timeoutMs = minOf(cfg.intervalMs - 2_000L, FIX_ACQUISITION_TIMEOUT_MS).coerceAtLeast(4_000L)
         val cts = CancellationTokenSource()
         return try {
             withTimeoutOrNull(timeoutMs) {
