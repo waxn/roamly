@@ -2,7 +2,10 @@ data/
 .git/
 .venv/
 __pycache__/
+**/__pycache__/
 *.pyc
+**/*.pyc
+*.pyo
 .env
 .env.*
 docker-compose.yml
