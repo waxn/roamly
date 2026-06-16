@@ -36,15 +36,20 @@ private const val UPLOAD_BATCH_TRIGGER_COUNT = 10
 // ~40 points ≈ 6+ min of a 10s-interval track: well beyond a healthy 0–10 backlog.
 private const val UPLOAD_STUCK_THRESHOLD = 40
 private const val WATCHDOG_CHECK_MS = 60_000L
-private const val WAKELOCK_MAX_INTERVAL_MS = 15_000L
-// Intervals at or below this run in *continuous* mode: a live FusedLocation stream with
-// a pinned wake lock. Only the very fastest setting (5s) qualifies — there a discrete
-// per-fix alarm would be too granular and the CPU is awake anyway. EVERYTHING slower
-// (10s, the 30s default, …) runs in *alarm* mode: one discrete fix per exact-alarm wake,
-// then the CPU sleeps. This is the GPSLogger model and the reason it survives Doze — the
-// exact `setExactAndAllowWhileIdle` alarm is the per-point heartbeat, instead of a
-// continuous stream (which the OS throttles in the background, the source of the stalls).
+// Capture-mode ceilings (interval at/below → *continuous* stream + pinned wake lock;
+// above → *alarm* cadence, one discrete fix per exact-alarm wake while the CPU sleeps).
+// The alarm cadence is the GPSLogger model that survives Doze (the exact
+// `setExactAndAllowWhileIdle` alarm is the per-point heartbeat) but cold-starts the GPS
+// each fix. Continuous keeps the GPS *warm* and the cadence tight — but only stays alive
+// screen-off if the CPU stays awake, so we only choose it when pinning the CPU is worth it:
+//  - Not battery-exempt → the OS throttles a backgrounded stream in Doze regardless, so
+//    only the very fastest interval (≤5s, where the CPU is awake anyway) uses continuous.
+//  - Battery-exempt → the app may hold the CPU awake through Doze, so short intervals
+//    (≤20s, e.g. a 10s track) use warm continuous for smoothness; longer intervals still
+//    prefer alarm mode (pinning the CPU for 30s+ between fixes wastes battery, and an
+//    exempt app's exact alarms fire on time anyway).
 private const val CONTINUOUS_MAX_INTERVAL_MS = 5_000L
+private const val WARM_CONTINUOUS_MAX_MS = 20_000L
 // How long a single fix request may run before we give up on this cycle and reschedule.
 private const val FIX_ACQUISITION_TIMEOUT_MS = 25_000L
 private const val FIX_WAKELOCK_MARGIN_MS = 5_000L
@@ -205,14 +210,12 @@ class LocationTrackingService : Service() {
         initialized = true
     }
 
-    /** Acquire or release the pinned wake lock based on mode + interval + pause state.
-     *  Only continuous mode pins it (the CPU must stay awake for the live stream); alarm
-     *  mode uses a short time-boxed lock per fix instead, so the CPU can sleep between
-     *  fixes and save battery. */
+    /** Acquire or release the pinned wake lock based on mode + pause state. Continuous
+     *  mode always pins it (the CPU must stay awake to keep the live stream + GPS alive
+     *  screen-off); alarm mode uses a short time-boxed lock per fix instead, so the CPU
+     *  can sleep between fixes and save battery. */
     private fun updateWakeLock() {
-        val cfg = currentConfig
-        if (!isPaused && !alarmMode && cfg != null && cfg.intervalMs <= WAKELOCK_MAX_INTERVAL_MS) acquireWakeLock()
-        else releaseWakeLock()
+        if (!isPaused && !alarmMode) acquireWakeLock() else releaseWakeLock()
     }
 
     /** Hold a partial wake lock so the CPU doesn't sleep during a fix (which would defer
@@ -334,9 +337,16 @@ class LocationTrackingService : Service() {
         }
     }
 
-    /** Pick continuous vs alarm mode for the current interval and (re)establish capture. */
+    /** Pick continuous vs alarm mode for the current interval and (re)establish capture.
+     *  Battery-exempt apps can hold the CPU awake through Doze, so for short intervals the
+     *  warm continuous stream is both viable and smoother than cold-starting the GPS on
+     *  every alarm; non-exempt apps get a stream throttled in Doze, so only the fastest
+     *  interval uses it and everything else rides the exact-alarm cadence. */
     private fun applyMode(cfg: TrackingConfig) {
-        alarmMode = cfg.intervalMs > CONTINUOUS_MAX_INTERVAL_MS
+        val exempt = TrackingCoordinator.isIgnoringBatteryOptimizations(this)
+        val continuousCeiling = if (exempt) WARM_CONTINUOUS_MAX_MS else CONTINUOUS_MAX_INTERVAL_MS
+        alarmMode = cfg.intervalMs > continuousCeiling
+        Log.i(TAG, "applyMode: interval=${cfg.intervalMs}ms exempt=$exempt → ${if (alarmMode) "alarm" else "continuous"}")
         if (alarmMode) {
             stopLocationUpdates()        // no continuous stream in alarm mode
             updateWakeLock()             // releases the pinned lock
