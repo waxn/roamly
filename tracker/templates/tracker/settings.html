@@ -756,6 +756,16 @@ curl -X POST {{ request.scheme }}://{{ request.get_host }}/api/push/ \
   -d '{"_type": "location", "lat": 45.5, "lon": -122.6, "tst": 1234567890, "tid": "phone"}'</pre>
         </div>
 
+        <!-- Diagnostics -->
+        <div class="card settings-span-12">
+            <div class="card-header">Diagnostics</div>
+            <p class="settings-section-desc">
+                Inspect tracking health for a device and time range — gaps between points
+                (the clearest sign of dropouts), accuracy, and speed ranges.
+            </p>
+            <a href="{% url 'diagnostics' %}" class="btn btn-primary btn-sm">Open Diagnostics</a>
+        </div>
+
         <!-- Danger Zone -->
         <div class="card settings-span-12" style="border-color: var(--danger);">
             <div class="card-header" style="color: var(--danger);">Danger Zone</div>

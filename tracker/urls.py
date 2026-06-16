@@ -25,6 +25,7 @@ urlpatterns = [
     path('places/', views.places_view, name='places'),
     path('ask/', views.ask_view, name='ask'),
     path('settings/', views.settings_view, name='settings'),
+    path('diagnostics/', views.diagnostics_view, name='diagnostics'),
 
     # Auth
     path('login/', views.login_view, name='login'),
@@ -48,6 +49,7 @@ urlpatterns = [
     path('api/visits/', views.visits_api, name='visits_api'),
     path('api/countries/', views.countries_api, name='countries_api'),
     path('api/distance/', views.distance_api, name='distance_api'),
+    path('api/diagnostics/location/', views.location_diagnostics_api, name='location_diagnostics_api'),
     path('api/search/', views.search_api, name='search_api'),
 
     # AI Ask API

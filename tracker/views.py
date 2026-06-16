@@ -1769,6 +1769,227 @@ def distance_api(request):
     return JsonResponse(result)
 
 
+# ── Location diagnostics ─────────────────────────────────────────────────────
+# A Settings → Diagnostics tool for inspecting tracking health over a chosen device +
+# time range: gaps between consecutive points (the clearest signal of dropouts), plus
+# accuracy / reported-speed / implied-speed-between-points / altitude / battery ranges.
+
+# Cap the single-pass analysis so a huge range can't OOM a worker; ~300k ≈ 30 days at a
+# 10s interval. Beyond it the API asks the user to narrow the range.
+_DIAG_MAX_POINTS = 300_000
+
+
+def _fmt_duration(seconds):
+    """Compact human duration ('45s', '3m 5s', '2h 10m', '1d 4h') from seconds."""
+    seconds = int(round(seconds or 0))
+    if seconds < 60:
+        return f"{seconds}s"
+    m, s = divmod(seconds, 60)
+    if m < 60:
+        return f"{m}m {s}s" if s else f"{m}m"
+    h, m = divmod(m, 60)
+    if h < 24:
+        return f"{h}h {m}m" if m else f"{h}h"
+    d, h = divmod(h, 24)
+    return f"{d}d {h}h" if h else f"{d}d"
+
+
+def _compute_location_diagnostics(qs, dev_names):
+    """Diagnostic stats over a (user/device/time-filtered) Location queryset.
+
+    Gaps and implied speed are **per device** — only consecutive points of the same
+    device are compared — computed in one streaming pass grouped by device. `dev_names`
+    maps Device.pk → display name for labelling the largest gaps.
+    """
+    from itertools import groupby
+
+    total = qs.count()
+    if total == 0:
+        return {"count": 0}
+    if total > _DIAG_MAX_POINTS:
+        return {"count": total, "error": "too_many_points", "limit": _DIAG_MAX_POINTS}
+
+    rows = qs.order_by('device_id', 'timestamp').values_list(
+        'device_id', 'timestamp', 'accuracy', 'speed', 'altitude', 'battery',
+        'latitude', 'longitude',
+    ).iterator()
+
+    ts_first = ts_last = None
+    acc_min = acc_max = None; acc_sum = 0.0; acc_n = 0; acc_missing = 0
+    acc_u20 = acc_u50 = acc_o100 = 0
+    spd_min = spd_max = None; spd_sum = 0.0; spd_n = 0; spd_missing = 0
+    alt_min = alt_max = None; alt_sum = 0.0; alt_n = 0
+    bat_min = bat_max = None
+    gaps = []
+    notable_gaps = []          # (seconds, prev_ts, cur_ts, device_id) for gaps > 60s
+    n_over_60 = n_over_300 = n_over_900 = 0
+    cspd_min = cspd_max = None; cspd_sum = 0.0; cspd_n = 0; cspd_max_at = None
+    total_km = 0.0
+
+    for dev_id, grp in groupby(rows, key=lambda r: r[0]):
+        prev_ts = prev_lat = prev_lon = None
+        dev_pts = []
+        for (_d, ts, acc, spd, alt, bat, lat, lon) in grp:
+            if ts_first is None or ts < ts_first:
+                ts_first = ts
+            if ts_last is None or ts > ts_last:
+                ts_last = ts
+            if acc is None:
+                acc_missing += 1
+            else:
+                acc_min = acc if acc_min is None else min(acc_min, acc)
+                acc_max = acc if acc_max is None else max(acc_max, acc)
+                acc_sum += acc; acc_n += 1
+                if acc <= 20:
+                    acc_u20 += 1
+                if acc <= 50:
+                    acc_u50 += 1
+                if acc > 100:
+                    acc_o100 += 1
+            if spd is None:
+                spd_missing += 1
+            else:
+                spd_min = spd if spd_min is None else min(spd_min, spd)
+                spd_max = spd if spd_max is None else max(spd_max, spd)
+                spd_sum += spd; spd_n += 1
+            if alt is not None:
+                alt_min = alt if alt_min is None else min(alt_min, alt)
+                alt_max = alt if alt_max is None else max(alt_max, alt)
+                alt_sum += alt; alt_n += 1
+            if bat is not None:
+                bat_min = bat if bat_min is None else min(bat_min, bat)
+                bat_max = bat if bat_max is None else max(bat_max, bat)
+            dev_pts.append((lat, lon, ts, acc))
+            if prev_ts is not None:
+                dt = (ts - prev_ts).total_seconds()
+                if dt > 0:
+                    gaps.append(dt)
+                    if dt > 60:
+                        n_over_60 += 1
+                        notable_gaps.append((dt, prev_ts, ts, dev_id))
+                    if dt > 300:
+                        n_over_300 += 1
+                    if dt > 900:
+                        n_over_900 += 1
+                    cs = (_haversine_km(prev_lat, prev_lon, lat, lon) * 1000.0) / dt
+                    cspd_min = cs if cspd_min is None else min(cspd_min, cs)
+                    if cspd_max is None or cs > cspd_max:
+                        cspd_max = cs; cspd_max_at = ts
+                    cspd_sum += cs; cspd_n += 1
+            prev_ts, prev_lat, prev_lon = ts, lat, lon
+        for _cdt, km in _gated_distance_segments(dev_pts):
+            total_km += km
+
+    gaps.sort()
+
+    def _pct(p):
+        return gaps[min(len(gaps) - 1, int(p * len(gaps)))] if gaps else None
+
+    notable_gaps.sort(key=lambda r: -r[0])
+    span_s = (ts_last - ts_first).total_seconds() if ts_first and ts_last else 0
+
+    return {
+        "count": total,
+        "span": {"start": ts_first.isoformat(), "end": ts_last.isoformat(),
+                 "seconds": span_s, "human": _fmt_duration(span_s)},
+        "points_per_hour": round(total / (span_s / 3600.0), 1) if span_s > 0 else None,
+        "distance_km": round(total_km, 2),
+        "gaps": {
+            "min_s": gaps[0] if gaps else None,
+            "max_s": gaps[-1] if gaps else None,
+            "avg_s": round(sum(gaps) / len(gaps), 1) if gaps else None,
+            "median_s": _pct(0.5),
+            "p90_s": _pct(0.9),
+            "over_60s": n_over_60, "over_300s": n_over_300, "over_900s": n_over_900,
+            "top": [{"seconds": round(s), "human": _fmt_duration(s),
+                     "start": a.isoformat(), "end": b.isoformat(),
+                     "device": dev_names.get(d, str(d))} for (s, a, b, d) in notable_gaps[:5]],
+        },
+        "accuracy": {
+            "min": round(acc_min, 1) if acc_min is not None else None,
+            "max": round(acc_max, 1) if acc_max is not None else None,
+            "avg": round(acc_sum / acc_n, 1) if acc_n else None,
+            "missing": acc_missing,
+            "under_20": acc_u20, "under_50": acc_u50, "over_100": acc_o100,
+        },
+        "speed": {
+            "min_ms": round(spd_min, 3) if spd_min is not None else None,
+            "max_ms": round(spd_max, 3) if spd_max is not None else None,
+            "avg_ms": round(spd_sum / spd_n, 3) if spd_n else None,
+            "missing": spd_missing,
+        },
+        "speed_between": {
+            "min_ms": round(cspd_min, 3) if cspd_min is not None else None,
+            "max_ms": round(cspd_max, 3) if cspd_max is not None else None,
+            "avg_ms": round(cspd_sum / cspd_n, 3) if cspd_n else None,
+            "max_at": cspd_max_at.isoformat() if cspd_max_at else None,
+            "samples": cspd_n,
+        },
+        "altitude": {
+            "min": round(alt_min, 1) if alt_min is not None else None,
+            "max": round(alt_max, 1) if alt_max is not None else None,
+            "avg": round(alt_sum / alt_n, 1) if alt_n else None,
+            "missing": total - alt_n,
+        },
+        "battery": {
+            "min": round(bat_min) if bat_min is not None else None,
+            "max": round(bat_max) if bat_max is not None else None,
+        },
+    }
+
+
+@login_required
+def diagnostics_view(request):
+    """Settings → Diagnostics page: inspect tracking health for a device + time range."""
+    devices = Device.objects.filter(user=request.user)
+    return render(request, 'tracker/diagnostics.html',
+                  {'devices': devices, 'has_postgis': HAS_POSTGIS})
+
+
+@login_required
+def location_diagnostics_api(request):
+    """Stats over the user's points for the chosen device + time range (see
+    `_compute_location_diagnostics`). Mirrors `distance_api`'s filter parsing."""
+    device_id = request.GET.get("device_id") or ""
+    all_time = request.GET.get("all")
+    start_date = request.GET.get("start_date")
+    end_date = request.GET.get("end_date")
+
+    qs = Location.objects.filter(device__user=request.user)
+    rng = {}
+    if start_date and end_date:
+        try:
+            start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
+            end = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
+            if timezone.is_naive(start):
+                start = timezone.make_aware(start)
+            if timezone.is_naive(end):
+                end = timezone.make_aware(end)
+            qs = qs.filter(timestamp__gte=start, timestamp__lte=end)
+            rng = {"start": start.isoformat(), "end": end.isoformat()}
+        except (ValueError, TypeError):
+            pass
+    elif not all_time:
+        try:
+            hours = int(request.GET.get("hours", 24))
+        except (ValueError, TypeError):
+            hours = 24
+        since = timezone.now() - timedelta(hours=hours)
+        qs = qs.filter(timestamp__gte=since)
+        rng = {"hours": hours}
+    else:
+        rng = {"all": True}
+
+    if device_id:
+        qs = qs.filter(device__device_id=device_id)
+
+    dev_names = {d.id: (d.name or d.device_id) for d in Device.objects.filter(user=request.user)}
+    result = _compute_location_diagnostics(qs, dev_names)
+    result["range"] = rng
+    result["device_id"] = device_id or "all"
+    return JsonResponse(result)
+
+
 _VISITS_MAX_GAP_CROSS = 3600  # cap only when geocoded place label changes
 
 

@@ -1,0 +1,250 @@
+{% extends "tracker/base.html" %}
+{% block title %}Diagnostics - Roamly{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-toolbar">
+        <div>
+            <h1>diagnostics</h1>
+            <p class="page-lead" style="margin-bottom:0;">inspect tracking health — gaps, accuracy and speed — for a device and time range.</p>
+        </div>
+        <div class="toolbar-actions">
+            <select id="diag-device" class="form-control" style="width:auto;">
+                <option value="">All devices</option>
+                {% for device in devices %}
+                <option value="{{ device.device_id }}">{{ device.name|default:device.device_id }}</option>
+                {% endfor %}
+            </select>
+            <select id="diag-range" class="form-control" style="width:auto;">
+                <option value="6">Last 6h</option>
+                <option value="24" selected>Last 24h</option>
+                <option value="72">Last 3 days</option>
+                <option value="168">Last week</option>
+                <option value="720">Last 30 days</option>
+                <option value="all">All time</option>
+                <option value="custom">Custom range…</option>
+            </select>
+            <input type="date" id="diag-start" class="form-control" style="width:auto;display:none;">
+            <input type="date" id="diag-end" class="form-control" style="width:auto;display:none;">
+            <button class="btn btn-primary btn-sm" onclick="runDiag()">Run</button>
+        </div>
+    </div>
+
+    <div id="diag-results">
+        <div class="card" style="text-align:center;color:var(--text-muted);padding:2rem;">
+            Pick a device and range, then hit <strong>Run</strong>.
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.toolbar-actions .btn-sm { padding: 0.5rem 0.75rem; }
+.diag-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:1rem; }
+.diag-card .card-header { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; }
+.diag-row { display:flex; justify-content:space-between; align-items:baseline; gap:1rem; padding:0.35rem 0; border-bottom:1px solid var(--border); }
+.diag-row:last-child { border-bottom:none; }
+.diag-label { color:var(--text-muted); font-size:0.85rem; }
+.diag-value { font-weight:700; font-variant-numeric:tabular-nums; text-align:right; }
+.diag-sub { color:var(--text-muted); font-weight:500; font-size:0.8rem; }
+.diag-pill { font-size:0.7rem; font-weight:700; padding:0.15rem 0.5rem; border-radius:999px; text-transform:uppercase; letter-spacing:0.03em; }
+.diag-good { background:rgba(46,160,67,0.18); color:#2ea043; }
+.diag-warn { background:rgba(210,153,34,0.18); color:#d29922; }
+.diag-bad  { background:rgba(220,80,80,0.18); color:var(--danger); }
+.diag-toplist { margin-top:0.5rem; }
+.diag-toplist .diag-row { font-size:0.82rem; }
+.diag-hero { display:flex; flex-wrap:wrap; gap:1.25rem; }
+.diag-hero .diag-metric { flex:1; min-width:120px; }
+.diag-metric .n { font-size:1.6rem; font-weight:800; font-variant-numeric:tabular-nums; line-height:1.1; }
+.diag-metric .l { color:var(--text-muted); font-size:0.78rem; margin-top:0.15rem; }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const HAS_POSTGIS = {{ has_postgis|yesno:"true,false" }};
+
+// ── formatters ───────────────────────────────────────────────────────────────
+function imperial() { return (localStorage.getItem('roamly_speed_unit') || 'kmh') === 'mph'; }
+function fmtSpeed(mps) {
+    if (mps === null || mps === undefined) return '—';
+    return imperial() ? (mps * 2.23694).toFixed(1) + ' mph' : (mps * 3.6).toFixed(1) + ' km/h';
+}
+function fmtDist(km) {
+    if (km === null || km === undefined) return '—';
+    return imperial() ? (km * 0.621371).toFixed(2) + ' mi' : km.toFixed(2) + ' km';
+}
+function fmtM(v) { return (v === null || v === undefined) ? '—' : v + ' m'; }
+function fmtDur(s) {
+    if (s === null || s === undefined) return '—';
+    s = Math.round(s);
+    if (s < 60) return s + 's';
+    const m = Math.floor(s / 60), ss = s % 60;
+    if (m < 60) return ss ? `${m}m ${ss}s` : `${m}m`;
+    const h = Math.floor(m / 60), mm = m % 60;
+    if (h < 24) return mm ? `${h}h ${mm}m` : `${h}h`;
+    const d = Math.floor(h / 24), hh = h % 24;
+    return hh ? `${d}d ${hh}h` : `${d}d`;
+}
+function fmtNum(v) { return (v === null || v === undefined) ? '—' : v; }
+function fmtTime(iso) { return iso ? new Date(iso).toLocaleString() : '—'; }
+function esc(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function row(label, value, sub) {
+    return `<div class="diag-row"><span class="diag-label">${label}</span>` +
+        `<span class="diag-value">${value}${sub ? ` <span class="diag-sub">${sub}</span>` : ''}</span></div>`;
+}
+
+// Colour the worst gap so tracking health is readable at a glance.
+function gapPill(maxS) {
+    if (maxS === null || maxS === undefined) return '';
+    if (maxS <= 120)  return '<span class="diag-pill diag-good">healthy</span>';
+    if (maxS <= 600)  return '<span class="diag-pill diag-warn">minor gaps</span>';
+    return '<span class="diag-pill diag-bad">dropouts</span>';
+}
+
+// ── range controls ───────────────────────────────────────────────────────────
+const rangeSel = document.getElementById('diag-range');
+const startInp = document.getElementById('diag-start');
+const endInp = document.getElementById('diag-end');
+rangeSel.addEventListener('change', () => {
+    const custom = rangeSel.value === 'custom';
+    startInp.style.display = custom ? '' : 'none';
+    endInp.style.display = custom ? '' : 'none';
+});
+
+function runDiag() {
+    const device = document.getElementById('diag-device').value;
+    const range = rangeSel.value;
+    const params = new URLSearchParams();
+    if (device) params.set('device_id', device);
+    if (range === 'all') {
+        params.set('all', '1');
+    } else if (range === 'custom') {
+        if (!startInp.value || !endInp.value) { alert('Pick a start and end date.'); return; }
+        params.set('start_date', startInp.value);
+        params.set('end_date', endInp.value);
+    } else {
+        params.set('hours', range);
+    }
+
+    const box = document.getElementById('diag-results');
+    box.innerHTML = `<div class="card" style="text-align:center;color:var(--text-muted);padding:2rem;"><span class="spinner"></span> Analyzing…</div>`;
+
+    fetch('/api/diagnostics/location/?' + params.toString())
+        .then(r => r.json())
+        .then(render)
+        .catch(() => { box.innerHTML = `<div class="card" style="text-align:center;color:var(--danger);padding:2rem;">Failed to load diagnostics.</div>`; });
+}
+
+function render(d) {
+    const box = document.getElementById('diag-results');
+    if (d.error === 'too_many_points') {
+        box.innerHTML = `<div class="card" style="text-align:center;color:var(--text-muted);padding:2rem;">
+            That range has <strong>${d.count.toLocaleString()}</strong> points — over the ${d.limit.toLocaleString()} analysis limit.
+            Pick a shorter range or a single device.</div>`;
+        return;
+    }
+    if (!d.count) {
+        box.innerHTML = `<div class="card" style="text-align:center;color:var(--text-muted);padding:2rem;">No points in this range.</div>`;
+        return;
+    }
+
+    const g = d.gaps, a = d.accuracy, s = d.speed, sb = d.speed_between, alt = d.altitude, bat = d.battery;
+
+    // Hero overview
+    let html = `<div class="card diag-card" style="margin-bottom:1rem;">
+        <div class="diag-hero">
+            <div class="diag-metric"><div class="n">${d.count.toLocaleString()}</div><div class="l">points</div></div>
+            <div class="diag-metric"><div class="n">${d.span.human}</div><div class="l">time span</div></div>
+            <div class="diag-metric"><div class="n">${fmtNum(d.points_per_hour)}</div><div class="l">points / hour</div></div>
+            <div class="diag-metric"><div class="n">${fmtDur(g.median_s)}</div><div class="l">median gap</div></div>
+            <div class="diag-metric"><div class="n">${fmtDist(d.distance_km)}</div><div class="l">distance (gated)</div></div>
+        </div>
+        <div style="margin-top:0.75rem;color:var(--text-muted);font-size:0.8rem;">
+            ${fmtTime(d.span.start)} &nbsp;→&nbsp; ${fmtTime(d.span.end)}
+        </div>
+    </div>`;
+
+    html += `<div class="diag-grid">`;
+
+    // Gaps card (the headline tracking-health metric)
+    let topHtml = '';
+    if (g.top && g.top.length) {
+        topHtml = `<div class="diag-toplist"><div class="diag-label" style="margin:0.5rem 0 0.25rem;">Largest gaps</div>` +
+            g.top.map(t => row(
+                `${fmtTime(t.start)} <span class="diag-sub">· ${esc(t.device)}</span>`,
+                t.human
+            )).join('') + `</div>`;
+    }
+    html += `<div class="card diag-card">
+        <div class="card-header"><span>Gaps between points</span>${gapPill(g.max_s)}</div>
+        ${row('Median', fmtDur(g.median_s))}
+        ${row('Average', fmtDur(g.avg_s))}
+        ${row('Min', fmtDur(g.min_s))}
+        ${row('Max', fmtDur(g.max_s))}
+        ${row('90th percentile', fmtDur(g.p90_s))}
+        ${row('Gaps &gt; 1 min', g.over_60s.toLocaleString())}
+        ${row('Gaps &gt; 5 min', g.over_300s.toLocaleString())}
+        ${row('Gaps &gt; 15 min', g.over_900s.toLocaleString())}
+        ${topHtml}
+    </div>`;
+
+    // Accuracy
+    html += `<div class="card diag-card">
+        <div class="card-header"><span>Accuracy</span></div>
+        ${row('Best', fmtM(a.min))}
+        ${row('Worst', fmtM(a.max))}
+        ${row('Average', fmtM(a.avg))}
+        ${row('≤ 20 m', a.under_20.toLocaleString(), pctOf(a.under_20, d.count))}
+        ${row('≤ 50 m', a.under_50.toLocaleString(), pctOf(a.under_50, d.count))}
+        ${row('&gt; 100 m', a.over_100.toLocaleString(), pctOf(a.over_100, d.count))}
+        ${row('No accuracy', a.missing.toLocaleString())}
+    </div>`;
+
+    // Reported speed
+    html += `<div class="card diag-card">
+        <div class="card-header"><span>Reported speed</span></div>
+        ${row('Min', fmtSpeed(s.min_ms))}
+        ${row('Max', fmtSpeed(s.max_ms))}
+        ${row('Average', fmtSpeed(s.avg_ms))}
+        ${row('No speed', s.missing.toLocaleString())}
+    </div>`;
+
+    // Implied speed between consecutive points
+    html += `<div class="card diag-card">
+        <div class="card-header"><span>Speed between points</span></div>
+        ${row('Min', fmtSpeed(sb.min_ms))}
+        ${row('Max', fmtSpeed(sb.max_ms))}
+        ${row('Average', fmtSpeed(sb.avg_ms))}
+        ${row('Fastest at', sb.max_at ? `<span style="font-weight:600;font-size:0.8rem;">${fmtTime(sb.max_at)}</span>` : '—')}
+        <div class="diag-sub" style="padding-top:0.4rem;">Distance ÷ time between fixes — a high max usually means a GPS jump.</div>
+    </div>`;
+
+    // Altitude
+    html += `<div class="card diag-card">
+        <div class="card-header"><span>Altitude</span></div>
+        ${row('Min', fmtM(alt.min))}
+        ${row('Max', fmtM(alt.max))}
+        ${row('Average', fmtM(alt.avg))}
+        ${row('No altitude', alt.missing.toLocaleString())}
+    </div>`;
+
+    // Battery
+    html += `<div class="card diag-card">
+        <div class="card-header"><span>Battery</span></div>
+        ${row('Min', bat.min !== null ? bat.min + '%' : '—')}
+        ${row('Max', bat.max !== null ? bat.max + '%' : '—')}
+    </div>`;
+
+    html += `</div>`;
+    box.innerHTML = html;
+}
+
+function pctOf(n, total) {
+    if (!total) return '';
+    return Math.round((n / total) * 100) + '%';
+}
+</script>
+{% endblock %}
