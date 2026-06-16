@@ -48,6 +48,12 @@ private const val CONTINUOUS_MAX_INTERVAL_MS = 5_000L
 // How long a single fix request may run before we give up on this cycle and reschedule.
 private const val FIX_ACQUISITION_TIMEOUT_MS = 25_000L
 private const val FIX_WAKELOCK_MARGIN_MS = 5_000L
+// After a missed fix (null/slow/filtered) retry this soon instead of waiting a whole
+// interval, so one dropped fix doesn't become an interval-long gap...
+private const val FIX_RETRY_DELAY_MS = 4_000L
+// ...but only a few times — then back off to the normal interval so a persistently
+// unavailable GPS (indoors, no sky) doesn't hammer the chip every few seconds.
+private const val MAX_FAST_RETRIES = 3
 private const val FIX_ALARM_REQUEST_CODE = 7013
 // GPS reports a phantom sub-walking-pace speed when the device is actually stationary
 // (each fix lands a metre or two from the last). Floor anything under ~1 mph to 0 so a
@@ -84,6 +90,7 @@ class LocationTrackingService : Service() {
      *  false while running the continuous FusedLocation stream. */
     @Volatile private var alarmMode = false
     @Volatile private var fixInProgress = false
+    @Volatile private var consecutiveMisses = 0
     @Volatile private var currentConfig: TrackingConfig? = null
     @Volatile private var lastAcceptedLocation: android.location.Location? = null
     @Volatile private var lastAcceptedAtMs: Long = 0L
@@ -363,18 +370,27 @@ class LocationTrackingService : Service() {
         // interrupts the cycle, so it can never leak and pin the CPU between fixes.
         acquireWakeLock(timeoutMs = FIX_ACQUISITION_TIMEOUT_MS + FIX_WAKELOCK_MARGIN_MS)
         scope.launch {
+            var got = false
             try {
                 val loc = requestSingleFix(cfg)
-                if (loc != null && !isPaused && filter.accept(loc)) savePoint(loc)
+                got = loc != null && !isPaused && filter.accept(loc)
+                if (got) savePoint(loc!!)
                 else Log.d(TAG, "Fix cycle produced no usable point (null/filtered)")
             } catch (t: Throwable) {
                 Log.e(TAG, "Fix cycle failed", t)
             } finally {
                 releaseWakeLock()
                 fixInProgress = false
+                consecutiveMisses = if (got) 0 else consecutiveMisses + 1
                 // Re-arm from the *current* config so an interval change mid-cycle takes
                 // effect on the next wake. Only while still in alarm mode and not paused.
-                if (alarmMode && !isPaused) currentConfig?.let { scheduleNextFix(it.intervalMs) }
+                // A transient miss retries soon (so a single dropped fix isn't a full gap),
+                // backing off to the normal interval once GPS is persistently unavailable.
+                if (alarmMode && !isPaused) currentConfig?.let { c ->
+                    val nextMs = if (consecutiveMisses in 1..MAX_FAST_RETRIES)
+                        minOf(c.intervalMs, FIX_RETRY_DELAY_MS) else c.intervalMs
+                    scheduleNextFix(nextMs)
+                }
                 updateNotification()
             }
         }
