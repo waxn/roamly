@@ -32,9 +32,17 @@ private const val NOTIFICATION_ID = 1001
 private const val UPLOAD_SCHEDULE_MIN_INTERVAL_MS = 60_000L
 private const val UPLOAD_BATCH_TRIGGER_COUNT = 10
 // Backlog size that signals the uploader is wedged (in WorkManager backoff) rather
-// than just keeping pace — at which point we REPLACE the stuck job instead of KEEP.
-// ~40 points ≈ 6+ min of a 10s-interval track: well beyond a healthy 0–10 backlog.
+// than just keeping pace — a count-based backstop to REPLACE the stuck job. A raw
+// count scales badly with the interval (40 points ≈ 6 min at 10s but ~20 min at the
+// 30s default), so it's only the ceiling; the primary trigger is time-based below.
 private const val UPLOAD_STUCK_THRESHOLD = 40
+// Time since the last *successful* delivery after which a non-empty backlog means the
+// uploader is wedged — almost certainly asleep in WorkManager's exponential backoff
+// because connectivity dropped mid-drive. WorkManager's backoff is time-based (not
+// connectivity-based), so the job keeps sleeping for minutes even after signal returns,
+// and a KEEP enqueue can't wake it — only a REPLACE can. Interval-independent, so a 30s
+// track recovers as fast as a 10s one (vs. the ~20 min the count ceiling alone took).
+private const val UPLOAD_STUCK_AGE_MS = 120_000L
 private const val WATCHDOG_CHECK_MS = 60_000L
 // Capture-mode ceilings (interval at/below → *continuous* stream + pinned wake lock;
 // above → *alarm* cadence, one discrete fix per exact-alarm wake while the CPU sleeps).
@@ -578,13 +586,21 @@ class LocationTrackingService : Service() {
         val shouldSchedule = reachedTimeThreshold || unsynced >= UPLOAD_BATCH_TRIGGER_COUNT
         if (shouldSchedule) {
             lastUploadScheduleAt = now
-            // If the backlog has grown well past one upload cycle, a prior job is
-            // almost certainly wedged in WorkManager's exponential backoff — and a
-            // KEEP enqueue would let it keep starving us for up to an hour. Force a
-            // fresh run with REPLACE to break the stuck job. Gated on the time
-            // threshold so REPLACE recurs at most once per cycle (never interrupting
-            // a healthy in-flight flush, which clears the backlog in well under it).
-            val backloggedStuck = unsynced >= UPLOAD_STUCK_THRESHOLD && reachedTimeThreshold
+            // Detect a wedged uploader and break it with REPLACE; a KEEP enqueue is
+            // silently dropped while a prior job sleeps in WorkManager's exponential
+            // backoff, which strands captured points for many minutes after signal
+            // returns (the "nothing uploaded for ages while driving" gap). The primary
+            // signal is time-based — a non-empty backlog plus no *successful* delivery
+            // for UPLOAD_STUCK_AGE_MS — so recovery fires in ~2 min at any interval,
+            // not after ~20 min of points pile up. The point count stays as a backstop.
+            // Gated on the time threshold so REPLACE recurs at most once per cycle and
+            // never interrupts a healthy in-flight flush (which clears in well under it).
+            val lastSyncAt = prefs.lastSyncTime.first()
+            val lastSyncOk = prefs.lastSyncSuccess.first()
+            val deliveryStale = unsynced > 0 &&
+                (lastSyncAt == 0L || (!lastSyncOk && now - lastSyncAt >= UPLOAD_STUCK_AGE_MS))
+            val backloggedStuck = reachedTimeThreshold &&
+                (deliveryStale || unsynced >= UPLOAD_STUCK_THRESHOLD)
             UploadWorker.scheduleNow(applicationContext, syncOnMobileData, replace = backloggedStuck)
         }
         updateNotification()
