@@ -21,6 +21,8 @@ import androidx.lifecycle.lifecycleScope
 import com.roamly.data.local.LocationStore
 import com.roamly.data.prefs.UserPreferences
 import com.roamly.tracking.TrackingCoordinator
+import com.roamly.tracking.TrackingDatabase
+import com.roamly.tracking.UploadWorker
 import com.roamly.ui.theme.Clay
 import com.roamly.ui.RoamlyNavHost
 import com.roamly.ui.theme.RoamlyTheme
@@ -34,6 +36,7 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var prefs: UserPreferences
     @Inject lateinit var locationStore: LocationStore
+    @Inject lateinit var db: TrackingDatabase
 
     /** True when the user tapped "Stop" in the tracking notification — drives the
      *  in-app confirmation dialog so the notification stop is gated too. */
@@ -91,6 +94,16 @@ class MainActivity : ComponentActivity() {
         // without the screens having to call the server themselves.
         lifecycleScope.launch {
             if (!prefs.sessionId.first().isNullOrBlank()) locationStore.syncIfDue()
+        }
+        // Also force a *push* of any unsynced backlog. WorkManager can leave the upload
+        // job asleep in exponential backoff (e.g. connectivity dropped mid-drive), which
+        // a plain KEEP enqueue can't break — so opening the app would otherwise show
+        // fresh local points that never reach the server. replace=true cancels the stuck
+        // job and runs immediately; it's a no-op cost when the backlog is already empty.
+        lifecycleScope.launch {
+            if (db.pointDao().unsyncedCount() > 0) {
+                UploadWorker.scheduleNow(this@MainActivity, prefs.syncOnMobileData.first(), replace = true)
+            }
         }
     }
 
