@@ -388,9 +388,13 @@
                         Import JSON
                         <input type="file" accept=".json" multiple style="display: none;" onchange="selectFilesToImport(this, 'json')">
                     </label>
+                    <label class="btn btn-outline btn-sm" style="cursor: pointer;">
+                        Import KML
+                        <input type="file" accept=".kml,.kmz" multiple style="display: none;" onchange="selectFilesToImport(this, 'kml')">
+                    </label>
                 </div>
                 <p>
-                    CSV, GPX 1.0/1.1, Google Takeout JSON, OwnTracks JSON. Missing fields (altitude, speed, etc.) are handled gracefully. You'll be asked to choose a device for the imported locations.
+                    CSV, GPX 1.0/1.1, Google Takeout JSON, OwnTracks JSON, KML (FlightRadar24, Google Earth). Missing fields (altitude, speed, etc.) are handled gracefully. You'll be asked to choose a device for the imported locations.
                 </p>
                 <div id="import-status" style="font-size: 0.8125rem; color: var(--text-muted);"></div>
             </div>
