@@ -4141,7 +4141,38 @@ def import_kml(request):
 
     points = []  # list of (lat, lon, alt_or_None, ts_or_None)
 
-    # Strategy 1: gx:Track (FlightRadar24 / Google Earth track exports).
+    def _parse_fr24_description(text):
+        """Extract altitude (m) and speed (m/s) from FlightRadar24 CDATA HTML.
+
+        FR24 embeds these as labelled <span> pairs inside the description, e.g.:
+          <b>Altitude:</b> <span>35000 ft</span>
+          <b>Speed:</b>    <span>450 kt</span>
+        """
+        if not text:
+            return None, None
+        alt_m = None
+        speed_ms = None
+        alt_match = _re.search(
+            r'Altitude[^<]*</[^>]+>\s*<span>([\d.]+)\s*ft</span>', text, _re.IGNORECASE
+        )
+        if alt_match:
+            ft = _safe_float(alt_match.group(1))
+            if ft is not None:
+                alt_m = ft / 3.28084
+        speed_match = _re.search(
+            r'Speed[^<]*</[^>]+>\s*<span>([\d.]+)\s*kt</span>', text, _re.IGNORECASE
+        )
+        if speed_match:
+            kt = _safe_float(speed_match.group(1))
+            if kt is not None:
+                speed_ms = kt * 0.514444
+        return alt_m, speed_ms
+
+    # Points are (lat, lon, coord_alt, ts, desc_alt, speed).
+    # desc_alt wins over coord_alt when present (FR24 reports ft in description;
+    # coord alt may be 0 for all points). speed is None for non-FR24 sources.
+
+    # Strategy 1: gx:Track (Google Earth track exports).
     # Direct children alternate between <when> and <gx:coord> in order.
     for track in root.iter(f'{GX_NS}Track'):
         children = list(track)
@@ -4153,21 +4184,26 @@ def import_kml(request):
                 continue
             parsed = _parse_kml_coord(c)
             if parsed:
-                points.append((*parsed, _parse_timestamp(w) if w else None))
+                points.append((*parsed, _parse_timestamp(w) if w else None, None, None))
 
     # Strategy 2: <Placemark><Point><coordinates> with optional <TimeStamp><when>.
+    # FlightRadar24 uses this format with speed/altitude in the <description> CDATA.
     if not points:
         for pm in _iter_either(root, 'Placemark'):
             ts = None
             for ts_el in _iter_either(pm, 'when'):
                 ts = _parse_timestamp(ts_el.text)
                 break
+            desc_alt, speed = None, None
+            for desc_el in _iter_either(pm, 'description'):
+                desc_alt, speed = _parse_fr24_description(desc_el.text or '')
+                break
             for pt in _iter_either(pm, 'Point'):
                 for coord_el in _iter_either(pt, 'coordinates'):
                     if coord_el.text:
                         parsed = _parse_kml_coord(coord_el.text.strip())
                         if parsed:
-                            points.append((*parsed, ts))
+                            points.append((*parsed, ts, desc_alt, speed))
 
     # Strategy 3: <LineString><coordinates> — space-separated lon,lat[,alt] tuples,
     # no per-point timestamps. Spread across LineStrings (e.g. route exports).
@@ -4182,7 +4218,7 @@ def import_kml(request):
                         continue
                     parsed = _parse_kml_coord(token)
                     if parsed:
-                        points.append((*parsed, None))
+                        points.append((*parsed, None, None, None))
 
     if not points:
         return JsonResponse(
@@ -4194,12 +4230,15 @@ def import_kml(request):
     errors = 0
     first_error = None
 
-    for lat, lon, alt, ts in points:
+    for lat, lon, coord_alt, ts, desc_alt, speed in points:
+        # Prefer description altitude (ft→m) over the coordinate field, which
+        # FlightRadar24 leaves as 0 for every point even during cruise.
+        alt = desc_alt if desc_alt is not None else coord_alt
         try:
             Location.objects.get_or_create(
                 device=device, latitude=lat, longitude=lon,
                 timestamp=ts or timezone.now(),
-                defaults={'altitude': alt},
+                defaults={'altitude': alt, 'speed': speed},
             )
             count += 1
         except Exception as e:
