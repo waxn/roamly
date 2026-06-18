@@ -4062,6 +4062,161 @@ def import_json(request):
     return JsonResponse(result)
 
 
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def import_kml(request):
+    """Import locations from KML file (FlightRadar24, Google Earth, etc.)."""
+    f = request.FILES.get('file')
+    if not f:
+        return JsonResponse({"error": "No file uploaded"}, status=400)
+
+    import xml.etree.ElementTree as ET
+    import re as _re
+    import zipfile as _zipfile
+    import io as _io
+
+    raw = f.read()
+    # KMZ is a zip archive containing doc.kml (or the first *.kml entry)
+    if f.name.lower().endswith('.kmz') or raw[:2] == b'PK':
+        try:
+            with _zipfile.ZipFile(_io.BytesIO(raw)) as zf:
+                kml_names = [n for n in zf.namelist() if n.lower().endswith('.kml')]
+                if not kml_names:
+                    return JsonResponse({"error": "No .kml file found inside KMZ archive"}, status=400)
+                # Prefer doc.kml; otherwise take the first one
+                entry = next((n for n in kml_names if n.lower() == 'doc.kml'), kml_names[0])
+                raw = zf.read(entry)
+        except _zipfile.BadZipFile as e:
+            return JsonResponse({"error": f"Invalid KMZ archive: {e}"}, status=400)
+
+    try:
+        content = raw.decode('utf-8-sig')
+    except UnicodeDecodeError:
+        content = raw.decode('latin-1')
+
+    try:
+        root = ET.fromstring(content)
+    except ET.ParseError as e:
+        return JsonResponse({"error": f"Invalid KML XML: {e}"}, status=400)
+
+    # Detect KML namespace from root element tag
+    root_tag = root.tag
+    kml_ns = ''
+    if root_tag.startswith('{'):
+        kml_ns = root_tag[:root_tag.index('}') + 1]
+
+    GX_NS = '{http://www.google.com/kml/ext/2.2}'
+
+    def _ns(tag):
+        """Try element search with detected KML namespace, then bare tag."""
+        return f'{kml_ns}{tag}' if kml_ns else tag
+
+    def _iter_either(parent, tag):
+        """Iterate elements matching tag with or without KML namespace."""
+        results = list(parent.iter(_ns(tag)))
+        if not results and kml_ns:
+            results = list(parent.iter(tag))
+        return results
+
+    def _parse_kml_coord(text):
+        """Parse a single KML coordinate string: lon,lat[,alt] → (lat, lon, alt)."""
+        parts = text.strip().split(',')
+        if len(parts) < 2:
+            return None
+        lon = _safe_float(parts[0])
+        lat = _safe_float(parts[1])
+        alt = _safe_float(parts[2]) if len(parts) > 2 else None
+        if lat is None or lon is None:
+            return None
+        if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+            return None
+        return lat, lon, alt
+
+    device_id = request.POST.get('device_id', 'kml-import')
+    device, _ = Device.objects.get_or_create(
+        user=request.user, device_id=device_id,
+        defaults={'name': device_id}
+    )
+
+    points = []  # list of (lat, lon, alt_or_None, ts_or_None)
+
+    # Strategy 1: gx:Track (FlightRadar24 / Google Earth track exports).
+    # Direct children alternate between <when> and <gx:coord> in order.
+    for track in root.iter(f'{GX_NS}Track'):
+        children = list(track)
+        whens = [el.text for el in children
+                 if el.tag == _ns('when') or el.tag == 'when']
+        coords = [el.text for el in children if el.tag == f'{GX_NS}coord']
+        for w, c in zip(whens, coords):
+            if not c:
+                continue
+            parsed = _parse_kml_coord(c)
+            if parsed:
+                points.append((*parsed, _parse_timestamp(w) if w else None))
+
+    # Strategy 2: <Placemark><Point><coordinates> with optional <TimeStamp><when>.
+    if not points:
+        for pm in _iter_either(root, 'Placemark'):
+            ts = None
+            for ts_el in _iter_either(pm, 'when'):
+                ts = _parse_timestamp(ts_el.text)
+                break
+            for pt in _iter_either(pm, 'Point'):
+                for coord_el in _iter_either(pt, 'coordinates'):
+                    if coord_el.text:
+                        parsed = _parse_kml_coord(coord_el.text.strip())
+                        if parsed:
+                            points.append((*parsed, ts))
+
+    # Strategy 3: <LineString><coordinates> — space-separated lon,lat[,alt] tuples,
+    # no per-point timestamps. Spread across LineStrings (e.g. route exports).
+    if not points:
+        for ls in _iter_either(root, 'LineString'):
+            for coord_el in _iter_either(ls, 'coordinates'):
+                if not coord_el.text:
+                    continue
+                for token in _re.split(r'\s+', coord_el.text.strip()):
+                    token = token.strip()
+                    if not token:
+                        continue
+                    parsed = _parse_kml_coord(token)
+                    if parsed:
+                        points.append((*parsed, None))
+
+    if not points:
+        return JsonResponse(
+            {"error": "No track points found in KML file", "imported": 0, "errors": 0},
+            status=400,
+        )
+
+    count = 0
+    errors = 0
+    first_error = None
+
+    for lat, lon, alt, ts in points:
+        try:
+            Location.objects.get_or_create(
+                device=device, latitude=lat, longitude=lon,
+                timestamp=ts or timezone.now(),
+                defaults={'altitude': alt},
+            )
+            count += 1
+        except Exception as e:
+            errors += 1
+            if first_error is None:
+                first_error = str(e)
+            logger.warning(f"KML import error: {e}")
+
+    if count:
+        ensure_auto_geocode(request.user.id)
+
+    result = {"status": "ok", "imported": count, "errors": errors}
+    if first_error and errors > 0:
+        result["first_error"] = first_error
+    return JsonResponse(result)
+
+
 # ---------------------------------------------------------------------------
 # API Keys Management
 # ---------------------------------------------------------------------------

@@ -141,6 +141,7 @@ urlpatterns = [
     path('api/import/csv/', views.import_csv, name='import_csv'),
     path('api/import/gpx/', views.import_gpx, name='import_gpx'),
     path('api/import/json/', views.import_json, name='import_json'),
+    path('api/import/kml/', views.import_kml, name='import_kml'),
     path('api/import/backup/', views.restore_backup, name='restore_backup'),
 
     # API Keys
