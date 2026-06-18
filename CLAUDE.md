@@ -260,6 +260,7 @@ All map display preferences are stored in `localStorage` with `roamly_` prefix:
 `/api/import/csv/` — broad column alias matching (Garmin, Strava, GPSLogger, generic)
 `/api/import/gpx/` — GPX 1.0 and 1.1, handles namespace detection
 `/api/import/json/` — Google Takeout Location History (`{locations:[...]}`) and OwnTracks array format
+`/api/import/kml/` — KML and KMZ files; supports `gx:Track` (FlightRadar24, Google Earth), `Placemark`/`Point`, and `LineString` geometries
 
 Helper functions in `views.py`: `_get_csv_field`, `_parse_timestamp`, `_safe_float`.
 
