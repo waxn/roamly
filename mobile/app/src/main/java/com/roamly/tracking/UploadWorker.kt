@@ -20,8 +20,9 @@ private const val BATCH = 100
 private val ISO = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'").withZone(ZoneOffset.UTC)
 
 /**
- * Uploads cached points to /api/push/ using the app's existing authenticated RoamlyApi.
- * Auth (Bearer token + session cookie) is injected automatically by AppModule's interceptors.
+ * Uploads cached points to the server. Tries the batch endpoint first (100 points
+ * per HTTP call), falling back to single-point push if the server returns 404/405
+ * (older instance without /api/push/batch/). Auth is injected by AppModule interceptors.
  */
 @HiltWorker
 class UploadWorker @AssistedInject constructor(
@@ -45,48 +46,91 @@ class UploadWorker @AssistedInject constructor(
             val batch = db.pointDao().getUnsynced(BATCH)
             if (batch.isEmpty()) break
 
-            val syncedIds = mutableListOf<Long>()
-            for (point in batch) {
-                try {
-                    val resp = api.pushLocation(point.toPayload(deviceId))
-                    when {
-                        resp.isSuccessful -> { syncedIds.add(point.id); uploaded++ }
-                        resp.code() == 401 || resp.code() == 403 -> {
-                            db.pointDao().markSynced(syncedIds)
-                            writeSyncResult(false, uploaded, "Auth failed (${resp.code()}) — check API key")
-                            return Result.success()
-                        }
-                        resp.code() in 400..499 -> {
-                            // Bad point — skip it to avoid infinite retry
-                            syncedIds.add(point.id)
-                            Log.w(TAG, "Skipping point ${point.id}: HTTP ${resp.code()}")
-                        }
-                        else -> {
-                            db.pointDao().markSynced(syncedIds)
-                            writeSyncResult(false, uploaded, "Server error ${resp.code()}")
-                            return Result.retry()
-                        }
-                    }
-                } catch (e: Exception) {
-                    db.pointDao().markSynced(syncedIds)
-                    writeSyncResult(false, uploaded, e.message ?: "Network error")
+            when (val result = uploadBatch(batch, deviceId)) {
+                is UploadResult.Success    -> uploaded += result.count
+                is UploadResult.AuthFailed -> {
+                    writeSyncResult(false, uploaded, result.message)
+                    return Result.success()
+                }
+                is UploadResult.RetriableError -> {
+                    writeSyncResult(false, uploaded, result.message)
                     return Result.retry()
                 }
             }
-            db.pointDao().markSynced(syncedIds)
+
             if (batch.size < BATCH) break
         }
 
-        // Prune synced points older than 7 days
         db.pointDao().pruneOldSynced(System.currentTimeMillis() - 7 * 86_400_000L)
-
         Log.i(TAG, "Uploaded $uploaded points")
         writeSyncResult(true, uploaded, "")
         return Result.success()
     }
 
+    /**
+     * Upload one batch (≤100 points). Tries the batch endpoint first; if the server
+     * returns 404/405 (endpoint absent) or a network exception falls through to
+     * single-point. Each path marks uploaded IDs in Room before returning Success.
+     */
+    private suspend fun uploadBatch(batch: List<CachedPoint>, deviceId: String): UploadResult {
+        // ── Batch path ────────────────────────────────────────────────────────
+        try {
+            val resp = api.pushLocationBatch(batch.map { it.toPayload(deviceId) })
+            when {
+                resp.isSuccessful -> {
+                    db.pointDao().markSynced(batch.map { it.id })
+                    return UploadResult.Success(batch.size)
+                }
+                resp.code() == 401 || resp.code() == 403 ->
+                    return UploadResult.AuthFailed("Auth failed (${resp.code()}) — check API key")
+                resp.code() == 404 || resp.code() == 405 ->
+                    Unit  // endpoint not on this server, fall through to single-point
+                resp.code() in 400..499 -> {
+                    // Bad batch data — skip the whole batch rather than loop forever
+                    db.pointDao().markSynced(batch.map { it.id })
+                    Log.w(TAG, "Batch rejected by server (${resp.code()}), skipping")
+                    return UploadResult.Success(0)
+                }
+                else -> return UploadResult.RetriableError("Server error ${resp.code()}")
+            }
+        } catch (_: Exception) {
+            // Network error or endpoint absent — fall through to single-point
+        }
+
+        // ── Single-point fallback ─────────────────────────────────────────────
+        val syncedIds = mutableListOf<Long>()
+        for (point in batch) {
+            try {
+                val resp = api.pushLocation(point.toPayload(deviceId))
+                when {
+                    resp.isSuccessful -> syncedIds.add(point.id)
+                    resp.code() == 401 || resp.code() == 403 -> {
+                        db.pointDao().markSynced(syncedIds)
+                        return UploadResult.AuthFailed("Auth failed (${resp.code()}) — check API key")
+                    }
+                    resp.code() in 400..499 -> syncedIds.add(point.id)  // bad point, skip it
+                    else -> {
+                        db.pointDao().markSynced(syncedIds)
+                        return UploadResult.RetriableError("Server error ${resp.code()}")
+                    }
+                }
+            } catch (e: Exception) {
+                db.pointDao().markSynced(syncedIds)
+                return UploadResult.RetriableError(e.message ?: "Network error")
+            }
+        }
+        db.pointDao().markSynced(syncedIds)
+        return UploadResult.Success(syncedIds.size)
+    }
+
     private suspend fun writeSyncResult(success: Boolean, count: Int, error: String) {
         prefs.setSyncResult(System.currentTimeMillis(), success, count, error)
+    }
+
+    private sealed class UploadResult {
+        data class Success(val count: Int) : UploadResult()
+        data class AuthFailed(val message: String) : UploadResult()
+        data class RetriableError(val message: String) : UploadResult()
     }
 
     companion object {
@@ -94,10 +138,6 @@ class UploadWorker @AssistedInject constructor(
         private const val PERIODIC_TAG = "roamly_upload_periodic"
 
         fun scheduleNow(context: Context, syncOnMobileData: Boolean = true, replace: Boolean = false) {
-            // Automatic (point-driven) syncs use KEEP so they don't pile up. A
-            // user-initiated sync passes replace=true so it cancels any job stuck
-            // in retry-backoff and runs a fresh attempt immediately instead of being
-            // silently dropped by KEEP.
             WorkManager.getInstance(context).enqueueUniqueWork(
                 ONETIME_TAG, if (replace) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
                 OneTimeWorkRequestBuilder<UploadWorker>()
@@ -137,7 +177,6 @@ class UploadWorker @AssistedInject constructor(
             schedulePeriodic(context, syncOnMobileData)
         }
 
-        /** Stop the recurring background upload entirely (used by a full stop). */
         fun cancelPeriodic(context: Context) {
             WorkManager.getInstance(context).cancelUniqueWork(PERIODIC_TAG)
         }
