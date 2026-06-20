@@ -633,6 +633,88 @@ def push_location(request):
     return JsonResponse({"status": "ok", "location_id": loc_id, "device": str(device_id)})
 
 
+@csrf_exempt
+@require_http_methods(["POST"])
+def push_location_batch(request):
+    """Batch-upload up to 500 location points in a single request.
+    Accepts a JSON array of point objects (same fields as /api/push/).
+    Duplicates are silently skipped via INSERT … ON CONFLICT DO NOTHING.
+    Used by the mobile uploader to drain large offline backlogs in far fewer
+    HTTP round-trips than the single-point endpoint."""
+    user = get_api_key_user(request)
+    if not user:
+        return JsonResponse({"error": "Invalid or missing API key"}, status=401)
+
+    try:
+        points_data = json.loads(request.body.decode('utf-8'))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    if not isinstance(points_data, list):
+        return JsonResponse({"error": "Expected JSON array"}, status=400)
+
+    if len(points_data) > 500:
+        return JsonResponse({"error": "Batch too large (max 500)"}, status=400)
+
+    devices = {}
+    to_create = []
+
+    for raw in points_data:
+        device_id = str(raw.get("device_id", "")).strip()
+        if not device_id:
+            continue
+        try:
+            lat = float(raw["latitude"])
+            lng = float(raw["longitude"])
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        if device_id not in devices:
+            device, _ = Device.objects.get_or_create(
+                user=user, device_id=device_id, defaults={'name': device_id}
+            )
+            devices[device_id] = device
+
+        ts_raw = raw.get("timestamp")
+        ts = timezone.now()
+        if ts_raw:
+            try:
+                if isinstance(ts_raw, str):
+                    ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+                elif isinstance(ts_raw, (int, float)):
+                    ts = datetime.fromtimestamp(int(ts_raw), tz=dt_timezone.utc)
+            except (ValueError, OSError):
+                pass
+
+        to_create.append(Location(
+            device=devices[device_id],
+            latitude=lat,
+            longitude=lng,
+            timestamp=ts,
+            altitude=_safe_float(raw.get("altitude")),
+            accuracy=_safe_float(raw.get("accuracy")),
+            speed=_safe_float(raw.get("speed")),
+            battery=_safe_float(raw.get("battery")),
+        ))
+
+    accepted = 0
+    if to_create:
+        try:
+            created = Location.objects.bulk_create(to_create, ignore_conflicts=True)
+            accepted = len(created)
+        except Exception:
+            for loc in to_create:
+                try:
+                    loc.save()
+                    accepted += 1
+                except Exception:
+                    pass
+        ensure_auto_geocode(user.id)
+        _bust_user_cache(user.id)
+
+    return JsonResponse({"status": "ok", "accepted": accepted, "submitted": len(to_create)})
+
+
 @login_required
 def locations_bounds_api(request):
     """Return the bounding box of all user locations matching current filters. Fast — no point data returned."""

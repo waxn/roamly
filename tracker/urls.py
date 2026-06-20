@@ -34,6 +34,7 @@ urlpatterns = [
 
     # Location API
     path('api/push/', views.push_location, name='push_location'),
+    path('api/push/batch/', views.push_location_batch, name='push_location_batch'),
     path('api/locations/', views.locations_api, name='locations_api'),
     path('api/track/', views.track_api, name='track_api'),
     path('api/locations/bounds/', views.locations_bounds_api, name='locations_bounds_api'),
