@@ -11,7 +11,6 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.*
-import com.google.android.gms.tasks.CancellationTokenSource
 import com.roamly.MainActivity
 import com.roamly.R
 import com.roamly.RoamlyApp
@@ -68,6 +67,10 @@ private const val FIX_RETRY_DELAY_MS = 4_000L
 // unavailable GPS (indoors, no sky) doesn't hammer the chip every few seconds.
 private const val MAX_FAST_RETRIES = 3
 private const val FIX_ALARM_REQUEST_CODE = 7013
+// After MAX_FAST_RETRIES quick retries at 4 s (GPS cold-starting), retry at this
+// medium cadence to give the chip longer to warm up before backing off entirely.
+private const val MEDIUM_RETRY_DELAY_MS = 10_000L
+private const val MAX_MEDIUM_RETRIES = 3
 // GPS reports a phantom sub-walking-pace speed when the device is actually stationary
 // (each fix lands a metre or two from the last). Floor anything under ~1 mph to 0 so a
 // standing-still track shows 0, not a misleading 0.3 mph drift.
@@ -93,6 +96,11 @@ class LocationTrackingService : Service() {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private lateinit var fusedClient: FusedLocationProviderClient
+    // Dedicated thread for location callbacks so fixes don't wait on the main thread.
+    // Some OEM devices throttle the main thread of background services; a HandlerThread
+    // ensures callbacks fire promptly regardless.
+    private lateinit var callbackThread: HandlerThread
+    private val callbackLooper get() = callbackThread.looper
     private var locationCallback: LocationCallback? = null
     private val filter = LocationFilter()
     private var isPaused = false
@@ -118,6 +126,7 @@ class LocationTrackingService : Service() {
     override fun onCreate() {
         super.onCreate()
         fusedClient = LocationServices.getFusedLocationProviderClient(this)
+        callbackThread = HandlerThread("RoamlyLocCb").also { it.start() }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -262,6 +271,7 @@ class LocationTrackingService : Service() {
         watchdogJob?.cancel()
         syncPrefJob?.cancel()
         scope.cancel()
+        callbackThread.quitSafely()
         // scope is cancelled, so use runBlocking to make sure the flags actually land.
         runBlocking { prefs.setTrackingActive(false) }
         // Self-resurrection: if we're being destroyed but the user still wants tracking
@@ -401,12 +411,20 @@ class LocationTrackingService : Service() {
                 fixInProgress = false
                 consecutiveMisses = if (got) 0 else consecutiveMisses + 1
                 // Re-arm from the *current* config so an interval change mid-cycle takes
-                // effect on the next wake. Only while still in alarm mode and not paused.
-                // A transient miss retries soon (so a single dropped fix isn't a full gap),
-                // backing off to the normal interval once GPS is persistently unavailable.
+                // effect on the next wake. Three retry tiers:
+                //  1. Quick (4 s × 3): covers a brief GPS stall or stale cached fix.
+                //  2. Medium (10 s × 3): GPS chip warming up after Doze; BALANCED priority
+                //     kicks in here so network location can provide a fallback fix.
+                //  3. Normal interval: GPS is persistently unavailable (indoors); keep
+                //     trying but stop burning the chip on back-to-back failures.
                 if (alarmMode && !isPaused) currentConfig?.let { c ->
-                    val nextMs = if (consecutiveMisses in 1..MAX_FAST_RETRIES)
-                        minOf(c.intervalMs, FIX_RETRY_DELAY_MS) else c.intervalMs
+                    val nextMs = when {
+                        consecutiveMisses in 1..MAX_FAST_RETRIES ->
+                            minOf(c.intervalMs, FIX_RETRY_DELAY_MS)
+                        consecutiveMisses in (MAX_FAST_RETRIES + 1)..(MAX_FAST_RETRIES + MAX_MEDIUM_RETRIES) ->
+                            minOf(c.intervalMs, MEDIUM_RETRY_DELAY_MS)
+                        else -> c.intervalMs
+                    }
                     scheduleNextFix(nextMs)
                 }
                 updateNotification()
@@ -414,32 +432,56 @@ class LocationTrackingService : Service() {
         }
     }
 
-    /** Request a single fresh location, honouring the user's priority ("auto" → high
-     *  accuracy for reliability), bounded by an acquisition timeout so a cycle can't hang. */
-    @Suppress("MissingPermission")
-    private suspend fun requestSingleFix(cfg: TrackingConfig): android.location.Location? {
-        val priority = when (cfg.priority) {
+    /** Pick the GPS priority for a fix attempt, automatically degrading from HIGH_ACCURACY
+     *  to BALANCED after consecutive misses so network location fills indoor gaps. Only
+     *  degrades the "auto" setting — explicit user choices ("high"/"balanced"/"low") are
+     *  honoured exactly. */
+    private fun priorityForCurrentState(cfg: TrackingConfig): Int {
+        val base = when (cfg.priority) {
             "high"     -> Priority.PRIORITY_HIGH_ACCURACY
             "balanced" -> Priority.PRIORITY_BALANCED_POWER_ACCURACY
             "low"      -> Priority.PRIORITY_LOW_POWER
-            else       -> Priority.PRIORITY_HIGH_ACCURACY  // "auto": reliability-first
+            else       -> Priority.PRIORITY_HIGH_ACCURACY
         }
-        val timeoutMs = minOf(cfg.intervalMs - 2_000L, FIX_ACQUISITION_TIMEOUT_MS).coerceAtLeast(4_000L)
-        val cts = CancellationTokenSource()
+        return if (cfg.priority == "auto" && consecutiveMisses >= MAX_FAST_RETRIES)
+            Priority.PRIORITY_BALANCED_POWER_ACCURACY
+        else
+            base
+    }
+
+    /** Request a single fresh location using requestLocationUpdates(maxUpdates=1) on a
+     *  dedicated HandlerThread so the callback fires immediately regardless of main-thread
+     *  load. Uses a fixed generous timeout — GPS can cold-start from Doze in up to ~30s
+     *  and shortening the timeout based on the interval causes unnecessary misses. */
+    @Suppress("MissingPermission")
+    private suspend fun requestSingleFix(cfg: TrackingConfig): android.location.Location? {
+        val priority = priorityForCurrentState(cfg)
         return try {
-            withTimeoutOrNull(timeoutMs) {
-                suspendCancellableCoroutine<android.location.Location?> { cont ->
-                    fusedClient.getCurrentLocation(priority, cts.token)
-                        .addOnSuccessListener { if (cont.isActive) cont.resume(it) }
-                        .addOnFailureListener { if (cont.isActive) cont.resume(null) }
-                    cont.invokeOnCancellation { cts.cancel() }
+            withTimeoutOrNull(FIX_ACQUISITION_TIMEOUT_MS) {
+                suspendCancellableCoroutine { cont ->
+                    val request = LocationRequest.Builder(priority, 0L)
+                        .setMaxUpdates(1)
+                        .setWaitForAccurateLocation(false)
+                        .build()
+                    val cb = object : LocationCallback() {
+                        override fun onLocationResult(result: LocationResult) {
+                            if (cont.isActive) cont.resume(result.lastLocation)
+                        }
+                    }
+                    runCatching {
+                        fusedClient.requestLocationUpdates(request, cb, callbackLooper)
+                    }.onFailure {
+                        Log.e(TAG, "requestLocationUpdates failed", it)
+                        if (cont.isActive) cont.resume(null)
+                    }
+                    cont.invokeOnCancellation {
+                        runCatching { fusedClient.removeLocationUpdates(cb) }
+                    }
                 }
             }
         } catch (t: Throwable) {
             Log.e(TAG, "Single fix request failed", t)
             null
-        } finally {
-            cts.cancel()
         }
     }
 
@@ -489,7 +531,7 @@ class LocationTrackingService : Service() {
         }
         locationCallback = callback
         runCatching {
-            fusedClient.requestLocationUpdates(buildRequest(cfg), callback, Looper.getMainLooper())
+            fusedClient.requestLocationUpdates(buildRequest(cfg), callback, callbackLooper)
         }.onFailure { Log.e(TAG, "Failed to request location updates", it) }
     }
 
