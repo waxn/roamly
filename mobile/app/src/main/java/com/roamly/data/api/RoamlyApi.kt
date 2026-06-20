@@ -35,6 +35,11 @@ interface RoamlyApi {
     @POST("api/push/")
     suspend fun pushLocation(@Body payload: LocationPushPayload): Response<LocationPushResponse>
 
+    /** Batch-upload up to 500 points in one request. Falls back to [pushLocation]
+     *  if the server returns 404/405 (older instance without the endpoint). */
+    @POST("api/push/batch/")
+    suspend fun pushLocationBatch(@Body payload: List<LocationPushPayload>): Response<LocationBatchPushResponse>
+
     // --- Locations ---
 
     @GET("api/locations/")

@@ -292,6 +292,12 @@ data class LocationPushResponse(
     val device: String?,
 )
 
+data class LocationBatchPushResponse(
+    val status: String,
+    val accepted: Int = 0,
+    val submitted: Int = 0,
+)
+
 // --- Journals ---
 
 data class JournalListItem(
