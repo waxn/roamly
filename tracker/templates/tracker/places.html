@@ -150,6 +150,9 @@
     font-size: 0.66rem; font-weight: 800; color: var(--text-muted);
     letter-spacing: 0.04em; margin-top: 0.15rem;
 }
+.pl-stat-toggle { cursor: pointer; transition: opacity 0.12s; }
+.pl-stat-toggle:hover { opacity: 0.78; }
+.pl-stat-toggle .pl-stat-lbl::after { content: ' ↕'; opacity: 0.45; }
 .pl-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 1.25rem; }
 .pl-days-table th, .pl-days-table td { padding: 0.45rem 0.6rem; font-size: 0.82rem; }
 
@@ -286,6 +289,32 @@ function fmtDur(seconds) {
     if (h && m) return h + 'h ' + m + 'm';
     if (h) return h + 'h';
     return m + 'm';
+}
+function fmtDurFull(seconds) {
+    if (!seconds || seconds < 60) return (seconds || 0) + 's';
+    let s = Math.floor(seconds);
+    const mo = Math.floor(s / (30 * 86400)); s -= mo * 30 * 86400;
+    const d  = Math.floor(s / 86400);        s -= d  * 86400;
+    const h  = Math.floor(s / 3600);         s -= h  * 3600;
+    const m  = Math.round(s / 60);
+    const parts = [];
+    if (mo) parts.push(mo + 'mo');
+    if (d)  parts.push(d  + 'd');
+    if (h)  parts.push(h  + 'h');
+    if (m || !parts.length) parts.push(m + 'm');
+    return parts.join(' ');
+}
+function fmtDurMins(seconds) {
+    return Math.round((seconds || 0) / 60).toLocaleString() + ' min';
+}
+
+let timeSpentRaw = false;
+function toggleTimeSpent() {
+    timeSpentRaw = !timeSpentRaw;
+    const el = document.getElementById('detail-time-stat');
+    if (!el) return;
+    const s = parseInt(el.dataset.s || '0', 10);
+    el.querySelector('.pl-stat-num').textContent = timeSpentRaw ? fmtDurMins(s) : fmtDurFull(s);
 }
 function fmtDate(iso) {
     if (!iso) return '—';
@@ -488,10 +517,11 @@ async function openDetail(id) {
     // Notes (autosaving)
     setupDetailNotes(d);
 
+    timeSpentRaw = false;
     document.getElementById('detail-stats').innerHTML = `
         <div class="pl-stat"><div class="pl-stat-num" style="color:${d.color};">${(d.point_count || 0).toLocaleString()}</div><div class="pl-stat-lbl">points</div></div>
         <div class="pl-stat"><div class="pl-stat-num">${(d.days || []).length}</div><div class="pl-stat-lbl">days</div></div>
-        <div class="pl-stat"><div class="pl-stat-num">${fmtDur(d.time_spent)}</div><div class="pl-stat-lbl">time spent</div></div>
+        <div class="pl-stat pl-stat-toggle" id="detail-time-stat" data-s="${d.time_spent || 0}" onclick="toggleTimeSpent()"><div class="pl-stat-num">${fmtDurFull(d.time_spent)}</div><div class="pl-stat-lbl">time spent</div></div>
         <div class="pl-stat"><div class="pl-stat-num" style="font-size:1rem;">${fmtDate(d.first_seen)}</div><div class="pl-stat-lbl">first seen</div></div>
     `;
 
