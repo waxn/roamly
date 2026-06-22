@@ -329,6 +329,137 @@
     background: none; border: none; color: var(--text-muted);
     font-size: 1.1rem; cursor: pointer; padding: 0 2px;
 }
+
+/* ── Right-click context menu ── */
+.map-ctx-menu {
+    position: fixed;
+    z-index: 200;
+    background: var(--bg-glass);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.32);
+    padding: 4px;
+    min-width: 168px;
+    display: none;
+    font-family: 'Space Grotesk', sans-serif;
+}
+.map-ctx-menu.open { display: block; }
+.map-ctx-coords {
+    padding: 5px 10px 3px;
+    font-size: 0.67rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.02em;
+    font-family: monospace;
+    white-space: nowrap;
+}
+.map-ctx-divider { height: 1px; background: var(--border); margin: 3px 0; }
+.map-ctx-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 7px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--text);
+    text-transform: lowercase;
+    cursor: pointer;
+    background: none;
+    border: none;
+    width: 100%;
+    text-align: left;
+    transition: background 0.1s;
+    font-family: 'Space Grotesk', sans-serif;
+}
+.map-ctx-item:hover { background: rgba(255,255,255,0.07); }
+
+/* ── Add-place quick panel ── */
+.map-addplace-panel {
+    position: absolute;
+    bottom: 52px;
+    right: 12px;
+    z-index: 12;
+    width: 208px;
+    background: var(--bg-glass);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px;
+    box-shadow: 0 10px 32px rgba(0,0,0,0.3);
+    display: none;
+}
+.map-addplace-panel.open { display: block; }
+.map-addplace-title {
+    font-size: 0.6rem;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+.map-addplace-panel input[type="text"] {
+    width: 100%;
+    box-sizing: border-box;
+    background: rgba(0,0,0,0.18);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-size: 0.775rem;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 600;
+    outline: none;
+    margin-bottom: 8px;
+    text-transform: none;
+}
+.map-addplace-panel input[type="text"]::placeholder { color: var(--text-muted); }
+.map-addplace-radius-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.map-addplace-radius-row input[type="range"] { flex: 1; accent-color: var(--primary); }
+.map-addplace-rval {
+    font-size: 0.7rem;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    color: var(--text-muted);
+    min-width: 42px;
+    text-align: right;
+    text-transform: lowercase;
+}
+.map-addplace-hint {
+    font-size: 0.67rem;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+}
+.map-addplace-actions { display: flex; gap: 6px; }
+.map-addplace-actions button {
+    flex: 1;
+    padding: 7px 0;
+    font-size: 0.775rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    text-transform: lowercase;
+    border: 1px solid var(--border);
+}
+.map-addplace-actions .btn-save {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}
+.map-addplace-actions .btn-save:disabled { opacity: 0.5; cursor: default; }
+.map-addplace-actions .btn-cancel { background: none; color: var(--text-muted); }
 {% endblock %}
 
 {% block content %}
@@ -415,6 +546,29 @@
         </select>
         <span class="replay-clock" id="replay-clock">—</span>
         <button class="replay-close" id="replay-close" type="button" title="Close replay">&times;</button>
+    </div>
+
+    <!-- Right-click context menu -->
+    <div class="map-ctx-menu" id="map-ctx-menu">
+        <div class="map-ctx-coords" id="ctx-coords"></div>
+        <div class="map-ctx-divider"></div>
+        <button class="map-ctx-item" id="ctx-add-place">+ add place here</button>
+        <button class="map-ctx-item" id="ctx-copy-coords">copy coordinates</button>
+    </div>
+
+    <!-- Quick add-place panel -->
+    <div class="map-addplace-panel" id="map-addplace-panel">
+        <div class="map-addplace-title">new place</div>
+        <input type="text" id="addplace-name" placeholder="home, work, coffee shop…" maxlength="200" autocomplete="off">
+        <div class="map-addplace-radius-row">
+            <input type="range" id="addplace-radius" min="25" max="2000" step="25" value="150">
+            <span class="map-addplace-rval" id="addplace-rval">150 m</span>
+        </div>
+        <div class="map-addplace-hint">drag the marker to reposition.</div>
+        <div class="map-addplace-actions">
+            <button class="btn-save" id="addplace-save">save</button>
+            <button class="btn-cancel" id="addplace-cancel">cancel</button>
+        </div>
     </div>
 
     <div id="map-loading-bar"></div>
@@ -1590,5 +1744,128 @@ replaySlider.addEventListener('input', () => {
 
 // Apply saved globe projection on first load.
 map.on('load', applyProjection);
+
+// ═══════════════════════════════════════════════════════════════════
+// Right-click context menu + quick add-place
+// ═══════════════════════════════════════════════════════════════════
+const ctxMenu = document.getElementById('map-ctx-menu');
+const ctxCoordsEl = document.getElementById('ctx-coords');
+const ctxAddPlaceBtn = document.getElementById('ctx-add-place');
+const ctxCopyCoordsBtn = document.getElementById('ctx-copy-coords');
+const addplacePanel = document.getElementById('map-addplace-panel');
+const addplaceNameEl = document.getElementById('addplace-name');
+const addplaceRadiusEl = document.getElementById('addplace-radius');
+const addplaceRvalEl = document.getElementById('addplace-rval');
+const addplaceSaveBtn = document.getElementById('addplace-save');
+
+let ctxLngLat = null;
+let addplaceMarker = null;
+let addplaceRadius = 150;
+
+function closeCtxMenu() { ctxMenu.classList.remove('open'); }
+
+map.on('contextmenu', (e) => {
+    ctxLngLat = e.lngLat;
+    ctxCoordsEl.textContent = `${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}`;
+    ctxCopyCoordsBtn.textContent = 'copy coordinates';
+    const rect = document.getElementById('map-container').getBoundingClientRect();
+    ctxMenu.style.left = Math.min(rect.left + e.point.x, window.innerWidth - 184) + 'px';
+    ctxMenu.style.top = Math.min(rect.top + e.point.y, window.innerHeight - 96) + 'px';
+    ctxMenu.classList.add('open');
+});
+
+map.on('click', closeCtxMenu);
+document.addEventListener('click', (e) => { if (!ctxMenu.contains(e.target)) closeCtxMenu(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeCtxMenu(); closeAddPlace(); } });
+
+function redrawAddplaceCircle() {
+    if (!map.getSource('addplace-circle') || !addplaceMarker) return;
+    const ll = addplaceMarker.getLngLat();
+    map.getSource('addplace-circle').setData(placeCircleGeoJSON(ll.lat, ll.lng, addplaceRadius, {}));
+}
+
+function openAddPlace(lngLat) {
+    closeCtxMenu();
+    ctxLngLat = lngLat;
+    addplaceRadius = 150;
+    addplaceRadiusEl.value = 150;
+    addplaceRvalEl.textContent = '150 m';
+    addplaceNameEl.value = '';
+
+    if (addplaceMarker) addplaceMarker.remove();
+    addplaceMarker = new maplibregl.Marker({ color: '#0DBFAC', draggable: true })
+        .setLngLat([lngLat.lng, lngLat.lat])
+        .addTo(map);
+    addplaceMarker.on('dragend', redrawAddplaceCircle);
+
+    if (map.getSource('addplace-circle')) {
+        redrawAddplaceCircle();
+    } else {
+        map.addSource('addplace-circle', { type: 'geojson', data: placeCircleGeoJSON(lngLat.lat, lngLat.lng, addplaceRadius, {}) });
+        map.addLayer({ id: 'addplace-fill', type: 'fill', source: 'addplace-circle',
+            paint: { 'fill-color': '#0DBFAC', 'fill-opacity': 0.18 } });
+        map.addLayer({ id: 'addplace-line', type: 'line', source: 'addplace-circle',
+            paint: { 'line-color': '#0DBFAC', 'line-width': 2, 'line-opacity': 0.9 } });
+    }
+
+    addplacePanel.classList.add('open');
+    setTimeout(() => addplaceNameEl.focus(), 50);
+}
+
+function closeAddPlace() {
+    addplacePanel.classList.remove('open');
+    if (addplaceMarker) { addplaceMarker.remove(); addplaceMarker = null; }
+    ['addplace-fill', 'addplace-line'].forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
+    if (map.getSource('addplace-circle')) map.removeSource('addplace-circle');
+}
+
+addplaceRadiusEl.addEventListener('input', () => {
+    addplaceRadius = parseInt(addplaceRadiusEl.value);
+    addplaceRvalEl.textContent = addplaceRadius + ' m';
+    redrawAddplaceCircle();
+});
+
+ctxAddPlaceBtn.addEventListener('click', () => {
+    if (ctxLngLat) openAddPlace(ctxLngLat);
+});
+
+ctxCopyCoordsBtn.addEventListener('click', () => {
+    if (!ctxLngLat) return;
+    navigator.clipboard.writeText(`${ctxLngLat.lat.toFixed(6)}, ${ctxLngLat.lng.toFixed(6)}`).then(() => {
+        ctxCopyCoordsBtn.textContent = 'copied!';
+        setTimeout(() => { ctxCopyCoordsBtn.textContent = 'copy coordinates'; }, 1500);
+    });
+    closeCtxMenu();
+});
+
+addplaceSaveBtn.addEventListener('click', async () => {
+    const name = addplaceNameEl.value.trim();
+    if (!name) { addplaceNameEl.focus(); return; }
+    const ll = addplaceMarker ? addplaceMarker.getLngLat() : ctxLngLat;
+    if (!ll) return;
+    addplaceSaveBtn.disabled = true;
+    try {
+        const res = await fetch('/api/places/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, lat: ll.lat, lng: ll.lng, radius_m: addplaceRadius })
+        });
+        if (!res.ok) { const err = await res.json().catch(() => ({})); alert(err.error || 'save failed'); return; }
+        closeAddPlace();
+        // Refresh the places layer if it's currently shown
+        myPlaces = null;
+        if (placesOn) {
+            removePlacesLayers();
+            await loadMyPlaces();
+            if (map.isStyleLoaded()) addPlacesLayers();
+            const n = (myPlaces || []).length;
+            placesBadge.textContent = n ? `${n} ${n === 1 ? 'place' : 'places'}` : 'none yet';
+        }
+    } finally {
+        addplaceSaveBtn.disabled = false;
+    }
+});
+
+document.getElementById('addplace-cancel').addEventListener('click', closeAddPlace);
 </script>
 {% endblock %}
