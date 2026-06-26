@@ -43,20 +43,23 @@ private const val UPLOAD_STUCK_THRESHOLD = 40
 // track recovers as fast as a 10s one (vs. the ~20 min the count ceiling alone took).
 private const val UPLOAD_STUCK_AGE_MS = 120_000L
 private const val WATCHDOG_CHECK_MS = 60_000L
-// Capture-mode ceilings (interval at/below → *continuous* stream + pinned wake lock;
-// above → *alarm* cadence, one discrete fix per exact-alarm wake while the CPU sleeps).
-// The alarm cadence is the GPSLogger model that survives Doze (the exact
-// `setExactAndAllowWhileIdle` alarm is the per-point heartbeat) but cold-starts the GPS
-// each fix. Continuous keeps the GPS *warm* and the cadence tight — but only stays alive
-// screen-off if the CPU stays awake, so we only choose it when pinning the CPU is worth it:
-//  - Not battery-exempt → the OS throttles a backgrounded stream in Doze regardless, so
-//    only the very fastest interval (≤5s, where the CPU is awake anyway) uses continuous.
-//  - Battery-exempt → the app may hold the CPU awake through Doze, so short intervals
-//    (≤20s, e.g. a 10s track) use warm continuous for smoothness; longer intervals still
-//    prefer alarm mode (pinning the CPU for 30s+ between fixes wastes battery, and an
-//    exempt app's exact alarms fire on time anyway).
-private const val CONTINUOUS_MAX_INTERVAL_MS = 5_000L
-private const val WARM_CONTINUOUS_MAX_MS = 20_000L
+// Capture model: the exact-alarm cadence (one discrete fix per `setExactAndAllowWhileIdle`
+// wake) is the ALWAYS-ON, Doze-proof floor — it force-wakes the device to take a fix even in
+// deep Doze, which a continuous stream cannot survive (the OS batches/suspends streamed
+// location updates in Doze no matter how many wake locks we hold — that suspension is what
+// caused the multi-minute screen-off gaps). The continuous warm stream is a *screen-on-only*
+// add-on: while the screen is on, Doze is not engaged, so the stream gives smooth high-rate
+// capture and the alarm idles (each fix cycle is skipped because a stream point already
+// landed); when the screen goes off we drop the stream (Doze would suspend it anyway) and
+// rely entirely on the alarm cadence. So mode is chosen by *screen state*, not by interval.
+//
+// Smallest gap between alarm-driven fixes. GPS cold-starts after Doze can take ~15-30s, so
+// scheduling fixes faster than this just guarantees misses; the screen-on stream provides any
+// finer cadence. 15s keeps screen-off capture within 3× of even a 10s interval.
+private const val MIN_ALARM_FLOOR_MS = 15_000L
+// The catch-up backstop alarm fires at this multiple of the interval, re-armed on every fix,
+// so a dropped primary fix alarm / wedged cycle / hard kill recovers within 3× — not 15 min.
+private const val CATCHUP_MULTIPLIER = 3
 // How long a single fix request may run before we give up on this cycle and reschedule.
 private const val FIX_ACQUISITION_TIMEOUT_MS = 25_000L
 private const val FIX_WAKELOCK_MARGIN_MS = 5_000L
@@ -67,6 +70,7 @@ private const val FIX_RETRY_DELAY_MS = 4_000L
 // unavailable GPS (indoors, no sky) doesn't hammer the chip every few seconds.
 private const val MAX_FAST_RETRIES = 3
 private const val FIX_ALARM_REQUEST_CODE = 7013
+private const val FIX_CATCHUP_REQUEST_CODE = 7014
 // After MAX_FAST_RETRIES quick retries at 4 s (GPS cold-starting), retry at this
 // medium cadence to give the chip longer to warm up before backing off entirely.
 private const val MEDIUM_RETRY_DELAY_MS = 10_000L
@@ -107,10 +111,13 @@ class LocationTrackingService : Service() {
     private var initialized = false
     private var lastUploadScheduleAt = System.currentTimeMillis()
     private var syncOnMobileData = true
-    /** True while running the alarm-driven discrete-fix cadence (interval > continuous max);
-     *  false while running the continuous FusedLocation stream. */
-    @Volatile private var alarmMode = false
+    /** True while the screen is on (interactive). The continuous warm stream runs only
+     *  while this is true; screen-off relies entirely on the alarm cadence. */
+    @Volatile private var screenOn = true
+    /** True while the continuous FusedLocation stream is currently armed (screen-on). */
+    @Volatile private var streaming = false
     @Volatile private var fixInProgress = false
+    @Volatile private var fixCycleStartedAt = 0L
     @Volatile private var consecutiveMisses = 0
     @Volatile private var currentConfig: TrackingConfig? = null
     @Volatile private var lastAcceptedLocation: android.location.Location? = null
@@ -119,6 +126,7 @@ class LocationTrackingService : Service() {
     private var watchdogJob: Job? = null
     private var syncPrefJob: Job? = null
     private var providerReceiver: BroadcastReceiver? = null
+    private var screenReceiver: BroadcastReceiver? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
@@ -152,12 +160,13 @@ class LocationTrackingService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_PAUSE  -> {
-                isPaused = true; filter.reset(); cancelNextFix(); releaseWakeLock(); updateNotification()
+                isPaused = true; filter.reset(); cancelNextFix()
+                stopLocationUpdates(); streaming = false; releaseWakeLock(); updateNotification()
                 return START_STICKY
             }
             ACTION_RESUME -> {
                 isPaused = false
-                currentConfig?.let { applyMode(it) } ?: updateWakeLock()
+                currentConfig?.let { applyCapture(it) }
                 updateNotification()
                 return START_STICKY
             }
@@ -169,7 +178,10 @@ class LocationTrackingService : Service() {
                     // The OS killed us and the alarm is recreating us cold — full init
                     // re-establishes config/observers and kicks the first fix itself.
                     initTracking()
-                } else if (alarmMode && !isPaused) {
+                } else if (!isPaused) {
+                    // The per-point (or catch-up) exact alarm fired: take a fix and re-arm.
+                    // runFixCycle skips the GPS request if the stream already covered this
+                    // interval, but always reschedules so the cadence never dies.
                     runFixCycle()
                 }
                 goForeground()
@@ -195,12 +207,12 @@ class LocationTrackingService : Service() {
 
         if (!initialized) {
             initTracking()
-        } else if (alarmMode && !isPaused) {
+        } else if (!isPaused) {
             // A repeat start of an already-running service (the 15-min heartbeat, a
             // provider change, etc.). Only nudge the cadence if it looks stalled, so a
             // healthy tracker isn't perturbed into extra fixes.
             val cfg = currentConfig
-            val stale = cfg != null && (System.currentTimeMillis() - lastAcceptedAtMs) > cfg.intervalMs * 2
+            val stale = cfg != null && (System.currentTimeMillis() - lastAcceptedAtMs) > alarmIntervalMs(cfg) * 2
             if (lastAcceptedAtMs == 0L || stale) runFixCycle()
         }
 
@@ -219,20 +231,16 @@ class LocationTrackingService : Service() {
             prefs.setTrackingEnabled(true)
             prefs.setTrackingActive(true)
         }
+        screenOn = runCatching {
+            (getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
+        }.getOrDefault(true)
         observeRuntimePreferences()
-        observeConfig()  // first emit → applyMode(): starts the stream or the first fix
+        observeConfig()  // first emit → applyCapture(): starts the cadence (+ stream if screen-on)
         startWatchdog()
         registerProviderChangeReceiver()
+        registerScreenReceiver()
         TrackingAlarmReceiver.schedule(applicationContext)
         initialized = true
-    }
-
-    /** Acquire or release the pinned wake lock based on mode + pause state. Continuous
-     *  mode always pins it (the CPU must stay awake to keep the live stream + GPS alive
-     *  screen-off); alarm mode uses a short time-boxed lock per fix instead, so the CPU
-     *  can sleep between fixes and save battery. */
-    private fun updateWakeLock() {
-        if (!isPaused && !alarmMode) acquireWakeLock() else releaseWakeLock()
     }
 
     /** Hold a partial wake lock so the CPU doesn't sleep during a fix (which would defer
@@ -267,6 +275,7 @@ class LocationTrackingService : Service() {
         stopLocationUpdates()
         releaseWakeLock()
         unregisterProviderChangeReceiver()
+        unregisterScreenReceiver()
         configJob?.cancel()
         watchdogJob?.cancel()
         syncPrefJob?.cancel()
@@ -279,7 +288,7 @@ class LocationTrackingService : Service() {
         // to bring us straight back. A dying service can't reliably restart itself, but
         // a separate receiver can. The pending fix alarm (if any) is left armed on
         // purpose — it's an extra independent restart path; the revived service re-anchors
-        // the cadence cleanly via applyMode().
+        // the cadence cleanly via applyCapture().
         val shouldRun = runBlocking { prefs.trackingEnabled.first() }
         if (shouldRun) {
             Log.w(TAG, "Destroyed while still enabled — broadcasting restart")
@@ -312,8 +321,7 @@ class LocationTrackingService : Service() {
                 val cfg = currentConfig ?: return
                 if (isPaused) return
                 Log.i(TAG, "Location providers changed — re-arming capture")
-                if (alarmMode) runFixCycle()
-                else { startLocationUpdates(cfg); seedLastLocation() }
+                applyCapture(cfg)
             }
         }
         providerReceiver = rcv
@@ -324,6 +332,41 @@ class LocationTrackingService : Service() {
     private fun unregisterProviderChangeReceiver() {
         providerReceiver?.let { runCatching { unregisterReceiver(it) } }
         providerReceiver = null
+    }
+
+    // ── Screen on/off (mode selection) ─────────────────────────────────────────
+
+    /** Track screen state. The continuous warm stream is only worthwhile while the screen
+     *  is on (Doze isn't engaged, so streamed updates flow smoothly); screen-off it would
+     *  just be suspended by Doze, so we drop it and let the exact-alarm cadence carry on.
+     *  Switching is done through [applyCapture]. */
+    private fun registerScreenReceiver() {
+        if (screenReceiver != null) return
+        val rcv = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                val on = when (intent?.action) {
+                    Intent.ACTION_SCREEN_ON -> true
+                    Intent.ACTION_SCREEN_OFF -> false
+                    else -> return
+                }
+                if (on == screenOn) return
+                screenOn = on
+                Log.i(TAG, "Screen ${if (on) "on" else "off"} — re-selecting capture mode")
+                if (!isPaused) currentConfig?.let { applyCapture(it) }
+            }
+        }
+        screenReceiver = rcv
+        val filterScreen = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        }
+        runCatching { registerReceiver(rcv, filterScreen) }
+            .onFailure { Log.e(TAG, "Failed to register screen receiver", it) }
+    }
+
+    private fun unregisterScreenReceiver() {
+        screenReceiver?.let { runCatching { unregisterReceiver(it) } }
+        screenReceiver = null
     }
 
     // ── Config (live) ────────────────────────────────────────────────────────
@@ -350,32 +393,35 @@ class LocationTrackingService : Service() {
                 // freshly-acquired or post-wake fix is never dropped for lagging now().
                 filter.maxAgeMs = (cfg.intervalMs * 2).coerceAtLeast(30_000L)
                 Log.i(TAG, "Applying config: interval=${cfg.intervalMs}ms priority=${cfg.priority} maxAcc=${cfg.maxAccuracyM}m")
-                applyMode(cfg)
+                applyCapture(cfg)
             }
         }
     }
 
-    /** Pick continuous vs alarm mode for the current interval and (re)establish capture.
-     *  Battery-exempt apps can hold the CPU awake through Doze, so for short intervals the
-     *  warm continuous stream is both viable and smoother than cold-starting the GPS on
-     *  every alarm; non-exempt apps get a stream throttled in Doze, so only the fastest
-     *  interval uses it and everything else rides the exact-alarm cadence. */
-    private fun applyMode(cfg: TrackingConfig) {
-        val exempt = TrackingCoordinator.isIgnoringBatteryOptimizations(this)
-        val continuousCeiling = if (exempt) WARM_CONTINUOUS_MAX_MS else CONTINUOUS_MAX_INTERVAL_MS
-        alarmMode = cfg.intervalMs > continuousCeiling
-        Log.i(TAG, "applyMode: interval=${cfg.intervalMs}ms exempt=$exempt → ${if (alarmMode) "alarm" else "continuous"}")
-        if (alarmMode) {
-            stopLocationUpdates()        // no continuous stream in alarm mode
-            updateWakeLock()             // releases the pinned lock
-            cancelNextFix()              // re-anchor the cadence cleanly
-            if (!isPaused) runFixCycle() // take one now; it schedules the next
-        } else {
-            cancelNextFix()              // leaving alarm mode: drop any pending fix alarm
-            startLocationUpdates(cfg)    // live stream
-            updateWakeLock()             // pin the lock
+    /** The cadence the exact-alarm floor actually runs at — never faster than the GPS can
+     *  cold-acquire, so a short interval doesn't schedule guaranteed misses. The screen-on
+     *  stream provides any finer rate. */
+    private fun alarmIntervalMs(cfg: TrackingConfig): Long = maxOf(cfg.intervalMs, MIN_ALARM_FLOOR_MS)
+
+    /** (Re)establish capture. The exact-alarm cadence is the always-on, Doze-proof floor and
+     *  is armed unconditionally (it force-wakes the device to take a fix even in deep Doze).
+     *  The continuous warm stream + pinned wake lock are layered on *only while the screen is
+     *  on* — screen-off Doze suspends the stream regardless, so we drop it and save the
+     *  battery, letting the alarm carry the cadence. */
+    private fun applyCapture(cfg: TrackingConfig) {
+        if (screenOn && !isPaused) {
+            startLocationUpdates(cfg)    // smooth warm stream while the screen is on
+            acquireWakeLock()            // pin the CPU so stream + watchdog stay alive
+            streaming = true
             seedLastLocation()           // immediate first point
+        } else {
+            stopLocationUpdates()        // screen-off: Doze would suspend the stream anyway
+            streaming = false
+            releaseWakeLock()            // alarm mode uses a short time-boxed lock per fix
         }
+        // Always (re)anchor the Doze-proof alarm cadence.
+        cancelNextFix()
+        if (!isPaused) runFixCycle()     // take one now; it schedules the next + the catch-up
     }
 
     private fun observeRuntimePreferences() {
@@ -391,11 +437,30 @@ class LocationTrackingService : Service() {
      *  the next exact alarm. The exact alarm (not a continuous stream) is what carries
      *  the cadence through Doze. Reschedules even on a missed fix so the loop never dies. */
     private fun runFixCycle() {
-        if (isPaused || fixInProgress) return
+        if (isPaused) return
         val cfg = currentConfig ?: return
+        if (fixInProgress) {
+            // Normally the in-flight cycle reschedules; but if it wedged (a hung provider
+            // callback the timeout somehow didn't unblock) the cadence would die silently.
+            // After the acquisition budget elapses, force-reset and take over.
+            val wedgedFor = System.currentTimeMillis() - fixCycleStartedAt
+            if (wedgedFor <= FIX_ACQUISITION_TIMEOUT_MS + FIX_WAKELOCK_MARGIN_MS + 5_000L) return
+            Log.w(TAG, "Fix cycle wedged for ${wedgedFor}ms — forcing reset")
+            fixInProgress = false
+        }
+        // The screen-on stream already delivers a point per interval; if a fresh fix landed
+        // within the interval, skip the (cold, battery-costly) GPS request but still re-arm
+        // the next alarm so the Doze-proof cadence never stops.
+        val now = System.currentTimeMillis()
+        if (lastAcceptedAtMs != 0L && now - lastAcceptedAtMs < cfg.intervalMs) {
+            scheduleNextFix(alarmIntervalMs(cfg))
+            return
+        }
         fixInProgress = true
+        fixCycleStartedAt = now
         // Time-boxed lock: covers the acquisition window and auto-releases if anything
-        // interrupts the cycle, so it can never leak and pin the CPU between fixes.
+        // interrupts the cycle, so it can never leak and pin the CPU between fixes. A no-op
+        // when the pinned streaming lock is already held.
         acquireWakeLock(timeoutMs = FIX_ACQUISITION_TIMEOUT_MS + FIX_WAKELOCK_MARGIN_MS)
         scope.launch {
             var got = false
@@ -407,7 +472,7 @@ class LocationTrackingService : Service() {
             } catch (t: Throwable) {
                 Log.e(TAG, "Fix cycle failed", t)
             } finally {
-                releaseWakeLock()
+                if (!streaming) releaseWakeLock()  // keep the pinned lock while streaming
                 fixInProgress = false
                 consecutiveMisses = if (got) 0 else consecutiveMisses + 1
                 // Re-arm from the *current* config so an interval change mid-cycle takes
@@ -417,13 +482,14 @@ class LocationTrackingService : Service() {
                 //     kicks in here so network location can provide a fallback fix.
                 //  3. Normal interval: GPS is persistently unavailable (indoors); keep
                 //     trying but stop burning the chip on back-to-back failures.
-                if (alarmMode && !isPaused) currentConfig?.let { c ->
+                if (!isPaused) currentConfig?.let { c ->
+                    val floor = alarmIntervalMs(c)
                     val nextMs = when {
                         consecutiveMisses in 1..MAX_FAST_RETRIES ->
-                            minOf(c.intervalMs, FIX_RETRY_DELAY_MS)
+                            minOf(floor, FIX_RETRY_DELAY_MS)
                         consecutiveMisses in (MAX_FAST_RETRIES + 1)..(MAX_FAST_RETRIES + MAX_MEDIUM_RETRIES) ->
-                            minOf(c.intervalMs, MEDIUM_RETRY_DELAY_MS)
-                        else -> c.intervalMs
+                            minOf(floor, MEDIUM_RETRY_DELAY_MS)
+                        else -> floor
                     }
                     scheduleNextFix(nextMs)
                 }
@@ -443,7 +509,9 @@ class LocationTrackingService : Service() {
             "low"      -> Priority.PRIORITY_LOW_POWER
             else       -> Priority.PRIORITY_HIGH_ACCURACY
         }
-        return if (cfg.priority == "auto" && consecutiveMisses >= MAX_FAST_RETRIES)
+        // Degrade after just a couple of misses so network/Wi-Fi location can supply a coarse
+        // fix and keep the cadence rather than letting a slow GPS cold-start become a gap.
+        return if (cfg.priority == "auto" && consecutiveMisses >= 2)
             Priority.PRIORITY_BALANCED_POWER_ACCURACY
         else
             base
@@ -456,9 +524,9 @@ class LocationTrackingService : Service() {
     @Suppress("MissingPermission")
     private suspend fun requestSingleFix(cfg: TrackingConfig): android.location.Location? {
         val priority = priorityForCurrentState(cfg)
-        return try {
+        val fresh = try {
             withTimeoutOrNull(FIX_ACQUISITION_TIMEOUT_MS) {
-                suspendCancellableCoroutine { cont ->
+                suspendCancellableCoroutine<android.location.Location?> { cont ->
                     val request = LocationRequest.Builder(priority, 0L)
                         .setMaxUpdates(1)
                         .setWaitForAccurateLocation(false)
@@ -483,15 +551,38 @@ class LocationTrackingService : Service() {
             Log.e(TAG, "Single fix request failed", t)
             null
         }
+        if (fresh != null) return fresh
+        // The fresh request timed out (cold GPS, indoors). Fall back to the fused last-known
+        // fix so a recent point still anchors the cadence — the LocationFilter rejects it if
+        // it's actually stale or a duplicate, so this can only *help* never *backdate*.
+        return runCatching {
+            withTimeoutOrNull(2_000L) {
+                suspendCancellableCoroutine<android.location.Location?> { cont ->
+                    fusedClient.lastLocation
+                        .addOnSuccessListener { if (cont.isActive) cont.resume(it) }
+                        .addOnFailureListener { if (cont.isActive) cont.resume(null) }
+                }
+            }
+        }.getOrNull()
     }
 
     /** Schedule the next discrete fix via an exact, Doze-piercing alarm targeting this
      *  service directly (the GPSLogger pattern). `setExactAndAllowWhileIdle` fires even in
-     *  deep Doze, and on time when the app is battery-optimization-exempt. */
+     *  deep Doze, and on time when the app is battery-optimization-exempt. Also (re)arms a
+     *  catch-up alarm at [CATCHUP_MULTIPLIER]× the interval — a second, independent
+     *  Doze-piercing wake that recovers the cadence within 3× if this primary alarm is ever
+     *  dropped or the service is killed, instead of waiting for the 15-min heartbeat. */
     private fun scheduleNextFix(intervalMs: Long) {
+        scheduleFixAlarm(FIX_ALARM_REQUEST_CODE, intervalMs)
+        val cfg = currentConfig
+        val catchupMs = (cfg?.let { alarmIntervalMs(it) } ?: intervalMs) * CATCHUP_MULTIPLIER
+        scheduleFixAlarm(FIX_CATCHUP_REQUEST_CODE, catchupMs)
+    }
+
+    private fun scheduleFixAlarm(requestCode: Int, delayMs: Long) {
         val am = getSystemService(AlarmManager::class.java) ?: return
-        val triggerAt = SystemClock.elapsedRealtime() + intervalMs
-        val pi = fixPendingIntent()
+        val triggerAt = SystemClock.elapsedRealtime() + delayMs
+        val pi = fixPendingIntent(requestCode)
         val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms()
         try {
             if (canExact) am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
@@ -503,16 +594,18 @@ class LocationTrackingService : Service() {
     }
 
     private fun cancelNextFix() {
-        getSystemService(AlarmManager::class.java)?.cancel(fixPendingIntent())
+        val am = getSystemService(AlarmManager::class.java) ?: return
+        am.cancel(fixPendingIntent(FIX_ALARM_REQUEST_CODE))
+        am.cancel(fixPendingIntent(FIX_CATCHUP_REQUEST_CODE))
     }
 
-    private fun fixPendingIntent(): PendingIntent {
+    private fun fixPendingIntent(requestCode: Int): PendingIntent {
         val intent = Intent(this, LocationTrackingService::class.java).setAction(ACTION_TAKE_FIX)
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            PendingIntent.getForegroundService(this, FIX_ALARM_REQUEST_CODE, intent, flags)
+            PendingIntent.getForegroundService(this, requestCode, intent, flags)
         else
-            PendingIntent.getService(this, FIX_ALARM_REQUEST_CODE, intent, flags)
+            PendingIntent.getService(this, requestCode, intent, flags)
     }
 
     // ── Location: continuous stream (short intervals only) ─────────────────────
@@ -574,10 +667,10 @@ class LocationTrackingService : Service() {
             .build()
     }
 
-    /** Continuous-mode watchdog: re-arm the live stream if fixes stall. It's a no-op in
-     *  alarm mode (the exact alarm carries the cadence there) and inherently can't run in
-     *  Doze anyway — coroutine delay() is frozen while the CPU sleeps, which is exactly
-     *  why alarm mode exists. The 15-min exact heartbeat is the deep-Doze liveness check. */
+    /** Continuous-stream watchdog: re-arm the live stream if fixes stall while it's running.
+     *  It only applies while [streaming] (screen-on) — screen-off the exact-alarm cadence
+     *  carries everything, and coroutine delay() is frozen in Doze anyway. The interval-scaled
+     *  catch-up alarm + the 15-min heartbeat are the deep-Doze liveness checks. */
     private fun startWatchdog() {
         watchdogJob?.cancel()
         watchdogJob = scope.launch {
@@ -585,7 +678,7 @@ class LocationTrackingService : Service() {
                 delay(WATCHDOG_CHECK_MS)
                 if (isPaused) continue
                 updateNotification()
-                if (alarmMode) continue
+                if (!streaming) continue
                 val cfg = currentConfig ?: continue
                 val staleThreshold = maxOf(cfg.intervalMs * 4, 90_000L)
                 val sinceLast = System.currentTimeMillis() - lastAcceptedAtMs
@@ -676,9 +769,11 @@ class LocationTrackingService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         }
 
+        val body = notificationBody()
         return NotificationCompat.Builder(this, RoamlyApp.CHANNEL_TRACKING)
             .setContentTitle(if (isPaused) "Roamly paused" else "Roamly tracking")
-            .setContentText(notificationBody())
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setSmallIcon(R.drawable.ic_roamly_mark)
             .setContentIntent(openIntent)
             .addAction(
@@ -694,8 +789,13 @@ class LocationTrackingService : Service() {
     }
 
     private fun notificationBody(): String {
-        if (isPaused) return "Tracking is paused"
-        val loc = lastAcceptedLocation ?: return "Waiting for the next fix"
+        // Surface the make-or-break setting right in the ongoing notification: without the
+        // battery-optimization exemption, Doze produces the multi-minute gaps this whole
+        // service is built to avoid.
+        val warn = if (!TrackingCoordinator.isIgnoringBatteryOptimizations(this))
+            "\n⚠ Battery optimization on — tracking may have gaps" else ""
+        if (isPaused) return "Tracking is paused$warn"
+        val loc = lastAcceptedLocation ?: return "Waiting for the next fix$warn"
         val ageSec = ((System.currentTimeMillis() - lastAcceptedAtMs) / 1000L).coerceAtLeast(0)
         val accuracy = if (loc.hasAccuracy()) "${loc.accuracy.toInt()}m" else "unknown accuracy"
         val age = when {
@@ -703,7 +803,7 @@ class LocationTrackingService : Service() {
             ageSec < 3600 -> "${ageSec / 60}m ago"
             else -> "${ageSec / 3600}h ago"
         }
-        return "Last fix $age · $accuracy"
+        return "Last fix $age · $accuracy$warn"
     }
 
     private fun updateNotification() {
