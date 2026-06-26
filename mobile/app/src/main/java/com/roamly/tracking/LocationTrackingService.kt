@@ -63,6 +63,22 @@ private const val CATCHUP_MULTIPLIER = 3
 // How long a single fix request may run before we give up on this cycle and reschedule.
 private const val FIX_ACQUISITION_TIMEOUT_MS = 25_000L
 private const val FIX_WAKELOCK_MARGIN_MS = 5_000L
+// Per-cycle "best fix" acquisition. Rather than discard an inaccurate fix and gap, each
+// cycle keeps polling for a *better* one — but only within a budget so it never runs into
+// the next scheduled fix. It stops early as soon as the fix meets the user's accuracy
+// target, or once accuracy has plateaued (the hardware can't do better here right now), or
+// when the budget elapses; then it logs the best fix it got (never nothing, so no gap).
+private const val ACQUIRE_BUDGET_MAX_MS = 10_000L
+private const val ACQUIRE_STALL_MS = 3_500L
+// Floor for the gap to the next scheduled fix, so a cycle that used its whole budget doesn't
+// busy-loop straight into the next one.
+private const val MIN_NEXT_FIX_MS = 1_000L
+// When the provider gives no *fresh* fix this cycle (it stationary-throttles screen-off and
+// keeps handing back the same cached location), we re-log the last known position stamped
+// with the current time — a "dwell point" — so a stationary device still records one point
+// per interval (the dwell feature) instead of gapping. Only do this while the last real fix
+// is recent enough to still represent where the device is.
+private const val DWELL_MAX_AGE_MS = 10 * 60_000L
 // After a missed fix (null/slow/filtered) retry this soon instead of waiting a whole
 // interval, so one dropped fix doesn't become an interval-long gap...
 private const val FIX_RETRY_DELAY_MS = 4_000L
@@ -387,7 +403,6 @@ class LocationTrackingService : Service() {
                 )
             }.distinctUntilChanged().collect { cfg ->
                 currentConfig = cfg
-                filter.maxAccuracyMetres = cfg.maxAccuracyM
                 filter.minTimeBetweenMs = cfg.intervalMs
                 // Allow a fix to be up to two intervals old before it's "stale", so a
                 // freshly-acquired or post-wake fix is never dropped for lagging now().
@@ -403,21 +418,28 @@ class LocationTrackingService : Service() {
      *  stream provides any finer rate. */
     private fun alarmIntervalMs(cfg: TrackingConfig): Long = maxOf(cfg.intervalMs, MIN_ALARM_FLOOR_MS)
 
-    /** (Re)establish capture. The exact-alarm cadence is the always-on, Doze-proof floor and
-     *  is armed unconditionally (it force-wakes the device to take a fix even in deep Doze).
-     *  The continuous warm stream + pinned wake lock are layered on *only while the screen is
-     *  on* — screen-off Doze suspends the stream regardless, so we drop it and save the
-     *  battery, letting the alarm carry the cadence. */
+    /** (Re)establish capture with two layers that cover each other:
+     *   - The **continuous stream + pinned wake lock** is the *primary* source. It delivers a
+     *     smooth per-interval cadence whenever the device is NOT in deep Doze — screen-on,
+     *     charging, or moving. (Some devices, e.g. GrapheneOS/microG, throttle even exact
+     *     `allow-while-idle` alarms to ~once/minute, so the stream is what gives a real 15s
+     *     cadence when the device is awake enough to allow it.)
+     *   - The **exact-alarm cadence** is the *backup* that carries through deep Doze, where the
+     *     OS suspends the stream and ignores the wake lock. Its per-cycle `runFixCycle` skips
+     *     cheaply while the stream is keeping the interval fresh, and takes over (best-fix /
+     *     dwell) the moment the stream goes quiet (Doze).
+     *  Keeping the stream up screen-off is self-limiting on battery: deep Doze suspends it and
+     *  ignores the wake lock, so the heavy path only runs when the device is already awake. */
     private fun applyCapture(cfg: TrackingConfig) {
-        if (screenOn && !isPaused) {
-            startLocationUpdates(cfg)    // smooth warm stream while the screen is on
+        if (!isPaused) {
+            startLocationUpdates(cfg)    // primary: smooth warm stream whenever not deep-Doze
             acquireWakeLock()            // pin the CPU so stream + watchdog stay alive
             streaming = true
             seedLastLocation()           // immediate first point
         } else {
-            stopLocationUpdates()        // screen-off: Doze would suspend the stream anyway
+            stopLocationUpdates()
             streaming = false
-            releaseWakeLock()            // alarm mode uses a short time-boxed lock per fix
+            releaseWakeLock()
         }
         // Always (re)anchor the Doze-proof alarm cadence.
         cancelNextFix()
@@ -448,11 +470,13 @@ class LocationTrackingService : Service() {
             Log.w(TAG, "Fix cycle wedged for ${wedgedFor}ms — forcing reset")
             fixInProgress = false
         }
-        // The screen-on stream already delivers a point per interval; if a fresh fix landed
-        // within the interval, skip the (cold, battery-costly) GPS request but still re-arm
-        // the next alarm so the Doze-proof cadence never stops.
+        // Only while the screen-on continuous stream is running does a recent point mean the
+        // interval is already covered — then skip the redundant (cold, battery-costly) GPS
+        // request but still re-arm the alarm. Screen-off there is no stream, so never skip:
+        // skipping there would halve the cadence (the acquisition itself takes a few seconds,
+        // so the save lands mid-interval and the next on-time alarm would wrongly skip it).
         val now = System.currentTimeMillis()
-        if (lastAcceptedAtMs != 0L && now - lastAcceptedAtMs < cfg.intervalMs) {
+        if (streaming && lastAcceptedAtMs != 0L && now - lastAcceptedAtMs < cfg.intervalMs) {
             scheduleNextFix(alarmIntervalMs(cfg))
             return
         }
@@ -465,10 +489,26 @@ class LocationTrackingService : Service() {
         scope.launch {
             var got = false
             try {
-                val loc = requestSingleFix(cfg)
-                got = loc != null && !isPaused && filter.accept(loc)
-                if (got) savePoint(loc!!)
-                else Log.d(TAG, "Fix cycle produced no usable point (null/filtered)")
+                val loc = acquireBestFix(cfg)
+                if (loc != null && !isPaused && filter.accept(loc)) {
+                    savePoint(loc)            // a genuinely fresh fix
+                    got = true
+                } else if (!isPaused) {
+                    // No fresh fix — the provider stationary-throttled and gave back the same
+                    // cached location (or nothing). Don't gap: re-log the last known position
+                    // at the current time so a stationary device keeps its per-interval dwell
+                    // points. Only while the last fix is recent enough to still be valid.
+                    val last = lastAcceptedLocation
+                    if (last != null && System.currentTimeMillis() - lastAcceptedAtMs < DWELL_MAX_AGE_MS) {
+                        val dwell = dwellPointFrom(last)
+                        if (filter.accept(dwell)) {
+                            savePoint(dwell)
+                            got = true
+                            Log.d(TAG, "Logged dwell point (no fresh fix this cycle)")
+                        }
+                    }
+                    if (!got) Log.d(TAG, "Fix cycle produced no usable point (null/filtered)")
+                }
             } catch (t: Throwable) {
                 Log.e(TAG, "Fix cycle failed", t)
             } finally {
@@ -476,15 +516,20 @@ class LocationTrackingService : Service() {
                 fixInProgress = false
                 consecutiveMisses = if (got) 0 else consecutiveMisses + 1
                 // Re-arm from the *current* config so an interval change mid-cycle takes
-                // effect on the next wake. Three retry tiers:
-                //  1. Quick (4 s × 3): covers a brief GPS stall or stale cached fix.
-                //  2. Medium (10 s × 3): GPS chip warming up after Doze; BALANCED priority
-                //     kicks in here so network location can provide a fallback fix.
-                //  3. Normal interval: GPS is persistently unavailable (indoors); keep
-                //     trying but stop burning the chip on back-to-back failures.
+                // effect on the next wake.
                 if (!isPaused) currentConfig?.let { c ->
                     val floor = alarmIntervalMs(c)
-                    val nextMs = when {
+                    val nextMs = if (got) {
+                        // Got a point: keep the cadence ~interval measured from the cycle
+                        // *start* — so the time already spent acquiring the best fix counts
+                        // toward the interval and points land every ~interval, not interval+budget.
+                        val elapsed = System.currentTimeMillis() - fixCycleStartedAt
+                        maxOf(floor - elapsed, MIN_NEXT_FIX_MS)
+                    } else when {
+                        // No fix at all (cold GPS / no signal): retry sooner through the tiers.
+                        //  1. Quick (4 s × 3): a brief GPS stall.
+                        //  2. Medium (10 s × 3): chip warming up after Doze; BALANCED kicks in.
+                        //  3. Floor: persistently unavailable; stop hammering the chip.
                         consecutiveMisses in 1..MAX_FAST_RETRIES ->
                             minOf(floor, FIX_RETRY_DELAY_MS)
                         consecutiveMisses in (MAX_FAST_RETRIES + 1)..(MAX_FAST_RETRIES + MAX_MEDIUM_RETRIES) ->
@@ -517,44 +562,74 @@ class LocationTrackingService : Service() {
             base
     }
 
-    /** Request a single fresh location using requestLocationUpdates(maxUpdates=1) on a
-     *  dedicated HandlerThread so the callback fires immediately regardless of main-thread
-     *  load. Uses a fixed generous timeout — GPS can cold-start from Doze in up to ~30s
-     *  and shortening the timeout based on the interval causes unnecessary misses. */
+    /** Acquire the **best fix available this cycle** instead of taking the first one and
+     *  discarding it if inaccurate. Streams fixes on the dedicated HandlerThread and keeps the
+     *  most accurate one, stopping early when any of:
+     *   - a fix meets the user's accuracy *target* (`cfg.maxAccuracyM`) — no need to do better;
+     *   - accuracy has plateaued (no improvement for `ACQUIRE_STALL_MS` and we already have a
+     *     fix) — the hardware can't do better here right now, so stop burning GPS;
+     *   - the `budget` elapses (kept below the interval so we never run into the next fix).
+     *  Returns the best fix collected (so a stationary indoor cycle logs its ~17m fix rather
+     *  than gapping), or the fused last-known fix if literally nothing arrived. */
     @Suppress("MissingPermission")
-    private suspend fun requestSingleFix(cfg: TrackingConfig): android.location.Location? {
+    private suspend fun acquireBestFix(cfg: TrackingConfig): android.location.Location? {
         val priority = priorityForCurrentState(cfg)
-        val fresh = try {
-            withTimeoutOrNull(FIX_ACQUISITION_TIMEOUT_MS) {
-                suspendCancellableCoroutine<android.location.Location?> { cont ->
+        val target = cfg.maxAccuracyM
+        val budget = minOf(alarmIntervalMs(cfg), ACQUIRE_BUDGET_MAX_MS)
+        val best = java.util.concurrent.atomic.AtomicReference<android.location.Location?>(null)
+        val lastImproveAt = java.util.concurrent.atomic.AtomicLong(SystemClock.elapsedRealtime())
+        var callback: LocationCallback? = null
+        try {
+            withTimeoutOrNull(budget) {
+                suspendCancellableCoroutine<Unit> { cont ->
                     val request = LocationRequest.Builder(priority, 0L)
-                        .setMaxUpdates(1)
+                        .setMinUpdateIntervalMillis(0L)   // let fresh fixes arrive as fast as the chip can
+                        .setMinUpdateDistanceMeters(0f)   // never gate on movement — stationary still updates
                         .setWaitForAccurateLocation(false)
                         .build()
                     val cb = object : LocationCallback() {
                         override fun onLocationResult(result: LocationResult) {
-                            if (cont.isActive) cont.resume(result.lastLocation)
+                            for (loc in result.locations) {
+                                val cur = best.get()
+                                val better = cur == null ||
+                                    (loc.hasAccuracy() && (!cur.hasAccuracy() || loc.accuracy < cur.accuracy))
+                                if (better) {
+                                    best.set(loc)
+                                    lastImproveAt.set(SystemClock.elapsedRealtime())
+                                }
+                                // Good enough — stop now.
+                                if (loc.hasAccuracy() && loc.accuracy <= target) {
+                                    if (cont.isActive) cont.resume(Unit); return
+                                }
+                                // Plateaued — the hardware isn't improving, don't keep the GPS on.
+                                if (best.get() != null &&
+                                    SystemClock.elapsedRealtime() - lastImproveAt.get() >= ACQUIRE_STALL_MS
+                                ) {
+                                    if (cont.isActive) cont.resume(Unit); return
+                                }
+                            }
                         }
                     }
+                    callback = cb
                     runCatching {
                         fusedClient.requestLocationUpdates(request, cb, callbackLooper)
                     }.onFailure {
                         Log.e(TAG, "requestLocationUpdates failed", it)
-                        if (cont.isActive) cont.resume(null)
+                        if (cont.isActive) cont.resume(Unit)
                     }
-                    cont.invokeOnCancellation {
-                        runCatching { fusedClient.removeLocationUpdates(cb) }
-                    }
+                    cont.invokeOnCancellation { /* stream stopped in finally */ }
                 }
             }
         } catch (t: Throwable) {
-            Log.e(TAG, "Single fix request failed", t)
-            null
+            Log.e(TAG, "Best-fix acquisition failed", t)
+        } finally {
+            callback?.let { runCatching { fusedClient.removeLocationUpdates(it) } }
         }
-        if (fresh != null) return fresh
-        // The fresh request timed out (cold GPS, indoors). Fall back to the fused last-known
-        // fix so a recent point still anchors the cadence — the LocationFilter rejects it if
-        // it's actually stale or a duplicate, so this can only *help* never *backdate*.
+        val got = best.get()
+        if (got != null) return got
+        // Nothing arrived in the budget (cold GPS). Fall back to the fused last-known fix so a
+        // recent point still anchors the cadence — the LocationFilter rejects it if it's
+        // actually stale or a duplicate, so this can only *help* never *backdate*.
         return runCatching {
             withTimeoutOrNull(2_000L) {
                 suspendCancellableCoroutine<android.location.Location?> { cont ->
@@ -565,6 +640,21 @@ class LocationTrackingService : Service() {
             }
         }.getOrNull()
     }
+
+    /** Build a dwell point: the last known position re-stamped with the current time and zero
+     *  speed, so a stationary device keeps logging one point per interval even when the
+     *  provider won't produce a fresh fix. Passes the LocationFilter (newer timestamp, zero
+     *  displacement, so no teleport/dup). */
+    private fun dwellPointFrom(last: android.location.Location): android.location.Location =
+        android.location.Location(last.provider ?: "dwell").apply {
+            latitude = last.latitude
+            longitude = last.longitude
+            if (last.hasAccuracy()) accuracy = last.accuracy
+            if (last.hasAltitude()) altitude = last.altitude
+            speed = 0f
+            time = System.currentTimeMillis()
+            elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
+        }
 
     /** Schedule the next discrete fix via an exact, Doze-piercing alarm targeting this
      *  service directly (the GPSLogger pattern). `setExactAndAllowWhileIdle` fires even in

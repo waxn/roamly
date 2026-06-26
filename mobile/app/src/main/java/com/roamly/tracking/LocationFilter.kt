@@ -11,14 +11,18 @@ private const val TAG = "LocationFilter"
 private const val MAX_PLAUSIBLE_SPEED_MPS = 357.0
 
 /**
- * Rejects fixes that are stale, too inaccurate, duplicated, or physically impossible,
- * and de-duplicates fixes that arrive faster than the tracking interval. It **never
- * filters by movement** — a stationary user keeps logging a point every interval on
- * purpose, so dwelling in one place shows up as a dense cluster ("big dot") on the map.
+ * Rejects fixes that are stale, duplicated, or physically impossible, and de-duplicates
+ * fixes that arrive faster than the tracking interval. It **never filters by movement** —
+ * a stationary user keeps logging a point every interval on purpose, so dwelling in one
+ * place shows up as a dense cluster ("big dot") on the map.
+ *
+ * Accuracy is **not** a hard reject here — it's a *target* applied during acquisition
+ * (`acquireBestFix` in the service keeps the most accurate fix it can get within the cycle
+ * budget). A too-strict accuracy cutoff used to silently drop every indoor/stationary fix
+ * and create the very gaps tracking is meant to avoid; instead we always log the best fix
+ * available and store its accuracy so it can be judged later.
  */
 class LocationFilter(
-    /** Reject fixes with accuracy circle wider than this (metres). */
-    var maxAccuracyMetres: Float = 100f,
     /** Reject fixes older than this (ms). Set to a couple of intervals by the service so
      *  a just-acquired or post-wake fix isn't dropped for being slightly behind now(). */
     var maxAgeMs: Long = 60_000L,
@@ -33,10 +37,6 @@ class LocationFilter(
         val ageMs = System.currentTimeMillis() - loc.time
         if (ageMs > maxAgeMs) {
             Log.d(TAG, "Rejected stale fix: age=${ageMs}ms")
-            return false
-        }
-        if (loc.hasAccuracy() && loc.accuracy > maxAccuracyMetres) {
-            Log.d(TAG, "Rejected inaccurate fix: ${loc.accuracy}m > max ${maxAccuracyMetres}m")
             return false
         }
         // Cached/repeat fix: its timestamp is at or before the last one we kept. FusedLocation
