@@ -503,7 +503,13 @@ fun SettingsScreen(
             Spacer(Modifier.height(12.dp))
             InfoRow(Icons.Rounded.Explore, "App", "Roamly for Android")
             Spacer(Modifier.height(8.dp))
-            InfoRow(Icons.Rounded.Tag, "Version", "1.5.1")
+            // Read the real installed version so it never drifts out of sync with the build.
+            val appVersion = remember {
+                runCatching {
+                    context.packageManager.getPackageInfo(context.packageName, 0).versionName
+                }.getOrNull() ?: "—"
+            }
+            InfoRow(Icons.Rounded.Tag, "Version", appVersion)
         }
 
         ClayButton(
