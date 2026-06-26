@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.roamly.tracking.TrackingCoordinator
 import com.roamly.ui.theme.Clay
 import com.roamly.ui.theme.ClayButton
 import com.roamly.ui.theme.ClayCard
@@ -61,10 +62,23 @@ fun SettingsScreen(
 
     // ── Permission handling ────────────────────────────────────────────────
     var showBgLocationRationale by remember { mutableStateOf(false) }
+    // Block-until-granted battery-exemption gate, shown before tracking actually starts.
+    var showExemptionGate by remember { mutableStateOf(false) }
+    // True while we're mid-flow waiting for the system exemption dialog to return, so
+    // granting it auto-continues into starting tracking.
+    var pendingStart by remember { mutableStateOf(false) }
+
+    // The exemption is the single make-or-break setting: without it Android throttles
+    // location to once every several minutes in Doze. So starting tracking is gated on it,
+    // with an explicit degraded escape hatch.
+    fun startTrackingGated() {
+        if (TrackingCoordinator.isIgnoringBatteryOptimizations(context)) viewModel.toggleTracking()
+        else showExemptionGate = true
+    }
 
     val bgLocationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { viewModel.toggleTracking() }
+    ) { startTrackingGated() }
 
     val fineLocationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -73,7 +87,7 @@ fun SettingsScreen(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
                 != PermissionChecker.PERMISSION_GRANTED
-        ) showBgLocationRationale = true else viewModel.toggleTracking()
+        ) showBgLocationRationale = true else startTrackingGated()
     }
 
     val notifLauncher = rememberLauncherForActivityResult(
@@ -81,7 +95,16 @@ fun SettingsScreen(
     ) { }
     val batteryOptLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
-    ) { viewModel.refreshBatteryOptimizationState() }
+    ) {
+        viewModel.refreshBatteryOptimizationState()
+        // Returned from the system exemption dialog. If it's now granted and we were mid
+        // start-flow, dismiss the gate and continue into tracking automatically.
+        if (pendingStart && TrackingCoordinator.isIgnoringBatteryOptimizations(context)) {
+            pendingStart = false
+            showExemptionGate = false
+            viewModel.toggleTracking()
+        }
+    }
 
     // Fire the direct system exemption dialog; fall back to the battery-optimization
     // settings list if the OEM blocks the direct intent.
@@ -107,12 +130,12 @@ fun SettingsScreen(
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
                 != PermissionChecker.PERMISSION_GRANTED
         ) showBgLocationRationale = true
-        else viewModel.toggleTracking()
+        else startTrackingGated()
     }
 
     if (showBgLocationRationale) {
         AlertDialog(
-            onDismissRequest = { showBgLocationRationale = false; viewModel.toggleTracking() },
+            onDismissRequest = { showBgLocationRationale = false; startTrackingGated() },
             title = { Text("Background location") },
             text = { Text("For tracking while the screen is off, choose \"Allow all the time\" on the next screen. You can skip it — tracking still works while the app is open.") },
             confirmButton = {
@@ -122,30 +145,36 @@ fun SettingsScreen(
                 }) { Text("Open settings") }
             },
             dismissButton = {
-                TextButton(onClick = { showBgLocationRationale = false; viewModel.toggleTracking() }) { Text("Skip") }
+                TextButton(onClick = { showBgLocationRationale = false; startTrackingGated() }) { Text("Skip") }
             }
         )
     }
 
-    // Raised by the ViewModel the moment tracking starts without the Doze exemption.
-    if (state.promptBatteryExemption) {
+    // Block-until-granted gate: tracking is throttled to multi-minute gaps in Doze without
+    // the battery-optimization exemption, so we require it before starting (with an explicit
+    // degraded escape hatch). The system grant dialog auto-continues into tracking.
+    if (showExemptionGate) {
         AlertDialog(
-            onDismissRequest = { viewModel.dismissBatteryPrompt() },
-            title = { Text("Keep tracking reliable") },
+            onDismissRequest = { /* required choice — ignore outside taps */ },
+            title = { Text("Allow gap-free tracking") },
             text = {
                 Text(
-                    "Android pauses location tracking when the screen is off unless Roamly is " +
-                        "exempt from battery optimization. Allow it so your track doesn't go spotty."
+                    "Android throttles Roamly's location to once every several minutes while the " +
+                        "screen is off unless it's exempt from battery optimization — the cause of " +
+                        "5–20 minute gaps. Grant the exemption for reliable 24/7 tracking."
                 )
             },
             confirmButton = {
-                TextButton(onClick = {
-                    viewModel.dismissBatteryPrompt()
-                    requestBatteryExemption()
-                }) { Text("Allow") }
+                TextButton(onClick = { pendingStart = true; requestBatteryExemption() }) {
+                    Text("Grant exemption")
+                }
             },
             dismissButton = {
-                TextButton(onClick = { viewModel.dismissBatteryPrompt() }) { Text("Not now") }
+                TextButton(onClick = {
+                    showExemptionGate = false
+                    pendingStart = false
+                    viewModel.toggleTracking()
+                }) { Text("Track anyway (gaps)", color = MaterialTheme.colorScheme.error) }
             }
         )
     }
@@ -257,6 +286,12 @@ fun SettingsScreen(
             isTracking = state.isTracking,
             onToggle = { if (state.isTracking) showStopConfirm = true else startTrackingWithPermissions() },
         )
+
+        // Persistent make-or-break warning: while not exempt, tracking will have multi-minute
+        // gaps in Doze no matter what. Keep it loud and one tap from the fix.
+        if (!state.batteryOptimizationDisabled) {
+            ExemptionWarningBanner(onFix = { requestBatteryExemption() })
+        }
 
         // ── GPS settings ─────────────────────────────────────────────────
         ClayCard {
@@ -522,6 +557,44 @@ private fun TrackingHero(isTracking: Boolean, onToggle: () -> Unit) {
             Icon(if (isTracking) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, null, Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
             Text(if (isTracking) "Stop tracking" else "Start tracking", fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+// ── Battery-exemption warning banner ───────────────────────────────────────────
+
+/** Loud, persistent warning shown whenever Roamly isn't exempt from battery optimization —
+ *  the single setting that, if missing, guarantees multi-minute Doze gaps. One tap to fix. */
+@Composable
+private fun ExemptionWarningBanner(onFix: () -> Unit) {
+    val warn = MaterialTheme.colorScheme.error
+    ClayCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.Warning, null, tint = warn, modifier = Modifier.size(28.dp))
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "Tracking will have gaps",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = warn,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    "Android pauses location in Doze unless Roamly is exempt from battery optimization.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        ClayButton(
+            onClick = onFix,
+            gradient = listOf(Sunshine, Coral),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Rounded.Bolt, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Fix it — disable battery optimization", fontWeight = FontWeight.Bold)
         }
     }
 }
