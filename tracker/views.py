@@ -425,8 +425,6 @@ def settings_view(request):
         'ai_allow_journals': profile.ai_allow_journals,
         'ai_api_key_set': bool(profile.ai_api_key),
     }
-    if profile.is_admin:
-        ctx['site_custom_js'] = SiteConfig.load().custom_js
     return render(request, 'tracker/settings.html', ctx)
 
 

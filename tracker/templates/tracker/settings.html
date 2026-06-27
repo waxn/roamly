@@ -505,22 +505,16 @@
         </div>
 
         {% if is_admin %}
-        <!-- Custom JavaScript (instance-wide, admin only) -->
+        <!-- Admin Panel shortcut (instance-wide admin settings now live there) -->
         <div class="card settings-span-12">
             <div class="card-header" style="display:flex;align-items:center;gap:0.4rem;">
-                Custom JavaScript
-                <span class="badge badge-warning" style="font-size:0.65rem;">admin · instance-wide</span>
+                Admin Panel
+                <span class="badge badge-warning" style="font-size:0.65rem;">admin only</span>
             </div>
             <p class="settings-section-desc">
-                HTML injected verbatim just before <code>&lt;/body&gt;</code> on every page for <strong>all users of this instance</strong> — paste analytics snippets exactly as the provider gives them, <strong>including <code>&lt;script&gt;</code> tags</strong> (GoatCounter, Plausible, Fathom, PostHog…). Leave empty to inject nothing.
+                Logs, analytics, user management, and instance-wide settings (Custom JavaScript, log retention) are in the Admin Panel.
             </p>
-            <textarea id="custom-js-input" class="form-control" rows="8" spellcheck="false"
-                style="font-family:'Space Grotesk',monospace;font-size:0.8125rem;white-space:pre;resize:vertical;"
-                placeholder='&lt;script data-goatcounter="https://you.goatcounter.com/count" async src="//gc.zgo.at/count.js"&gt;&lt;/script&gt;'>{{ site_custom_js }}</textarea>
-            <div class="settings-actions" style="margin-top:0.75rem;">
-                <button class="btn btn-primary btn-sm" onclick="saveCustomJs()">Save</button>
-                <span id="custom-js-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
-            </div>
+            <a href="{% url 'tracker:admin_panel' %}" class="btn btn-primary btn-sm">Open Admin Panel →</a>
         </div>
         {% endif %}
 
@@ -767,7 +761,10 @@ curl -X POST {{ request.scheme }}://{{ request.get_host }}/api/push/ \
                 Inspect tracking health for a device and time range — gaps between points
                 (the clearest sign of dropouts), accuracy, and speed ranges.
             </p>
-            <a href="{% url 'tracker:diagnostics' %}" class="btn btn-primary btn-sm">Open Diagnostics</a>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                <a href="{% url 'tracker:diagnostics' %}" class="btn btn-primary btn-sm">Open Diagnostics</a>
+                {% if is_admin %}<a href="{% url 'tracker:admin_panel' %}" class="btn btn-outline btn-sm">Admin Panel →</a>{% endif %}
+            </div>
         </div>
 
         <!-- Danger Zone -->
@@ -1224,30 +1221,6 @@ fetch('/api/stats/recompute/status/')
         else _renderStatsRecalc(data, false);
     })
     .catch(() => {});
-
-// ── Custom JS (admin, instance-wide) ─────────────────────────────────────────
-function saveCustomJs() {
-    const input = document.getElementById('custom-js-input');
-    const status = document.getElementById('custom-js-status');
-    if (!input) return;
-    status.textContent = 'saving…';
-    fetch('/api/site/custom-js/', {
-        method: 'POST',
-        headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ custom_js: input.value }),
-    })
-    .then(r => r.json().then(d => ({ ok: r.ok, d })))
-    .then(({ ok, d }) => {
-        if (ok && d.ok) {
-            status.textContent = 'saved — reload pages to apply.';
-            status.style.color = 'var(--success)';
-        } else {
-            status.textContent = d.error || 'save failed.';
-            status.style.color = 'var(--danger)';
-        }
-    })
-    .catch(() => { status.textContent = 'save failed.'; status.style.color = 'var(--danger)'; });
-}
 
 // ── AI Ask (per-user) ────────────────────────────────────────────────────────
 function _aiConfigPayload() {
