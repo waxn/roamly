@@ -638,6 +638,7 @@ function hideMapLoading() {
     document.getElementById('map-loading-bar').classList.remove('active');
 }
 
+const csrfToken = '{{ csrf_token }}';
 const deviceColors = ['#3b82f6', '#22c55e', '#ef4444', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
 
 function getDeviceColors() {
@@ -1817,7 +1818,7 @@ ctxDeletePointBtn.addEventListener('click', async () => {
     closeCtxMenu();
     if (!confirm('Delete this GPS point? This cannot be undone.')) return;
     try {
-        const res = await fetch(`/api/locations/${id}/delete/`, { method: 'DELETE' });
+        const res = await fetch(`/api/locations/${id}/delete/`, { method: 'DELETE', headers: { 'X-CSRFToken': csrfToken } });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             alert(err.error || 'Failed to delete point.');
