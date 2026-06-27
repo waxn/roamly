@@ -1879,12 +1879,17 @@ def _fmt_duration(seconds):
     return f"{d}d {h}h" if h else f"{d}d"
 
 
-def _compute_location_diagnostics(qs, dev_names):
+def _compute_location_diagnostics(qs, dev_names, window_start=None, window_end=None):
     """Diagnostic stats over a (user/device/time-filtered) Location queryset.
 
     Gaps and implied speed are **per device** — only consecutive points of the same
     device are compared — computed in one streaming pass grouped by device. `dev_names`
     maps Device.pk → display name for labelling the largest gaps.
+
+    The gap/coverage timeline is bucketed across the **requested window**
+    (`window_start`/`window_end`, e.g. the full 30 days the user asked for) rather than
+    just the span of the returned data, so stretches with no points at all show up as
+    empty (grey) buckets instead of being silently cropped out.
     """
     from itertools import groupby
 
@@ -1894,11 +1899,14 @@ def _compute_location_diagnostics(qs, dev_names):
     if total > _DIAG_MAX_POINTS:
         return {"count": total, "error": "too_many_points", "limit": _DIAG_MAX_POINTS}
 
-    # Global time span up front (cheap, indexed) so the gap timeline can be bucketed in
-    # the same streaming pass — rows are ordered by device then time, not globally.
+    # Global data span up front (cheap, indexed) — used for the headline stats. The
+    # timeline, however, is bucketed across the *requested* window (falling back to the
+    # data span for "all time", which has no explicit window).
     span_agg = qs.aggregate(tmin=Min('timestamp'), tmax=Max('timestamp'))
     ts_first, ts_last = span_agg['tmin'], span_agg['tmax']
-    tl_span = (ts_last - ts_first).total_seconds() if ts_first and ts_last else 0
+    tl_start = window_start or ts_first
+    tl_end = window_end or ts_last
+    tl_span = (tl_end - tl_start).total_seconds() if tl_start and tl_end else 0
     tl_bucket = (tl_span / _DIAG_TIMELINE_BUCKETS) if tl_span > 0 else 0
     tl_maxgap = [0.0] * _DIAG_TIMELINE_BUCKETS   # worst gap starting in each time bucket
     tl_points = [0] * _DIAG_TIMELINE_BUCKETS     # point count per bucket (coverage)
@@ -1906,7 +1914,8 @@ def _compute_location_diagnostics(qs, dev_names):
     def _bucket(ts):
         if tl_bucket <= 0:
             return 0
-        return min(_DIAG_TIMELINE_BUCKETS - 1, int((ts - ts_first).total_seconds() / tl_bucket))
+        return max(0, min(_DIAG_TIMELINE_BUCKETS - 1,
+                          int((ts - tl_start).total_seconds() / tl_bucket)))
 
     rows = qs.order_by('device_id', 'timestamp').values_list(
         'device_id', 'timestamp', 'accuracy', 'speed', 'altitude', 'battery',
@@ -1985,6 +1994,14 @@ def _compute_location_diagnostics(qs, dev_names):
     notable_gaps.sort(key=lambda r: -r[0])
     span_s = (ts_last - ts_first).total_seconds() if ts_first and ts_last else 0
 
+    # Per-bucket coverage: actual points ÷ points expected at the typical cadence (the
+    # median gap). Bounded to [0,1], so the timeline reads the same at any zoom level and
+    # a single multi-day outlier gap can't crush the rest of the chart. 1.0 = tracked as
+    # expected, 0 = no data in that slice.
+    interval_s = max(_pct(0.5) or 0.0, 1.0)
+    expected = max(tl_bucket / interval_s, 1.0) if tl_bucket > 0 else 1.0
+    tl_coverage = [round(min(1.0, p / expected), 3) for p in tl_points]
+
     return {
         "count": total,
         "span": {"start": ts_first.isoformat(), "end": ts_last.isoformat(),
@@ -1994,10 +2011,12 @@ def _compute_location_diagnostics(qs, dev_names):
         "timeline": {
             "buckets": _DIAG_TIMELINE_BUCKETS,
             "bucket_seconds": round(tl_bucket, 1),
-            "start": ts_first.isoformat(),
-            "end": ts_last.isoformat(),
+            "start": tl_start.isoformat() if tl_start else None,
+            "end": tl_end.isoformat() if tl_end else None,
+            "interval_s": round(interval_s, 1),
             "max_gap": [round(x) for x in tl_maxgap],
             "points": tl_points,
+            "coverage": tl_coverage,
         },
         "gaps": {
             "min_s": gaps[0] if gaps else None,
@@ -2062,6 +2081,7 @@ def location_diagnostics_api(request):
 
     qs = Location.objects.filter(device__user=request.user)
     rng = {}
+    win_start = win_end = None   # requested window for the timeline (None for all-time)
     if start_date and end_date:
         try:
             start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
@@ -2072,6 +2092,7 @@ def location_diagnostics_api(request):
                 end = timezone.make_aware(end)
             qs = qs.filter(timestamp__gte=start, timestamp__lte=end)
             rng = {"start": start.isoformat(), "end": end.isoformat()}
+            win_start, win_end = start, end
         except (ValueError, TypeError):
             pass
     elif not all_time:
@@ -2079,9 +2100,11 @@ def location_diagnostics_api(request):
             hours = int(request.GET.get("hours", 24))
         except (ValueError, TypeError):
             hours = 24
-        since = timezone.now() - timedelta(hours=hours)
+        now = timezone.now()
+        since = now - timedelta(hours=hours)
         qs = qs.filter(timestamp__gte=since)
         rng = {"hours": hours}
+        win_start, win_end = since, now
     else:
         rng = {"all": True}
 
@@ -2089,7 +2112,7 @@ def location_diagnostics_api(request):
         qs = qs.filter(device__device_id=device_id)
 
     dev_names = {d.id: (d.name or d.device_id) for d in Device.objects.filter(user=request.user)}
-    result = _compute_location_diagnostics(qs, dev_names)
+    result = _compute_location_diagnostics(qs, dev_names, window_start=win_start, window_end=win_end)
     result["range"] = rng
     result["device_id"] = device_id or "all"
     return JsonResponse(result)

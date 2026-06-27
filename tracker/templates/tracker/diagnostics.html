@@ -24,8 +24,11 @@
                 <option value="all">All time</option>
                 <option value="custom">Custom range…</option>
             </select>
-            <input type="date" id="diag-start" class="form-control" style="width:auto;display:none;">
-            <input type="date" id="diag-end" class="form-control" style="width:auto;display:none;">
+            <span id="diag-custom" style="display:none;gap:0.5rem;align-items:center;">
+                <input type="date" id="diag-start" class="form-control" style="width:auto;" placeholder="start date">
+                <span style="color:var(--text-muted);">→</span>
+                <input type="date" id="diag-end" class="form-control" style="width:auto;" placeholder="end date">
+            </span>
             <button class="btn btn-primary btn-sm" onclick="runDiag()">Run</button>
         </div>
     </div>
@@ -61,6 +64,7 @@
 .diag-legend { display:flex; align-items:center; gap:0.5rem; font-size:0.72rem; color:var(--text-muted); font-weight:600; }
 .diag-legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:0.2rem; vertical-align:-1px; }
 .diag-axis { display:flex; justify-content:space-between; font-size:0.7rem; color:var(--text-muted); margin-top:0.25rem; }
+.diag-axis span { white-space:nowrap; font-variant-numeric:tabular-nums; }
 .diag-card svg rect { transition:fill-opacity .1s; }
 .diag-card svg rect:hover { fill-opacity:1 !important; }
 .diag-chart { position:relative; }
@@ -117,10 +121,19 @@ function gapPill(maxS) {
 const rangeSel = document.getElementById('diag-range');
 const startInp = document.getElementById('diag-start');
 const endInp = document.getElementById('diag-end');
+const customBox = document.getElementById('diag-custom');
+// Toggle the whole custom-range container, not the native inputs — RoamlyForms hides the
+// real <input> and shows its own wrapper, so toggling the input's display does nothing.
 rangeSel.addEventListener('change', () => {
     const custom = rangeSel.value === 'custom';
-    startInp.style.display = custom ? '' : 'none';
-    endInp.style.display = custom ? '' : 'none';
+    customBox.style.display = custom ? 'inline-flex' : 'none';
+    if (custom && (!startInp.value || !endInp.value)) {
+        // Local YYYY-MM-DD (not toISOString, which is UTC and can land on the wrong day).
+        const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const now = new Date();
+        if (!endInp.value) endInp.value = iso(now);
+        if (!startInp.value) startInp.value = iso(new Date(now.getTime() - 7 * 86400000));
+    }
 });
 
 function runDiag() {
@@ -258,76 +271,89 @@ function pctOf(n, total) {
     return Math.round((n / total) * 100) + '%';
 }
 
-// Bucketed "worst gap over time" sparkline — tall coloured spikes mark where tracking
-// dropped; faint grey ghost columns mark slices with no data at all.
+// ── Coverage timeline ─────────────────────────────────────────────────────────
+// Bar height = how completely tracking ran in each slice of time, as a share of the
+// points expected at the typical cadence (the median gap). It's **bounded to 0–100%**,
+// so the chart reads identically at any zoom and a single multi-day outlier gap can never
+// crush the rest — which is what made the old gap-height chart unreadable over long
+// ranges. The chart spans the whole selected window, so periods with no points at all
+// show as grey columns instead of being cropped out.
+
+// Colour band for a coverage fraction (0–1), in lock-step with COV_LEGEND below.
+function covColor(c) {
+    if (c >= 0.9) return '#2ea043';   // tracked as expected
+    if (c >= 0.5) return '#d29922';   // sparse
+    return 'var(--danger)';           // poor
+}
+const COV_LEGEND = [
+    ['#2ea043', 'tracked'],
+    ['#d29922', 'sparse'],
+    ['var(--danger)', 'poor'],
+];
+
+// Compact, unambiguous axis-tick label, scaled to the range width:
+//   ≤36h  → "14:30"            (within a day or two: time of day)
+//   ≤7d   → "Sat 14:30"        (a week: weekday + time, so it's never ambiguous)
+//   else  → "Jun 27"           (longer: calendar date)
+function fmtAxis(ms, spanHours) {
+    const dt = new Date(ms);
+    const time = () => dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (spanHours <= 36) return time();
+    if (spanHours <= 168) return dt.toLocaleDateString([], { weekday: 'short' }) + ' ' + time();
+    return dt.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
 function renderTimeline(d) {
     const tl = d.timeline;
-    if (!tl || !tl.max_gap || !tl.max_gap.length || !tl.start) return '';
-    const N = tl.max_gap.length;
-    const median = d.gaps.median_s || 10;
-    // Floor the scale to a few× the median so a healthy range reads flat-and-low and
-    // only real dropouts spike. sqrt keeps mid-size gaps visible against big ones.
-    const chartMax = Math.max(...tl.max_gap, median * 4, 60);
-    const W = 1000, H = 90, barW = W / N;
-    // Bars and gridlines share this scale so a spike's height reads as a real duration.
-    const frac = (s) => Math.min(1, Math.sqrt(Math.max(0, s) / chartMax));
+    if (!tl || !tl.coverage || !tl.coverage.length || !tl.start) return '';
+    const N = tl.coverage.length;
+    const W = 1000, H = 100, TOP = 0.94, barW = W / N;  // TOP leaves headroom for the 100% label
+    const hOf = (f) => f * TOP * H;
     const tStart = new Date(tl.start).getTime();
+    const endMs = new Date(tl.end).getTime();
+    const spanH = (endMs - tStart) / 3600000;
     let bars = '';
     for (let i = 0; i < N; i++) {
-        const g = tl.max_gap[i], p = tl.points[i];
-        let color, f, op = '1';
-        if (p === 0) { color = 'var(--text-muted)'; f = 1; op = '0.10'; }
-        else {
-            color = g <= 120 ? '#2ea043' : (g <= 600 ? '#d29922' : 'var(--danger)');
-            f = g > 0 ? Math.max(0.04, frac(g)) : 0.04;
-        }
+        const c = tl.coverage[i], p = tl.points[i], g = tl.max_gap[i];
+        let color, bh, op = '1';
+        if (p === 0) { color = 'var(--text-muted)'; bh = hOf(1); op = '0.10'; }  // no data → grey ghost
+        else { color = covColor(c); bh = Math.max(hOf(c), 1.4); }                // keep a visible sliver
         const x = (i * barW).toFixed(2);
         const w = Math.max(barW - 0.4, 0.6).toFixed(2);
-        const bh = (f * H).toFixed(2);
-        const y = (H - f * H).toFixed(2);
+        const y = (H - bh).toFixed(2);
         const bs = new Date(tStart + i * tl.bucket_seconds * 1000);
         const tip = p === 0
             ? `${bs.toLocaleString()} — no data`
-            : `${bs.toLocaleString()} · worst gap ${fmtDur(g)} · ${p} pts`;
-        bars += `<rect x="${x}" y="${y}" width="${w}" height="${bh}" fill="${color}" fill-opacity="${op}"><title>${esc(tip)}</title></rect>`;
+            : `${bs.toLocaleString()} · ${Math.round(c * 100)}% tracked · worst gap ${fmtDur(g)} · ${p} pts`;
+        bars += `<rect x="${x}" y="${y}" width="${w}" height="${bh.toFixed(2)}" fill="${color}" fill-opacity="${op}"><title>${esc(tip)}</title></rect>`;
     }
-    // Horizontal reference gridlines at "nice" gap durations, drawn over the bars, with
-    // HTML labels overlaid (the SVG is non-uniformly stretched, so text can't live in it).
+    // Horizontal % gridlines (25/50/75/100), with HTML labels overlaid (the SVG is
+    // non-uniformly stretched, so text can't live in it).
     let grid = '', labels = '';
-    for (const t of gapTicks(chartMax)) {
-        const y = (H - frac(t) * H).toFixed(2);
+    for (const f of [0.25, 0.5, 0.75, 1]) {
+        const y = (H - hOf(f)).toFixed(2);
         grid += `<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="var(--text-muted)" stroke-width="0.5" stroke-opacity="0.35" stroke-dasharray="4 4"/>`;
-        labels += `<span class="diag-gridlabel" style="top:${((1 - frac(t)) * 100).toFixed(1)}%">${fmtDur(t)}</span>`;
+        labels += `<span class="diag-gridlabel" style="top:${((1 - f * TOP) * 100).toFixed(1)}%">${f * 100}%</span>`;
     }
-    const mid = new Date((tStart + new Date(tl.end).getTime()) / 2);
+    // Evenly spaced time ticks so you can read *when* a dip happened without hovering.
+    const NT = 5;
+    let axis = '';
+    for (let i = 0; i < NT; i++) {
+        axis += `<span>${fmtAxis(tStart + (endMs - tStart) * i / (NT - 1), spanH)}</span>`;
+    }
+    const legend = COV_LEGEND.map(([c, l]) => `<span><i style="background:${c}"></i>${l}</span>`).join('') +
+        `<span><i style="background:var(--text-muted);opacity:.35"></i>no data</span>`;
     return `<div class="card diag-card" style="margin-bottom:1rem;">
-        <div class="card-header"><span>Gap timeline</span>
-            <span class="diag-legend">
-                <span><i style="background:#2ea043"></i>≤1m</span>
-                <span><i style="background:#d29922"></i>≤5m</span>
-                <span><i style="background:var(--danger)"></i>&gt;5m</span>
-                <span><i style="background:var(--text-muted);opacity:.35"></i>no data</span>
-            </span>
+        <div class="card-header"><span>Tracking coverage</span>
+            <span class="diag-legend">${legend}</span>
         </div>
         <div class="diag-chart">
-            <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:120px;display:block;">${bars}${grid}</svg>
+            <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:130px;display:block;">${bars}${grid}</svg>
             <div class="diag-gridlabels">${labels}</div>
         </div>
-        <div class="diag-axis"><span>${fmtTime(tl.start)}</span><span>${mid.toLocaleString()}</span><span>${fmtTime(tl.end)}</span></div>
-        <div class="diag-sub" style="margin-top:0.35rem;">Each bar is the worst gap in that slice of time — dashed lines mark gap durations. Tall coloured spikes are where tracking dropped; hover for details.</div>
+        <div class="diag-axis">${axis}</div>
+        <div class="diag-sub" style="margin-top:0.35rem;">Each bar is one ${fmtDur(tl.bucket_seconds)} slice across the selected range. Height is the share of points captured vs. the typical ~${fmtDur(tl.interval_s)} cadence — full green = tracking ran normally, dips = sparse, grey = no data at all. Hover for the worst gap and exact time.</div>
     </div>`;
-}
-
-// "Nice" gap durations to draw as horizontal gridlines, kept clear of the top/bottom
-// edges and thinned to ~5 so the axis stays readable across very different ranges.
-function gapTicks(chartMax) {
-    const cand = [10, 15, 30, 60, 120, 180, 300, 600, 900, 1800, 3600, 7200, 14400, 43200, 86400];
-    let t = cand.filter(v => v >= chartMax * 0.06 && v <= chartMax * 0.96);
-    if (t.length > 5) {
-        const step = (t.length - 1) / 4;
-        t = [...new Set([0, 1, 2, 3, 4].map(i => t[Math.round(i * step)]))];
-    }
-    return t;
 }
 </script>
 {% endblock %}
