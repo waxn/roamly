@@ -211,13 +211,16 @@
                             <th style="padding:0.4rem 0.5rem;text-align:left;">Email</th>
                             <th style="padding:0.4rem 0.5rem;text-align:left;">Joined</th>
                             <th style="padding:0.4rem 0.5rem;text-align:left;">Last login</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">Signup IP</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">Last IP</th>
                             <th style="padding:0.4rem 0.5rem;text-align:right;">Devices</th>
                             <th style="padding:0.4rem 0.5rem;text-align:right;">Locations</th>
                             <th style="padding:0.4rem 0.5rem;text-align:center;">Admin</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:center;">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="users-tbody">
-                        <tr><td colspan="7" style="padding:2rem;text-align:center;color:var(--text-muted);">Loading…</td></tr>
+                        <tr><td colspan="10" style="padding:2rem;text-align:center;color:var(--text-muted);">Loading…</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -491,11 +494,13 @@ async function loadUsers() {
     if (!r.ok) return;
     const d = await r.json();
     document.getElementById('users-tbody').innerHTML = d.users.map(u=>
-        `<tr class="al-row">
-            <td style="font-weight:600;">${esc(u.username)}</td>
+        `<tr class="al-row" id="user-row-${u.id}" data-username="${esc(u.username)}">
+            <td style="font-weight:600;">${esc(u.username)}${u.is_self ? ' <span style="color:var(--text-muted);font-weight:400;">(you)</span>' : ''}</td>
             <td style="color:var(--text-muted);">${esc(u.email)}</td>
             <td style="font-size:0.75rem;color:var(--text-muted);">${u.date_joined ? new Date(u.date_joined).toLocaleDateString() : '—'}</td>
             <td style="font-size:0.75rem;color:var(--text-muted);">${u.last_login ? fmtTime(u.last_login) : 'Never'}</td>
+            <td style="font-size:0.75rem;font-family:monospace;color:var(--text-muted);">${u.signup_ip ? esc(u.signup_ip) : '—'}</td>
+            <td style="font-size:0.75rem;font-family:monospace;color:var(--text-muted);">${u.last_ip ? esc(u.last_ip) : '—'}</td>
             <td style="text-align:right;">${u.device_count}</td>
             <td style="text-align:right;">${fmtNum(u.location_count)}</td>
             <td style="text-align:center;">
@@ -504,8 +509,27 @@ async function loadUsers() {
                     ${u.is_admin ? 'Admin' : 'User'}
                 </button>
             </td>
+            <td style="text-align:center;">
+                ${u.is_self ? '<span style="color:var(--text-muted);font-size:0.7rem;">—</span>' :
+                    `<button class="btn btn-sm btn-outline" style="font-size:0.7rem;padding:2px 10px;color:var(--danger);border-color:var(--danger);"
+                        onclick="deleteUser(${u.id})">Delete</button>`}
+            </td>
         </tr>`
-    ).join('') || '<tr><td colspan="7" style="padding:2rem;text-align:center;color:var(--text-muted);">No users</td></tr>';
+    ).join('') || '<tr><td colspan="10" style="padding:2rem;text-align:center;color:var(--text-muted);">No users</td></tr>';
+}
+
+async function deleteUser(userId) {
+    const row = document.getElementById(`user-row-${userId}`);
+    const username = row ? row.dataset.username : `#${userId}`;
+    if (!confirm(`Permanently delete "${username}" and ALL of their data (devices, locations, adventures, journals…)?\n\nThis cannot be undone.`)) return;
+    const r = await fetch(`/api/admin/users/${userId}/delete/`, {method:'POST', headers:{'X-CSRFToken':getCookie('csrftoken')}});
+    if (!r.ok) {
+        let msg = 'Failed to delete user.';
+        try { const e = await r.json(); if (e.error) msg = e.error; } catch (_) {}
+        alert(msg);
+        return;
+    }
+    if (row) row.remove();
 }
 
 async function toggleAdmin(userId, btn) {

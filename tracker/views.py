@@ -313,7 +313,11 @@ def signup_view(request):
             user = form.save()
             # A valid admin key (validated in the form) makes this an admin account.
             UserProfile.objects.update_or_create(
-                user=user, defaults={'is_admin': form.is_admin_signup},
+                user=user, defaults={
+                    'is_admin': form.is_admin_signup,
+                    'signup_ip': _get_client_ip(request),
+                    'signup_user_agent': request.META.get('HTTP_USER_AGENT', '')[:500],
+                },
             )
             login(request, user)
             _log_action(request, 'signup', f'New account: {user.username}', user=user)
@@ -6937,6 +6941,14 @@ def admin_users_api(request):
     for u in users:
         uid = u['id']
         profile = profiles.get(uid)
+        # Most recent IP this user was seen from — an indexed seek on
+        # (user, -timestamp), so one cheap query per user.
+        last_ip = (
+            AccessLog.objects.filter(user_id=uid)
+            .order_by('-timestamp')
+            .values_list('ip_address', flat=True)
+            .first()
+        )
         result.append({
             'id': uid,
             'username': u['username'],
@@ -6945,6 +6957,9 @@ def admin_users_api(request):
             'last_login': u['last_login'].isoformat() if u['last_login'] else None,
             'is_active': u['is_active'],
             'is_admin': profile.is_admin if profile else False,
+            'is_self': uid == request.user.id,
+            'signup_ip': profile.signup_ip if profile else None,
+            'last_ip': last_ip,
             'location_count': loc_counts.get(uid, 0),
             'device_count': device_counts.get(uid, 0),
         })
@@ -6968,6 +6983,28 @@ def admin_toggle_admin_api(request, user_id):
     verb = 'granted' if profile.is_admin else 'revoked'
     _log_action(request, 'admin_toggle', f'Admin {verb} for {target.username}')
     return JsonResponse({'ok': True, 'is_admin': profile.is_admin})
+
+
+@login_required
+@require_POST
+def admin_delete_user_api(request, user_id):
+    """Delete another user and all their data. Self-deletion is blocked."""
+    err = _require_admin(request)
+    if err:
+        return err
+    if user_id == request.user.id:
+        return JsonResponse(
+            {'error': 'Cannot delete your own account here. Use Settings → Danger Zone.'},
+            status=400,
+        )
+    from django.contrib.auth.models import User as AuthUser
+    target = get_object_or_404(AuthUser, id=user_id)
+    username = target.username
+    # ActionLog/AccessLog FKs are SET_NULL, so the audit trail survives the
+    # deletion; everything the user owns (devices, locations, …) cascades.
+    _log_action(request, 'delete_account', f'Admin deleted account: {username}')
+    target.delete()
+    return JsonResponse({'ok': True, 'deleted': username})
 
 
 @login_required

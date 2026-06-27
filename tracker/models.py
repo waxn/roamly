@@ -517,6 +517,12 @@ class UserProfile(models.Model):
     # Instance admin: can edit instance-wide settings (e.g. the custom JS snippet).
     is_admin = models.BooleanField(default=False)
 
+    # IP / user-agent the account was created from. Captured at signup and kept
+    # durably here — ActionLog('signup') rows are pruned by retention, so they
+    # can't be relied on for this. Surfaced in the admin panel user list.
+    signup_ip = models.GenericIPAddressField(null=True, blank=True)
+    signup_user_agent = models.TextField(blank=True, default='')
+
     # AI "Ask" — per-user, OpenAI-compatible provider config (see ai_tasks.py).
     # The Ask tab only appears once ai_ask_enabled + base_url + api_key + model are set.
     # ai_api_key is plaintext (like BackupConfig.secret_key) and masked on GET.
