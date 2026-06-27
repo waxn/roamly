@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Collaboration
+
+**When in doubt, ask.** If there is any ambiguity about what is wanted — scope, approach, which file to edit, whether a change is intentional — ask before proceeding. Never make a judgment call silently when a quick question would resolve it.
+
 ## Versioning
 
 This project uses [Semantic Versioning](https://semver.org/) via git tags (`v1.2.3`). The tag is what triggers the Docker Hub publish in CI.
