@@ -19,3 +19,8 @@ class TrackerConfig(AppConfig):
                 start_stats_scheduler()
             except Exception:
                 pass
+            try:
+                from .log_cleanup_tasks import start_log_cleanup_scheduler
+                start_log_cleanup_scheduler()
+            except Exception:
+                pass
