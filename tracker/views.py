@@ -5187,7 +5187,7 @@ def places_api(request):
             radius_m=radius_m, color=_PLACE_COLORS[count % len(_PLACE_COLORS)],
         )
         _bust_user_cache(request.user.id)
-        _refresh_places_snapshot(request.user)
+        threading.Thread(target=_refresh_places_snapshot, args=(request.user,), daemon=True).start()
         return JsonResponse(_serialize_place(place))
 
     # GET list → serve the precomputed snapshot when available.
@@ -5352,7 +5352,7 @@ def place_update(request, place_id):
     # Only the geometry/name affect the cards + snapshot list; a notes-only
     # autosave must not trigger the heavy per-place recompute.
     if any(k in data for k in ('name', 'lat', 'lng', 'radius_m')):
-        _refresh_places_snapshot(request.user)
+        threading.Thread(target=_refresh_places_snapshot, args=(request.user,), daemon=True).start()
     return JsonResponse(_serialize_place(place))
 
 
@@ -5363,7 +5363,7 @@ def place_delete(request, place_id):
     place = get_object_or_404(CustomPlace, id=place_id, user=request.user)
     place.delete()
     _bust_user_cache(request.user.id)
-    _refresh_places_snapshot(request.user)
+    threading.Thread(target=_refresh_places_snapshot, args=(request.user,), daemon=True).start()
     return JsonResponse({'deleted': True})
 
 
