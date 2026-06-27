@@ -1167,7 +1167,7 @@ function renderTrack(devices, autoFit) {
             features.push({
                 type: 'Feature',
                 geometry: { type: 'Point', coordinates: p.c },
-                properties: { ts: p.ts, speed: p.speed ?? null, color, city: p.city, state: p.state, country: p.country, device_name: device.name }
+                properties: { ts: p.ts, id: p.id ?? null, speed: p.speed ?? null, color, city: p.city, state: p.state, country: p.country, device_name: device.name }
             });
             if (p.c[0] < minLng) minLng = p.c[0];
             if (p.c[0] > maxLng) maxLng = p.c[0];
@@ -1774,7 +1774,12 @@ function closeCtxMenu() { ctxMenu.classList.remove('open'); }
 // Detail dot layers that carry a deletable per-point `id` (loaded from
 // /api/locations/ — present at detail zoom in both renderer modes).
 function deletableDotLayers() {
-    return [ACC_DOTS_LAYER].filter(id => map.getLayer(id));
+    const layers = [ACC_DOTS_LAYER].filter(id => map.getLayer(id));
+    activeSources.forEach(srcId => {
+        const lid = `${srcId}-dots`;
+        if (map.getLayer(lid)) layers.push(lid);
+    });
+    return layers;
 }
 
 map.on('contextmenu', (e) => {
