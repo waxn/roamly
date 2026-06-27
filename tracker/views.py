@@ -1862,6 +1862,8 @@ _DIAG_MAX_POINTS = 300_000
 # Number of equal-time buckets in the gap timeline sparkline (worst gap + point count
 # per bucket across the range) — enough resolution to spot where tracking dropped.
 _DIAG_TIMELINE_BUCKETS = 120
+# Max bins in a single bar's drill-down line graph; per-minute bins coarsen past this.
+_DETAIL_MAX_BINS = 300
 
 
 def _fmt_duration(seconds):
@@ -2116,6 +2118,64 @@ def location_diagnostics_api(request):
     result["range"] = rng
     result["device_id"] = device_id or "all"
     return JsonResponse(result)
+
+
+@login_required
+def location_diagnostics_detail_api(request):
+    """Drill-down for one timeline bar: point counts binned within [start, end].
+
+    Bins are per-minute by default and only coarsen (to whole-minute multiples) once a
+    window is wide enough that per-minute would blow past ``_DETAIL_MAX_BINS`` — so the
+    line graph stays light for a multi-day bar but is literally points-per-minute for the
+    common short bars. Also returns per-bin average accuracy for context.
+    """
+    start_s = request.GET.get("start")
+    end_s = request.GET.get("end")
+    device_id = request.GET.get("device_id") or ""
+    try:
+        start = datetime.fromisoformat(start_s)
+        end = datetime.fromisoformat(end_s)
+    except (ValueError, TypeError):
+        return JsonResponse({"error": "bad_range"}, status=400)
+    if timezone.is_naive(start):
+        start = timezone.make_aware(start)
+    if timezone.is_naive(end):
+        end = timezone.make_aware(end)
+    if end <= start:
+        return JsonResponse({"error": "bad_range"}, status=400)
+
+    span_s = (end - start).total_seconds()
+    bin_s = 60
+    if span_s / bin_s > _DETAIL_MAX_BINS:
+        bin_s = int(math.ceil(span_s / _DETAIL_MAX_BINS / 60.0)) * 60
+    nbins = int(math.ceil(span_s / bin_s))
+    counts = [0] * nbins
+    acc_sum = [0.0] * nbins
+    acc_n = [0] * nbins
+
+    qs = Location.objects.filter(device__user=request.user,
+                                 timestamp__gte=start, timestamp__lte=end)
+    if device_id:
+        qs = qs.filter(device__device_id=device_id)
+    start_epoch = start.timestamp()
+    for ts, acc in qs.order_by('timestamp').values_list('timestamp', 'accuracy').iterator():
+        b = int((ts.timestamp() - start_epoch) / bin_s)
+        if b < 0 or b >= nbins:
+            continue
+        counts[b] += 1
+        if acc is not None:
+            acc_sum[b] += acc
+            acc_n[b] += 1
+    avg_acc = [round(acc_sum[i] / acc_n[i], 1) if acc_n[i] else None for i in range(nbins)]
+
+    return JsonResponse({
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "bin_seconds": bin_s,
+        "bins": counts,
+        "avg_accuracy": avg_acc,
+        "total": sum(counts),
+    })
 
 
 _VISITS_MAX_GAP_CROSS = 3600  # cap only when geocoded place label changes

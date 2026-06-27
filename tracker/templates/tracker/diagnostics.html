@@ -71,6 +71,15 @@
 .diag-gridlabels { position:absolute; inset:0; pointer-events:none; }
 .diag-gridlabel { position:absolute; right:3px; transform:translateY(-50%); font-size:0.65rem; font-weight:600;
     color:var(--text-muted); background:var(--bg-card); padding:0 4px; border-radius:4px; line-height:1.3; }
+/* Floating hover readout shared by the coverage bars and the detail line graph. */
+.diag-tip { position:fixed; z-index:9999; pointer-events:none; background:var(--bg-card);
+    border:1px solid var(--border); border-radius:8px; padding:0.4rem 0.6rem; font-size:0.75rem;
+    color:var(--text); box-shadow:0 6px 20px rgba(0,0,0,0.35); max-width:260px; line-height:1.45; }
+.diag-clickable { cursor:pointer; }
+.diag-hint { font-size:0.68rem; color:var(--text-muted); font-weight:600; }
+.diag-detail-close { cursor:pointer; color:var(--text-muted); font-size:0.95rem; line-height:1;
+    background:none; border:none; padding:0.1rem 0.3rem; border-radius:6px; }
+.diag-detail-close:hover { color:var(--text); background:var(--bg); }
 </style>
 {% endblock %}
 
@@ -103,6 +112,31 @@ function fmtDur(s) {
 function fmtNum(v) { return (v === null || v === undefined) ? '—' : v; }
 function fmtTime(iso) { return iso ? new Date(iso).toLocaleString() : '—'; }
 function esc(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── shared state + floating hover readout ─────────────────────────────────────
+let diagData = null;      // last /location/ response (for the timeline wiring)
+let detailData = null;    // last /detail/ response (for the line-graph hover)
+let diagTip = null;
+function showTip(html, clientX, clientY) {
+    if (!diagTip) { diagTip = document.createElement('div'); diagTip.className = 'diag-tip'; document.body.appendChild(diagTip); }
+    diagTip.innerHTML = html;
+    diagTip.style.display = 'block';
+    const r = diagTip.getBoundingClientRect(), pad = 14;
+    let x = clientX + pad, y = clientY + pad;
+    if (x + r.width > innerWidth - 8) x = clientX - r.width - pad;
+    if (y + r.height > innerHeight - 8) y = clientY - r.height - pad;
+    diagTip.style.left = Math.max(8, x) + 'px';
+    diagTip.style.top = Math.max(8, y) + 'px';
+}
+function hideTip() { if (diagTip) diagTip.style.display = 'none'; }
+
+// Map a pointer event to a bar/bin index for a viewBox-stretched SVG (preserveAspectRatio
+// "none" means we can't trust SVG coords, so go off the element's own client rect).
+function idxFromEvent(svg, e, n) {
+    const r = svg.getBoundingClientRect();
+    const f = (e.clientX - r.left) / r.width;
+    return Math.max(0, Math.min(n - 1, Math.floor(f * n)));
+}
 
 function row(label, value, sub) {
     return `<div class="diag-row"><span class="diag-label">${label}</span>` +
@@ -161,6 +195,8 @@ function runDiag() {
 }
 
 function render(d) {
+    diagData = d;
+    hideTip();
     const box = document.getElementById('diag-results');
     if (d.error === 'too_many_points') {
         box.innerHTML = `<div class="card" style="text-align:center;color:var(--text-muted);padding:2rem;">
@@ -190,6 +226,7 @@ function render(d) {
     </div>`;
 
     html += renderTimeline(d);
+    html += `<div id="diag-detail"></div>`;   // bar drill-down line graph lands here
 
     html += `<div class="diag-grid">`;
 
@@ -264,6 +301,7 @@ function render(d) {
 
     html += `</div>`;
     box.innerHTML = html;
+    wireTimeline();
 }
 
 function pctOf(n, total) {
@@ -314,18 +352,15 @@ function renderTimeline(d) {
     const spanH = (endMs - tStart) / 3600000;
     let bars = '';
     for (let i = 0; i < N; i++) {
-        const c = tl.coverage[i], p = tl.points[i], g = tl.max_gap[i];
+        const c = tl.coverage[i], p = tl.points[i];
         let color, bh, op = '1';
         if (p === 0) { color = 'var(--text-muted)'; bh = hOf(1); op = '0.10'; }  // no data → grey ghost
         else { color = covColor(c); bh = Math.max(hOf(c), 1.4); }                // keep a visible sliver
         const x = (i * barW).toFixed(2);
         const w = Math.max(barW - 0.4, 0.6).toFixed(2);
         const y = (H - bh).toFixed(2);
-        const bs = new Date(tStart + i * tl.bucket_seconds * 1000);
-        const tip = p === 0
-            ? `${bs.toLocaleString()} — no data`
-            : `${bs.toLocaleString()} · ${Math.round(c * 100)}% tracked · worst gap ${fmtDur(g)} · ${p} pts`;
-        bars += `<rect x="${x}" y="${y}" width="${w}" height="${bh.toFixed(2)}" fill="${color}" fill-opacity="${op}"><title>${esc(tip)}</title></rect>`;
+        // No <title>: the custom hover readout (wireTimeline) shows the real numbers.
+        bars += `<rect x="${x}" y="${y}" width="${w}" height="${bh.toFixed(2)}" fill="${color}" fill-opacity="${op}"></rect>`;
     }
     // Horizontal % gridlines (25/50/75/100), with HTML labels overlaid (the SVG is
     // non-uniformly stretched, so text can't live in it).
@@ -348,12 +383,141 @@ function renderTimeline(d) {
             <span class="diag-legend">${legend}</span>
         </div>
         <div class="diag-chart">
-            <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:130px;display:block;">${bars}${grid}</svg>
+            <svg id="diag-tl-svg" class="diag-clickable" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:130px;display:block;">${bars}${grid}</svg>
             <div class="diag-gridlabels">${labels}</div>
         </div>
         <div class="diag-axis">${axis}</div>
-        <div class="diag-sub" style="margin-top:0.35rem;">Each bar is one ${fmtDur(tl.bucket_seconds)} slice across the selected range. Height is the share of points captured vs. the typical ~${fmtDur(tl.interval_s)} cadence — full green = tracking ran normally, dips = sparse, grey = no data at all. Hover for the worst gap and exact time.</div>
+        <div class="diag-sub" style="margin-top:0.35rem;">Each bar is one ${fmtDur(tl.bucket_seconds)} slice across the selected range. Height is the share of points captured vs. the typical ~${fmtDur(tl.interval_s)} cadence — full green = tracking ran normally, dips = sparse, grey = no data at all. <span class="diag-hint">Hover for the real numbers · click a bar to drill into points-per-minute.</span></div>
     </div>`;
+}
+
+// ── timeline interaction: hover readout + click-to-drill-down ──────────────────
+function wireTimeline() {
+    const tl = diagData && diagData.timeline;
+    const svg = document.getElementById('diag-tl-svg');
+    if (!tl || !svg || !tl.coverage) return;
+    const N = tl.coverage.length;
+    const t0 = new Date(tl.start).getTime();
+    const binMs = tl.bucket_seconds * 1000;
+    const tipFor = (i) => {
+        const c = tl.coverage[i], p = tl.points[i], g = tl.max_gap[i];
+        const bs = new Date(t0 + i * binMs);
+        const be = new Date(t0 + (i + 1) * binMs);
+        const when = `${bs.toLocaleString()} – ${be.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+        if (p === 0) return `<strong>${esc(when)}</strong><br>no data in this slice`;
+        return `<strong>${esc(when)}</strong><br>${Math.round(c * 100)}% tracked · ${p.toLocaleString()} pts<br>worst gap ${fmtDur(g)}`;
+    };
+    svg.addEventListener('mousemove', (e) => showTip(tipFor(idxFromEvent(svg, e, N)), e.clientX, e.clientY));
+    svg.addEventListener('mouseleave', hideTip);
+    svg.addEventListener('click', (e) => openDetail(idxFromEvent(svg, e, N)));
+}
+
+// Fetch and render the per-minute line graph for the clicked bar's time window. Tiny bars
+// (e.g. a 12-min slice) are widened to a 1-hour window so the line has real resolution.
+function openDetail(i) {
+    const tl = diagData.timeline;
+    const binMs = tl.bucket_seconds * 1000;
+    const base = new Date(tl.start).getTime();
+    let t0 = base + i * binMs, t1 = t0 + binMs;
+    const MIN = 3600 * 1000;
+    if (t1 - t0 < MIN) {
+        const mid = (t0 + t1) / 2, lo = base, hi = new Date(tl.end).getTime();
+        t0 = mid - MIN / 2; t1 = mid + MIN / 2;
+        if (t0 < lo) { t1 += lo - t0; t0 = lo; }
+        if (t1 > hi) { t0 -= t1 - hi; t1 = hi; }
+        if (t0 < lo) t0 = lo;
+    }
+    const detail = document.getElementById('diag-detail');
+    detail.innerHTML = `<div class="card diag-card" style="margin-bottom:1rem;text-align:center;color:var(--text-muted);padding:1.5rem;"><span class="spinner"></span> Loading detail…</div>`;
+    // ISO with an explicit offset (fromisoformat-safe across Python versions; not bare "Z").
+    const iso = (ms) => new Date(ms).toISOString().replace('Z', '+00:00');
+    const params = new URLSearchParams({ start: iso(t0), end: iso(t1) });
+    const dev = diagData.device_id && diagData.device_id !== 'all' ? diagData.device_id : '';
+    if (dev) params.set('device_id', dev);
+    fetch('/api/diagnostics/detail/?' + params.toString())
+        .then(r => r.json())
+        .then(renderDetail)
+        .catch(() => { detail.innerHTML = `<div class="card diag-card" style="margin-bottom:1rem;color:var(--danger);">Failed to load detail.</div>`; });
+}
+
+function closeDetail() {
+    const detail = document.getElementById('diag-detail');
+    if (detail) detail.innerHTML = '';
+    hideTip();
+}
+
+function renderDetail(data) {
+    detailData = data;
+    const detail = document.getElementById('diag-detail');
+    if (!detail) return;
+    if (data.error || !data.bins) {
+        detail.innerHTML = `<div class="card diag-card" style="margin-bottom:1rem;color:var(--danger);">No detail available for that slice.</div>`;
+        return;
+    }
+    const bins = data.bins, N = bins.length;
+    const binLabel = data.bin_seconds === 60 ? 'minute' : fmtDur(data.bin_seconds);
+    const maxC = Math.max(...bins, 1);
+    const W = 1000, H = 100, TOP = 0.88;
+    const t0 = new Date(data.start).getTime(), endMs = new Date(data.end).getTime();
+    const spanH = (endMs - t0) / 3600000;
+    const xOf = (i) => N <= 1 ? W / 2 : (i / (N - 1)) * W;
+    const yOf = (c) => H - (c / maxC) * TOP * H;
+    // Area fill + line.
+    const linePts = bins.map((c, i) => `${i ? 'L' : 'M'}${xOf(i).toFixed(1)},${yOf(c).toFixed(1)}`).join(' ');
+    const areaPts = `M${xOf(0).toFixed(1)},${H} ` + bins.map((c, i) => `L${xOf(i).toFixed(1)},${yOf(c).toFixed(1)}`).join(' ') + ` L${xOf(N - 1).toFixed(1)},${H} Z`;
+    // Y gridlines/labels at a couple of nice counts.
+    let grid = '', labels = '';
+    const yticks = maxC >= 4 ? [maxC, Math.round(maxC / 2)] : [maxC];
+    for (const v of [...new Set(yticks)]) {
+        const y = yOf(v);
+        grid += `<line x1="0" y1="${y.toFixed(1)}" x2="${W}" y2="${y.toFixed(1)}" stroke="var(--text-muted)" stroke-width="0.5" stroke-opacity="0.35" stroke-dasharray="4 4"/>`;
+        labels += `<span class="diag-gridlabel" style="top:${(y / H * 100).toFixed(1)}%">${v}</span>`;
+    }
+    // X time ticks.
+    const NT = 5;
+    let axis = '';
+    for (let i = 0; i < NT; i++) axis += `<span>${fmtAxis(t0 + (endMs - t0) * i / (NT - 1), spanH)}</span>`;
+    const when = `${new Date(t0).toLocaleString()} – ${new Date(endMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    detail.innerHTML = `<div class="card diag-card" style="margin-bottom:1rem;">
+        <div class="card-header">
+            <span>Points per ${binLabel} <span class="diag-sub" style="font-weight:500;">· ${esc(when)} · ${data.total.toLocaleString()} pts</span></span>
+            <button class="diag-detail-close" onclick="closeDetail()" title="Close">✕</button>
+        </div>
+        <div class="diag-chart">
+            <svg id="diag-dt-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:150px;display:block;cursor:crosshair;">
+                ${grid}
+                <path d="${areaPts}" fill="var(--accent)" fill-opacity="0.12"/>
+                <path d="${linePts}" fill="none" stroke="var(--accent)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+                <line id="diag-dt-cursor" x1="0" y1="0" x2="0" y2="${H}" stroke="var(--text-muted)" stroke-width="1" vector-effect="non-scaling-stroke" style="visibility:hidden;"/>
+            </svg>
+            <div class="diag-gridlabels">${labels}</div>
+        </div>
+        <div class="diag-axis">${axis}</div>
+        <div class="diag-sub" style="margin-top:0.35rem;">Points captured in each ${binLabel}. Hover for the exact count and time.</div>
+    </div>`;
+    wireDetailHover();
+}
+
+function wireDetailHover() {
+    const svg = document.getElementById('diag-dt-svg');
+    const cursor = document.getElementById('diag-dt-cursor');
+    const data = detailData;
+    if (!svg || !data) return;
+    const N = data.bins.length;
+    const t0 = new Date(data.start).getTime();
+    const binLabel = data.bin_seconds === 60 ? 'min' : fmtDur(data.bin_seconds);
+    svg.addEventListener('mousemove', (e) => {
+        const r = svg.getBoundingClientRect();
+        const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+        const i = N <= 1 ? 0 : Math.round(f * (N - 1));   // snap to nearest plotted vertex
+        const x = N <= 1 ? 500 : (i / (N - 1)) * 1000;
+        if (cursor) { cursor.setAttribute('x1', x); cursor.setAttribute('x2', x); cursor.style.visibility = 'visible'; }
+        const bs = new Date(t0 + i * data.bin_seconds * 1000);
+        const acc = data.avg_accuracy && data.avg_accuracy[i];
+        const accLine = acc != null ? `<br>avg accuracy ${acc} m` : '';
+        showTip(`<strong>${esc(bs.toLocaleString())}</strong><br>${data.bins[i].toLocaleString()} pts / ${binLabel}${accLine}`, e.clientX, e.clientY);
+    });
+    svg.addEventListener('mouseleave', () => { hideTip(); if (cursor) cursor.style.visibility = 'hidden'; });
 }
 </script>
 {% endblock %}
