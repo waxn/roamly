@@ -504,19 +504,6 @@
             </div>
         </div>
 
-        {% if is_admin %}
-        <!-- Admin Panel shortcut (instance-wide admin settings now live there) -->
-        <div class="card settings-span-12">
-            <div class="card-header" style="display:flex;align-items:center;gap:0.4rem;">
-                Admin Panel
-                <span class="badge badge-warning" style="font-size:0.65rem;">admin only</span>
-            </div>
-            <p class="settings-section-desc">
-                Logs, analytics, user management, and instance-wide settings (Custom JavaScript, log retention) are in the Admin Panel.
-            </p>
-            <a href="{% url 'tracker:admin_panel' %}" class="btn btn-primary btn-sm">Open Admin Panel →</a>
-        </div>
-        {% endif %}
 
         <!-- GPSLogger Setup -->
         <div class="card settings-span-12">
@@ -763,7 +750,6 @@ curl -X POST {{ request.scheme }}://{{ request.get_host }}/api/push/ \
             </p>
             <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
                 <a href="{% url 'tracker:diagnostics' %}" class="btn btn-primary btn-sm">Open Diagnostics</a>
-                {% if is_admin %}<a href="{% url 'tracker:admin_panel' %}" class="btn btn-outline btn-sm">Admin Panel →</a>{% endif %}
             </div>
         </div>
 
