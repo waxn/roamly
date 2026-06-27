@@ -803,7 +803,8 @@ def track_api(request):
     start_date = request.GET.get('start_date')
     end_date = request.GET.get('end_date')
 
-    cache_key = f"track:{request.user.id}:{request.GET.urlencode()}"
+    gen = cache.get(f"cache_gen:{request.user.id}", 0)
+    cache_key = f"track:{request.user.id}:{gen}:{request.GET.urlencode()}"
     cached = cache.get(cache_key)
     if cached is not None:
         return JsonResponse(cached)

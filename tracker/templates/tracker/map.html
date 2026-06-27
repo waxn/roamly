@@ -1825,6 +1825,7 @@ ctxDeletePointBtn.addEventListener('click', async () => {
             return;
         }
         removeAccPointById(id);
+        loadTrack(false);
     } catch (_) {
         alert('Failed to delete point.');
     }
