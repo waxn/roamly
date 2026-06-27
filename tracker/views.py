@@ -63,19 +63,11 @@ def _log_action(request, action, description='', user=None):
     """Write an ActionLog row. Fire-and-forget in a daemon thread."""
     u = user if user is not None else (request.user if request.user.is_authenticated else None)
     uid = u.id if u else None
-    ip = _get_client_ip(request)
-    ts = timezone.now()
-
-    def _write():
-        try:
-            ActionLog.objects.create(
-                user_id=uid, action=action, description=description,
-                ip_address=ip, timestamp=ts,
-            )
-        except Exception:
-            pass
-
-    threading.Thread(target=_write, daemon=True).start()
+    from .log_writer import enqueue_action
+    enqueue_action(
+        user_id=uid, action=action, description=description,
+        ip_address=_get_client_ip(request), timestamp=timezone.now(),
+    )
 
 
 def _bust_user_cache(user_id):

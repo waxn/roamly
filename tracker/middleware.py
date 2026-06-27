@@ -1,5 +1,4 @@
 import time
-import threading
 from django.utils import timezone
 
 # Paths we never want to log (static assets, tile API, health checks).
@@ -31,32 +30,19 @@ class RequestLoggingMiddleware:
         response = self.get_response(request)
         elapsed_ms = int((time.monotonic() - t0) * 1000)
 
-        # Write the log row in a daemon thread to avoid adding latency.
-        user_id = request.user.id if request.user.is_authenticated else None
-        ip = _get_client_ip(request)
-        ua = request.META.get('HTTP_USER_AGENT', '')[:500]
-        method = request.method
-        status = response.status_code
-        ts = timezone.now()
-
-        def _write():
-            try:
-                from .models import AccessLog
-                AccessLog.objects.create(
-                    ip_address=ip,
-                    user_id=user_id,
-                    path=path[:500],
-                    method=method,
-                    user_agent=ua,
-                    status_code=status,
-                    response_ms=elapsed_ms,
-                    timestamp=ts,
-                )
-            except Exception:
-                pass
-
-        t = threading.Thread(target=_write, daemon=True)
-        t.start()
+        # Hand the row to the shared background writer (single connection,
+        # batched). Never block the request on the DB write.
+        from .log_writer import enqueue_access
+        enqueue_access(
+            ip_address=_get_client_ip(request),
+            user_id=request.user.id if request.user.is_authenticated else None,
+            path=path[:500],
+            method=request.method,
+            user_agent=request.META.get('HTTP_USER_AGENT', '')[:500],
+            status_code=response.status_code,
+            response_ms=elapsed_ms,
+            timestamp=timezone.now(),
+        )
         return response
 
 
