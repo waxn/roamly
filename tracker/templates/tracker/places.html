@@ -434,6 +434,7 @@ async function savePlace() {
     if (!editCenter) { alert('click the map to set the center first'); return; }
     const btn = document.getElementById('edit-save');
     btn.disabled = true;
+    btn.textContent = 'saving…';
     const payload = { name, lat: editCenter[1], lng: editCenter[0], radius_m: editRadius };
     const url = editId ? `/api/places/${editId}/update/` : '/api/places/';
     try {
@@ -443,6 +444,7 @@ async function savePlace() {
         await loadPlaces();
     } finally {
         btn.disabled = false;
+        btn.textContent = 'save';
     }
 }
 

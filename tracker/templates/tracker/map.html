@@ -1844,6 +1844,7 @@ addplaceSaveBtn.addEventListener('click', async () => {
     const ll = addplaceMarker ? addplaceMarker.getLngLat() : ctxLngLat;
     if (!ll) return;
     addplaceSaveBtn.disabled = true;
+    addplaceSaveBtn.textContent = 'saving…';
     try {
         const res = await fetch('/api/places/', {
             method: 'POST',
@@ -1863,6 +1864,7 @@ addplaceSaveBtn.addEventListener('click', async () => {
         }
     } finally {
         addplaceSaveBtn.disabled = false;
+        addplaceSaveBtn.textContent = 'save';
     }
 });
 
