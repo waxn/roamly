@@ -4567,6 +4567,8 @@ def delete_location(request, location_id):
     ).delete()
     if not deleted:
         return JsonResponse({"error": "Not found"}, status=404)
+    _bust_user_cache(request.user.id)
+    _log_action(request, 'delete_data', f'Deleted point #{location_id}')
     return JsonResponse({"status": "ok"})
 
 

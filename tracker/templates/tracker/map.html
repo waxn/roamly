@@ -375,6 +375,8 @@
     font-family: 'Space Grotesk', sans-serif;
 }
 .map-ctx-item:hover { background: rgba(255,255,255,0.07); }
+.map-ctx-danger { color: var(--accent); }
+.map-ctx-danger:hover { background: rgba(255,107,107,0.12); }
 
 /* ── Add-place quick panel ── */
 .map-addplace-panel {
@@ -552,6 +554,7 @@
     <div class="map-ctx-menu" id="map-ctx-menu">
         <div class="map-ctx-coords" id="ctx-coords"></div>
         <div class="map-ctx-divider"></div>
+        <button class="map-ctx-item map-ctx-danger" id="ctx-delete-point" style="display:none;">× delete this point</button>
         <button class="map-ctx-item" id="ctx-add-place">+ add place here</button>
         <button class="map-ctx-item" id="ctx-copy-coords">copy coordinates</button>
     </div>
@@ -1053,6 +1056,7 @@ function loadViewport(limit) {
                         type: 'Feature',
                         geometry: { type: 'Point', coordinates: [loc.lng, loc.lat] },
                         properties: {
+                            id: loc.id,
                             device_id: device.device_id,
                             device_name: device.name,
                             timestamp: loc.timestamp,
@@ -1752,6 +1756,7 @@ const ctxMenu = document.getElementById('map-ctx-menu');
 const ctxCoordsEl = document.getElementById('ctx-coords');
 const ctxAddPlaceBtn = document.getElementById('ctx-add-place');
 const ctxCopyCoordsBtn = document.getElementById('ctx-copy-coords');
+const ctxDeletePointBtn = document.getElementById('ctx-delete-point');
 const addplacePanel = document.getElementById('map-addplace-panel');
 const addplaceNameEl = document.getElementById('addplace-name');
 const addplaceRadiusEl = document.getElementById('addplace-radius');
@@ -1759,19 +1764,69 @@ const addplaceRvalEl = document.getElementById('addplace-rval');
 const addplaceSaveBtn = document.getElementById('addplace-save');
 
 let ctxLngLat = null;
+let ctxPointId = null;
 let addplaceMarker = null;
 let addplaceRadius = 150;
 
 function closeCtxMenu() { ctxMenu.classList.remove('open'); }
 
+// Detail dot layers that carry a deletable per-point `id` (loaded from
+// /api/locations/ — present at detail zoom in both renderer modes).
+function deletableDotLayers() {
+    return [ACC_DOTS_LAYER].filter(id => map.getLayer(id));
+}
+
 map.on('contextmenu', (e) => {
     ctxLngLat = e.lngLat;
     ctxCoordsEl.textContent = `${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}`;
     ctxCopyCoordsBtn.textContent = 'copy coordinates';
+
+    // Is an individual GPS point under the cursor? If so, offer to delete it.
+    ctxPointId = null;
+    const layers = deletableDotLayers();
+    if (layers.length) {
+        const hit = map.queryRenderedFeatures(e.point, { layers })
+            .find(f => f.properties && f.properties.id != null);
+        if (hit) ctxPointId = hit.properties.id;
+    }
+    ctxDeletePointBtn.style.display = (ctxPointId != null) ? '' : 'none';
+
     const rect = document.getElementById('map-container').getBoundingClientRect();
     ctxMenu.style.left = Math.min(rect.left + e.point.x, window.innerWidth - 184) + 'px';
-    ctxMenu.style.top = Math.min(rect.top + e.point.y, window.innerHeight - 96) + 'px';
+    ctxMenu.style.top = Math.min(rect.top + e.point.y, window.innerHeight - 120) + 'px';
     ctxMenu.classList.add('open');
+});
+
+// Remove a deleted point from the accumulated detail layer without a reload.
+function removeAccPointById(id) {
+    for (const [key, f] of accMap) {
+        if (f.properties && Number(f.properties.id) === Number(id)) {
+            accMap.delete(key);
+            break;
+        }
+    }
+    if (map.getSource(ACC_SOURCE_ID)) map.getSource(ACC_SOURCE_ID).setData(getAccFC());
+    if (connectLines === 'on' && map.getSource(ACC_LINES_SOURCE)) {
+        map.getSource(ACC_LINES_SOURCE).setData(buildLinesFC());
+    }
+}
+
+ctxDeletePointBtn.addEventListener('click', async () => {
+    if (ctxPointId == null) return;
+    const id = ctxPointId;
+    closeCtxMenu();
+    if (!confirm('Delete this GPS point? This cannot be undone.')) return;
+    try {
+        const res = await fetch(`/api/locations/${id}/delete/`, { method: 'DELETE' });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            alert(err.error || 'Failed to delete point.');
+            return;
+        }
+        removeAccPointById(id);
+    } catch (_) {
+        alert('Failed to delete point.');
+    }
 });
 
 map.on('click', closeCtxMenu);
