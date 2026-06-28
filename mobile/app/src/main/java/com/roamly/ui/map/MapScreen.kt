@@ -158,6 +158,12 @@ fun MapScreen(
     var showSearch by remember { mutableStateOf(false) }
     var checkingHere by remember { mutableStateOf(false) }
     var nearHereError by remember { mutableStateOf<String?>(null) }
+    var tappedPoint by remember { mutableStateOf<LocationPoint?>(null) }
+
+    // Wire the overlay tap callback back to Compose state
+    LaunchedEffect(pointsOverlay) {
+        pointsOverlay.onPointTapped = { pt -> tappedPoint = pt }
+    }
 
     val startNearHere = {
         checkingHere = true
@@ -452,6 +458,53 @@ fun MapScreen(
             )
         }
     }
+
+    tappedPoint?.let { pt ->
+        PointDetailDialog(pt, onDismiss = { tappedPoint = null })
+    }
+}
+
+@Composable
+private fun PointDetailDialog(pt: LocationPoint, onDismiss: () -> Unit) {
+    val fmt = remember { java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d, yyyy · HH:mm:ss") }
+    val timeStr = remember(pt.timestamp) {
+        runCatching {
+            java.time.OffsetDateTime.parse(pt.timestamp)
+                .atZoneSameInstant(java.time.ZoneId.systemDefault())
+                .format(fmt)
+        }.getOrDefault(pt.timestamp)
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Location point") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(timeStr, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                HorizontalDivider()
+                val location = listOfNotNull(pt.city, pt.state, pt.country).joinToString(", ")
+                if (location.isNotBlank()) InfoLine("Location", location)
+                InfoLine("Coordinates", "${"%.5f".format(pt.lat)}, ${"%.5f".format(pt.lng)}")
+                pt.speed?.let { InfoLine("Speed", speedLabel(it)) }
+                pt.accuracy?.let { InfoLine("Accuracy", "${it.toInt()} m") }
+                pt.altitude?.let { InfoLine("Altitude", "${it.toInt()} m") }
+                pt.battery?.let { InfoLine("Battery", "${it.toInt()}%") }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
+
+@Composable
+private fun InfoLine(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth()) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(80.dp))
+        Text(value, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+private fun speedLabel(mps: Double): String {
+    val kmh = mps * 3.6
+    return "%.1f km/h".format(kmh)
 }
 
 @Composable
@@ -709,8 +762,30 @@ internal class PointsOverlay : Overlay() {
         style = Paint.Style.STROKE
         color = Color.argb(200, 255, 255, 255)
     }
+    var onPointTapped: ((LocationPoint) -> Unit)? = null
 
     fun setPoints(p: List<LocationPoint>) { points = p }
+
+    override fun onSingleTapConfirmed(e: android.view.MotionEvent, mapView: MapView): Boolean {
+        if (mapView.zoomLevelDouble < 11.0 || points.isEmpty()) return false
+        val projection = mapView.projection
+        val tapX = e.x; val tapY = e.y
+        val tapRadiusPx = 40f  // generous tap target
+        var bestDist = Float.MAX_VALUE
+        var bestPt: LocationPoint? = null
+        val out = android.graphics.Point()
+        for (pt in points) {
+            projection.toPixels(GeoPoint(pt.lat, pt.lng), out)
+            val dx = out.x - tapX; val dy = out.y - tapY
+            val dist = dx * dx + dy * dy
+            if (dist < tapRadiusPx * tapRadiusPx && dist < bestDist) {
+                bestDist = dist
+                bestPt = pt
+            }
+        }
+        bestPt?.let { onPointTapped?.invoke(it) }
+        return bestPt != null
+    }
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow || points.isEmpty()) return
