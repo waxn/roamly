@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
+import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.rounded.Place
@@ -49,7 +50,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -59,6 +59,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.roamly.data.api.Comment
 import com.roamly.data.api.TimelineEvent
 import com.roamly.data.api.TripLatLng
+import com.roamly.data.api.TripResponse
 import com.roamly.ui.theme.Clay
 import com.roamly.ui.theme.ClayCard
 import com.roamly.ui.theme.ClayIconBadge
@@ -78,7 +79,16 @@ fun TripDetailScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val clay = Clay.colors
+    var showFullMap by remember { mutableStateOf(false) }
     LaunchedEffect(tripId) { viewModel.load(tripId) }
+
+    if (showFullMap && state.trip != null) {
+        TripFullMapScreen(
+            trip = state.trip!!,
+            onBack = { showFullMap = false },
+        )
+        return
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
@@ -141,17 +151,32 @@ fun TripDetailScreen(
                             }
                         }
 
-                        // Map of the adventure's track (like the website)
+                        // Map preview — non-scrollable, tap to fullscreen
                         if (trip.locations.isNotEmpty()) {
                             item {
-                                ClaySurface(modifier = Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(200.dp)
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .clickable { showFullMap = true },
+                                ) {
                                     AdventureMap(
                                         points = trip.locations,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(240.dp)
-                                            .clip(RoundedCornerShape(22.dp)),
+                                        scrollable = false,
+                                        modifier = Modifier.fillMaxSize(),
                                     )
+                                    // "Tap to expand" hint
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .padding(8.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+                                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    ) {
+                                        Text("Expand map ↗", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                    }
                                 }
                             }
                         }
@@ -253,16 +278,21 @@ fun TripDetailScreen(
 /** A small osmdroid map drawing the adventure's track as a coral polyline,
  *  auto-fit to the route — the mobile equivalent of the website's trip map. */
 @Composable
-private fun AdventureMap(points: List<TripLatLng>, modifier: Modifier = Modifier) {
+private fun AdventureMap(
+    points: List<TripLatLng>,
+    modifier: Modifier = Modifier,
+    scrollable: Boolean = true,
+) {
     val context = LocalContext.current
-    val mapView = remember {
+    val mapView = remember(scrollable) {
         Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
         Configuration.getInstance().userAgentValue = "Roamly/1.0"
         Configuration.getInstance().osmdroidBasePath = context.cacheDir
         Configuration.getInstance().osmdroidTileCache = java.io.File(context.cacheDir, "osmdroid_tiles").apply { mkdirs() }
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
-            setMultiTouchControls(true)
+            setMultiTouchControls(scrollable)
+            isClickable = scrollable
             controller.setZoom(12.0)
         }
     }
@@ -276,9 +306,11 @@ private fun AdventureMap(points: List<TripLatLng>, modifier: Modifier = Modifier
                 outlinePaint.color = android.graphics.Color.rgb(249, 115, 79)
                 outlinePaint.strokeWidth = 7f
                 outlinePaint.isAntiAlias = true
+                // Disable the default info window so tapping shows nothing
+                infoWindow = null
+                setOnClickListener { _, _, _ -> false }
             }
             mapView.overlays.add(line)
-            // Fit after the view has a measured size, otherwise zoomToBoundingBox no-ops.
             mapView.post {
                 if (geo.size == 1) {
                     mapView.controller.setZoom(14.0)
@@ -473,4 +505,88 @@ private fun MilestoneCreateDialog(
         confirmButton = { TextButton(onClick = { onConfirm(emoji, title, description, date) }) { Text("Add") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
+}
+
+/** Full-screen map for an adventure — shows the polyline on real tiles with zoom
+ *  controls and a back button. Opened when the user taps the mini-map card. */
+@Composable
+private fun TripFullMapScreen(trip: TripResponse, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val mapView = remember {
+        Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
+        Configuration.getInstance().userAgentValue = "Roamly/1.0"
+        Configuration.getInstance().osmdroidBasePath = context.cacheDir
+        Configuration.getInstance().osmdroidTileCache = java.io.File(context.cacheDir, "osmdroid_tiles").apply { mkdirs() }
+        MapView(context).apply {
+            setTileSource(TileSourceFactory.MAPNIK)
+            setMultiTouchControls(true)
+            controller.setZoom(12.0)
+        }
+    }
+
+    LaunchedEffect(trip.locations) {
+        mapView.overlays.clear()
+        if (trip.locations.isNotEmpty()) {
+            val geo = trip.locations.map { GeoPoint(it.lat, it.lng) }
+            val line = Polyline(mapView).apply {
+                setPoints(geo)
+                outlinePaint.color = android.graphics.Color.rgb(249, 115, 79)
+                outlinePaint.strokeWidth = 7f
+                outlinePaint.isAntiAlias = true
+                infoWindow = null
+                setOnClickListener { _, _, _ -> false }
+            }
+            mapView.overlays.add(line)
+            mapView.post {
+                runCatching {
+                    if (geo.size == 1) { mapView.controller.setZoom(14.0); mapView.controller.setCenter(geo.first()) }
+                    else mapView.zoomToBoundingBox(BoundingBox.fromGeoPoints(geo), false, 80)
+                }
+                mapView.invalidate()
+            }
+        }
+    }
+
+    DisposableEffect(mapView) {
+        mapView.onResume()
+        onDispose { mapView.onPause() }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        AndroidView(factory = { (mapView.parent as? android.view.ViewGroup)?.removeView(mapView); mapView }, modifier = Modifier.fillMaxSize())
+
+        // Back button
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(12.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                .clickable(onClick = onBack)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Icons.Rounded.ArrowBack, "Back", modifier = Modifier.size(18.dp))
+                Text(trip.name, style = MaterialTheme.typography.labelLarge)
+            }
+        }
+
+        // Zoom controls
+        Column(
+            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))) {
+                IconButton(onClick = { mapView.controller.zoomIn() }, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Rounded.Add, "Zoom in", modifier = Modifier.size(18.dp))
+                }
+            }
+            Box(modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))) {
+                IconButton(onClick = { mapView.controller.zoomOut() }, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Rounded.Remove, "Zoom out", modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+    }
 }
