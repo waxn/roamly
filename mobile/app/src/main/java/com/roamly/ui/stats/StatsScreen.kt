@@ -6,6 +6,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +32,9 @@ import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.TrendingDown
 import androidx.compose.material.icons.rounded.TrendingFlat
 import androidx.compose.material.icons.rounded.TrendingUp
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -40,7 +44,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -51,9 +54,6 @@ import com.roamly.data.api.CountryVisit
 import com.roamly.data.api.PeriodStats
 import com.roamly.data.api.StatsResponse
 import com.roamly.data.api.YearlyOverviewResponse
-import com.roamly.ui.theme.Clay
-import com.roamly.ui.theme.ClayCard
-import com.roamly.ui.theme.ClayIconBadge
 import com.roamly.ui.theme.Teal
 import kotlin.math.max
 
@@ -63,16 +63,15 @@ fun StatsScreen(
     onNavigateToMap: ((String) -> Unit)? = null,
 ) {
     val state by viewModel.uiState.collectAsState()
-    val clay = Clay.colors
 
     Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ClayIconBadge(Icons.Rounded.BarChart, gradient = clay.secondaryGradient, size = 40.dp)
-            Spacer(Modifier.width(12.dp))
-            Text("Stats", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
+            Icon(Icons.Rounded.BarChart, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.width(10.dp))
+            Text("Stats", style = MaterialTheme.typography.headlineSmall)
         }
 
         Box(modifier = Modifier.fillMaxSize()) {
@@ -82,11 +81,30 @@ fun StatsScreen(
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp, 0.dp, 16.dp, 100.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     state.stats?.let { item { SummaryCard(it) } }
                     state.yearly?.let { item { YearlyOverview(it) } }
-                    state.yearly?.let { item { MonthlyBars(it) } }
+                    state.yearly?.let { yearly ->
+                        item {
+                            MonthlyBars(
+                                yearly = yearly,
+                                selectedMonth = state.selectedMonth,
+                                onMonthClick = viewModel::selectMonth,
+                            )
+                        }
+                        if (state.selectedMonth != null) {
+                            item {
+                                MonthDrilldown(
+                                    month = state.selectedMonth!!,
+                                    year = yearly.year,
+                                    data = state.monthDrilldown,
+                                    loading = state.drilldownLoading,
+                                    onDayClick = { dateStr -> onNavigateToMap?.invoke(dateStr) },
+                                )
+                            }
+                        }
+                    }
 
                     if (state.topCountries.isNotEmpty()) {
                         item { SectionHeader("Countries", Icons.Rounded.Public) }
@@ -107,46 +125,54 @@ fun StatsScreen(
 
 @Composable
 private fun SummaryCard(stats: StatsResponse) {
-    val clay = Clay.colors
-    ClayCard {
-        Text("Overview", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
-        Spacer(Modifier.height(14.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            StatBlock("${stats.totalPoints}", "points", Icons.Rounded.Flag, clay.primaryGradient)
-            StatBlock("${stats.countries}", "countries", Icons.Rounded.Public, clay.secondaryGradient)
-            StatBlock("${stats.cities}", "cities", Icons.Rounded.LocationCity, clay.tertiaryGradient)
-            StatBlock("${stats.states}", "states", Icons.Rounded.Place, clay.primaryGradient)
-        }
-        if (stats.firstLocation != null) {
-            Spacer(Modifier.height(14.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.CalendarMonth, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("tracking since ${stats.firstLocation.take(10)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    ElevatedCard {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Overview", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(12.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                StatBlock("${stats.totalPoints}", "points", Icons.Rounded.Flag, MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+                StatBlock("${stats.countries}", "countries", Icons.Rounded.Public, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
+                StatBlock("${stats.cities}", "cities", Icons.Rounded.LocationCity, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+                StatBlock("${stats.states}", "states", Icons.Rounded.Place, MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (stats.firstLocation != null) {
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.CalendarMonth, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("tracking since ${stats.firstLocation.take(10)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun StatBlock(value: String, label: String, icon: ImageVector, gradient: List<Color>) {
+private fun StatBlock(value: String, label: String, icon: ImageVector, containerColor: Color, contentColor: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        ClayIconBadge(icon, gradient = gradient, size = 42.dp, cornerRadius = 14.dp)
-        Spacer(Modifier.height(8.dp))
-        Text(value, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
+        Box(
+            modifier = Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(containerColor),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, null, tint = contentColor, modifier = Modifier.size(20.dp)) }
+        Spacer(Modifier.height(6.dp))
+        Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
 private fun YearlyOverview(yearly: YearlyOverviewResponse) {
-    ClayCard {
-        Text("${yearly.year} overview", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
-        Spacer(Modifier.height(12.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            PeriodBlock("This week", yearly.thisWeek, yearly.lastWeek, Modifier.weight(1f))
-            PeriodBlock("This month", yearly.thisMonth, yearly.lastMonth, Modifier.weight(1f))
-            PeriodBlock("This year", yearly.thisYear, yearly.lastYear, Modifier.weight(1f))
+    ElevatedCard {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("${yearly.year} overview", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(12.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PeriodBlock("This week",  yearly.thisWeek,  yearly.lastWeek,  Modifier.weight(1f))
+                PeriodBlock("This month", yearly.thisMonth, yearly.lastMonth, Modifier.weight(1f))
+                PeriodBlock("This year",  yearly.thisYear,  yearly.lastYear,  Modifier.weight(1f))
+            }
         }
     }
 }
@@ -162,45 +188,120 @@ private fun PeriodBlock(label: String, current: PeriodStats, previous: PeriodSta
     }
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-            .padding(12.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+            .padding(10.dp)
     ) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(4.dp))
-        Text("${current.points}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
+        Text("${current.points}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(deltaIcon, null, tint = deltaColor, modifier = Modifier.size(14.dp))
+            Icon(deltaIcon, null, tint = deltaColor, modifier = Modifier.size(12.dp))
             Spacer(Modifier.width(2.dp))
             Text(pct?.let { "%+.0f%%".format(it) } ?: if (delta == 0) "—" else "+$delta", style = MaterialTheme.typography.labelSmall, color = deltaColor)
         }
-        Spacer(Modifier.height(2.dp))
-        Text("${current.cities}c · ${current.countries}co", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
-private fun MonthlyBars(yearly: YearlyOverviewResponse) {
+private fun MonthlyBars(
+    yearly: YearlyOverviewResponse,
+    selectedMonth: Int?,
+    onMonthClick: (Int) -> Unit,
+) {
     val buckets = yearly.monthlyBreakdown
     if (buckets.isEmpty()) return
-    val clay = Clay.colors
     val maxV = max(1, buckets.maxOf { it.points })
-    ClayCard {
-        Text("${yearly.year} — monthly activity", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onBackground)
-        Spacer(Modifier.height(14.dp))
-        Row(modifier = Modifier.fillMaxWidth().height(120.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            buckets.forEach { b ->
-                val frac = b.points.toFloat() / maxV
-                Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Bottom) {
-                    Box(
+    ElevatedCard {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("${yearly.year} — monthly activity", style = MaterialTheme.typography.titleSmall)
+            Text("tap a month for daily breakdown", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(12.dp))
+            Row(modifier = Modifier.fillMaxWidth().height(100.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                buckets.forEach { b ->
+                    val frac = b.points.toFloat() / maxV
+                    val isSelected = b.month == selectedMonth
+                    Column(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height((frac * 96).dp.coerceAtLeast(4.dp))
-                            .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
-                            .background(Brush.verticalGradient(clay.primaryGradient))
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(monthAbbrev(b.month), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            .weight(1f)
+                            .clickable { onMonthClick(b.month) },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Bottom,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height((frac * 76).dp.coerceAtLeast(3.dp))
+                                .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                                .background(
+                                    if (isSelected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.primaryContainer
+                                )
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            monthAbbrev(b.month),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MonthDrilldown(
+    month: Int,
+    year: Int,
+    data: List<DayCount>,
+    loading: Boolean,
+    onDayClick: (String) -> Unit,
+) {
+    val monthName = java.time.Month.of(month).getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.getDefault())
+    ElevatedCard {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("$monthName $year — daily", style = MaterialTheme.typography.titleSmall)
+            Text("tap a day to view it on the map", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(10.dp))
+            if (loading) {
+                Box(Modifier.fillMaxWidth().height(60.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                }
+            } else {
+                val maxV = max(1, data.maxOfOrNull { it.points } ?: 1)
+                Row(modifier = Modifier.fillMaxWidth().height(70.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    data.forEach { d ->
+                        val frac = d.points.toFloat() / maxV
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable(enabled = d.points > 0) {
+                                    val dateStr = "%04d-%02d-%02d".format(year, month, d.day)
+                                    onDayClick(dateStr)
+                                },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Bottom,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height((frac * 52).dp.coerceAtLeast(if (d.points > 0) 2.dp else 0.dp))
+                                    .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+                                    .background(
+                                        if (d.points > 0) MaterialTheme.colorScheme.secondary
+                                        else Color.Transparent
+                                    )
+                            )
+                            // Show day number only every 5th to avoid crowding
+                            if (d.day % 5 == 0 || d.day == 1) {
+                                Text("${d.day}", style = MaterialTheme.typography.labelSmall.copy(fontSize = androidx.compose.ui.unit.TextUnit(7f, androidx.compose.ui.unit.TextUnitType.Sp)), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -212,69 +313,70 @@ private fun monthAbbrev(month: Int): String = listOf("J","F","M","A","M","J","J"
 @Composable
 private fun SectionHeader(title: String, icon: ImageVector) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp, start = 4.dp)) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+        Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
         Spacer(Modifier.width(8.dp))
-        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onBackground)
+        Text(title, style = MaterialTheme.typography.titleSmall)
     }
 }
 
 @Composable
 private fun CountryRow(country: CountryVisit) {
-    ClayCard(contentPadding = 14.dp) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            ClayIconBadge(Icons.Rounded.Public, gradient = Clay.colors.secondaryGradient, size = 38.dp, cornerRadius = 13.dp)
+    ElevatedCard {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(14.dp)) {
+            Box(
+                modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Rounded.Public, null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(18.dp)) }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(country.country, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onBackground)
+                Text(country.country, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                 Text("${country.cityCount} cities", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text("${country.locationCount} pts", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            Text("${country.locationCount} pts", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         }
     }
 }
 
 @Composable
 private fun CityRow(city: CityVisit) {
-    ClayCard(contentPadding = 14.dp) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            ClayIconBadge(Icons.Rounded.Place, gradient = Clay.colors.tertiaryGradient, size = 38.dp, cornerRadius = 13.dp)
+    ElevatedCard {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(14.dp)) {
+            Box(
+                modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.tertiaryContainer),
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Rounded.Place, null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(18.dp)) }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(city.city, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onBackground)
+                Text(city.city, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                 val sub = listOfNotNull(city.state, city.country).joinToString(", ")
                 if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text("${city.visitCount} visits", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("${city.visitCount} visits", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
-// ── Skeleton loading ─────────────────────────────────────────────────────────
+// ── Skeleton ──────────────────────────────────────────────────────────────────
 
 @Composable
 private fun SkeletonStats() {
     val transition = rememberInfiniteTransition(label = "skeleton")
     val alpha by transition.animateFloat(
-        initialValue = 0.35f, targetValue = 0.8f,
+        initialValue = 0.3f, targetValue = 0.7f,
         animationSpec = infiniteRepeatable(tween(900), repeatMode = RepeatMode.Reverse), label = "a",
     )
-    Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        SkeletonCard(150.dp, alpha)
-        SkeletonCard(140.dp, alpha)
-        SkeletonCard(170.dp, alpha)
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SkeletonCard(140.dp, alpha); SkeletonCard(120.dp, alpha); SkeletonCard(160.dp, alpha)
     }
 }
 
 @Composable
 private fun SkeletonCard(height: androidx.compose.ui.unit.Dp, alpha: Float) {
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(height)
-            .clip(RoundedCornerShape(24.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha * 0.6f))
+        modifier = Modifier.fillMaxWidth().height(height)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
     )
 }

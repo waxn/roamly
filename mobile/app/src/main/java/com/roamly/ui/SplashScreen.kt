@@ -125,18 +125,9 @@ fun SplashScreen(onFinished: () -> Unit) {
 
                 // Moving "current location" dot at the tip
                 if (drawn < 0.98f) {
-                    val pos = FloatArray(2)
-                    measure.getPosition(totalLen * drawn, pos)
-                    drawCircle(
-                        color = Coral,
-                        radius = 8.dp.toPx(),
-                        center = Offset(pos[0], pos[1]),
-                    )
-                    drawCircle(
-                        color = Color.White.copy(alpha = 0.8f),
-                        radius = 3.dp.toPx(),
-                        center = Offset(pos[0], pos[1]),
-                    )
+                    val tipOffset = measure.getPosition(totalLen * drawn)
+                    drawCircle(color = Coral, radius = 8.dp.toPx(), center = tipOffset)
+                    drawCircle(color = Color.White.copy(alpha = 0.8f), radius = 3.dp.toPx(), center = tipOffset)
                 }
             }
         }
