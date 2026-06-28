@@ -17,6 +17,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
+import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -53,8 +54,13 @@ import java.util.*
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
-    onLoggedOut: () -> Unit
+    onLoggedOut: () -> Unit,
 ) {
+    var showDiagnostics by remember { mutableStateOf(false) }
+    if (showDiagnostics) {
+        DiagnosticsScreen(viewModel = viewModel, onBack = { showDiagnostics = false })
+        return
+    }
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val clay = Clay.colors
@@ -503,13 +509,23 @@ fun SettingsScreen(
             Spacer(Modifier.height(12.dp))
             InfoRow(Icons.Rounded.Explore, "App", "Roamly for Android")
             Spacer(Modifier.height(8.dp))
-            // Read the real installed version so it never drifts out of sync with the build.
             val appVersion = remember {
                 runCatching {
                     context.packageManager.getPackageInfo(context.packageName, 0).versionName
                 }.getOrNull() ?: "—"
             }
             InfoRow(Icons.Rounded.Tag, "Version", appVersion)
+            Spacer(Modifier.height(12.dp))
+            ClayButton(
+                onClick = { showDiagnostics = true },
+                gradient = clay.secondaryGradient,
+                contentColor = Color(0xFF052B26),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Rounded.BugReport, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Diagnostics", fontWeight = FontWeight.Bold)
+            }
         }
 
         ClayButton(
