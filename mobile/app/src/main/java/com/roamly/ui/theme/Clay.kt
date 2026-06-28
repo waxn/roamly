@@ -100,10 +100,10 @@ fun ClaySurface(
             .then(
                 if (highlight) Modifier.border(
                     BorderStroke(
-                        1.dp,
+                        0.5.dp,
                         Brush.verticalGradient(
                             listOf(
-                                Color.White.copy(alpha = if (clay.isDark) 0.06f else 0.7f),
+                                Color.White.copy(alpha = if (clay.isDark) 0.04f else 0.5f),
                                 Color.Transparent,
                             )
                         )
@@ -182,7 +182,7 @@ fun ClayButton(
             .clip(shape)
             .background(Brush.verticalGradient(colors))
             .border(
-                BorderStroke(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.35f), Color.Transparent))),
+                BorderStroke(0.5.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.25f), Color.Transparent))),
                 shape,
             )
             .clickable(interactionSource = interaction, indication = ripple(color = Color.White), enabled = enabled, onClick = onClick)
@@ -220,7 +220,7 @@ fun ClayIconBadge(
             .claySoftShadow(cornerRadius, colors.last().copy(alpha = 0.40f), Color.Transparent, depth = 9.dp, drawLight = false)
             .clip(shape)
             .background(Brush.verticalGradient(colors))
-            .border(BorderStroke(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.4f), Color.Transparent))), shape),
+            .border(BorderStroke(0.5.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.3f), Color.Transparent))), shape),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = contentDescription, tint = iconTint, modifier = Modifier.size(size * 0.5f))
