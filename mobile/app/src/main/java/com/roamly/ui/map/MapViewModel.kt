@@ -117,14 +117,16 @@ class MapViewModel @Inject constructor(
             return
         }
         accumulator.clear()
-        _uiState.update { it.copy(timePeriod = period, customDateRange = null) }
+        // Clear any existing focus so the auto-fit in MapScreen fires on the new dataset
+        _uiState.update { it.copy(timePeriod = period, customDateRange = null, focus = null) }
         loadData(showSpinnerIfEmpty = true)
         viewModelScope.launch { loadStats() }
     }
 
     fun setCustomDateRange(range: DateRange) {
         accumulator.clear()
-        _uiState.update { it.copy(timePeriod = TimePeriod.CUSTOM, customDateRange = range, showDateRangePicker = false) }
+        // Clear focus so MapScreen's LaunchedEffect auto-fits the viewport to the new data
+        _uiState.update { it.copy(timePeriod = TimePeriod.CUSTOM, customDateRange = range, showDateRangePicker = false, focus = null) }
         loadData(showSpinnerIfEmpty = true)
     }
 
