@@ -375,7 +375,12 @@ fun MapScreen(
             },
             dismissButton = { TextButton(onClick = viewModel::dismissDateRangePicker) { Text("Cancel") } },
         ) {
-            DateRangePicker(state = pickerState, modifier = Modifier.wrapContentHeight())
+            DateRangePicker(
+                state = pickerState,
+                modifier = Modifier
+                    .wrapContentHeight()
+                    .padding(top = 16.dp),
+            )
         }
     }
 
