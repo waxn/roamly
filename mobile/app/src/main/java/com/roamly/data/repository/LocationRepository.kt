@@ -1,5 +1,6 @@
 package com.roamly.data.repository
 
+import com.roamly.data.api.DiagnosticsResponse
 import com.roamly.data.api.LocationsResponse
 import com.roamly.data.api.RoamlyApi
 import com.roamly.data.api.SearchResponse
@@ -58,4 +59,10 @@ class LocationRepository @Inject constructor(private val api: RoamlyApi) {
     suspend fun search(query: String): Result<SearchResponse> = safeApiCall { api.search(q = query) }
 
     suspend fun getYearlyOverview(): Result<YearlyOverviewResponse> = safeApiCall { api.getYearlyOverview() }
+
+    suspend fun getDiagnostics(deviceId: String?, hours: Int): DiagnosticsResponse {
+        val resp = api.getDiagnostics(deviceId = deviceId?.ifBlank { null }, hours = hours)
+        if (resp.isSuccessful) return resp.body() ?: DiagnosticsResponse()
+        throw Exception("HTTP ${resp.code()}")
+    }
 }

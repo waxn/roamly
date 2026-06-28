@@ -88,6 +88,13 @@ interface RoamlyApi {
     @GET("api/stats/yearly/")
     suspend fun getYearlyOverview(): Response<YearlyOverviewResponse>
 
+    @GET("api/diagnostics/location/")
+    suspend fun getDiagnostics(
+        @Query("device_id") deviceId: String? = null,
+        @Query("hours") hours: Int? = null,
+        @Query("all") all: Int? = null,
+    ): Response<DiagnosticsResponse>
+
     // --- Trips ---
 
     @GET("api/trips/")

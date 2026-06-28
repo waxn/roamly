@@ -376,6 +376,62 @@ data class JournalPhotosResponse(
     val photos: List<JournalPhoto> = emptyList(),
 )
 
+// --- Diagnostics ---
+
+data class DiagGaps(
+    @SerializedName("min_s")    val minS: Double? = null,
+    @SerializedName("max_s")    val maxS: Double? = null,
+    @SerializedName("avg_s")    val avgS: Double? = null,
+    @SerializedName("median_s") val medianS: Double? = null,
+    @SerializedName("p90_s")    val p90S: Double? = null,
+    @SerializedName("over_60s")  val over60: Int = 0,
+    @SerializedName("over_300s") val over300: Int = 0,
+    @SerializedName("over_900s") val over900: Int = 0,
+)
+
+data class DiagAccuracy(
+    val min: Double? = null,
+    val max: Double? = null,
+    val avg: Double? = null,
+    val missing: Int = 0,
+    @SerializedName("under_20")  val under20: Int = 0,
+    @SerializedName("under_50")  val under50: Int = 0,
+    @SerializedName("over_100")  val over100: Int = 0,
+)
+
+data class DiagSpeed(
+    @SerializedName("min_ms") val minMs: Double? = null,
+    @SerializedName("max_ms") val maxMs: Double? = null,
+    @SerializedName("avg_ms") val avgMs: Double? = null,
+    val missing: Int = 0,
+)
+
+data class DiagBattery(val min: Int? = null, val max: Int? = null)
+
+data class DiagTimeline(
+    val points: List<Int> = emptyList(),
+    val coverage: List<Double> = emptyList(),
+)
+
+data class DiagSpan(
+    val start: String? = null,
+    val end: String? = null,
+    val human: String? = null,
+)
+
+data class DiagnosticsResponse(
+    val count: Int = 0,
+    val error: String? = null,
+    @SerializedName("points_per_hour") val pointsPerHour: Double? = null,
+    @SerializedName("distance_km")     val distanceKm: Double? = null,
+    val span: DiagSpan = DiagSpan(),
+    val timeline: DiagTimeline = DiagTimeline(),
+    val gaps: DiagGaps = DiagGaps(),
+    val accuracy: DiagAccuracy = DiagAccuracy(),
+    val speed: DiagSpeed = DiagSpeed(),
+    val battery: DiagBattery = DiagBattery(),
+)
+
 // --- Search ---
 
 data class SearchCity(

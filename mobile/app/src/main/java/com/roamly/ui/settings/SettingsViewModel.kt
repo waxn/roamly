@@ -5,8 +5,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import com.roamly.data.api.DiagnosticsResponse
 import com.roamly.data.cache.DiskCache
 import com.roamly.data.prefs.UserPreferences
+import com.roamly.data.repository.LocationRepository
 import com.roamly.tracking.CsvPointLogger
 import com.roamly.tracking.LocationTrackingService
 import com.roamly.tracking.TrackingCoordinator
@@ -56,6 +58,7 @@ class SettingsViewModel @Inject constructor(
     private val disk: DiskCache,
     private val store: com.roamly.data.local.LocationStore,
     private val authRepository: com.roamly.data.repository.AuthRepository,
+    private val locationRepository: LocationRepository,
     private val db: com.roamly.tracking.TrackingDatabase,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
@@ -229,6 +232,21 @@ class SettingsViewModel @Inject constructor(
 
     fun setDarkMode(enabled: Boolean) {
         viewModelScope.launch { prefs.setDarkMode(enabled) }
+    }
+
+    fun fetchDiagnostics(
+        deviceId: String?,
+        hours: Int,
+        onResult: (DiagnosticsResponse?, String?) -> Unit,
+    ) {
+        viewModelScope.launch {
+            try {
+                val result = locationRepository.getDiagnostics(deviceId, hours)
+                onResult(result, null)
+            } catch (e: Exception) {
+                onResult(null, e.message ?: "Failed to load diagnostics")
+            }
+        }
     }
 
     fun logout(onLoggedOut: () -> Unit) {
