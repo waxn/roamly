@@ -336,9 +336,13 @@ fun DiagnosticsScreen(
                                 color = MaterialTheme.colorScheme.primary,
                                 fontFamily = FontFamily.Monospace,
                                 modifier = Modifier.clickable {
+                                    val file = java.io.File(state.csvPath)
+                                    if (!file.exists()) {
+                                        // File doesn't exist yet — nothing to open
+                                        android.widget.Toast.makeText(context, "No CSV log yet — start tracking to create one", android.widget.Toast.LENGTH_SHORT).show()
+                                        return@clickable
+                                    }
                                     runCatching {
-                                        val file = java.io.File(state.csvPath)
-                                        if (!file.exists()) return@clickable
                                         val uri = androidx.core.content.FileProvider.getUriForFile(
                                             context,
                                             "${context.packageName}.fileprovider",
@@ -354,6 +358,8 @@ fun DiagnosticsScreen(
                                                 "Share CSV log",
                                             ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                         )
+                                    }.onFailure {
+                                        android.widget.Toast.makeText(context, "Could not open: ${it.message}", android.widget.Toast.LENGTH_SHORT).show()
                                     }
                                 },
                             )
