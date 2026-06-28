@@ -16,10 +16,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.CircularProgressIndicator
@@ -66,8 +71,9 @@ fun SearchScreen(
                     onValueChange = viewModel::onQueryChange,
                     modifier = Modifier.weight(1f),
                     singleLine = true,
+                    shape = RoundedCornerShape(24.dp),
                     leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-                    placeholder = { Text("city, place, or date") },
+                    placeholder = { Text("City, place, or date") },
                 )
                 IconButton(onClick = onClose) {
                     Icon(Icons.Rounded.Close, contentDescription = "close")
@@ -84,10 +90,11 @@ fun SearchScreen(
                 }
                 !state.hasSearched -> CenterBox {
                     Text(
-                        "search your history by city, place name, or a date like \"may 2026\"",
+                        "Search your history by city, place name, or a date like \"May 2026\"",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 32.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     )
                 }
                 else -> {
@@ -97,7 +104,7 @@ fun SearchScreen(
                     if (places.isEmpty() && days.isEmpty()) {
                         CenterBox {
                             Text(
-                                "no matches for \"${state.query}\"",
+                                "No matches for \"${state.query}\"",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -108,13 +115,13 @@ fun SearchScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             if (places.isNotEmpty()) {
-                                item { SectionLabel("places") }
+                                item { SectionLabel("Places") }
                                 items(places) { place ->
-                                    PlaceRow(place) { onPlaceClick(place.lat, place.lng) }
+                                    PlaceRow(place, onDayClick = onDayClick) { onPlaceClick(place.lat, place.lng) }
                                 }
                             }
                             if (days.isNotEmpty()) {
-                                item { SectionLabel("days${if (onDayClick != null) " · tap to view on map" else ""}") }
+                                item { SectionLabel("Days${if (onDayClick != null) " · tap to view on map" else ""}") }
                                 items(days) { day -> DayRow(day, onClick = if (onDayClick != null) ({ onDayClick(day) }) else null) }
                             }
                         }
@@ -137,25 +144,59 @@ private fun SectionLabel(text: String) {
 }
 
 @Composable
-private fun PlaceRow(place: SearchPlace, onClick: () -> Unit) {
+private fun PlaceRow(
+    place: SearchPlace,
+    onDayClick: ((SearchDay) -> Unit)?,
+    onClick: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
     Surface(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
         shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Rounded.Place, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(place.placeName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                Text(
-                    "${place.days.size} days · ${place.totalPoints} pts",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        if (place.days.isNotEmpty() && onDayClick != null) expanded = !expanded
+                        else onClick()
+                    }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Rounded.Place, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(place.placeName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    Text(
+                        "${place.days.size} days · ${place.totalPoints} pts${if (place.days.isNotEmpty() && onDayClick != null) " — tap to see days" else ""}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (place.days.isNotEmpty() && onDayClick != null) {
+                    Icon(
+                        if (expanded) Icons.Rounded.KeyboardArrowDown else Icons.Rounded.ChevronRight,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (expanded && place.days.isNotEmpty() && onDayClick != null) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 40.dp, end = 8.dp, bottom = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    place.days.forEach { day ->
+                        DayRow(day, onClick = { onDayClick(day) })
+                    }
+                }
             }
         }
     }

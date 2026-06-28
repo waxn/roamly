@@ -241,7 +241,12 @@ fun MapScreen(
                 Text(state.periodLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onBackground)
                 Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            DropdownMenu(expanded = showTimeMenu, onDismissRequest = { showTimeMenu = false }) {
+            DropdownMenu(
+                expanded = showTimeMenu,
+                onDismissRequest = { showTimeMenu = false },
+                shape = RoundedCornerShape(16.dp),
+                offset = androidx.compose.ui.unit.DpOffset(0.dp, 4.dp),
+            ) {
                 TimePeriod.entries.forEach { period ->
                     DropdownMenuItem(
                         text = { Text(if (period == TimePeriod.CUSTOM) "Custom range…" else period.label) },
@@ -284,7 +289,7 @@ fun MapScreen(
             ) {
                 CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
-                Text("loading detail…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Loading detail…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
 
@@ -314,7 +319,7 @@ fun MapScreen(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Icon(Icons.Rounded.MyLocation, contentDescription = null, modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                Text("have i been here?", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text("Have I been here?", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
         }
 
@@ -401,12 +406,12 @@ fun MapScreen(
     if (checkingHere) {
         AlertDialog(
             onDismissRequest = { checkingHere = false },
-            title = { Text("been here before?") },
+            title = { Text("Have you been here?") },
             text = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(14.dp))
-                    Text("checking your history at this spot…")
+                    Text("Checking your history at this spot…")
                 }
             },
             confirmButton = {},
@@ -416,9 +421,9 @@ fun MapScreen(
     nearHereError?.let { msg ->
         AlertDialog(
             onDismissRequest = { nearHereError = null },
-            title = { Text("been here before?") },
+            title = { Text("Have you been here?") },
             text = { Text(msg) },
-            confirmButton = { TextButton(onClick = { nearHereError = null }) { Text("ok") } },
+            confirmButton = { TextButton(onClick = { nearHereError = null }) { Text("OK") } },
         )
     }
 
@@ -500,35 +505,35 @@ private fun NearHereDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("been here before?") },
+        title = { Text("Have you been here?") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 when {
                     result.days.isNotEmpty() -> {
                         val closest = result.closestMeters?.let { "${it.toInt()} m away" } ?: ""
                         ResultHeader(
-                            "yes — you've been right here",
+                            "Yes — you've been right here",
                             "${result.veryCloseDays} day${if (result.veryCloseDays != 1) "s" else ""}${if (closest.isNotEmpty()) " · closest $closest" else ""}",
                             MaterialTheme.colorScheme.secondary,
                         )
                     }
                     result.totalRegionPoints > 0 ->
                         ResultHeader(
-                            "in this area, but not this exact spot",
+                            "In this area, but not this exact spot",
                             "${result.totalRegionPoints} past points in ${result.region ?: "this region"}",
                             MaterialTheme.colorScheme.primary,
                         )
                     else ->
-                        ResultHeader("first time here", "no past points nearby", MaterialTheme.colorScheme.onSurface)
+                        ResultHeader("First time here", "No past points nearby", MaterialTheme.colorScheme.onSurface)
                 }
 
                 result.region?.let {
-                    Text("region: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Region: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
 
                 if (result.days.isNotEmpty()) {
                     HorizontalDivider()
-                    Text("past visits · tap to go there", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Past visits — tap to go there", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         result.days.take(PREVIEW_DAYS).forEach { day ->
                             DayRow(day, onClick = { onDayClick(day) })
@@ -536,14 +541,14 @@ private fun NearHereDialog(
                     }
                     if (result.days.size > PREVIEW_DAYS) {
                         TextButton(onClick = onShowAll, modifier = Modifier.fillMaxWidth()) {
-                            Text("show all ${result.days.size} visits")
+                            Text("Show all ${result.days.size} visits")
                             Icon(Icons.Rounded.ChevronRight, contentDescription = null, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("close") } }
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
     )
 }
 
@@ -560,16 +565,16 @@ private fun AllDaysScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, contentDescription = "back") }
+                IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, contentDescription = "Back") }
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("all visits to this spot", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("All visits to this spot", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
                         "${result.days.size} days${result.region?.let { " · $it" } ?: ""}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                TextButton(onClick = onClose) { Text("close") }
+                TextButton(onClick = onClose) { Text("Close") }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
             LazyColumn(
