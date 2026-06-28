@@ -36,6 +36,20 @@ interface SyncedLocationDao {
     )
     suspend fun inPeriodDecimated(sinceMs: Long, stride: Int): List<SyncedLocation>
 
+    /**
+     * Movement-aware overview: keep every point the device logged as moving
+     * (speed >= [moveThresh] — the tracker floors stationary jitter to exactly 0,
+     * so any positive speed is real motion) plus a [stride]-decimated sample of the
+     * rest. This keeps walks and drives dense while still thinning the thousands of
+     * points piled up at home, so a beach stroll no longer gaps out at the same
+     * harsh stride as the place you sat still in.
+     */
+    @Query(
+        "SELECT * FROM synced_locations WHERE timestampMs >= :sinceMs AND " +
+            "(speed >= :moveThresh OR (id % :stride) = 0) ORDER BY timestampMs ASC"
+    )
+    suspend fun inPeriodMovementAware(sinceMs: Long, stride: Int, moveThresh: Double): List<SyncedLocation>
+
     /** Full-resolution points inside a viewport, within a time window. */
     @Query(
         "SELECT * FROM synced_locations WHERE timestampMs >= :sinceMs AND " +

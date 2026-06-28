@@ -33,6 +33,10 @@ private const val MAX_PAGES = 2_000
 private const val OVERLAP_MS = 2_000L
 /** Don't re-run a sync more often than this from the convenience entry point. */
 private const val SYNC_THROTTLE_MS = 30_000L
+/** Speed (m/s) at or above which an overview point is treated as "moving" and
+ *  always kept. The tracker floors stationary jitter to exactly 0, so any positive
+ *  speed means real motion — this just has to sit above 0. */
+private const val MOVE_THRESHOLD_MPS = 0.5
 
 data class SyncState(
     val syncing: Boolean = false,
@@ -147,7 +151,16 @@ class LocationStore @Inject constructor(
         val total = dao.countInPeriod(sinceMs)
         val rows = if (total > maxPoints) {
             val stride = (total / maxPoints).coerceAtLeast(2)
-            dao.inPeriodDecimated(sinceMs, stride)
+            // Keep moving points + a strided sample of the rest so walks stay dense
+            // and sedentary spots stay thin. If movement alone still overflows the
+            // cap (e.g. a very long drive), apply a second uniform stride in memory.
+            val moving = dao.inPeriodMovementAware(sinceMs, stride, MOVE_THRESHOLD_MPS)
+            if (moving.size > maxPoints) {
+                val stride2 = (moving.size / maxPoints).coerceAtLeast(2)
+                moving.filterIndexed { i, _ -> i % stride2 == 0 }
+            } else {
+                moving
+            }
         } else {
             dao.inPeriod(sinceMs)
         }
