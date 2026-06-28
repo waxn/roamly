@@ -47,6 +47,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,12 +57,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.viewinterop.AndroidView
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.BoundingBox
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Polyline
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -72,7 +76,6 @@ import com.roamly.ui.theme.Clay
 import com.roamly.ui.theme.ClayCard
 import com.roamly.ui.theme.ClayIconBadge
 import com.roamly.ui.theme.Coral
-import com.roamly.ui.theme.Teal
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -236,7 +239,7 @@ private fun DayCell(day: Int, entry: JournalListItem?, isToday: Boolean, onClick
             .fillMaxSize()
             .clip(RoundedCornerShape(12.dp))
             .then(
-                if (hasEntry) Modifier.background(Brush.verticalGradient(clay.tertiaryGradient))
+                if (hasEntry) Modifier.background(MaterialTheme.colorScheme.tertiaryContainer)
                 else if (isToday) Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
                 else Modifier
             )
@@ -278,7 +281,7 @@ private fun RecentRow(entry: JournalListItem, cover: String?, onClick: () -> Uni
             } else {
                 Box(
                     modifier = Modifier.size(48.dp).clip(RoundedCornerShape(12.dp))
-                        .background(Brush.verticalGradient(Clay.colors.tertiaryGradient)),
+                        .background(MaterialTheme.colorScheme.tertiaryContainer),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(entry.mood.ifBlank { "📝" }, style = MaterialTheme.typography.titleMedium)
@@ -439,8 +442,8 @@ private fun EmojiChip(emoji: String, selected: Boolean, onClick: () -> Unit) {
             .size(44.dp)
             .clip(RoundedCornerShape(14.dp))
             .background(
-                if (selected) Brush.verticalGradient(Clay.colors.tertiaryGradient)
-                else Brush.verticalGradient(listOf(Clay.colors.surfaceTop, Clay.colors.surfaceBottom))
+                if (selected) MaterialTheme.colorScheme.tertiaryContainer
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
             )
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -449,87 +452,85 @@ private fun EmojiChip(emoji: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** The day's GPS track drawn straight on a Canvas (no map tiles needed). */
+/** Day track map — real osmdroid tiles + teal polyline, same as the adventure view. */
 @Composable
 private fun TrackCard(track: JournalTrack, onExpand: (() -> Unit)? = null) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val mapView = remember {
+        Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
+        Configuration.getInstance().userAgentValue = "Roamly/1.0"
+        Configuration.getInstance().osmdroidBasePath = context.cacheDir
+        Configuration.getInstance().osmdroidTileCache = java.io.File(context.cacheDir, "osmdroid_tiles").apply { mkdirs() }
+        MapView(context).apply {
+            setTileSource(TileSourceFactory.MAPNIK)
+            setMultiTouchControls(true)
+            setDestroyMode(false)
+            controller.setZoom(12.0)
+        }
+    }
+
+    LaunchedEffect(track) {
+        mapView.overlays.clear()
+        if (track.points.size >= 2) {
+            // Points are [lng, lat] pairs
+            val geo = track.points.map { p -> GeoPoint(p[1], p[0]) }
+            val line = Polyline(mapView).apply {
+                setPoints(geo)
+                outlinePaint.color = android.graphics.Color.rgb(45, 212, 191) // Teal
+                outlinePaint.strokeWidth = 7f
+                outlinePaint.isAntiAlias = true
+            }
+            mapView.overlays.add(line)
+            mapView.post {
+                runCatching {
+                    mapView.zoomToBoundingBox(BoundingBox.fromGeoPoints(geo), false, 48)
+                }
+                mapView.invalidate()
+            }
+        }
+    }
+
+    DisposableEffect(mapView) {
+        mapView.onResume()
+        onDispose { mapView.onPause() }
+    }
+
     ClayCard(contentPadding = 0.dp, onClick = onExpand) {
-        Box(modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
-            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                val pts = track.points
-                if (pts.size < 2) return@Canvas
-                // pts are [lng, lat] pairs from the server
-                val lngs = pts.map { p -> p[0] }
-                val lats = pts.map { p -> p[1] }
-                val minLng = lngs.min(); val maxLng = lngs.max()
-                val minLat = lats.min(); val maxLat = lats.max()
-                val spanLng = (maxLng - minLng).coerceAtLeast(1e-6)
-                val spanLat = (maxLat - minLat).coerceAtLeast(1e-6)
-                // Scale uniformly to fit canvas, preserving aspect ratio
-                val scaleToFit = minOf(size.width / spanLng.toFloat(), size.height / spanLat.toFloat()) * 0.9f
-                val drawW = (spanLng * scaleToFit)
-                val drawH = (spanLat * scaleToFit)
-                val offX = (size.width - drawW) / 2f
-                val offY = (size.height - drawH) / 2f
-                fun px(lng: Double, lat: Double): Offset = Offset(
-                    ((lng - minLng) / spanLng * drawW + offX).toFloat(),
-                    (size.height - ((lat - minLat) / spanLat * drawH + offY)).toFloat(),
-                )
-                // Draw path with gap detection: break the path when consecutive
-                // points are far apart to avoid crossing lines on multi-segment days
-                val gapThresholdPx = minOf(size.width, size.height) * 0.25f
-                var pathStarted = false
-                val path = Path()
-                for (i in pts.indices) {
-                    val o = px(pts[i][0], pts[i][1])
-                    if (i == 0) {
-                        path.moveTo(o.x, o.y)
-                        pathStarted = true
-                    } else {
-                        val prev = px(pts[i - 1][0], pts[i - 1][1])
-                        val dx = o.x - prev.x; val dy = o.y - prev.y
-                        if (kotlin.math.sqrt(dx * dx + dy * dy) > gapThresholdPx) {
-                            path.moveTo(o.x, o.y)
-                        } else {
-                            path.lineTo(o.x, o.y)
-                        }
-                        pathStarted = true
+        Box(modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(16.dp))) {
+            AndroidView(factory = { (mapView.parent as? android.view.ViewGroup)?.removeView(mapView); mapView }, modifier = Modifier.fillMaxSize())
+
+            // Stats overlay at the bottom (semi-transparent scrim)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TrackStat("${"%.1f".format(track.distanceKm)} km", "distance")
+                    TrackStat("${track.pointCount}", "points")
+                    if (track.cities.isNotEmpty()) TrackStat("${track.cities.size}", "places")
+                    Spacer(Modifier.weight(1f))
+                    if (onExpand != null) {
+                        Text("open map ↗", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     }
                 }
-                drawPath(path, color = Teal, style = Stroke(width = 5f, cap = StrokeCap.Round))
-                val first = px(pts.first()[0], pts.first()[1])
-                val last = px(pts.last()[0], pts.last()[1])
-                drawCircle(Color(0xFF3B82F6), radius = 8f, center = first)
-                drawCircle(Coral, radius = 8f, center = last)
             }
-            Row(
-                modifier = Modifier.align(Alignment.BottomStart).padding(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                TrackStat("${"%.1f".format(track.distanceKm)} km", "distance")
-                TrackStat("${track.pointCount}", "points")
-                if (track.cities.isNotEmpty()) TrackStat("${track.cities.size}", "places")
-            }
-            if (onExpand != null) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(12.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                ) {
-                    Text("open map ↗", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                }
-            }
+
             if (track.cities.isNotEmpty()) {
                 Row(
-                    modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
+                    modifier = Modifier.align(Alignment.TopStart)
+                        .padding(8.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Rounded.Place, null, tint = Coral, modifier = Modifier.size(14.dp))
+                    Icon(Icons.Rounded.Place, null, tint = Coral, modifier = Modifier.size(12.dp))
                     Spacer(Modifier.width(4.dp))
                     Text(track.cities.joinToString(" · "), style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
