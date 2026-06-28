@@ -96,6 +96,14 @@ private const val MAX_MEDIUM_RETRIES = 3
 // standing-still track shows 0, not a misleading 0.3 mph drift.
 private const val MIN_LOGGED_SPEED_MPS = 0.45f  // ≈ 1 mph (0.44704 m/s)
 
+// GPS occasionally reports a wildly inflated instantaneous speed (e.g. 20 mph while
+// walking) even though the fix lands where you actually are. When the reported speed
+// dwarfs the speed implied by how far we moved from the previous fix, it's a sensor
+// glitch — substitute the displacement-derived speed. The delta floor keeps us from
+// "correcting" tiny low-speed wobble where the ratio is noisy.
+private const val SPEED_SPIKE_FACTOR = 2.5f
+private const val SPEED_SPIKE_MIN_DELTA_MPS = 3.0f  // ≈ 6.7 mph
+
 const val ACTION_STOP     = "com.roamly.STOP"
 const val ACTION_PAUSE    = "com.roamly.PAUSE"
 const val ACTION_RESUME   = "com.roamly.RESUME"
@@ -785,6 +793,13 @@ class LocationTrackingService : Service() {
         val bm = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
         val battery = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).takeIf { it >= 0 }
 
+        // Speed implied by how far we actually moved since the last accepted fix —
+        // a sanity check against GPS speed glitches. lastAcceptedLocation is still
+        // the *previous* fix here (it's advanced to `loc` after this point is built).
+        val movedSpeed: Float? = lastAcceptedLocation?.let { prev ->
+            val dtSec = (loc.time - prev.time) / 1000.0
+            if (dtSec > 0) (loc.distanceTo(prev) / dtSec).toFloat() else null
+        }
         val point = CachedPoint(
             latitude  = loc.latitude,
             longitude = loc.longitude,
@@ -792,8 +807,13 @@ class LocationTrackingService : Service() {
             altitude  = if (loc.hasAltitude()) loc.altitude else null,
             speed     = when {
                 !loc.hasSpeed()                    -> null
-                loc.speed >= MIN_LOGGED_SPEED_MPS  -> loc.speed
-                else                               -> 0f   // stationary: drop GPS jitter speed
+                loc.speed < MIN_LOGGED_SPEED_MPS   -> 0f   // stationary: drop GPS jitter speed
+                // Reported speed dwarfs what our displacement supports → sensor
+                // glitch (e.g. "walking but 20 mph"); use the displacement speed.
+                movedSpeed != null &&
+                    loc.speed > movedSpeed * SPEED_SPIKE_FACTOR &&
+                    loc.speed - movedSpeed > SPEED_SPIKE_MIN_DELTA_MPS -> movedSpeed
+                else                               -> loc.speed
             },
             battery   = battery,
             timestamp = loc.time,
