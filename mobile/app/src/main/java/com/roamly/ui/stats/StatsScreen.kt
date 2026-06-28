@@ -1,6 +1,7 @@
 package com.roamly.ui.stats
 
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.foundation.Canvas
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -268,37 +269,50 @@ private fun MonthDrilldown(
             Text("tap a day to view it on the map", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(10.dp))
             if (loading) {
-                Box(Modifier.fillMaxWidth().height(60.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                 }
             } else {
                 val maxV = max(1, data.maxOfOrNull { it.points } ?: 1)
-                Row(modifier = Modifier.fillMaxWidth().height(70.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                val chartH = 72.dp
+                val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                val barColor = MaterialTheme.colorScheme.secondary
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    // Canvas: grid lines + bars
+                    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxWidth().height(chartH)) {
+                        val w = size.width; val h = size.height
+                        val n = data.size.coerceAtLeast(1)
+                        val barW = w / n; val gap = barW * 0.15f
+                        listOf(0.25f, 0.5f, 0.75f, 1f).forEach { pct ->
+                            val y = h * (1f - pct)
+                            drawLine(gridColor, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(w, y), 1f)
+                        }
+                        data.forEachIndexed { i, d ->
+                            val bH = (d.points.toFloat() / maxV * h).coerceAtLeast(if (d.points > 0) 2f else 0f)
+                            drawRect(barColor, androidx.compose.ui.geometry.Offset(i * barW + gap / 2f, h - bH), androidx.compose.ui.geometry.Size(barW - gap, bH))
+                        }
+                    }
+                    // Transparent tap targets on top of Canvas
+                    Row(modifier = Modifier.fillMaxWidth().height(chartH)) {
+                        data.forEach { d ->
+                            Box(modifier = Modifier.weight(1f).fillMaxSize().clickable(enabled = d.points > 0) {
+                                onDayClick("%04d-%02d-%02d".format(year, month, d.day))
+                            })
+                        }
+                    }
+                }
+                // Day labels row — separate so they never push bars
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 2.dp)) {
                     data.forEach { d ->
-                        val frac = d.points.toFloat() / maxV
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable(enabled = d.points > 0) {
-                                    val dateStr = "%04d-%02d-%02d".format(year, month, d.day)
-                                    onDayClick(dateStr)
-                                },
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Bottom,
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height((frac * 52).dp.coerceAtLeast(if (d.points > 0) 2.dp else 0.dp))
-                                    .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
-                                    .background(
-                                        if (d.points > 0) MaterialTheme.colorScheme.secondary
-                                        else Color.Transparent
-                                    )
-                            )
-                            // Show day number only every 5th to avoid crowding
-                            if (d.day % 5 == 0 || d.day == 1) {
-                                Text("${d.day}", style = MaterialTheme.typography.labelSmall.copy(fontSize = androidx.compose.ui.unit.TextUnit(7f, androidx.compose.ui.unit.TextUnitType.Sp)), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                            if (d.day == 1 || d.day % 7 == 0) {
+                                Text(
+                                    "${d.day}",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = androidx.compose.ui.unit.TextUnit(7f, androidx.compose.ui.unit.TextUnitType.Sp)
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
                         }
                     }
