@@ -793,7 +793,12 @@ def track_api(request):
     """
     MAX_POINTS = 4000
     STATIONARY_MIN_INTERVAL_S = 600
-    MOVEMENT_DISTANCE_M = 60
+    # Movement is measured as displacement from the last KEPT point (the anchor),
+    # not from the immediately previous point. That separates a slow walk (which
+    # keeps drifting away from the anchor) from stationary GPS jitter (which orbits
+    # it), so the threshold can be small enough to preserve a stroll without
+    # re-densifying a place you just sat still in.
+    MOVEMENT_DISTANCE_M = 20
     MOVEMENT_SPEED_MPS = 1.1
     STATIONARY_GAP_FORCE_KEEP_S = 1800
 
@@ -873,33 +878,45 @@ def track_api(request):
             sampled = pts
         else:
             sampled = [pts[0]]
-            last_kept_stationary_ts = pts[0]['ts']
+            anchor = pts[0]            # last point we kept; movement is measured from here
+            last_kept_ts = pts[0]['ts']
 
             for i in range(1, total):
                 prev = pts[i - 1]
                 cur = pts[i]
 
                 dt = max(0, cur['ts'] - prev['ts'])
-                dist_m = _haversine_km(prev['c'][1], prev['c'][0], cur['c'][1], cur['c'][0]) * 1000
+                # Net displacement from the anchor decides "did I actually go
+                # somewhere"; the step distance from the previous point only feeds
+                # the speed fallback.
+                dist_anchor_m = _haversine_km(anchor['c'][1], anchor['c'][0], cur['c'][1], cur['c'][0]) * 1000
+                step_m = _haversine_km(prev['c'][1], prev['c'][0], cur['c'][1], cur['c'][0]) * 1000
+
+                # The phone floors slow-walk speed to 0, so a stored 0 means
+                # "unknown", not "stationary" — fall back to the computed speed in
+                # that case so a stroll isn't mistaken for sitting still.
                 speed_mps = cur.get('speed')
-                if speed_mps is None and dt > 0:
-                    speed_mps = dist_m / dt
+                if (speed_mps is None or speed_mps == 0) and dt > 0:
+                    speed_mps = step_m / dt
 
                 is_moving = (
-                    dist_m >= MOVEMENT_DISTANCE_M
+                    dist_anchor_m >= MOVEMENT_DISTANCE_M
                     or (speed_mps is not None and speed_mps >= MOVEMENT_SPEED_MPS)
                 )
 
                 if is_moving:
                     sampled.append(cur)
+                    anchor = cur
+                    last_kept_ts = cur['ts']
                     continue
 
                 if (
-                    cur['ts'] - last_kept_stationary_ts >= STATIONARY_MIN_INTERVAL_S
+                    cur['ts'] - last_kept_ts >= STATIONARY_MIN_INTERVAL_S
                     or dt >= STATIONARY_GAP_FORCE_KEEP_S
                 ):
                     sampled.append(cur)
-                    last_kept_stationary_ts = cur['ts']
+                    anchor = cur
+                    last_kept_ts = cur['ts']
 
             # Always include the final point so the line ends at the latest fix
             if sampled[-1] is not pts[-1]:
