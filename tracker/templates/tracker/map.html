@@ -1007,7 +1007,10 @@ function updateDetailControls() {
     const btn = document.getElementById('map-load-more-btn');
 
     const zoom = map.getZoom();
-    const showPanel = zoom >= DETAIL_MIN_ZOOM && lastTrackData.length > 0 && (detailLoading || lastViewportHitLimit);
+    // Show the manual override whenever we're zoomed in with data on screen — not
+    // only in "dense area" hits. A sparse walk never trips the limit flag, but the
+    // user still wants a one-tap way to force every point in view to load.
+    const showPanel = zoom >= DETAIL_MIN_ZOOM && lastTrackData.length > 0;
     panel.style.display = showPanel ? 'flex' : 'none';
     if (!showPanel) return;
 
@@ -1018,7 +1021,9 @@ function updateDetailControls() {
     }
 
     btn.disabled = false;
-    hint.textContent = `${accMap.size.toLocaleString()} pts loaded · dense area`;
+    hint.textContent = lastViewportHitLimit
+        ? `${accMap.size.toLocaleString()} pts loaded · dense area`
+        : `${accMap.size.toLocaleString()} pts loaded`;
 }
 
 function isViewportCovered(b) {
