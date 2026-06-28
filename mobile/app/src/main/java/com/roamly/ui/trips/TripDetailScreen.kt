@@ -121,14 +121,14 @@ fun TripDetailScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(26.dp))
-                                    .background(Brush.linearGradient(clay.primaryGradient))
+                                    .background(MaterialTheme.colorScheme.primaryContainer)
                                     .padding(20.dp)
                             ) {
                                 Column {
-                                    Text(trip.name, style = MaterialTheme.typography.headlineSmall, color = Color.White, fontWeight = FontWeight.Bold)
+                                    Text(trip.name, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onPrimaryContainer, fontWeight = FontWeight.Bold)
                                     trip.description?.takeIf { it.isNotBlank() }?.let {
                                         Spacer(Modifier.height(4.dp))
-                                        Text(it, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f))
+                                        Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
                                     }
                                     Spacer(Modifier.height(12.dp))
                                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -194,7 +194,7 @@ fun TripDetailScreen(
                 .padding(end = 20.dp, bottom = 24.dp)
                 .size(60.dp)
                 .clip(RoundedCornerShape(22.dp))
-                .background(Brush.verticalGradient(clay.primaryGradient))
+                .background(MaterialTheme.colorScheme.primary)
                 .clickable { viewModel.showAddTypeDialog() },
             contentAlignment = Alignment.Center,
         ) {
@@ -317,8 +317,8 @@ private fun ClayBackButton(onBack: () -> Unit) {
 @Composable
 private fun HeroStat(value: String, label: String) {
     Column {
-        Text(value, style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.Bold)
-        if (label.isNotEmpty()) Text(label, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.85f))
+        Text(value, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer, fontWeight = FontWeight.Bold)
+        if (label.isNotEmpty()) Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f))
     }
 }
 
@@ -398,12 +398,11 @@ private fun BlurbCard(
 
 @Composable
 private fun Avatar(name: String?) {
-    val clay = Clay.colors
     Box(
-        modifier = Modifier.size(34.dp).clip(CircleShape).background(Brush.linearGradient(clay.tertiaryGradient)),
+        modifier = Modifier.size(34.dp).clip(CircleShape).background(MaterialTheme.colorScheme.tertiaryContainer),
         contentAlignment = Alignment.Center,
     ) {
-        Text(name?.firstOrNull()?.uppercaseChar()?.toString() ?: "?", style = MaterialTheme.typography.labelMedium, color = Color.White, fontWeight = FontWeight.Bold)
+        Text(name?.firstOrNull()?.uppercaseChar()?.toString() ?: "?", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onTertiaryContainer, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -431,16 +430,16 @@ private fun MilestoneCard(event: TimelineEvent) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(22.dp))
-            .background(Brush.linearGradient(clay.secondaryGradient))
+            .background(MaterialTheme.colorScheme.secondaryContainer)
             .padding(16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(event.emoji ?: "🏆", style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.width(14.dp))
             Column {
-                Text(event.title ?: "", style = MaterialTheme.typography.titleSmall, color = Color(0xFF052B26), fontWeight = FontWeight.Bold)
+                Text(event.title ?: "", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSecondaryContainer, fontWeight = FontWeight.Bold)
                 event.description?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = Color(0xFF052B26).copy(alpha = 0.85f))
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f))
                 }
                 event.date?.let { Text(it.take(10), style = MaterialTheme.typography.labelSmall, color = Color(0xFF052B26).copy(alpha = 0.7f)) }
             }

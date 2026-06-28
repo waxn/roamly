@@ -70,12 +70,8 @@ fun LoginScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(clay.backgroundBrush)
+            .background(MaterialTheme.colorScheme.background)
     ) {
-        // A couple of soft brand blobs floating behind the card for depth.
-        BrandBlob(Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 24.dp), clay.primaryGradient, 150.dp)
-        BrandBlob(Modifier.align(Alignment.BottomStart).padding(bottom = 80.dp, start = 8.dp), clay.secondaryGradient, 180.dp)
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -93,8 +89,8 @@ fun LoginScreen(
             Box(
                 modifier = Modifier
                     .size(96.dp)
-                    .clip(RoundedCornerShape(30.dp))
-                    .background(Brush.linearGradient(clay.primaryGradient)),
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
                 Image(

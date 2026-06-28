@@ -564,13 +564,13 @@ private fun CommentRow(comment: Comment, onDelete: () -> Unit) {
 @Composable
 private fun GradientAvatar(name: String?, size: androidx.compose.ui.unit.Dp) {
     Box(
-        modifier = Modifier.size(size).clip(CircleShape).background(Brush.linearGradient(Clay.colors.tertiaryGradient)),
+        modifier = Modifier.size(size).clip(CircleShape).background(MaterialTheme.colorScheme.tertiaryContainer),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             name?.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
             style = MaterialTheme.typography.labelMedium,
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onTertiaryContainer,
             fontWeight = FontWeight.Bold,
         )
     }
@@ -582,19 +582,19 @@ private fun MilestoneCard(event: TimelineEvent) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(22.dp))
-            .background(Brush.linearGradient(Clay.colors.secondaryGradient))
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.secondaryContainer)
             .padding(16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(event.emoji ?: "🏆", style = MaterialTheme.typography.headlineMedium)
             Column(modifier = Modifier.padding(start = 14.dp)) {
-                Text(event.title ?: "", style = MaterialTheme.typography.titleSmall, color = Color(0xFF052B26), fontWeight = FontWeight.Bold)
+                Text(event.title ?: "", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSecondaryContainer, fontWeight = FontWeight.Bold)
                 event.description?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = Color(0xFF052B26).copy(alpha = 0.85f))
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f))
                 }
                 event.date?.let {
-                    Text(it.take(10), style = MaterialTheme.typography.labelSmall, color = Color(0xFF052B26).copy(alpha = 0.7f))
+                    Text(it.take(10), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f))
                 }
             }
         }

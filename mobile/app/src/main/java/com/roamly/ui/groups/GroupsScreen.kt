@@ -135,7 +135,7 @@ fun GroupsScreen(
                 .padding(end = 20.dp, bottom = 24.dp)
                 .size(60.dp)
                 .clip(RoundedCornerShape(22.dp))
-                .background(Brush.verticalGradient(if (selectedTab == 0) clay.primaryGradient else clay.secondaryGradient))
+                .background(if (selectedTab == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary)
                 .clickable { if (selectedTab == 0) tripsViewModel.showCreateDialog() else palsViewModel.showCreateDialog() },
             contentAlignment = Alignment.Center,
         ) {
@@ -207,15 +207,15 @@ private fun Segmented(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(16.dp))
-                    .then(if (isSel) Modifier.background(Brush.verticalGradient(clay.primaryGradient)) else Modifier)
+                    .then(if (isSel) Modifier.background(MaterialTheme.colorScheme.primaryContainer) else Modifier)
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onSelect(i) }
                     .padding(vertical = 11.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(icon, null, Modifier.size(18.dp), tint = if (isSel) Color.White else MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(icon, null, Modifier.size(18.dp), tint = if (isSel) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.width(8.dp))
-                Text(label, style = MaterialTheme.typography.labelLarge, color = if (isSel) Color.White else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
+                Text(label, style = MaterialTheme.typography.labelLarge, color = if (isSel) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
             }
         }
     }
