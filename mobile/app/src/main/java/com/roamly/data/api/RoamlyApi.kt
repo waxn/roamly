@@ -3,6 +3,7 @@ package com.roamly.data.api
 import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.Field
 import retrofit2.http.FormUrlEncoded
 import retrofit2.http.GET
@@ -57,6 +58,11 @@ interface RoamlyApi {
         @Query("before_value") beforeValue: String? = null,
         @Query("before_id") beforeId: Int? = null,
     ): Response<LocationsResponse>
+
+    /** Delete a single GPS point (ownership-scoped server-side). HTTP DELETE +
+     *  csrf-exempt, so the session cookie alone authorises it. */
+    @DELETE("api/locations/{id}/delete/")
+    suspend fun deleteLocation(@Path("id") id: Int): Response<ResponseBody>
 
     @GET("api/track/")
     suspend fun getTrack(

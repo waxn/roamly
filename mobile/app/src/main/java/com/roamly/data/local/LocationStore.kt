@@ -195,6 +195,9 @@ class LocationStore @Inject constructor(
             .map { it.toPoint() }
     }
 
+    /** Drop a point from the local mirror after it's been deleted on the server. */
+    suspend fun deletePoint(id: Int) = withContext(Dispatchers.IO) { dao.deleteById(id) }
+
     suspend fun clear() = dao.deleteAll()
 
     // ── Mapping / helpers ────────────────────────────────────────────────────

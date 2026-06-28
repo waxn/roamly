@@ -83,6 +83,11 @@ interface SyncedLocationDao {
     )
     suspend fun countInTimeRange(startMs: Long, endMs: Long): Int
 
+    /** Remove a single point locally after it's deleted server-side, so the map
+     *  drops it immediately and an incremental sync never re-adds it. */
+    @Query("DELETE FROM synced_locations WHERE id = :id")
+    suspend fun deleteById(id: Int)
+
     @Query("DELETE FROM synced_locations")
     suspend fun deleteAll()
 }

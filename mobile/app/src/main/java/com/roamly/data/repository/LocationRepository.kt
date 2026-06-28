@@ -8,6 +8,7 @@ import com.roamly.data.api.StatsResponse
 import com.roamly.data.api.TrackResponse
 import com.roamly.data.api.VisitsResponse
 import com.roamly.data.api.YearlyOverviewResponse
+import okhttp3.ResponseBody
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -53,6 +54,8 @@ class LocationRepository @Inject constructor(private val api: RoamlyApi) {
             else
                 api.getStats(all = 1)
         }
+
+    suspend fun deleteLocation(id: Int): Result<ResponseBody> = safeApiCall { api.deleteLocation(id) }
 
     suspend fun getVisits(): Result<VisitsResponse> = safeApiCall { api.getVisits() }
 

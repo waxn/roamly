@@ -2,6 +2,7 @@ package com.roamly.ui.map
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.widget.Toast
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -460,12 +461,26 @@ fun MapScreen(
     }
 
     tappedPoint?.let { pt ->
-        PointDetailDialog(pt, onDismiss = { tappedPoint = null })
+        PointDetailDialog(
+            pt = pt,
+            onDismiss = { tappedPoint = null },
+            onDelete = {
+                val id = pt.id
+                tappedPoint = null
+                viewModel.deletePoint(id) { ok ->
+                    Toast.makeText(
+                        context,
+                        if (ok) "Point deleted" else "Couldn't delete point",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            },
+        )
     }
 }
 
 @Composable
-private fun PointDetailDialog(pt: LocationPoint, onDismiss: () -> Unit) {
+private fun PointDetailDialog(pt: LocationPoint, onDismiss: () -> Unit, onDelete: () -> Unit) {
     val fmt = remember { java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d, yyyy · HH:mm:ss") }
     val timeStr = remember(pt.timestamp) {
         runCatching {
@@ -474,9 +489,10 @@ private fun PointDetailDialog(pt: LocationPoint, onDismiss: () -> Unit) {
                 .format(fmt)
         }.getOrDefault(pt.timestamp)
     }
+    var confirmingDelete by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Location point") },
+        title = { Text(if (confirmingDelete) "Delete this point?" else "Location point") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(timeStr, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -488,9 +504,34 @@ private fun PointDetailDialog(pt: LocationPoint, onDismiss: () -> Unit) {
                 pt.accuracy?.let { InfoLine("Accuracy", "${it.toInt()} m") }
                 pt.altitude?.let { InfoLine("Altitude", "${it.toInt()} m") }
                 pt.battery?.let { InfoLine("Battery", "${it.toInt()}%") }
+                if (confirmingDelete) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "This permanently removes this GPS point. It can't be undone.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        confirmButton = {
+            if (confirmingDelete) {
+                TextButton(onClick = onDelete) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            } else {
+                TextButton(onClick = onDismiss) { Text("Close") }
+            }
+        },
+        dismissButton = {
+            if (confirmingDelete) {
+                TextButton(onClick = { confirmingDelete = false }) { Text("Cancel") }
+            } else {
+                TextButton(onClick = { confirmingDelete = true }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
     )
 }
 

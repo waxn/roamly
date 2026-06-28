@@ -144,6 +144,25 @@ class MapViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Delete a single GPS point. Removes it server-side first; on success drops it
+     * from the local mirror and repaints the map immediately (so it's gone whether
+     * or not the next sync runs). [onResult] reports success for a toast.
+     */
+    fun deletePoint(id: Int, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            when (locationRepository.deleteLocation(id)) {
+                is Result.Success -> {
+                    store.deletePoint(id)
+                    accumulator.remove(id)
+                    _uiState.update { it.copy(locations = accumulator.values.toList()) }
+                    onResult(true)
+                }
+                is Result.Error -> onResult(false)
+            }
+        }
+    }
+
     fun focusOn(lat: Double, lng: Double, zoom: Double = 15.0) {
         _uiState.update { it.copy(focus = MapFocus(lat, lng, zoom)) }
     }
