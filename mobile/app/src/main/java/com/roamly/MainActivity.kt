@@ -23,7 +23,6 @@ import com.roamly.data.prefs.UserPreferences
 import com.roamly.tracking.TrackingCoordinator
 import com.roamly.tracking.TrackingDatabase
 import com.roamly.tracking.UploadWorker
-import com.roamly.ui.theme.Clay
 import com.roamly.ui.RoamlyNavHost
 import com.roamly.ui.theme.RoamlyTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -51,11 +50,7 @@ class MainActivity : ComponentActivity() {
             val systemDark = isSystemInDarkTheme()
             val darkMode = prefDarkMode ?: systemDark
             RoamlyTheme(darkTheme = darkMode) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Clay.colors.backgroundBrush)
-                ) {
+                Box(modifier = Modifier.fillMaxSize()) {
                     RoamlyNavHost()
 
                     if (confirmStop.value) {

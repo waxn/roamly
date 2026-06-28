@@ -58,7 +58,10 @@ import com.roamly.ui.theme.Teal
 import kotlin.math.max
 
 @Composable
-fun StatsScreen(viewModel: StatsViewModel = hiltViewModel()) {
+fun StatsScreen(
+    viewModel: StatsViewModel = hiltViewModel(),
+    onNavigateToMap: ((String) -> Unit)? = null,
+) {
     val state by viewModel.uiState.collectAsState()
     val clay = Clay.colors
 

@@ -67,12 +67,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.platform.LocalContext
 import com.roamly.ui.search.SearchScreen
-import com.roamly.ui.theme.Clay
-import com.roamly.ui.theme.claySoftShadow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -230,9 +227,8 @@ fun MapScreen(
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
                 .padding(start = 12.dp, top = 12.dp)
-                .claySoftShadow(20.dp, Clay.colors.shadowDark, Clay.colors.shadowLight, depth = 10.dp)
                 .clip(RoundedCornerShape(20.dp))
-                .background(Brush.verticalGradient(listOf(Clay.colors.surfaceTop, Clay.colors.surfaceBottom)))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
         ) {
             TextButton(onClick = { showTimeMenu = true }) {
                 Icon(
@@ -267,9 +263,8 @@ fun MapScreen(
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
                 .padding(top = 12.dp, end = 12.dp)
-                .claySoftShadow(20.dp, Clay.colors.shadowDark, Clay.colors.shadowLight, depth = 10.dp)
                 .clip(RoundedCornerShape(20.dp))
-                .background(Brush.verticalGradient(listOf(Clay.colors.surfaceTop, Clay.colors.surfaceBottom)))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
         ) {
             IconButton(onClick = { showSearch = true }) {
                 Icon(Icons.Rounded.Search, contentDescription = "search", tint = MaterialTheme.colorScheme.primary)
@@ -282,9 +277,8 @@ fun MapScreen(
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()
                     .padding(top = 64.dp, end = 12.dp)
-                    .claySoftShadow(14.dp, Clay.colors.shadowDark, Clay.colors.shadowLight, depth = 6.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(Brush.verticalGradient(listOf(Clay.colors.surfaceTop, Clay.colors.surfaceBottom)))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -303,25 +297,24 @@ fun MapScreen(
             ZoomFab(icon = Icons.Rounded.Remove, desc = "Zoom out") { mapView.controller.zoomOut() }
         }
 
-        // "Have I been here?" — compact chip style instead of a large FAB
+        // "Have I been here?" chip
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 16.dp, bottom = if (state.stats != null) 108.dp else 16.dp)
-                .claySoftShadow(20.dp, Clay.colors.shadowDark, Clay.colors.shadowLight, depth = 10.dp)
                 .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.primary)
+                .background(MaterialTheme.colorScheme.primaryContainer)
                 .clickable {
                     val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
                     val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
                     if (hasFine || hasCoarse) startNearHere()
                     else locationPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                 }
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(horizontal = 14.dp, vertical = 9.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(Icons.Rounded.MyLocation, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onPrimary)
-                Text("been here?", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.SemiBold)
+                Icon(Icons.Rounded.MyLocation, contentDescription = null, modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text("have i been here?", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
         }
 
@@ -336,10 +329,9 @@ fun MapScreen(
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 16.dp)
-                    .claySoftShadow(22.dp, Clay.colors.shadowDark, Clay.colors.shadowLight, depth = 12.dp)
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(Brush.verticalGradient(listOf(Clay.colors.surfaceTop, Clay.colors.surfaceBottom)))
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.97f))
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -456,12 +448,11 @@ fun MapScreen(
 private fun ZoomFab(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .claySoftShadow(14.dp, Clay.colors.shadowDark, Clay.colors.shadowLight, depth = 8.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(Brush.verticalGradient(listOf(Clay.colors.surfaceTop, Clay.colors.surfaceBottom))),
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
     ) {
-        IconButton(onClick = onClick, modifier = Modifier.size(44.dp)) {
-            Icon(icon, contentDescription = desc, tint = MaterialTheme.colorScheme.onBackground)
+        IconButton(onClick = onClick, modifier = Modifier.size(36.dp)) {
+            Icon(icon, contentDescription = desc, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
         }
     }
 }

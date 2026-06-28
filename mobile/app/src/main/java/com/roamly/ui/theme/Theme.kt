@@ -17,12 +17,11 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// ── Brand accents ─────────────────────────────────────────────────────────────
+// ── Brand accents (kept for hero banners / adventure covers, not general UI) ──
 val Coral       = Color(0xFFF9734F)
 val CoralDeep   = Color(0xFFF2557A)
 val Sky         = Color(0xFF38BDF8)
@@ -31,26 +30,7 @@ val Violet      = Color(0xFFA78BFA)
 val Sunshine    = Color(0xFFFBBF24)
 private val ErrorRed = Color(0xFFF4604D)
 
-// ── Dark palette ───────────────────────────────────────────────────────────────
-private val DarkBackground     = Color(0xFF0B0E16)
-private val DarkBackgroundTop  = Color(0xFF121A2B)
-private val DarkSurface        = Color(0xFF171E2E)
-private val DarkSurfaceHi      = Color(0xFF1E2638)
-private val DarkSurfaceVariant = Color(0xFF222C42)
-private val DarkOnBackground   = Color(0xFFEDF0F7)
-private val DarkMuted          = Color(0xFF8B93AC)
-private val DarkOutline        = Color(0xFF2A3450)
-
-// ── Light palette ──────────────────────────────────────────────────────────────
-private val LightBackground     = Color(0xFFEFF1F9)
-private val LightBackgroundTop  = Color(0xFFF6F4FC)
-private val LightSurface        = Color(0xFFFFFFFF)
-private val LightSurfaceHi      = Color(0xFFFFFFFF)
-private val LightSurfaceVariant = Color(0xFFE9ECF7)
-private val LightOnBackground   = Color(0xFF1A2030)
-private val LightMuted          = Color(0xFF6B7288)
-private val LightOutline        = Color(0xFFD6DAEA)
-
+// ── Fallback static palettes (Android < 12 / no dynamic color) ────────────────
 private val DarkColors = darkColorScheme(
     primary              = Coral,
     onPrimary            = Color.White,
@@ -60,17 +40,19 @@ private val DarkColors = darkColorScheme(
     onTertiary           = Color(0xFF21104A),
     error                = ErrorRed,
     onError              = Color.White,
-    background           = DarkBackground,
-    onBackground         = DarkOnBackground,
-    surface              = DarkSurface,
-    onSurface            = DarkOnBackground,
-    surfaceVariant       = DarkSurfaceVariant,
-    onSurfaceVariant     = DarkMuted,
-    outline              = DarkOutline,
+    background           = Color(0xFF0F1117),
+    onBackground         = Color(0xFFEDF0F7),
+    surface              = Color(0xFF1A1D27),
+    onSurface            = Color(0xFFEDF0F7),
+    surfaceVariant       = Color(0xFF252836),
+    onSurfaceVariant     = Color(0xFF8B93AC),
+    outline              = Color(0xFF3A3F52),
     primaryContainer     = Color(0xFF3A1E18),
     onPrimaryContainer   = Color(0xFFFFC7B6),
     secondaryContainer   = Color(0xFF0E2E2A),
     onSecondaryContainer = Color(0xFF9CF0E0),
+    tertiaryContainer    = Color(0xFF2A1F4A),
+    onTertiaryContainer  = Color(0xFFD3BBFF),
 )
 
 private val LightColors = lightColorScheme(
@@ -82,25 +64,27 @@ private val LightColors = lightColorScheme(
     onTertiary           = Color.White,
     error                = ErrorRed,
     onError              = Color.White,
-    background           = LightBackground,
-    onBackground         = LightOnBackground,
-    surface              = LightSurface,
-    onSurface            = LightOnBackground,
-    surfaceVariant       = LightSurfaceVariant,
-    onSurfaceVariant     = LightMuted,
-    outline              = LightOutline,
+    background           = Color(0xFFF3F4F6),
+    onBackground         = Color(0xFF1A2030),
+    surface              = Color.White,
+    onSurface            = Color(0xFF1A2030),
+    surfaceVariant       = Color(0xFFE9ECF7),
+    onSurfaceVariant     = Color(0xFF6B7288),
+    outline              = Color(0xFFD0D5E8),
     primaryContainer     = Color(0xFFFFE3DA),
     onPrimaryContainer   = Color(0xFF7A2A18),
     secondaryContainer   = Color(0xFFD3F6EF),
     onSecondaryContainer = Color(0xFF0C3B35),
+    tertiaryContainer    = Color(0xFFEFE4FF),
+    onTertiaryContainer  = Color(0xFF4A2F8A),
 )
 
 private val RoamlyShapes = Shapes(
-    extraSmall = RoundedCornerShape(10.dp),
-    small      = RoundedCornerShape(14.dp),
-    medium     = RoundedCornerShape(18.dp),
-    large      = RoundedCornerShape(24.dp),
-    extraLarge = RoundedCornerShape(30.dp),
+    extraSmall = RoundedCornerShape(8.dp),
+    small      = RoundedCornerShape(12.dp),
+    medium     = RoundedCornerShape(16.dp),
+    large      = RoundedCornerShape(20.dp),
+    extraLarge = RoundedCornerShape(28.dp),
 )
 
 private val RoamlyTypography = Typography().run {
@@ -115,8 +99,14 @@ private val RoamlyTypography = Typography().run {
     )
 }
 
+/**
+ * Minimal extra-theme values — only what can't be expressed by Material's ColorScheme.
+ * No longer holds shadow/gradient values; those are gone. Only brand accent gradient
+ * lists (for hero banners and adventure covers) and a dark-mode flag.
+ */
 data class ClayColors(
     val isDark: Boolean,
+    // Kept for backward compat and hero / cover gradients — not used for cards/buttons.
     val surfaceTop: Color,
     val surfaceBottom: Color,
     val shadowDark: Color,
@@ -138,12 +128,12 @@ object Clay {
 
 private val DarkClay = ClayColors(
     isDark = true,
-    surfaceTop = DarkSurfaceHi,
-    surfaceBottom = DarkSurface,
-    // Reduced shadow depth for a cleaner, less shiny look
-    shadowDark = Color(0xBB04070E),
-    shadowLight = Color(0x0DFFFFFF),
-    backgroundBrush = Brush.linearGradient(listOf(DarkBackgroundTop, DarkBackground)),
+    // Flat — surfaceTop == surfaceBottom so any verticalGradient call renders solid
+    surfaceTop = Color(0xFF1A1D27),
+    surfaceBottom = Color(0xFF1A1D27),
+    shadowDark = Color.Transparent,
+    shadowLight = Color.Transparent,
+    backgroundBrush = Brush.linearGradient(listOf(Color(0xFF0F1117), Color(0xFF0F1117))),
     primaryGradient = listOf(Coral, CoralDeep),
     secondaryGradient = listOf(Sky, Teal),
     tertiaryGradient = listOf(Violet, Color(0xFF7C6BF0)),
@@ -151,11 +141,11 @@ private val DarkClay = ClayColors(
 
 private val LightClay = ClayColors(
     isDark = false,
-    surfaceTop = LightSurfaceHi,
-    surfaceBottom = Color(0xFFF3F4FB),
-    shadowDark = Color(0x22A6ADCB),
-    shadowLight = Color(0xFFFFFFFF),
-    backgroundBrush = Brush.linearGradient(listOf(LightBackgroundTop, LightBackground)),
+    surfaceTop = Color.White,
+    surfaceBottom = Color.White,
+    shadowDark = Color.Transparent,
+    shadowLight = Color.Transparent,
+    backgroundBrush = Brush.linearGradient(listOf(Color(0xFFF3F4F6), Color(0xFFF3F4F6))),
     primaryGradient = listOf(Coral, CoralDeep),
     secondaryGradient = listOf(Sky, Teal),
     tertiaryGradient = listOf(Violet, Color(0xFF8B79F2)),
@@ -167,21 +157,21 @@ fun RoamlyTheme(
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
-    // Use Material You dynamic color on Android 12+ to tint surfaces with the
-    // wallpaper palette; keep our brand coral/teal accents via the clay layer.
     val materialColors = when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && darkTheme -> dynamicDarkColorScheme(context).copy(
-            primary = Coral, onPrimary = Color.White,
-            secondary = Teal, onSecondary = Color(0xFF052B26),
-            tertiary = Violet,
-            error = ErrorRed,
-        )
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !darkTheme -> dynamicLightColorScheme(context).copy(
-            primary = Coral, onPrimary = Color.White,
-            secondary = Teal, onSecondary = Color.White,
-            tertiary = Violet,
-            error = ErrorRed,
-        )
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && darkTheme ->
+            dynamicDarkColorScheme(context).copy(
+                primary = Coral, onPrimary = Color.White,
+                secondary = Teal, onSecondary = Color(0xFF052B26),
+                tertiary = Violet,
+                error = ErrorRed,
+            )
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !darkTheme ->
+            dynamicLightColorScheme(context).copy(
+                primary = Coral, onPrimary = Color.White,
+                secondary = Teal, onSecondary = Color.White,
+                tertiary = Violet,
+                error = ErrorRed,
+            )
         darkTheme -> DarkColors
         else -> LightColors
     }

@@ -1,26 +1,11 @@
 package com.roamly.ui
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.BarChart
@@ -29,22 +14,19 @@ import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -63,42 +45,38 @@ import com.roamly.ui.map.MapViewModel
 import com.roamly.ui.pals.PalDetailScreen
 import com.roamly.ui.settings.SettingsScreen
 import com.roamly.ui.stats.StatsScreen
-import com.roamly.ui.theme.Clay
-import com.roamly.ui.theme.claySoftShadow
 import com.roamly.ui.trips.TripDetailScreen
 
 sealed class Screen(val route: String, val label: String) {
-    object Map : Screen("map", "Map")
-    object Adventures : Screen("adventures", "Adventures")
-    object Journal : Screen("journal", "Journal")
-    object Stats : Screen("stats", "Stats")
-    object Settings : Screen("settings", "Settings")
-    object Login : Screen("login", "Login")
+    object Map        : Screen("map",         "Map")
+    object Adventures : Screen("adventures",  "Trips")   // shorter label to avoid truncation
+    object Journal    : Screen("journal",     "Journal")
+    object Stats      : Screen("stats",       "Stats")
+    object Settings   : Screen("settings",    "Settings")
+    object Login      : Screen("login",       "Login")
     object TripDetail : Screen("trips/{tripId}", "Trip")
-    object PalDetail : Screen("pals/{palId}", "Pal")
+    object PalDetail  : Screen("pals/{palId}",  "Pal")
 }
 
-private val bottomNavItems = listOf(Screen.Map, Screen.Adventures, Screen.Journal, Screen.Stats, Screen.Settings)
+private val bottomNavItems = listOf(
+    Screen.Map, Screen.Adventures, Screen.Journal, Screen.Stats, Screen.Settings
+)
 
 private fun iconFor(screen: Screen): ImageVector = when (screen) {
-    Screen.Map -> Icons.Rounded.Map
+    Screen.Map        -> Icons.Rounded.Map
     Screen.Adventures -> Icons.Rounded.Explore
-    Screen.Journal -> Icons.Rounded.AutoStories
-    Screen.Stats -> Icons.Rounded.BarChart
-    else -> Icons.Rounded.Settings
+    Screen.Journal    -> Icons.Rounded.AutoStories
+    Screen.Stats      -> Icons.Rounded.BarChart
+    else              -> Icons.Rounded.Settings
 }
 
 @Composable
 fun RoamlyNavHost() {
     val navController = rememberNavController()
     val authViewModel: AuthViewModel = hiltViewModel()
-    // Shared MapViewModel so Journal can trigger date navigation on the map
-    val mapViewModel: MapViewModel = hiltViewModel()
+    val mapViewModel: MapViewModel   = hiltViewModel()
     val isLoggedIn by authViewModel.isLoggedIn.collectAsState()
 
-    // Play the animated opening screen at least once, and hold it until the saved
-    // auth state has resolved — so the app reveals straight into the right screen
-    // with no spinner or flicker in between.
     var splashDone by rememberSaveable { mutableStateOf(false) }
     if (!splashDone || isLoggedIn == null) {
         SplashScreen(onFinished = { splashDone = true })
@@ -110,29 +88,35 @@ fun RoamlyNavHost() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
-    val showBottomBar =
-            currentDestination?.route != Screen.Login.route &&
+    val showBottomBar = currentDestination?.route != Screen.Login.route &&
             currentDestination?.route != Screen.TripDetail.route &&
             currentDestination?.route != Screen.PalDetail.route
 
     Scaffold(
-        containerColor = Color.Transparent,
-        // Screens manage their own status-bar inset (via statusBarsPadding); zero the
-        // Scaffold's top inset so we don't double it. The bottom-bar height is still
-        // reserved automatically. Map screens get a true edge-to-edge canvas this way.
+        containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             if (showBottomBar) {
-                ClayBottomBar(
-                    current = currentDestination?.hierarchy,
-                    onSelect = { screen ->
-                        navController.navigate(screen.route) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 3.dp,
+                ) {
+                    bottomNavItems.forEach { screen ->
+                        val selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true
+                        NavigationBarItem(
+                            selected = selected,
+                            onClick = {
+                                navController.navigate(screen.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            },
+                            icon = { Icon(iconFor(screen), contentDescription = screen.label) },
+                            label = { Text(screen.label, style = MaterialTheme.typography.labelSmall) },
+                        )
                     }
-                )
+                }
             }
         }
     ) { innerPadding ->
@@ -140,13 +124,10 @@ fun RoamlyNavHost() {
             navController = navController,
             startDestination = initialRoute,
             modifier = Modifier.padding(innerPadding),
-            // The library default is a 700ms crossfade, which makes every tab
-            // switch feel sluggish and exposes first-frame jank. A short fade
-            // reads as near-instant.
-            enterTransition = { fadeIn(tween(120)) },
-            exitTransition = { fadeOut(tween(120)) },
-            popEnterTransition = { fadeIn(tween(120)) },
-            popExitTransition = { fadeOut(tween(120)) },
+            enterTransition    = { fadeIn(tween(100)) },
+            exitTransition     = { fadeOut(tween(100)) },
+            popEnterTransition = { fadeIn(tween(100)) },
+            popExitTransition  = { fadeOut(tween(100)) },
         ) {
             composable(Screen.Login.route) {
                 LoginScreen(
@@ -162,26 +143,20 @@ fun RoamlyNavHost() {
             composable(Screen.Adventures.route) {
                 GroupsScreen(
                     onTripClick = { id -> navController.navigate("trips/$id") },
-                    onPalClick = { id -> navController.navigate("pals/$id") }
+                    onPalClick  = { id -> navController.navigate("pals/$id") }
                 )
             }
             composable(
                 route = Screen.TripDetail.route,
                 arguments = listOf(navArgument("tripId") { type = NavType.IntType })
-            ) { backStackEntry ->
-                TripDetailScreen(
-                    tripId = backStackEntry.arguments!!.getInt("tripId"),
-                    onBack = { navController.popBackStack() }
-                )
+            ) { back ->
+                TripDetailScreen(tripId = back.arguments!!.getInt("tripId"), onBack = { navController.popBackStack() })
             }
             composable(
                 route = Screen.PalDetail.route,
                 arguments = listOf(navArgument("palId") { type = NavType.IntType })
-            ) { backStackEntry ->
-                PalDetailScreen(
-                    palId = backStackEntry.arguments!!.getInt("palId"),
-                    onBack = { navController.popBackStack() }
-                )
+            ) { back ->
+                PalDetailScreen(palId = back.arguments!!.getInt("palId"), onBack = { navController.popBackStack() })
             }
             composable(Screen.Journal.route) {
                 JournalsScreen(
@@ -195,109 +170,12 @@ fun RoamlyNavHost() {
                     }
                 )
             }
-            composable(Screen.Stats.route) { StatsScreen() }
+            composable(Screen.Stats.route)    { StatsScreen(onNavigateToMap = { dateStr -> mapViewModel.navigateToDate(dateStr); navController.navigate(Screen.Map.route) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true } }) }
             composable(Screen.Settings.route) {
-                SettingsScreen(
-                    onLoggedOut = {
-                        navController.navigate(Screen.Login.route) {
-                            popUpTo(0) { inclusive = true }
-                        }
-                    }
-                )
+                SettingsScreen(onLoggedOut = {
+                    navController.navigate(Screen.Login.route) { popUpTo(0) { inclusive = true } }
+                })
             }
-        }
-    }
-}
-
-/** A floating, puffy clay navigation bar. The selected tab inflates into a
- *  gradient pill with its label; the others stay compact icons. */
-@Composable
-private fun ClayBottomBar(
-    current: Sequence<androidx.navigation.NavDestination>?,
-    onSelect: (Screen) -> Unit,
-) {
-    val clay = Clay.colors
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = 18.dp, vertical = 14.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .claySoftShadow(28.dp, clay.shadowDark, clay.shadowLight, depth = 18.dp)
-                .background(
-                    Brush.verticalGradient(listOf(clay.surfaceTop, clay.surfaceBottom)),
-                    RoundedCornerShape(28.dp),
-                )
-                .padding(horizontal = 10.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            bottomNavItems.forEach { screen ->
-                val selected = current?.any { it.route == screen.route } == true
-                NavPill(
-                    screen = screen,
-                    selected = selected,
-                    modifier = Modifier.weight(if (selected) 1.4f else 1f),
-                    onClick = { onSelect(screen) },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun NavPill(
-    screen: Screen,
-    selected: Boolean,
-    modifier: Modifier,
-    onClick: () -> Unit,
-) {
-    val clay = Clay.colors
-    val height by animateDpAsState(if (selected) 48.dp else 46.dp, spring(), label = "pillH")
-    val iconColor by animateColorAsState(
-        if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-        label = "pillIcon",
-    )
-    val shape = RoundedCornerShape(20.dp)
-    val bg = if (selected) Brush.verticalGradient(clay.primaryGradient)
-    else Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
-
-    Row(
-        modifier = modifier
-            .height(height)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
-            )
-            .then(
-                if (selected) Modifier.claySoftShadow(20.dp, clay.primaryGradient.last().copy(alpha = 0.4f), Color.Transparent, depth = 8.dp, drawLight = false)
-                else Modifier
-            )
-            .background(bg, shape),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = iconFor(screen),
-            contentDescription = screen.label,
-            tint = iconColor,
-            modifier = Modifier.size(22.dp),
-        )
-        if (selected) {
-            Spacer(Modifier.width(8.dp))
-            Text(
-                screen.label,
-                color = Color.White,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                softWrap = false,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
-            )
         }
     }
 }
