@@ -54,18 +54,19 @@ fun SplashScreen(onFinished: () -> Unit) {
     val markAlpha = remember { Animatable(0f) }
     val textAlpha = remember { Animatable(0f) }
     val textRise = remember { Animatable(40f) } // px, slides up to 0
+    val screenAlpha = remember { Animatable(1f) }
 
     LaunchedEffect(Unit) {
-        launch { markAlpha.animateTo(1f, tween(450)) }
+        launch { markAlpha.animateTo(1f, tween(400)) }
         markScale.animateTo(
             1f,
-            spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+            spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
         )
-        launch { textAlpha.animateTo(1f, tween(420)) }
-        textRise.animateTo(0f, tween(420))
-        // Short hold so the wordmark reads, then reveal — kept brief so cold-app
-        // open feels snappy (the host also waits on auth state resolving).
-        delay(250)
+        launch { textAlpha.animateTo(1f, tween(380)) }
+        textRise.animateTo(0f, tween(380, easing = FastOutSlowInEasing))
+        delay(180)
+        // Fade the whole screen out smoothly before revealing the app.
+        screenAlpha.animateTo(0f, tween(280, easing = FastOutSlowInEasing))
         onFinished()
     }
 
@@ -90,6 +91,7 @@ fun SplashScreen(onFinished: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .graphicsLayer { alpha = screenAlpha.value }
             .background(Color.Black),
         contentAlignment = Alignment.Center,
     ) {
