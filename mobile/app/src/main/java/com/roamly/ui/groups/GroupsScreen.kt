@@ -135,7 +135,7 @@ fun GroupsScreen(
                 .padding(end = 20.dp, bottom = 24.dp)
                 .size(60.dp)
                 .clip(RoundedCornerShape(22.dp))
-                .background(if (selectedTab == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary)
+                .background(MaterialTheme.colorScheme.primary)
                 .clickable { if (selectedTab == 0) tripsViewModel.showCreateDialog() else palsViewModel.showCreateDialog() },
             contentAlignment = Alignment.Center,
         ) {

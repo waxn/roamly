@@ -638,7 +638,6 @@ private fun ChipSelector(
     onLongEdit: (() -> Unit)? = null,
     customLabel: String? = null,
 ) {
-    val clay = Clay.colors
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -649,10 +648,10 @@ private fun ChipSelector(
             val selected = i == selectedIndex
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(14.dp))
-                    .then(
-                        if (selected) Modifier.background(Brush.verticalGradient(clay.primaryGradient))
-                        else Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        if (selected) MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                     )
                     .clickable { onSelect(i) }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -660,25 +659,26 @@ private fun ChipSelector(
                 Text(
                     label,
                     style = MaterialTheme.typography.labelLarge,
-                    color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
         if (customLabel != null && onLongEdit != null) {
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Brush.verticalGradient(clay.primaryGradient))
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer)
                     .clickable { onLongEdit() }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
-                Text(customLabel, style = MaterialTheme.typography.labelLarge, color = Color.White)
+                Text(customLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
         }
         if (onLongEdit != null) {
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                     .clickable { onLongEdit() }
                     .padding(10.dp),
