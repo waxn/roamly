@@ -17,10 +17,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
+import java.time.ZoneId
 import javax.inject.Inject
 
 enum class TimePeriod(val label: String) {
-    H24("24h"), D7("7d"), D30("30d"), D90("90d"), ALL("All")
+    H24("24h"), D7("7d"), D30("30d"), D90("90d"), ALL("All"), CUSTOM("Custom")
+}
+
+data class DateRange(val start: LocalDate, val end: LocalDate) {
+    val label: String get() = if (start == end) start.toString() else "$start → $end"
 }
 
 /** points loaded for the initial period view (heatmap-first) */
@@ -46,8 +52,13 @@ data class MapUiState(
     val isLoadingMore: Boolean = false,
     val error: String? = null,
     val timePeriod: TimePeriod = TimePeriod.H24,
+    val customDateRange: DateRange? = null,
     val focus: MapFocus? = null,
-)
+    val showDateRangePicker: Boolean = false,
+) {
+    val periodLabel: String get() = if (timePeriod == TimePeriod.CUSTOM && customDateRange != null)
+        customDateRange.label else timePeriod.label
+}
 
 @HiltViewModel
 class MapViewModel @Inject constructor(
@@ -75,6 +86,7 @@ class MapViewModel @Inject constructor(
     // higher-resolution dots pulled in as the user zooms.
     private val accumulator: HashMap<Int, LocationPoint> = HashMap()
     private var viewportJob: Job? = null
+    private var lastKnownSyncMs = 0L
 
     init {
         loadData(showSpinnerIfEmpty = true)
@@ -86,13 +98,48 @@ class MapViewModel @Inject constructor(
             loadData(showSpinnerIfEmpty = false)
         }
         viewModelScope.launch { loadStats() }
+
+        // Re-paint automatically whenever a background sync completes (e.g. from
+        // MainActivity.onResume after the user was away tracking for a while).
+        viewModelScope.launch {
+            store.state.collect { s ->
+                if (!s.syncing && s.lastSyncMs > lastKnownSyncMs) {
+                    lastKnownSyncMs = s.lastSyncMs
+                    loadData(showSpinnerIfEmpty = false)
+                }
+            }
+        }
     }
 
     fun setTimePeriod(period: TimePeriod) {
+        if (period == TimePeriod.CUSTOM) {
+            _uiState.update { it.copy(showDateRangePicker = true) }
+            return
+        }
         accumulator.clear()
-        _uiState.update { it.copy(timePeriod = period) }
+        _uiState.update { it.copy(timePeriod = period, customDateRange = null) }
         loadData(showSpinnerIfEmpty = true)
         viewModelScope.launch { loadStats() }
+    }
+
+    fun setCustomDateRange(range: DateRange) {
+        accumulator.clear()
+        _uiState.update { it.copy(timePeriod = TimePeriod.CUSTOM, customDateRange = range, showDateRangePicker = false) }
+        loadData(showSpinnerIfEmpty = true)
+    }
+
+    fun dismissDateRangePicker() {
+        _uiState.update { it.copy(showDateRangePicker = false) }
+    }
+
+    /** Navigate to a specific date: set the custom date range to just that day and focus the map. */
+    fun navigateToDate(dateStr: String, lat: Double? = null, lng: Double? = null) {
+        runCatching { LocalDate.parse(dateStr) }.getOrNull()?.let { date ->
+            setCustomDateRange(DateRange(date, date))
+            if (lat != null && lng != null) {
+                _uiState.update { it.copy(focus = MapFocus(lat, lng, zoom = 14.0)) }
+            }
+        }
     }
 
     fun focusOn(lat: Double, lng: Double, zoom: Double = 15.0) {
@@ -138,14 +185,27 @@ class MapViewModel @Inject constructor(
         viewportJob?.cancel()
         viewportJob = viewModelScope.launch {
             delay(VIEWPORT_DEBOUNCE_MS)
-            val hours = _uiState.value.timePeriod.hours
-            val detail = store.bbox(minLat, maxLat, minLng, maxLng, hours = hours, limit = BBOX_LOAD_LIMIT)
+            val detail = loadDetailForViewport(minLat, maxLat, minLng, maxLng)
             if (detail.isEmpty()) return@launch
-            // The DAO query already ran off-main; accumulator ops stay confined to
-            // this (main) dispatcher so the map is only mutated from one thread.
             var added = 0
             detail.forEach { pt -> if (accumulator.put(pt.id, pt) == null) added++ }
             if (added > 0) _uiState.update { it.copy(locations = accumulator.values.toList()) }
+        }
+    }
+
+    private suspend fun loadDetailForViewport(
+        minLat: Double, maxLat: Double, minLng: Double, maxLng: Double,
+    ): List<LocationPoint> {
+        val state = _uiState.value
+        return if (state.timePeriod == TimePeriod.CUSTOM && state.customDateRange != null) {
+            val range = state.customDateRange
+            val zone = ZoneId.systemDefault()
+            val startMs = range.start.atStartOfDay(zone).toInstant().toEpochMilli()
+            val endMs = range.end.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+            store.timeRange(startMs, endMs, BBOX_LOAD_LIMIT)
+                .filter { it.lat in minLat..maxLat && it.lng in minLng..maxLng }
+        } else {
+            store.bbox(minLat, maxLat, minLng, maxLng, hours = state.timePeriod.hours, limit = BBOX_LOAD_LIMIT)
         }
     }
 
@@ -155,19 +215,22 @@ class MapViewModel @Inject constructor(
      * the server so points appear right away while the full sync runs.
      */
     fun loadData(showSpinnerIfEmpty: Boolean) {
-        val period = _uiState.value.timePeriod
-        val hours = period.hours
+        val state = _uiState.value
         viewModelScope.launch {
-            val local = store.periodOverview(hours, PERIOD_LOAD_LIMIT)
+            val local = loadPeriodFromStore(state)
             if (local.isNotEmpty()) {
                 setLocations(local)
                 return@launch
             }
-            // Nothing local yet — show the spinner and fetch this period directly.
             if (showSpinnerIfEmpty && accumulator.isEmpty()) {
                 _uiState.update { it.copy(isLoading = true, error = null) }
             }
-            when (val r = locationRepository.getLocations(hours = hours, limit = PERIOD_LOAD_LIMIT)) {
+            // Custom date range: no server fallback (store should have the data)
+            if (state.timePeriod == TimePeriod.CUSTOM) {
+                _uiState.update { it.copy(isLoading = false) }
+                return@launch
+            }
+            when (val r = locationRepository.getLocations(hours = state.timePeriod.hours, limit = PERIOD_LOAD_LIMIT)) {
                 is Result.Success -> setLocations(flatten(r.data))
                 is Result.Error -> _uiState.update {
                     it.copy(isLoading = false, error = if (accumulator.isEmpty()) r.message else null)
@@ -176,10 +239,19 @@ class MapViewModel @Inject constructor(
         }
     }
 
+    private suspend fun loadPeriodFromStore(state: MapUiState): List<LocationPoint> {
+        return if (state.timePeriod == TimePeriod.CUSTOM && state.customDateRange != null) {
+            val range = state.customDateRange
+            val zone = ZoneId.systemDefault()
+            val startMs = range.start.atStartOfDay(zone).toInstant().toEpochMilli()
+            val endMs = range.end.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+            store.timeRange(startMs, endMs, PERIOD_LOAD_LIMIT)
+        } else {
+            store.periodOverview(state.timePeriod.hours, PERIOD_LOAD_LIMIT)
+        }
+    }
+
     private fun setLocations(points: List<LocationPoint>) {
-        // points already came off-main (DAO/JSON). The accumulator is only ever
-        // touched on this dispatcher, so there's no cross-thread race with the
-        // viewport loader.
         accumulator.clear()
         points.forEach { accumulator[it.id] = it }
         _uiState.update { it.copy(locations = accumulator.values.toList(), isLoading = false, error = null) }
@@ -205,4 +277,5 @@ internal val TimePeriod.hours: Int?
         TimePeriod.D30 -> 24 * 30
         TimePeriod.D90 -> 24 * 90
         TimePeriod.ALL -> null
+        TimePeriod.CUSTOM -> null
     }

@@ -162,6 +162,18 @@ class LocationStore @Inject constructor(
         dao.inBbox(minLat, maxLat, minLng, maxLng, sinceMsFor(hours), limit).map { it.toPoint() }
     }
 
+    /** Points within an explicit time window — for custom date range and day views. */
+    suspend fun timeRange(startMs: Long, endMs: Long, maxPoints: Int): List<LocationPoint> = withContext(Dispatchers.IO) {
+        val total = dao.countInTimeRange(startMs, endMs)
+        if (total > maxPoints) {
+            val stride = (total / maxPoints).coerceAtLeast(2)
+            // Fallback: fetch all then decimate in memory (range queries don't support stride easily)
+            dao.inTimeRange(startMs, endMs, total).filterIndexed { i, _ -> i % stride == 0 }.map { it.toPoint() }
+        } else {
+            dao.inTimeRange(startMs, endMs, maxPoints).map { it.toPoint() }
+        }
+    }
+
     /** All-time points around a spot — powers an accurate "have I been here?". */
     suspend fun allTimeAround(
         lat: Double, lng: Double, padDegrees: Double,

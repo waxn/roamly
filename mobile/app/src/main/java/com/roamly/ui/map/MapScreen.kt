@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,6 +32,8 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DateRange
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Remove
@@ -39,9 +42,11 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DateRangePicker
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,6 +55,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDateRangePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -80,6 +86,7 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.Projection
 import org.osmdroid.views.overlay.Overlay
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.OffsetDateTime
@@ -93,40 +100,31 @@ import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
+fun MapScreen(
+    viewModel: MapViewModel = hiltViewModel(),
+    onNavigateToDate: ((String) -> Unit)? = null,
+) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     var showTimeMenu by remember { mutableStateOf(false) }
 
-    // Reuse a single MapView for the life of the ViewModel (survives tab
-    // switches). Creating a new one per revisit reopens osmdroid's shared tile
-    // cache and crashes when a stale instance closes it on GC. Built with the
-    // application context so the VM-retained View never leaks the Activity.
     val holder = remember(viewModel) {
         viewModel.mapHolder ?: run {
             val appContext = context.applicationContext
             Configuration.getInstance().load(appContext, appContext.getSharedPreferences("osmdroid", 0))
             Configuration.getInstance().userAgentValue = "Roamly/1.0"
-            // Pin osmdroid's tile cache to app-private storage so it never depends on
-            // external-storage permission (which would crash on re-entry/older devices).
             Configuration.getInstance().osmdroidBasePath = appContext.cacheDir
             Configuration.getInstance().osmdroidTileCache = java.io.File(appContext.cacheDir, "osmdroid_tiles").apply { mkdirs() }
             val heatmap = HeatmapOverlay()
             val points = PointsOverlay()
             val mv = MapView(appContext).apply {
-                // CRITICAL for tab reuse: osmdroid's onDetachedFromWindow() calls
-                // onDetach() when destroyMode is true (the default), which destroys
-                // the tile provider AND overlays the moment we navigate away — so
-                // the retained MapView came back as a blank grid with no points.
-                // Turning it off keeps the view alive across tab switches; we still
-                // tear it down manually in the ViewModel's onCleared().
                 setDestroyMode(false)
                 setTileSource(org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK)
                 setMultiTouchControls(true)
                 controller.setZoom(10.0)
                 controller.setCenter(GeoPoint(20.0, 0.0))
-                // heatmap below, dots on top
                 overlays.add(heatmap)
                 overlays.add(points)
             }
@@ -137,25 +135,20 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
     val heatmapOverlay = holder.heatmap
     val pointsOverlay = holder.points
 
-    // Listen for pan/zoom and trigger debounced bbox loads
     DisposableEffect(mapView) {
         val listener = object : org.osmdroid.events.MapListener {
             override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean {
-                emit()
-                return false
+                emit(); return false
             }
             override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean {
-                emit()
-                return false
+                emit(); return false
             }
             private fun emit() {
                 val bbox = mapView.boundingBox ?: return
                 viewModel.onViewportChanged(
                     zoom = mapView.zoomLevelDouble,
-                    minLat = bbox.latSouth,
-                    maxLat = bbox.latNorth,
-                    minLng = bbox.lonWest,
-                    maxLng = bbox.lonEast,
+                    minLat = bbox.latSouth, maxLat = bbox.latNorth,
+                    minLng = bbox.lonWest, maxLng = bbox.lonEast,
                 )
             }
         }
@@ -187,11 +180,6 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
         if (granted) startNearHere()
     }
 
-    // Apply new points to both overlays + auto-fit when not following a focus.
-    // Keyed on the data (not a bare SideEffect) so it only rebuilds the overlay
-    // geometry when locations actually change — a SideEffect here re-pushed the
-    // whole point list and invalidated the map on every recomposition (e.g. during
-    // navigation transitions), hammering the main thread.
     var didAutoFit by remember { mutableStateOf(false) }
     LaunchedEffect(state.locations) {
         heatmapOverlay.setPoints(state.locations)
@@ -207,19 +195,13 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                     mapView.zoomToBoundingBox(bbox, false, 96)
                 }
             }
-            // zoomToBoundingBox divides by the MapView's pixel size, so it crashes if
-            // run before the view is laid out (0×0). With the disk cache, locations can
-            // be ready on the very first composition — before layout — so defer the fit
-            // to after measurement when the view has no size yet.
             if (mapView.width > 0 && mapView.height > 0) fit() else mapView.post { fit() }
             didAutoFit = true
         }
         mapView.invalidate()
     }
-    // Reset auto-fit when the time period (and thus dataset) changes
-    LaunchedEffect(state.timePeriod) { didAutoFit = false }
+    LaunchedEffect(state.timePeriod, state.customDateRange) { didAutoFit = false }
 
-    // Honor focus jumps (from past-visit taps)
     LaunchedEffect(state.focus?.key) {
         state.focus?.let {
             mapView.controller.setZoom(it.zoom)
@@ -229,26 +211,15 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
 
     DisposableEffect(mapView) {
         mapView.onResume()
-        // After a tab switch the retained MapView is re-parented; nudge it to
-        // re-request tiles for the visible area so it doesn't come back as a blank
-        // grid. A post() ensures it runs after the view is laid out.
         mapView.post {
             mapView.invalidate()
             mapView.controller.setZoom(mapView.zoomLevelDouble)
         }
-        onDispose {
-            // Only pause on leave. Calling onDetach() here tears down osmdroid's
-            // shared tile cache; the next time this screen is entered a fresh
-            // MapView reopens it and crashes ("attempt to re-open an already-closed
-            // object"). Pausing avoids that and the View is GC'd normally.
-            mapView.onPause()
-        }
+        onDispose { mapView.onPause() }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
-            // The MapView is reused across visits, so detach it from a previous
-            // container before this AndroidView re-parents it.
             factory = { (mapView.parent as? android.view.ViewGroup)?.removeView(mapView); mapView },
             modifier = Modifier.fillMaxSize()
         )
@@ -259,20 +230,28 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
                 .padding(start = 12.dp, top = 12.dp)
-                .claySoftShadow(20.dp, Clay.colors.shadowDark, Clay.colors.shadowLight, depth = 12.dp)
+                .claySoftShadow(20.dp, Clay.colors.shadowDark, Clay.colors.shadowLight, depth = 10.dp)
                 .clip(RoundedCornerShape(20.dp))
                 .background(Brush.verticalGradient(listOf(Clay.colors.surfaceTop, Clay.colors.surfaceBottom)))
         ) {
             TextButton(onClick = { showTimeMenu = true }) {
-                Icon(Icons.Rounded.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                Icon(
+                    if (state.timePeriod == TimePeriod.CUSTOM) Icons.Rounded.DateRange else Icons.Rounded.CalendarMonth,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
                 Spacer(Modifier.width(6.dp))
-                Text(state.timePeriod.label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onBackground)
+                Text(state.periodLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onBackground)
                 Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             DropdownMenu(expanded = showTimeMenu, onDismissRequest = { showTimeMenu = false }) {
                 TimePeriod.entries.forEach { period ->
                     DropdownMenuItem(
-                        text = { Text(period.label) },
+                        text = { Text(if (period == TimePeriod.CUSTOM) "Custom range…" else period.label) },
+                        leadingIcon = if (period == TimePeriod.CUSTOM) {
+                            { Icon(Icons.Rounded.DateRange, null, modifier = Modifier.size(18.dp)) }
+                        } else null,
                         onClick = {
                             showTimeMenu = false
                             viewModel.setTimePeriod(period)
@@ -288,7 +267,7 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
                 .padding(top = 12.dp, end = 12.dp)
-                .claySoftShadow(20.dp, Clay.colors.shadowDark, Clay.colors.shadowLight, depth = 12.dp)
+                .claySoftShadow(20.dp, Clay.colors.shadowDark, Clay.colors.shadowLight, depth = 10.dp)
                 .clip(RoundedCornerShape(20.dp))
                 .background(Brush.verticalGradient(listOf(Clay.colors.surfaceTop, Clay.colors.surfaceBottom)))
         ) {
@@ -303,78 +282,51 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()
                     .padding(top = 64.dp, end = 12.dp)
-                    .claySoftShadow(14.dp, Clay.colors.shadowDark, Clay.colors.shadowLight, depth = 8.dp)
+                    .claySoftShadow(14.dp, Clay.colors.shadowDark, Clay.colors.shadowLight, depth = 6.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(Brush.verticalGradient(listOf(Clay.colors.surfaceTop, Clay.colors.surfaceBottom)))
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(14.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
-                Text(
-                    "loading detail…",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Text("loading detail…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
 
         // Right-side zoom controls
         Column(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 12.dp),
+            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             ZoomFab(icon = Icons.Rounded.Add, desc = "Zoom in") { mapView.controller.zoomIn() }
             ZoomFab(icon = Icons.Rounded.Remove, desc = "Zoom out") { mapView.controller.zoomOut() }
         }
 
-        // "Have I been here?" action
-        ExtendedFloatingActionButton(
-            onClick = {
-                val hasFine = ContextCompat.checkSelfPermission(
-                    context, Manifest.permission.ACCESS_FINE_LOCATION
-                ) == PackageManager.PERMISSION_GRANTED
-                val hasCoarse = ContextCompat.checkSelfPermission(
-                    context, Manifest.permission.ACCESS_COARSE_LOCATION
-                ) == PackageManager.PERMISSION_GRANTED
-                if (hasFine || hasCoarse) {
-                    startNearHere()
-                } else {
-                    locationPermissionLauncher.launch(
-                        arrayOf(
-                            Manifest.permission.ACCESS_FINE_LOCATION,
-                            Manifest.permission.ACCESS_COARSE_LOCATION
-                        )
-                    )
-                }
-            },
-            text = { Text("have i been here?") },
-            icon = {
-                Icon(
-                Icons.Rounded.MyLocation,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
-            },
+        // "Have I been here?" — compact chip style instead of a large FAB
+        Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = if (state.stats != null) 120.dp else 16.dp),
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-        )
+                .padding(end = 16.dp, bottom = if (state.stats != null) 108.dp else 16.dp)
+                .claySoftShadow(20.dp, Clay.colors.shadowDark, Clay.colors.shadowLight, depth = 10.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(MaterialTheme.colorScheme.primary)
+                .clickable {
+                    val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                    val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                    if (hasFine || hasCoarse) startNearHere()
+                    else locationPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                }
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Icons.Rounded.MyLocation, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                Text("been here?", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.SemiBold)
+            }
+        }
 
         if (state.isLoading) {
-            LinearProgressIndicator(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-            )
+            LinearProgressIndicator(modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth())
         }
 
         // Bottom stats strip
@@ -384,10 +336,10 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 16.dp)
-                    .claySoftShadow(22.dp, Clay.colors.shadowDark, Clay.colors.shadowLight, depth = 16.dp)
+                    .claySoftShadow(22.dp, Clay.colors.shadowDark, Clay.colors.shadowLight, depth = 12.dp)
                     .clip(RoundedCornerShape(22.dp))
                     .background(Brush.verticalGradient(listOf(Clay.colors.surfaceTop, Clay.colors.surfaceBottom)))
-                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -399,14 +351,39 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
 
         state.error?.let {
             Surface(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 60.dp, start = 16.dp, end = 16.dp),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 60.dp, start = 16.dp, end = 16.dp),
                 color = MaterialTheme.colorScheme.errorContainer,
                 shape = RoundedCornerShape(12.dp),
             ) {
                 Text(it, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(12.dp))
             }
+        }
+    }
+
+    // Date range picker dialog
+    if (state.showDateRangePicker) {
+        val pickerState = rememberDateRangePickerState()
+        DatePickerDialog(
+            onDismissRequest = viewModel::dismissDateRangePicker,
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val startMs = pickerState.selectedStartDateMillis
+                        val endMs = pickerState.selectedEndDateMillis
+                        if (startMs != null) {
+                            val zone = ZoneId.systemDefault()
+                            val start = Instant.ofEpochMilli(startMs).atZone(zone).toLocalDate()
+                            val end = if (endMs != null) Instant.ofEpochMilli(endMs).atZone(zone).toLocalDate() else start
+                            viewModel.setCustomDateRange(DateRange(start, end))
+                        } else {
+                            viewModel.dismissDateRangePicker()
+                        }
+                    },
+                ) { Text("Apply") }
+            },
+            dismissButton = { TextButton(onClick = viewModel::dismissDateRangePicker) { Text("Cancel") } },
+        ) {
+            DateRangePicker(state = pickerState, modifier = Modifier.wrapContentHeight())
         }
     }
 
@@ -417,13 +394,17 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                 viewModel.focusOn(lat, lng, zoom = 16.0)
                 showSearch = false
             },
+            onDayClick = { day ->
+                viewModel.navigateToDate(day.date)
+                showSearch = false
+            },
         )
     }
 
     if (checkingHere) {
         AlertDialog(
             onDismissRequest = { checkingHere = false },
-            title = { Text("have you been here?") },
+            title = { Text("been here before?") },
             text = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
@@ -438,7 +419,7 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
     nearHereError?.let { msg ->
         AlertDialog(
             onDismissRequest = { nearHereError = null },
-            title = { Text("have you been here?") },
+            title = { Text("been here before?") },
             text = { Text(msg) },
             confirmButton = { TextButton(onClick = { nearHereError = null }) { Text("ok") } },
         )
@@ -451,7 +432,8 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                 onClose = { showAllDays = false; nearHereResult = null },
                 onBack = { showAllDays = false },
                 onDayClick = { day ->
-                    viewModel.focusOn(day.lat, day.lng, zoom = 17.0)
+                    // Navigate to that date on the map
+                    viewModel.navigateToDate(day.date.toString(), day.lat, day.lng)
                     showAllDays = false
                     nearHereResult = null
                 }
@@ -462,7 +444,7 @@ fun MapScreen(viewModel: MapViewModel = hiltViewModel()) {
                 onDismiss = { nearHereResult = null },
                 onShowAll = { showAllDays = true },
                 onDayClick = { day ->
-                    viewModel.focusOn(day.lat, day.lng, zoom = 17.0)
+                    viewModel.navigateToDate(day.date.toString(), day.lat, day.lng)
                     nearHereResult = null
                 }
             )
@@ -487,7 +469,7 @@ private fun ZoomFab(icon: androidx.compose.ui.graphics.vector.ImageVector, desc:
 @Composable
 private fun StatChip(value: String, label: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
+        Text(value, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -500,17 +482,18 @@ data class NearHereDay(
     val closestMeters: Double,
     val lat: Double,
     val lng: Double,
+    val timeSpentSeconds: Int = 0,
 )
 
 data class NearHereResult(
-    val region: String?,        // e.g. "Portland, OR" — city, state of the user's current area
-    val veryCloseDays: Int,     // # of distinct past days with a point within ~150m
-    val totalRegionPoints: Int, // # of all past points in that region
-    val closestMeters: Double?, // closest past point in meters
-    val days: List<NearHereDay>,// past days with a near-exact match (~300m), newest first
+    val region: String?,
+    val veryCloseDays: Int,
+    val totalRegionPoints: Int,
+    val closestMeters: Double?,
+    val days: List<NearHereDay>,
 )
 
-private const val PREVIEW_DAYS = 4
+private const val PREVIEW_DAYS = 3
 
 @Composable
 private fun NearHereDialog(
@@ -521,7 +504,7 @@ private fun NearHereDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("have you been here?") },
+        title = { Text("been here before?") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 when {
@@ -544,32 +527,21 @@ private fun NearHereDialog(
                 }
 
                 result.region?.let {
-                    Text(
-                        "region: $it",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Text("region: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
 
                 if (result.days.isNotEmpty()) {
                     HorizontalDivider()
-                    Text(
-                        "past visits to this spot",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Text("past visits · tap to go there", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         result.days.take(PREVIEW_DAYS).forEach { day ->
                             DayRow(day, onClick = { onDayClick(day) })
                         }
                     }
                     if (result.days.size > PREVIEW_DAYS) {
-                        TextButton(
-                            onClick = onShowAll,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text("show all ${result.days.size} days")
-                    Icon(Icons.Rounded.ChevronRight, contentDescription = null, modifier = Modifier.size(18.dp))
+                        TextButton(onClick = onShowAll, modifier = Modifier.fillMaxWidth()) {
+                            Text("show all ${result.days.size} visits")
+                            Icon(Icons.Rounded.ChevronRight, contentDescription = null, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
@@ -586,20 +558,13 @@ private fun AllDaysScreen(
     onBack: () -> Unit,
     onDayClick: (NearHereDay) -> Unit,
 ) {
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background,
-    ) {
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.Rounded.ArrowBack, contentDescription = "back")
-                }
+                IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, contentDescription = "back") }
                 Column(modifier = Modifier.weight(1f)) {
                     Text("all visits to this spot", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
@@ -636,9 +601,7 @@ private fun ResultHeader(title: String, sub: String, tint: ComposeColor) {
 private fun DayRow(day: NearHereDay, onClick: () -> Unit) {
     val fmt = remember { DateTimeFormatter.ofPattern("EEE, MMM d, yyyy") }
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
         shape = RoundedCornerShape(12.dp),
     ) {
@@ -648,21 +611,30 @@ private fun DayRow(day: NearHereDay, onClick: () -> Unit) {
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(day.date.format(fmt), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                Text(
-                    "${day.closestMeters.toInt()} m · ${day.pointCount} pts",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                val sub = buildString {
+                    append("${day.closestMeters.toInt()} m · ${day.pointCount} pts")
+                    if (day.timeSpentSeconds > 0) append(" · ${formatDuration(day.timeSpentSeconds)}")
+                }
+                Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
-// ---- Heatmap overlay: translucent radial sprites accumulating into a heat blob ----
+private fun formatDuration(seconds: Int): String {
+    val h = seconds / 3600
+    val m = (seconds % 3600) / 60
+    return when {
+        h > 0 -> "${h}h ${m}m"
+        m > 0 -> "${m}m"
+        else -> "<1m"
+    }
+}
 
-/** Holds the single reusable MapView and its overlays so the ViewModel can
- *  retain them across navigation and detach the map cleanly when destroyed. */
+// ---- Heatmap overlay ----
+
+/** Holds the single reusable MapView and its overlays. */
 internal class MapHolder(
     val mapView: MapView,
     val heatmap: HeatmapOverlay,
@@ -685,7 +657,7 @@ internal class HeatmapOverlay : Overlay() {
         val cx = size / 2f
         val grad = android.graphics.RadialGradient(
             cx, cx, cx,
-            intArrayOf(Color.argb(220, 255, 80, 60), Color.argb(140, 255, 170, 0), Color.argb(0, 255, 255, 0)),
+            intArrayOf(Color.argb(200, 255, 80, 60), Color.argb(120, 255, 170, 0), Color.argb(0, 255, 255, 0)),
             floatArrayOf(0f, 0.5f, 1f),
             android.graphics.Shader.TileMode.CLAMP,
         )
@@ -699,12 +671,11 @@ internal class HeatmapOverlay : Overlay() {
         ensureSprite()
         val s = sprite ?: return
         val zoom = mapView.zoomLevelDouble
-        // Fade out the heatmap when the user zooms in to detail level
         val alphaFrac = when {
-            zoom >= 15 -> 0.05f
-            zoom >= 13 -> 0.18f
-            zoom >= 11 -> 0.55f
-            else -> 0.75f
+            zoom >= 15 -> 0.04f
+            zoom >= 13 -> 0.16f
+            zoom >= 11 -> 0.50f
+            else -> 0.70f
         }
         val spriteSize = when {
             zoom < 6 -> 26f
@@ -718,8 +689,7 @@ internal class HeatmapOverlay : Overlay() {
         val dst = android.graphics.RectF()
         val projection: Projection = mapView.projection
         val out = android.graphics.Point()
-        val viewW = mapView.width
-        val viewH = mapView.height
+        val viewW = mapView.width; val viewH = mapView.height
         for (pt in points) {
             projection.toPixels(GeoPoint(pt.lat, pt.lng), out)
             if (out.x < -spriteSize || out.x > viewW + spriteSize || out.y < -spriteSize || out.y > viewH + spriteSize) continue
@@ -729,40 +699,37 @@ internal class HeatmapOverlay : Overlay() {
     }
 }
 
-// ---- Speed-graded coloured dots; fades out at low zoom so the heatmap leads ----
+// ---- Speed-graded coloured dots; larger and more visible at detail zoom ----
 
 internal class PointsOverlay : Overlay() {
     private var points: List<LocationPoint> = emptyList()
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1f
-        color = Color.argb(180, 255, 255, 255)
+        color = Color.argb(200, 255, 255, 255)
     }
 
-    fun setPoints(p: List<LocationPoint>) {
-        points = p
-    }
+    fun setPoints(p: List<LocationPoint>) { points = p }
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow || points.isEmpty()) return
         val zoom = mapView.zoomLevelDouble
-        if (zoom < 11.0) return  // heatmap-only territory
+        if (zoom < 11.0) return
         val alphaFrac = when {
             zoom >= 13 -> 1.0f
-            zoom >= 12 -> 0.7f
-            else -> 0.35f
+            zoom >= 12 -> 0.75f
+            else -> 0.4f
         }
         val projection: Projection = mapView.projection
         val radius = when {
-            zoom < 12 -> 2.5f
-            zoom < 13 -> 3.5f
-            zoom < 15 -> 5.0f
-            else -> 6.5f
+            zoom < 12 -> 3.5f
+            zoom < 13 -> 5.0f
+            zoom < 15 -> 7.0f
+            else -> 9.0f
         }
+        strokePaint.strokeWidth = (radius * 0.35f).coerceAtLeast(1.5f)
         val out = android.graphics.Point()
-        val viewW = mapView.width
-        val viewH = mapView.height
+        val viewW = mapView.width; val viewH = mapView.height
         for (p in points) {
             projection.toPixels(GeoPoint(p.lat, p.lng), out)
             if (out.x < -20 || out.x > viewW + 20 || out.y < -20 || out.y > viewH + 20) continue
@@ -778,11 +745,11 @@ internal class PointsOverlay : Overlay() {
 private fun speedColor(speed: Double?): Int {
     val s = speed ?: 0.0
     return when {
-        s < 1.0 -> Color.rgb(59, 130, 246)      // stationary: blue
-        s < 5.0 -> Color.rgb(34, 197, 94)       // walking: green
-        s < 14.0 -> Color.rgb(234, 179, 8)      // cycling/jogging: amber
-        s < 30.0 -> Color.rgb(249, 115, 22)     // driving slow: orange
-        else -> Color.rgb(239, 68, 68)          // fast: red
+        s < 1.0 -> Color.rgb(59, 130, 246)
+        s < 5.0 -> Color.rgb(34, 197, 94)
+        s < 14.0 -> Color.rgb(234, 179, 8)
+        s < 30.0 -> Color.rgb(249, 115, 22)
+        else -> Color.rgb(239, 68, 68)
     }
 }
 
@@ -798,16 +765,13 @@ private fun checkNearHere(
         viewModel.checkHaveIBeenHere(lat, lng) { onResult(it) }
     }
     try {
-        // lastLocation is frequently null (esp. right after boot / fresh install),
-        // so fall back to an active fix before giving up.
         client.lastLocation
             .addOnSuccessListener { last ->
                 if (last != null) {
                     compute(last.latitude, last.longitude)
                 } else {
                     client.getCurrentLocation(
-                        com.google.android.gms.location.Priority.PRIORITY_BALANCED_POWER_ACCURACY,
-                        null,
+                        com.google.android.gms.location.Priority.PRIORITY_BALANCED_POWER_ACCURACY, null,
                     ).addOnSuccessListener { cur ->
                         if (cur != null) compute(cur.latitude, cur.longitude) else onResult(null)
                     }.addOnFailureListener { onResult(null) }
@@ -819,9 +783,7 @@ private fun checkNearHere(
     }
 }
 
-// "Right here" — same store / same building / same spot
 private const val SAME_SPOT_METERS = 200.0
-// "In this region" — same neighbourhood / town area
 private const val REGION_KM = 5.0
 
 internal fun buildNearHere(
@@ -831,9 +793,6 @@ internal fun buildNearHere(
 ): NearHereResult {
     val today = LocalDate.now()
 
-    // 1) Find the user's current region by picking the city/state of the
-    //    nearest past point (excluding today). The city field is already
-    //    reverse-geocoded server-side.
     var regionCity: String? = null
     var regionState: String? = null
     var nearestPastDistKm = Double.MAX_VALUE
@@ -849,8 +808,6 @@ internal fun buildNearHere(
     }
     val regionLabel = listOfNotNull(regionCity, regionState).joinToString(", ").ifBlank { null }
 
-    // 2) Filter to points in that region (by city match) OR fall back to
-    //    everything within REGION_KM of the user if no city match.
     val regionPoints = locations.filter { pt ->
         val day = parseDate(pt.timestamp)
         if (day == today) return@filter false
@@ -861,13 +818,12 @@ internal fun buildNearHere(
         }
     }
 
-    // 3) Within those region points, find ones close enough to count as
-    //    "same spot" and aggregate by day.
     data class DayAgg(
         var count: Int = 0,
         var bestDistM: Double = Double.MAX_VALUE,
         var lat: Double = 0.0,
         var lng: Double = 0.0,
+        val timestamps: MutableList<Long> = mutableListOf(),
     )
     val byDay = HashMap<LocalDate, DayAgg>()
     var globalClosestM = Double.MAX_VALUE
@@ -877,8 +833,10 @@ internal fun buildNearHere(
         if (distM > SAME_SPOT_METERS) continue
         if (distM < globalClosestM) globalClosestM = distM
         val day = parseDate(pt.timestamp) ?: continue
+        val tsMs = parseIsoMs(pt.timestamp) ?: continue
         val agg = byDay.getOrPut(day) { DayAgg() }
         agg.count++
+        agg.timestamps.add(tsMs)
         if (distM < agg.bestDistM) {
             agg.bestDistM = distM
             agg.lat = pt.lat
@@ -889,12 +847,14 @@ internal fun buildNearHere(
     val days = byDay.entries
         .sortedByDescending { it.key }
         .map { (date, agg) ->
+            val timeSpent = computeTimeSpentSeconds(agg.timestamps)
             NearHereDay(
                 date = date,
                 pointCount = agg.count,
                 closestMeters = agg.bestDistM,
                 lat = agg.lat,
                 lng = agg.lng,
+                timeSpentSeconds = timeSpent,
             )
         }
 
@@ -907,6 +867,28 @@ internal fun buildNearHere(
     )
 }
 
+private fun computeTimeSpentSeconds(timestampsMs: List<Long>): Int {
+    if (timestampsMs.size < 2) return 0
+    val sorted = timestampsMs.sorted()
+    var totalMs = 0L
+    for (i in 1 until sorted.size) {
+        val gap = sorted[i] - sorted[i - 1]
+        totalMs += minOf(gap, 3_600_000L)  // cap each gap at 1 hour like the server does
+    }
+    return (totalMs / 1000L).toInt()
+}
+
+private fun parseIsoMs(ts: String?): Long? {
+    if (ts.isNullOrBlank()) return null
+    return try {
+        OffsetDateTime.parse(ts).toInstant().toEpochMilli()
+    } catch (_: Exception) {
+        try {
+            LocalDateTime.parse(ts).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        } catch (_: Exception) { null }
+    }
+}
+
 private fun parseDate(ts: String?): LocalDate? {
     if (ts.isNullOrBlank()) return null
     return try {
@@ -915,9 +897,7 @@ private fun parseDate(ts: String?): LocalDate? {
         try {
             LocalDateTime.parse(ts).toLocalDate()
         } catch (_: DateTimeParseException) {
-            try {
-                LocalDate.parse(ts.take(10))
-            } catch (_: DateTimeParseException) { null }
+            try { LocalDate.parse(ts.take(10)) } catch (_: DateTimeParseException) { null }
         }
     }
 }

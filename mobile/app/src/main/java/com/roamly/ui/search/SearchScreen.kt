@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Search
@@ -49,6 +50,7 @@ import com.roamly.data.api.SearchPlace
 fun SearchScreen(
     onClose: () -> Unit,
     onPlaceClick: (lat: Double, lng: Double) -> Unit,
+    onDayClick: ((com.roamly.data.api.SearchDay) -> Unit)? = null,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -112,8 +114,8 @@ fun SearchScreen(
                                 }
                             }
                             if (days.isNotEmpty()) {
-                                item { SectionLabel("days") }
-                                items(days) { day -> DayRow(day) }
+                                item { SectionLabel("days${if (onDayClick != null) " · tap to view on map" else ""}") }
+                                items(days) { day -> DayRow(day, onClick = if (onDayClick != null) ({ onDayClick(day) }) else null) }
                             }
                         }
                     }
@@ -160,9 +162,9 @@ private fun PlaceRow(place: SearchPlace, onClick: () -> Unit) {
 }
 
 @Composable
-private fun DayRow(day: SearchDay) {
+private fun DayRow(day: SearchDay, onClick: (() -> Unit)? = null) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
         shape = RoundedCornerShape(12.dp),
     ) {
@@ -181,6 +183,10 @@ private fun DayRow(day: SearchDay) {
             }
             if (day.timeSpent > 0) {
                 Text(formatDuration(day.timeSpent), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (onClick != null) {
+                Spacer(Modifier.width(4.dp))
+                Icon(Icons.Rounded.ChevronRight, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

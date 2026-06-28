@@ -83,9 +83,15 @@ private val MOODS = listOf("😊", "😍", "😌", "😐", "😔", "😢", "😡
 private val WEATHERS = listOf("☀️", "⛅", "☁️", "🌧️", "⛈️", "❄️", "🌫️", "🌈")
 
 @Composable
-fun JournalsScreen(viewModel: JournalsViewModel = hiltViewModel()) {
+fun JournalsScreen(
+    viewModel: JournalsViewModel = hiltViewModel(),
+    onOpenMap: ((String) -> Unit)? = null,
+) {
     val state by viewModel.uiState.collectAsState()
     val clay = Clay.colors
+
+    // Refresh data each time this screen enters composition (e.g. tab switch back)
+    androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.refresh() }
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -150,7 +156,7 @@ fun JournalsScreen(viewModel: JournalsViewModel = hiltViewModel()) {
         )
     }
 
-    state.editor?.let { EntryEditor(it, viewModel) }
+    state.editor?.let { EntryEditor(it, viewModel, onOpenMap) }
 }
 
 @Composable
@@ -301,7 +307,7 @@ private fun RecentRow(entry: JournalListItem, cover: String?, onClick: () -> Uni
 // ── Editor ──────────────────────────────────────────────────────────────────
 
 @Composable
-private fun EntryEditor(editor: JournalEditorState, viewModel: JournalsViewModel) {
+private fun EntryEditor(editor: JournalEditorState, viewModel: JournalsViewModel, onOpenMap: ((String) -> Unit)? = null) {
     var confirmDelete by remember { mutableStateOf(false) }
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetMultipleContents()
@@ -346,7 +352,10 @@ private fun EntryEditor(editor: JournalEditorState, viewModel: JournalsViewModel
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 // Day track
-                if (editor.track.pointCount > 0) TrackCard(editor.track)
+                if (editor.track.pointCount > 0) TrackCard(
+                    track = editor.track,
+                    onExpand = if (onOpenMap != null) ({ onOpenMap(editor.date.toString()) }) else null,
+                )
 
                 OutlinedTextField(
                     value = editor.title,
@@ -442,41 +451,55 @@ private fun EmojiChip(emoji: String, selected: Boolean, onClick: () -> Unit) {
 
 /** The day's GPS track drawn straight on a Canvas (no map tiles needed). */
 @Composable
-private fun TrackCard(track: JournalTrack) {
-    ClayCard(contentPadding = 0.dp) {
-        Box(modifier = Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
+private fun TrackCard(track: JournalTrack, onExpand: (() -> Unit)? = null) {
+    ClayCard(contentPadding = 0.dp, onClick = onExpand) {
+        Box(modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
             androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                 val pts = track.points
                 if (pts.size < 2) return@Canvas
-                var minX = Double.MAX_VALUE; var maxX = -Double.MAX_VALUE
-                var minY = Double.MAX_VALUE; var maxY = -Double.MAX_VALUE
-                pts.forEach { p ->
-                    val x = p[0]; val y = p[1]
-                    if (x < minX) minX = x; if (x > maxX) maxX = x
-                    if (y < minY) minY = y; if (y > maxY) maxY = y
-                }
-                val spanX = (maxX - minX).coerceAtLeast(1e-6)
-                val spanY = (maxY - minY).coerceAtLeast(1e-6)
-                val span = maxOf(spanX, spanY)
-                fun px(p: List<Double>): Offset {
-                    val nx = (p[0] - minX) / span
-                    val ny = (p[1] - minY) / span
-                    // center within the canvas, flip Y (lat grows upward)
-                    val offX = (size.width - (spanX / span) * size.width) / 2
-                    val offY = (size.height - (spanY / span) * size.height) / 2
-                    return Offset(
-                        (nx * (spanX / span) * size.width + offX).toFloat(),
-                        (size.height - (ny * (spanY / span) * size.height + offY)).toFloat(),
-                    )
-                }
+                // pts are [lng, lat] pairs from the server
+                val lngs = pts.map { p -> p[0] }
+                val lats = pts.map { p -> p[1] }
+                val minLng = lngs.min(); val maxLng = lngs.max()
+                val minLat = lats.min(); val maxLat = lats.max()
+                val spanLng = (maxLng - minLng).coerceAtLeast(1e-6)
+                val spanLat = (maxLat - minLat).coerceAtLeast(1e-6)
+                // Scale uniformly to fit canvas, preserving aspect ratio
+                val scaleToFit = minOf(size.width / spanLng.toFloat(), size.height / spanLat.toFloat()) * 0.9f
+                val drawW = (spanLng * scaleToFit)
+                val drawH = (spanLat * scaleToFit)
+                val offX = (size.width - drawW) / 2f
+                val offY = (size.height - drawH) / 2f
+                fun px(lng: Double, lat: Double): Offset = Offset(
+                    ((lng - minLng) / spanLng * drawW + offX).toFloat(),
+                    (size.height - ((lat - minLat) / spanLat * drawH + offY)).toFloat(),
+                )
+                // Draw path with gap detection: break the path when consecutive
+                // points are far apart to avoid crossing lines on multi-segment days
+                val gapThresholdPx = minOf(size.width, size.height) * 0.25f
+                var pathStarted = false
                 val path = Path()
-                pts.forEachIndexed { i, p ->
-                    val o = px(p)
-                    if (i == 0) path.moveTo(o.x, o.y) else path.lineTo(o.x, o.y)
+                for (i in pts.indices) {
+                    val o = px(pts[i][0], pts[i][1])
+                    if (i == 0) {
+                        path.moveTo(o.x, o.y)
+                        pathStarted = true
+                    } else {
+                        val prev = px(pts[i - 1][0], pts[i - 1][1])
+                        val dx = o.x - prev.x; val dy = o.y - prev.y
+                        if (kotlin.math.sqrt(dx * dx + dy * dy) > gapThresholdPx) {
+                            path.moveTo(o.x, o.y)
+                        } else {
+                            path.lineTo(o.x, o.y)
+                        }
+                        pathStarted = true
+                    }
                 }
-                drawPath(path, color = Teal, style = Stroke(width = 4f, cap = StrokeCap.Round))
-                drawCircle(Color(0xFF3B82F6), radius = 7f, center = px(pts.first()))
-                drawCircle(Coral, radius = 7f, center = px(pts.last()))
+                drawPath(path, color = Teal, style = Stroke(width = 5f, cap = StrokeCap.Round))
+                val first = px(pts.first()[0], pts.first()[1])
+                val last = px(pts.last()[0], pts.last()[1])
+                drawCircle(Color(0xFF3B82F6), radius = 8f, center = first)
+                drawCircle(Coral, radius = 8f, center = last)
             }
             Row(
                 modifier = Modifier.align(Alignment.BottomStart).padding(12.dp),
@@ -485,6 +508,18 @@ private fun TrackCard(track: JournalTrack) {
                 TrackStat("${"%.1f".format(track.distanceKm)} km", "distance")
                 TrackStat("${track.pointCount}", "points")
                 if (track.cities.isNotEmpty()) TrackStat("${track.cities.size}", "places")
+            }
+            if (onExpand != null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(12.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    Text("open map ↗", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                }
             }
             if (track.cities.isNotEmpty()) {
                 Row(

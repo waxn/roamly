@@ -59,6 +59,7 @@ import com.roamly.ui.auth.LoginScreen
 import com.roamly.ui.groups.GroupsScreen
 import com.roamly.ui.journals.JournalsScreen
 import com.roamly.ui.map.MapScreen
+import com.roamly.ui.map.MapViewModel
 import com.roamly.ui.pals.PalDetailScreen
 import com.roamly.ui.settings.SettingsScreen
 import com.roamly.ui.stats.StatsScreen
@@ -91,6 +92,8 @@ private fun iconFor(screen: Screen): ImageVector = when (screen) {
 fun RoamlyNavHost() {
     val navController = rememberNavController()
     val authViewModel: AuthViewModel = hiltViewModel()
+    // Shared MapViewModel so Journal can trigger date navigation on the map
+    val mapViewModel: MapViewModel = hiltViewModel()
     val isLoggedIn by authViewModel.isLoggedIn.collectAsState()
 
     // Play the animated opening screen at least once, and hold it until the saved
@@ -155,7 +158,7 @@ fun RoamlyNavHost() {
                     }
                 )
             }
-            composable(Screen.Map.route) { MapScreen() }
+            composable(Screen.Map.route) { MapScreen(viewModel = mapViewModel) }
             composable(Screen.Adventures.route) {
                 GroupsScreen(
                     onTripClick = { id -> navController.navigate("trips/$id") },
@@ -180,7 +183,18 @@ fun RoamlyNavHost() {
                     onBack = { navController.popBackStack() }
                 )
             }
-            composable(Screen.Journal.route) { JournalsScreen() }
+            composable(Screen.Journal.route) {
+                JournalsScreen(
+                    onOpenMap = { dateStr ->
+                        mapViewModel.navigateToDate(dateStr)
+                        navController.navigate(Screen.Map.route) {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                )
+            }
             composable(Screen.Stats.route) { StatsScreen() }
             composable(Screen.Settings.route) {
                 SettingsScreen(

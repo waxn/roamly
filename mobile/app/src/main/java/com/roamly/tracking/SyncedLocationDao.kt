@@ -57,6 +57,18 @@ interface SyncedLocationDao {
         minLat: Double, maxLat: Double, minLng: Double, maxLng: Double,
     ): List<SyncedLocation>
 
+    /** Points within an explicit ms window — for custom date range and single-day views. */
+    @Query(
+        "SELECT * FROM synced_locations WHERE timestampMs >= :startMs AND timestampMs < :endMs " +
+            "ORDER BY timestampMs ASC LIMIT :limit"
+    )
+    suspend fun inTimeRange(startMs: Long, endMs: Long, limit: Int): List<SyncedLocation>
+
+    @Query(
+        "SELECT COUNT(*) FROM synced_locations WHERE timestampMs >= :startMs AND timestampMs < :endMs"
+    )
+    suspend fun countInTimeRange(startMs: Long, endMs: Long): Int
+
     @Query("DELETE FROM synced_locations")
     suspend fun deleteAll()
 }
