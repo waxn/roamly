@@ -2,7 +2,6 @@ package com.roamly.ui
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -14,7 +13,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -24,13 +22,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -41,9 +37,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Splash screen: a GPS track line traces its way across the screen, ending at
- * the Roamly icon in the center. The mark springs in as the line approaches,
- * then the whole screen fades out.
+ * Splash: a clean GPS track line draws itself across the screen, ending at
+ * the Roamly logo in the center. The route resembles a real journey —
+ * starting from one corner, visiting a few waypoints, then arriving at center.
  */
 @Composable
 fun SplashScreen(onFinished: () -> Unit) {
@@ -52,7 +48,6 @@ fun SplashScreen(onFinished: () -> Unit) {
     val markAlpha    = remember { Animatable(0f) }
     val screenAlpha  = remember { Animatable(1f) }
 
-    // Subtle pulse on the mark while we wait
     val infinite = rememberInfiniteTransition(label = "pulse")
     val pulse by infinite.animateFloat(
         initialValue = 1f, targetValue = 1.06f,
@@ -61,14 +56,11 @@ fun SplashScreen(onFinished: () -> Unit) {
     )
 
     LaunchedEffect(Unit) {
-        // 1. Draw the track across the screen (800ms)
-        launch { trackProgress.animateTo(1f, tween(900, easing = LinearEasing)) }
-        delay(400)
-        // 2. Icon springs in partway through the track draw
-        launch { markAlpha.animateTo(1f, tween(300)) }
+        launch { trackProgress.animateTo(1f, tween(1100, easing = FastOutSlowInEasing)) }
+        delay(550)
+        launch { markAlpha.animateTo(1f, tween(280)) }
         markScale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))
-        delay(300)
-        // 3. Fade out
+        delay(350)
         screenAlpha.animateTo(0f, tween(280, easing = FastOutSlowInEasing))
         onFinished()
     }
@@ -80,59 +72,81 @@ fun SplashScreen(onFinished: () -> Unit) {
             .background(Color(0xFF0F1117)),
         contentAlignment = Alignment.Center,
     ) {
-        // GPS track line drawn across the full canvas
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-            val cx = w / 2f
-            val cy = h / 2f
+            val w = size.width; val h = size.height
+            val cx = w / 2f; val cy = h / 2f
 
-            // A "track" path that wanders across the screen, ending at center
+            // A readable journey: start bottom-left, head up through two clear
+            // waypoints (like visiting landmarks), then arrive at center.
             val path = Path().apply {
-                moveTo(0.05f * w, 0.78f * h)
-                cubicTo(0.12f * w, 0.55f * h,  0.08f * w, 0.30f * h,  0.20f * w, 0.22f * h)
-                cubicTo(0.32f * w, 0.14f * h,  0.38f * w, 0.38f * h,  0.28f * w, 0.52f * h)
-                cubicTo(0.18f * w, 0.66f * h,  0.34f * w, 0.75f * h,  0.45f * w, 0.68f * h)
-                cubicTo(0.56f * w, 0.61f * h,  0.50f * w, 0.42f * h,  0.62f * w, 0.36f * h)
-                cubicTo(0.74f * w, 0.30f * h,  0.82f * w, 0.18f * h,  0.88f * w, 0.12f * h)
-                cubicTo(0.94f * w, 0.06f * h,  0.90f * w, 0.38f * h,  0.80f * w, 0.50f * h)
-                cubicTo(0.70f * w, 0.62f * h,  0.75f * w, 0.80f * h,  0.65f * w, 0.85f * h)
-                cubicTo(0.55f * w, 0.90f * h,  0.48f * w, 0.72f * h,  cx,       cy)
+                moveTo(0.08f * w, 0.88f * h)                      // start: bottom-left corner
+                lineTo(0.22f * w, 0.75f * h)                       // head diagonally up-right
+                cubicTo(
+                    0.28f * w, 0.62f * h,
+                    0.15f * w, 0.52f * h,
+                    0.25f * w, 0.42f * h,                          // curve left, then bend right
+                )
+                lineTo(0.40f * w, 0.38f * h)                       // go east
+                cubicTo(
+                    0.50f * w, 0.36f * h,
+                    0.55f * w, 0.28f * h,
+                    0.65f * w, 0.30f * h,                          // gentle arc up to north area
+                )
+                lineTo(0.75f * w, 0.42f * h)                       // turn south-east
+                cubicTo(
+                    0.80f * w, 0.50f * h,
+                    0.72f * w, 0.58f * h,
+                    cx, cy,                                         // curve back to center
+                )
             }
 
-            // Measure path to get trimmed sub-path
             val measure = PathMeasure()
             measure.setPath(path, false)
             val totalLen = measure.length
-
             val drawn = trackProgress.value
+
             if (drawn > 0f) {
                 val trimmed = Path()
                 measure.getSegment(0f, totalLen * drawn, trimmed, true)
 
-                // Glow shadow (thicker, lower alpha)
+                // Soft glow behind the line
                 drawPath(
                     trimmed,
-                    color = Teal.copy(alpha = 0.25f),
-                    style = Stroke(width = 14.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
+                    color = Teal.copy(alpha = 0.18f),
+                    style = Stroke(width = 18.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
                 )
-                // Main line
+                // Main track line
                 drawPath(
                     trimmed,
-                    color = Teal.copy(alpha = 0.85f),
+                    color = Teal.copy(alpha = 0.9f),
                     style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
                 )
 
-                // Moving "current location" dot at the tip
-                if (drawn < 0.98f) {
-                    val tipOffset = measure.getPosition(totalLen * drawn)
-                    drawCircle(color = Coral, radius = 8.dp.toPx(), center = tipOffset)
-                    drawCircle(color = Color.White.copy(alpha = 0.8f), radius = 3.dp.toPx(), center = tipOffset)
+                // Start dot (slightly behind)
+                val startPos = measure.getPosition(0f)
+                drawCircle(Teal.copy(alpha = 0.5f), 6.dp.toPx(), startPos)
+
+                // Moving dot at tip
+                if (drawn < 0.97f) {
+                    val tipPos = measure.getPosition(totalLen * drawn)
+                    drawCircle(Coral, 9.dp.toPx(), tipPos)
+                    drawCircle(Color.White.copy(alpha = 0.85f), 4.dp.toPx(), tipPos)
+                }
+
+                // Waypoint dots at key turns (appear once the line passes them)
+                data class WP(val frac: Float, val label: Float)
+                val waypoints = listOf(0.25f, 0.52f, 0.75f)
+                waypoints.forEach { frac ->
+                    if (drawn >= frac) {
+                        val wPos = measure.getPosition(totalLen * frac)
+                        drawCircle(Teal, 5.dp.toPx(), wPos)
+                        drawCircle(Color(0xFF0F1117), 2.5.dp.toPx(), wPos)
+                    }
                 }
             }
         }
 
-        // Roamly mark, springs in as the track reaches the center
+        // Roamly mark springs in as the track reaches center
         Image(
             painter = painterResource(R.drawable.roamly_favicon),
             contentDescription = "Roamly",
