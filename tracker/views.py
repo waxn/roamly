@@ -915,6 +915,7 @@ def track_api(request):
             {
                 'c': p['c'],
                 'ts': p['ts'],
+                'id': p['id'],
                 'speed': p['speed'],
                 'city': p['city'],
                 'state': p['state'],
