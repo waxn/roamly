@@ -1641,9 +1641,7 @@ function initMap(locs){
         }
 
         renderPOIMarkers();
-
-        const ml = document.getElementById('map-loading');
-        if(ml){ ml.classList.add('hide'); setTimeout(()=>ml.remove(), 400); }
+        hideMapLoading();
     });
 
     editMap.on('click', e => {
@@ -1655,6 +1653,11 @@ function initMap(locs){
             openPOIModal(null);
         }
     });
+}
+
+function hideMapLoading(){
+    const ml = document.getElementById('map-loading');
+    if(ml){ ml.classList.add('hide'); setTimeout(()=>{ if(ml.parentNode) ml.remove(); }, 400); }
 }
 
 // ── POIs (unified places + notes, backed by located blurbs) ─────────────────
@@ -1994,19 +1997,29 @@ document.getElementById('st-delete-btn').addEventListener('click', async functio
 
 // ── Init ───────────────────────────────────────────────────────────────────
 async function init(){
-    await loadTrip();
+    // Watchdog: never leave the map spinner up forever if something stalls.
+    const watchdog = setTimeout(hideMapLoading, 12000);
 
-    // Load notes (blurbs) from timeline API
-    const tr = await fetch(`/api/trips/${TRIP_ID}/timeline/`);
-    const td = await tr.json();
-    allNotes = (td.events||[]).filter(e=>e.type==='blurb' && e.text!==PHOTO_CONTAINER_SENTINEL);
-    blurbs = allNotes.filter(e=>e.latitude&&e.longitude);
+    try { await loadTrip(); } catch(e){ console.error('loadTrip failed', e); }
 
-    renderBlocks();
+    // Start the map as soon as we have locations so a later failure (timeline,
+    // blocks) can't block or hang the map.
+    try { initMap((tripData && tripData.locations) || []); }
+    catch(e){ console.error('initMap failed', e); hideMapLoading(); }
 
-    // Init map with track
-    const locs = tripData.locations || [];
-    initMap(locs);
+    // Load POIs (blurbs) from the timeline API
+    try {
+        const tr = await fetch(`/api/trips/${TRIP_ID}/timeline/`);
+        const td = tr.ok ? await tr.json() : {events:[]};
+        allNotes = (td.events||[]).filter(e=>e.type==='blurb' && e.text!==PHOTO_CONTAINER_SENTINEL);
+        blurbs = allNotes.filter(e=>e.latitude&&e.longitude);
+    } catch(e){ console.error('timeline load failed', e); }
+
+    try { renderBlocks(); } catch(e){ console.error('renderBlocks failed', e); }
+    try { renderPOIMarkers(); } catch(e){ console.error('renderPOIMarkers failed', e); }
+
+    clearTimeout(watchdog);
+    hideMapLoading();
 }
 
 init();
