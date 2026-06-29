@@ -390,7 +390,7 @@ function openPinPopup(placeId){
     if(pinMiniMap){ pinMiniMap.remove(); pinMiniMap = null; }
     const theme = localStorage.getItem('roamly_theme') === 'light' ? 'Streets' : 'Dark';
     pinMiniMap = new maplibregl.Map({container:miniEl, style:mapStyles[theme], center:[place.longitude,place.latitude], zoom:13, interactive:false});
-    pinMiniMap.on('load',()=>{ new maplibregl.Marker().setLngLat([place.longitude,place.latitude]).addTo(pinMiniMap); });
+    pinMiniMap.on('load',()=>{ pinMiniMap.resize(); new maplibregl.Marker().setLngLat([place.longitude,place.latitude]).addTo(pinMiniMap); });
 }
 
 // ── Inline pin ref rendering ─────────────────────────────────────────────────
@@ -517,7 +517,14 @@ function activateMapEmbed(wrapEl, locs, blurbFeatures){
     embeddedMaps[mapId] = m;
     m.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
+    // Keep the canvas matched to its container: the map is often created before
+    // layout settles (images/fonts shifting), which leaves tiles in a sliver.
+    const containerEl = document.getElementById(mapId);
+    if(window.ResizeObserver && containerEl){
+        new ResizeObserver(() => m.resize()).observe(containerEl);
+    }
     m.on('load', () => {
+        m.resize();
         if(config.show_track !== false && locs.length){
             const coords = locs.map(l=>[l.lng,l.lat]);
             m.addSource(mapId+'-track',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:coords}}});
