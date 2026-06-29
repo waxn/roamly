@@ -105,7 +105,6 @@ def _build_adventures_data(user):
         'blurbs__photos',
         'blurbs__comments__author',
         'milestones__author',
-        'places',
     )
 
     result = []
@@ -114,6 +113,7 @@ def _build_adventures_data(user):
         for b in adv.blurbs.all():
             blurbs.append({
                 'author_username': b.author.username,
+                'title': b.title,
                 'text': b.text,
                 'latitude': b.latitude,
                 'longitude': b.longitude,
@@ -163,17 +163,6 @@ def _build_adventures_data(user):
                     'created_at': m.created_at,
                 }
                 for m in adv.milestones.all()
-            ],
-            'places': [
-                {
-                    'name': p.name,
-                    'latitude': p.latitude,
-                    'longitude': p.longitude,
-                    'radius': p.radius,
-                    'notes': p.notes,
-                    'visited_at': p.visited_at,
-                }
-                for p in adv.places.all()
             ],
         })
 
@@ -246,7 +235,7 @@ def _build_backup_json(user):
 
     data = {
         'meta': {
-            'version': 5,
+            'version': 6,
             'exported_at': timezone.now().isoformat(),
             'username': user.username,
         },

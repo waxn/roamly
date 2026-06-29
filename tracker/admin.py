@@ -1,6 +1,6 @@
 from django.contrib import admin
 from .models import (
-    APIKey, Device, Location, Adventure, AdventurePlace,
+    APIKey, Device, Location, Adventure,
     UserProfile, Pal, PalMember, PalBlurb, PalBlurbPhoto, PalMilestone, PalComment,
 )
 
@@ -27,11 +27,6 @@ class LocationAdmin(admin.ModelAdmin):
 @admin.register(Adventure)
 class AdventureAdmin(admin.ModelAdmin):
     list_display = ('name', 'device', 'start_time', 'end_time')
-
-
-@admin.register(AdventurePlace)
-class AdventurePlaceAdmin(admin.ModelAdmin):
-    list_display = ('name', 'adventure', 'latitude', 'longitude')
 
 
 @admin.register(UserProfile)

@@ -33,7 +33,7 @@ from django.contrib.staticfiles import finders
 
 from .forms import SignUpForm, APIKeyForm, AdventureForm
 from .models import (
-    Device, Location, APIKey, Adventure, AdventurePlace, POI, BackupConfig,
+    Device, Location, APIKey, Adventure, POI, BackupConfig,
     UserProfile, Pal, PalMember, PalBlurb, PalBlurbPhoto, PalMilestone, PalComment,
     AdventureMember, AdventureBlurb, AdventureBlurbPhoto, AdventureMilestone, AdventureComment,
     SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig, StatsSnapshot,
@@ -2495,18 +2495,18 @@ def _trip_detail_inner(request, trip_id):
         "speed": _jf(l.speed),
     } for l in locations]
 
+    # POIs are located blurbs; surface them as `places` so inline pin refs and
+    # location_card blocks (which reference blurb ids) resolve.
     places = []
-    for place in trip.places.all():
-        time_spent_s = _calculate_time_spent(locations, place.latitude, place.longitude, place.radius)
+    for b in trip.blurbs.all():
+        if b.latitude is None or b.longitude is None:
+            continue
         places.append({
-            "id": place.id,
-            "name": place.name,
-            "latitude": place.latitude,
-            "longitude": place.longitude,
-            "radius": place.radius,
-            "notes": place.notes,
-            "time_spent": time_spent_s,
-            "time_spent_display": _format_duration(time_spent_s),
+            "id": b.id,
+            "name": b.title or "",
+            "latitude": b.latitude,
+            "longitude": b.longitude,
+            "notes": b.text,
         })
 
     # Photo store: photos live on blurbs; photo_grid body blocks reference them
@@ -2633,7 +2633,18 @@ def update_trip(request, trip_id):
 @login_required
 @csrf_exempt
 @require_http_methods(["POST"])
+def _poi_payload(b):
+    return {
+        "id": b.id,
+        "name": b.title or "",
+        "latitude": b.latitude,
+        "longitude": b.longitude,
+        "notes": b.text,
+    }
+
+
 def create_trip_place(request, trip_id):
+    """Create a POI (a located AdventureBlurb) on an adventure."""
     trip = _get_trip_for_user(trip_id, request.user)
     try:
         data = json.loads(request.body)
@@ -2645,68 +2656,39 @@ def create_trip_place(request, trip_id):
     if lat is None or lng is None:
         return JsonResponse({"error": "latitude and longitude required"}, status=400)
 
-    place = AdventurePlace.objects.create(
+    blurb = AdventureBlurb.objects.create(
         adventure=trip,
-        name=data.get('name', 'Untitled Place'),
+        author=request.user,
+        title=(data.get('name') or '')[:200],
+        text=data.get('notes', ''),
         latitude=float(lat),
         longitude=float(lng),
-        radius=float(data.get('radius', 100)),
-        notes=data.get('notes', ''),
     )
-
-    locations = list(trip.locations)
-    time_spent_s = _calculate_time_spent(locations, place.latitude, place.longitude, place.radius)
-
-    return JsonResponse({
-        "status": "ok",
-        "place": {
-            "id": place.id,
-            "name": place.name,
-            "latitude": place.latitude,
-            "longitude": place.longitude,
-            "radius": place.radius,
-            "notes": place.notes,
-            "time_spent": time_spent_s,
-            "time_spent_display": _format_duration(time_spent_s),
-        }
-    })
+    return JsonResponse({"status": "ok", "place": _poi_payload(blurb)})
 
 
 @login_required
 @csrf_exempt
 @require_http_methods(["POST"])
 def update_trip_place(request, trip_id, place_id):
+    """Update a POI (AdventureBlurb identified by place_id)."""
     trip = _get_trip_for_user(trip_id, request.user)
-    place = get_object_or_404(AdventurePlace, id=place_id, adventure=trip)
+    blurb = get_object_or_404(AdventureBlurb, id=place_id, adventure=trip)
     try:
         data = json.loads(request.body)
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
     if 'name' in data:
-        place.name = data['name']
+        blurb.title = (data['name'] or '')[:200]
     if 'notes' in data:
-        place.notes = data['notes']
-    if 'radius' in data:
-        place.radius = float(data['radius'])
-    place.save()
-
-    locations = list(trip.locations)
-    time_spent_s = _calculate_time_spent(locations, place.latitude, place.longitude, place.radius)
-
-    return JsonResponse({
-        "status": "ok",
-        "place": {
-            "id": place.id,
-            "name": place.name,
-            "latitude": place.latitude,
-            "longitude": place.longitude,
-            "radius": place.radius,
-            "notes": place.notes,
-            "time_spent": time_spent_s,
-            "time_spent_display": _format_duration(time_spent_s),
-        }
-    })
+        blurb.text = data['notes'] or ''
+    if data.get('latitude') is not None:
+        blurb.latitude = float(data['latitude'])
+    if data.get('longitude') is not None:
+        blurb.longitude = float(data['longitude'])
+    blurb.save()
+    return JsonResponse({"status": "ok", "place": _poi_payload(blurb)})
 
 
 @login_required
@@ -2714,8 +2696,8 @@ def update_trip_place(request, trip_id, place_id):
 @require_http_methods(["POST", "DELETE"])
 def delete_trip_place(request, trip_id, place_id):
     trip = _get_trip_for_user(trip_id, request.user)
-    place = get_object_or_404(AdventurePlace, id=place_id, adventure=trip)
-    place.delete()
+    blurb = get_object_or_404(AdventureBlurb, id=place_id, adventure=trip)
+    blurb.delete()
     return JsonResponse({"status": "ok"})
 
 
@@ -2785,6 +2767,7 @@ def trip_timeline_api(request, trip_id):
             'author': b.author.username,
             'author_id': b.author.id,
             'avatar': _get_user_avatar(b.author),
+            'title': b.title,
             'text': b.text,
             'latitude': b.latitude,
             'longitude': b.longitude,
@@ -2821,12 +2804,14 @@ def trip_timeline_api(request, trip_id):
 def trip_create_blurb(request, trip_id):
     trip = _get_trip_for_user(trip_id, request.user)
     text = request.POST.get('text', '').strip()
-    if not text:
-        return JsonResponse({"error": "Text is required"}, status=400)
+    title = request.POST.get('title', '').strip()
+    has_photos = bool(request.FILES.getlist('photos'))
+    if not text and not title and not has_photos:
+        return JsonResponse({"error": "Title, text, or a photo is required"}, status=400)
     lat = request.POST.get('latitude')
     lng = request.POST.get('longitude')
     blurb = AdventureBlurb.objects.create(
-        adventure=trip, author=request.user, text=text,
+        adventure=trip, author=request.user, title=title[:200], text=text,
         latitude=float(lat) if lat else None,
         longitude=float(lng) if lng else None,
         location_name=request.POST.get('location_name', ''),
@@ -3014,6 +2999,8 @@ def trip_update_blurb(request, trip_id, blurb_id):
         data = json.loads(request.body)
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
+    if 'title' in data:
+        blurb.title = (data['title'] or '')[:200]
     if 'text' in data:
         blurb.text = data['text']
     if 'latitude' in data:
@@ -3134,13 +3121,13 @@ def trip_public_detail_api(request, slug):
         "city": l.city, "country": l.country,
     } for l in locations]
     members = [{"username": m.user.username, "role": m.role} for m in trip.members.select_related('user')]
-    places = [{"id": p.id, "name": p.name, "latitude": p.latitude, "longitude": p.longitude, "notes": p.notes}
-              for p in trip.places.all()]
     blurbs = []
+    places = []
     for b in trip.blurbs.select_related('author').prefetch_related('photos'):
         blurbs.append({
             "id": b.id,
             "author": b.author.username,
+            "title": b.title,
             "text": b.text,
             "latitude": b.latitude,
             "longitude": b.longitude,
@@ -3149,6 +3136,10 @@ def trip_public_detail_api(request, slug):
                        for p in b.photos.all()],
             "created_at": b.created_at.isoformat(),
         })
+        # POIs (located blurbs) resolve inline pin refs / location_card blocks.
+        if b.latitude is not None and b.longitude is not None:
+            places.append({"id": b.id, "name": b.title or "", "latitude": b.latitude,
+                           "longitude": b.longitude, "notes": b.text})
     return JsonResponse({
         "id": trip.id,
         "name": trip.name,
@@ -3176,6 +3167,7 @@ def trip_public_timeline_api(request, slug):
             'type': 'blurb',
             'id': b.id,
             'author': b.author.username,
+            'title': b.title,
             'text': b.text,
             'latitude': b.latitude,
             'longitude': b.longitude,
@@ -3356,7 +3348,7 @@ def _write_backup_json(user, f):
     """Write backup JSON to a file-like object row-by-row to avoid OOM on large datasets."""
     encoder = DjangoJSONEncoder()
 
-    meta = {'version': 5, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 6, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # Same complete, nested schema as the S3 backup (_build_backup_json) so the
@@ -3581,15 +3573,14 @@ def restore_backup(request):
                     if not trip:
                         errors += 1
                         continue
-                    _, created = AdventurePlace.objects.get_or_create(
+                    _, created = AdventureBlurb.objects.get_or_create(
                         adventure=trip,
-                        name=tp['name'],
+                        title=(tp.get('name') or '')[:200],
                         latitude=tp['latitude'],
                         longitude=tp['longitude'],
                         defaults={
-                            'radius': tp.get('radius', 100),
-                            'notes': tp.get('notes', ''),
-                            'visited_at': _parse_timestamp(tp['visited_at']) if tp.get('visited_at') else None,
+                            'author': trip.creator or user,
+                            'text': tp.get('notes', ''),
                         }
                     )
                     if created:
@@ -3753,16 +3744,15 @@ def restore_backup(request):
                         if update_fields:
                             adv.save(update_fields=update_fields)
 
-                    # Places
+                    # Places (legacy v4/v5 backups) restore as POIs (blurbs)
                     for p in a.get('places', []):
                         try:
-                            _, created = AdventurePlace.objects.get_or_create(
-                                adventure=adv, name=p['name'],
+                            _, created = AdventureBlurb.objects.get_or_create(
+                                adventure=adv, title=(p.get('name') or '')[:200],
                                 latitude=p['latitude'], longitude=p['longitude'],
                                 defaults={
-                                    'radius': p.get('radius', 100),
-                                    'notes': p.get('notes', ''),
-                                    'visited_at': _parse_timestamp(p['visited_at']) if p.get('visited_at') else None,
+                                    'author': adv.creator or user,
+                                    'text': p.get('notes', ''),
                                 }
                             )
                             if created:
@@ -3786,6 +3776,7 @@ def restore_backup(request):
                                 blurb_author = AuthUser.objects.filter(username=b.get('author_username')).first() or user
                                 blurb = AdventureBlurb.objects.create(
                                     adventure=adv, author=blurb_author,
+                                    title=(b.get('title') or '')[:200],
                                     text=b.get('text', ''),
                                     latitude=b.get('latitude'), longitude=b.get('longitude'),
                                     location_name=b.get('location_name', ''),

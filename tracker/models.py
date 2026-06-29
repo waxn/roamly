@@ -415,21 +415,6 @@ class BackupConfig(models.Model):
         return f"Backup config for {self.user.username}"
 
 
-class AdventurePlace(models.Model):
-    """Marked waypoint within an adventure."""
-    adventure = models.ForeignKey(Adventure, on_delete=models.CASCADE, related_name='places')
-    name = models.CharField(max_length=200)
-    latitude = models.FloatField()
-    longitude = models.FloatField()
-    radius = models.FloatField(default=100, help_text="Radius in meters")
-    notes = models.TextField(blank=True)
-    visited_at = models.DateTimeField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return self.name
-
-
 class AdventureMember(models.Model):
     """Membership in a shared adventure."""
     ROLE_CHOICES = [('creator', 'Creator'), ('member', 'Member')]
@@ -446,10 +431,13 @@ class AdventureMember(models.Model):
 
 
 class AdventureBlurb(models.Model):
-    """User-posted text + location entry on an adventure timeline."""
+    """A point of interest (POI) on an adventure: title + notes + optional map
+    location, with photos and comments. Unifies the former AdventurePlace and
+    note concepts (migration 0037)."""
     adventure = models.ForeignKey(Adventure, on_delete=models.CASCADE, related_name='blurbs')
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='adventure_blurbs')
-    text = models.TextField()
+    title = models.CharField(max_length=200, blank=True, default='')
+    text = models.TextField(blank=True)
     latitude = models.FloatField(null=True, blank=True)
     longitude = models.FloatField(null=True, blank=True)
     location_name = models.CharField(max_length=300, blank=True)
