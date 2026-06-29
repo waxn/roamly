@@ -133,6 +133,29 @@
 /* ── Blocks area — extra left padding for the hover toolbar gutter ── */
 .blocks-area { flex: 1; padding: 0.5rem 1.5rem 4rem 3rem; }
 
+/* Loading skeletons (shown until trip data + map are ready) */
+@keyframes rly-shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+.blocks-skeleton { padding-top: 0.75rem; display: flex; flex-direction: column; gap: 0.85rem; }
+.skel {
+    border-radius: 8px;
+    background: linear-gradient(90deg, var(--bg-input) 25%, var(--bg-glass) 50%, var(--bg-input) 75%);
+    background-size: 800px 100%; animation: rly-shimmer 1.3s linear infinite;
+}
+.skel-line { height: 0.85rem; }
+.skel-block { height: 160px; border-radius: 12px; margin: 0.4rem 0; }
+.map-loading {
+    position: absolute; inset: 0; z-index: 5; display: flex;
+    align-items: center; justify-content: center; background: var(--bg-card);
+    transition: opacity 0.35s; pointer-events: none;
+}
+.map-loading.hide { opacity: 0; }
+.map-loading-spinner {
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 3px solid var(--border); border-top-color: var(--primary);
+    animation: rly-spin 0.8s linear infinite;
+}
+@keyframes rly-spin { to { transform: rotate(360deg); } }
+
 /* Block wrapper */
 .block-wrap { position: relative; margin-bottom: 0.125rem; border-radius: 10px; transition: background 0.1s; }
 .block-wrap.drag-over-top    { border-top: 2px solid var(--primary); }
@@ -528,13 +551,23 @@
 
         <!-- Blocks -->
         <div class="blocks-area" id="blocks-area">
-            <!-- Rendered by JS -->
+            <!-- Skeleton placeholder until blocks render -->
+            <div class="blocks-skeleton" id="blocks-skeleton">
+                <div class="skel skel-line" style="width:60%;height:1.4rem;"></div>
+                <div class="skel skel-line" style="width:95%;"></div>
+                <div class="skel skel-line" style="width:88%;"></div>
+                <div class="skel skel-line" style="width:74%;"></div>
+                <div class="skel skel-block"></div>
+                <div class="skel skel-line" style="width:92%;"></div>
+                <div class="skel skel-line" style="width:80%;"></div>
+            </div>
         </div>
     </div>
 
     <!-- ── RIGHT: Map ── -->
     <div class="editor-map-pane">
         <div id="edit-map"></div>
+        <div class="map-loading" id="map-loading"><div class="map-loading-spinner"></div></div>
         <div class="edit-map-toolbar">
             <!-- Layer toggles -->
             <div class="edit-map-group">
@@ -1349,6 +1382,9 @@ function initMap(locs){
 
         renderBlurbPins();
         renderPlacePins();
+
+        const ml = document.getElementById('map-loading');
+        if(ml){ ml.classList.add('hide'); setTimeout(()=>ml.remove(), 400); }
     });
 
     editMap.on('click', e => {
