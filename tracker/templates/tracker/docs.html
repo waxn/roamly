@@ -1158,8 +1158,8 @@ docker compose exec -T db psql -U roamly roamly &lt; backup.sql</code></pre>
                             <td><code>postgis://roamly:...@db:5432/roamly</code></td>
                         </tr>
                         <tr>
-                            <td><code>CUSTOM_JS_SNIPPET</code></td>
-                            <td>raw javascript (no <code>&lt;script&gt;</code> tags) injected before <code>&lt;/body&gt;</code> on every page. use for analytics tools like posthog, plausible, or fathom. unset by default — self-hosters get nothing extra.</td>
+                            <td><code>ADMIN_SIGNUP_KEY</code></td>
+                            <td>secret that unlocks the admin checkbox on the signup form. set it to let the first account register as an instance admin. analytics snippets are configured in-app at <strong>Admin Panel → Custom JS</strong> (no env var needed).</td>
                             <td><em>unset</em></td>
                         </tr>
                     </tbody>
@@ -2163,5 +2163,6 @@ background threads
     })();
 </script>
 
+    {% if CUSTOM_JS_SNIPPET %}{{ CUSTOM_JS_SNIPPET|safe }}{% endif %}
 </body>
 </html>

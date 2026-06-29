@@ -498,5 +498,6 @@
             });
         })();
     </script>
+    {% if CUSTOM_JS_SNIPPET %}{{ CUSTOM_JS_SNIPPET|safe }}{% endif %}
 </body>
 </html>
