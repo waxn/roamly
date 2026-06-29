@@ -639,9 +639,11 @@ async function loadAndRender(){
         });
     }
 
-    // Render blurbs section
+    // Render blurbs section — newest first
     const blurbsEl = document.getElementById('pub-blurbs-section');
-    const blurbs = (tripData.blurbs || []).filter(b => b.text !== PHOTO_CONTAINER_SENTINEL);
+    const blurbs = (tripData.blurbs || [])
+        .filter(b => b.text !== PHOTO_CONTAINER_SENTINEL)
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     if(blurbsEl && blurbs.length){
         blurbsEl.innerHTML = `<div class="pub-blurbs-section">
             <div class="pub-blurbs-title">pins & notes</div>
