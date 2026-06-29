@@ -330,6 +330,26 @@
 .pin-popup-notes { font-size: 0.8125rem; color: var(--text-muted); line-height: 1.5; }
 .pin-popup-mini-map { width: 100%; height: 140px; border-radius: 10px; margin-top: 0.75rem; overflow: hidden; }
 
+/* POI star markers */
+.poi-marker { color: var(--clay-coral); cursor: pointer; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); transition: transform 0.12s; }
+.poi-marker svg { width: 26px; height: 26px; display: block; stroke: #fff; stroke-width: 1; }
+.poi-marker:hover { transform: scale(1.18); }
+
+/* POI detail popup */
+.poi-popup-card { text-align: center; }
+.poi-popup-author { font-size: 0.75rem; color: var(--text-muted); font-weight: 700; margin-bottom: 0.4rem; }
+.poi-popup-star { color: var(--clay-coral); display: flex; justify-content: center; margin-bottom: 0.25rem; }
+.poi-popup-star svg { width: 30px; height: 30px; }
+.poi-popup-card .pin-popup-notes { white-space: pre-wrap; }
+.poi-popup-actions { display: flex; gap: 0.5rem; justify-content: center; margin-top: 0.9rem; }
+.poi-popup-actions button {
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-muted); font-family: var(--font-body); font-size: 0.8125rem;
+    font-weight: 700; padding: 0.35rem 0.9rem; cursor: pointer; transition: all 0.12s;
+}
+.poi-popup-actions button:hover { color: var(--text); border-color: var(--text-muted); }
+.poi-popup-actions button.danger:hover { color: var(--danger); border-color: var(--danger); }
+
 /* Block modals */
 .block-modal-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.6);
@@ -610,24 +630,16 @@
                     <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
                     track
                 </button>
-                <button class="edit-map-btn lyr active-coral" id="toggle-blurbs-btn">
-                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-                    notes
-                </button>
-                <button class="edit-map-btn lyr active-lavender" id="toggle-places-btn">
-                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                    places
+                <button class="edit-map-btn lyr active-coral" id="toggle-pois-btn">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polygon points="12 2 15 9 22 9.3 16.5 14 18.5 21 12 17 5.5 21 7.5 14 2 9.3 9 9"/></svg>
+                    POIs
                 </button>
             </div>
             <!-- Actions -->
             <div class="edit-map-group">
-                <button class="edit-map-btn" id="drop-pin-btn">
-                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                    add place
-                </button>
-                <button class="edit-map-btn" id="drop-note-btn">
-                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-                    add note
+                <button class="edit-map-btn" id="drop-poi-btn">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polygon points="12 2 15 9 22 9.3 16.5 14 18.5 21 12 17 5.5 21 7.5 14 2 9.3 9 9"/></svg>
+                    add POI
                 </button>
             </div>
         </div>
@@ -643,6 +655,39 @@
         <div class="pin-popup-name" id="pin-popup-name"></div>
         <div class="pin-popup-notes" id="pin-popup-notes"></div>
         <div class="pin-popup-mini-map" id="pin-popup-mini-map"></div>
+    </div>
+</div>
+
+<!-- POI detail popup (themed, on star marker click) -->
+<div class="pin-popup-overlay" id="poi-popup-overlay">
+    <div class="pin-popup-card poi-popup-card">
+        <button class="popup-close-btn" id="poi-popup-close">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <div class="poi-popup-author" id="poi-popup-author"></div>
+        <div class="poi-popup-star"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15 9 22 9.3 16.5 14 18.5 21 12 17 5.5 21 7.5 14 2 9.3 9 9"/></svg></div>
+        <div class="pin-popup-name" id="poi-popup-title"></div>
+        <div class="pin-popup-notes" id="poi-popup-notes"></div>
+        <div class="poi-popup-actions" id="poi-popup-actions"></div>
+    </div>
+</div>
+
+<!-- POI create/edit modal -->
+<div class="block-modal-overlay" id="poi-modal">
+    <div class="block-modal">
+        <h3 id="poi-modal-title">add POI</h3>
+        <div class="bm-field">
+            <label class="bm-label">title</label>
+            <input class="bm-input" id="poi-title-in" placeholder="name this point…" maxlength="200">
+        </div>
+        <div class="bm-field">
+            <label class="bm-label">notes</label>
+            <textarea class="bm-input" id="poi-notes-in" rows="3" placeholder="notes about this point…" style="resize:vertical;"></textarea>
+        </div>
+        <div class="bm-btns">
+            <button class="bm-cancel-btn" data-modal="poi-modal">cancel</button>
+            <button class="bm-ok-btn" id="poi-modal-ok">save</button>
+        </div>
     </div>
 </div>
 
@@ -845,9 +890,9 @@
                 </div>
                 <div id="st-member-msg" class="settings-msg"></div>
             </div>
-            <!-- Notes -->
+            <!-- POIs -->
             <div class="settings-section">
-                <div class="settings-section-label">notes</div>
+                <div class="settings-section-label">points of interest</div>
                 <div id="st-notes-list"></div>
             </div>
             <!-- Danger zone -->
@@ -1546,8 +1591,11 @@ document.getElementById('hero-add-block-btn').addEventListener('click', function
 });
 
 // ── Map (right pane) ───────────────────────────────────────────────────────
-let showTrack = true, showBlurbs = true, showPlaces = true;
-let droppingPin = false, droppingNote = false;
+let showTrack = true, showPOIs = true;
+let droppingPOI = false;
+let poiMarkers = [];
+let poiEditId = null;       // blurb id being edited, or null when creating
+let poiDropCoords = null;   // {lat,lng} captured for a new POI
 
 function initMap(locs){
     const theme = localStorage.getItem('roamly_theme') === 'light' ? 'Streets' : 'Dark';
@@ -1591,96 +1639,43 @@ function initMap(locs){
             editMap.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]], {padding:40});
         }
 
-        renderBlurbPins();
-        renderPlacePins();
+        renderPOIMarkers();
 
         const ml = document.getElementById('map-loading');
         if(ml){ ml.classList.add('hide'); setTimeout(()=>ml.remove(), 400); }
     });
 
     editMap.on('click', e => {
-        if(droppingPin){
-            const name = prompt('name this place:');
-            if(name) createPlace(name, e.lngLat.lat, e.lngLat.lng);
-            droppingPin = false;
-            document.getElementById('drop-pin-btn').classList.remove('active');
+        if(droppingPOI){
+            poiDropCoords = {lat: e.lngLat.lat, lng: e.lngLat.lng};
+            droppingPOI = false;
+            document.getElementById('drop-poi-btn').classList.remove('active');
             editMap.getCanvas().style.cursor = '';
-        } else if(droppingNote){
-            const text = prompt('write a note for this spot:');
-            if(text) createNote(text, e.lngLat.lat, e.lngLat.lng);
-            droppingNote = false;
-            document.getElementById('drop-note-btn').classList.remove('active');
-            editMap.getCanvas().style.cursor = '';
+            openPOIModal(null);
         }
     });
 }
 
-let blurbClickBound = false, placeClickBound = false;
-
-function renderBlurbPins(){
-    if(!editMap || !editMap.loaded()) return;
-    if(editMap.getLayer('blurb-pins')) editMap.removeLayer('blurb-pins');
-    if(editMap.getSource('blurbs')) editMap.removeSource('blurbs');
-    if(!showBlurbs) return;
-    const features = blurbs.filter(b=>b.latitude&&b.longitude).map(b=>({
-        type:'Feature',
-        geometry:{type:'Point',coordinates:[b.longitude,b.latitude]},
-        properties:{id:b.id,author:b.author,text:b.text.slice(0,200)}
-    }));
-    editMap.addSource('blurbs',{type:'geojson',data:{type:'FeatureCollection',features}});
-    editMap.addLayer({id:'blurb-pins',type:'circle',source:'blurbs',paint:{
-        'circle-color':'#FF6B6B','circle-radius':8,'circle-stroke-width':2,'circle-stroke-color':'#fff'
-    }});
-    if(!blurbClickBound){
-        editMap.on('click','blurb-pins',e=>{
-            const p = e.features[0].properties;
-            new maplibregl.Popup({offset:10}).setLngLat(e.features[0].geometry.coordinates.slice())
-                .setHTML(`<div class="blurb-popup">
-                    <div class="blurb-popup-author">${esc(p.author)}</div>
-                    <div class="blurb-popup-text">${esc(p.text)}</div>
-                    <div class="popup-actions">
-                        <button onclick="editNote(${p.id})">edit</button>
-                        <button class="danger" onclick="deleteNote(${p.id})">delete</button>
-                    </div>
-                </div>`).addTo(editMap);
-        });
-        editMap.on('mouseenter','blurb-pins',()=>{ editMap.getCanvas().style.cursor='pointer'; });
-        editMap.on('mouseleave','blurb-pins',()=>{ editMap.getCanvas().style.cursor=''; });
-        blurbClickBound = true;
-    }
+// ── POIs (unified places + notes, backed by located blurbs) ─────────────────
+function poiMarkerEl(){
+    const el = document.createElement('div');
+    el.className = 'poi-marker';
+    el.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15 9 22 9.3 16.5 14 18.5 21 12 17 5.5 21 7.5 14 2 9.3 9 9"/></svg>';
+    return el;
 }
 
-function renderPlacePins(){
-    if(!editMap || !editMap.loaded()) return;
-    if(editMap.getLayer('place-pins')) editMap.removeLayer('place-pins');
-    if(editMap.getSource('places-src')) editMap.removeSource('places-src');
-    if(!showPlaces) return;
-    const features = places.map(p=>({
-        type:'Feature',
-        geometry:{type:'Point',coordinates:[p.longitude,p.latitude]},
-        properties:{id:p.id,name:p.name,notes:p.notes||''}
-    }));
-    editMap.addSource('places-src',{type:'geojson',data:{type:'FeatureCollection',features}});
-    editMap.addLayer({id:'place-pins',type:'circle',source:'places-src',paint:{
-        'circle-color':'#9B8EF7','circle-radius':8,'circle-stroke-width':2,'circle-stroke-color':'#fff'
-    }});
-    if(!placeClickBound){
-        editMap.on('click','place-pins',e=>{
-            const p = e.features[0].properties;
-            new maplibregl.Popup({offset:10}).setLngLat(e.features[0].geometry.coordinates.slice())
-                .setHTML(`<div>
-                    <strong>${esc(p.name)}</strong>
-                    ${p.notes?`<div style="color:var(--text-muted);font-size:0.75rem;margin-top:2px;">${esc(p.notes)}</div>`:''}
-                    <div class="popup-actions">
-                        <button onclick="editPlace(${p.id})">rename</button>
-                        <button class="danger" onclick="deletePlace(${p.id})">delete</button>
-                    </div>
-                </div>`).addTo(editMap);
-        });
-        editMap.on('mouseenter','place-pins',()=>{ editMap.getCanvas().style.cursor='pointer'; });
-        editMap.on('mouseleave','place-pins',()=>{ editMap.getCanvas().style.cursor=''; });
-        placeClickBound = true;
-    }
+function renderPOIMarkers(){
+    poiMarkers.forEach(m => m.remove());
+    poiMarkers = [];
+    if(!editMap) return;
+    blurbs.filter(b => b.latitude && b.longitude).forEach(b => {
+        const el = poiMarkerEl();
+        el.style.display = showPOIs ? '' : 'none';
+        el.addEventListener('click', ev => { ev.stopPropagation(); openPOIPopup(b); });
+        const m = new maplibregl.Marker({element: el, anchor: 'center'})
+            .setLngLat([b.longitude, b.latitude]).addTo(editMap);
+        poiMarkers.push(m);
+    });
 }
 
 // Map toolbar toggle buttons
@@ -1693,29 +1688,15 @@ document.getElementById('toggle-track-btn').addEventListener('click', function()
         }
     });
 });
-document.getElementById('toggle-blurbs-btn').addEventListener('click', function(){
-    showBlurbs = !showBlurbs;
-    this.classList.toggle('active', showBlurbs);
-    renderBlurbPins();
+document.getElementById('toggle-pois-btn').addEventListener('click', function(){
+    showPOIs = !showPOIs;
+    this.classList.toggle('active-coral', showPOIs);
+    poiMarkers.forEach(m => { m.getElement().style.display = showPOIs ? '' : 'none'; });
 });
-document.getElementById('toggle-places-btn').addEventListener('click', function(){
-    showPlaces = !showPlaces;
-    this.classList.toggle('active', showPlaces);
-    renderPlacePins();
-});
-document.getElementById('drop-pin-btn').addEventListener('click', function(){
-    droppingPin = !droppingPin;
-    droppingNote = false;
-    document.getElementById('drop-note-btn').classList.remove('active');
-    this.classList.toggle('active', droppingPin);
-    if(editMap) editMap.getCanvas().style.cursor = droppingPin ? 'crosshair' : '';
-});
-document.getElementById('drop-note-btn').addEventListener('click', function(){
-    droppingNote = !droppingNote;
-    droppingPin = false;
-    document.getElementById('drop-pin-btn').classList.remove('active');
-    this.classList.toggle('active', droppingNote);
-    if(editMap) editMap.getCanvas().style.cursor = droppingNote ? 'crosshair' : '';
+document.getElementById('drop-poi-btn').addEventListener('click', function(){
+    droppingPOI = !droppingPOI;
+    this.classList.toggle('active', droppingPOI);
+    if(editMap) editMap.getCanvas().style.cursor = droppingPOI ? 'crosshair' : '';
 });
 
 function closeMapPopups(){ document.querySelectorAll('.maplibregl-popup').forEach(p=>p.remove()); }
@@ -1728,62 +1709,75 @@ async function reloadBlurbs(){
     if(document.getElementById('settings-overlay').classList.contains('open')) renderSettingsNotes();
 }
 
-async function createPlace(name, lat, lng){
-    const r = await fetch(`/api/trips/${TRIP_ID}/places/create/`, {
-        method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
-        body: JSON.stringify({name,latitude:lat,longitude:lng})
-    });
-    if(r.ok){
-        await loadTrip();
-        renderPlacePins();
+// ── POI create / edit modal ─────────────────────────────────────────────────
+function openPOIModal(id){
+    poiEditId = id;
+    const b = id ? blurbs.find(x => x.id === id) : null;
+    document.getElementById('poi-modal-title').textContent = id ? 'edit POI' : 'add POI';
+    document.getElementById('poi-title-in').value = b ? (b.title || '') : '';
+    document.getElementById('poi-notes-in').value = b ? (b.text || '') : '';
+    document.getElementById('poi-modal').classList.add('open');
+    setTimeout(() => document.getElementById('poi-title-in').focus(), 30);
+}
+
+document.getElementById('poi-modal-ok').addEventListener('click', savePOI);
+async function savePOI(){
+    const title = document.getElementById('poi-title-in').value.trim();
+    const notes = document.getElementById('poi-notes-in').value.trim();
+    if(!title && !notes){ alert('add a title or some notes'); return; }
+    let r;
+    if(poiEditId){
+        r = await fetch(`/api/trips/${TRIP_ID}/places/${poiEditId}/update/`, {
+            method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+            body: JSON.stringify({name: title, notes})
+        });
+    } else {
+        if(!poiDropCoords) return;
+        r = await fetch(`/api/trips/${TRIP_ID}/places/create/`, {
+            method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+            body: JSON.stringify({name: title, notes, latitude: poiDropCoords.lat, longitude: poiDropCoords.lng})
+        });
+    }
+    if(r && r.ok){
+        document.getElementById('poi-modal').classList.remove('open');
+        poiEditId = null; poiDropCoords = null;
+        await loadTrip();      // refresh `places` for pin refs / location cards
+        await reloadBlurbs();  // refresh POI markers
+        renderPOIMarkers();
         renderBlocks();
     }
 }
 
-async function createNote(text, lat, lng){
-    const fd = new FormData();
-    fd.append('text', text);
-    fd.append('latitude', lat);
-    fd.append('longitude', lng);
-    const r = await fetch(`/api/trips/${TRIP_ID}/blurbs/create/`, {
-        method:'POST', headers:{'X-CSRFToken':CSRF}, body: fd
-    });
-    if(r.ok){ await reloadBlurbs(); renderBlurbPins(); }
+// ── POI detail popup ────────────────────────────────────────────────────────
+function openPOIPopup(b){
+    document.getElementById('poi-popup-author').textContent = b.author ? ('added by ' + b.author) : '';
+    document.getElementById('poi-popup-title').textContent = b.title || '(untitled POI)';
+    document.getElementById('poi-popup-notes').textContent = b.text || '';
+    document.getElementById('poi-popup-actions').innerHTML =
+        `<button onclick="openPOIPopupEdit(${b.id})">edit</button>` +
+        `<button class="danger" onclick="deletePOI(${b.id})">delete</button>`;
+    document.getElementById('poi-popup-overlay').classList.add('open');
 }
-
-async function editNote(id){
-    const b = blurbs.find(x=>x.id===id);
-    const text = prompt('edit note:', b ? b.text : '');
-    if(text===null) return;
-    const r = await fetch(`/api/trips/${TRIP_ID}/blurbs/${id}/update/`, {
-        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
-        body: JSON.stringify({text})
-    });
-    if(r.ok){ await reloadBlurbs(); renderBlurbPins(); closeMapPopups(); }
-}
-
-async function deleteNote(id){
-    if(!confirm('delete this note?')) return;
-    const r = await fetch(`/api/trips/${TRIP_ID}/blurbs/${id}/delete/`, {method:'POST',headers:{'X-CSRFToken':CSRF}});
-    if(r.ok){ await reloadBlurbs(); renderBlurbPins(); closeMapPopups(); }
-}
-
-async function editPlace(id){
-    const pl = places.find(x=>x.id===id);
-    const name = prompt('rename place:', pl ? pl.name : '');
-    if(!name) return;
-    const r = await fetch(`/api/trips/${TRIP_ID}/places/${id}/update/`, {
-        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
-        body: JSON.stringify({name})
-    });
-    if(r.ok){ await loadTrip(); renderPlacePins(); renderBlocks(); closeMapPopups(); }
-}
-
-async function deletePlace(id){
-    if(!confirm('delete this place? any place cards or pin refs using it will show as missing.')) return;
+window.openPOIPopupEdit = function(id){
+    document.getElementById('poi-popup-overlay').classList.remove('open');
+    openPOIModal(id);
+};
+window.deletePOI = async function(id){
+    if(!confirm('delete this POI?')) return;
     const r = await fetch(`/api/trips/${TRIP_ID}/places/${id}/delete/`, {method:'POST',headers:{'X-CSRFToken':CSRF}});
-    if(r.ok){ await loadTrip(); renderPlacePins(); renderBlocks(); closeMapPopups(); }
-}
+    if(r.ok){
+        document.getElementById('poi-popup-overlay').classList.remove('open');
+        await loadTrip();
+        await reloadBlurbs();
+        renderPOIMarkers();
+        renderBlocks();
+    }
+};
+document.getElementById('poi-popup-close').addEventListener('click', () =>
+    document.getElementById('poi-popup-overlay').classList.remove('open'));
+document.getElementById('poi-popup-overlay').addEventListener('click', e => {
+    if(e.target === e.currentTarget) document.getElementById('poi-popup-overlay').classList.remove('open');
+});
 
 // ── Pin popup (inline pin refs) ─────────────────────────────────────────────
 document.getElementById('pin-popup-close').addEventListener('click', () => {
@@ -1886,20 +1880,21 @@ function populateSettings(){
 function renderSettingsNotes(){
     const list = document.getElementById('st-notes-list');
     if(!list) return;
-    if(!allNotes.length){ list.innerHTML = '<div style="font-size:0.8125rem;color:var(--text-muted);">no notes yet — use "add note" on the map</div>'; return; }
+    if(!allNotes.length){ list.innerHTML = '<div style="font-size:0.8125rem;color:var(--text-muted);">no POIs yet — use "add POI" on the map</div>'; return; }
     list.innerHTML = allNotes.map(n => {
         const located = n.latitude && n.longitude;
         const locIcon = located
             ? '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:11px;height:11px;color:var(--clay-coral);"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>'
             : '<span style="font-size:0.6rem;color:var(--text-dim);">no location</span>';
+        const label = n.title ? esc(n.title) : (n.text ? esc(n.text) : '(untitled POI)');
         return `<div class="settings-note-item">
             <div class="settings-note-body">
-                <div class="settings-note-text">${esc(n.text)}</div>
+                <div class="settings-note-text">${label}</div>
                 <div class="settings-note-meta">${esc(n.author)} ${locIcon}</div>
             </div>
             <div class="settings-note-actions">
-                <button onclick="editNote(${n.id})" title="edit">edit</button>
-                <button class="danger" onclick="deleteNote(${n.id})" title="delete">delete</button>
+                <button onclick="openPOIModal(${n.id})" title="edit">edit</button>
+                <button class="danger" onclick="deletePOI(${n.id})" title="delete">delete</button>
             </div>
         </div>`;
     }).join('');

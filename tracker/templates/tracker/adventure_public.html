@@ -191,6 +191,7 @@
 }
 .pub-blurb-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
 .pub-blurb-author { font-weight: 700; font-size: 0.8125rem; }
+.pub-blurb-title { font-family: var(--font-display); font-weight: 700; font-size: 1.0625rem; margin: 0.25rem 0; text-transform: none; }
 .pub-blurb-time { font-size: 0.75rem; color: var(--text-muted); margin-left: auto; }
 .pub-blurb-loc { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.375rem; }
 .pub-blurb-text { font-size: 0.9rem; line-height: 1.6; white-space: pre-wrap; }
@@ -229,6 +230,18 @@
 .pin-popup-name { font-family: var(--font-display); font-weight: 700; font-size: 1.0625rem; margin-bottom: 0.375rem; }
 .pin-popup-notes { font-size: 0.8125rem; color: var(--text-muted); line-height: 1.5; }
 .pin-popup-mini-map { width: 100%; height: 140px; border-radius: 10px; margin-top: 0.75rem; overflow: hidden; }
+
+/* POI star markers + themed popup */
+.poi-marker { color: var(--clay-coral); cursor: pointer; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); transition: transform 0.12s; }
+.poi-marker svg { width: 28px; height: 28px; display: block; stroke: #fff; stroke-width: 1; }
+.poi-marker:hover { transform: scale(1.18); }
+.poi-popup-card { text-align: center; }
+.poi-popup-author { font-size: 0.75rem; color: var(--text-muted); font-weight: 700; margin-bottom: 0.4rem; }
+.poi-popup-star { color: var(--clay-coral); display: flex; justify-content: center; margin-bottom: 0.25rem; }
+.poi-popup-star svg { width: 32px; height: 32px; }
+.poi-popup-card .pin-popup-notes { white-space: pre-wrap; }
+.poi-popup-photos { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 0.75rem; }
+.poi-popup-photos img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; cursor: pointer; }
 
 /* Gate modals */
 .name-gate { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 3000; }
@@ -294,6 +307,17 @@
         <div class="pin-popup-name" id="pin-popup-name"></div>
         <div class="pin-popup-notes" id="pin-popup-notes"></div>
         <div class="pin-popup-mini-map" id="pin-popup-mini-map"></div>
+    </div>
+</div>
+
+<div class="pin-popup-overlay" id="poi-popup-overlay">
+    <div class="pin-popup-card poi-popup-card">
+        <button class="pin-popup-close" id="poi-popup-close">×</button>
+        <div class="poi-popup-author" id="poi-popup-author"></div>
+        <div class="poi-popup-star"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15 9 22 9.3 16.5 14 18.5 21 12 17 5.5 21 7.5 14 2 9.3 9 9"/></svg></div>
+        <div class="pin-popup-name" id="poi-popup-title"></div>
+        <div class="pin-popup-notes" id="poi-popup-notes"></div>
+        <div class="poi-popup-photos" id="poi-popup-photos"></div>
     </div>
 </div>
 
@@ -392,6 +416,25 @@ document.getElementById('lightbox').addEventListener('click', e => { if(e.target
 document.getElementById('pin-popup-close').addEventListener('click', () => {
     document.getElementById('pin-popup-overlay').classList.remove('open');
     if(pinMiniMap){ pinMiniMap.remove(); pinMiniMap = null; }
+});
+
+// ── POI popup (themed, on star marker click) ──────────────────────────────────
+function openPOIPopup(poi){
+    document.getElementById('poi-popup-author').textContent = poi.author ? ('added by ' + poi.author) : '';
+    document.getElementById('poi-popup-title').textContent = poi.title || '(untitled POI)';
+    document.getElementById('poi-popup-notes').textContent = poi.text || '';
+    const ph = document.getElementById('poi-popup-photos');
+    const photos = (poi.photos || []);
+    ph.innerHTML = photos.map((p,i) => `<img src="${esc(p.thumb||p.url)}" data-full="${esc(p.url)}" loading="lazy" alt="">`).join('');
+    ph.querySelectorAll('img').forEach((img, i) => {
+        img.addEventListener('click', () => openLightbox(photos.map(p => p.url), i));
+    });
+    document.getElementById('poi-popup-overlay').classList.add('open');
+}
+document.getElementById('poi-popup-close').addEventListener('click', () =>
+    document.getElementById('poi-popup-overlay').classList.remove('open'));
+document.getElementById('poi-popup-overlay').addEventListener('click', e => {
+    if(e.target === e.currentTarget) document.getElementById('poi-popup-overlay').classList.remove('open');
 });
 
 function openPinPopup(placeId){
@@ -500,8 +543,9 @@ function renderBlurb(b){
             <span class="pub-blurb-author">${esc(b.author)}</span>
             <span class="pub-blurb-time">${timeStr}</span>
         </div>
+        ${b.title ? `<div class="pub-blurb-title">${esc(b.title)}</div>` : ''}
         ${b.location_name ? `<div class="pub-blurb-loc"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;vertical-align:-1px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg> ${esc(b.location_name)}</div>` : ''}
-        <div class="pub-blurb-text">${esc(b.text)}</div>
+        ${b.text ? `<div class="pub-blurb-text">${esc(b.text)}</div>` : ''}
         ${photoHtml}
         <div class="pub-comment-thread" id="comments-${b.id}">
             <div id="comment-list-${b.id}"></div>
@@ -538,7 +582,7 @@ async function postComment(blurbId){
 }
 
 // ── Map embed activation ──────────────────────────────────────────────────────
-function activateMapEmbed(wrapEl, locs, blurbFeatures){
+function activateMapEmbed(wrapEl, locs, pois){
     const mapId = wrapEl.dataset.mapId;
     const config = JSON.parse(wrapEl.dataset.config || '{}');
     if(embeddedMaps[mapId]) return;
@@ -569,25 +613,16 @@ function activateMapEmbed(wrapEl, locs, blurbFeatures){
                 m.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]],{padding:40,maxZoom:14});
             }
         }
+        // POI star markers on every map embed
         if(config.show_places !== false){
-            const features = Object.values(placesMap).map(p=>({type:'Feature',geometry:{type:'Point',coordinates:[p.longitude,p.latitude]},properties:{name:p.name,notes:p.notes||''}}));
-            if(features.length){
-                m.addSource(mapId+'-pl',{type:'geojson',data:{type:'FeatureCollection',features}});
-                m.addLayer({id:mapId+'-places',type:'circle',source:mapId+'-pl',paint:{'circle-color':'#9B8EF7','circle-radius':8,'circle-stroke-width':2,'circle-stroke-color':'#fff'}});
-                m.on('click',mapId+'-places',e=>{
-                    const p=e.features[0].properties;
-                    new maplibregl.Popup({offset:10}).setLngLat(e.features[0].geometry.coordinates.slice()).setHTML(`<strong>${esc(p.name)}</strong>${p.notes?`<div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">${esc(p.notes)}</div>`:''}`).addTo(m);
-                });
-            }
-        }
-        // Blurb pins on every map embed
-        const blurbFeat = blurbFeatures.filter(b=>b.geometry);
-        if(blurbFeat.length){
-            m.addSource(mapId+'-bl',{type:'geojson',data:{type:'FeatureCollection',features:blurbFeat}});
-            m.addLayer({id:mapId+'-blurbs',type:'circle',source:mapId+'-bl',paint:{'circle-color':'#FF6B6B','circle-radius':7,'circle-stroke-width':2,'circle-stroke-color':'#fff'}});
-            m.on('click',mapId+'-blurbs',e=>{
-                const p=e.features[0].properties;
-                new maplibregl.Popup({offset:10}).setLngLat(e.features[0].geometry.coordinates.slice()).setHTML(`<div style="font-weight:700;font-size:0.8125rem;">${esc(p.author)}</div><div style="font-size:0.8125rem;color:var(--text-muted);margin-top:2px;">${esc(p.text)}</div>`).addTo(m);
+            pois.forEach(poi => {
+                if(!(poi.latitude && poi.longitude)) return;
+                const el = document.createElement('div');
+                el.className = 'poi-marker';
+                el.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15 9 22 9.3 16.5 14 18.5 21 12 17 5.5 21 7.5 14 2 9.3 9 9"/></svg>';
+                el.addEventListener('click', ev => { ev.stopPropagation(); openPOIPopup(poi); });
+                new maplibregl.Marker({element: el, anchor: 'center'})
+                    .setLngLat([poi.longitude, poi.latitude]).addTo(m);
             });
         }
     });
@@ -604,12 +639,8 @@ async function loadAndRender(){
     // Build placesMap
     (tripData.places||[]).forEach(p => { placesMap[p.id] = p; });
 
-    // Build blurb GeoJSON features for maps (skip hidden photo containers)
-    const blurbFeatures = (tripData.blurbs||[]).filter(b=>b.latitude&&b.longitude&&b.text!==PHOTO_CONTAINER_SENTINEL).map(b=>({
-        type:'Feature',
-        geometry:{type:'Point',coordinates:[b.longitude,b.latitude]},
-        properties:{id:b.id,author:b.author,text:(b.text||'').slice(0,120)}
-    }));
+    // Located POIs (blurbs) for the map star markers (skip hidden photo containers)
+    const pois = (tripData.blurbs||[]).filter(b=>b.latitude&&b.longitude&&b.text!==PHOTO_CONTAINER_SENTINEL);
 
     // Build photo lookup from blurbs (blurb photos are the photo store for now)
     const allPhotos = {};
@@ -644,9 +675,9 @@ async function loadAndRender(){
             bodyEl.innerHTML = `<p class="pub-block pub-paragraph">${esc(tripData.description)}</p>`;
         }
 
-        // Map embeds render live by default — track, notes and places all shown
+        // Map embeds render live by default — track + POIs shown
         bodyEl.querySelectorAll('.pub-map-embed').forEach(wrap => {
-            activateMapEmbed(wrap, locs, blurbFeatures);
+            activateMapEmbed(wrap, locs, pois);
         });
 
         // Photo lightbox
@@ -678,7 +709,7 @@ async function loadAndRender(){
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     if(blurbsEl && blurbs.length){
         blurbsEl.innerHTML = `<div class="pub-blurbs-section">
-            <div class="pub-blurbs-title">pins & notes</div>
+            <div class="pub-blurbs-title">points of interest</div>
             ${blurbs.map(renderBlurb).join('')}
         </div>`;
         // Load comments for each blurb

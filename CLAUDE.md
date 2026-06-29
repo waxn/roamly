@@ -192,7 +192,7 @@ Adventure CMS editor: `/adventures/<id>/edit/` (login + membership required). En
 - `POST /api/trips/<id>/cover/delete/` — remove cover image
 - `POST /api/trips/<id>/blurbs/<id>/update/` — edit blurb (text, lat/lng, location_name)
 
-Inline pin refs: `[^pin:42]` references `AdventurePlace` by id. Number computed from document order, not stored.
+Inline pin refs: `[^pin:42]` references a located `AdventureBlurb` (POI) by id. Number computed from document order, not stored. POIs render as coral star markers on editor + public maps; clicking opens a themed popup (author + title + notes + photos). Create/edit via the map "add POI" flow (uses the repurposed `/places/` endpoints).
 
 ## Custom Places
 
