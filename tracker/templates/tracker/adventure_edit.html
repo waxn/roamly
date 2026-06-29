@@ -248,6 +248,7 @@
 .block-map-embed .map-placeholder { height: 200px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 0.5rem; color: var(--text-muted); font-size: 0.8125rem; background: var(--bg-input); }
 .block-map-embed .map-placeholder svg { width: 28px; height: 28px; opacity: 0.4; }
 .block-map-embed .inline-map { width: 100%; height: 240px; }
+.block-map-embed .map-embed-live { width: 100%; min-height: 160px; }
 
 .block-photo-grid { margin: 0.25rem 0; }
 .block-photo-grid .photo-grid-inner { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -926,11 +927,9 @@ function buildBlockEl(block, index){
             <textarea class="callout-text" data-field="text" rows="2">${esc(c.text||'')}</textarea>
         </div>`;
     } else if(block.type === 'map_embed'){
+        const h = c.height_px || 360;
         inner = `<div class="block-map-embed">
-            <div class="map-placeholder" id="map-embed-${block._id}">
-                <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" stroke-width="1.5"/></svg>
-                <span>map embed · zoom ${c.zoom||10}</span>
-            </div>
+            <div class="map-embed-live" id="map-embed-${block._id}" data-block-id="${block._id}" style="height:${h}px;"></div>
         </div>`;
     } else if(block.type === 'photo_grid'){
         const ids = c.photo_ids || [];
@@ -990,6 +989,55 @@ function renderBlocks(){
         t.addEventListener('input', () => { autoResize(t); blockTextChanged(t); });
         t.addEventListener('blur', scheduleAutoSave);
     });
+
+    activateEditorEmbeds();
+}
+
+// Live mini-map previews for map_embed blocks (mirrors the public renderer).
+let editorEmbedMaps = {};
+function activateEditorEmbeds(){
+    // renderBlocks() rebuilds the DOM, so every previous container is detached;
+    // tear down all old map instances and recreate against the fresh elements.
+    Object.keys(editorEmbedMaps).forEach(id => { try{ editorEmbedMaps[id].remove(); }catch(e){} delete editorEmbedMaps[id]; });
+    const theme = localStorage.getItem('roamly_theme') === 'light' ? 'Streets' : 'Dark';
+    const locs = (tripData.locations || []);
+    document.querySelectorAll('.map-embed-live').forEach(el => {
+        const bid = el.dataset.blockId;
+        const block = blocks.find(b => b._id === bid);
+        if(!block) return;
+        const c = block.content || {};
+        const m = new maplibregl.Map({
+            container: el, style: mapStyles[theme],
+            center: c.center_lat && c.center_lng ? [c.center_lng, c.center_lat] : [0,20],
+            zoom: c.zoom || 10,
+        });
+        editorEmbedMaps[bid] = m;
+        m.addControl(new maplibregl.NavigationControl({showCompass:false}), 'bottom-right');
+        if(window.ResizeObserver){ new ResizeObserver(()=>m.resize()).observe(el); }
+        m.on('load', () => {
+            m.resize();
+            if(c.show_track !== false && locs.length){
+                const feats = locs.map(l => ({type:'Feature',geometry:{type:'Point',coordinates:[l.lng,l.lat]},properties:{}}));
+                m.addSource(bid+'-heatsrc',{type:'geojson',data:{type:'FeatureCollection',features:feats}});
+                m.addLayer({id:bid+'-heat',type:'heatmap',source:bid+'-heatsrc',maxzoom:13,paint:{
+                    'heatmap-intensity':['interpolate',['linear'],['zoom'],0,0.4,13,1.4],
+                    'heatmap-radius':['interpolate',['linear'],['zoom'],0,6,13,26],
+                    'heatmap-opacity':['interpolate',['linear'],['zoom'],0,0.75,11,0.6,13,0.1],
+                    'heatmap-color':['interpolate',['linear'],['heatmap-density'],0,'rgba(33,102,172,0)',0.2,'rgb(103,169,207)',0.4,'rgb(209,229,240)',0.6,'rgb(253,219,199)',0.8,'rgb(239,138,98)',1,'rgb(178,24,43)']}});
+                m.addLayer({id:bid+'-dots',type:'circle',source:bid+'-heatsrc',minzoom:7,paint:{
+                    'circle-color':'#0DBFAC','circle-radius':['interpolate',['linear'],['zoom'],8,3,12,6,16,12],'circle-stroke-width':1,'circle-stroke-color':'rgba(255,255,255,0.7)'}});
+                if(!c.center_lat){
+                    const lngs=locs.map(l=>l.lng),lats=locs.map(l=>l.lat);
+                    m.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]],{padding:30,maxZoom:14,duration:0});
+                }
+            }
+            if(c.show_places !== false && places.length){
+                const feats = places.map(p=>({type:'Feature',geometry:{type:'Point',coordinates:[p.longitude,p.latitude]},properties:{}}));
+                m.addSource(bid+'-pl',{type:'geojson',data:{type:'FeatureCollection',features:feats}});
+                m.addLayer({id:bid+'-places',type:'circle',source:bid+'-pl',paint:{'circle-color':'#9B8EF7','circle-radius':6,'circle-stroke-width':2,'circle-stroke-color':'#fff'}});
+            }
+        });
+    });
 }
 
 function buildInsertRow(afterIndex){
@@ -1026,6 +1074,8 @@ function setupBlockWrap(wrap, index){
 
     // Drag-and-drop reorder
     wrap.addEventListener('dragstart', e => {
+        // Don't hijack map pan gestures inside a live map embed preview.
+        if(e.target.closest('.map-embed-live')){ e.preventDefault(); return; }
         e.dataTransfer.setData('text/plain', String(index));
         wrap.style.opacity = '0.5';
     });
