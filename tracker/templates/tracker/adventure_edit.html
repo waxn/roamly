@@ -433,6 +433,22 @@
 .edit-map-btn.active { color: var(--primary); }
 .edit-map-btn.active-coral { color: var(--clay-coral); }
 .edit-map-btn.active-lavender { color: var(--clay-lavender); }
+/* Layer toggles: explicit on/off indicator (status dot + tint) */
+.edit-map-btn.lyr::before {
+    content: ''; width: 7px; height: 7px; border-radius: 50%;
+    border: 1.5px solid currentColor; opacity: 0.35; flex-shrink: 0;
+    transition: all 0.15s;
+}
+.edit-map-btn.lyr.active::before,
+.edit-map-btn.lyr.active-coral::before,
+.edit-map-btn.lyr.active-lavender::before {
+    background: currentColor; opacity: 1;
+    box-shadow: 0 0 6px currentColor;
+}
+.edit-map-btn.lyr.active,
+.edit-map-btn.lyr.active-coral,
+.edit-map-btn.lyr.active-lavender { background: rgba(255,255,255,0.07); }
+.edit-map-btn.lyr:not(.active):not(.active-coral):not(.active-lavender) { opacity: 0.55; }
 
 /* Popup styles */
 .blurb-popup-author { font-weight: 700; font-size: 0.8125rem; }
@@ -522,15 +538,15 @@
         <div class="edit-map-toolbar">
             <!-- Layer toggles -->
             <div class="edit-map-group">
-                <button class="edit-map-btn active" id="toggle-track-btn">
+                <button class="edit-map-btn lyr active" id="toggle-track-btn">
                     <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
                     track
                 </button>
-                <button class="edit-map-btn active-coral" id="toggle-blurbs-btn">
+                <button class="edit-map-btn lyr active-coral" id="toggle-blurbs-btn">
                     <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
                     notes
                 </button>
-                <button class="edit-map-btn active-lavender" id="toggle-places-btn">
+                <button class="edit-map-btn lyr active-lavender" id="toggle-places-btn">
                     <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
                     places
                 </button>
