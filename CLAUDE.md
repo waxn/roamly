@@ -152,7 +152,7 @@ Callbacks run on `HandlerThread` ("RoamlyLocCb"). No-fix retries: quick (4s × 3
 - `APIKey` — 64-char hex token for mobile push auth
 
 **Adventures** (named journeys, formerly "Trips"):
-- `Adventure` — time-bounded journey (device, creator, start_time, end_time, public_slug, subtitle, cover_image, cover_image_thumbnail, body). `body` is a JSONField of typed blocks (heading, paragraph, map_embed, photo_grid, divider, callout, location_card). `.locations` filters Location by device + time range.
+- `Adventure` — time-bounded journey (device, creator, start_time, end_time, public_slug, subtitle, cover_image, cover_image_thumbnail, body). `body` is a JSONField of typed blocks (heading, paragraph, map_embed, photo_grid, divider, callout, location_card, timeline). The `timeline` block holds `{title, events:[{date, title, note}]}` and renders as a vertical dated timeline in editor + public (no backend model — lives in body JSON; `map_embed` blocks render a live MapLibre mini-map in the editor too). `.locations` filters Location by device + time range.
 - `AdventurePlace` — named map pin; referenced in paragraph blocks via `[^pin:ID]`
 - `AdventureMember` — shared access (roles: creator, member)
 - `AdventureBlurb` — map pin with note (lat/lon required); rendered as coral markers

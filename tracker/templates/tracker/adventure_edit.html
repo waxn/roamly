@@ -278,6 +278,26 @@
 .loc-card-name  { font-weight: 700; font-size: 0.9375rem; }
 .loc-card-notes { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.125rem; }
 
+/* Timeline block */
+.block-timeline { margin: 0.5rem 0; }
+.block-timeline-title { font-family: var(--font-display); font-weight: 700; font-size: 1.0625rem; margin-bottom: 0.75rem; }
+.tl-track { position: relative; padding-left: 1.25rem; }
+.tl-track::before { content:''; position:absolute; left: 5px; top: 6px; bottom: 6px; width: 2px; background: var(--border); }
+.tl-item { position: relative; padding-bottom: 1rem; }
+.tl-item:last-child { padding-bottom: 0; }
+.tl-marker { position: absolute; left: -1.25rem; top: 4px; width: 12px; height: 12px; border-radius: 50%; background: var(--primary); border: 2px solid var(--bg-card); box-shadow: 0 0 0 1px var(--primary); }
+.tl-date { font-size: 0.75rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.03em; }
+.tl-event-title { font-weight: 700; font-size: 0.9375rem; margin-top: 0.0625rem; }
+.tl-note { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.125rem; line-height: 1.5; white-space: pre-wrap; }
+
+/* Timeline modal rows */
+.tlm-event-row { padding: 0.5rem; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 0.5rem; }
+.tlm-event-grid { display: grid; grid-template-columns: 150px 1fr auto; gap: 6px; align-items: center; }
+.tlm-remove { background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); width: 30px; height: 30px; font-size: 18px; line-height: 1; cursor: pointer; }
+.tlm-remove:hover { color: var(--danger); border-color: var(--danger); }
+.bm-add-row-btn { background: var(--bg-input); border: 1px dashed var(--border); border-radius: 8px; color: var(--text-muted); font-family: var(--font-body); font-size: 0.8125rem; font-weight: 700; padding: 0.4rem 0.8rem; cursor: pointer; width: 100%; transition: all 0.12s; }
+.bm-add-row-btn:hover { color: var(--primary); border-color: var(--primary); }
+
 /* Pin badge (inline ref) */
 .pin-badge {
     display: inline-flex; align-items: center; justify-content: center;
@@ -649,6 +669,9 @@
     <div class="block-type-item" data-type="location_card">
         <span class="block-type-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></span>place card
     </div>
+    <div class="block-type-item" data-type="timeline">
+        <span class="block-type-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><line x1="12" y1="3" x2="12" y2="21"/><circle cx="12" cy="7" r="2"/><circle cx="12" cy="17" r="2"/></svg></span>timeline
+    </div>
 </div>
 
 <!-- Block edit modals -->
@@ -751,6 +774,25 @@
         <div class="bm-btns">
             <button class="bm-cancel-btn" data-modal="location-card-modal">cancel</button>
             <button class="bm-ok-btn" id="lcm-ok">insert</button>
+        </div>
+    </div>
+</div>
+
+<div class="block-modal-overlay" id="timeline-modal">
+    <div class="block-modal" style="max-width:560px;">
+        <h3>timeline</h3>
+        <div class="bm-field">
+            <label class="bm-label">title (optional)</label>
+            <input class="bm-input" id="tlm-title" placeholder="e.g. trip highlights…">
+        </div>
+        <div class="bm-field">
+            <label class="bm-label">events</label>
+            <div id="tlm-events"></div>
+            <button class="bm-add-row-btn" id="tlm-add" type="button">+ add event</button>
+        </div>
+        <div class="bm-btns">
+            <button class="bm-cancel-btn" data-modal="timeline-modal">cancel</button>
+            <button class="bm-ok-btn" id="tlm-ok">insert</button>
         </div>
     </div>
 </div>
@@ -956,6 +998,8 @@ function buildBlockEl(block, index){
         } else {
             inner = `<div class="block-location-card">${pinSvg}<div class="loc-card-name" style="color:var(--text-muted)">place not found</div></div>`;
         }
+    } else if(block.type === 'timeline'){
+        inner = renderTimelinePreview(c);
     }
 
     // Toolbar
@@ -1157,6 +1201,7 @@ function insertNewBlock(type){
         divider:       {},
         callout:       {text: '', emoji: '📍', color: 'mint'},
         location_card: {place_id: places.length ? places[0].id : null},
+        timeline:      {title: '', events: []},
     };
     if(type === 'heading'){
         pendingModal = {type, editIndex: pendingEditIndex};
@@ -1177,6 +1222,13 @@ function insertNewBlock(type){
         populatePlaceSelect();
         pendingModal = {type, editIndex: pendingEditIndex};
         document.getElementById('location-card-modal').classList.add('open');
+        return;
+    }
+    if(type === 'timeline'){
+        timelineDraft = {title: '', events: [{date:'', title:'', note:''}]};
+        renderTimelineModal();
+        pendingModal = {type, editIndex: pendingEditIndex};
+        document.getElementById('timeline-modal').classList.add('open');
         return;
     }
     commitBlock({type, content: defaults[type], _id: uid()});
@@ -1223,6 +1275,13 @@ function openEditModal(index){
     } else if(block.type === 'photo_grid'){
         currentPhotoBlockIndex = index;
         document.getElementById('photo-file-input').click();
+    } else if(block.type === 'timeline'){
+        timelineDraft = {
+            title: c.title || '',
+            events: (c.events && c.events.length) ? c.events.map(e => ({date:e.date||'', title:e.title||'', note:e.note||''})) : [{date:'',title:'',note:''}],
+        };
+        renderTimelineModal();
+        document.getElementById('timeline-modal').classList.add('open');
     }
 }
 
@@ -1268,6 +1327,80 @@ document.getElementById('lcm-ok').addEventListener('click', () => {
     const sel = document.getElementById('lcm-place');
     const block = {type:'location_card', content:{place_id: parseInt(sel.value)}, _id: uid()};
     document.getElementById('location-card-modal').classList.remove('open');
+    commitBlock(block);
+});
+
+// ── Timeline block ─────────────────────────────────────────────────────────
+function fmtTimelineDate(d){
+    if(!d) return '';
+    const dt = new Date(d + 'T00:00:00');
+    if(isNaN(dt.getTime())) return esc(d);
+    return dt.toLocaleDateString([], {month:'short', day:'numeric', year:'numeric'});
+}
+function renderTimelinePreview(c){
+    const events = c.events || [];
+    const titleHtml = c.title ? `<div class="block-timeline-title">${esc(c.title)}</div>` : '';
+    if(!events.length){
+        return `<div class="block-timeline">${titleHtml}<div style="font-size:0.8125rem;color:var(--text-muted);padding:0.25rem 0;">empty timeline — click edit to add events</div></div>`;
+    }
+    const items = events.map(ev => `
+        <div class="tl-item">
+            <div class="tl-marker"></div>
+            <div class="tl-content">
+                ${ev.date ? `<div class="tl-date">${fmtTimelineDate(ev.date)}</div>` : ''}
+                ${ev.title ? `<div class="tl-event-title">${esc(ev.title)}</div>` : ''}
+                ${ev.note ? `<div class="tl-note">${esc(ev.note)}</div>` : ''}
+            </div>
+        </div>`).join('');
+    return `<div class="block-timeline">${titleHtml}<div class="tl-track">${items}</div></div>`;
+}
+
+// ── Timeline modal ─────────────────────────────────────────────────────────
+let timelineDraft = {title:'', events:[]};
+function renderTimelineModal(){
+    document.getElementById('tlm-title').value = timelineDraft.title || '';
+    const wrap = document.getElementById('tlm-events');
+    wrap.innerHTML = timelineDraft.events.map((ev, i) => `
+        <div class="tlm-event-row" data-idx="${i}">
+            <div class="tlm-event-grid">
+                <input class="bm-input tlm-date" type="date" value="${esc(ev.date||'')}">
+                <input class="bm-input tlm-title-in" placeholder="event title…" value="${esc(ev.title||'')}">
+                <button class="tlm-remove" data-idx="${i}" type="button" title="remove">&times;</button>
+            </div>
+            <textarea class="bm-input tlm-note" rows="2" placeholder="note (optional)…" style="resize:vertical;margin-top:4px;">${esc(ev.note||'')}</textarea>
+        </div>
+    `).join('') || '<div style="font-size:0.8125rem;color:var(--text-muted);">no events yet</div>';
+}
+function syncTimelineDraftFromDOM(){
+    timelineDraft.title = document.getElementById('tlm-title').value;
+    document.querySelectorAll('#tlm-events .tlm-event-row').forEach(row => {
+        const i = parseInt(row.dataset.idx);
+        timelineDraft.events[i] = {
+            date: row.querySelector('.tlm-date').value,
+            title: row.querySelector('.tlm-title-in').value,
+            note: row.querySelector('.tlm-note').value,
+        };
+    });
+}
+document.getElementById('tlm-add').addEventListener('click', () => {
+    syncTimelineDraftFromDOM();
+    timelineDraft.events.push({date:'', title:'', note:''});
+    renderTimelineModal();
+});
+document.getElementById('tlm-events').addEventListener('click', e => {
+    const rm = e.target.closest('.tlm-remove');
+    if(!rm) return;
+    syncTimelineDraftFromDOM();
+    timelineDraft.events.splice(parseInt(rm.dataset.idx), 1);
+    renderTimelineModal();
+});
+document.getElementById('tlm-ok').addEventListener('click', () => {
+    syncTimelineDraftFromDOM();
+    const events = timelineDraft.events
+        .filter(ev => (ev.title||'').trim() || (ev.note||'').trim() || ev.date)
+        .sort((a,b) => (a.date||'').localeCompare(b.date||''));
+    const block = {type:'timeline', content:{title: timelineDraft.title.trim(), events}, _id: uid()};
+    document.getElementById('timeline-modal').classList.remove('open');
     commitBlock(block);
 });
 
