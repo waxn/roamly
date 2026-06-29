@@ -517,12 +517,6 @@ class UserProfile(models.Model):
     # Instance admin: can edit instance-wide settings (e.g. the custom JS snippet).
     is_admin = models.BooleanField(default=False)
 
-    # IP / user-agent the account was created from. Captured at signup and kept
-    # durably here — ActionLog('signup') rows are pruned by retention, so they
-    # can't be relied on for this. Surfaced in the admin panel user list.
-    signup_ip = models.GenericIPAddressField(null=True, blank=True)
-    signup_user_agent = models.TextField(blank=True, default='')
-
     # AI "Ask" — per-user, OpenAI-compatible provider config (see ai_tasks.py).
     # The Ask tab only appears once ai_ask_enabled + base_url + api_key + model are set.
     # ai_api_key is plaintext (like BackupConfig.secret_key) and masked on GET.
@@ -759,77 +753,3 @@ class StatsSnapshot(models.Model):
 
     def __str__(self):
         return f"StatsSnapshot {self.user.username} ({self.status})"
-
-
-class AccessLog(models.Model):
-    """One row per HTTP request — used by the admin panel for traffic analytics."""
-    ip_address = models.GenericIPAddressField(null=True, blank=True)
-    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='access_logs')
-    path = models.CharField(max_length=500)
-    method = models.CharField(max_length=10)
-    user_agent = models.TextField(blank=True)
-    status_code = models.PositiveSmallIntegerField(null=True, blank=True)
-    response_ms = models.PositiveIntegerField(null=True, blank=True)
-    timestamp = models.DateTimeField(db_index=True)
-
-    class Meta:
-        ordering = ['-timestamp']
-        indexes = [
-            models.Index(fields=['ip_address', '-timestamp'], name='tracker_alog_ip_idx'),
-            models.Index(fields=['user', '-timestamp'], name='tracker_alog_user_idx'),
-        ]
-
-    def __str__(self):
-        return f"{self.method} {self.path} {self.status_code} @ {self.timestamp}"
-
-
-class ActionLog(models.Model):
-    """Significant user/system actions — logins, admin ops, data mutations."""
-    ACTION_CHOICES = [
-        ('login', 'Login'),
-        ('logout', 'Logout'),
-        ('signup', 'Signup'),
-        ('login_fail', 'Login failed'),
-        ('push_location', 'Push location'),
-        ('push_batch', 'Push location batch'),
-        ('import', 'Import data'),
-        ('delete_data', 'Delete location data'),
-        ('delete_account', 'Delete account'),
-        ('backup_run', 'Backup run'),
-        ('geocode_run', 'Geocode run'),
-        ('admin_toggle', 'Admin toggle'),
-        ('custom_js_save', 'Custom JS saved'),
-        ('api_key_create', 'API key created'),
-        ('api_key_delete', 'API key deleted'),
-        ('other', 'Other'),
-    ]
-    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='action_logs')
-    action = models.CharField(max_length=30, choices=ACTION_CHOICES, db_index=True)
-    description = models.TextField(blank=True)
-    ip_address = models.GenericIPAddressField(null=True, blank=True)
-    timestamp = models.DateTimeField(db_index=True)
-
-    class Meta:
-        ordering = ['-timestamp']
-
-    def __str__(self):
-        return f"{self.action} by {self.user_id} @ {self.timestamp}"
-
-
-class AdminPanelConfig(models.Model):
-    """Singleton (pk=1) — admin panel log retention settings."""
-    access_log_retention_days = models.PositiveIntegerField(
-        default=0, help_text="Days to keep access logs. 0 = keep forever."
-    )
-    standard_log_retention_days = models.PositiveIntegerField(
-        default=2, help_text="Days to keep action logs."
-    )
-    updated_at = models.DateTimeField(auto_now=True)
-
-    @classmethod
-    def load(cls):
-        obj, _ = cls.objects.get_or_create(pk=1)
-        return obj
-
-    def __str__(self):
-        return "Admin panel configuration"

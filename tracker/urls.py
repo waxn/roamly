@@ -197,11 +197,7 @@ urlpatterns = [
 
     # Admin panel
     path('admin-panel/', views.admin_panel_view, name='admin_panel'),
-    path('api/admin/overview/', views.admin_overview_api, name='admin_overview_api'),
-    path('api/admin/logs/access/', views.admin_access_logs_api, name='admin_access_logs_api'),
-    path('api/admin/logs/action/', views.admin_action_logs_api, name='admin_action_logs_api'),
     path('api/admin/users/', views.admin_users_api, name='admin_users_api'),
     path('api/admin/users/<int:user_id>/toggle-admin/', views.admin_toggle_admin_api, name='admin_toggle_admin'),
     path('api/admin/users/<int:user_id>/delete/', views.admin_delete_user_api, name='admin_delete_user'),
-    path('api/admin/config/', views.admin_config_api, name='admin_config_api'),
 ]

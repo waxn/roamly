@@ -37,7 +37,6 @@ from .models import (
     UserProfile, Pal, PalMember, PalBlurb, PalBlurbPhoto, PalMilestone, PalComment,
     AdventureMember, AdventureBlurb, AdventureBlurbPhoto, AdventureMilestone, AdventureComment,
     SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig, StatsSnapshot,
-    AccessLog, ActionLog, AdminPanelConfig,
 )
 from .image_utils import resize_image, resize_photo
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
@@ -49,25 +48,6 @@ from .backup_tasks import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _get_client_ip(request):
-    """Extract the real client IP, honouring X-Forwarded-For."""
-    xff = request.META.get('HTTP_X_FORWARDED_FOR')
-    if xff:
-        return xff.split(',')[0].strip()
-    return request.META.get('REMOTE_ADDR')
-
-
-def _log_action(request, action, description='', user=None):
-    """Write an ActionLog row. Fire-and-forget in a daemon thread."""
-    u = user if user is not None else (request.user if request.user.is_authenticated else None)
-    uid = u.id if u else None
-    from .log_writer import enqueue_action
-    enqueue_action(
-        user_id=uid, action=action, description=description,
-        ip_address=_get_client_ip(request), timestamp=timezone.now(),
-    )
 
 
 def _bust_user_cache(user_id):
@@ -297,9 +277,7 @@ def login_view(request):
         user = authenticate(request, username=username, password=password)
         if user:
             login(request, user)
-            _log_action(request, 'login', f'User {username} logged in', user=user)
             return redirect(request.GET.get('next', 'tracker:map'))
-        _log_action(request, 'login_fail', f'Failed login attempt for username: {username}')
         messages.error(request, 'Invalid username or password.')
     return render(request, 'tracker/login.html')
 
@@ -313,14 +291,9 @@ def signup_view(request):
             user = form.save()
             # A valid admin key (validated in the form) makes this an admin account.
             UserProfile.objects.update_or_create(
-                user=user, defaults={
-                    'is_admin': form.is_admin_signup,
-                    'signup_ip': _get_client_ip(request),
-                    'signup_user_agent': request.META.get('HTTP_USER_AGENT', '')[:500],
-                },
+                user=user, defaults={'is_admin': form.is_admin_signup},
             )
             login(request, user)
-            _log_action(request, 'signup', f'New account: {user.username}', user=user)
             return redirect('tracker:map')
     else:
         form = SignUpForm()
@@ -331,7 +304,6 @@ def signup_view(request):
 
 
 def logout_view(request):
-    _log_action(request, 'logout', f'User {request.user.username} logged out')
     logout(request)
     return redirect('tracker:login')
 
@@ -444,7 +416,6 @@ def site_custom_js_api(request):
     config.custom_js = custom_js or ''
     config.save(update_fields=['custom_js', 'updated_at'])
     cache.delete(CUSTOM_JS_CACHE_KEY)
-    _log_action(request, 'custom_js_save', 'Instance custom JS updated')
     return JsonResponse({'ok': True})
 
 
@@ -4479,7 +4450,6 @@ def create_api_key(request):
     name = request.POST.get('name', 'My Device')
     api_key = APIKey(user=request.user, name=name)
     api_key.save()
-    _log_action(request, 'api_key_create', f'Created API key "{name}"')
     return JsonResponse({"status": "ok", "key": api_key.key, "name": api_key.name, "id": api_key.id})
 
 
@@ -4509,9 +4479,7 @@ def app_api_key(request):
 @require_http_methods(["POST", "DELETE"])
 def delete_api_key(request, key_id):
     api_key = get_object_or_404(APIKey, id=key_id, user=request.user)
-    key_name = api_key.name
     api_key.delete()
-    _log_action(request, 'api_key_delete', f'Deleted API key "{key_name}"')
     return JsonResponse({"status": "ok"})
 
 
@@ -4573,7 +4541,6 @@ def delete_location_data(request):
         locations = locations.filter(timestamp__gte=cutoff)
 
     count, _ = locations.delete()
-    _log_action(request, 'delete_data', f'Deleted {count} location points (range={range_val})')
     return JsonResponse({"status": "ok", "deleted": count})
 
 
@@ -4588,7 +4555,6 @@ def delete_location(request, location_id):
     if not deleted:
         return JsonResponse({"error": "Not found"}, status=404)
     _bust_user_cache(request.user.id)
-    _log_action(request, 'delete_data', f'Deleted point #{location_id}')
     return JsonResponse({"status": "ok"})
 
 
@@ -4598,7 +4564,6 @@ def delete_account(request):
     """Delete the user's account and all associated data."""
     user = request.user
     username = user.username
-    _log_action(request, 'delete_account', f'Account deleted: {username}')
     logout(request)
     user.delete()
     return JsonResponse({"status": "ok"})
@@ -6748,191 +6713,14 @@ def _require_admin(request):
 
 @login_required
 def admin_panel_view(request):
-    """Instance admin panel — access logs, action logs, user management, analytics."""
+    """Instance admin panel — user management and the instance-wide custom JS snippet."""
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
     if not profile.is_admin:
         return redirect('tracker:settings')
-    config = AdminPanelConfig.load()
     site_config = SiteConfig.load()
     return render(request, 'tracker/admin_panel.html', {
-        'config': config,
         'site_custom_js': site_config.custom_js,
     })
-
-
-@login_required
-def admin_overview_api(request):
-    """Dashboard stats: request volume, top paths, top IPs, unique visitors."""
-    err = _require_admin(request)
-    if err:
-        return err
-
-    hours = int(request.GET.get('hours', 24))
-    since = timezone.now() - timedelta(hours=hours)
-    qs = AccessLog.objects.filter(timestamp__gte=since)
-
-    total_requests = qs.count()
-    unique_ips = qs.values('ip_address').distinct().count()
-    unique_users = qs.filter(user__isnull=False).values('user').distinct().count()
-    status_breakdown = dict(
-        qs.values('status_code').annotate(n=Count('id')).values_list('status_code', 'n')
-    )
-    top_paths = list(
-        qs.values('path').annotate(n=Count('id')).order_by('-n')[:15]
-        .values_list('path', 'n')
-    )
-    top_ips = list(
-        qs.values('ip_address').annotate(n=Count('id')).order_by('-n')[:10]
-        .values_list('ip_address', 'n')
-    )
-
-    # Hourly buckets for request volume chart.
-    # Group into 1-hour bins over the requested window.
-    from django.db.models.functions import TruncHour
-    hourly = list(
-        qs.annotate(hour=TruncHour('timestamp'))
-        .values('hour').annotate(n=Count('id')).order_by('hour')
-        .values_list('hour', 'n')
-    )
-
-    # Action log summary for the same window.
-    action_qs = ActionLog.objects.filter(timestamp__gte=since)
-    recent_actions = list(
-        action_qs.select_related('user').order_by('-timestamp')[:20].values(
-            'timestamp', 'action', 'description', 'ip_address', 'user__username'
-        )
-    )
-
-    # All-time totals.
-    all_locations = Location.objects.count()
-    all_users = User.objects.count()
-
-    avg_response = qs.filter(response_ms__isnull=False).values_list('response_ms', flat=True)
-    avg_ms = round(sum(avg_response) / len(avg_response)) if avg_response else None
-
-    return JsonResponse({
-        'window_hours': hours,
-        'total_requests': total_requests,
-        'unique_ips': unique_ips,
-        'unique_users': unique_users,
-        'avg_response_ms': avg_ms,
-        'status_breakdown': {str(k): v for k, v in status_breakdown.items()},
-        'top_paths': [{'path': p, 'count': n} for p, n in top_paths],
-        'top_ips': [{'ip': ip, 'count': n} for ip, n in top_ips],
-        'hourly': [{'hour': h.isoformat(), 'count': n} for h, n in hourly],
-        'recent_actions': [
-            {
-                'timestamp': a['timestamp'].isoformat(),
-                'action': a['action'],
-                'description': a['description'],
-                'ip': a['ip_address'],
-                'username': a['user__username'],
-            }
-            for a in recent_actions
-        ],
-        'totals': {
-            'users': all_users,
-            'locations': all_locations,
-        },
-    }, encoder=DjangoJSONEncoder)
-
-
-@login_required
-def admin_access_logs_api(request):
-    """Paginated access log list with optional IP/path/user filters."""
-    err = _require_admin(request)
-    if err:
-        return err
-
-    page = max(1, int(request.GET.get('page', 1)))
-    per_page = min(200, int(request.GET.get('per_page', 50)))
-    ip_filter = request.GET.get('ip', '').strip()
-    path_filter = request.GET.get('path', '').strip()
-    user_filter = request.GET.get('user', '').strip()
-    hours = request.GET.get('hours', '')
-
-    qs = AccessLog.objects.select_related('user').order_by('-timestamp')
-    if ip_filter:
-        qs = qs.filter(ip_address__icontains=ip_filter)
-    if path_filter:
-        qs = qs.filter(path__icontains=path_filter)
-    if user_filter:
-        qs = qs.filter(user__username__icontains=user_filter)
-    if hours:
-        try:
-            qs = qs.filter(timestamp__gte=timezone.now() - timedelta(hours=int(hours)))
-        except (ValueError, TypeError):
-            pass
-
-    total = qs.count()
-    offset = (page - 1) * per_page
-    rows = list(qs[offset:offset + per_page].values(
-        'id', 'ip_address', 'user__username', 'path', 'method',
-        'status_code', 'response_ms', 'timestamp', 'user_agent',
-    ))
-    return JsonResponse({
-        'total': total,
-        'page': page,
-        'per_page': per_page,
-        'rows': [
-            {
-                'id': r['id'],
-                'ip': r['ip_address'],
-                'user': r['user__username'],
-                'path': r['path'],
-                'method': r['method'],
-                'status': r['status_code'],
-                'ms': r['response_ms'],
-                'timestamp': r['timestamp'].isoformat(),
-                'ua': r['user_agent'],
-            }
-            for r in rows
-        ],
-    }, encoder=DjangoJSONEncoder)
-
-
-@login_required
-def admin_action_logs_api(request):
-    """Paginated action log list."""
-    err = _require_admin(request)
-    if err:
-        return err
-
-    page = max(1, int(request.GET.get('page', 1)))
-    per_page = min(200, int(request.GET.get('per_page', 50)))
-    action_filter = request.GET.get('action', '').strip()
-    hours = request.GET.get('hours', '')
-
-    qs = ActionLog.objects.select_related('user').order_by('-timestamp')
-    if action_filter:
-        qs = qs.filter(action=action_filter)
-    if hours:
-        try:
-            qs = qs.filter(timestamp__gte=timezone.now() - timedelta(hours=int(hours)))
-        except (ValueError, TypeError):
-            pass
-
-    total = qs.count()
-    offset = (page - 1) * per_page
-    rows = list(qs[offset:offset + per_page].values(
-        'id', 'user__username', 'action', 'description', 'ip_address', 'timestamp'
-    ))
-    return JsonResponse({
-        'total': total,
-        'page': page,
-        'per_page': per_page,
-        'rows': [
-            {
-                'id': r['id'],
-                'user': r['user__username'],
-                'action': r['action'],
-                'description': r['description'],
-                'ip': r['ip_address'],
-                'timestamp': r['timestamp'].isoformat(),
-            }
-            for r in rows
-        ],
-    }, encoder=DjangoJSONEncoder)
 
 
 @login_required
@@ -6963,14 +6751,6 @@ def admin_users_api(request):
     for u in users:
         uid = u['id']
         profile = profiles.get(uid)
-        # Most recent IP this user was seen from — an indexed seek on
-        # (user, -timestamp), so one cheap query per user.
-        last_ip = (
-            AccessLog.objects.filter(user_id=uid)
-            .order_by('-timestamp')
-            .values_list('ip_address', flat=True)
-            .first()
-        )
         result.append({
             'id': uid,
             'username': u['username'],
@@ -6980,8 +6760,6 @@ def admin_users_api(request):
             'is_active': u['is_active'],
             'is_admin': profile.is_admin if profile else False,
             'is_self': uid == request.user.id,
-            'signup_ip': profile.signup_ip if profile else None,
-            'last_ip': last_ip,
             'location_count': loc_counts.get(uid, 0),
             'device_count': device_counts.get(uid, 0),
         })
@@ -7002,8 +6780,6 @@ def admin_toggle_admin_api(request, user_id):
     profile, _ = UserProfile.objects.get_or_create(user=target)
     profile.is_admin = not profile.is_admin
     profile.save(update_fields=['is_admin'])
-    verb = 'granted' if profile.is_admin else 'revoked'
-    _log_action(request, 'admin_toggle', f'Admin {verb} for {target.username}')
     return JsonResponse({'ok': True, 'is_admin': profile.is_admin})
 
 
@@ -7022,36 +6798,6 @@ def admin_delete_user_api(request, user_id):
     from django.contrib.auth.models import User as AuthUser
     target = get_object_or_404(AuthUser, id=user_id)
     username = target.username
-    # ActionLog/AccessLog FKs are SET_NULL, so the audit trail survives the
-    # deletion; everything the user owns (devices, locations, …) cascades.
-    _log_action(request, 'delete_account', f'Admin deleted account: {username}')
+    # Everything the user owns (devices, locations, …) cascades on delete.
     target.delete()
     return JsonResponse({'ok': True, 'deleted': username})
-
-
-@login_required
-@require_http_methods(['GET', 'POST'])
-def admin_config_api(request):
-    """Get or update AdminPanelConfig (log retention)."""
-    err = _require_admin(request)
-    if err:
-        return err
-
-    config = AdminPanelConfig.load()
-    if request.method == 'GET':
-        return JsonResponse({
-            'access_log_retention_days': config.access_log_retention_days,
-            'standard_log_retention_days': config.standard_log_retention_days,
-        })
-
-    try:
-        data = json.loads(request.body)
-    except (json.JSONDecodeError, ValueError):
-        return JsonResponse({'error': 'Invalid JSON'}, status=400)
-
-    if 'access_log_retention_days' in data:
-        config.access_log_retention_days = max(0, int(data['access_log_retention_days']))
-    if 'standard_log_retention_days' in data:
-        config.standard_log_retention_days = max(0, int(data['standard_log_retention_days']))
-    config.save()
-    return JsonResponse({'ok': True})

@@ -11,196 +11,19 @@
             </a>
             <div>
                 <h1>admin panel</h1>
-                <p class="page-lead" style="margin-bottom:0;">instance management, analytics, logs &amp; user control.</p>
+                <p class="page-lead" style="margin-bottom:0;">user management &amp; instance-wide custom JavaScript.</p>
             </div>
-        </div>
-        <div class="toolbar-actions">
-            <select id="window-select" class="form-control" style="width:auto;" onchange="loadOverview()">
-                <option value="1">Last 1h</option>
-                <option value="6">Last 6h</option>
-                <option value="24" selected>Last 24h</option>
-                <option value="72">Last 3 days</option>
-                <option value="168">Last week</option>
-                <option value="720">Last 30 days</option>
-            </select>
         </div>
     </div>
 
     <!-- Tab bar -->
     <div class="tab-bar" style="display:flex;gap:0.25rem;margin-bottom:1.5rem;flex-wrap:wrap;">
-        <button class="btn btn-primary btn-sm tab-btn active" onclick="showTab('overview',this)">Overview</button>
-        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('access-logs',this)">Access Logs</button>
-        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('action-logs',this)">Action Logs</button>
-        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('users',this)">Users</button>
+        <button class="btn btn-primary btn-sm tab-btn active" onclick="showTab('users',this)">Users</button>
         <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('custom-js',this)">Custom JS</button>
-        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('log-config',this)">Log Retention</button>
-    </div>
-
-    <!-- ── Overview tab ── -->
-    <div id="tab-overview">
-        <!-- KPI cards -->
-        <div class="diag-grid" style="margin-bottom:1.5rem;">
-            <div class="card card-sky" style="transition:none;">
-                <div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.3rem;">Requests</div>
-                <div id="kpi-requests" style="font-size:2rem;font-weight:800;color:var(--clay-sky);">—</div>
-                <div id="kpi-window-label" style="font-size:0.75rem;color:var(--text-muted);">in window</div>
-            </div>
-            <div class="card card-coral" style="transition:none;">
-                <div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.3rem;">Unique IPs</div>
-                <div id="kpi-ips" style="font-size:2rem;font-weight:800;color:var(--accent);">—</div>
-                <div style="font-size:0.75rem;color:var(--text-muted);">distinct visitors</div>
-            </div>
-            <div class="card card-lavender" style="transition:none;">
-                <div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.3rem;">Logged-in users</div>
-                <div id="kpi-users" style="font-size:2rem;font-weight:800;color:var(--clay-lavender);">—</div>
-                <div style="font-size:0.75rem;color:var(--text-muted);">in window</div>
-            </div>
-            <div class="card card-amber" style="transition:none;">
-                <div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.3rem;">Avg response</div>
-                <div id="kpi-ms" style="font-size:2rem;font-weight:800;color:var(--clay-amber);">—</div>
-                <div style="font-size:0.75rem;color:var(--text-muted);">milliseconds</div>
-            </div>
-            <div class="card" style="transition:none;">
-                <div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.3rem;">Total users</div>
-                <div id="kpi-total-users" style="font-size:2rem;font-weight:800;color:var(--primary);">—</div>
-                <div style="font-size:0.75rem;color:var(--text-muted);">all time</div>
-            </div>
-            <div class="card" style="transition:none;">
-                <div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.3rem;">Total locations</div>
-                <div id="kpi-total-locs" style="font-size:2rem;font-weight:800;color:var(--primary);">—</div>
-                <div style="font-size:0.75rem;color:var(--text-muted);">all time</div>
-            </div>
-        </div>
-
-        <!-- Request volume chart -->
-        <div class="card" style="margin-bottom:1.5rem;transition:none;">
-            <div class="card-header">Request volume</div>
-            <canvas id="volume-chart" height="80" style="width:100%;"></canvas>
-        </div>
-
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem;">
-            <!-- Status breakdown -->
-            <div class="card" style="transition:none;">
-                <div class="card-header">HTTP status breakdown</div>
-                <div id="status-breakdown"></div>
-            </div>
-            <!-- Top paths -->
-            <div class="card" style="transition:none;">
-                <div class="card-header">Top paths</div>
-                <div id="top-paths" style="max-height:280px;overflow-y:auto;"></div>
-            </div>
-        </div>
-
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem;">
-            <!-- Top IPs -->
-            <div class="card" style="transition:none;">
-                <div class="card-header">Top IPs</div>
-                <div id="top-ips" style="max-height:280px;overflow-y:auto;"></div>
-            </div>
-            <!-- Recent actions -->
-            <div class="card" style="transition:none;">
-                <div class="card-header">Recent actions</div>
-                <div id="recent-actions" style="max-height:280px;overflow-y:auto;"></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ── Access Logs tab ── -->
-    <div id="tab-access-logs" style="display:none;">
-        <div class="card" style="transition:none;">
-            <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;">
-                <span>Access Logs</span>
-                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
-                    <input type="text" id="al-ip" class="form-control" placeholder="Filter IP…" style="width:130px;" oninput="loadAccessLogs(1)">
-                    <input type="text" id="al-path" class="form-control" placeholder="Filter path…" style="width:160px;" oninput="loadAccessLogs(1)">
-                    <input type="text" id="al-user" class="form-control" placeholder="Filter user…" style="width:130px;" oninput="loadAccessLogs(1)">
-                    <select id="al-hours" class="form-control" style="width:auto;" onchange="loadAccessLogs(1)">
-                        <option value="">All time</option>
-                        <option value="1">Last 1h</option>
-                        <option value="6">Last 6h</option>
-                        <option value="24" selected>Last 24h</option>
-                        <option value="168">Last week</option>
-                    </select>
-                </div>
-            </div>
-            <div id="al-table-wrap" style="overflow-x:auto;">
-                <table style="width:100%;border-collapse:collapse;font-size:0.8125rem;" id="al-table">
-                    <thead>
-                        <tr style="color:var(--text-muted);border-bottom:1px solid var(--border);">
-                            <th style="padding:0.4rem 0.5rem;text-align:left;white-space:nowrap;">Time</th>
-                            <th style="padding:0.4rem 0.5rem;text-align:left;">IP</th>
-                            <th style="padding:0.4rem 0.5rem;text-align:left;">User</th>
-                            <th style="padding:0.4rem 0.5rem;text-align:left;">Method</th>
-                            <th style="padding:0.4rem 0.5rem;text-align:left;">Path</th>
-                            <th style="padding:0.4rem 0.5rem;text-align:left;">Status</th>
-                            <th style="padding:0.4rem 0.5rem;text-align:left;">ms</th>
-                        </tr>
-                    </thead>
-                    <tbody id="al-tbody">
-                        <tr><td colspan="7" style="padding:2rem;text-align:center;color:var(--text-muted);">Loading…</td></tr>
-                    </tbody>
-                </table>
-            </div>
-            <div id="al-pagination" style="display:flex;gap:0.5rem;align-items:center;margin-top:0.75rem;flex-wrap:wrap;"></div>
-        </div>
-    </div>
-
-    <!-- ── Action Logs tab ── -->
-    <div id="tab-action-logs" style="display:none;">
-        <div class="card" style="transition:none;">
-            <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;">
-                <span>Action Logs</span>
-                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
-                    <select id="actl-action" class="form-control" style="width:auto;" onchange="loadActionLogs(1)">
-                        <option value="">All actions</option>
-                        <option value="login">Login</option>
-                        <option value="logout">Logout</option>
-                        <option value="signup">Signup</option>
-                        <option value="login_fail">Login failed</option>
-                        <option value="push_location">Push location</option>
-                        <option value="push_batch">Push batch</option>
-                        <option value="import">Import</option>
-                        <option value="delete_data">Delete data</option>
-                        <option value="delete_account">Delete account</option>
-                        <option value="backup_run">Backup run</option>
-                        <option value="geocode_run">Geocode run</option>
-                        <option value="admin_toggle">Admin toggle</option>
-                        <option value="custom_js_save">Custom JS save</option>
-                        <option value="api_key_create">API key created</option>
-                        <option value="api_key_delete">API key deleted</option>
-                        <option value="other">Other</option>
-                    </select>
-                    <select id="actl-hours" class="form-control" style="width:auto;" onchange="loadActionLogs(1)">
-                        <option value="">All time</option>
-                        <option value="1">Last 1h</option>
-                        <option value="6">Last 6h</option>
-                        <option value="24" selected>Last 24h</option>
-                        <option value="168">Last week</option>
-                    </select>
-                </div>
-            </div>
-            <div style="overflow-x:auto;">
-                <table style="width:100%;border-collapse:collapse;font-size:0.8125rem;">
-                    <thead>
-                        <tr style="color:var(--text-muted);border-bottom:1px solid var(--border);">
-                            <th style="padding:0.4rem 0.5rem;text-align:left;white-space:nowrap;">Time</th>
-                            <th style="padding:0.4rem 0.5rem;text-align:left;">User</th>
-                            <th style="padding:0.4rem 0.5rem;text-align:left;">Action</th>
-                            <th style="padding:0.4rem 0.5rem;text-align:left;">Description</th>
-                            <th style="padding:0.4rem 0.5rem;text-align:left;">IP</th>
-                        </tr>
-                    </thead>
-                    <tbody id="actl-tbody">
-                        <tr><td colspan="5" style="padding:2rem;text-align:center;color:var(--text-muted);">Loading…</td></tr>
-                    </tbody>
-                </table>
-            </div>
-            <div id="actl-pagination" style="display:flex;gap:0.5rem;align-items:center;margin-top:0.75rem;flex-wrap:wrap;"></div>
-        </div>
     </div>
 
     <!-- ── Users tab ── -->
-    <div id="tab-users" style="display:none;">
+    <div id="tab-users">
         <div class="card" style="transition:none;">
             <div class="card-header">User Management</div>
             <div style="overflow-x:auto;">
@@ -211,8 +34,6 @@
                             <th style="padding:0.4rem 0.5rem;text-align:left;">Email</th>
                             <th style="padding:0.4rem 0.5rem;text-align:left;">Joined</th>
                             <th style="padding:0.4rem 0.5rem;text-align:left;">Last login</th>
-                            <th style="padding:0.4rem 0.5rem;text-align:left;">Signup IP</th>
-                            <th style="padding:0.4rem 0.5rem;text-align:left;">Last IP</th>
                             <th style="padding:0.4rem 0.5rem;text-align:right;">Devices</th>
                             <th style="padding:0.4rem 0.5rem;text-align:right;">Locations</th>
                             <th style="padding:0.4rem 0.5rem;text-align:center;">Admin</th>
@@ -220,7 +41,7 @@
                         </tr>
                     </thead>
                     <tbody id="users-tbody">
-                        <tr><td colspan="10" style="padding:2rem;text-align:center;color:var(--text-muted);">Loading…</td></tr>
+                        <tr><td colspan="8" style="padding:2rem;text-align:center;color:var(--text-muted);">Loading…</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -235,7 +56,10 @@
                 <span class="badge badge-warning" style="font-size:0.65rem;">instance-wide</span>
             </div>
             <p class="settings-section-desc">
-                HTML injected verbatim just before <code>&lt;/body&gt;</code> on every page for <strong>all users</strong> — paste analytics snippets exactly as the provider gives them, <strong>including <code>&lt;script&gt;</code> tags</strong> (GoatCounter, Plausible, Fathom, PostHog…). Leave empty to inject nothing.
+                HTML injected verbatim just before <code>&lt;/body&gt;</code> on <strong>every page — including the public landing, login &amp; signup pages</strong> — for analytics snippets pasted exactly as the provider gives them, <strong>including <code>&lt;script&gt;</code> tags</strong> (GoatCounter, Plausible, Fathom, PostHog…). Leave empty to inject nothing.
+            </p>
+            <p class="settings-section-desc" style="color:var(--text-muted);">
+                <strong>Testing tip:</strong> many analytics tools (GoatCounter included) ignore visits from <code>localhost</code>/<code>127.0.0.1</code> by default, so hits only show up once the instance is reached over its real domain. To confirm the snippet is live, open any page, choose “View Source”, and check it appears just before <code>&lt;/body&gt;</code>.
             </p>
             <textarea id="custom-js-input" class="form-control" rows="10" spellcheck="false"
                 style="font-family:'Space Grotesk',monospace;font-size:0.8125rem;white-space:pre;resize:vertical;"
@@ -246,55 +70,21 @@
             </div>
         </div>
     </div>
-
-    <!-- ── Log Retention tab ── -->
-    <div id="tab-log-config" style="display:none;">
-        <div class="card" style="transition:none;">
-            <div class="card-header">Log Retention</div>
-            <p class="settings-section-desc">
-                Control how long log data is stored. Older rows are pruned automatically by a background sweep every hour. 0 means keep forever.
-            </p>
-            <div class="pref-grid" style="margin-bottom:1rem;max-width:480px;">
-                <div>
-                    <label style="font-size:0.8125rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">Access log retention (days)</label>
-                    <input type="number" id="cfg-access-days" class="form-control" min="0" placeholder="0 = forever">
-                    <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem;">Default: 0 (keep forever)</div>
-                </div>
-                <div>
-                    <label style="font-size:0.8125rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">Action log retention (days)</label>
-                    <input type="number" id="cfg-standard-days" class="form-control" min="0" placeholder="2">
-                    <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem;">Default: 2 days</div>
-                </div>
-            </div>
-            <div class="settings-actions">
-                <button class="btn btn-primary btn-sm" onclick="saveLogConfig()">Save</button>
-                <span id="cfg-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
-            </div>
-        </div>
-    </div>
 </div>
 {% endblock %}
 
 {% block extra_css %}
 <style>
-.diag-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:1rem; }
 .tab-btn { min-width:90px; }
 .al-row:hover { background:var(--bg-elevated); }
 .al-row td { padding:0.35rem 0.5rem; border-bottom:1px solid var(--border); vertical-align:top; }
-.badge-status-2 { color:var(--success); }
-.badge-status-3 { color:var(--primary); }
-.badge-status-4 { color:var(--warning); }
-.badge-status-5 { color:var(--danger); }
-.diag-row { display:flex; justify-content:space-between; align-items:baseline; gap:1rem; padding:0.35rem 0; border-bottom:1px solid var(--border); }
-.diag-row:last-child { border-bottom:none; }
-.mini-bar { height:6px; border-radius:3px; background:var(--primary); display:inline-block; min-width:2px; }
 </style>
 {% endblock %}
 
 {% block extra_js %}
 <script>
 // ── Tab switching ──────────────────────────────────────────────────────────
-const TABS = ['overview','access-logs','action-logs','users','custom-js','log-config'];
+const TABS = ['users','custom-js'];
 function showTab(name, btn) {
     TABS.forEach(t => {
         document.getElementById('tab-'+t).style.display = (t === name) ? '' : 'none';
@@ -303,189 +93,19 @@ function showTab(name, btn) {
         b.classList.toggle('btn-primary', b === btn);
         b.classList.toggle('btn-outline', b !== btn);
     });
-    if (name === 'overview') loadOverview();
-    if (name === 'access-logs') loadAccessLogs(1);
-    if (name === 'action-logs') loadActionLogs(1);
     if (name === 'users') loadUsers();
-    if (name === 'log-config') loadLogConfig();
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function fmtTime(iso) {
     if (!iso) return '—';
     const d = new Date(iso);
-    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
 }
 function fmtNum(n) { return n == null ? '—' : n.toLocaleString(); }
 function esc(s) {
     if (s == null) return '';
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-function statusColor(code) {
-    if (!code) return '';
-    if (code < 300) return 'var(--success)';
-    if (code < 400) return 'var(--primary)';
-    if (code < 500) return 'var(--warning)';
-    return 'var(--danger)';
-}
-
-// ── Overview ───────────────────────────────────────────────────────────────
-let _chart = null;
-async function loadOverview() {
-    const hours = document.getElementById('window-select').value;
-    document.getElementById('kpi-window-label').textContent = `in last ${hours}h`;
-    const r = await fetch(`/api/admin/overview/?hours=${hours}`);
-    if (!r.ok) return;
-    const d = await r.json();
-
-    document.getElementById('kpi-requests').textContent = fmtNum(d.total_requests);
-    document.getElementById('kpi-ips').textContent = fmtNum(d.unique_ips);
-    document.getElementById('kpi-users').textContent = fmtNum(d.unique_users);
-    document.getElementById('kpi-ms').textContent = d.avg_response_ms != null ? d.avg_response_ms + ' ms' : '—';
-    document.getElementById('kpi-total-users').textContent = fmtNum(d.totals.users);
-    document.getElementById('kpi-total-locs').textContent = fmtNum(d.totals.locations);
-
-    // Status breakdown
-    const sb = document.getElementById('status-breakdown');
-    const codes = Object.entries(d.status_breakdown).sort((a,b)=>a[0]-b[0]);
-    const total = codes.reduce((s,[,n])=>s+n,0);
-    sb.innerHTML = codes.map(([code,n])=>{
-        const pct = total ? Math.round(n/total*100) : 0;
-        return `<div class="diag-row">
-            <span style="color:${statusColor(+code)};font-weight:600;">${code}</span>
-            <div style="flex:1;margin:0 0.75rem;">
-                <div class="mini-bar" style="width:${Math.max(pct,2)}%;background:${statusColor(+code)};"></div>
-            </div>
-            <span style="color:var(--text-muted);">${n} (${pct}%)</span>
-        </div>`;
-    }).join('') || '<div style="color:var(--text-muted);font-size:0.8125rem;">No data</div>';
-
-    // Top paths
-    document.getElementById('top-paths').innerHTML = d.top_paths.map(p=>
-        `<div class="diag-row"><span style="word-break:break-all;font-size:0.78rem;">${esc(p.path)}</span><span style="color:var(--text-muted);white-space:nowrap;margin-left:0.5rem;">${p.count}</span></div>`
-    ).join('') || '<div style="color:var(--text-muted);font-size:0.8125rem;">No data</div>';
-
-    // Top IPs
-    document.getElementById('top-ips').innerHTML = d.top_ips.map(p=>
-        `<div class="diag-row"><span>${esc(p.ip)}</span><span style="color:var(--text-muted);">${p.count}</span></div>`
-    ).join('') || '<div style="color:var(--text-muted);font-size:0.8125rem;">No data</div>';
-
-    // Recent actions
-    document.getElementById('recent-actions').innerHTML = d.recent_actions.map(a=>
-        `<div class="diag-row" style="flex-direction:column;gap:0.1rem;align-items:flex-start;padding:0.4rem 0;">
-            <div style="display:flex;gap:0.5rem;align-items:center;">
-                <span class="badge" style="font-size:0.65rem;background:var(--bg-elevated);padding:2px 6px;border-radius:4px;">${esc(a.action)}</span>
-                <span style="font-size:0.75rem;color:var(--text-muted);">${esc(a.username||'anon')}</span>
-                <span style="font-size:0.7rem;color:var(--text-dim);">${fmtTime(a.timestamp)}</span>
-            </div>
-            <div style="font-size:0.78rem;color:var(--text);">${esc(a.description)}</div>
-        </div>`
-    ).join('') || '<div style="color:var(--text-muted);font-size:0.8125rem;">No data</div>';
-
-    // Hourly chart (simple canvas)
-    drawVolumeChart(d.hourly);
-}
-
-function drawVolumeChart(hourly) {
-    const canvas = document.getElementById('volume-chart');
-    const ctx = canvas.getContext('2d');
-    canvas.width = canvas.parentElement.clientWidth - 2;
-    canvas.height = 100;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (!hourly.length) {
-        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-muted');
-        ctx.font = '13px Nunito, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('No data in window', canvas.width/2, 55);
-        return;
-    }
-    const counts = hourly.map(h=>h.count);
-    const maxVal = Math.max(...counts, 1);
-    const barW = canvas.width / counts.length;
-    const padTop = 14, padBot = 4;
-    const h = canvas.height - padTop - padBot;
-
-    counts.forEach((n, i) => {
-        const x = i * barW;
-        const bh = (n / maxVal) * h;
-        const y = padTop + h - bh;
-        const grad = ctx.createLinearGradient(0, y, 0, y+bh);
-        grad.addColorStop(0, 'rgba(13,191,172,0.9)');
-        grad.addColorStop(1, 'rgba(13,191,172,0.2)');
-        ctx.fillStyle = grad;
-        ctx.fillRect(x + 1, y, Math.max(barW - 2, 1), bh);
-    });
-
-    // Peak label
-    ctx.fillStyle = '#0DBFAC';
-    ctx.font = '11px Nunito, sans-serif';
-    ctx.textAlign = 'center';
-    const peakIdx = counts.indexOf(maxVal);
-    ctx.fillText(maxVal, peakIdx * barW + barW/2, padTop - 2);
-}
-
-// ── Access Logs ────────────────────────────────────────────────────────────
-let _alPage = 1;
-async function loadAccessLogs(page) {
-    _alPage = page || _alPage;
-    const ip   = document.getElementById('al-ip').value;
-    const path = document.getElementById('al-path').value;
-    const user = document.getElementById('al-user').value;
-    const hours= document.getElementById('al-hours').value;
-    const params = new URLSearchParams({page:_alPage, per_page:50});
-    if (ip) params.set('ip', ip);
-    if (path) params.set('path', path);
-    if (user) params.set('user', user);
-    if (hours) params.set('hours', hours);
-    const r = await fetch('/api/admin/logs/access/?' + params);
-    if (!r.ok) return;
-    const d = await r.json();
-    const tbody = document.getElementById('al-tbody');
-    tbody.innerHTML = d.rows.map(row => {
-        const sc = row.status || '';
-        const col = statusColor(+sc);
-        return `<tr class="al-row">
-            <td style="white-space:nowrap;font-size:0.75rem;color:var(--text-muted);">${fmtTime(row.timestamp)}</td>
-            <td>${esc(row.ip)}</td>
-            <td>${esc(row.user||'—')}</td>
-            <td style="font-weight:600;">${esc(row.method)}</td>
-            <td style="word-break:break-all;max-width:300px;">${esc(row.path)}</td>
-            <td style="color:${col};font-weight:600;">${esc(sc)}</td>
-            <td style="color:var(--text-muted);">${row.ms != null ? row.ms : '—'}</td>
-        </tr>`;
-    }).join('') || '<tr><td colspan="7" style="padding:2rem;text-align:center;color:var(--text-muted);">No results</td></tr>';
-
-    renderPagination('al-pagination', _alPage, Math.ceil(d.total / d.per_page), loadAccessLogs, d.total);
-}
-
-// ── Action Logs ────────────────────────────────────────────────────────────
-let _actlPage = 1;
-async function loadActionLogs(page) {
-    _actlPage = page || _actlPage;
-    const action = document.getElementById('actl-action').value;
-    const hours  = document.getElementById('actl-hours').value;
-    const params = new URLSearchParams({page:_actlPage, per_page:50});
-    if (action) params.set('action', action);
-    if (hours) params.set('hours', hours);
-    const r = await fetch('/api/admin/logs/action/?' + params);
-    if (!r.ok) return;
-    const d = await r.json();
-    const ACTION_COLORS = {
-        login:'var(--success)', logout:'var(--text-muted)', signup:'var(--clay-sky)',
-        login_fail:'var(--danger)', delete_data:'var(--danger)', delete_account:'var(--danger)',
-        admin_toggle:'var(--clay-amber)', custom_js_save:'var(--clay-lavender)',
-    };
-    document.getElementById('actl-tbody').innerHTML = d.rows.map(row=>
-        `<tr class="al-row">
-            <td style="white-space:nowrap;font-size:0.75rem;color:var(--text-muted);">${fmtTime(row.timestamp)}</td>
-            <td>${esc(row.user||'—')}</td>
-            <td><span style="color:${ACTION_COLORS[row.action]||'var(--primary)'};font-weight:600;">${esc(row.action)}</span></td>
-            <td>${esc(row.description)}</td>
-            <td>${esc(row.ip)}</td>
-        </tr>`
-    ).join('') || '<tr><td colspan="5" style="padding:2rem;text-align:center;color:var(--text-muted);">No results</td></tr>';
-
-    renderPagination('actl-pagination', _actlPage, Math.ceil(d.total / d.per_page), loadActionLogs, d.total);
 }
 
 // ── Users ──────────────────────────────────────────────────────────────────
@@ -499,8 +119,6 @@ async function loadUsers() {
             <td style="color:var(--text-muted);">${esc(u.email)}</td>
             <td style="font-size:0.75rem;color:var(--text-muted);">${u.date_joined ? new Date(u.date_joined).toLocaleDateString() : '—'}</td>
             <td style="font-size:0.75rem;color:var(--text-muted);">${u.last_login ? fmtTime(u.last_login) : 'Never'}</td>
-            <td style="font-size:0.75rem;font-family:monospace;color:var(--text-muted);">${u.signup_ip ? esc(u.signup_ip) : '—'}</td>
-            <td style="font-size:0.75rem;font-family:monospace;color:var(--text-muted);">${u.last_ip ? esc(u.last_ip) : '—'}</td>
             <td style="text-align:right;">${u.device_count}</td>
             <td style="text-align:right;">${fmtNum(u.location_count)}</td>
             <td style="text-align:center;">
@@ -515,7 +133,7 @@ async function loadUsers() {
                         onclick="deleteUser(${u.id})">Delete</button>`}
             </td>
         </tr>`
-    ).join('') || '<tr><td colspan="10" style="padding:2rem;text-align:center;color:var(--text-muted);">No users</td></tr>';
+    ).join('') || '<tr><td colspan="8" style="padding:2rem;text-align:center;color:var(--text-muted);">No users</td></tr>';
 }
 
 async function deleteUser(userId) {
@@ -557,38 +175,6 @@ async function saveCustomJs() {
     setTimeout(()=>{ st.textContent=''; }, 3000);
 }
 
-// ── Log Config ─────────────────────────────────────────────────────────────
-async function loadLogConfig() {
-    const r = await fetch('/api/admin/config/');
-    if (!r.ok) return;
-    const d = await r.json();
-    document.getElementById('cfg-access-days').value = d.access_log_retention_days;
-    document.getElementById('cfg-standard-days').value = d.standard_log_retention_days;
-}
-
-async function saveLogConfig() {
-    const access = parseInt(document.getElementById('cfg-access-days').value) || 0;
-    const standard = parseInt(document.getElementById('cfg-standard-days').value) || 0;
-    const st = document.getElementById('cfg-status');
-    st.textContent = 'Saving…';
-    const r = await fetch('/api/admin/config/', {
-        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
-        body: JSON.stringify({access_log_retention_days: access, standard_log_retention_days: standard}),
-    });
-    st.textContent = r.ok ? 'Saved.' : 'Error saving.';
-    st.style.color = r.ok ? 'var(--success)' : 'var(--danger)';
-    setTimeout(()=>{ st.textContent=''; }, 3000);
-}
-
-// ── Pagination helper ──────────────────────────────────────────────────────
-function renderPagination(containerId, currentPage, totalPages, loadFn, totalRows) {
-    const el = document.getElementById(containerId);
-    let html = `<span style="font-size:0.8125rem;color:var(--text-muted);">${totalRows.toLocaleString()} rows · page ${currentPage} of ${totalPages}</span>`;
-    if (currentPage > 1) html += `<button class="btn btn-outline btn-sm" onclick="${loadFn.name}(${currentPage-1})">← Prev</button>`;
-    if (currentPage < totalPages) html += `<button class="btn btn-outline btn-sm" onclick="${loadFn.name}(${currentPage+1})">Next →</button>`;
-    el.innerHTML = html;
-}
-
 // ── CSRF ───────────────────────────────────────────────────────────────────
 function getCookie(name) {
     const v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');
@@ -596,6 +182,6 @@ function getCookie(name) {
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
-loadOverview();
+loadUsers();
 </script>
 {% endblock %}
