@@ -907,6 +907,7 @@
 <script>
 const TRIP_ID = {{ trip_id }};
 const CSRF = '{{ csrf_token }}';
+const CURRENT_USERNAME = '{{ user.username|escapejs }}';
 const mapStyles = {
     'Dark': { version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
         sources:{carto:{type:'raster',tiles:['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'],tileSize:256}},
@@ -1739,12 +1740,29 @@ async function savePOI(){
         });
     }
     if(r && r.ok){
+        const d = await r.json();
+        const p = d.place || {};
+        // Update local state in place — avoid re-fetching the whole trip (slow).
+        if(poiEditId){
+            [blurbs, allNotes].forEach(arr => {
+                const b = arr.find(x => x.id === poiEditId);
+                if(b){ b.title = p.name || ''; b.text = p.notes || ''; }
+            });
+            const pl = places.find(x => x.id === poiEditId);
+            if(pl){ pl.name = p.name || ''; pl.notes = p.notes || ''; }
+        } else {
+            const nb = {
+                id: p.id, title: p.name || '', text: p.notes || '',
+                latitude: p.latitude, longitude: p.longitude,
+                author: CURRENT_USERNAME, photos: [], location_name: '',
+            };
+            blurbs.push(nb); allNotes.push(nb);
+            places.push({id: p.id, name: p.name || '', latitude: p.latitude, longitude: p.longitude, notes: p.notes || ''});
+        }
         document.getElementById('poi-modal').classList.remove('open');
         poiEditId = null; poiDropCoords = null;
-        await loadTrip();      // refresh `places` for pin refs / location cards
-        await reloadBlurbs();  // refresh POI markers
         renderPOIMarkers();
-        renderBlocks();
+        if(document.getElementById('settings-overlay').classList.contains('open')) renderSettingsNotes();
     }
 }
 
@@ -1767,10 +1785,11 @@ window.deletePOI = async function(id){
     const r = await fetch(`/api/trips/${TRIP_ID}/places/${id}/delete/`, {method:'POST',headers:{'X-CSRFToken':CSRF}});
     if(r.ok){
         document.getElementById('poi-popup-overlay').classList.remove('open');
-        await loadTrip();
-        await reloadBlurbs();
+        blurbs = blurbs.filter(x => x.id !== id);
+        allNotes = allNotes.filter(x => x.id !== id);
+        places = places.filter(x => x.id !== id);
         renderPOIMarkers();
-        renderBlocks();
+        if(document.getElementById('settings-overlay').classList.contains('open')) renderSettingsNotes();
     }
 };
 document.getElementById('poi-popup-close').addEventListener('click', () =>
