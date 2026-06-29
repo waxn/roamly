@@ -251,9 +251,20 @@
 
 .block-photo-grid { margin: 0.25rem 0; }
 .block-photo-grid .photo-grid-inner { display: flex; gap: 4px; flex-wrap: wrap; }
-.block-photo-grid .photo-grid-inner.layout-single .grid-thumb { width: 100%; max-height: 320px; }
-.block-photo-grid .photo-grid-inner.layout-strip  .grid-thumb { height: 120px; flex: 1; }
-.block-photo-grid .photo-grid-inner.layout-grid   .grid-thumb { width: calc(33.33% - 3px); aspect-ratio: 1; }
+.block-photo-grid .photo-grid-inner.layout-grid   .grid-thumb-wrap { width: calc(33.33% - 3px); }
+.block-photo-grid .photo-grid-inner.layout-strip  .grid-thumb-wrap { height: 120px; flex: 1; }
+.block-photo-grid .photo-grid-inner.layout-single .grid-thumb-wrap { width: 100%; }
+.grid-thumb-wrap { position: relative; display: inline-flex; }
+.grid-thumb-wrap .grid-thumb { width: 100%; height: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; }
+.block-photo-grid .photo-grid-inner.layout-single .grid-thumb { aspect-ratio: auto; max-height: 320px; }
+.grid-thumb-remove {
+    position: absolute; top: 4px; right: 4px; width: 20px; height: 20px;
+    border: none; border-radius: 50%; background: rgba(0,0,0,0.6); color: #fff;
+    font-size: 14px; line-height: 1; cursor: pointer; opacity: 0;
+    display: flex; align-items: center; justify-content: center; transition: opacity 0.12s;
+}
+.grid-thumb-wrap:hover .grid-thumb-remove { opacity: 1; }
+.grid-thumb-remove:hover { background: var(--danger); }
 .grid-thumb { object-fit: cover; border-radius: 8px; cursor: pointer; }
 
 .block-location-card {
@@ -818,6 +829,9 @@ const mapStyles = {
 };
 
 // ── State ──────────────────────────────────────────────────────────────────
+// Photos for photo_grid blocks are stored on a hidden "container" blurb; this
+// sentinel text marks those so they don't appear as notes/pins.
+const PHOTO_CONTAINER_SENTINEL = '(photo grid upload)';
 let blocks = [];     // [{type, content, id}]
 let places = [];     // [{id, name, lat, lng, notes}]
 let blurbs = [];     // [{id, lat, lng, text, author, photos}] — only those with coords (map pins)
@@ -924,7 +938,10 @@ function buildBlockEl(block, index){
         const thumbs = ids.map(pid => {
             const ph = (tripData.photos||{})[pid];
             if(!ph) return '';
-            return `<img class="grid-thumb" src="${esc(ph.thumb||ph.url)}" title="${esc(ph.name||'')}" loading="lazy">`;
+            return `<span class="grid-thumb-wrap">
+                <img class="grid-thumb" src="${esc(ph.thumb||ph.url)}" title="${esc(ph.name||'')}" loading="lazy">
+                <button class="grid-thumb-remove" data-block-id="${block._id}" data-photo-id="${pid}" title="remove photo">&times;</button>
+            </span>`;
         }).join('');
         inner = `<div class="block-photo-grid">
             <div class="photo-grid-inner layout-${esc(layout)}">${thumbs||'<span style="color:var(--text-muted);font-size:0.8125rem;padding:0.5rem 0;">no photos — click edit to add</span>'}</div>
@@ -1249,18 +1266,26 @@ document.getElementById('photo-file-input').addEventListener('change', async fun
     if(currentPhotoBlockIndex === null) return;
     const files = Array.from(this.files);
     if(!files.length) return;
+    const block = blocks[currentPhotoBlockIndex];
     const formData = new FormData();
-    files.forEach(f => formData.append('photos', f));
+    files.slice(0,5).forEach(f => formData.append('photos', f));
     formData.append('latitude', '');
     formData.append('longitude', '');
-    formData.append('text', '(photo grid upload)');
+    formData.append('text', PHOTO_CONTAINER_SENTINEL);
     try {
         const r = await fetch(`/api/trips/${TRIP_ID}/blurbs/create/`, {
             method:'POST', headers:{'X-CSRFToken':CSRF}, body: formData
         });
         const d = await r.json();
-        // Re-fetch trip to get updated photo list
+        // Attach the new photos to this block so they actually render.
+        if(block && Array.isArray(d.photo_ids)){
+            block.content = block.content || {};
+            block.content.photo_ids = (block.content.photo_ids || []).concat(d.photo_ids);
+            await doSave();
+        }
+        // Re-fetch trip to get the photo map, then re-render.
         await loadTrip();
+        await reloadBlurbs();
         renderBlocks();
     } catch(e){ console.error(e); }
     this.value = '';
@@ -1515,7 +1540,7 @@ function closeMapPopups(){ document.querySelectorAll('.maplibregl-popup').forEac
 async function reloadBlurbs(){
     const tr = await fetch(`/api/trips/${TRIP_ID}/timeline/`);
     const td = await tr.json();
-    allNotes = (td.events||[]).filter(e=>e.type==='blurb');
+    allNotes = (td.events||[]).filter(e=>e.type==='blurb' && e.text!==PHOTO_CONTAINER_SENTINEL);
     blurbs = allNotes.filter(e=>e.latitude&&e.longitude);
     if(document.getElementById('settings-overlay').classList.contains('open')) renderSettingsNotes();
 }
@@ -1585,7 +1610,19 @@ document.getElementById('pin-popup-close').addEventListener('click', () => {
 document.getElementById('pin-popup-overlay').addEventListener('click', e => {
     if(e.target === e.currentTarget){ document.getElementById('pin-popup-overlay').classList.remove('open'); if(pinMiniMap){pinMiniMap.remove();pinMiniMap=null;} }
 });
-document.getElementById('blocks-area').addEventListener('click', e => {
+document.getElementById('blocks-area').addEventListener('click', async e => {
+    const rm = e.target.closest('.grid-thumb-remove');
+    if(rm){
+        e.stopPropagation();
+        const block = blocks.find(b => b._id === rm.dataset.blockId);
+        if(block){
+            const pid = parseInt(rm.dataset.photoId);
+            block.content.photo_ids = (block.content.photo_ids||[]).filter(id => id !== pid);
+            await doSave();
+            renderBlocks();
+        }
+        return;
+    }
     const badge = e.target.closest('.pin-badge');
     if(!badge) return;
     const pinId = parseInt(badge.dataset.pinId);
@@ -1765,7 +1802,7 @@ async function init(){
     // Load notes (blurbs) from timeline API
     const tr = await fetch(`/api/trips/${TRIP_ID}/timeline/`);
     const td = await tr.json();
-    allNotes = (td.events||[]).filter(e=>e.type==='blurb');
+    allNotes = (td.events||[]).filter(e=>e.type==='blurb' && e.text!==PHOTO_CONTAINER_SENTINEL);
     blurbs = allNotes.filter(e=>e.latitude&&e.longitude);
 
     renderBlocks();

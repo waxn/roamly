@@ -320,6 +320,9 @@
 <script>
 const SLUG = '{{ slug }}';
 const CSRF = '{{ csrf_token }}';
+// Photos for photo_grid blocks live on a hidden "container" blurb; this marks
+// them so they don't show as notes/pins (their photos are still gathered).
+const PHOTO_CONTAINER_SENTINEL = '(photo grid upload)';
 const HAS_PIN = {% if trip.access_pin %}true{% else %}false{% endif %};
 const mapStyles = {
     'Dark':    { version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf', sources:{carto:{type:'raster',tiles:['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'],tileSize:256}}, layers:[{id:'carto',type:'raster',source:'carto'}] },
@@ -569,8 +572,8 @@ async function loadAndRender(){
     // Build placesMap
     (tripData.places||[]).forEach(p => { placesMap[p.id] = p; });
 
-    // Build blurb GeoJSON features for maps
-    const blurbFeatures = (tripData.blurbs||[]).filter(b=>b.latitude&&b.longitude).map(b=>({
+    // Build blurb GeoJSON features for maps (skip hidden photo containers)
+    const blurbFeatures = (tripData.blurbs||[]).filter(b=>b.latitude&&b.longitude&&b.text!==PHOTO_CONTAINER_SENTINEL).map(b=>({
         type:'Feature',
         geometry:{type:'Point',coordinates:[b.longitude,b.latitude]},
         properties:{id:b.id,author:b.author,text:(b.text||'').slice(0,120)}
@@ -638,7 +641,7 @@ async function loadAndRender(){
 
     // Render blurbs section
     const blurbsEl = document.getElementById('pub-blurbs-section');
-    const blurbs = tripData.blurbs || [];
+    const blurbs = (tripData.blurbs || []).filter(b => b.text !== PHOTO_CONTAINER_SENTINEL);
     if(blurbsEl && blurbs.length){
         blurbsEl.innerHTML = `<div class="pub-blurbs-section">
             <div class="pub-blurbs-title">pins & notes</div>

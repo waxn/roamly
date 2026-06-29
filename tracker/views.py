@@ -2509,6 +2509,16 @@ def _trip_detail_inner(request, trip_id):
             "time_spent_display": _format_duration(time_spent_s),
         })
 
+    # Photo store: photos live on blurbs; photo_grid body blocks reference them
+    # by id. Expose a flat {id: {url, thumb}} map so the editor can resolve them.
+    photos_map = {}
+    for b in trip.blurbs.prefetch_related('photos'):
+        for p in b.photos.all():
+            photos_map[p.id] = {
+                "url": p.image.url,
+                "thumb": p.thumbnail.url if p.thumbnail else p.image.url,
+            }
+
     is_creator = trip.device.user == request.user or trip.creator == request.user
     owner_user = trip.device.user
     members = []
@@ -2549,6 +2559,7 @@ def _trip_detail_inner(request, trip_id):
         "locations": locs,
         "total_location_count": total_count,
         "places": places,
+        "photos": photos_map,
         "is_creator": is_creator,
         "is_public": bool(trip.public_slug),
         "public_slug": trip.public_slug,
@@ -2821,12 +2832,14 @@ def trip_create_blurb(request, trip_id):
         location_name=request.POST.get('location_name', ''),
     )
     photos = request.FILES.getlist('photos')
+    photo_ids = []
     for i, photo_file in enumerate(photos[:5]):
         if photo_file.size > 10 * 1024 * 1024:
             continue
         full_file, thumb_file = resize_photo(photo_file)
-        AdventureBlurbPhoto.objects.create(blurb=blurb, image=full_file, thumbnail=thumb_file, order=i)
-    return JsonResponse({"status": "ok", "blurb_id": blurb.id})
+        p = AdventureBlurbPhoto.objects.create(blurb=blurb, image=full_file, thumbnail=thumb_file, order=i)
+        photo_ids.append(p.id)
+    return JsonResponse({"status": "ok", "blurb_id": blurb.id, "photo_ids": photo_ids})
 
 
 @login_required
