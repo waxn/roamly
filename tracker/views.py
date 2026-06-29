@@ -2630,9 +2630,6 @@ def update_trip(request, trip_id):
     return JsonResponse({"status": "ok", "public_slug": trip.public_slug})
 
 
-@login_required
-@csrf_exempt
-@require_http_methods(["POST"])
 def _poi_payload(b):
     return {
         "id": b.id,
@@ -2643,6 +2640,9 @@ def _poi_payload(b):
     }
 
 
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
 def create_trip_place(request, trip_id):
     """Create a POI (a located AdventureBlurb) on an adventure."""
     trip = _get_trip_for_user(trip_id, request.user)
