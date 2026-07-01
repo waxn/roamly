@@ -3,39 +3,80 @@
 
 {% block content %}
 <div class="container">
-    <div class="page-toolbar">
-        <div>
-            <h1>diagnostics</h1>
-            <p class="page-lead" style="margin-bottom:0;">inspect tracking health — gaps, accuracy and speed — for a device and time range.</p>
+    <div class="diag-tabs">
+        <button class="diag-tab active" id="tab-stats" onclick="switchTab('stats')">Coverage &amp; Stats</button>
+        <button class="diag-tab" id="tab-review" onclick="switchTab('review')">Quality Review</button>
+    </div>
+
+    <!-- ── Coverage & Stats pane ─────────────────────────────────────────── -->
+    <div id="pane-stats">
+        <div class="page-toolbar">
+            <div>
+                <h1>diagnostics</h1>
+                <p class="page-lead" style="margin-bottom:0;">inspect tracking health — gaps, accuracy and speed — for a device and time range.</p>
+            </div>
+            <div class="toolbar-actions">
+                <select id="diag-device" class="form-control" style="width:auto;">
+                    <option value="">All devices</option>
+                    {% for device in devices %}
+                    <option value="{{ device.device_id }}">{{ device.name|default:device.device_id }}</option>
+                    {% endfor %}
+                </select>
+                <select id="diag-range" class="form-control" style="width:auto;">
+                    <option value="6">Last 6h</option>
+                    <option value="24" selected>Last 24h</option>
+                    <option value="72">Last 3 days</option>
+                    <option value="168">Last week</option>
+                    <option value="720">Last 30 days</option>
+                    <option value="all">All time</option>
+                    <option value="custom">Custom range…</option>
+                </select>
+                <span id="diag-custom" style="display:none;gap:0.5rem;align-items:center;">
+                    <input type="date" id="diag-start" class="form-control" style="width:auto;" placeholder="start date">
+                    <span style="color:var(--text-muted);">→</span>
+                    <input type="date" id="diag-end" class="form-control" style="width:auto;" placeholder="end date">
+                </span>
+                <button class="btn btn-primary btn-sm" onclick="runDiag()">Run</button>
+            </div>
         </div>
-        <div class="toolbar-actions">
-            <select id="diag-device" class="form-control" style="width:auto;">
-                <option value="">All devices</option>
-                {% for device in devices %}
-                <option value="{{ device.device_id }}">{{ device.name|default:device.device_id }}</option>
-                {% endfor %}
-            </select>
-            <select id="diag-range" class="form-control" style="width:auto;">
-                <option value="6">Last 6h</option>
-                <option value="24" selected>Last 24h</option>
-                <option value="72">Last 3 days</option>
-                <option value="168">Last week</option>
-                <option value="720">Last 30 days</option>
-                <option value="all">All time</option>
-                <option value="custom">Custom range…</option>
-            </select>
-            <span id="diag-custom" style="display:none;gap:0.5rem;align-items:center;">
-                <input type="date" id="diag-start" class="form-control" style="width:auto;" placeholder="start date">
-                <span style="color:var(--text-muted);">→</span>
-                <input type="date" id="diag-end" class="form-control" style="width:auto;" placeholder="end date">
-            </span>
-            <button class="btn btn-primary btn-sm" onclick="runDiag()">Run</button>
+        <div id="diag-results">
+            <div class="card" style="text-align:center;color:var(--text-muted);padding:2rem;">
+                Pick a device and range, then hit <strong>Run</strong>.
+            </div>
         </div>
     </div>
 
-    <div id="diag-results">
-        <div class="card" style="text-align:center;color:var(--text-muted);padding:2rem;">
-            Pick a device and range, then hit <strong>Run</strong>.
+    <!-- ── Quality Review pane ───────────────────────────────────────────── -->
+    <div id="pane-review" style="display:none;">
+        <div class="page-toolbar" style="margin-bottom:1rem;">
+            <div>
+                <h1>quality review</h1>
+                <p class="page-lead" style="margin-bottom:0;">flag and review suspicious GPS points — poor accuracy, impossible speed, altitude spikes.</p>
+            </div>
+            <div class="toolbar-actions">
+                <button class="btn btn-primary btn-sm" id="scan-btn" onclick="runScan()">Scan for issues</button>
+                <span id="scan-status" style="font-size:0.82rem;color:var(--text-muted);">No scan run yet.</span>
+            </div>
+        </div>
+        <div class="review-layout">
+            <div id="review-map-el" class="review-map"></div>
+            <div class="review-panel">
+                <div class="review-group-bar">
+                    <button class="btn btn-sm review-group-btn active" id="group-day" onclick="setGroup('day')">Day</button>
+                    <button class="btn btn-sm review-group-btn" id="group-week" onclick="setGroup('week')">Week</button>
+                </div>
+                <div class="review-nav">
+                    <button class="btn btn-sm" id="nav-prev" onclick="navDate(-1)" disabled>← Prev</button>
+                    <span id="nav-label" style="font-weight:600;font-size:0.88rem;text-align:center;">—</span>
+                    <button class="btn btn-sm" id="nav-next" onclick="navDate(1)" disabled>Next →</button>
+                </div>
+                <div id="review-count" class="review-count"></div>
+                <div id="review-list" class="review-list">
+                    <div style="padding:2rem;text-align:center;color:var(--text-muted);font-size:0.85rem;">
+                        Hit <strong>Scan for issues</strong> to detect suspicious points.
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -43,6 +84,14 @@
 
 {% block extra_css %}
 <style>
+/* ── tabs ──────────────────────────────────────────────────────────────── */
+.diag-tabs { display:flex; gap:0.5rem; margin-bottom:1.25rem; }
+.diag-tab { background:var(--surface); border:1px solid var(--border); color:var(--text-muted);
+    padding:0.45rem 1rem; border-radius:8px; font-size:0.85rem; font-weight:600; cursor:pointer; transition:all .15s; }
+.diag-tab:hover { color:var(--text); border-color:var(--accent); }
+.diag-tab.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+
+/* ── stats tab (existing styles) ──────────────────────────────────────── */
 .toolbar-actions .btn-sm { padding: 0.5rem 0.75rem; }
 .diag-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:1rem; }
 .diag-card .card-header { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; }
@@ -71,7 +120,6 @@
 .diag-gridlabels { position:absolute; inset:0; pointer-events:none; }
 .diag-gridlabel { position:absolute; right:3px; transform:translateY(-50%); font-size:0.65rem; font-weight:600;
     color:var(--text-muted); background:var(--bg-card); padding:0 4px; border-radius:4px; line-height:1.3; }
-/* Floating hover readout shared by the coverage bars and the detail line graph. */
 .diag-tip { position:fixed; z-index:9999; pointer-events:none; background:var(--bg-card);
     border:1px solid var(--border); border-radius:8px; padding:0.4rem 0.6rem; font-size:0.75rem;
     color:var(--text); box-shadow:0 6px 20px rgba(0,0,0,0.35); max-width:260px; line-height:1.45; }
@@ -80,12 +128,74 @@
 .diag-detail-close { cursor:pointer; color:var(--text-muted); font-size:0.95rem; line-height:1;
     background:none; border:none; padding:0.1rem 0.3rem; border-radius:6px; }
 .diag-detail-close:hover { color:var(--text); background:var(--bg); }
+
+/* ── quality review ────────────────────────────────────────────────────── */
+.review-layout {
+    display: grid;
+    grid-template-columns: 1fr 360px;
+    height: calc(100vh - 230px);
+    min-height: 500px;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+}
+.review-map { position:relative; overflow:hidden; background:var(--bg); }
+.review-panel {
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    overflow: hidden;
+}
+.review-group-bar {
+    display: flex;
+    gap: 0.4rem;
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+}
+.review-group-btn { flex: 1; text-align:center; }
+.review-group-btn.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+.review-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    gap: 0.5rem;
+}
+.review-count {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    min-height: 2rem;
+}
+.review-list { flex: 1; overflow-y: auto; }
+.review-item {
+    padding: 0.65rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background .1s;
+}
+.review-item:hover, .review-item.active { background: var(--bg); }
+.review-item-ts { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.2rem; font-variant-numeric: tabular-nums; }
+.review-item-loc { font-size: 0.82rem; font-weight: 600; margin-bottom: 0.3rem; }
+.review-reasons { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.4rem; }
+.review-reason {
+    font-size: 0.68rem; font-weight: 700; padding: 0.1rem 0.45rem;
+    border-radius: 999px; text-transform: uppercase; letter-spacing: 0.04em;
+    background: rgba(239,68,68,0.15); color: #ef4444;
+}
+.review-actions { display: flex; gap: 0.4rem; }
+.review-actions .btn { font-size: 0.75rem; padding: 0.25rem 0.6rem; }
+.review-empty { padding: 2rem; text-align:center; color:var(--text-muted); font-size:0.85rem; }
 </style>
 {% endblock %}
 
 {% block extra_js %}
 <script>
 const HAS_POSTGIS = {{ has_postgis|yesno:"true,false" }};
+const CSRF = '{{ csrf_token }}';
 
 // ── formatters ───────────────────────────────────────────────────────────────
 function imperial() { return (localStorage.getItem('roamly_speed_unit') || 'kmh') === 'mph'; }
@@ -114,8 +224,8 @@ function fmtTime(iso) { return iso ? new Date(iso).toLocaleString() : '—'; }
 function esc(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 // ── shared state + floating hover readout ─────────────────────────────────────
-let diagData = null;      // last /location/ response (for the timeline wiring)
-let detailData = null;    // last /detail/ response (for the line-graph hover)
+let diagData = null;
+let detailData = null;
 let diagTip = null;
 function showTip(html, clientX, clientY) {
     if (!diagTip) { diagTip = document.createElement('div'); diagTip.className = 'diag-tip'; document.body.appendChild(diagTip); }
@@ -130,20 +240,15 @@ function showTip(html, clientX, clientY) {
 }
 function hideTip() { if (diagTip) diagTip.style.display = 'none'; }
 
-// Map a pointer event to a bar/bin index for a viewBox-stretched SVG (preserveAspectRatio
-// "none" means we can't trust SVG coords, so go off the element's own client rect).
 function idxFromEvent(svg, e, n) {
     const r = svg.getBoundingClientRect();
     const f = (e.clientX - r.left) / r.width;
     return Math.max(0, Math.min(n - 1, Math.floor(f * n)));
 }
-
 function row(label, value, sub) {
     return `<div class="diag-row"><span class="diag-label">${label}</span>` +
         `<span class="diag-value">${value}${sub ? ` <span class="diag-sub">${sub}</span>` : ''}</span></div>`;
 }
-
-// Colour the worst gap so tracking health is readable at a glance.
 function gapPill(maxS) {
     if (maxS === null || maxS === undefined) return '';
     if (maxS <= 120)  return '<span class="diag-pill diag-good">healthy</span>';
@@ -151,18 +256,24 @@ function gapPill(maxS) {
     return '<span class="diag-pill diag-bad">dropouts</span>';
 }
 
+// ── tab switching ────────────────────────────────────────────────────────────
+function switchTab(tab) {
+    document.getElementById('pane-stats').style.display = tab === 'stats' ? '' : 'none';
+    document.getElementById('pane-review').style.display = tab === 'review' ? '' : 'none';
+    document.getElementById('tab-stats').classList.toggle('active', tab === 'stats');
+    document.getElementById('tab-review').classList.toggle('active', tab === 'review');
+    if (tab === 'review') initReviewMap();
+}
+
 // ── range controls ───────────────────────────────────────────────────────────
 const rangeSel = document.getElementById('diag-range');
 const startInp = document.getElementById('diag-start');
 const endInp = document.getElementById('diag-end');
 const customBox = document.getElementById('diag-custom');
-// Toggle the whole custom-range container, not the native inputs — RoamlyForms hides the
-// real <input> and shows its own wrapper, so toggling the input's display does nothing.
 rangeSel.addEventListener('change', () => {
     const custom = rangeSel.value === 'custom';
     customBox.style.display = custom ? 'inline-flex' : 'none';
     if (custom && (!startInp.value || !endInp.value)) {
-        // Local YYYY-MM-DD (not toISOString, which is UTC and can land on the wrong day).
         const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         const now = new Date();
         if (!endInp.value) endInp.value = iso(now);
@@ -184,10 +295,8 @@ function runDiag() {
     } else {
         params.set('hours', range);
     }
-
     const box = document.getElementById('diag-results');
     box.innerHTML = `<div class="card" style="text-align:center;color:var(--text-muted);padding:2rem;"><span class="spinner"></span> Analyzing…</div>`;
-
     fetch('/api/diagnostics/location/?' + params.toString())
         .then(r => r.json())
         .then(render)
@@ -208,10 +317,7 @@ function render(d) {
         box.innerHTML = `<div class="card" style="text-align:center;color:var(--text-muted);padding:2rem;">No points in this range.</div>`;
         return;
     }
-
     const g = d.gaps, a = d.accuracy, s = d.speed, sb = d.speed_between, alt = d.altitude, bat = d.battery;
-
-    // Hero overview
     let html = `<div class="card diag-card" style="margin-bottom:1rem;">
         <div class="diag-hero">
             <div class="diag-metric"><div class="n">${d.count.toLocaleString()}</div><div class="l">points</div></div>
@@ -224,115 +330,67 @@ function render(d) {
             ${fmtTime(d.span.start)} &nbsp;→&nbsp; ${fmtTime(d.span.end)}
         </div>
     </div>`;
-
     html += renderTimeline(d);
-    html += `<div id="diag-detail"></div>`;   // bar drill-down line graph lands here
-
+    html += `<div id="diag-detail"></div>`;
     html += `<div class="diag-grid">`;
-
-    // Gaps card (the headline tracking-health metric)
     let topHtml = '';
     if (g.top && g.top.length) {
         topHtml = `<div class="diag-toplist"><div class="diag-label" style="margin:0.5rem 0 0.25rem;">Largest gaps</div>` +
-            g.top.map(t => row(
-                `${fmtTime(t.start)} <span class="diag-sub">· ${esc(t.device)}</span>`,
-                t.human
-            )).join('') + `</div>`;
+            g.top.map(t => row(`${fmtTime(t.start)} <span class="diag-sub">· ${esc(t.device)}</span>`, t.human)).join('') + `</div>`;
     }
     html += `<div class="card diag-card">
         <div class="card-header"><span>Gaps between points</span>${gapPill(g.max_s)}</div>
-        ${row('Median', fmtDur(g.median_s))}
-        ${row('Average', fmtDur(g.avg_s))}
-        ${row('Min', fmtDur(g.min_s))}
-        ${row('Max', fmtDur(g.max_s))}
+        ${row('Median', fmtDur(g.median_s))} ${row('Average', fmtDur(g.avg_s))}
+        ${row('Min', fmtDur(g.min_s))} ${row('Max', fmtDur(g.max_s))}
         ${row('90th percentile', fmtDur(g.p90_s))}
         ${row('Gaps &gt; 1 min', g.over_60s.toLocaleString())}
         ${row('Gaps &gt; 5 min', g.over_300s.toLocaleString())}
         ${row('Gaps &gt; 15 min', g.over_900s.toLocaleString())}
         ${topHtml}
     </div>`;
-
-    // Accuracy
     html += `<div class="card diag-card">
         <div class="card-header"><span>Accuracy</span></div>
-        ${row('Best', fmtM(a.min))}
-        ${row('Worst', fmtM(a.max))}
-        ${row('Average', fmtM(a.avg))}
+        ${row('Best', fmtM(a.min))} ${row('Worst', fmtM(a.max))} ${row('Average', fmtM(a.avg))}
         ${row('≤ 20 m', a.under_20.toLocaleString(), pctOf(a.under_20, d.count))}
         ${row('≤ 50 m', a.under_50.toLocaleString(), pctOf(a.under_50, d.count))}
         ${row('&gt; 100 m', a.over_100.toLocaleString(), pctOf(a.over_100, d.count))}
         ${row('No accuracy', a.missing.toLocaleString())}
     </div>`;
-
-    // Reported speed
     html += `<div class="card diag-card">
         <div class="card-header"><span>Reported speed</span></div>
-        ${row('Min', fmtSpeed(s.min_ms))}
-        ${row('Max', fmtSpeed(s.max_ms))}
-        ${row('Average', fmtSpeed(s.avg_ms))}
-        ${row('No speed', s.missing.toLocaleString())}
+        ${row('Min', fmtSpeed(s.min_ms))} ${row('Max', fmtSpeed(s.max_ms))}
+        ${row('Average', fmtSpeed(s.avg_ms))} ${row('No speed', s.missing.toLocaleString())}
     </div>`;
-
-    // Implied speed between consecutive points
     html += `<div class="card diag-card">
         <div class="card-header"><span>Speed between points</span></div>
-        ${row('Min', fmtSpeed(sb.min_ms))}
-        ${row('Max', fmtSpeed(sb.max_ms))}
+        ${row('Min', fmtSpeed(sb.min_ms))} ${row('Max', fmtSpeed(sb.max_ms))}
         ${row('Average', fmtSpeed(sb.avg_ms))}
         ${row('Fastest at', sb.max_at ? `<span style="font-weight:600;font-size:0.8rem;">${fmtTime(sb.max_at)}</span>` : '—')}
         <div class="diag-sub" style="padding-top:0.4rem;">Distance ÷ time between fixes — a high max usually means a GPS jump.</div>
     </div>`;
-
-    // Altitude
     html += `<div class="card diag-card">
         <div class="card-header"><span>Altitude</span></div>
-        ${row('Min', fmtM(alt.min))}
-        ${row('Max', fmtM(alt.max))}
-        ${row('Average', fmtM(alt.avg))}
-        ${row('No altitude', alt.missing.toLocaleString())}
+        ${row('Min', fmtM(alt.min))} ${row('Max', fmtM(alt.max))}
+        ${row('Average', fmtM(alt.avg))} ${row('No altitude', alt.missing.toLocaleString())}
     </div>`;
-
-    // Battery
     html += `<div class="card diag-card">
         <div class="card-header"><span>Battery</span></div>
         ${row('Min', bat.min !== null ? bat.min + '%' : '—')}
         ${row('Max', bat.max !== null ? bat.max + '%' : '—')}
     </div>`;
-
     html += `</div>`;
     box.innerHTML = html;
     wireTimeline();
 }
-
-function pctOf(n, total) {
-    if (!total) return '';
-    return Math.round((n / total) * 100) + '%';
-}
+function pctOf(n, total) { if (!total) return ''; return Math.round((n / total) * 100) + '%'; }
 
 // ── Coverage timeline ─────────────────────────────────────────────────────────
-// Bar height = how completely tracking ran in each slice of time, as a share of the
-// points expected at the typical cadence (the median gap). It's **bounded to 0–100%**,
-// so the chart reads identically at any zoom and a single multi-day outlier gap can never
-// crush the rest — which is what made the old gap-height chart unreadable over long
-// ranges. The chart spans the whole selected window, so periods with no points at all
-// show as grey columns instead of being cropped out.
-
-// Colour band for a coverage fraction (0–1), in lock-step with COV_LEGEND below.
 function covColor(c) {
-    if (c >= 0.9) return '#2ea043';   // tracked as expected
-    if (c >= 0.5) return '#d29922';   // sparse
-    return 'var(--danger)';           // poor
+    if (c >= 0.9) return '#2ea043';
+    if (c >= 0.5) return '#d29922';
+    return 'var(--danger)';
 }
-const COV_LEGEND = [
-    ['#2ea043', 'tracked'],
-    ['#d29922', 'sparse'],
-    ['var(--danger)', 'poor'],
-];
-
-// Compact, unambiguous axis-tick label, scaled to the range width:
-//   ≤36h  → "14:30"            (within a day or two: time of day)
-//   ≤7d   → "Sat 14:30"        (a week: weekday + time, so it's never ambiguous)
-//   else  → "Jun 27"           (longer: calendar date)
+const COV_LEGEND = [['#2ea043','tracked'],['#d29922','sparse'],['var(--danger)','poor']];
 function fmtAxis(ms, spanHours) {
     const dt = new Date(ms);
     const time = () => dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -340,12 +398,11 @@ function fmtAxis(ms, spanHours) {
     if (spanHours <= 168) return dt.toLocaleDateString([], { weekday: 'short' }) + ' ' + time();
     return dt.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
-
 function renderTimeline(d) {
     const tl = d.timeline;
     if (!tl || !tl.coverage || !tl.coverage.length || !tl.start) return '';
     const N = tl.coverage.length;
-    const W = 1000, H = 100, TOP = 0.94, barW = W / N;  // TOP leaves headroom for the 100% label
+    const W = 1000, H = 100, TOP = 0.94, barW = W / N;
     const hOf = (f) => f * TOP * H;
     const tStart = new Date(tl.start).getTime();
     const endMs = new Date(tl.end).getTime();
@@ -354,44 +411,33 @@ function renderTimeline(d) {
     for (let i = 0; i < N; i++) {
         const c = tl.coverage[i], p = tl.points[i];
         let color, bh, op = '1';
-        if (p === 0) { color = 'var(--text-muted)'; bh = hOf(1); op = '0.10'; }  // no data → grey ghost
-        else { color = covColor(c); bh = Math.max(hOf(c), 1.4); }                // keep a visible sliver
-        const x = (i * barW).toFixed(2);
-        const w = Math.max(barW - 0.4, 0.6).toFixed(2);
+        if (p === 0) { color = 'var(--text-muted)'; bh = hOf(1); op = '0.10'; }
+        else { color = covColor(c); bh = Math.max(hOf(c), 1.4); }
+        const x = (i * barW).toFixed(2), w = Math.max(barW - 0.4, 0.6).toFixed(2);
         const y = (H - bh).toFixed(2);
-        // No <title>: the custom hover readout (wireTimeline) shows the real numbers.
         bars += `<rect x="${x}" y="${y}" width="${w}" height="${bh.toFixed(2)}" fill="${color}" fill-opacity="${op}"></rect>`;
     }
-    // Horizontal % gridlines (25/50/75/100), with HTML labels overlaid (the SVG is
-    // non-uniformly stretched, so text can't live in it).
     let grid = '', labels = '';
     for (const f of [0.25, 0.5, 0.75, 1]) {
         const y = (H - hOf(f)).toFixed(2);
         grid += `<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="var(--text-muted)" stroke-width="0.5" stroke-opacity="0.35" stroke-dasharray="4 4"/>`;
         labels += `<span class="diag-gridlabel" style="top:${((1 - f * TOP) * 100).toFixed(1)}%">${f * 100}%</span>`;
     }
-    // Evenly spaced time ticks so you can read *when* a dip happened without hovering.
     const NT = 5;
     let axis = '';
-    for (let i = 0; i < NT; i++) {
-        axis += `<span>${fmtAxis(tStart + (endMs - tStart) * i / (NT - 1), spanH)}</span>`;
-    }
+    for (let i = 0; i < NT; i++) axis += `<span>${fmtAxis(tStart + (endMs - tStart) * i / (NT - 1), spanH)}</span>`;
     const legend = COV_LEGEND.map(([c, l]) => `<span><i style="background:${c}"></i>${l}</span>`).join('') +
         `<span><i style="background:var(--text-muted);opacity:.35"></i>no data</span>`;
     return `<div class="card diag-card" style="margin-bottom:1rem;">
-        <div class="card-header"><span>Tracking coverage</span>
-            <span class="diag-legend">${legend}</span>
-        </div>
+        <div class="card-header"><span>Tracking coverage</span><span class="diag-legend">${legend}</span></div>
         <div class="diag-chart">
             <svg id="diag-tl-svg" class="diag-clickable" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:130px;display:block;">${bars}${grid}</svg>
             <div class="diag-gridlabels">${labels}</div>
         </div>
         <div class="diag-axis">${axis}</div>
-        <div class="diag-sub" style="margin-top:0.35rem;">Each bar is one ${fmtDur(tl.bucket_seconds)} slice across the selected range. Height is the share of points captured vs. the typical ~${fmtDur(tl.interval_s)} cadence — full green = tracking ran normally, dips = sparse, grey = no data at all. <span class="diag-hint">Hover for the real numbers · click a bar to drill into points-per-minute.</span></div>
+        <div class="diag-sub" style="margin-top:0.35rem;">Each bar is one ${fmtDur(tl.bucket_seconds)} slice. Height is share of points captured vs. typical ~${fmtDur(tl.interval_s)} cadence. <span class="diag-hint">Hover for numbers · click to drill in.</span></div>
     </div>`;
 }
-
-// ── timeline interaction: hover readout + click-to-drill-down ──────────────────
 function wireTimeline() {
     const tl = diagData && diagData.timeline;
     const svg = document.getElementById('diag-tl-svg');
@@ -401,8 +447,7 @@ function wireTimeline() {
     const binMs = tl.bucket_seconds * 1000;
     const tipFor = (i) => {
         const c = tl.coverage[i], p = tl.points[i], g = tl.max_gap[i];
-        const bs = new Date(t0 + i * binMs);
-        const be = new Date(t0 + (i + 1) * binMs);
+        const bs = new Date(t0 + i * binMs), be = new Date(t0 + (i + 1) * binMs);
         const when = `${bs.toLocaleString()} – ${be.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
         if (p === 0) return `<strong>${esc(when)}</strong><br>no data in this slice`;
         return `<strong>${esc(when)}</strong><br>${Math.round(c * 100)}% tracked · ${p.toLocaleString()} pts<br>worst gap ${fmtDur(g)}`;
@@ -411,9 +456,6 @@ function wireTimeline() {
     svg.addEventListener('mouseleave', hideTip);
     svg.addEventListener('click', (e) => openDetail(idxFromEvent(svg, e, N)));
 }
-
-// Fetch and render the per-minute line graph for the clicked bar's time window. Tiny bars
-// (e.g. a 12-min slice) are widened to a 1-hour window so the line has real resolution.
 function openDetail(i) {
     const tl = diagData.timeline;
     const binMs = tl.bucket_seconds * 1000;
@@ -429,23 +471,15 @@ function openDetail(i) {
     }
     const detail = document.getElementById('diag-detail');
     detail.innerHTML = `<div class="card diag-card" style="margin-bottom:1rem;text-align:center;color:var(--text-muted);padding:1.5rem;"><span class="spinner"></span> Loading detail…</div>`;
-    // ISO with an explicit offset (fromisoformat-safe across Python versions; not bare "Z").
     const iso = (ms) => new Date(ms).toISOString().replace('Z', '+00:00');
     const params = new URLSearchParams({ start: iso(t0), end: iso(t1) });
     const dev = diagData.device_id && diagData.device_id !== 'all' ? diagData.device_id : '';
     if (dev) params.set('device_id', dev);
     fetch('/api/diagnostics/detail/?' + params.toString())
-        .then(r => r.json())
-        .then(renderDetail)
+        .then(r => r.json()).then(renderDetail)
         .catch(() => { detail.innerHTML = `<div class="card diag-card" style="margin-bottom:1rem;color:var(--danger);">Failed to load detail.</div>`; });
 }
-
-function closeDetail() {
-    const detail = document.getElementById('diag-detail');
-    if (detail) detail.innerHTML = '';
-    hideTip();
-}
-
+function closeDetail() { const d = document.getElementById('diag-detail'); if (d) d.innerHTML = ''; hideTip(); }
 function renderDetail(data) {
     detailData = data;
     const detail = document.getElementById('diag-detail');
@@ -462,10 +496,8 @@ function renderDetail(data) {
     const spanH = (endMs - t0) / 3600000;
     const xOf = (i) => N <= 1 ? W / 2 : (i / (N - 1)) * W;
     const yOf = (c) => H - (c / maxC) * TOP * H;
-    // Area fill + line.
     const linePts = bins.map((c, i) => `${i ? 'L' : 'M'}${xOf(i).toFixed(1)},${yOf(c).toFixed(1)}`).join(' ');
     const areaPts = `M${xOf(0).toFixed(1)},${H} ` + bins.map((c, i) => `L${xOf(i).toFixed(1)},${yOf(c).toFixed(1)}`).join(' ') + ` L${xOf(N - 1).toFixed(1)},${H} Z`;
-    // Y gridlines/labels at a couple of nice counts.
     let grid = '', labels = '';
     const yticks = maxC >= 4 ? [maxC, Math.round(maxC / 2)] : [maxC];
     for (const v of [...new Set(yticks)]) {
@@ -473,7 +505,6 @@ function renderDetail(data) {
         grid += `<line x1="0" y1="${y.toFixed(1)}" x2="${W}" y2="${y.toFixed(1)}" stroke="var(--text-muted)" stroke-width="0.5" stroke-opacity="0.35" stroke-dasharray="4 4"/>`;
         labels += `<span class="diag-gridlabel" style="top:${(y / H * 100).toFixed(1)}%">${v}</span>`;
     }
-    // X time ticks.
     const NT = 5;
     let axis = '';
     for (let i = 0; i < NT; i++) axis += `<span>${fmtAxis(t0 + (endMs - t0) * i / (NT - 1), spanH)}</span>`;
@@ -497,7 +528,6 @@ function renderDetail(data) {
     </div>`;
     wireDetailHover();
 }
-
 function wireDetailHover() {
     const svg = document.getElementById('diag-dt-svg');
     const cursor = document.getElementById('diag-dt-cursor');
@@ -509,7 +539,7 @@ function wireDetailHover() {
     svg.addEventListener('mousemove', (e) => {
         const r = svg.getBoundingClientRect();
         const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-        const i = N <= 1 ? 0 : Math.round(f * (N - 1));   // snap to nearest plotted vertex
+        const i = N <= 1 ? 0 : Math.round(f * (N - 1));
         const x = N <= 1 ? 500 : (i / (N - 1)) * 1000;
         if (cursor) { cursor.setAttribute('x1', x); cursor.setAttribute('x2', x); cursor.style.visibility = 'visible'; }
         const bs = new Date(t0 + i * data.bin_seconds * 1000);
@@ -518,6 +548,283 @@ function wireDetailHover() {
         showTip(`<strong>${esc(bs.toLocaleString())}</strong><br>${data.bins[i].toLocaleString()} pts / ${binLabel}${accLine}`, e.clientX, e.clientY);
     });
     svg.addEventListener('mouseleave', () => { hideTip(); if (cursor) cursor.style.visibility = 'hidden'; });
+}
+
+// ── Quality Review ───────────────────────────────────────────────────────────
+let reviewMap = null;
+let reviewData = null;
+let reviewGroup = 'day';
+const REVIEW_SOURCE = 'review-pts';
+
+function reviewMapStyle() {
+    const dark = (localStorage.getItem('roamly_theme') || 'dark') === 'dark';
+    return {
+        version: 8,
+        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+        sources: {
+            base: {
+                type: 'raster',
+                tiles: [dark
+                    ? 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
+                    : 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'],
+                tileSize: 256,
+                attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+            }
+        },
+        layers: [{ id: 'base', type: 'raster', source: 'base' }]
+    };
+}
+
+function initReviewMap() {
+    if (reviewMap) return;
+    reviewMap = new maplibregl.Map({
+        container: 'review-map-el',
+        style: reviewMapStyle(),
+        center: [0, 20],
+        zoom: 1,
+    });
+    reviewMap.on('load', () => {
+        reviewMap.addSource(REVIEW_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        // Grey background layer for all points
+        reviewMap.addLayer({
+            id: 'review-all',
+            type: 'circle',
+            source: REVIEW_SOURCE,
+            filter: ['!=', ['get', 'flag'], 'suspect'],
+            paint: {
+                'circle-radius': 3,
+                'circle-color': 'rgba(150,160,180,0.5)',
+                'circle-stroke-width': 0,
+            }
+        });
+        // Flagged points — coral with red ring
+        reviewMap.addLayer({
+            id: 'review-flagged',
+            type: 'circle',
+            source: REVIEW_SOURCE,
+            filter: ['==', ['get', 'flag'], 'suspect'],
+            paint: {
+                'circle-radius': 6,
+                'circle-color': '#ef4444',
+                'circle-opacity': 0.85,
+                'circle-stroke-width': 2,
+                'circle-stroke-color': '#ff2020',
+            }
+        });
+        // Highlighted selected point (shown on top via separate source)
+        reviewMap.addSource('review-sel', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        reviewMap.addLayer({
+            id: 'review-sel-layer',
+            type: 'circle',
+            source: 'review-sel',
+            paint: {
+                'circle-radius': 9,
+                'circle-color': '#ef4444',
+                'circle-stroke-width': 3,
+                'circle-stroke-color': '#fff',
+            }
+        });
+        reviewMap.on('click', 'review-flagged', (e) => {
+            const id = e.features[0].properties.id;
+            highlightItem(id, true);
+        });
+        reviewMap.on('mouseenter', 'review-flagged', () => { reviewMap.getCanvas().style.cursor = 'pointer'; });
+        reviewMap.on('mouseleave', 'review-flagged', () => { reviewMap.getCanvas().style.cursor = ''; });
+        // If we already have data from before the map was initialized, render it now
+        if (reviewData) renderReview(reviewData);
+    });
+}
+
+function runScan() {
+    const btn = document.getElementById('scan-btn');
+    const status = document.getElementById('scan-status');
+    btn.disabled = true;
+    btn.textContent = 'Scanning…';
+    status.textContent = 'Running scan over all your points…';
+    fetch('/api/diagnostics/flag-scan/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': CSRF }
+    })
+    .then(r => r.json())
+    .then(d => {
+        btn.disabled = false;
+        btn.textContent = 'Scan for issues';
+        status.textContent = `Found ${d.flagged.toLocaleString()} suspicious point${d.flagged !== 1 ? 's' : ''}.`;
+        // Load the most recent day that has flagged points, or today
+        loadReview(null, reviewGroup);
+    })
+    .catch(() => {
+        btn.disabled = false;
+        btn.textContent = 'Scan for issues';
+        status.textContent = 'Scan failed.';
+    });
+}
+
+function setGroup(g) {
+    reviewGroup = g;
+    document.getElementById('group-day').classList.toggle('active', g === 'day');
+    document.getElementById('group-week').classList.toggle('active', g === 'week');
+    loadReview(reviewData ? reviewData.date : null, g);
+}
+
+function navDate(dir) {
+    if (!reviewData) return;
+    const target = dir < 0 ? reviewData.prev_date : reviewData.next_date;
+    if (target) loadReview(target, reviewGroup);
+}
+
+function loadReview(date, group) {
+    const params = new URLSearchParams({ group: group || reviewGroup });
+    if (date) params.set('date', date);
+    fetch('/api/diagnostics/flagged/?' + params.toString())
+        .then(r => r.json())
+        .then(d => { reviewData = d; renderReview(d); })
+        .catch(() => {
+            document.getElementById('review-list').innerHTML =
+                '<div class="review-empty">Failed to load review data.</div>';
+        });
+}
+
+function renderReview(d) {
+    // Nav controls
+    document.getElementById('nav-label').textContent = d.label || '—';
+    document.getElementById('nav-prev').disabled = !d.prev_date;
+    document.getElementById('nav-next').disabled = !d.next_date;
+
+    // Count
+    const countEl = document.getElementById('review-count');
+    const total = (d.all_points || []).length;
+    const flagged = (d.flagged || []).length;
+    countEl.textContent = flagged
+        ? `${flagged} suspect point${flagged !== 1 ? 's' : ''} out of ${total.toLocaleString()} total`
+        : `${total.toLocaleString()} points — none flagged`;
+
+    // Map data
+    if (reviewMap && reviewMap.getSource(REVIEW_SOURCE)) {
+        const features = (d.all_points || []).map(p => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+            properties: { id: p.id, flag: p.flag }
+        }));
+        reviewMap.getSource(REVIEW_SOURCE).setData({ type: 'FeatureCollection', features });
+        // Auto-fit to flagged points if any, else all
+        const fitPts = flagged ? d.flagged : d.all_points;
+        if (fitPts && fitPts.length) {
+            let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+            fitPts.forEach(p => {
+                minLng = Math.min(minLng, p.lng); minLat = Math.min(minLat, p.lat);
+                maxLng = Math.max(maxLng, p.lng); maxLat = Math.max(maxLat, p.lat);
+            });
+            reviewMap.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 60, maxZoom: 16, duration: 600 });
+        }
+    }
+
+    // List
+    const list = document.getElementById('review-list');
+    if (!flagged) {
+        list.innerHTML = '<div class="review-empty">No suspicious points in this period.</div>';
+        return;
+    }
+    list.innerHTML = d.flagged.map(pt => {
+        const ts = new Date(pt.timestamp).toLocaleString();
+        const loc = [pt.city, pt.state, pt.country].filter(Boolean).join(', ') || `${pt.lat}, ${pt.lng}`;
+        const reasons = (pt.flag_reason || '').split(',').filter(Boolean);
+        const reasonBadges = reasons.map(r => {
+            let label = r;
+            if (r === 'accuracy') label = `accuracy ${pt.accuracy != null ? Math.round(pt.accuracy) + 'm' : '?'}`;
+            if (r === 'speed')    label = 'speed jump';
+            if (r === 'altitude') label = 'altitude spike';
+            return `<span class="review-reason">${esc(label)}</span>`;
+        }).join('');
+        return `<div class="review-item" id="ri-${pt.id}" onclick="highlightItem(${pt.id}, false)">
+            <div class="review-item-ts">${esc(ts)} · ${esc(pt.device || '')}</div>
+            <div class="review-item-loc">${esc(loc)}</div>
+            <div class="review-reasons">${reasonBadges}</div>
+            <div class="review-actions">
+                <button class="btn" onclick="acceptPoint(${pt.id}, event)" title="Keep this point — won't be re-flagged">✓ Accept</button>
+                <button class="btn" style="color:var(--danger);border-color:var(--danger);" onclick="denyPoint(${pt.id}, event)" title="Delete this point">✗ Delete</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function highlightItem(id, scrollTo) {
+    // Deactivate previous
+    document.querySelectorAll('.review-item.active').forEach(el => el.classList.remove('active'));
+    const el = document.getElementById(`ri-${id}`);
+    if (el) {
+        el.classList.add('active');
+        if (scrollTo) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    // Pan map to point
+    const pt = reviewData && reviewData.flagged.find(p => p.id === id);
+    if (pt && reviewMap) {
+        reviewMap.flyTo({ center: [pt.lng, pt.lat], zoom: Math.max(reviewMap.getZoom(), 14), duration: 400 });
+        if (reviewMap.getSource('review-sel')) {
+            reviewMap.getSource('review-sel').setData({
+                type: 'FeatureCollection',
+                features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [pt.lng, pt.lat] }, properties: {} }]
+            });
+        }
+    }
+}
+
+function acceptPoint(id, e) {
+    e.stopPropagation();
+    fetch(`/api/locations/${id}/accept-flag/`, {
+        method: 'POST', headers: { 'X-CSRFToken': CSRF }
+    }).then(r => r.json()).then(d => {
+        if (d.status === 'ok') removeReviewItem(id, false);
+    });
+}
+
+function denyPoint(id, e) {
+    e.stopPropagation();
+    fetch(`/api/locations/${id}/delete/`, {
+        method: 'DELETE', headers: { 'X-CSRFToken': CSRF }
+    }).then(r => r.json()).then(d => {
+        if (d.status === 'ok') removeReviewItem(id, true);
+    });
+}
+
+function removeReviewItem(id, deleteFromMap) {
+    const el = document.getElementById(`ri-${id}`);
+    if (el) el.remove();
+    // Update reviewData
+    if (reviewData) {
+        reviewData.flagged = reviewData.flagged.filter(p => p.id !== id);
+        if (deleteFromMap) reviewData.all_points = reviewData.all_points.filter(p => p.id !== id);
+        else {
+            const pt = reviewData.all_points.find(p => p.id === id);
+            if (pt) pt.flag = 'ok';
+        }
+    }
+    // Update map source
+    if (reviewMap && reviewMap.getSource(REVIEW_SOURCE) && reviewData) {
+        const features = reviewData.all_points.map(p => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+            properties: { id: p.id, flag: p.flag }
+        }));
+        reviewMap.getSource(REVIEW_SOURCE).setData({ type: 'FeatureCollection', features });
+    }
+    // Clear selection highlight
+    if (reviewMap && reviewMap.getSource('review-sel')) {
+        reviewMap.getSource('review-sel').setData({ type: 'FeatureCollection', features: [] });
+    }
+    // Update count
+    if (reviewData) {
+        const countEl = document.getElementById('review-count');
+        const flagged = reviewData.flagged.length;
+        const total = reviewData.all_points.length;
+        countEl.textContent = flagged
+            ? `${flagged} suspect point${flagged !== 1 ? 's' : ''} out of ${total.toLocaleString()} total`
+            : `${total.toLocaleString()} points — none flagged`;
+        if (!flagged) {
+            document.getElementById('review-list').innerHTML =
+                '<div class="review-empty">All points in this period reviewed.</div>';
+        }
+    }
 }
 </script>
 {% endblock %}

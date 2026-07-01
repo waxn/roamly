@@ -71,6 +71,9 @@ if HAS_POSTGIS and gis_models:
         processed_for_visits = gis_models.BooleanField(default=False)
         # Nearest named POI to this point, populated by the "Match POIs" job.
         poi = gis_models.ForeignKey('POI', on_delete=gis_models.SET_NULL, null=True, blank=True, related_name='located_points')
+        # Quality review: '' = normal, 'suspect' = auto-flagged, 'ok' = user-accepted.
+        flag = gis_models.CharField(max_length=10, blank=True, default='', db_index=True)
+        flag_reason = gis_models.CharField(max_length=100, blank=True, default='')
 
         class Meta:
             ordering = ['-timestamp']
@@ -114,6 +117,9 @@ else:
         processed_for_visits = models.BooleanField(default=False)
         # Nearest named POI to this point, populated by the "Match POIs" job.
         poi = models.ForeignKey('POI', on_delete=models.SET_NULL, null=True, blank=True, related_name='located_points')
+        # Quality review: '' = normal, 'suspect' = auto-flagged, 'ok' = user-accepted.
+        flag = models.CharField(max_length=10, blank=True, default='', db_index=True)
+        flag_reason = models.CharField(max_length=100, blank=True, default='')
 
         class Meta:
             ordering = ['-timestamp']

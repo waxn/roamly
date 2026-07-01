@@ -822,7 +822,7 @@ def track_api(request):
     # Group by device, then decimate each device's track independently
     devices_map = {}
     for loc in qs.values('id', 'latitude', 'longitude', 'timestamp', 'speed', 'city', 'state', 'country',
-                          'device__device_id', 'device__name'):
+                          'flag', 'device__device_id', 'device__name'):
         did = loc['device__device_id']
         if did not in devices_map:
             devices_map[did] = {
@@ -838,6 +838,7 @@ def track_api(request):
             'city': loc['city'],
             'state': loc['state'],
             'country': loc['country'],
+            'flag': loc['flag'],
         })
 
     result_devices = []
@@ -1166,6 +1167,7 @@ def _locations_api_inner(request):
             "place_name": loc.place_name,
             "poi_name": getattr(loc, 'poi_name', None) or '',
             "custom_place": custom_place,
+            "flag": loc.flag,
         })
         locations_data.append({
             "id": loc.id,
@@ -2194,6 +2196,162 @@ def location_diagnostics_detail_api(request):
         "avg_accuracy": avg_acc,
         "total": sum(counts),
     })
+
+
+# ── Quality flag scanning ────────────────────────────────────────────────────
+
+_FLAG_BAD_ACCURACY_M = 200.0   # fixes worse than this get flagged
+_FLAG_MAX_SPEED_MPS  = 200.0   # ~720 km/h, computed between consecutive stored points
+_FLAG_MAX_ALT_JUMP_M = 500.0   # altitude change in < 5 min triggers a flag
+
+
+def _flag_suspicious_locations(user):
+    """Scan all of a user's locations (skipping user-accepted 'ok' ones) and mark any
+    with bad accuracy, impossible speed between consecutive points, or extreme altitude
+    jumps as 'suspect'. Returns the number of newly flagged points."""
+    qs = Location.objects.filter(device__user=user).exclude(flag='ok')
+    qs.filter(flag='suspect').update(flag='', flag_reason='')
+
+    to_update = []
+    prev_loc  = None
+    prev_did  = None
+
+    for loc in (
+        qs
+        .select_related('device')
+        .order_by('device_id', 'timestamp')
+        .only('id', 'device_id', 'accuracy', 'altitude',
+              'latitude', 'longitude', 'timestamp', 'flag')
+    ):
+        reasons = []
+
+        if loc.accuracy is not None and loc.accuracy > _FLAG_BAD_ACCURACY_M:
+            reasons.append('accuracy')
+
+        did = loc.device_id
+        if prev_loc is not None and prev_did == did:
+            dt = (loc.timestamp - prev_loc.timestamp).total_seconds()
+            if 0 < dt < 3600:
+                dist_m = _haversine_km(prev_loc.latitude, prev_loc.longitude,
+                                       loc.latitude,      loc.longitude) * 1000
+                if dist_m / dt > _FLAG_MAX_SPEED_MPS:
+                    reasons.append('speed')
+                if (loc.altitude is not None and prev_loc.altitude is not None
+                        and abs(loc.altitude - prev_loc.altitude) > _FLAG_MAX_ALT_JUMP_M
+                        and dt < 300):
+                    reasons.append('altitude')
+
+        prev_loc = loc
+        prev_did = did
+
+        if reasons:
+            loc.flag        = 'suspect'
+            loc.flag_reason = ','.join(reasons)
+            to_update.append(loc)
+
+    if to_update:
+        chunk = 500
+        for i in range(0, len(to_update), chunk):
+            Location.objects.bulk_update(to_update[i:i + chunk], ['flag', 'flag_reason'])
+
+    return len(to_update)
+
+
+@login_required
+@require_http_methods(["POST"])
+def flag_scan_api(request):
+    """Run the suspicious-point scan for the current user and return the count."""
+    count = _flag_suspicious_locations(request.user)
+    return JsonResponse({'status': 'ok', 'flagged': count})
+
+
+@login_required
+def flagged_locations_api(request):
+    """Suspect locations for a given day (or week), with prev/next navigation.
+    ?date=YYYY-MM-DD  — defaults to today
+    ?group=day|week   — defaults to day
+    Returns both the flagged-only list and a minimal all-points list for the map."""
+    from datetime import date as _date, timedelta as _td, datetime as _dt, timezone as _tz
+
+    group    = request.GET.get('group', 'day')
+    date_str = request.GET.get('date', '')
+    try:
+        current = _dt.strptime(date_str, '%Y-%m-%d').date() if date_str else _date.today()
+    except ValueError:
+        current = _date.today()
+
+    if group == 'week':
+        start_d = current - _td(days=current.weekday())
+        end_d   = start_d + _td(days=7)
+        label   = f"Week of {start_d.strftime('%b %-d')}"
+    else:
+        start_d = current
+        end_d   = current + _td(days=1)
+        label   = current.strftime('%b %-d, %Y')
+
+    t0 = _dt.combine(start_d, _dt.min.time()).replace(tzinfo=_tz.utc)
+    t1 = _dt.combine(end_d,   _dt.min.time()).replace(tzinfo=_tz.utc)
+    qs = Location.objects.filter(device__user=request.user, timestamp__gte=t0, timestamp__lt=t1)
+
+    flagged_rows = list(
+        qs.filter(flag='suspect').order_by('timestamp').values(
+            'id', 'latitude', 'longitude', 'timestamp',
+            'accuracy', 'speed', 'altitude', 'flag_reason',
+            'city', 'state', 'country',
+            'device__device_id', 'device__name',
+        )
+    )
+    all_rows = list(qs.order_by('timestamp').values('id', 'latitude', 'longitude', 'flag'))
+
+    # Find surrounding days that have flagged points for prev/next navigation
+    flagged_dates = sorted(
+        Location.objects.filter(device__user=request.user, flag='suspect')
+                        .dates('timestamp', 'day', order='ASC')
+    )
+    prev_date = next_date = None
+    for d in flagged_dates:
+        if d < current:
+            prev_date = d
+        elif d > current and next_date is None:
+            next_date = d
+
+    return JsonResponse({
+        'group':      group,
+        'date':       current.isoformat(),
+        'label':      label,
+        'prev_date':  prev_date.isoformat() if prev_date else None,
+        'next_date':  next_date.isoformat() if next_date else None,
+        'flagged': [{
+            'id':          f['id'],
+            'lat':         _jf(f['latitude']),
+            'lng':         _jf(f['longitude']),
+            'timestamp':   f['timestamp'].isoformat(),
+            'accuracy':    _jf(f['accuracy']),
+            'speed':       _jf(f['speed']),
+            'altitude':    _jf(f['altitude']),
+            'flag_reason': f['flag_reason'],
+            'city':        f['city'],
+            'state':       f['state'],
+            'country':     f['country'],
+            'device':      f['device__name'] or f['device__device_id'],
+        } for f in flagged_rows],
+        'all_points': [{'id': p['id'], 'lat': _jf(p['latitude']),
+                        'lng': _jf(p['longitude']), 'flag': p['flag']}
+                       for p in all_rows],
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
+def accept_flag_api(request, location_id):
+    """Mark a flagged location as user-accepted so it won't be re-flagged on future scans."""
+    updated = Location.objects.filter(
+        id=location_id, device__user=request.user
+    ).update(flag='ok', flag_reason='')
+    if not updated:
+        return JsonResponse({'error': 'Not found'}, status=404)
+    _bust_user_cache(request.user.id)
+    return JsonResponse({'status': 'ok'})
 
 
 _VISITS_MAX_GAP_CROSS = 3600  # cap only when geocoded place label changes

@@ -52,6 +52,9 @@ urlpatterns = [
     path('api/distance/', views.distance_api, name='distance_api'),
     path('api/diagnostics/location/', views.location_diagnostics_api, name='location_diagnostics_api'),
     path('api/diagnostics/detail/', views.location_diagnostics_detail_api, name='location_diagnostics_detail_api'),
+    path('api/diagnostics/flagged/', views.flagged_locations_api, name='flagged_locations_api'),
+    path('api/diagnostics/flag-scan/', views.flag_scan_api, name='flag_scan_api'),
+    path('api/locations/<int:location_id>/accept-flag/', views.accept_flag_api, name='accept_flag_api'),
     path('api/search/', views.search_api, name='search_api'),
 
     # AI Ask API
