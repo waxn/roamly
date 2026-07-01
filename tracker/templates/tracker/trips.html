@@ -16,7 +16,7 @@
     background: var(--surface); border: 1px solid var(--primary); color: var(--text);
     font-family: inherit; font-size: inherit; font-weight: inherit;
     padding: 0.125rem 0.375rem; border-radius: 4px; width: 100%;
-    text-transform: lowercase;
+    
 }
 
 /* Full-screen trip view */
@@ -47,10 +47,10 @@
     padding: 8px 14px;
     border-radius: 10px;
     cursor: pointer;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
     font-weight: 700;
     font-size: 0.875rem;
-    text-transform: lowercase;
+    
     display: flex;
     align-items: center;
     gap: 6px;
@@ -139,10 +139,10 @@
     background: none;
     border: none;
     color: var(--text);
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
     font-weight: 600;
     font-size: 0.875rem;
-    text-transform: lowercase;
+    
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -163,7 +163,7 @@
     border-radius: 10px;
     color: var(--text);
     padding: 0.5rem 0.75rem;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
     font-size: 0.8125rem;
     font-weight: 500;
     resize: vertical;
@@ -213,9 +213,9 @@
     font-size: 0.75rem;
     padding: 2px 6px;
     border-radius: 4px;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
     font-weight: 700;
-    text-transform: lowercase;
+    
 }
 .place-delete-btn:hover { background: rgba(239,68,68,0.15); }
 
@@ -227,10 +227,10 @@
     border-radius: 10px;
     color: var(--text-muted);
     cursor: pointer;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
     font-weight: 600;
     font-size: 0.8125rem;
-    text-transform: lowercase;
+    
     transition: all 0.15s;
 }
 .add-place-btn:hover { border-color: var(--primary); color: var(--primary); }
@@ -317,12 +317,12 @@
 }
 .timeline-comment-btn {
     background: none; border: none; color: var(--text-muted); cursor: pointer;
-    font-size: 0.75rem; font-family: 'Space Grotesk', sans-serif; padding: 2px 0;
+    font-size: 0.75rem; font-family: var(--font-body); padding: 2px 0;
 }
 .timeline-comment-btn:hover { color: var(--primary); }
 .timeline-delete-btn {
     background: none; border: none; color: var(--danger); cursor: pointer;
-    font-size: 0.75rem; font-family: 'Space Grotesk', sans-serif; padding: 2px 0;
+    font-size: 0.75rem; font-family: var(--font-body); padding: 2px 0;
     margin-left: auto;
 }
 .timeline-delete-btn:hover { opacity: 0.75; }
@@ -345,14 +345,14 @@
 .add-comment-row { display: flex; gap: 0.375rem; margin-top: 0.375rem; }
 .add-comment-row input {
     flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-    color: var(--text); font-family: 'Space Grotesk', sans-serif; font-size: 0.75rem;
+    color: var(--text); font-family: var(--font-body); font-size: 0.75rem;
     padding: 0.25rem 0.5rem; outline: none;
 }
 .add-comment-row input:focus { border-color: var(--primary); }
 .add-comment-row button {
     background: var(--primary); border: none; color: #fff; border-radius: 6px;
-    font-family: 'Space Grotesk', sans-serif; font-size: 0.75rem; font-weight: 700;
-    padding: 0.25rem 0.5rem; cursor: pointer; text-transform: lowercase;
+    font-family: var(--font-body); font-size: 0.75rem; font-weight: 700;
+    padding: 0.25rem 0.5rem; cursor: pointer; 
 }
 
 /* Compose */
@@ -364,7 +364,7 @@
 .compose-textarea {
     width: 100%; min-height: 60px;
     background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
-    color: var(--text); font-family: 'Space Grotesk', sans-serif; font-size: 0.8125rem;
+    color: var(--text); font-family: var(--font-body); font-size: 0.8125rem;
     padding: 0.5rem 0.75rem; resize: vertical; outline: none; box-sizing: border-box;
 }
 .compose-textarea:focus { border-color: var(--primary); }
@@ -388,8 +388,8 @@
 }
 .compose-photo-label {
     background: none; border: 1px solid var(--border); border-radius: 6px;
-    color: var(--text-muted); font-family: 'Space Grotesk', sans-serif; font-size: 0.75rem;
-    font-weight: 700; padding: 3px 8px; cursor: pointer; text-transform: lowercase;
+    color: var(--text-muted); font-family: var(--font-body); font-size: 0.75rem;
+    font-weight: 700; padding: 3px 8px; cursor: pointer; 
 }
 .compose-photo-label:hover { border-color: var(--primary); color: var(--primary); }
 .compose-photo-preview { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 0.375rem; }
@@ -409,11 +409,11 @@
 }
 .member-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .member-name { font-size: 0.875rem; font-weight: 600; flex: 1; }
-.member-role { font-size: 0.6875rem; color: var(--text-muted); text-transform: lowercase; }
+.member-role { font-size: 0.6875rem; color: var(--text-muted);  }
 .member-remove-btn {
     background: none; border: none; color: var(--danger); cursor: pointer;
     font-size: 0.6875rem; padding: 2px 6px; border-radius: 4px;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
 }
 .member-remove-btn:hover { background: rgba(239,68,68,0.15); }
 
@@ -421,7 +421,7 @@
 .add-member-row { display: flex; gap: 0.5rem; margin-top: 0.625rem; }
 .add-member-row input {
     flex: 1; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px;
-    color: var(--text); font-family: 'Space Grotesk', sans-serif; font-size: 0.8125rem;
+    color: var(--text); font-family: var(--font-body); font-size: 0.8125rem;
     padding: 0.375rem 0.5rem; outline: none;
 }
 .add-member-row input:focus { border-color: var(--primary); }
@@ -430,8 +430,8 @@
 .visits-tabs { display: flex; gap: 4px; margin-bottom: 0.75rem; }
 .visits-tab-btn {
     background: none; border: 1px solid var(--border); border-radius: 6px;
-    color: var(--text-muted); font-family: 'Space Grotesk', sans-serif;
-    font-size: 0.6875rem; font-weight: 700; padding: 3px 10px; cursor: pointer; text-transform: lowercase;
+    color: var(--text-muted); font-family: var(--font-body);
+    font-size: 0.6875rem; font-weight: 700; padding: 3px 10px; cursor: pointer; 
 }
 .visits-tab-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
 .visits-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
@@ -444,13 +444,13 @@
 }
 .share-link-box input {
     flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-    color: var(--text-muted); font-family: 'Space Grotesk', sans-serif; font-size: 0.6875rem;
+    color: var(--text-muted); font-family: var(--font-body); font-size: 0.6875rem;
     padding: 0.25rem 0.5rem; outline: none;
 }
 .copy-link-btn {
     background: none; border: 1px solid var(--border); border-radius: 6px;
-    color: var(--text-muted); font-family: 'Space Grotesk', sans-serif; font-size: 0.6875rem;
-    font-weight: 700; padding: 0.25rem 0.5rem; cursor: pointer; text-transform: lowercase;
+    color: var(--text-muted); font-family: var(--font-body); font-size: 0.6875rem;
+    font-weight: 700; padding: 0.25rem 0.5rem; cursor: pointer; 
 }
 .copy-link-btn:hover { border-color: var(--primary); color: var(--primary); }
 
@@ -477,9 +477,9 @@
     padding: 3px 8px;
     border-radius: 10px;
     font-size: 0.6875rem;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
     font-weight: 700;
-    text-transform: lowercase;
+    
     cursor: pointer;
 }
 .sidebar-style-btn.active {

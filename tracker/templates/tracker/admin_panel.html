@@ -62,7 +62,7 @@
                 <strong>Testing tip:</strong> many analytics tools (GoatCounter included) ignore visits from <code>localhost</code>/<code>127.0.0.1</code> by default, so hits only show up once the instance is reached over its real domain. To confirm the snippet is live, open any page, choose “View Source”, and check it appears just before <code>&lt;/body&gt;</code>.
             </p>
             <textarea id="custom-js-input" class="form-control" rows="10" spellcheck="false"
-                style="font-family:'Space Grotesk',monospace;font-size:0.8125rem;white-space:pre;resize:vertical;"
+                style="font-family:var(--font-mono);font-size:0.8125rem;white-space:pre;resize:vertical;"
                 placeholder='&lt;script data-goatcounter="https://you.goatcounter.com/count" async src="//gc.zgo.at/count.js"&gt;&lt;/script&gt;'>{{ site_custom_js }}</textarea>
             <div class="settings-actions" style="margin-top:0.75rem;">
                 <button class="btn btn-primary btn-sm" onclick="saveCustomJs()">Save</button>

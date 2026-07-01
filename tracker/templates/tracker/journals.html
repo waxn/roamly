@@ -120,7 +120,7 @@
 .j-day.future { opacity: 0.4; cursor: default; }
 .j-day.future:hover { transform: none; box-shadow: var(--clay-shadow-inset); }
 .j-day.has-entry {
-    background: linear-gradient(150deg, rgba(13,191,172,0.22), rgba(91,164,229,0.14));
+    background: var(--primary-soft);
     border-color: var(--border-bright);
     box-shadow: var(--clay-shadow-sm);
 }
@@ -214,8 +214,8 @@
 .j-modal-overlay {
     position: fixed; inset: 0; z-index: 2000;
     background: rgba(4, 8, 18, 0.72);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+
+
     display: none; align-items: center; justify-content: center;
     padding: 1.5rem;
     opacity: 0; transition: opacity 0.25s var(--ease-out);
@@ -334,7 +334,7 @@
 }
 .j-map-stat {
     background: var(--bg-glass);
-    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+
     border: 1px solid var(--border);
     border-radius: 14px; padding: 0.45rem 0.75rem;
     box-shadow: var(--clay-shadow-sm); flex: 1; min-width: 0;
@@ -354,7 +354,7 @@
 }
 .j-place-chip {
     background: var(--bg-glass);
-    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+
     border: 1px solid var(--border);
     border-radius: 999px; padding: 0.25rem 0.7rem;
     font-size: 0.72rem; font-weight: 800; color: var(--text);
@@ -366,7 +366,7 @@
     width: 34px; height: 34px; border-radius: 50%; border: none; cursor: pointer;
     background: var(--bg-glass); color: var(--text); font-size: 1.2rem; line-height: 1;
     display: flex; align-items: center; justify-content: center;
-    box-shadow: var(--clay-shadow-sm); backdrop-filter: blur(10px);
+    box-shadow: var(--clay-shadow-sm);
 }
 .j-skeleton { color: var(--text-muted); padding: 2rem; text-align: center; }
 {% endblock %}

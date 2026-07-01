@@ -143,21 +143,21 @@
         <!-- Period Comparison -->
         <div class="grid grid-3" style="margin-bottom: 1rem;" id="yearly-compare-grid">
             <div class="card" style="padding: 1rem;">
-                <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: lowercase; font-weight: 600; margin-bottom: 0.5rem;">this week</div>
+                <div style="font-size: 0.75rem; color: var(--text-muted);  font-weight: 600; margin-bottom: 0.5rem;">this week</div>
                 <div id="week-pts" class="stat-value" style="font-size: 1.5rem;">-</div>
                 <div style="font-size: 0.75rem; color: var(--text-muted);">points</div>
                 <div id="week-delta" style="font-size: 0.75rem; margin-top: 0.375rem;"></div>
                 <div id="week-places" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;"></div>
             </div>
             <div class="card" style="padding: 1rem;">
-                <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: lowercase; font-weight: 600; margin-bottom: 0.5rem;">this month</div>
+                <div style="font-size: 0.75rem; color: var(--text-muted);  font-weight: 600; margin-bottom: 0.5rem;">this month</div>
                 <div id="month-pts" class="stat-value" style="font-size: 1.5rem;">-</div>
                 <div style="font-size: 0.75rem; color: var(--text-muted);">points</div>
                 <div id="month-delta" style="font-size: 0.75rem; margin-top: 0.375rem;"></div>
                 <div id="month-places" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;"></div>
             </div>
             <div class="card" style="padding: 1rem;">
-                <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: lowercase; font-weight: 600; margin-bottom: 0.5rem;" id="year-label">this year</div>
+                <div style="font-size: 0.75rem; color: var(--text-muted);  font-weight: 600; margin-bottom: 0.5rem;" id="year-label">this year</div>
                 <div id="year-pts" class="stat-value" style="font-size: 1.5rem;">-</div>
                 <div style="font-size: 0.75rem; color: var(--text-muted);">points</div>
                 <div id="year-delta" style="font-size: 0.75rem; margin-top: 0.375rem;"></div>
@@ -559,7 +559,7 @@ function drawChart(days, distancesKm, range) {
 
     if (!days.length) {
         ctx.fillStyle = textCol;
-        ctx.font = "13px 'Space Grotesk', sans-serif";
+        ctx.font = "13px var(--font-body)";
         ctx.textAlign = 'center';
         ctx.fillText('No distance data in this range', W / 2, H / 2);
         return;
@@ -578,7 +578,7 @@ function drawChart(days, distancesKm, range) {
     // Grid + y-axis labels
     const gridLines = 4;
     ctx.lineWidth = 1;
-    ctx.font = "11px 'Space Grotesk', sans-serif";
+    ctx.font = "11px var(--font-body)";
     for (let i = 0; i <= gridLines; i++) {
         const y = pad.top + cH - (cH * i / gridLines);
         ctx.strokeStyle = gridCol;
@@ -594,7 +594,7 @@ function drawChart(days, distancesKm, range) {
 
     // Unit label
     ctx.fillStyle = textCol;
-    ctx.font = "10px 'Space Grotesk', sans-serif";
+    ctx.font = "10px var(--font-body)";
     ctx.textAlign = 'left';
     ctx.fillText(imperial ? 'mi' : 'km', pad.left - 8, pad.top - 6);
 
@@ -670,7 +670,7 @@ function drawChart(days, distancesKm, range) {
 
     // X-axis labels
     ctx.fillStyle = textCol;
-    ctx.font = "10px 'Space Grotesk', sans-serif";
+    ctx.font = "10px var(--font-body)";
     ctx.textAlign = 'center';
     const maxLabels = Math.floor(cW / 60);
     const step = Math.max(1, Math.ceil(n / maxLabels));
@@ -874,7 +874,7 @@ function drawYearlyChart(monthly, year) {
         ctx.fill();
 
         ctx.fillStyle = textCol;
-        ctx.font = `600 10px 'Space Grotesk', sans-serif`;
+        ctx.font = `600 10px var(--font-body)`;
         ctx.fillText(MONTH_NAMES[m.month - 1], pts[i].x, H - 6);
 
         const mm = String(m.month).padStart(2, '0');

@@ -19,7 +19,7 @@
 .adv-search {
     background: var(--bg-input); border: 1px solid var(--border);
     border-radius: 20px; padding: 0.375rem 0.875rem;
-    color: var(--text); font-family: 'Space Grotesk', sans-serif;
+    color: var(--text); font-family: var(--font-body);
     font-size: 0.8125rem; outline: none; width: 200px;
     transition: border-color 0.15s;
 }
@@ -29,7 +29,7 @@
 .adv-filter-chip {
     background: none; border: 1px solid var(--border);
     border-radius: 20px; padding: 0.3rem 0.875rem;
-    color: var(--text-muted); font-family: 'Space Grotesk', sans-serif;
+    color: var(--text-muted); font-family: var(--font-body);
     font-size: 0.75rem; font-weight: 600; cursor: pointer;
     transition: all 0.15s; white-space: nowrap;
 }
@@ -39,7 +39,7 @@
 .adv-filter-select {
     background: var(--bg-input); border: 1px solid var(--border);
     border-radius: 20px; padding: 0.3rem 0.75rem;
-    color: var(--text); font-family: 'Space Grotesk', sans-serif;
+    color: var(--text); font-family: var(--font-body);
     font-size: 0.75rem; font-weight: 600; cursor: pointer; outline: none;
 }
 .adv-sort-select { margin-left: auto; }
@@ -96,7 +96,7 @@
     position: fixed; bottom: 2rem; right: 2rem; z-index: 100;
     background: var(--primary); color: #fff; border: none;
     border-radius: 14px; padding: 0.75rem 1.375rem;
-    font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 0.9rem;
+    font-family: var(--font-body); font-weight: 700; font-size: 0.9rem;
     cursor: pointer; display: flex; align-items: center; gap: 0.5rem;
     box-shadow: 0 6px 24px rgba(59,130,246,0.45);
     transition: transform 0.15s, box-shadow 0.15s;
@@ -135,8 +135,8 @@
     position: absolute; top: 16px; left: 392px; z-index: 11;
     background: var(--bg-card); border: 1px solid var(--border);
     border-radius: 20px; color: var(--text); padding: 6px 14px;
-    cursor: pointer; font-family: 'Space Grotesk', sans-serif;
-    font-weight: 600; font-size: 0.8125rem; text-transform: lowercase;
+    cursor: pointer; font-family: var(--font-body);
+    font-weight: 600; font-size: 0.8125rem; 
     display: flex; align-items: center; gap: 5px;
     box-shadow: 0 2px 12px rgba(0,0,0,0.3); transition: border-color 0.12s;
 }
@@ -151,8 +151,8 @@
 .adv-style-btn {
     background: none; border: none; color: var(--text-muted);
     padding: 4px 10px; border-radius: 7px; font-size: 0.75rem;
-    font-family: 'Space Grotesk', sans-serif; font-weight: 700;
-    text-transform: lowercase; cursor: pointer;
+    font-family: var(--font-body); font-weight: 700;
+     cursor: pointer;
 }
 .adv-style-btn.active { background: var(--primary); color: #fff; }
 .adv-style-btn:not(.active):hover { color: var(--text); background: rgba(255,255,255,0.06); }
@@ -160,15 +160,15 @@
 #adv-map-info {
     position: absolute; bottom: 24px; right: 16px; z-index: 10;
     background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
-    padding: 6px 10px; font-size: 0.75rem; font-family: 'Space Grotesk', sans-serif;
-    font-weight: 700; text-transform: lowercase; color: var(--text-muted);
+    padding: 6px 10px; font-size: 0.75rem; font-family: var(--font-body);
+    font-weight: 700;  color: var(--text-muted);
     pointer-events: none; display: none;
 }
 
 .trip-map-hint {
     position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
     z-index: 10; background: var(--primary); color: #fff; padding: 7px 16px;
-    border-radius: 20px; font-size: 0.8125rem; font-family: 'Space Grotesk', sans-serif;
+    border-radius: 20px; font-size: 0.8125rem; font-family: var(--font-body);
     font-weight: 600; display: none; pointer-events: none; white-space: nowrap;
     box-shadow: 0 4px 16px rgba(59,130,246,0.4);
 }
@@ -199,8 +199,8 @@
 .adv-tab {
     flex: 1; padding: 0.5rem 0; text-align: center; background: none; border: none;
     border-bottom: 2px solid transparent; color: var(--text-muted); cursor: pointer;
-    font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 0.8rem;
-    text-transform: lowercase; transition: color 0.12s, border-color 0.12s;
+    font-family: var(--font-body); font-weight: 600; font-size: 0.8rem;
+     transition: color 0.12s, border-color 0.12s;
     margin-bottom: -1px;
 }
 .adv-tab:hover { color: var(--text); }
@@ -218,8 +218,8 @@
 
 .adv-inline-btn {
     font-size: 0.7rem; font-weight: 700; color: var(--primary); background: none;
-    border: none; cursor: pointer; padding: 0; font-family: 'Space Grotesk', sans-serif;
-    text-transform: lowercase;
+    border: none; cursor: pointer; padding: 0; font-family: var(--font-body);
+    
 }
 .adv-inline-btn:hover { opacity: 0.75; }
 
@@ -230,7 +230,7 @@
 }
 .adv-compose textarea {
     width: 100%; background: transparent; border: none; color: var(--text);
-    font-family: 'Space Grotesk', sans-serif; font-size: 0.8125rem;
+    font-family: var(--font-body); font-size: 0.8125rem;
     resize: none; outline: none; min-height: 52px; line-height: 1.55; display: block;
 }
 .adv-compose textarea::placeholder { color: var(--text-muted); }
@@ -276,7 +276,7 @@
 .adv-notes {
     width: 100%; min-height: 80px; background: var(--bg-input); border: 1px solid var(--border);
     border-radius: 10px; color: var(--text); padding: 0.5rem 0.75rem;
-    font-family: 'Space Grotesk', sans-serif; font-size: 0.8125rem; resize: vertical;
+    font-family: var(--font-body); font-size: 0.8125rem; resize: vertical;
     outline: none; box-sizing: border-box;
 }
 .adv-notes:focus { border-color: var(--primary); }
@@ -330,7 +330,7 @@
 .adv-share-prefix { font-size: 0.7rem; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
 .adv-share-slug-input {
     flex: 1; background: var(--bg-input); border: 1px solid var(--border);
-    border-radius: 8px; color: var(--text); font-family: 'Space Grotesk', sans-serif;
+    border-radius: 8px; color: var(--text); font-family: var(--font-body);
     font-size: 0.75rem; padding: 0.25rem 0.5rem; outline: none; min-width: 0;
 }
 .adv-share-slug-input:focus { border-color: var(--primary); }
@@ -338,7 +338,7 @@
 .adv-pin-label { font-size: 0.75rem; color: var(--text-muted); flex: 1; }
 .adv-pin-input {
     width: 90px; background: var(--bg-input); border: 1px solid var(--border);
-    border-radius: 8px; color: var(--text); font-family: 'Space Grotesk', sans-serif;
+    border-radius: 8px; color: var(--text); font-family: var(--font-body);
     font-size: 0.8125rem; padding: 0.25rem 0.5rem; outline: none; letter-spacing: 0.1em;
 }
 .adv-pin-input:focus { border-color: var(--primary); }
@@ -391,19 +391,19 @@
 .add-comment-row input {
     flex: 1; background: var(--bg-input); border: 1px solid var(--border);
     border-radius: 8px; padding: 0.25rem 0.5rem; color: var(--text);
-    font-family: 'Space Grotesk', sans-serif; font-size: 0.75rem; outline: none;
+    font-family: var(--font-body); font-size: 0.75rem; outline: none;
 }
 .add-comment-row input:focus { border-color: var(--primary); }
 .add-comment-row button {
     background: var(--primary); color: #fff; border: none; border-radius: 8px;
-    padding: 0.25rem 0.75rem; font-family: 'Space Grotesk', sans-serif; font-size: 0.75rem; cursor: pointer;
+    padding: 0.25rem 0.75rem; font-family: var(--font-body); font-size: 0.75rem; cursor: pointer;
 }
 
 /* MapLibre popup */
 .maplibregl-popup-content {
     background: var(--bg-card) !important; border: 1px solid var(--border) !important;
     border-radius: 8px !important; padding: 0.5rem 0.75rem !important;
-    color: var(--text) !important; font-family: 'Space Grotesk', sans-serif !important;
+    color: var(--text) !important; font-family: var(--font-body) !important;
     font-size: 0.8125rem !important; box-shadow: 0 4px 16px rgba(0,0,0,0.4) !important;
     min-width: 120px;
 }
@@ -430,7 +430,7 @@
 .adv-fmt-btn {
     background: none; border: none; color: var(--text-muted); cursor: pointer;
     padding: 3px 8px; border-radius: 5px; font-size: 0.8rem;
-    font-family: 'Space Grotesk', sans-serif; font-weight: 700; line-height: 1;
+    font-family: var(--font-body); font-weight: 700; line-height: 1;
     transition: color 0.12s, background 0.12s;
 }
 .adv-fmt-btn:hover { color: var(--text); background: rgba(255,255,255,0.07); }
@@ -456,7 +456,7 @@
 .adv-post-modal { max-width: 780px; }
 .adv-compose-modal-textarea {
     width: 100%; min-height: 220px; background: transparent; border: none;
-    color: var(--text); font-family: 'Space Grotesk', sans-serif;
+    color: var(--text); font-family: var(--font-body);
     font-size: 0.9375rem; line-height: 1.7; resize: none; outline: none;
     display: block; padding: 0; box-sizing: border-box;
 }
@@ -639,7 +639,7 @@
         <!-- Journal tab -->
         <div class="adv-tab-panel active-panel" id="tab-journal">
             <button class="adv-compose" id="compose-area-btn" onclick="openCompose()"
-                style="width:100%;text-align:left;cursor:pointer;color:var(--text-muted);font-size:0.875rem;font-family:'Space Grotesk',sans-serif;margin-bottom:0.75rem;display:block;">
+                style="width:100%;text-align:left;cursor:pointer;color:var(--text-muted);font-size:0.875rem;font-family:var(--font-body);margin-bottom:0.75rem;display:block;">
                 write a post…
             </button>
             <div id="timeline-list"></div>
@@ -735,7 +735,7 @@
             </div>
             <div id="member-share-link" style="display:none;margin-top:0.5rem;">
                 <div class="adv-share-link-row">
-                    <input type="text" id="share-link-input" readonly onclick="this.select()" style="flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-muted);font-family:'Space Grotesk',sans-serif;font-size:0.7rem;padding:0.25rem 0.5rem;outline:none;">
+                    <input type="text" id="share-link-input" readonly onclick="this.select()" style="flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-muted);font-family:var(--font-body);font-size:0.7rem;padding:0.25rem 0.5rem;outline:none;">
                     <button class="btn btn-outline btn-sm" style="font-size:0.6875rem;padding:3px 8px;flex-shrink:0;" onclick="copyShareLink()">copy</button>
                 </div>
             </div>
@@ -750,7 +750,7 @@
 <div class="adv-modal-overlay" id="post-modal-overlay" onclick="if(event.target===this)closePost()">
     <div class="adv-modal adv-post-modal">
         <div class="adv-modal-header" style="margin-bottom:0;">
-            <span id="post-modal-label" style="font-size:0.75rem;font-weight:600;color:var(--text-muted);text-transform:lowercase;">post</span>
+            <span id="post-modal-label" style="font-size:0.75rem;font-weight:600;color:var(--text-muted);">post</span>
             <button class="adv-modal-close" onclick="closePost()">✕</button>
         </div>
         <div id="post-modal-body" style="padding-top:0.875rem;"></div>

@@ -28,8 +28,8 @@
     max-width: 220px;
     max-height: calc(100vh - var(--nav-h, 56px) - 80px);
     background: var(--bg-glass);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
+
+
     border: 1px solid var(--border);
     border-radius: 14px;
     padding: 12px 10px;
@@ -51,7 +51,7 @@
 }
 .sidebar-label {
     font-size: 0.6rem;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.09em;
@@ -67,9 +67,9 @@
     border-radius: 8px;
     padding: 6px 8px;
     font-size: 0.775rem;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
     font-weight: 600;
-    text-transform: lowercase;
+    
     outline: none;
     box-sizing: border-box;
     appearance: auto;
@@ -85,7 +85,7 @@
 .date-hint {
     font-size: 0.7rem;
     color: var(--text-muted);
-    text-transform: lowercase;
+    
     letter-spacing: 0.02em;
     padding: 1px 2px;
 }
@@ -97,9 +97,9 @@
     border-radius: 8px;
     padding: 5px 8px;
     font-size: 0.72rem;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
     font-weight: 600;
-    text-transform: lowercase;
+    
     cursor: pointer;
     outline: none;
 }
@@ -125,9 +125,9 @@
     padding: 4px 4px;
     border-radius: 6px;
     font-size: 0.7rem;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
     font-weight: 700;
-    text-transform: lowercase;
+    
     cursor: pointer;
     white-space: nowrap;
     transition: background 0.12s, color 0.12s;
@@ -144,9 +144,9 @@
     padding: 7px 10px;
     border-radius: 8px;
     font-size: 0.775rem;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
     font-weight: 700;
-    text-transform: lowercase;
+    
     cursor: pointer;
     text-align: left;
     display: flex;
@@ -175,16 +175,16 @@
     left: 12px;
     z-index: 10;
     background: var(--bg-glass);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+
+
     border: 1px solid var(--border);
     border-radius: 10px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
     padding: 6px 12px;
     font-size: 0.75rem;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
     font-weight: 700;
-    text-transform: lowercase;
+    
     color: var(--text-muted);
     max-width: calc(100% - 80px);
     white-space: nowrap;
@@ -207,9 +207,9 @@
     border-radius: 10px;
     padding: 8px 10px;
     font-size: 0.75rem;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
     font-weight: 700;
-    text-transform: lowercase;
+    
     color: var(--text-muted);
 }
 .map-detail-controls button {
@@ -218,9 +218,9 @@
     color: #fff;
     border-radius: 10px;
     font-size: 0.75rem;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
     font-weight: 700;
-    text-transform: lowercase;
+    
     padding: 5px 10px;
     cursor: pointer;
 }
@@ -234,9 +234,9 @@
     border-radius: 8px !important;
     padding: 12px !important;
     font-size: 0.8125rem;
-    font-family: 'Space Grotesk', sans-serif !important;
+    font-family: var(--font-body) !important;
     font-weight: 700 !important;
-    text-transform: lowercase !important;
+    
     box-shadow: 0 4px 12px rgba(0,0,0,0.4);
 }
 .maplibregl-popup-tip { border-top-color: var(--bg-card) !important; }
@@ -247,9 +247,9 @@
     top: 8px; right: 8px; background: rgba(0, 0, 0, 0.08);
 }
 .maplibregl-map, .maplibregl-ctrl {
-    font-family: 'Space Grotesk', sans-serif !important;
+    font-family: var(--font-body) !important;
     font-weight: 700 !important;
-    text-transform: lowercase !important;
+    
 }
 
 /* Loading bar */
@@ -287,15 +287,15 @@
     gap: 10px;
     width: min(640px, calc(100% - 24px));
     background: var(--bg-glass);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+
+
     border: 1px solid var(--border);
     border-radius: 14px;
     box-shadow: 0 10px 32px rgba(0, 0, 0, 0.3);
     padding: 10px 14px;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
     font-weight: 700;
-    text-transform: lowercase;
+    
     color: var(--text);
 }
 .replay-panel.active { display: flex; }
@@ -303,13 +303,13 @@
     background: var(--bg-card); color: var(--text);
     border: 1px solid var(--border); border-radius: 8px;
     padding: 5px 8px; font-size: 0.75rem;
-    font-family: 'Space Grotesk', sans-serif; font-weight: 700;
+    font-family: var(--font-body); font-weight: 700;
 }
 .replay-panel button.rp-btn {
     border: 1px solid var(--border); background: var(--primary); color: #fff;
     border-radius: 8px; font-size: 0.75rem;
-    font-family: 'Space Grotesk', sans-serif; font-weight: 700;
-    text-transform: lowercase; padding: 5px 12px; cursor: pointer;
+    font-family: var(--font-body); font-weight: 700;
+     padding: 5px 12px; cursor: pointer;
 }
 .replay-panel button.rp-btn[disabled] { opacity: 0.5; cursor: default; }
 .replay-panel input[type="range"] {
@@ -319,7 +319,7 @@
     background: var(--bg-card); color: var(--text);
     border: 1px solid var(--border); border-radius: 8px;
     padding: 5px 6px; font-size: 0.7rem;
-    font-family: 'Space Grotesk', sans-serif; font-weight: 700;
+    font-family: var(--font-body); font-weight: 700;
 }
 .replay-clock {
     font-size: 0.75rem; color: var(--text-muted);
@@ -335,15 +335,15 @@
     position: fixed;
     z-index: 200;
     background: var(--bg-glass);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+
+
     border: 1px solid var(--border);
     border-radius: 10px;
     box-shadow: 0 8px 32px rgba(0,0,0,0.32);
     padding: 4px;
     min-width: 168px;
     display: none;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
 }
 .map-ctx-menu.open { display: block; }
 .map-ctx-coords {
@@ -365,14 +365,14 @@
     font-size: 0.8rem;
     font-weight: 700;
     color: var(--text);
-    text-transform: lowercase;
+    
     cursor: pointer;
     background: none;
     border: none;
     width: 100%;
     text-align: left;
     transition: background 0.1s;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
 }
 .map-ctx-item:hover { background: rgba(255,255,255,0.07); }
 .map-ctx-danger { color: var(--accent); }
@@ -386,8 +386,8 @@
     z-index: 12;
     width: 208px;
     background: var(--bg-glass);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
+
+
     border: 1px solid var(--border);
     border-radius: 14px;
     padding: 12px;
@@ -397,7 +397,7 @@
 .map-addplace-panel.open { display: block; }
 .map-addplace-title {
     font-size: 0.6rem;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.09em;
@@ -413,7 +413,7 @@
     border-radius: 8px;
     padding: 6px 8px;
     font-size: 0.775rem;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
     font-weight: 600;
     outline: none;
     margin-bottom: 8px;
@@ -429,16 +429,16 @@
 .map-addplace-radius-row input[type="range"] { flex: 1; accent-color: var(--primary); }
 .map-addplace-rval {
     font-size: 0.7rem;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
     font-weight: 700;
     color: var(--text-muted);
     min-width: 42px;
     text-align: right;
-    text-transform: lowercase;
+    
 }
 .map-addplace-hint {
     font-size: 0.67rem;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
     font-weight: 600;
     color: var(--text-muted);
     margin-bottom: 10px;
@@ -450,9 +450,9 @@
     font-size: 0.775rem;
     border-radius: 8px;
     cursor: pointer;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: var(--font-body);
     font-weight: 700;
-    text-transform: lowercase;
+    
     border: 1px solid var(--border);
 }
 .map-addplace-actions .btn-save {
