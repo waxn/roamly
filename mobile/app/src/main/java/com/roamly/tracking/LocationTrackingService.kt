@@ -498,24 +498,10 @@ class LocationTrackingService : Service() {
             var got = false
             try {
                 val loc = acquireBestFix(cfg)
-                if (loc != null && !isPaused && filter.accept(loc)) {
-                    savePoint(loc)            // a genuinely fresh fix
-                    got = true
-                } else if (!isPaused) {
-                    // No fresh fix — the provider stationary-throttled and gave back the same
-                    // cached location (or nothing). Don't gap: re-log the last known position
-                    // at the current time so a stationary device keeps its per-interval dwell
-                    // points. Only while the last fix is recent enough to still be valid.
-                    val last = lastAcceptedLocation
-                    if (last != null && System.currentTimeMillis() - lastAcceptedAtMs < DWELL_MAX_AGE_MS) {
-                        val dwell = dwellPointFrom(last)
-                        if (filter.accept(dwell)) {
-                            savePoint(dwell)
-                            got = true
-                            Log.d(TAG, "Logged dwell point (no fresh fix this cycle)")
-                        }
-                    }
-                    if (!got) Log.d(TAG, "Fix cycle produced no usable point (null/filtered)")
+                val accepted = loc?.takeIf { !isPaused && filter.accept(it) }
+                if (!isPaused) {
+                    got = saveOrDwell(accepted, cfg.maxAccuracyM)
+                    if (!got) Log.d(TAG, "Fix cycle produced no usable point (null/filtered/imprecise)")
                 }
             } catch (t: Throwable) {
                 Log.e(TAG, "Fix cycle failed", t)
@@ -664,6 +650,33 @@ class LocationTrackingService : Service() {
             elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
         }
 
+    /** Accuracy gate + dwell fallback shared by every fresh-fix capture path. [loc] must
+     *  already have passed [LocationFilter.accept] (or be null, meaning none arrived /
+     *  was rejected this round). A fix worse than [maxAccuracyM] is discarded — matching
+     *  "Discard fixes worse than" in Settings — but substituted with a dwell point (last
+     *  known position, re-stamped now) when one is recent enough, so discarding a bad fix
+     *  doesn't open a gap whenever a fallback is available. Returns whether a point was
+     *  saved. */
+    private suspend fun saveOrDwell(loc: android.location.Location?, maxAccuracyM: Float?): Boolean {
+        if (loc != null && (maxAccuracyM == null || !loc.hasAccuracy() || loc.accuracy <= maxAccuracyM)) {
+            savePoint(loc)
+            return true
+        }
+        if (loc != null) {
+            Log.d(TAG, "Discarded fix acc=${loc.accuracy}m > ${maxAccuracyM}m target")
+        }
+        val last = lastAcceptedLocation
+        if (last != null && System.currentTimeMillis() - lastAcceptedAtMs < DWELL_MAX_AGE_MS) {
+            val dwell = dwellPointFrom(last)
+            if (filter.accept(dwell)) {
+                savePoint(dwell)
+                Log.d(TAG, "Logged dwell point (no usable fresh fix this cycle)")
+                return true
+            }
+        }
+        return false
+    }
+
     /** Schedule the next discrete fix via an exact, Doze-piercing alarm targeting this
      *  service directly (the GPSLogger pattern). `setExactAndAllowWhileIdle` fires even in
      *  deep Doze, and on time when the app is battery-optimization-exempt. Also (re)arms a
@@ -715,7 +728,7 @@ class LocationTrackingService : Service() {
             override fun onLocationResult(result: LocationResult) {
                 for (loc in result.locations) {
                     if (!isPaused && filter.accept(loc)) {
-                        scope.launch { savePoint(loc) }
+                        scope.launch { saveOrDwell(loc, cfg.maxAccuracyM) }
                     }
                 }
             }
@@ -737,7 +750,8 @@ class LocationTrackingService : Service() {
         runCatching {
             fusedClient.lastLocation.addOnSuccessListener { loc ->
                 if (loc != null && !isPaused && filter.accept(loc)) {
-                    scope.launch { savePoint(loc) }
+                    val maxAcc = currentConfig?.maxAccuracyM
+                    scope.launch { saveOrDwell(loc, maxAcc) }
                 }
             }
         }

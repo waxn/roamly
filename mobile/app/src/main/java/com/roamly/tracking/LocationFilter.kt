@@ -16,11 +16,13 @@ private const val MAX_PLAUSIBLE_SPEED_MPS = 357.0
  * a stationary user keeps logging a point every interval on purpose, so dwelling in one
  * place shows up as a dense cluster ("big dot") on the map.
  *
- * Accuracy is **not** a hard reject here — it's a *target* applied during acquisition
- * (`acquireBestFix` in the service keeps the most accurate fix it can get within the cycle
- * budget). A too-strict accuracy cutoff used to silently drop every indoor/stationary fix
- * and create the very gaps tracking is meant to avoid; instead we always log the best fix
- * available and store its accuracy so it can be judged later.
+ * Accuracy is **not** rejected here — `acquireBestFix` in the service keeps the most
+ * accurate fix it can get within the cycle budget, treating the user's target as an
+ * early-stop goal, not a cutoff. The hard accuracy gate ("Discard fixes worse than" in
+ * Settings) lives one layer up, in `LocationTrackingService.saveOrDwell` — it discards a
+ * fix worse than the target but substitutes a dwell point (last known position) when one
+ * is recent enough, so discarding bad fixes doesn't reopen the gaps a naive cutoff here
+ * used to cause.
  */
 class LocationFilter(
     /** Reject fixes older than this (ms). Set to a couple of intervals by the service so
