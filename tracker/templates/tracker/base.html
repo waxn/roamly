@@ -1082,6 +1082,7 @@
                 </button>
                 <div class="nav-dropdown-menu" id="user-menu" role="menu">
                     <a role="menuitem" href="{% url 'tracker:settings' %}" class="{% if request.resolver_match.url_name == 'settings' %}active{% endif %}">Settings</a>
+                    <a role="menuitem" href="{% url 'tracker:diagnostics' %}" class="{% if request.resolver_match.url_name == 'diagnostics' %}active{% endif %}">Diagnostics</a>
                     {% if IS_ADMIN %}<a role="menuitem" href="{% url 'tracker:admin_panel' %}" class="{% if request.resolver_match.url_name == 'admin_panel' %}active{% endif %}">Admin Panel</a>{% endif %}
                     <a role="menuitem" href="{% url 'tracker:logout' %}">Logout</a>
                 </div>
