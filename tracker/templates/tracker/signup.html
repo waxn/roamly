@@ -47,12 +47,22 @@
         body::before {
             content: '';
             position: fixed;
-            inset: 0;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='420'%3E%3Cg fill='none' stroke='%23e9e5d8' stroke-width='1'%3E%3Cpath d='M-20,70 C110,20 220,120 440,55'/%3E%3Cpath d='M-20,140 C130,95 240,190 440,125'/%3E%3Cpath d='M-20,215 C95,165 225,260 440,195'/%3E%3Cpath d='M-20,290 C140,250 250,350 440,285'/%3E%3Cpath d='M-20,365 C115,320 210,415 440,355'/%3E%3C/g%3E%3C/svg%3E");
-            background-size: 420px 420px;
-            opacity: 0.04;
+            inset: -700px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='700' height='700'%3E%3Cg fill='none' stroke='%23e9e5d8' stroke-width='1'%3E%3Cpath d='M-33,117 C183,33 367,200 733,92'/%3E%3Cpath d='M-33,358 C158,275 375,433 733,325'/%3E%3Cpath d='M-33,608 C192,533 350,692 733,592'/%3E%3C/g%3E%3Cg fill='none' stroke='%23e9e5d8' stroke-width='1.6'%3E%3Cpath d='M-33,233 C217,158 400,317 733,208'/%3E%3Cpath d='M-33,483 C233,417 417,583 733,475'/%3E%3C/g%3E%3C/svg%3E");
+            background-size: 700px 700px;
+            background-repeat: repeat;
+            opacity: 0.065;
             pointer-events: none;
             z-index: 0;
+            animation: contourDrift 140s linear infinite;
+            will-change: transform;
+        }
+        @keyframes contourDrift {
+            from { transform: translate3d(0, 0, 0); }
+            to { transform: translate3d(-700px, -700px, 0); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            body::before { animation: none; }
         }
 
         .back-link {
@@ -71,11 +81,7 @@
             padding: 0.4rem 0.8rem;
             background: var(--bg-elevated);
             border: 1px solid var(--border);
-            border-radius: 999px;
-            box-shadow:
-                inset 0 1px 0 rgba(255, 255, 255, 0.06),
-                inset 0 -2px 0 rgba(0, 0, 0, 0.18),
-                0 4px 12px rgba(0, 0, 0, 0.22);
+            border-radius: 0;
         }
         .back-link:hover {
             color: var(--primary);
@@ -97,9 +103,9 @@
             max-width: 400px;
             background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 12px;
+            border-radius: 0;
             padding: 2.5rem 2.25rem;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
         }
 
         .logo-wrap {
@@ -135,23 +141,17 @@
             padding: 0.65rem 0.95rem;
             background: var(--bg-input);
             border: 1px solid var(--border);
-            border-radius: 14px;
+            border-radius: 0;
             color: var(--text);
             font-family: var(--font-body);
             font-size: 0.9rem;
             font-weight: 600;
             outline: none;
             transition: border-color 0.15s, box-shadow 0.15s;
-            box-shadow:
-                inset 0 2px 6px rgba(0, 0, 0, 0.25),
-                inset 0 1px 2px rgba(0, 0, 0, 0.15);
         }
         .form-control:focus {
             border-color: var(--border-bright);
-            box-shadow:
-                inset 0 2px 6px rgba(0, 0, 0, 0.2),
-                inset 0 1px 2px rgba(0, 0, 0, 0.12),
-                0 0 0 3px var(--primary-soft);
+            box-shadow: 0 0 0 3px var(--primary-soft);
         }
         .form-control::placeholder { color: var(--text-dim); }
         .form-control.has-error {
@@ -180,7 +180,7 @@
             background: var(--primary);
             color: #fff;
             border: none;
-            border-radius: 6px;
+            border-radius: 0;
             font-family: var(--font-body);
             font-size: 0.9rem;
             font-weight: 600;
@@ -226,7 +226,7 @@
         .admin-toggle {
             margin: 0.25rem 0 1rem;
             border: 1px solid var(--border);
-            border-radius: 14px;
+            border-radius: 0;
             background: var(--bg-input);
             padding: 0 0.95rem;
         }
