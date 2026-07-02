@@ -24,10 +24,180 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="apple-touch-icon" href="{% static 'tracker/icon-192.png' %}">
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Roamly",
+        "applicationCategory": "UtilitiesApplication",
+        "operatingSystem": "Linux, Docker",
+        "description": "Self-hosted GPS location tracking with MapLibre maps, adventure journals, visit analytics, and a native Android app.",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "url": "{{ request.scheme }}://{{ request.get_host }}/"
+    }
+    </script>
     <!-- Self-hosted fonts (same-origin, served by WhiteNoise with a 1-year
          immutable cache). No third-party connection, no render-blocking CSS
          request, and the LCP font is preloaded so it's discoverable immediately.
-         @font-face declarations live in the inline <style>below. --> <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/fraunces-latin-var.woff2' %}"> <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}"> <style> @font-face{font-family:'Fraunces';font-style:normal;font-weight:300 700;font-display:swap;src:url("{% static 'tracker/fonts/fraunces-latin-var.woff2' %}") format('woff2')}@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:400;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}") format('woff2')}@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:500;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-500.woff2' %}") format('woff2')}@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:600;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-600.woff2' %}") format('woff2')}@font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:700;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-700.woff2' %}") format('woff2')}@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:400;font-display:swap;src:url("{% static 'tracker/fonts/plex-mono-latin-400.woff2' %}") format('woff2')}@font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:600;font-display:swap;src:url("{% static 'tracker/fonts/plex-mono-latin-600.woff2' %}") format('woff2')}:root{--bg:#14160f;--bg-card:#1b1e15;--bg-elevated:#23271c;--bg-glass:rgba(20,23,15,0.92);--bg-input:#1e2118;--border:#30352a;--border-strong:#474d3b;--border-bright:rgba(232,118,61,0.55);--text:#e9e5d8;--text-muted:#a9a794;--text-dim:#8f8d7a;--primary:#e8763d;--primary-soft:rgba(232,118,61,0.13);--primary-hover:#f2884e;--accent:#d0694a;--accent-soft:rgba(208,105,74,0.12);--clay-amber:#cf9a44;--clay-lavender:#a888a0;--clay-sky:#7ba3b8;--moss:#7f9b6d;--success:#7ba05b;--clay-shadow:0 2px 6px rgba(0,0,0,0.28);--clay-shadow-sm:0 1px 3px rgba(0,0,0,0.22);--clay-shadow-hover:0 6px 18px rgba(0,0,0,0.38);--clay-shadow-btn:0 1px 2px rgba(0,0,0,0.25);--radius-clay:0;--radius-clay-sm:0;--radius-clay-lg:0;--radius-clay-xl:0;--font-display:'Fraunces',Georgia,serif;--font-body:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;--font-mono:'IBM Plex Mono',ui-monospace,monospace;--ease-out:cubic-bezier(0.22,1,0.36,1);--ease-spring:cubic-bezier(0.22,1,0.36,1)}*{margin:0;padding:0;box-sizing:border-box}html{scroll-behavior:smooth}body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;font-weight:400}body::before{content:'';position:fixed;inset:-700px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='700' height='700'%3E%3Cg fill='none' stroke='%23e9e5d8' stroke-width='1'%3E%3Cpath d='M-33,117 C183,33 367,200 733,92'/%3E%3Cpath d='M-33,358 C158,275 375,433 733,325'/%3E%3Cpath d='M-33,608 C192,533 350,692 733,592'/%3E%3C/g%3E%3Cg fill='none' stroke='%23e9e5d8' stroke-width='1.6'%3E%3Cpath d='M-33,233 C217,158 400,317 733,208'/%3E%3Cpath d='M-33,483 C233,417 417,583 733,475'/%3E%3C/g%3E%3C/svg%3E");background-size:700px 700px;background-repeat:repeat;opacity:0.065;pointer-events:none;z-index:0;animation:contourDrift 140s linear infinite;will-change:transform}@keyframes contourDrift{from{transform:translate3d(0,0,0)}to{transform:translate3d(-700px,-700px,0)}}.nav{position:fixed;top:0;left:0;right:0;z-index:200;height:68px;display:flex;align-items:center;justify-content:space-between;padding:0.75rem clamp(1rem,4vw,2.5rem);transition:background 0.35s var(--ease-out),box-shadow 0.35s}.nav.scrolled{background:var(--bg);border-bottom:1px solid var(--border)}.nav-logo img{height:38px;filter:brightness(0) invert(1);transition:transform 0.3s var(--ease-spring)}.nav-logo:hover img{transform:scale(1.06) rotate(-2deg)}.nav-links{display:flex;align-items:center;gap:0.5rem}.btn{display:inline-flex;align-items:center;gap:0.4rem;padding:0.6rem 1.25rem;border-radius:var(--radius-clay-sm);border:none;font-family:var(--font-body);font-size:0.875rem;font-weight:600;cursor:pointer;text-decoration:none;transition:transform 0.2s var(--ease-spring),box-shadow 0.2s var(--ease-out),background 0.2s,color 0.2s;white-space:nowrap}.btn:active{transform:translateY(1px)}.btn-primary{background:var(--primary);color:#fff}.btn-primary:hover{background:var(--primary-hover)}.btn-ghost{background:transparent;color:var(--text-muted)}.btn-ghost:hover{color:var(--text);background:rgba(255,255,255,0.06)}.btn-ghost.active{color:var(--primary)}.btn-outline{background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-muted)}.btn-outline:hover{border-color:var(--border-bright);color:var(--primary)}.btn-lg{padding:0.85rem 1.8rem;font-size:1rem}.btn{user-select:none;-webkit-user-select:none}.hero{position:relative;min-height:100vh;display:flex;align-items:center;z-index:1}#bg-canvas{position:absolute;inset:0;width:100%;height:100%;opacity:0.7}.hero-inner{position:relative;z-index:2;max-width:1240px;margin:0 auto;padding:7rem clamp(1.25rem,5vw,2.5rem) 5rem;width:100%;display:grid;grid-template-columns:1fr 1fr;gap:3rem;align-items:center}.hero-copy{max-width:560px}.hero-label{display:inline-flex;align-items:center;gap:0.55rem;color:var(--text-muted);margin-bottom:1.5rem;font-family:var(--font-mono);font-size:0.72rem;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;padding-left:0.8rem;border-left:2px solid var(--primary);animation:fadeUp 0.8s var(--ease-out) both}.hero h1{font-family:var(--font-display);font-size:clamp(2.6rem,6.5vw,4.2rem);font-weight:800;line-height:1.02;letter-spacing:-0.03em;margin-bottom:1.25rem;animation:fadeUp 0.8s 0.1s var(--ease-out) both}.hero h1 .gradient{color:var(--primary);font-style:italic}.hero-sub{font-size:1.05rem;color:var(--text-muted);line-height:1.75;margin-bottom:2rem;animation:fadeUp 0.8s 0.2s var(--ease-out) both;font-weight:500}.hero-actions{display:flex;gap:0.75rem;flex-wrap:wrap;animation:fadeUp 0.8s 0.3s var(--ease-out) both}.hero-visual{position:relative;animation:fadeUp 1s 0.25s var(--ease-out) both}.hero-map-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-clay-lg);padding:1.5rem;box-shadow:var(--clay-shadow);transition:border-color 0.3s var(--ease-out)}.hero-map-card:hover{border-color:var(--border-strong)}.hero-map-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;font-size:0.75rem;font-weight:700;color:var(--text-dim)}.hero-map-live{display:flex;align-items:center;gap:0.4rem;color:var(--success);font-weight:800}.hero-map-svg{width:100%;height:auto;display:block;border-radius:0;box-shadow:var(--clay-shadow-sm)}.route-path{fill:none;stroke:url(#routeGrad);stroke-width:2.5;stroke-linecap:round}.hero-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem;margin-top:1rem}.hero-stat{background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-clay-sm);padding:0.85rem 0.6rem;text-align:center;box-shadow:var(--clay-shadow-sm)}.hero-stat-val{font-family:var(--font-display);font-size:1.35rem;font-weight:700;color:var(--primary);font-variant-numeric:tabular-nums}.hero-stat-label{font-family:var(--font-mono);font-size:0.62rem;font-weight:500;color:var(--text-dim);margin-top:0.25rem;letter-spacing:0.06em;text-transform:uppercase}@keyframes fadeUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}.marquee-wrap{position:relative;z-index:1;border-block:1px solid var(--border);background:rgba(0,0,0,0.2);overflow:hidden;padding:1rem 0}.marquee{display:flex;flex-wrap:wrap;justify-content:center;row-gap:0.85rem}.marquee-group[aria-hidden="true"]{display:none}.marquee:hover{animation-play-state:paused}@keyframes marquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}.marquee-group{display:flex;gap:2.5rem;padding-right:2.5rem}.marquee-item{display:flex;align-items:center;gap:0.6rem;font-size:0.82rem;font-weight:700;color:var(--text-muted);white-space:nowrap}.marquee-icon{width:28px;height:28px;border-radius:0;display:flex;align-items:center;justify-content:center;background:var(--primary-soft);flex-shrink:0;box-shadow:var(--clay-shadow-sm)}.marquee-icon svg{width:14px;height:14px;color:var(--primary)}.section{position:relative;z-index:1;padding:clamp(4rem,10vw,7rem) clamp(1.25rem,5vw,2.5rem)}.container{max-width:1200px;margin:0 auto}.section-eyebrow{display:inline-flex;align-items:center;gap:0.5rem;font-family:var(--font-mono);font-size:0.7rem;font-weight:500;letter-spacing:0.12em;color:var(--primary);text-transform:uppercase;margin-bottom:0.75rem}.section-title{font-family:var(--font-display);font-size:clamp(2rem,5vw,3.1rem);font-weight:800;line-height:1.08;letter-spacing:-0.02em;margin-bottom:0.85rem}.section-sub{color:var(--text-muted);font-size:1.08rem;line-height:1.75;max-width:540px;font-weight:500}.features-head{margin-bottom:2.5rem}.feature-tabs{display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:1.75rem;background:var(--bg-input);padding:0.4rem;border-radius:var(--radius-clay);box-shadow:inset 0 2px 8px rgba(0,0,0,0.25),inset 0 1px 3px rgba(0,0,0,0.15)}.feature-tab{padding:0.55rem 1.1rem;border-radius:var(--radius-clay-sm);border:none;background:transparent;color:var(--text-muted);font-family:var(--font-body);font-size:0.82rem;font-weight:800;cursor:pointer;transition:all 0.25s var(--ease-out)}.feature-tab:hover{color:var(--text);background:var(--bg-elevated)}.feature-tab.active{background:var(--primary);color:#fff}.feature-panels{position:relative;min-height:320px}.feature-panel{display:none;grid-template-columns:1.2fr 1fr;gap:1.25rem;align-items:stretch;animation:panelIn 0.45s var(--ease-out)}.feature-panel.active{display:grid}@keyframes panelIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}.panel-visual{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-clay);padding:1.5rem;box-shadow:var(--clay-shadow);position:relative;overflow:hidden;min-height:280px}.panel-copy{display:flex;flex-direction:column;justify-content:center;gap:1rem}.panel-copy h3{font-family:var(--font-display);font-size:1.5rem;font-weight:700}.panel-copy p{color:var(--text-muted);font-size:0.92rem;line-height:1.75;font-weight:500}.panel-tags{display:flex;flex-wrap:wrap;gap:0.4rem}.panel-tag{font-size:0.72rem;font-weight:800;padding:0.35rem 0.7rem;border-radius:0;background:var(--primary-soft);color:var(--primary);border:1px solid rgba(232,118,61,0.2);box-shadow:var(--clay-shadow-sm)}.panel-tag.amber{background:rgba(207,154,68,0.12);color:var(--clay-amber);border-color:rgba(207,154,68,0.25)}.mini-map{position:relative;width:100%;height:200px;border-radius:0;background:linear-gradient(160deg,#1b1e15 0%,#14160f 100%);overflow:hidden;box-shadow:var(--clay-shadow-sm)}.mini-map-grid{position:absolute;inset:0;background-image:linear-gradient(rgba(232,118,61,0.06) 1px,transparent 1px),linear-gradient(90deg,rgba(232,118,61,0.06) 1px,transparent 1px);background-size:24px 24px}.timeline-mock{display:flex;flex-direction:column;gap:0.75rem;position:relative;z-index:1}.timeline-item{display:flex;gap:0.75rem;align-items:flex-start;opacity:0;animation:staggerIn 0.6s var(--ease-out) forwards}.feature-panel.active .timeline-item:nth-child(1){animation-delay:0.1s}.feature-panel.active .timeline-item:nth-child(2){animation-delay:0.2s}.feature-panel.active .timeline-item:nth-child(3){animation-delay:0.3s}@keyframes staggerIn{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:none}}.timeline-dot{width:10px;height:10px;background:var(--primary);margin-top:0.4rem;flex-shrink:0}.timeline-card{flex:1;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-clay-sm);padding:0.65rem 0.85rem;font-size:0.8rem;font-weight:600;color:var(--text-muted);box-shadow:var(--clay-shadow-sm)}.timeline-card strong{color:var(--text);display:block;margin-bottom:0.2rem;font-weight:800}.stat-bars{display:flex;flex-direction:column;gap:0.75rem;position:relative;z-index:1;width:100%}.stat-bar-row{display:flex;align-items:center;gap:0.75rem;font-size:0.78rem;font-weight:700;color:var(--text-muted)}.stat-bar-label{width:4.5rem;flex-shrink:0}.stat-bar-track{flex:1;height:10px;background:var(--bg-elevated);border-radius:0;overflow:hidden;box-shadow:inset 0 2px 4px rgba(0,0,0,0.3)}.stat-bar-fill{height:100%;border-radius:0;background:linear-gradient(90deg,var(--primary),var(--clay-sky));width:0;transition:width 1.2s var(--ease-out);box-shadow:0 2px 6px rgba(232,118,61,0.4)}.feature-panel.active .stat-bar-fill{width:var(--w)}.pal-avatars{display:flex;gap:0.4rem;margin-bottom:1rem;position:relative;z-index:1}.pal-avatar{width:34px;height:34px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:0.78rem;font-weight:800}.pal-avatar:nth-child(1){background:#e8763d;color:#14160f}.pal-avatar:nth-child(2){background:#7ba05b;color:#14160f}.pal-avatar:nth-child(3){background:#cf9a44;color:#14160f}.pal-tracks{position:absolute;inset:0;opacity:0.7}.bento{display:grid;grid-template-columns:repeat(12,1fr);grid-auto-rows:minmax(120px,auto);gap:1rem;margin-top:3rem}.bento-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-clay);padding:1.5rem;box-shadow:var(--clay-shadow);transition:transform 0.35s var(--ease-spring),box-shadow 0.35s var(--ease-out);position:relative;overflow:hidden}.bento-card:hover{transform:translateY(-5px) scale(1.01);box-shadow:var(--clay-shadow-hover)}.bento-icon{width:48px;height:48px;border-radius:0;display:flex;align-items:center;justify-content:center;margin-bottom:1rem;box-shadow:var(--clay-shadow-sm)}.bento-icon svg{width:22px;height:22px}.bento-icon-teal{background:linear-gradient(135deg,rgba(232,118,61,0.18),rgba(232,118,61,0.08));color:#e8763d}.bento-icon-coral{background:linear-gradient(135deg,rgba(208,105,74,0.18),rgba(208,105,74,0.08));color:#d0694a}.bento-icon-lavender{background:linear-gradient(135deg,rgba(168,136,160,0.18),rgba(168,136,160,0.08));color:#a888a0}.bento-icon-amber{background:linear-gradient(135deg,rgba(207,154,68,0.18),rgba(207,154,68,0.08));color:#cf9a44}.bento-icon-sky{background:linear-gradient(135deg,rgba(123,163,184,0.18),rgba(123,163,184,0.08));color:#7ba3b8}.bento-title{font-family:var(--font-display);font-size:1.05rem;font-weight:700;margin-bottom:0.45rem}.bento-desc{font-size:0.875rem;font-weight:500;color:var(--text-muted);line-height:1.65}.bento-span-4{grid-column:span 4}.bento-span-6{grid-column:span 6}.bento-span-8{grid-column:span 8}.setup-section{background:rgba(0,0,0,0.18);border-block:1px solid var(--border)}.setup-layout{display:grid;grid-template-columns:1fr 1fr;gap:4rem;align-items:start}.setup-steps{display:flex;flex-direction:column;gap:0;margin-top:2.5rem}.step{display:flex;gap:1.25rem;padding-bottom:2rem;opacity:0.4;transition:opacity 0.4s}.step.active{opacity:1}.step-num{width:40px;height:40px;border-radius:0;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:800;flex-shrink:0;transition:all 0.35s var(--ease-out);box-shadow:var(--clay-shadow-sm)}.step.active .step-num{border-color:var(--primary);background:var(--primary);color:#fff}.step-body h3{font-family:var(--font-display);font-size:1rem;font-weight:700;margin-bottom:0.35rem;margin-top:0.5rem}.step-body p{font-size:0.875rem;font-weight:500;color:var(--text-muted);line-height:1.7}.step-body code{background:rgba(232,118,61,0.1);color:var(--primary);padding:0.12rem 0.4rem;border-radius:0;font-size:0.85em;border:1px solid rgba(232,118,61,0.15)}.setup-terminal{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-clay);overflow:hidden;position:sticky;top:5rem;box-shadow:var(--clay-shadow)}.terminal-bar{background:var(--bg-elevated);border-bottom:1px solid var(--border);padding:0.8rem 1rem;display:flex;align-items:center;gap:0.45rem}.terminal-title{margin-left:auto;font-size:0.72rem;font-weight:700;color:var(--text-dim)}.terminal-body{padding:1.25rem 1.5rem;font-family:'Courier New',monospace;font-size:0.82rem;line-height:1.8}.t-comment{color:var(--text-dim)}.t-cmd{color:var(--text)}.t-cmd::before{content:'$ ';color:var(--text-dim)}.t-out{color:var(--text-muted);padding-left:1rem}.t-success{color:var(--primary);padding-left:1rem}.t-blank{display:block;height:0.4rem}.terminal-cursor{display:inline-block;width:8px;height:1em;background:var(--primary);animation:blink 1s step-end infinite;vertical-align:text-bottom;margin-left:2px;border-radius:0}@keyframes blink{50%{opacity:0}}.cta-section{text-align:center;position:relative;z-index:1}.cta-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-clay-xl);padding:clamp(2.5rem,6vw,4rem) clamp(2rem,5vw,4rem);box-shadow:var(--clay-shadow);position:relative;z-index:1;overflow:hidden}.cta-card::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 50% 0%,rgba(232,118,61,0.08),transparent 60%);pointer-events:none}.cta-section h2{font-family:var(--font-display);font-size:clamp(2rem,5vw,3rem);font-weight:800;letter-spacing:-0.02em;margin-bottom:0.75rem;position:relative}.cta-section p{color:var(--text-muted);font-size:1.05rem;font-weight:500;margin-bottom:2rem;position:relative}.cta-actions{display:flex;gap:0.75rem;justify-content:center;flex-wrap:wrap;position:relative}.footer{position:relative;z-index:1;border-top:1px solid var(--border);padding:2rem clamp(1.25rem,5vw,2.5rem);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem}.footer-left{color:var(--text-dim);font-size:0.83rem;font-weight:600}.footer-links{display:flex;gap:1.5rem}.footer-links a{color:var(--text-dim);text-decoration:none;font-size:0.83rem;font-weight:700;transition:color 0.15s}.footer-links a:hover{color:var(--primary)}.reveal{opacity:0;transform:translateY(28px);transition:opacity 0.7s var(--ease-out),transform 0.7s var(--ease-out)}.reveal.visible{opacity:1;transform:none}@media (max-width:960px){.hero-inner{grid-template-columns:1fr;text-align:center}.hero-copy{max-width:none;margin:0 auto}.hero-actions{justify-content:center}.hero-visual{max-width:420px;margin:0 auto}.hero-map-card{transform:none}.feature-panel{grid-template-columns:1fr}.bento-span-4,.bento-span-6,.bento-span-8{grid-column:span 12}.setup-layout{grid-template-columns:1fr;gap:2.5rem}.setup-terminal{position:static}}@media (max-width:600px){.hero h1{font-size:2.35rem}.feature-tabs{overflow-x:auto;flex-wrap:nowrap;padding-bottom:0.25rem;-webkit-overflow-scrolling:touch}.footer{flex-direction:column;text-align:center}.footer-links{justify-content:center}}@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:0.01ms !important;animation-iteration-count:1 !important;transition-duration:0.01ms !important}.marquee{animation:none}.reveal{opacity:1;transform:none}}</style>
+         @font-face declarations live in the inline <style> below. -->
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/fraunces-latin-var.woff2' %}">
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}">
+    <style>
+        @font-face{font-family:'Fraunces';font-style:normal;font-weight:300 700;font-display:swap;src:url("{% static 'tracker/fonts/fraunces-latin-var.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:400;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:500;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-500.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:600;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-600.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:700;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-700.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:400;font-display:swap;src:url("{% static 'tracker/fonts/plex-mono-latin-400.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:600;font-display:swap;src:url("{% static 'tracker/fonts/plex-mono-latin-600.woff2' %}") format('woff2')}
+
+        :root{
+            --bg:#14160f;--bg-card:#1b1e15;--bg-elevated:#23271c;--bg-input:#1e2118;
+            --border:#30352a;--border-strong:#474d3b;--border-bright:rgba(232,118,61,0.55);
+            --text:#e9e5d8;--text-muted:#a9a794;--text-dim:#8f8d7a;
+            --primary:#e8763d;--primary-soft:rgba(232,118,61,0.13);--primary-hover:#f2884e;
+            --accent:#d0694a;--accent-soft:rgba(208,105,74,0.12);
+            --amber:#cf9a44;--lavender:#a888a0;--sky:#7ba3b8;--moss:#7f9b6d;--success:#7ba05b;
+            --font-display:'Fraunces',Georgia,serif;
+            --font-body:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+            --font-mono:'IBM Plex Mono',ui-monospace,monospace;
+            --ease-out:cubic-bezier(0.22,1,0.36,1);
+        }
+        *{margin:0;padding:0;box-sizing:border-box}
+        html{scroll-behavior:smooth}
+        body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;font-weight:400;-webkit-font-smoothing:antialiased}
+
+        /* Topographic contour texture — drifts slowly via transform (compositor-only, cheap). */
+        body::before{
+            content:'';position:fixed;inset:-700px;
+            background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='700' height='700'%3E%3Cg fill='none' stroke='%23e9e5d8' stroke-width='1'%3E%3Cpath d='M-33,117 C183,33 367,200 733,92'/%3E%3Cpath d='M-33,358 C158,275 375,433 733,325'/%3E%3Cpath d='M-33,608 C192,533 350,692 733,592'/%3E%3C/g%3E%3Cg fill='none' stroke='%23e9e5d8' stroke-width='1.6'%3E%3Cpath d='M-33,233 C217,158 400,317 733,208'/%3E%3Cpath d='M-33,483 C233,417 417,583 733,475'/%3E%3C/g%3E%3C/svg%3E");
+            background-size:700px 700px;background-repeat:repeat;opacity:0.065;pointer-events:none;z-index:0;
+            animation:contourDrift 140s linear infinite;will-change:transform;
+        }
+        @keyframes contourDrift{from{transform:translate3d(0,0,0)}to{transform:translate3d(-700px,-700px,0)}}
+
+        /* ── buttons ── */
+        .btn{display:inline-flex;align-items:center;gap:0.4rem;padding:0.6rem 1.25rem;border:none;border-radius:0;font-family:var(--font-body);font-size:0.875rem;font-weight:600;cursor:pointer;text-decoration:none;transition:background 0.15s,color 0.15s,border-color 0.15s,transform 0.1s;white-space:nowrap;user-select:none}
+        .btn:active{transform:translateY(1px)}
+        .btn-primary{background:var(--primary);color:#fff}
+        .btn-primary:hover{background:var(--primary-hover)}
+        .btn-ghost{background:transparent;color:var(--text-muted)}
+        .btn-ghost:hover{color:var(--text);background:rgba(255,255,255,0.06)}
+        .btn-outline{background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-muted)}
+        .btn-outline:hover{border-color:var(--border-bright);color:var(--primary)}
+        .btn-lg{padding:0.85rem 1.8rem;font-size:1rem}
+        .btn:focus-visible,.tab-flag:focus-visible,.copy-btn:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+
+        /* ── nav / field-ledger tab strip ── */
+        .nav{
+            position:sticky;top:0;z-index:200;background:var(--bg);border-bottom:1px solid var(--border);
+            display:grid;grid-template-columns:auto 1fr auto;grid-template-areas:"logo tabs auth";
+            align-items:center;gap:1rem;padding:0.6rem clamp(1rem,4vw,2rem);
+            transition:box-shadow 0.25s var(--ease-out);
+        }
+        .nav.scrolled{box-shadow:0 4px 12px rgba(0,0,0,0.25)}
+        .nav-logo{grid-area:logo;display:flex;align-items:center}
+        .nav-logo img{height:34px;filter:brightness(0) invert(1)}
+        .nav-auth{grid-area:auth;display:flex;align-items:center;gap:0.4rem;flex-shrink:0}
+        .tab-strip{grid-area:tabs;display:flex;gap:0.3rem;overflow-x:auto;scrollbar-width:none;justify-content:center}
+        .tab-strip::-webkit-scrollbar{display:none}
+        .tab-flag{
+            --flag:var(--primary);
+            display:flex;align-items:baseline;gap:0.4rem;flex-shrink:0;
+            background:var(--bg-elevated);border:1px solid var(--border);border-bottom:2px solid var(--flag);
+            padding:0.5rem 0.9rem;cursor:pointer;font-family:var(--font-body);color:var(--text-muted);
+            transition:background 0.15s,color 0.15s,border-color 0.15s;
+        }
+        .tab-flag:hover{color:var(--text)}
+        .tab-flag[aria-selected="true"]{background:var(--bg-card);color:var(--text);border-color:var(--flag);border-bottom-color:var(--flag)}
+        .tab-flag[data-accent="sky"]{--flag:var(--sky)}
+        .tab-flag[data-accent="amber"]{--flag:var(--amber)}
+        .tab-flag[data-accent="moss"]{--flag:var(--moss)}
+        .tab-flag-num{font-family:var(--font-mono);font-size:0.68rem;font-weight:600;color:var(--flag)}
+        .tab-flag-label{font-size:0.78rem;font-weight:700;letter-spacing:0.01em;white-space:nowrap}
+
+        /* ── panels ── */
+        main{position:relative;z-index:1}
+        .panel{display:none;padding:clamp(2.5rem,6vw,4rem) clamp(1.25rem,5vw,2.5rem) clamp(3rem,7vw,4.5rem)}
+        .panel.active{display:block;animation:panelFade 0.35s var(--ease-out)}
+        @keyframes panelFade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+        .panel-inner{max-width:1180px;margin:0 auto}
+        .accent-rule{width:2.5rem;height:3px;margin-bottom:1.1rem}
+        .kicker{font-family:var(--font-mono);font-size:0.72rem;font-weight:600;letter-spacing:0.09em;text-transform:uppercase;color:var(--text-dim);margin-bottom:1rem}
+        h1,h2,h3{font-family:var(--font-display);letter-spacing:-0.02em}
+        .lede{color:var(--text-muted);font-size:1.05rem;line-height:1.75;font-weight:500;max-width:52ch}
+
+        /* ── 01 overview ── */
+        .overview-grid{display:grid;grid-template-columns:1.05fr 0.95fr;gap:clamp(2rem,5vw,3.5rem);align-items:center}
+        .overview-copy h1{font-size:clamp(2.4rem,5.6vw,3.6rem);font-weight:800;line-height:1.04;margin-bottom:1.1rem}
+        .overview-copy h1 em{color:var(--primary);font-style:italic}
+        .cta-row{display:flex;gap:0.75rem;flex-wrap:wrap;margin:1.75rem 0 2.25rem}
+        .ledger-stats{display:flex;gap:0;border-top:1px solid var(--border)}
+        .ledger-stat{flex:1;padding:0.85rem 1rem 0;border-right:1px solid var(--border)}
+        .ledger-stat:last-child{border-right:none}
+        .ledger-stat:first-child{padding-left:0}
+        .ledger-stat dd{font-family:var(--font-mono);font-size:1.4rem;font-weight:600;color:var(--primary);font-variant-numeric:tabular-nums}
+        .ledger-stat dt{font-family:var(--font-mono);font-size:0.65rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.06em;margin-top:0.25rem}
+        .specimen-card{background:var(--bg-card);border:1px solid var(--border);padding:0.85rem}
+        .specimen-card svg{display:block;width:100%;height:auto}
+
+        /* ── 02 capabilities ── */
+        .cap-list{display:grid;grid-template-columns:1fr 1fr;gap:0;border-top:1px solid var(--border)}
+        .cap-item{display:flex;gap:1rem;padding:1.5rem 1.25rem;border-bottom:1px solid var(--border)}
+        .cap-item:nth-child(odd){border-right:1px solid var(--border)}
+        .cap-icon{flex-shrink:0;width:26px;height:26px;color:var(--primary);margin-top:0.15rem}
+        .cap-icon svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+        .cap-item h3{font-size:1.05rem;font-weight:700;margin-bottom:0.35rem}
+        .cap-desc{color:var(--text-muted);font-size:0.88rem;line-height:1.6;font-weight:500;margin-bottom:0.6rem}
+        .cap-tags{display:flex;flex-wrap:wrap;gap:0.35rem}
+        .cap-tag{font-family:var(--font-mono);font-size:0.65rem;font-weight:600;padding:0.2rem 0.5rem;border:1px solid var(--border);color:var(--text-dim)}
+
+        /* ── 03 setup ── */
+        .field-steps{list-style:none;counter-reset:step;margin-top:2rem}
+        .field-step{position:relative;padding:1.5rem 0 1.5rem 3rem;border-top:1px solid var(--border)}
+        .field-step:last-child{border-bottom:1px solid var(--border)}
+        .field-step::before{
+            counter-increment:step;content:counter(step,decimal-leading-zero);
+            position:absolute;left:0;top:1.6rem;font-family:var(--font-mono);font-size:0.8rem;font-weight:700;color:var(--amber);
+        }
+        .field-step h3{font-size:1.02rem;font-weight:700;margin-bottom:0.35rem}
+        .field-step p{color:var(--text-muted);font-size:0.88rem;line-height:1.65;font-weight:500;max-width:60ch;margin-bottom:0.75rem}
+        .cmd-block{display:flex;align-items:center;gap:0;background:var(--bg-input);border:1px solid var(--border);max-width:640px;margin-bottom:0.5rem}
+        .cmd-block:last-child{margin-bottom:0}
+        .cmd-block code{flex:1;padding:0.6rem 0.85rem;font-family:var(--font-mono);font-size:0.78rem;color:var(--text);overflow-x:auto;white-space:pre}
+        .copy-btn{flex-shrink:0;align-self:stretch;padding:0 0.9rem;background:var(--bg-elevated);border:none;border-left:1px solid var(--border);color:var(--text-dim);font-family:var(--font-mono);font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;cursor:pointer;transition:color 0.15s,background 0.15s;min-width:4.5rem}
+        .copy-btn:hover{color:var(--primary);background:var(--bg-card)}
+        .copy-btn.copied{color:var(--success)}
+
+        /* ── 04 open source ── */
+        .os-layout{max-width:760px}
+        .trust-list{list-style:none;margin-top:1.5rem;border-top:1px solid var(--border)}
+        .trust-list li{padding:1rem 0;border-bottom:1px solid var(--border);color:var(--text-muted);font-size:0.92rem;line-height:1.65;font-weight:500;padding-left:1rem;position:relative}
+        .trust-list li::before{content:'—';position:absolute;left:0;color:var(--moss)}
+
+        /* ── footer ── */
+        .footer{position:relative;z-index:1;border-top:1px solid var(--border);padding:1.5rem clamp(1.25rem,5vw,2.5rem);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem}
+        .footer-left{color:var(--text-dim);font-size:0.8rem;font-weight:600}
+        .footer-links{display:flex;gap:1.5rem}
+        .footer-links a{color:var(--text-dim);text-decoration:none;font-size:0.8rem;font-weight:700;transition:color 0.15s}
+        .footer-links a:hover{color:var(--primary)}
+
+        @media (max-width:860px){
+            .nav{grid-template-columns:1fr auto;grid-template-areas:"logo auth" "tabs tabs"}
+            .tab-strip{justify-content:flex-start;padding-top:0.5rem;margin-top:0.5rem;border-top:1px solid var(--border)}
+            .overview-grid{grid-template-columns:1fr}
+            .cap-list{grid-template-columns:1fr}
+            .cap-item:nth-child(odd){border-right:none}
+        }
+        @media (max-width:600px){
+            .overview-copy h1{font-size:2.15rem}
+            .ledger-stats{flex-wrap:wrap}
+            .ledger-stat{flex:1 1 45%;border-right:none;border-bottom:1px solid var(--border);padding-bottom:0.75rem}
+        }
+        @media (prefers-reduced-motion:reduce){
+            *,*::before,*::after{animation-duration:0.01ms !important;animation-iteration-count:1 !important;transition-duration:0.01ms !important}
+        }
+    </style>
 </head>
 <body>
 
@@ -35,9 +205,23 @@
         <a href="{% url 'tracker:landing' %}" class="nav-logo">
             <img src="{% static 'tracker/roamly.svg' %}" alt="Roamly" width="150" height="38" fetchpriority="high" decoding="async">
         </a>
-        <div class="nav-links">
-            <a href="#features" class="btn btn-ghost">features</a>
-            <a href="{% url 'tracker:docs' %}" class="btn btn-ghost">docs</a>
+
+        <div class="tab-strip" role="tablist" aria-label="Page sections">
+            <button type="button" class="tab-flag" role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true" tabindex="0" data-tab="overview" data-accent="primary">
+                <span class="tab-flag-num">01</span><span class="tab-flag-label">Overview</span>
+            </button>
+            <button type="button" class="tab-flag" role="tab" id="tab-capabilities" aria-controls="panel-capabilities" aria-selected="false" tabindex="-1" data-tab="capabilities" data-accent="sky">
+                <span class="tab-flag-num">02</span><span class="tab-flag-label">Capabilities</span>
+            </button>
+            <button type="button" class="tab-flag" role="tab" id="tab-setup" aria-controls="panel-setup" aria-selected="false" tabindex="-1" data-tab="setup" data-accent="amber">
+                <span class="tab-flag-num">03</span><span class="tab-flag-label">Setup</span>
+            </button>
+            <button type="button" class="tab-flag" role="tab" id="tab-open-source" aria-controls="panel-open-source" aria-selected="false" tabindex="-1" data-tab="open-source" data-accent="moss">
+                <span class="tab-flag-num">04</span><span class="tab-flag-label">Open Source</span>
+            </button>
+        </div>
+
+        <div class="nav-auth">
             {% if user.is_authenticated %}
                 <a href="{% url 'tracker:map' %}" class="btn btn-primary">open app →</a>
             {% else %}
@@ -47,369 +231,189 @@
         </div>
     </nav>
 
-    <section class="hero">
-        <div class="hero-inner">
-            <div class="hero-copy">
-                <div class="hero-label">self-hosted · open source · your hardware</div>
-                <h1>every mile you log<br>stays <span class="gradient">yours.</span></h1>
-                <p class="hero-sub">a private gps journal on your own server — maplibre heatmaps, adventure journals, dwell-time analytics, group pals trips, a native android app, and push from gpslogger, owntracks, or anything that speaks http.</p>
-                <div class="hero-actions">
-                    <a href="{% url 'tracker:signup' %}" class="btn btn-primary btn-lg">start tracking free →</a>
-                    {% if user.is_authenticated %}
-                        <a href="{% url 'tracker:map' %}" class="btn btn-outline btn-lg">open your map</a>
-                    {% else %}
-                        <a href="{% url 'tracker:docs' %}" class="btn btn-outline btn-lg">read the docs</a>
-                    {% endif %}
-                </div>
-            </div>
-            <div class="hero-visual">
-                <div class="hero-map-card" id="hero-tilt">
-                    <div class="hero-map-header">
-                        <span>live track preview</span>
-                        <span class="hero-map-live">receiving</span>
+    <main>
+        <!-- ═══ 01 OVERVIEW ═══ -->
+        <section class="panel active" id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
+            <div class="panel-inner overview-grid">
+                <div class="overview-copy">
+                    <p class="kicker">self-hosted · open source · your hardware</p>
+                    <h1>Every mile you log<br>stays <em>yours.</em></h1>
+                    <p class="lede">A private GPS journal you run yourself — MapLibre heatmaps, adventure journals, dwell-time analytics, group Pals trips, a native Android app, and push from GPSLogger, OwnTracks, or anything that speaks HTTP.</p>
+                    <div class="cta-row">
+                        <a href="{% url 'tracker:signup' %}" class="btn btn-primary btn-lg">start tracking free →</a>
+                        {% if user.is_authenticated %}
+                            <a href="{% url 'tracker:map' %}" class="btn btn-outline btn-lg">open your map</a>
+                        {% else %}
+                            <a href="{% url 'tracker:docs' %}" class="btn btn-outline btn-lg">read the docs</a>
+                        {% endif %}
                     </div>
-                    <svg class="hero-map-svg" viewBox="0 0 400 220" aria-hidden="true">
-                        <defs>
-                            <linearGradient id="routeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                                <stop offset="0%" stop-color="#e8763d"/>
-                                <stop offset="100%" stop-color="#a888a0"/>
-                            </linearGradient>
-                        </defs>
-                        <rect width="400" height="220" fill="#14160f" rx="0"/>
-                        <path class="route-path" d="M30,160 Q80,40 140,100 T220,60 T320,120 T370,80"/>
-                        <circle cx="30" cy="160" r="6" fill="#e8763d"/>
-                        <circle cx="370" cy="80" r="7" fill="#a888a0"/>
+                    <dl class="ledger-stats">
+                        <div class="ledger-stat"><dd data-count="{{ site_total_points }}">0</dd><dt>points logged</dt></div>
+                        <div class="ledger-stat"><dd data-count="{{ site_total_cities }}">0</dd><dt>cities visited</dt></div>
+                        <div class="ledger-stat"><dd data-meters="{{ site_total_meters }}">0</dd><dt data-distance-label>km tracked</dt></div>
+                    </dl>
+                </div>
+
+                <div class="specimen-card" aria-hidden="true">
+                    <svg viewBox="0 0 380 260" role="img">
+                        <rect width="380" height="260" fill="#14160f"/>
+                        <g fill="none" stroke="#30352a" stroke-width="1">
+                            <path d="M-10,60 C90,20 180,90 390,50"/>
+                            <path d="M-10,150 C110,110 200,180 390,140"/>
+                            <path d="M-10,230 C100,190 210,250 390,210"/>
+                        </g>
+                        <text x="16" y="22" font-family="IBM Plex Mono" font-size="9" letter-spacing="1.5" fill="#8f8d7a">FIELD LOG — LIVE</text>
+                        <text x="364" y="22" text-anchor="end" font-family="IBM Plex Mono" font-size="9" fill="#8f8d7a">45.523°N 122.676°W</text>
+                        <path d="M40,210 Q100,90 170,140 T300,70" fill="none" stroke="#e8763d" stroke-width="2" stroke-dasharray="5 6" stroke-linecap="round"/>
+                        <polygon points="40,202 33,215 47,215" fill="#7f9b6d"/>
+                        <polygon points="170,132 163,145 177,145" fill="#d0694a"/>
+                        <polygon points="300,62 293,75 307,75" fill="#e8763d"/>
+                        <g stroke="#8f8d7a" stroke-width="1">
+                            <line x1="20" y1="238" x2="80" y2="238"/>
+                            <line x1="20" y1="234" x2="20" y2="242"/>
+                            <line x1="80" y1="234" x2="80" y2="242"/>
+                        </g>
+                        <text x="20" y="252" font-family="IBM Plex Mono" font-size="8" fill="#8f8d7a">500 M</text>
                     </svg>
-                    <div class="hero-stats">
-                        <div class="hero-stat">
-                            <div class="hero-stat-val" data-count="{{ site_total_points }}">0</div>
-                            <div class="hero-stat-label">points logged</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ 02 CAPABILITIES ═══ -->
+        <section class="panel" id="panel-capabilities" role="tabpanel" aria-labelledby="tab-capabilities" tabindex="0">
+            <div class="panel-inner">
+                <p class="kicker">what's inside</p>
+                <h2 style="font-size:clamp(1.7rem,3.6vw,2.3rem);font-weight:800;margin-bottom:0.5rem;">Not another SaaS map widget</h2>
+                <p class="lede">Roamly is a full Django app you self-host — map, stats, adventures, pals, search, imports, backups, and a native Android client, all in one place.</p>
+
+                <div class="cap-list">
+                    <div class="cap-item">
+                        <span class="cap-icon"><svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
+                        <div>
+                            <h3>Map</h3>
+                            <p class="cap-desc">MapLibre heatmap and speed-colored tracks, time-range and per-device filters, progressive detail loading as you pan and zoom.</p>
+                            <div class="cap-tags"><span class="cap-tag">vector tiles</span><span class="cap-tag">heatmap</span><span class="cap-tag">dark/light</span></div>
                         </div>
-                        <div class="hero-stat">
-                            <div class="hero-stat-val" data-count="{{ site_total_cities }}">0</div>
-                            <div class="hero-stat-label">cities visited</div>
+                    </div>
+                    <div class="cap-item">
+                        <span class="cap-icon"><svg viewBox="0 0 24 24"><path d="M3 20l6-10 4 6 3-5 5 9H3z"/></svg></span>
+                        <div>
+                            <h3>Adventures</h3>
+                            <p class="cap-desc">Time-bounded trip journals with named place pins, dwell time, timeline posts, milestones, and pin-gated public share links.</p>
+                            <div class="cap-tags"><span class="cap-tag">place pins</span><span class="cap-tag">public sharing</span></div>
                         </div>
-                        <div class="hero-stat">
-                            <div class="hero-stat-val" data-meters="{{ site_total_meters }}">0</div>
-                            <div class="hero-stat-label" data-distance-label>km tracked</div>
+                    </div>
+                    <div class="cap-item">
+                        <span class="cap-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18"/><path d="M3 9h18M9 21V9"/></svg></span>
+                        <div>
+                            <h3>Stats, visits &amp; search</h3>
+                            <p class="cap-desc">Distance over time, top cities and countries, dwell hours per place. Search dates, towns, and cached OSM POIs.</p>
+                            <div class="cap-tags"><span class="cap-tag">/stats</span><span class="cap-tag">/visits</span><span class="cap-tag">/search</span></div>
+                        </div>
+                    </div>
+                    <div class="cap-item">
+                        <span class="cap-icon"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M4 20c0-3 2.4-5 5-5s5 2 5 5"/><circle cx="17" cy="9" r="2.5"/><path d="M14.3 20c0-2.5 1.9-4.4 4.2-4.7"/></svg></span>
+                        <div>
+                            <h3>Pals</h3>
+                            <p class="cap-desc">Group trips where each member pushes their own device — shared timeline, blurbs, milestones, and a combined map.</p>
+                            <div class="cap-tags"><span class="cap-tag">multi-track</span><span class="cap-tag">shared timeline</span></div>
+                        </div>
+                    </div>
+                    <div class="cap-item">
+                        <span class="cap-icon"><svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20"/><path d="M11 18h2"/></svg></span>
+                        <div>
+                            <h3>Android app</h3>
+                            <p class="cap-desc">Kotlin + Compose, foreground tracking that survives reboots and Doze. Points cache locally and upload offline-first.</p>
+                            <div class="cap-tags"><span class="cap-tag">offline-first</span><span class="cap-tag">survives reboots</span></div>
+                        </div>
+                    </div>
+                    <div class="cap-item">
+                        <span class="cap-icon"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="6"/><rect x="4" y="14" width="16" height="6"/><circle cx="7.5" cy="7" r="0.6" fill="currentColor" stroke="none"/><circle cx="7.5" cy="17" r="0.6" fill="currentColor" stroke="none"/></svg></span>
+                        <div>
+                            <h3>Your server</h3>
+                            <p class="cap-desc">Docker Compose. SQLite for simple setups or PostgreSQL + PostGIS for tiles at scale. S3 backups, CSV/GPX/Takeout/OwnTracks import.</p>
+                            <div class="cap-tags"><span class="cap-tag">docker compose</span><span class="cap-tag">zero telemetry</span></div>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
-    </section>
+        </section>
 
-    <div class="marquee-wrap" aria-hidden="true">
-        <div class="marquee">
-            <div class="marquee-group">
-                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span> runs on your server</span>
-                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span> postgis vector tiles</span>
-                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></span> adventures &amp; pals</span>
-                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></span> visit dwell analytics</span>
-                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></span> gpslogger &amp; owntracks</span>
-                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></span> native android app</span>
-                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg></span> csv · gpx · takeout import</span>
-                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span> s3 auto backups</span>
-                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span> zero telemetry</span>
-            </div>
-            <div class="marquee-group" aria-hidden="true">
-                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span> runs on your server</span>
-                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span> postgis vector tiles</span>
-                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></span> adventures &amp; pals</span>
-                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></span> visit dwell analytics</span>
-                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></span> gpslogger &amp; owntracks</span>
-                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></span> native android app</span>
-                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg></span> csv · gpx · takeout import</span>
-                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span> s3 auto backups</span>
-                <span class="marquee-item"><span class="marquee-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span> zero telemetry</span>
-            </div>
-        </div>
-    </div>
+        <!-- ═══ 03 SETUP ═══ -->
+        <section class="panel" id="panel-setup" role="tabpanel" aria-labelledby="tab-setup" tabindex="0">
+            <div class="panel-inner">
+                <p class="kicker">setup</p>
+                <h2 style="font-size:clamp(1.7rem,3.6vw,2.3rem);font-weight:800;margin-bottom:0.5rem;">Live in about two minutes</h2>
+                <p class="lede">Docker Compose brings up the database, migrations, and web app. Create an API key, point GPSLogger at your instance, watch points appear.</p>
 
-    <section class="section" id="features">
-        <div class="container">
-            <div class="features-head reveal">
-                <p class="section-eyebrow">built for real tracking</p>
-                <h2 class="section-title">not another saas map widget</h2>
-                <p class="section-sub">roamly is a full django app you self-host — map, stats, adventures, pals, search, imports, backups, and a native android client, all in one place.</p>
-            </div>
+                <ol class="field-steps">
+                    <li class="field-step">
+                        <h3>Grab &amp; start</h3>
+                        <p>Pull the prebuilt <code>waxn/roamly</code> image. PostGIS and migrations run automatically.</p>
+                        <div class="cmd-block">
+                            <code id="cmd-1">curl -O https://raw.githubusercontent.com/waxn/roamly/main/docker-compose.yml</code>
+                            <button type="button" class="copy-btn" data-copy-target="cmd-1">copy</button>
+                        </div>
+                        <div class="cmd-block">
+                            <code id="cmd-2">docker compose up -d</code>
+                            <button type="button" class="copy-btn" data-copy-target="cmd-2">copy</button>
+                        </div>
+                    </li>
+                    <li class="field-step">
+                        <h3>Sign up &amp; API key</h3>
+                        <p>Open your instance, create an account, then Settings → API Keys for your phone.</p>
+                    </li>
+                    <li class="field-step">
+                        <h3>Push locations</h3>
+                        <p>GPSLogger custom URL or OwnTracks → <code>/api/push/</code> with your key. Garmin/Strava exports work via CSV import too.</p>
+                        <div class="cmd-block">
+                            <code id="cmd-3">curl -X POST localhost:8001/api/push/ \
+  -H "Authorization: Bearer YOUR_KEY" \
+  -d '{"device_id":"phone","latitude":45.5,"longitude":-122.6}'</code>
+                            <button type="button" class="copy-btn" data-copy-target="cmd-3">copy</button>
+                        </div>
+                    </li>
+                    <li class="field-step">
+                        <h3>Explore</h3>
+                        <p>Map your history, run geocoding, check visits dwell time, log an adventure, invite pals.</p>
+                    </li>
+                    <li class="field-step">
+                        <h3>Staying current</h3>
+                        <p>Updates are just a pull and restart — no git clone, no rebuild.</p>
+                        <div class="cmd-block">
+                            <code id="cmd-4">docker compose pull &amp;&amp; docker compose up -d</code>
+                            <button type="button" class="copy-btn" data-copy-target="cmd-4">copy</button>
+                        </div>
+                    </li>
+                </ol>
 
-            <div class="feature-tabs reveal" role="tablist">
-                <button class="feature-tab active" role="tab" aria-selected="true" data-tab="map">map</button>
-                <button class="feature-tab" role="tab" aria-selected="false" data-tab="adventures">adventures</button>
-                <button class="feature-tab" role="tab" data-tab="analytics">analytics</button>
-                <button class="feature-tab" role="tab" data-tab="social">pals</button>
-                <button class="feature-tab" role="tab" data-tab="app">android app</button>
-                <button class="feature-tab" role="tab" data-tab="privacy">your server</button>
-            </div>
-
-            <div class="feature-panels reveal">
-                <div class="feature-panel active" data-panel="map" role="tabpanel">
-                    <div class="panel-visual">
-                        <div class="mini-map">
-                            <div class="mini-map-grid"></div>
-
-                        </div>
-                    </div>
-                    <div class="panel-copy">
-                        <h3>maplibre map with real gps detail</h3>
-                        <p>heatmap and speed-colored dots, optional path lines, time-range and per-device filters. postgis serves vector tiles for huge histories; sqlite falls back to classic clustered mode. detail points load progressively as you pan and zoom.</p>
-                        <div class="panel-tags">
-                            <span class="panel-tag">vector tiles</span>
-                            <span class="panel-tag">heatmap</span>
-                            <span class="panel-tag">speed gradient</span>
-                            <span class="panel-tag">dark / light theme</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="feature-panel" data-panel="adventures" role="tabpanel">
-                    <div class="panel-visual">
-                        <div class="timeline-mock">
-                            <div class="timeline-item">
-                                <span class="timeline-dot"></span>
-                                <div class="timeline-card"><strong>summit push</strong>photo blurb · milestone 🏔</div>
-                            </div>
-                            <div class="timeline-item">
-                                <span class="timeline-dot"></span>
-                                <div class="timeline-card"><strong>trailhead café</strong>place pin · 2h 14m dwell time</div>
-                            </div>
-                            <div class="timeline-item">
-                                <span class="timeline-dot"></span>
-                                <div class="timeline-card"><strong>public link</strong>custom slug · optional pin gate</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="panel-copy">
-                        <h3>adventures — trip journals on a map</h3>
-                        <p>draw a time-bounded outing, drop named places with radius-based dwell time, post timeline blurbs with up to five photos, add milestones and comments. share a public page with a custom slug or pin-protected link.</p>
-                        <div class="panel-tags">
-                            <span class="panel-tag">timeline posts</span>
-                            <span class="panel-tag">place pins</span>
-                            <span class="panel-tag amber">public sharing</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="feature-panel" data-panel="analytics" role="tabpanel">
-                    <div class="panel-visual">
-                        <div class="stat-bars">
-                            <div class="stat-bar-row"><span class="stat-bar-label">portland</span><div class="stat-bar-track"><div class="stat-bar-fill" style="--w:88%"></div></div></div>
-                            <div class="stat-bar-row"><span class="stat-bar-label">seattle</span><div class="stat-bar-track"><div class="stat-bar-fill" style="--w:72%"></div></div></div>
-                            <div class="stat-bar-row"><span class="stat-bar-label">denver</span><div class="stat-bar-track"><div class="stat-bar-fill" style="--w:54%"></div></div></div>
-                            <div class="stat-bar-row"><span class="stat-bar-label">austin</span><div class="stat-bar-track"><div class="stat-bar-fill" style="--w:41%"></div></div></div>
-                        </div>
-                    </div>
-                    <div class="panel-copy">
-                        <h3>stats, visits &amp; search</h3>
-                        <p>distance over time, top cities and countries, and dwell hours per place from geocoded pings. yearly overview compares periods. search dates, towns, and cached osm pois — browse every point in the data table.</p>
-                        <div class="panel-tags">
-                            <span class="panel-tag">/stats</span>
-                            <span class="panel-tag">/visits</span>
-                            <span class="panel-tag">/search</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="feature-panel" data-panel="social" role="tabpanel">
-                    <div class="panel-visual">
-                        <div class="pal-avatars">
-                            <span class="pal-avatar">a</span>
-                            <span class="pal-avatar">b</span>
-                            <span class="pal-avatar">c</span>
-                        </div>
-                        <svg class="pal-tracks" viewBox="0 0 300 180" preserveAspectRatio="none">
-                            <path d="M20,140 Q80,60 140,100 T260,70" fill="none" stroke="#e8763d" stroke-width="2" opacity="0.6"/>
-                            <path d="M30,150 Q100,90 160,120 T270,90" fill="none" stroke="#7ba05b" stroke-width="2" opacity="0.6"/>
-                            <path d="M40,130 Q90,100 150,80 T250,100" fill="none" stroke="#cf9a44" stroke-width="2" opacity="0.6"/>
-                        </svg>
-                    </div>
-                    <div class="panel-copy">
-                        <h3>pals — group trips, separate tracks</h3>
-                        <p>multi-user journeys where each member pushes their own device. shared timeline, blurbs, milestones, and a combined map — same social layer as adventures, built for friends traveling together.</p>
-                        <div class="panel-tags">
-                            <span class="panel-tag">multi-track map</span>
-                            <span class="panel-tag amber">shared timeline</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="feature-panel" data-panel="app" role="tabpanel">
-                    <div class="panel-visual" style="display:flex;align-items:center;justify-content:center;">
-                        <svg width="110" height="170" viewBox="0 0 110 170" fill="none" aria-hidden="true">
-                            <rect x="6" y="4" width="98" height="162" rx="0" fill="#14160f" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
-                            <rect x="42" y="11" width="26" height="5" rx="0" fill="rgba(255,255,255,0.12)"/>
-                            <rect x="14" y="24" width="82" height="64" rx="0" fill="url(#appMap)"/>
-                            <path d="M22,72 Q40,40 56,58 T92,40" fill="none" stroke="#e8763d" stroke-width="2.5" stroke-linecap="round"/>
-                            <circle cx="22" cy="72" r="4" fill="#e8763d"/>
-                            <circle cx="92" cy="40" r="4.5" fill="#a888a0"/>
-                            <rect x="14" y="96" width="38" height="26" rx="0" fill="#141d30"/>
-                            <rect x="58" y="96" width="38" height="26" rx="0" fill="#141d30"/>
-                            <rect x="20" y="103" width="20" height="4" rx="2" fill="#e8763d"/>
-                            <rect x="20" y="111" width="26" height="4" rx="2" fill="rgba(255,255,255,0.18)"/>
-                            <rect x="64" y="103" width="20" height="4" rx="2" fill="#cf9a44"/>
-                            <rect x="64" y="111" width="26" height="4" rx="2" fill="rgba(255,255,255,0.18)"/>
-                            <rect x="14" y="130" width="82" height="26" rx="0" fill="url(#appBtn)"/>
-                            <circle cx="32" cy="143" r="5" fill="#fff" opacity="0.9"/>
-                            <rect x="44" y="140" width="40" height="6" rx="0" fill="#fff" opacity="0.85"/>
-                            <defs>
-                                <linearGradient id="appMap" x1="0" y1="0" x2="1" y2="1">
-                                    <stop offset="0%" stop-color="#1b1e15"/>
-                                    <stop offset="100%" stop-color="#14160f"/>
-                                </linearGradient>
-                                <linearGradient id="appBtn" x1="0" y1="0" x2="1" y2="0">
-                                    <stop offset="0%" stop-color="#e8763d"/>
-                                    <stop offset="100%" stop-color="#d4632c"/>
-                                </linearGradient>
-                            </defs>
-                        </svg>
-                    </div>
-                    <div class="panel-copy">
-                        <h3>a native android app, built in</h3>
-                        <p>sign in with an api key — it stays signed in forever, even after the web session expires. a foreground tracking service survives reboots, doze, and battery saver, with live-tunable interval, gps priority, movement distance, and accuracy. points cache in room and upload offline-first, plus a local csv mirror. browse your map, stats, adventures, and pals from your phone.</p>
-                        <div class="panel-tags">
-                            <span class="panel-tag">kotlin + compose</span>
-                            <span class="panel-tag">offline-first upload</span>
-                            <span class="panel-tag amber">survives reboots</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="feature-panel" data-panel="privacy" role="tabpanel">
-                    <div class="panel-visual" style="display:flex;align-items:center;justify-content:center;">
-                        <svg width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.2" opacity="0.8">
-                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                            <path d="M9 12l2 2 4-4" stroke="#7ba05b" stroke-width="1.5"/>
-                        </svg>
-                    </div>
-                    <div class="panel-copy">
-                        <h3>docker on your metal</h3>
-                        <p>sqlite for simple setups, postgresql + postgis when you want tiles at scale. schedule s3 backups (data + images), import csv/gpx/google takeout/owntracks json, export everything. nominatim geocoding is the only outbound call for place names.</p>
-                        <div class="panel-tags">
-                            <span class="panel-tag">docker compose</span>
-                            <span class="panel-tag">s3 backups</span>
-                            <span class="panel-tag">pwa installable</span>
-                        </div>
-                    </div>
+                <div style="margin-top:1.75rem;">
+                    <a href="{% url 'tracker:docs' %}" class="btn btn-outline">full setup guide →</a>
                 </div>
             </div>
+        </section>
 
-            <div class="bento reveal">
-                <div class="bento-card bento-span-4">
-                    <div class="bento-icon bento-icon-coral"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 15V5"/></svg></div>
-                    <div class="bento-title">import anything</div>
-                    <p class="bento-desc">csv, gpx 1.0/1.1, google takeout location history, owntracks json — assign to a device on import.</p>
-                </div>
-                <div class="bento-card bento-span-4">
-                    <div class="bento-icon bento-icon-lavender"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 0110 10c0 5.52-4.48 10-10 10S2 17.52 2 12"/><path d="M12 6v6l4 2"/></svg></div>
-                    <div class="bento-title">reverse geocoding</div>
-                    <p class="bento-desc">background nominatim job clusters coordinates first to respect rate limits, then fills city/state/country.</p>
-                </div>
-                <div class="bento-card bento-span-4">
-                    <div class="bento-icon bento-icon-teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a4 4 0 00-8 0v2"/></svg></div>
-                    <div class="bento-title">api keys per device</div>
-                    <p class="bento-desc">bearer token or json body on <code style="color:var(--primary);background:rgba(232,118,61,0.1);padding:0.1rem 0.35rem;border-radius:0;">/api/push/</code> — gpslogger, owntracks, curl, home assistant.</p>
-                </div>
-                <div class="bento-card bento-span-6">
-                    <div class="bento-icon bento-icon-amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg></div>
-                    <div class="bento-title">data table &amp; exports</div>
-                    <p class="bento-desc">sort and filter every location row, jump to a point on the map, export csv or gpx, download a full json backup and restore later.</p>
-                </div>
-                <div class="bento-card bento-span-6">
-                    <div class="bento-icon bento-icon-sky"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg></div>
-                    <div class="bento-title">tunable map display</div>
-                    <p class="bento-desc">heatmap intensity, dot size, line gap threshold, detail zoom level, cluster radius, and per-device colors — all stored in local preferences.</p>
-                </div>
-            </div>
-        </div>
-    </section>
+        <!-- ═══ 04 OPEN SOURCE ═══ -->
+        <section class="panel" id="panel-open-source" role="tabpanel" aria-labelledby="tab-open-source" tabindex="0">
+            <div class="panel-inner os-layout">
+                <p class="kicker">why self-host</p>
+                <h2 style="font-size:clamp(1.9rem,4vw,2.6rem);font-weight:800;margin-bottom:0.5rem;">Your trail. Your server. Your rules.</h2>
+                <p class="lede">Roamly is free and open source, with no telemetry and no account lock-in. It's the software available in the <a href="https://github.com/waxn/roamly" style="color:var(--primary);font-weight:600;">project repository</a> — read it, change it, run it however you like.</p>
 
-    <section class="section setup-section">
-        <div class="container">
-            <div class="setup-layout">
-                <div>
-                    <p class="section-eyebrow reveal">setup</p>
-                    <h2 class="section-title reveal">live in about two minutes</h2>
-                    <p class="section-sub reveal">docker compose brings up the database, migrations, and web app. create an api key, point gpslogger at your instance, watch points appear.</p>
+                <ul class="trust-list">
+                    <li>Nominatim reverse-geocoding is the only outbound call the app ever makes, and only for place names.</li>
+                    <li>Docker on your own metal — SQLite for simple setups, PostgreSQL + PostGIS when you want vector tiles at scale.</li>
+                    <li>Scheduled S3 backups for data and photos; import from CSV, GPX, Google Takeout, or OwnTracks JSON at any time.</li>
+                    <li>Every API key is scoped per device, with bearer-token auth for GPSLogger, OwnTracks, Home Assistant, or plain curl.</li>
+                </ul>
 
-                    <div class="setup-steps" id="setup-steps">
-                        <div class="step active" data-step="0">
-                            <div class="step-num">1</div>
-                            <div class="step-body">
-                                <h3>grab &amp; start</h3>
-                                <p>pull the prebuilt <code>waxn/roamly</code> image with <code>docker compose up -d</code>. postgis and migrations run automatically. updates are just <code>docker compose pull &amp;&amp; docker compose up -d</code> — no git pull, no rebuild.</p>
-                            </div>
-                        </div>
-                        <div class="step" data-step="1">
-                            <div class="step-num">2</div>
-                            <div class="step-body">
-                                <h3>sign up &amp; api key</h3>
-                                <p>open your instance, create an account, then settings → api keys for your phone.</p>
-                            </div>
-                        </div>
-                        <div class="step" data-step="2">
-                            <div class="step-num">3</div>
-                            <div class="step-body">
-                                <h3>push locations</h3>
-                                <p>gpslogger custom url or owntracks → <code>/api/push/</code> with your key. garmin/strava exports work via csv import too.</p>
-                            </div>
-                        </div>
-                        <div class="step" data-step="3">
-                            <div class="step-num">4</div>
-                            <div class="step-body">
-                                <h3>explore</h3>
-                                <p>map your history, run geocoding, check visits dwell time, log an adventure, invite pals.</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div style="margin-top: 2rem;" class="reveal">
-                        <a href="{% url 'tracker:docs' %}" class="btn btn-outline">full setup guide →</a>
-                    </div>
-                </div>
-
-                <div class="reveal">
-                    <div class="setup-terminal">
-                        <div class="terminal-bar">
-                            <span class="terminal-title">~/roamly</span>
-                        </div>
-                        <div class="terminal-body">
-                            <span class="t-comment"># grab compose file &amp; start (pulls waxn/roamly image)</span><br>
-                            <span class="t-cmd">curl -O https://raw.githubusercontent.com/waxn/roamly/main/docker-compose.yml</span><br>
-                            <span class="t-cmd">docker compose up -d</span><br>
-                            <span class="t-out">db ready · migrations applied · web on :8001</span><br>
-                            <span class="t-blank"></span>
-                            <span class="t-comment"># later, to update: no git pull needed</span><br>
-                            <span class="t-cmd">docker compose pull &amp;&amp; docker compose up -d</span><br>
-                            <span class="t-blank"></span>
-                            <span class="t-comment"># push a test fix</span><br>
-                            <span class="t-cmd">curl -X POST localhost:8001/api/push/ \</span><br>
-                            <span class="t-out">  -H "Authorization: Bearer YOUR_KEY" \</span><br>
-                            <span class="t-out">  -d '{"device_id":"phone","latitude":45.5,"longitude":-122.6}'</span><br>
-                            <span class="t-blank"></span>
-                            <span class="t-success">{"status":"ok"}</span><span class="terminal-cursor"></span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <section class="section cta-section">
-        <div class="container">
-            <div class="cta-card reveal">
-                <h2>your trail. your server. your rules.</h2>
-                <p>free, open source, no account lock-in — just gps history you actually control.</p>
-                <div class="cta-actions">
+                <div class="cta-row">
                     <a href="{% url 'tracker:signup' %}" class="btn btn-primary btn-lg">create account →</a>
-                    <a href="{% url 'tracker:docs' %}" class="btn btn-outline btn-lg">documentation</a>
-                    {% if not user.is_authenticated %}
-                        <a href="{% url 'tracker:login' %}" class="btn btn-ghost btn-lg">sign in</a>
-                    {% endif %}
+                    <a href="https://github.com/waxn/roamly" class="btn btn-outline btn-lg">view source on github</a>
                 </div>
             </div>
-        </div>
-    </section>
+        </section>
+    </main>
 
     <footer class="footer">
         <div class="footer-left">roamly · self-hosted gps · &copy; 2026</div>
@@ -422,153 +426,80 @@
     </footer>
 
     <script>
-        // ── canvas network ────────────────────────────────────
-        (function () {
-            const canvas = document.getElementById('bg-canvas');
-            if (!canvas) return;
-            // Respect reduced-motion and keep the decorative animation off the
-            // critical render path entirely.
-            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-            const ctx = canvas.getContext('2d');
-            const C = '232,118,61';
-            let W, H, nodes, pings, trackers;
-
-            function resize() {
-                W = canvas.width = window.innerWidth;
-                H = canvas.height = window.innerHeight;
-                const count = Math.max(20, Math.min(Math.floor(W * H / 20000), 50));
-                nodes = Array.from({ length: count }, () => ({
-                    x: Math.random() * W, y: Math.random() * H,
-                    size: Math.random() > 0.6 ? 2.2 : 1.4,
-                    baseAlpha: 0.12 + Math.random() * 0.28,
-                    pulse: Math.random() * Math.PI * 2
-                }));
-                pings = [];
-                trackers = [0, 1, 2].map(makeTracker);
-            }
-
-            function makeTracker() {
-                const a = nodes[Math.floor(Math.random() * nodes.length)];
-                const b = nodes[Math.floor(Math.random() * nodes.length)];
-                return { x: a.x, y: a.y, tx: b.x, ty: b.y, t: Math.random(), speed: 0.0005 + Math.random() * 0.0007, trail: [] };
-            }
-
-            function draw() {
-                ctx.clearRect(0, 0, W, H);
-                const t = Date.now() / 1000;
-
-                for (let i = 0; i < nodes.length; i++) {
-                    for (let j = i + 1; j < nodes.length; j++) {
-                        const dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
-                        const d = Math.hypot(dx, dy);
-                        if (d < 200) {
-                            ctx.beginPath();
-                            ctx.moveTo(nodes[i].x, nodes[i].y);
-                            ctx.lineTo(nodes[j].x, nodes[j].y);
-                            ctx.strokeStyle = `rgba(${C},${(1 - d / 200) * 0.1})`;
-                            ctx.lineWidth = 0.8;
-                            ctx.stroke();
-                        }
-                    }
-                }
-
-                trackers.forEach(tr => {
-                    tr.t += tr.speed;
-                    if (tr.t >= 1) {
-                        tr.t = 0; tr.x = tr.tx; tr.y = tr.ty;
-                        const n = nodes[Math.floor(Math.random() * nodes.length)];
-                        tr.tx = n.x; tr.ty = n.y; tr.trail = [];
-                        pings.push({ x: tr.x, y: tr.y, r: 0, alpha: 0.9 });
-                    }
-                    const cx = tr.x + (tr.tx - tr.x) * tr.t, cy = tr.y + (tr.ty - tr.y) * tr.t;
-                    tr.trail.push({ x: cx, y: cy });
-                    if (tr.trail.length > 55) tr.trail.shift();
-                    tr.trail.forEach((pt, i) => {
-                        ctx.beginPath();
-                        ctx.arc(pt.x, pt.y, 1.2, 0, Math.PI * 2);
-                        ctx.fillStyle = `rgba(${C},${(i / tr.trail.length) * 0.3})`;
-                        ctx.fill();
-                    });
-                    ctx.beginPath();
-                    ctx.arc(cx, cy, 4, 0, Math.PI * 2);
-                    ctx.fillStyle = `rgba(${C},0.8)`;
-                    ctx.fill();
-                });
-
-                nodes.forEach(n => {
-                    const a = n.baseAlpha + Math.sin(t * 2 + n.pulse) * 0.07;
-                    ctx.beginPath();
-                    ctx.arc(n.x, n.y, n.size, 0, Math.PI * 2);
-                    ctx.fillStyle = `rgba(${C},${a})`;
-                    ctx.fill();
-                });
-
-                pings = pings.filter(p => p.alpha > 0.02);
-                pings.forEach(p => {
-                    p.r += 1; p.alpha *= 0.94;
-                    if (p.r < 60) {
-                        ctx.beginPath();
-                        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-                        ctx.strokeStyle = `rgba(${C},${p.alpha * 0.4})`;
-                        ctx.lineWidth = 1;
-                        ctx.stroke();
-                    }
-                });
-
-                requestAnimationFrame(draw);
-            }
-
-            // Defer first frame until the browser is idle so it never competes
-            // with first contentful paint.
-            const startAnim = () => {
-                resize(); draw();
-                setInterval(() => {
-                    if (nodes?.length) {
-                        const n = nodes[Math.floor(Math.random() * nodes.length)];
-                        pings.push({ x: n.x, y: n.y, r: 0, alpha: 0.75 });
-                    }
-                }, 1200);
-                window.addEventListener('resize', resize);
-            };
-            (window.requestIdleCallback || window.requestAnimationFrame)(startAnim);
-        })();
-
-        // ── nav scroll ────────────────────────────────────────
+        // ── nav scroll shadow ──────────────────────────────────
         window.addEventListener('scroll', () => {
-            document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 24);
+            document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 8);
         }, { passive: true });
 
-        // ── hero tilt ─────────────────────────────────────────
+        // ── accessible field-ledger tabs ───────────────────────
         (function () {
-            const card = document.getElementById('hero-tilt');
-            if (!card || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-            // Cache the card geometry so mousemove only writes (style.transform) and
-            // never reads layout — reading getBoundingClientRect every move forces a
-            // synchronous reflow against the transform we just wrote. Re-read the rect
-            // lazily on enter and when the viewport changes.
-            let rect = null;
-            const refresh = () => { rect = card.getBoundingClientRect(); };
-            card.addEventListener('pointerenter', refresh);
-            window.addEventListener('resize', () => { rect = null; }, { passive: true });
-            window.addEventListener('scroll', () => { rect = null; }, { passive: true });
-            card.addEventListener('mousemove', (e) => {
-                if (!rect) refresh();
-                const x = (e.clientX - rect.left) / rect.width - 0.5;
-                const y = (e.clientY - rect.top) / rect.height - 0.5;
-                card.style.transform = `perspective(900px) rotateY(${x * 10}deg) rotateX(${-y * 8}deg)`;
+            const tabs = Array.from(document.querySelectorAll('.tab-flag'));
+            const panels = Array.from(document.querySelectorAll('.panel'));
+
+            function show(tab, opts) {
+                opts = opts || {};
+                tabs.forEach((t) => {
+                    const selected = t === tab;
+                    t.setAttribute('aria-selected', String(selected));
+                    t.tabIndex = selected ? 0 : -1;
+                });
+                panels.forEach((p) => p.classList.toggle('active', p.id === tab.getAttribute('aria-controls')));
+                if (opts.focus) tab.focus();
+            }
+
+            function byHash() {
+                const h = location.hash.slice(1);
+                return tabs.find((t) => t.dataset.tab === h) || tabs[0];
+            }
+
+            function goTo(tab, opts) {
+                if (location.hash.slice(1) === tab.dataset.tab) show(tab, opts);
+                else location.hash = tab.dataset.tab;
+            }
+
+            tabs.forEach((tab, i) => {
+                tab.addEventListener('click', () => goTo(tab, {}));
+                tab.addEventListener('keydown', (e) => {
+                    let idx = null;
+                    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') idx = (i + 1) % tabs.length;
+                    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') idx = (i - 1 + tabs.length) % tabs.length;
+                    else if (e.key === 'Home') idx = 0;
+                    else if (e.key === 'End') idx = tabs.length - 1;
+                    else return;
+                    e.preventDefault();
+                    goTo(tabs[idx], { focus: true });
+                });
             });
-            card.addEventListener('mouseleave', () => {
-                card.style.transform = 'perspective(900px) rotateY(-6deg) rotateX(4deg)';
-            });
+
+            window.addEventListener('hashchange', () => show(byHash(), {}));
+            show(byHash(), {});
         })();
+
+        // ── click to copy ──────────────────────────────────────
+        document.querySelectorAll('.copy-btn').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const target = document.getElementById(btn.dataset.copyTarget);
+                if (!target) return;
+                const text = target.textContent;
+                navigator.clipboard.writeText(text).then(() => {
+                    const orig = btn.textContent;
+                    btn.textContent = 'copied!';
+                    btn.classList.add('copied');
+                    setTimeout(() => {
+                        btn.textContent = orig;
+                        btn.classList.remove('copied');
+                    }, 1500);
+                }).catch(() => {});
+            });
+        });
 
         // ── hero stat counters ────────────────────────────────
         (function () {
             const imperial = (localStorage.getItem('roamly_speed_unit') || 'kmh') === 'mph';
-            document.querySelectorAll('[data-distance-label]').forEach(el => {
+            document.querySelectorAll('[data-distance-label]').forEach((el) => {
                 el.textContent = imperial ? 'mi tracked' : 'km tracked';
             });
-            document.querySelectorAll('[data-meters]').forEach(el => {
+            document.querySelectorAll('[data-meters]').forEach((el) => {
                 const meters = +el.dataset.meters;
                 el.dataset.count = Math.round(imperial ? meters / 1609.344 : meters / 1000);
             });
@@ -577,7 +508,7 @@
             function animate(el) {
                 const target = +el.dataset.count;
                 if (reduced) { el.textContent = target.toLocaleString(); return; }
-                const dur = 1800;
+                const dur = 1400;
                 const start = performance.now();
                 function tick(now) {
                     const p = Math.min((now - start) / dur, 1);
@@ -587,54 +518,13 @@
                 }
                 requestAnimationFrame(tick);
             }
-            const obs = new IntersectionObserver((entries) => {
-                entries.forEach(e => { if (e.isIntersecting) { animate(e.target); obs.unobserve(e.target); } });
-            }, { threshold: 0.5 });
-            els.forEach(el => obs.observe(el));
-        })();
-
-        // ── feature tabs ──────────────────────────────────────
-        (function () {
-            const tabs = document.querySelectorAll('.feature-tab');
-            const panels = document.querySelectorAll('.feature-panel');
-            tabs.forEach(tab => {
-                tab.addEventListener('click', () => {
-                    const id = tab.dataset.tab;
-                    tabs.forEach(t => { t.classList.toggle('active', t === tab); t.setAttribute('aria-selected', t === tab); });
-                    panels.forEach(p => p.classList.toggle('active', p.dataset.panel === id));
-                });
-            });
-        })();
-
-        // ── setup step highlight ──────────────────────────────
-        (function () {
-            const steps = document.querySelectorAll('.step');
-            if (!steps.length) return;
-            const obs = new IntersectionObserver((entries) => {
-                entries.forEach(e => {
-                    if (e.isIntersecting) {
-                        steps.forEach(s => s.classList.remove('active'));
-                        e.target.classList.add('active');
-                    }
-                });
-            }, { rootMargin: '-40% 0px -50% 0px', threshold: 0 });
-            steps.forEach(s => obs.observe(s));
-        })();
-
-        // ── scroll reveal ─────────────────────────────────────
-        (function () {
-            const els = document.querySelectorAll('.reveal');
-            const obs = new IntersectionObserver((entries) => {
-                entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); obs.unobserve(e.target); } });
-            }, { threshold: 0.1 });
-            els.forEach(el => obs.observe(el));
+            els.forEach(animate);
         })();
 
         // ── service worker ────────────────────────────────────
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/sw.js', { scope: '/' });
         }
-
     </script>
     {% if CUSTOM_JS_SNIPPET %}{{ CUSTOM_JS_SNIPPET|safe }}{% endif %}
 </body>
