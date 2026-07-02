@@ -272,55 +272,87 @@
         <section class="panel" id="panel-capabilities" role="tabpanel" aria-labelledby="tab-capabilities" tabindex="0">
             <div class="panel-inner">
                 <h2 style="font-size:clamp(1.7rem,3.6vw,2.3rem);font-weight:800;margin-bottom:0.5rem;">Not another SaaS map widget</h2>
-                <p class="lede">Roamly is a full Django app you self-host — map, stats, adventures, pals, search, imports, backups, and a native Android client, all in one place.</p>
+                <p class="lede">Roamly is a full Django app you self-host — map, journals, adventures, pals, diagnostics, an AI you bring yourself, and a native Android client, all in one place.</p>
 
                 <div class="cap-list">
                     <div class="cap-item">
                         <span class="cap-icon"><svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
                         <div>
                             <h3>Map</h3>
-                            <p class="cap-desc">MapLibre heatmap and speed-colored tracks, time-range and per-device filters, progressive detail loading as you pan and zoom.</p>
-                            <div class="cap-tags"><span class="cap-tag">vector tiles</span><span class="cap-tag">heatmap</span><span class="cap-tag">dark/light</span></div>
+                            <p class="cap-desc">Speed-gradient tracks, density heatmaps, a day-by-day replay animation, and a "scratch map" of every country and US state you've set foot in. Vector tiles at scale on PostGIS, classic mode on SQLite.</p>
+                            <div class="cap-tags"><span class="cap-tag">heatmap</span><span class="cap-tag">replay</span><span class="cap-tag">scratch map</span></div>
                         </div>
                     </div>
                     <div class="cap-item">
                         <span class="cap-icon"><svg viewBox="0 0 24 24"><path d="M3 20l6-10 4 6 3-5 5 9H3z"/></svg></span>
                         <div>
                             <h3>Adventures</h3>
-                            <p class="cap-desc">Time-bounded trip journals with named place pins, dwell time, timeline posts, milestones, and pin-gated public share links.</p>
-                            <div class="cap-tags"><span class="cap-tag">place pins</span><span class="cap-tag">public sharing</span></div>
-                        </div>
-                    </div>
-                    <div class="cap-item">
-                        <span class="cap-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18"/><path d="M3 9h18M9 21V9"/></svg></span>
-                        <div>
-                            <h3>Stats, visits &amp; search</h3>
-                            <p class="cap-desc">Distance over time, top cities and countries, dwell hours per place. Search dates, towns, and cached OSM POIs.</p>
-                            <div class="cap-tags"><span class="cap-tag">/stats</span><span class="cap-tag">/visits</span><span class="cap-tag">/search</span></div>
+                            <p class="cap-desc">Trip journals built from eight block types — headings, photo grids, embedded maps, timelines — with named place pins, milestones, and PIN-gated public share links.</p>
+                            <div class="cap-tags"><span class="cap-tag">8 block types</span><span class="cap-tag">pin-gated sharing</span></div>
                         </div>
                     </div>
                     <div class="cap-item">
                         <span class="cap-icon"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M4 20c0-3 2.4-5 5-5s5 2 5 5"/><circle cx="17" cy="9" r="2.5"/><path d="M14.3 20c0-2.5 1.9-4.4 4.2-4.7"/></svg></span>
                         <div>
                             <h3>Pals</h3>
-                            <p class="cap-desc">Group trips where each member pushes their own device — shared timeline, blurbs, milestones, and a combined map.</p>
-                            <div class="cap-tags"><span class="cap-tag">multi-track</span><span class="cap-tag">shared timeline</span></div>
+                            <p class="cap-desc">Group trips where every member's track renders in its own color on one shared map, alongside a joint timeline of posts, photos, and milestones.</p>
+                            <div class="cap-tags"><span class="cap-tag">per-member tracks</span><span class="cap-tag">shared timeline</span></div>
+                        </div>
+                    </div>
+                    <div class="cap-item">
+                        <span class="cap-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18"/><path d="M3 9h18M9 21V9"/></svg></span>
+                        <div>
+                            <h3>Stats &amp; visits</h3>
+                            <p class="cap-desc">Distance is jitter-resistant — resampled, movement-gated, teleport-rejected — not a raw point-to-point sum. Dwell time per place is computed the same careful way, then cached in a nightly snapshot for instant loads.</p>
+                            <div class="cap-tags"><span class="cap-tag">gated distance</span><span class="cap-tag">dwell time</span></div>
+                        </div>
+                    </div>
+                    <div class="cap-item">
+                        <span class="cap-icon"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="M20 20l-5.5-5.5"/></svg></span>
+                        <div>
+                            <h3>Search &amp; places</h3>
+                            <p class="cap-desc">Search by place name, date phrase, or radius around a point. Define your own named geofences and get full stats back — top cities, dwell time, a sample track — for each one.</p>
+                            <div class="cap-tags"><span class="cap-tag">proximity search</span><span class="cap-tag">custom geofences</span></div>
+                        </div>
+                    </div>
+                    <div class="cap-item">
+                        <span class="cap-icon"><svg viewBox="0 0 24 24"><path d="M12 6c-2-1.4-5-1.8-8-.9v13c3-.9 6-.5 8 .9 2-1.4 5-1.8 8-.9v-13c-3-.9-6-.5-8 .9z"/><path d="M12 6v13"/></svg></span>
+                        <div>
+                            <h3>Journals</h3>
+                            <p class="cap-desc">One entry per day with mood, weather, and up to 20 photos, its map track pulled straight from your own GPS history. Streaks and lifetime totals included.</p>
+                            <div class="cap-tags"><span class="cap-tag">streaks</span><span class="cap-tag">day track</span></div>
+                        </div>
+                    </div>
+                    <div class="cap-item">
+                        <span class="cap-icon"><svg viewBox="0 0 24 24"><path d="M3 12h4l2 7 4-15 2 8h6"/></svg></span>
+                        <div>
+                            <h3>Diagnostics</h3>
+                            <p class="cap-desc">A quality-review pass flags bad fixes — impossible speed, altitude spikes, poor accuracy — on a map you can inspect and clean up point by point, plus a coverage timeline for the whole history.</p>
+                            <div class="cap-tags"><span class="cap-tag">quality review</span><span class="cap-tag">coverage timeline</span></div>
+                        </div>
+                    </div>
+                    <div class="cap-item">
+                        <span class="cap-icon"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.5 8.5 0 01-8.5 8.5 8.4 8.4 0 01-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 01-.9-3.8A8.5 8.5 0 0112.5 3H13a8 8 0 018 8v.5z"/></svg></span>
+                        <div>
+                            <h3>AI Ask</h3>
+                            <p class="cap-desc">Ask plain-language questions about your own history using any OpenAI-compatible model you point at — read-only tools, your own API key, no vendor lock-in.</p>
+                            <div class="cap-tags"><span class="cap-tag">bring your own LLM</span><span class="cap-tag">read-only</span></div>
                         </div>
                     </div>
                     <div class="cap-item">
                         <span class="cap-icon"><svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20"/><path d="M11 18h2"/></svg></span>
                         <div>
                             <h3>Android app</h3>
-                            <p class="cap-desc">Kotlin + Compose, foreground tracking that survives reboots and Doze. Points cache locally and upload offline-first.</p>
-                            <div class="cap-tags"><span class="cap-tag">offline-first</span><span class="cap-tag">survives reboots</span></div>
+                            <p class="cap-desc">A foreground service with two capture layers — a continuous stream while awake, exact alarms once Doze suspends everything else — plus offline-first sync that recovers on its own after a dead connection.</p>
+                            <div class="cap-tags"><span class="cap-tag">survives doze</span><span class="cap-tag">offline-first</span></div>
                         </div>
                     </div>
                     <div class="cap-item">
                         <span class="cap-icon"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="6"/><rect x="4" y="14" width="16" height="6"/><circle cx="7.5" cy="7" r="0.6" fill="currentColor" stroke="none"/><circle cx="7.5" cy="17" r="0.6" fill="currentColor" stroke="none"/></svg></span>
                         <div>
                             <h3>Your server</h3>
-                            <p class="cap-desc">Docker Compose. SQLite for simple setups or PostgreSQL + PostGIS for tiles at scale. S3 backups, CSV/GPX/Takeout/OwnTracks import.</p>
-                            <div class="cap-tags"><span class="cap-tag">docker compose</span><span class="cap-tag">zero telemetry</span></div>
+                            <p class="cap-desc">Docker Compose, SQLite or PostgreSQL + PostGIS, S3-compatible backups for data and photos, CSV/GPX/Takeout/OwnTracks/KML import. US points geocode fully offline against Census boundaries — no outbound call.</p>
+                            <div class="cap-tags"><span class="cap-tag">docker compose</span><span class="cap-tag">offline geocoding</span></div>
                         </div>
                     </div>
                 </div>
