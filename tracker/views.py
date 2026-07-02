@@ -5311,8 +5311,8 @@ def _run_history_search(user, q):
 # Custom Places (user-defined named geofences)
 # ---------------------------------------------------------------------------
 
-# Auto-assigned accent colors, cycled by the user's place count (clay palette).
-_PLACE_COLORS = ['#0DBFAC', '#FF6B6B', '#9B8EF7', '#F7B731', '#5BA4E5']
+# Auto-assigned accent colors, cycled by the user's place count (Field Journal palette).
+_PLACE_COLORS = ['#e8763d', '#7f9b6d', '#7ba3b8', '#a888a0', '#cf9a44']
 
 
 def _serialize_place(place):
@@ -5859,7 +5859,7 @@ def _get_user_avatar(user):
             }
     except UserProfile.DoesNotExist:
         pass
-    colors = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316']
+    colors = ['#e8763d', '#7f9b6d', '#7ba3b8', '#cf9a44', '#a888a0', '#c0553f', '#6b7fa3', '#4f8a7b']
     color = colors[hash(user.username) % len(colors)]
     initials = user.username[:2].upper()
     return {'type': 'initials', 'initials': initials, 'color': color}
