@@ -65,7 +65,7 @@
         }
         *{margin:0;padding:0;box-sizing:border-box}
         html{scroll-behavior:smooth}
-        body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;font-weight:400;-webkit-font-smoothing:antialiased}
+        body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;overflow-x:hidden;font-weight:400;-webkit-font-smoothing:antialiased}
 
         /* Topographic contour texture — drifts slowly via transform (compositor-only, cheap). */
         body::before{
@@ -117,13 +117,12 @@
         .tab-flag-label{font-size:0.78rem;font-weight:700;letter-spacing:0.01em;white-space:nowrap}
 
         /* ── panels ── */
-        main{position:relative;z-index:1}
+        main{position:relative;z-index:1;flex:1 0 auto}
         .panel{display:none;padding:clamp(2.5rem,6vw,4rem) clamp(1.25rem,5vw,2.5rem) clamp(3rem,7vw,4.5rem)}
         .panel.active{display:block;animation:panelFade 0.35s var(--ease-out)}
         @keyframes panelFade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
         .panel-inner{max-width:1180px;margin:0 auto}
         .accent-rule{width:2.5rem;height:3px;margin-bottom:1.1rem}
-        .kicker{font-family:var(--font-mono);font-size:0.72rem;font-weight:600;letter-spacing:0.09em;text-transform:uppercase;color:var(--text-dim);margin-bottom:1rem}
         h1,h2,h3{font-family:var(--font-display);letter-spacing:-0.02em}
         .lede{color:var(--text-muted);font-size:1.05rem;line-height:1.75;font-weight:500;max-width:52ch}
 
@@ -169,12 +168,6 @@
         .copy-btn:hover{color:var(--primary);background:var(--bg-card)}
         .copy-btn.copied{color:var(--success)}
 
-        /* ── 04 open source ── */
-        .os-layout{max-width:760px}
-        .trust-list{list-style:none;margin-top:1.5rem;border-top:1px solid var(--border)}
-        .trust-list li{padding:1rem 0;border-bottom:1px solid var(--border);color:var(--text-muted);font-size:0.92rem;line-height:1.65;font-weight:500;padding-left:1rem;position:relative}
-        .trust-list li::before{content:'—';position:absolute;left:0;color:var(--moss)}
-
         /* ── footer ── */
         .footer{position:relative;z-index:1;border-top:1px solid var(--border);padding:1.5rem clamp(1.25rem,5vw,2.5rem);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem}
         .footer-left{color:var(--text-dim);font-size:0.8rem;font-weight:600}
@@ -216,9 +209,6 @@
             <button type="button" class="tab-flag" role="tab" id="tab-setup" aria-controls="panel-setup" aria-selected="false" tabindex="-1" data-tab="setup" data-accent="amber">
                 <span class="tab-flag-num">03</span><span class="tab-flag-label">Setup</span>
             </button>
-            <button type="button" class="tab-flag" role="tab" id="tab-open-source" aria-controls="panel-open-source" aria-selected="false" tabindex="-1" data-tab="open-source" data-accent="moss">
-                <span class="tab-flag-num">04</span><span class="tab-flag-label">Open Source</span>
-            </button>
         </div>
 
         <div class="nav-auth">
@@ -236,7 +226,6 @@
         <section class="panel active" id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
             <div class="panel-inner overview-grid">
                 <div class="overview-copy">
-                    <p class="kicker">self-hosted · open source · your hardware</p>
                     <h1>Every mile you log<br>stays <em>yours.</em></h1>
                     <p class="lede">A private GPS journal you run yourself — MapLibre heatmaps, adventure journals, dwell-time analytics, group Pals trips, a native Android app, and push from GPSLogger, OwnTracks, or anything that speaks HTTP.</p>
                     <div class="cta-row">
@@ -282,7 +271,6 @@
         <!-- ═══ 02 CAPABILITIES ═══ -->
         <section class="panel" id="panel-capabilities" role="tabpanel" aria-labelledby="tab-capabilities" tabindex="0">
             <div class="panel-inner">
-                <p class="kicker">what's inside</p>
                 <h2 style="font-size:clamp(1.7rem,3.6vw,2.3rem);font-weight:800;margin-bottom:0.5rem;">Not another SaaS map widget</h2>
                 <p class="lede">Roamly is a full Django app you self-host — map, stats, adventures, pals, search, imports, backups, and a native Android client, all in one place.</p>
 
@@ -342,7 +330,6 @@
         <!-- ═══ 03 SETUP ═══ -->
         <section class="panel" id="panel-setup" role="tabpanel" aria-labelledby="tab-setup" tabindex="0">
             <div class="panel-inner">
-                <p class="kicker">setup</p>
                 <h2 style="font-size:clamp(1.7rem,3.6vw,2.3rem);font-weight:800;margin-bottom:0.5rem;">Live in about two minutes</h2>
                 <p class="lede">Docker Compose brings up the database, migrations, and web app. Create an API key, point GPSLogger at your instance, watch points appear.</p>
 
@@ -389,27 +376,6 @@
 
                 <div style="margin-top:1.75rem;">
                     <a href="{% url 'tracker:docs' %}" class="btn btn-outline">full setup guide →</a>
-                </div>
-            </div>
-        </section>
-
-        <!-- ═══ 04 OPEN SOURCE ═══ -->
-        <section class="panel" id="panel-open-source" role="tabpanel" aria-labelledby="tab-open-source" tabindex="0">
-            <div class="panel-inner os-layout">
-                <p class="kicker">why self-host</p>
-                <h2 style="font-size:clamp(1.9rem,4vw,2.6rem);font-weight:800;margin-bottom:0.5rem;">Your trail. Your server. Your rules.</h2>
-                <p class="lede">Roamly is free and open source, with no telemetry and no account lock-in. It's the software available in the <a href="https://github.com/waxn/roamly" style="color:var(--primary);font-weight:600;">project repository</a> — read it, change it, run it however you like.</p>
-
-                <ul class="trust-list">
-                    <li>Nominatim reverse-geocoding is the only outbound call the app ever makes, and only for place names.</li>
-                    <li>Docker on your own metal — SQLite for simple setups, PostgreSQL + PostGIS when you want vector tiles at scale.</li>
-                    <li>Scheduled S3 backups for data and photos; import from CSV, GPX, Google Takeout, or OwnTracks JSON at any time.</li>
-                    <li>Every API key is scoped per device, with bearer-token auth for GPSLogger, OwnTracks, Home Assistant, or plain curl.</li>
-                </ul>
-
-                <div class="cta-row">
-                    <a href="{% url 'tracker:signup' %}" class="btn btn-primary btn-lg">create account →</a>
-                    <a href="https://github.com/waxn/roamly" class="btn btn-outline btn-lg">view source on github</a>
                 </div>
             </div>
         </section>
