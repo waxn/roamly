@@ -31,11 +31,11 @@
 }
 
 .pub-photos-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
-.pub-photos-grid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 4px; cursor: pointer; }
+.pub-photos-grid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius:0; cursor: pointer; }
 
 .pub-event {
     background: var(--bg-input); border: 1px solid var(--border);
-    border-radius: 8px; padding: 0.625rem 0.75rem; margin-bottom: 0.5rem; font-size: 0.8125rem;
+    border-radius:0; padding: 0.625rem 0.75rem; margin-bottom: 0.5rem; font-size: 0.8125rem;
 }
 .pub-event-header { display: flex; align-items: center; gap: 0.375rem; margin-bottom: 0.25rem; }
 .pub-event-author { font-weight: 600; font-size: 0.75rem; }
@@ -43,11 +43,11 @@
 .pub-event-text { line-height: 1.45; white-space: pre-wrap; }
 .pub-event-loc { font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.25rem; }
 .pub-event-photos { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 0.375rem; }
-.pub-event-photos img { width: 64px; height: 64px; object-fit: cover; border-radius: 4px; cursor: pointer; }
+.pub-event-photos img { width: 64px; height: 64px; object-fit: cover; border-radius:0; cursor: pointer; }
 .pub-milestone {
     display: flex; align-items: flex-start; gap: 0.5rem;
     background: rgba(59,130,246,0.07); border: 1px solid rgba(59,130,246,0.2);
-    border-radius: 8px; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem;
+    border-radius:0; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem;
 }
 .pub-ms-emoji { font-size: 1.25rem; flex-shrink: 0; }
 .pub-ms-title { font-size: 0.875rem; font-weight: 600; }
@@ -56,7 +56,7 @@
 
 .pub-comment-input-row { display: flex; gap: 0.375rem; margin-top: 0.375rem; }
 .pub-comment-input-row input {
-    flex: 1; background: var(--bg-input); border: 1px solid var(--border); border-radius: 10px;
+    flex: 1; background: var(--bg-input); border: 1px solid var(--border); border-radius:0;
     color: var(--text); font-family: var(--font-body); font-size: 0.75rem;
     padding: 0.25rem 0.5rem; outline: none;
 }
@@ -70,20 +70,20 @@
     display: flex; align-items: center; justify-content: center; z-index: 3000;
 }
 .name-gate-card {
-    background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius:0;
     padding: 2rem; width: 340px; max-width: 90vw;
 }
 .name-gate-card h3 { font-size: 1.125rem; margin-bottom: 0.5rem; }
 .name-gate-card p { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1rem; line-height: 1.5; }
 .name-chip {
     display: inline-block; background: var(--bg-input); border: 1px solid var(--border);
-    border-radius: 20px; padding: 3px 10px; font-size: 0.75rem; cursor: pointer;
+    border-radius:0; padding: 3px 10px; font-size: 0.75rem; cursor: pointer;
     margin: 0 4px 4px 0; transition: all 0.12s;
 }
 .name-chip:hover { border-color: var(--primary); color: var(--primary); }
 .pin-input {
     letter-spacing: 0.15em; text-align: center; font-size: 1.25rem;
-    background: var(--bg-input); border: 1px solid var(--border); border-radius: 10px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius:0;
     color: var(--text); font-family: var(--font-body); font-weight: 700;
     padding: 0.5rem; width: 100%; outline: none; margin-bottom: 0.75rem;
 }
@@ -93,7 +93,7 @@
 /* Popup theme */
 .maplibregl-popup-content {
     background: var(--bg-card) !important; border: 1px solid var(--border) !important;
-    border-radius: 10px !important; padding: 0.5rem 0.75rem !important;
+    border-radius:0 !important; padding: 0.5rem 0.75rem !important;
     color: var(--text) !important; font-family: var(--font-body) !important;
     font-size: 0.8125rem !important; box-shadow: 0 4px 16px rgba(0,0,0,0.4) !important;
 }

@@ -24,7 +24,7 @@
 .save-status.error  { background: var(--danger); }
 .save-btn {
     background: var(--primary); color: #fff; border: none;
-    border-radius: 8px; padding: 0.3rem 0.875rem;
+    border-radius:0; padding: 0.3rem 0.875rem;
     font-family: var(--font-body); font-size: 0.75rem; font-weight: 700;
     cursor: pointer; box-shadow: var(--clay-shadow-btn); transition: background 0.15s;
 }
@@ -66,7 +66,7 @@
 /* Back button (top-left) */
 .editor-hero-back {
     position: absolute; top: 0.625rem; left: 0.625rem; z-index: 4;
-    width: 32px; height: 32px; border-radius: 8px;
+    width: 32px; height: 32px; border-radius:0;
     background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.18);
     color: #fff; display: flex; align-items: center; justify-content: center;
     transition: background 0.12s;
@@ -86,7 +86,7 @@
 .editor-hero[data-has-cover]:hover .editor-hero-actions { opacity: 1; }
 .editor-hero-btn {
     background: rgba(0,0,0,0.65); color: #fff;
-    border: 1px solid rgba(255,255,255,0.2); border-radius: 7px;
+    border: 1px solid rgba(255,255,255,0.2); border-radius:0;
     padding: 0.3rem 0.625rem; font-family: var(--font-body);
     font-size: 0.7rem; font-weight: 700; cursor: pointer;
     display: flex; align-items: center; gap: 0.3rem; transition: background 0.12s;
@@ -103,7 +103,7 @@
     padding: 0.3rem 0.4rem; box-shadow: var(--clay-shadow-sm);
 }
 .editor-tool-btn {
-    width: 30px; height: 30px; border-radius: 7px;
+    width: 30px; height: 30px; border-radius:0;
     background: none; border: 1px solid transparent; color: var(--text-muted);
     cursor: pointer; display: flex; align-items: center; justify-content: center;
     transition: all 0.12s; flex-shrink: 0;
@@ -137,12 +137,12 @@
 @keyframes rly-shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
 .blocks-skeleton { padding-top: 0.75rem; display: flex; flex-direction: column; gap: 0.85rem; }
 .skel {
-    border-radius: 8px;
+    border-radius:0;
     background: linear-gradient(90deg, var(--bg-input) 25%, var(--bg-glass) 50%, var(--bg-input) 75%);
     background-size: 800px 100%; animation: rly-shimmer 1.3s linear infinite;
 }
 .skel-line { height: 0.85rem; }
-.skel-block { height: 160px; border-radius: 12px; margin: 0.4rem 0; }
+.skel-block { height: 160px; border-radius:0; margin: 0.4rem 0; }
 .map-loading {
     position: absolute; inset: 0; z-index: 5; display: flex;
     align-items: center; justify-content: center; background: var(--bg-card);
@@ -157,7 +157,7 @@
 @keyframes rly-spin { to { transform: rotate(360deg); } }
 
 /* Block wrapper */
-.block-wrap { position: relative; margin-bottom: 0.125rem; border-radius: 10px; transition: background 0.1s; }
+.block-wrap { position: relative; margin-bottom: 0.125rem; border-radius:0; transition: background 0.1s; }
 .block-wrap.drag-over-top    { border-top: 2px solid var(--primary); }
 .block-wrap.drag-over-bottom { border-bottom: 2px solid var(--primary); }
 .block-wrap:hover > .block-toolbar { opacity: 1; }
@@ -170,7 +170,7 @@
 }
 .block-tool-btn {
     width: 28px; height: 28px; background: var(--bg-elevated);
-    border: 1px solid var(--border); border-radius: 8px;
+    border: 1px solid var(--border); border-radius:0;
     color: var(--text-muted); cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     transition: all 0.1s;
@@ -206,7 +206,7 @@
 }
 .block-type-item {
     display: flex; flex-direction: column; align-items: center; gap: 0.3rem;
-    padding: 0.625rem 0.25rem; border-radius: 8px; cursor: pointer;
+    padding: 0.625rem 0.25rem; border-radius:0; cursor: pointer;
     font-size: 0.6875rem; color: var(--text-muted); text-align: center;
     transition: all 0.1s; border: 1px solid transparent;
 }
@@ -226,7 +226,7 @@
     color: var(--text); font-family: var(--font-body); font-size: 0.9375rem;
     line-height: 1.6; resize: none; overflow: hidden; min-height: 1.5em; text-transform: none;
 }
-.block-text:focus { background: rgba(255,255,255,0.025); border-radius: 4px; }
+.block-text:focus { background: rgba(255,255,255,0.025); border-radius:0; }
 
 .block-divider { padding: 0.75rem 0; }
 .block-divider hr { border: none; border-top: 1px solid var(--border); }
@@ -256,7 +256,7 @@
 .block-photo-grid .photo-grid-inner.layout-strip  .grid-thumb-wrap { height: 120px; flex: 1; }
 .block-photo-grid .photo-grid-inner.layout-single .grid-thumb-wrap { width: 100%; }
 .grid-thumb-wrap { position: relative; display: inline-flex; }
-.grid-thumb-wrap .grid-thumb { width: 100%; height: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; }
+.grid-thumb-wrap .grid-thumb { width: 100%; height: 100%; aspect-ratio: 1; object-fit: cover; border-radius:0; }
 .block-photo-grid .photo-grid-inner.layout-single .grid-thumb { aspect-ratio: auto; max-height: 320px; }
 .grid-thumb-remove {
     position: absolute; top: 4px; right: 4px; width: 20px; height: 20px;
@@ -266,7 +266,7 @@
 }
 .grid-thumb-wrap:hover .grid-thumb-remove { opacity: 1; }
 .grid-thumb-remove:hover { background: var(--danger); }
-.grid-thumb { object-fit: cover; border-radius: 8px; cursor: pointer; }
+.grid-thumb { object-fit: cover; border-radius:0; cursor: pointer; }
 
 .block-location-card {
     border-radius: var(--radius-clay-sm); border: 1px solid var(--border);
@@ -291,11 +291,11 @@
 .tl-note { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.125rem; line-height: 1.5; white-space: pre-wrap; }
 
 /* Timeline modal rows */
-.tlm-event-row { padding: 0.5rem; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 0.5rem; }
+.tlm-event-row { padding: 0.5rem; border: 1px solid var(--border); border-radius:0; margin-bottom: 0.5rem; }
 .tlm-event-grid { display: grid; grid-template-columns: 150px 1fr auto; gap: 6px; align-items: center; }
-.tlm-remove { background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); width: 30px; height: 30px; font-size: 18px; line-height: 1; cursor: pointer; }
+.tlm-remove { background: var(--bg-input); border: 1px solid var(--border); border-radius:0; color: var(--text-muted); width: 30px; height: 30px; font-size: 18px; line-height: 1; cursor: pointer; }
 .tlm-remove:hover { color: var(--danger); border-color: var(--danger); }
-.bm-add-row-btn { background: var(--bg-input); border: 1px dashed var(--border); border-radius: 8px; color: var(--text-muted); font-family: var(--font-body); font-size: 0.8125rem; font-weight: 700; padding: 0.4rem 0.8rem; cursor: pointer; width: 100%; transition: all 0.12s; }
+.bm-add-row-btn { background: var(--bg-input); border: 1px dashed var(--border); border-radius:0; color: var(--text-muted); font-family: var(--font-body); font-size: 0.8125rem; font-weight: 700; padding: 0.4rem 0.8rem; cursor: pointer; width: 100%; transition: all 0.12s; }
 .bm-add-row-btn:hover { color: var(--primary); border-color: var(--primary); }
 
 /* Pin badge (inline ref) */
@@ -328,7 +328,7 @@
 .popup-close-btn svg { width: 16px; height: 16px; }
 .pin-popup-name  { font-family: var(--font-display); font-weight: 700; font-size: 1.0625rem; margin-bottom: 0.375rem; }
 .pin-popup-notes { font-size: 0.8125rem; color: var(--text-muted); line-height: 1.5; }
-.pin-popup-mini-map { width: 100%; height: 140px; border-radius: 10px; margin-top: 0.75rem; overflow: hidden; }
+.pin-popup-mini-map { width: 100%; height: 140px; border-radius:0; margin-top: 0.75rem; overflow: hidden; }
 
 /* POI star markers */
 .poi-marker { color: var(--clay-coral); cursor: pointer; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); transition: transform 0.12s; }
@@ -343,7 +343,7 @@
 .poi-popup-card .pin-popup-notes { white-space: pre-wrap; }
 .poi-popup-actions { display: flex; gap: 0.5rem; justify-content: center; margin-top: 0.9rem; }
 .poi-popup-actions button {
-    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius:0;
     color: var(--text-muted); font-family: var(--font-body); font-size: 0.8125rem;
     font-weight: 700; padding: 0.35rem 0.9rem; cursor: pointer; transition: all 0.12s;
 }
@@ -366,7 +366,7 @@
 .bm-label { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.25rem; display: block; text-transform: uppercase; letter-spacing: 0.07em; }
 .bm-input, .bm-select {
     width: 100%; background: var(--bg-input); border: 1px solid var(--border);
-    border-radius: 10px; color: var(--text); font-family: var(--font-body);
+    border-radius:0; color: var(--text); font-family: var(--font-body);
     font-size: 0.875rem; padding: 0.45rem 0.75rem; outline: none;
 }
 .bm-input:focus, .bm-select:focus { border-color: var(--primary); }
@@ -374,22 +374,22 @@
 .bm-row .bm-field { flex: 1; }
 .bm-emoji-row { display: flex; gap: 0.375rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
 .bm-emoji-btn {
-    width: 32px; height: 32px; border-radius: 8px; background: var(--bg-input);
+    width: 32px; height: 32px; border-radius:0; background: var(--bg-input);
     border: 1px solid var(--border); cursor: pointer; font-size: 1.125rem;
     display: flex; align-items: center; justify-content: center; transition: all 0.1s;
 }
 .bm-emoji-btn.active { border-color: var(--primary); background: var(--primary-soft); }
 .bm-color-row { display: flex; gap: 0.375rem; }
-.bm-color-swatch { width: 28px; height: 28px; border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: all 0.1s; }
+.bm-color-swatch { width: 28px; height: 28px; border-radius:0; cursor: pointer; border: 2px solid transparent; transition: all 0.1s; }
 .bm-color-swatch.active { border-color: #fff; transform: scale(1.15); }
 .bm-btns { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
 .bm-cancel-btn {
-    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius:0;
     color: var(--text-muted); font-family: var(--font-body); font-size: 0.8125rem;
     font-weight: 700; padding: 0.45rem 1rem; cursor: pointer;
 }
 .bm-ok-btn {
-    background: var(--primary); border: none; border-radius: 8px;
+    background: var(--primary); border: none; border-radius:0;
     color: #fff; font-family: var(--font-body); font-size: 0.8125rem;
     font-weight: 700; padding: 0.45rem 1rem; cursor: pointer; box-shadow: var(--clay-shadow-btn);
 }
@@ -420,13 +420,13 @@
 .settings-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
 .settings-input {
     flex: 1; background: var(--bg-input); border: 1px solid var(--border);
-    border-radius: 9px; color: var(--text); font-family: var(--font-body);
+    border-radius:0; color: var(--text); font-family: var(--font-body);
     font-size: 0.8125rem; padding: 0.4rem 0.75rem; outline: none;
 }
 .settings-input:focus { border-color: var(--primary); }
 .settings-prefix { font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; }
 .settings-btn {
-    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius:0;
     color: var(--text-muted); font-family: var(--font-body); font-size: 0.75rem;
     font-weight: 700; padding: 0.35rem 0.875rem; cursor: pointer; transition: all 0.12s;
 }
@@ -436,7 +436,7 @@
 .settings-btn.danger { color: var(--danger); }
 .settings-btn.danger:hover { border-color: var(--danger); background: rgba(239,68,68,0.08); }
 .settings-toggle {
-    width: 36px; height: 20px; border-radius: 10px; background: var(--bg-input);
+    width: 36px; height: 20px; border-radius:0; background: var(--bg-input);
     border: 1px solid var(--border); cursor: pointer; position: relative; transition: all 0.2s;
     flex-shrink: 0;
 }
@@ -478,7 +478,7 @@
 .settings-note-meta { font-size: 0.65rem; color: var(--text-muted); margin-top: 0.2rem; display: flex; align-items: center; gap: 0.3rem; }
 .settings-note-actions { display: flex; gap: 0.25rem; flex-shrink: 0; }
 .settings-note-actions button {
-    background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius:0;
     color: var(--text-muted); font-family: var(--font-body); font-size: 0.65rem;
     font-weight: 700; padding: 2px 7px; cursor: pointer; transition: all 0.12s;
 }
@@ -492,7 +492,7 @@
 }
 .edit-map-group {
     background: var(--bg-glass);
-    border: 1px solid var(--border); border-radius: 11px;
+    border: 1px solid var(--border); border-radius:0;
     overflow: hidden;
 }
 .edit-map-btn {
@@ -530,7 +530,7 @@
 .blurb-popup-text   { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.2rem; line-height: 1.4; }
 .popup-actions { display: flex; gap: 0.375rem; margin-top: 0.5rem; }
 .popup-actions button {
-    background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius:0;
     color: var(--text-muted); font-family: var(--font-body); font-size: 0.7rem;
     font-weight: 700; padding: 0.2rem 0.55rem; cursor: pointer; transition: all 0.12s;
 }
