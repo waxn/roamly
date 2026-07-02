@@ -549,9 +549,9 @@ function drawChart(days, distancesKm, range) {
     const cH = H - pad.top - pad.bottom;
 
     const css = getComputedStyle(document.documentElement);
-    const accent = (css.getPropertyValue('--primary') || '#0DBFAC').trim();
-    const gridCol = (css.getPropertyValue('--border') || '#2d3040').trim();
-    const textCol = (css.getPropertyValue('--text-muted') || '#8b8fa3').trim();
+    const accent = (css.getPropertyValue('--primary') || '#e8763d').trim();
+    const gridCol = (css.getPropertyValue('--border') || '#30352a').trim();
+    const textCol = (css.getPropertyValue('--text-muted') || '#a9a794').trim();
 
     ctx.clearRect(0, 0, W, H);
     chartPoints = [];
@@ -827,8 +827,8 @@ function drawYearlyChart(monthly, year) {
     const maxPts = Math.max(...monthly.map(m => m.points), 1);
 
     const css = getComputedStyle(document.documentElement);
-    const accent = (css.getPropertyValue('--primary') || '#0DBFAC').trim();
-    const textCol = (css.getPropertyValue('--text-muted') || '#888').trim();
+    const accent = (css.getPropertyValue('--primary') || '#e8763d').trim();
+    const textCol = (css.getPropertyValue('--text-muted') || '#a9a794').trim();
 
     ctx.clearRect(0, 0, W, H);
     yearlyPoints = [];

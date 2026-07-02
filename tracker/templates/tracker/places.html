@@ -363,9 +363,9 @@ function ensureEditMap() {
     editMap.on('load', () => {
         editMap.addSource('edit-circle', { type: 'geojson', data: circleGeoJSON(0, 0, 1) });
         editMap.addLayer({ id: 'edit-circle-fill', type: 'fill', source: 'edit-circle',
-            paint: { 'fill-color': '#0DBFAC', 'fill-opacity': 0.18 } });
+            paint: { 'fill-color': '#e8763d', 'fill-opacity': 0.18 } });
         editMap.addLayer({ id: 'edit-circle-line', type: 'line', source: 'edit-circle',
-            paint: { 'line-color': '#0DBFAC', 'line-width': 2 } });
+            paint: { 'line-color': '#e8763d', 'line-width': 2 } });
         redrawEditCircle();
     });
     editMap.on('click', (e) => {
@@ -373,7 +373,7 @@ function ensureEditMap() {
         editMarker.setLngLat(editCenter);
         redrawEditCircle();
     });
-    editMarker = new maplibregl.Marker({ color: '#0DBFAC', draggable: true });
+    editMarker = new maplibregl.Marker({ color: '#e8763d', draggable: true });
     editMarker.on('dragend', () => {
         const ll = editMarker.getLngLat();
         editCenter = [ll.lng, ll.lat];

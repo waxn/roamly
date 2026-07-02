@@ -86,8 +86,8 @@
 .adv-card-map-btn:hover { color: var(--clay-sky); border-color: var(--clay-sky); }
 .adv-card-pub-btn:hover { color: var(--clay-mint); border-color: var(--clay-mint); }
 .adv-badge { border-radius: 6px; padding: 2px 8px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
-.adv-badge-public { background: rgba(34,197,94,0.12); color: #22c55e; }
-.adv-badge-active { background: rgba(249,115,22,0.12); color: #f97316; }
+.adv-badge-public { background: rgba(123,160,91,0.14); color: var(--success); }
+.adv-badge-active { background: var(--primary-soft); color: var(--primary); }
 
 .adv-empty { grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 4rem 2rem; font-size: 0.9375rem; }
 
@@ -1047,7 +1047,7 @@ function loadTripDetail(id) {
 
 const ADV_MAP_LIMIT = 20000;
 const ADV_HEATMAP_COLOR = ['interpolate',['linear'],['heatmap-density'],0,'rgba(33,102,172,0)',0.2,'rgb(103,169,207)',0.4,'rgb(209,229,240)',0.6,'rgb(253,219,199)',0.8,'rgb(239,138,98)',1,'rgb(178,24,43)'];
-const MEMBER_COLORS = ['#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6','#f97316'];
+const MEMBER_COLORS = ['#e8763d','#7f9b6d','#7ba3b8','#a888a0','#cf9a44','#c0674a'];
 
 function renderTripOnMap(data) {
     if(!tripMap||!data.locations.length){hideTripMapLoading();return;}
@@ -1063,14 +1063,14 @@ function renderTripOnMap(data) {
             paint:{'heatmap-intensity':['interpolate',['linear'],['zoom'],..._heatArgs],'heatmap-radius':['interpolate',['linear'],['zoom'],0,6,13,26],'heatmap-opacity':['interpolate',['linear'],['zoom'],0,0.75,11,0.6,13,0.1],'heatmap-color':ADV_HEATMAP_COLOR}});
     }
     tripMap.addLayer({id:'adv-dots',type:'circle',source:'adv-pts',minzoom:_detailZoom,
-        paint:{'circle-color':_speedGradient==='on'?_speedColorExpr():'#3b82f6','circle-radius':['interpolate',['linear'],['zoom'],..._dotArgs],'circle-stroke-width':1,'circle-stroke-color':'rgba(255,255,255,0.6)','circle-opacity':['interpolate',['linear'],['zoom'],_detailZoom,0,_detailZoom+2,1]}});
+        paint:{'circle-color':_speedGradient==='on'?_speedColorExpr():'#e8763d','circle-radius':['interpolate',['linear'],['zoom'],..._dotArgs],'circle-stroke-width':1,'circle-stroke-color':'rgba(255,255,255,0.6)','circle-opacity':['interpolate',['linear'],['zoom'],_detailZoom,0,_detailZoom+2,1]}});
 
     const _connectLines=localStorage.getItem('roamly_connect_lines')||'off';
     if(coords.length>1&&_connectLines==='on'){
         const lineFeatures=[]; let seg=[coords[0]];
         for(let i=1;i<data.locations.length;i++){const gap=new Date(data.locations[i].timestamp)-new Date(data.locations[i-1].timestamp);if(gap>_lineGapMs){if(seg.length>1)lineFeatures.push({type:'Feature',geometry:{type:'LineString',coordinates:seg}});seg=[coords[i]];}else seg.push(coords[i]);}
         if(seg.length>1)lineFeatures.push({type:'Feature',geometry:{type:'LineString',coordinates:seg}});
-        if(lineFeatures.length){tripMap.addSource('adv-line',{type:'geojson',data:{type:'FeatureCollection',features:lineFeatures}});tripMap.addLayer({id:'adv-line',type:'line',source:'adv-line',minzoom:_detailZoom,paint:{'line-color':'#3b82f6','line-width':2,'line-opacity':0.55}});}
+        if(lineFeatures.length){tripMap.addSource('adv-line',{type:'geojson',data:{type:'FeatureCollection',features:lineFeatures}});tripMap.addLayer({id:'adv-line',type:'line',source:'adv-line',minzoom:_detailZoom,paint:{'line-color':'#e8763d','line-width':2,'line-opacity':0.55}});}
     }
 
     renderPlaceMarkers(data.places||[]);
@@ -1112,9 +1112,9 @@ function renderPlaceMarkers(places) {
     ['place-circles','place-markers'].forEach(id=>{if(tripMap.getLayer(id))tripMap.removeLayer(id);if(tripMap.getSource(id))tripMap.removeSource(id);});
     if(!places.length)return;
     tripMap.addSource('place-circles',{type:'geojson',data:{type:'FeatureCollection',features:places.map(p=>({type:'Feature',geometry:{type:'Polygon',coordinates:[makeCircle(p.longitude,p.latitude,p.radius)]},properties:{id:p.id,name:p.name}}))}});
-    tripMap.addLayer({id:'place-circles',type:'fill',source:'place-circles',paint:{'fill-color':'#3b82f6','fill-opacity':0.12}});
+    tripMap.addLayer({id:'place-circles',type:'fill',source:'place-circles',paint:{'fill-color':'#7ba3b8','fill-opacity':0.12}});
     tripMap.addSource('place-markers',{type:'geojson',data:{type:'FeatureCollection',features:places.map(p=>({type:'Feature',geometry:{type:'Point',coordinates:[p.longitude,p.latitude]},properties:{id:p.id,name:p.name,time_spent_display:p.time_spent_display||'',lng:p.longitude,lat:p.latitude}}))}});
-    tripMap.addLayer({id:'place-markers',type:'circle',source:'place-markers',paint:{'circle-color':'#3b82f6','circle-radius':7,'circle-stroke-width':2,'circle-stroke-color':'#ffffff'}});
+    tripMap.addLayer({id:'place-markers',type:'circle',source:'place-markers',paint:{'circle-color':'#7ba3b8','circle-radius':7,'circle-stroke-width':2,'circle-stroke-color':'#ffffff'}});
     let pinTooltip=null;
     tripMap.on('mouseenter','place-markers',(e)=>{tripMap.getCanvas().style.cursor='pointer';const p=e.features[0].properties,c=e.features[0].geometry.coordinates.slice();const ts=p.time_spent_display?`<div style="color:var(--text-muted);font-size:0.75rem;margin-top:2px;">${escHtml(p.time_spent_display)} here</div>`:'';pinTooltip=new maplibregl.Popup({offset:12,closeButton:false,closeOnClick:false}).setLngLat(c).setHTML(`<div style="font-weight:600;font-size:0.8125rem;">${escHtml(p.name)}</div>${ts}`).addTo(tripMap);});
     tripMap.on('mouseleave','place-markers',()=>{tripMap.getCanvas().style.cursor='';if(pinTooltip){pinTooltip.remove();pinTooltip=null;}});
@@ -1210,7 +1210,7 @@ function startAddPlace(){
 function showPlaceForm(lat,lng){
     ['temp-place','temp-place-circle'].forEach(id=>{if(tripMap.getLayer(id))tripMap.removeLayer(id);if(tripMap.getSource(id))tripMap.removeSource(id);});
     tripMap.addSource('temp-place',{type:'geojson',data:{type:'Feature',geometry:{type:'Point',coordinates:[lng,lat]}}});
-    tripMap.addLayer({id:'temp-place',type:'circle',source:'temp-place',paint:{'circle-color':'#f59e0b','circle-radius':8,'circle-stroke-width':2,'circle-stroke-color':'#fff'}});
+    tripMap.addLayer({id:'temp-place',type:'circle',source:'temp-place',paint:{'circle-color':'#cf9a44','circle-radius':8,'circle-stroke-width':2,'circle-stroke-color':'#fff'}});
     updateTempCircle(lng,lat,100);
     document.getElementById('place-form-container').innerHTML=`<div class="adv-place-form"><div class="form-group"><label>Pin name</label><input type="text" id="pf-name" class="form-control" placeholder="e.g. Summit, Café, Hotel"></div><div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:0.375rem;">${lat.toFixed(5)}, ${lng.toFixed(5)}</div><div style="display:flex;gap:0.375rem;"><button class="btn btn-primary btn-sm" onclick="savePlace(${lat},${lng})">drop pin</button><button class="btn btn-outline btn-sm" onclick="cancelPlaceForm()">cancel</button></div></div>`;
 }
@@ -1218,7 +1218,7 @@ function showPlaceForm(lat,lng){
 function updateTempCircle(lng,lat,radiusM){
     const id='temp-place-circle';if(tripMap.getLayer(id))tripMap.removeLayer(id);if(tripMap.getSource(id))tripMap.removeSource(id);
     tripMap.addSource(id,{type:'geojson',data:{type:'Feature',geometry:{type:'Polygon',coordinates:[makeCircle(lng,lat,radiusM)]}}});
-    tripMap.addLayer({id,type:'fill',source:id,paint:{'fill-color':'#f59e0b','fill-opacity':0.2}});
+    tripMap.addLayer({id,type:'fill',source:id,paint:{'fill-color':'#cf9a44','fill-opacity':0.2}});
 }
 
 function cancelPlaceForm(){
@@ -1482,7 +1482,7 @@ function setBlurbLocation(lat,lng){
         if(tripMap.getLayer('blurb-pin'))tripMap.removeLayer('blurb-pin');
         if(tripMap.getSource('blurb-pin'))tripMap.removeSource('blurb-pin');
         tripMap.addSource('blurb-pin',{type:'geojson',data:{type:'Feature',geometry:{type:'Point',coordinates:[lng,lat]}}});
-        tripMap.addLayer({id:'blurb-pin',type:'circle',source:'blurb-pin',paint:{'circle-color':'#a855f7','circle-radius':8,'circle-stroke-width':2,'circle-stroke-color':'#fff'}});
+        tripMap.addLayer({id:'blurb-pin',type:'circle',source:'blurb-pin',paint:{'circle-color':'#7ba3b8','circle-radius':8,'circle-stroke-width':2,'circle-stroke-color':'#fff'}});
     }
     if(_composeDraftReturnToModal){_composeDraftReturnToModal=false;openCompose();}
 }

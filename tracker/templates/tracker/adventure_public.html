@@ -607,7 +607,7 @@ function activateMapEmbed(wrapEl, locs, pois){
         if(config.show_track !== false && locs.length){
             const coords = locs.map(l=>[l.lng,l.lat]);
             m.addSource(mapId+'-track',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:coords}}});
-            m.addLayer({id:mapId+'-line',type:'line',source:mapId+'-track',paint:{'line-color':'#0DBFAC','line-width':2,'line-opacity':0.8}});
+            m.addLayer({id:mapId+'-line',type:'line',source:mapId+'-track',paint:{'line-color':'#e8763d','line-width':2,'line-opacity':0.8}});
             if(!config.center_lat){
                 const lngs=locs.map(l=>l.lng),lats=locs.map(l=>l.lat);
                 m.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]],{padding:40,maxZoom:14});

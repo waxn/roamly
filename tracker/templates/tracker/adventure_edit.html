@@ -1115,7 +1115,7 @@ function activateEditorEmbeds(){
                     'heatmap-opacity':['interpolate',['linear'],['zoom'],0,0.75,11,0.6,13,0.1],
                     'heatmap-color':['interpolate',['linear'],['heatmap-density'],0,'rgba(33,102,172,0)',0.2,'rgb(103,169,207)',0.4,'rgb(209,229,240)',0.6,'rgb(253,219,199)',0.8,'rgb(239,138,98)',1,'rgb(178,24,43)']}});
                 m.addLayer({id:bid+'-dots',type:'circle',source:bid+'-heatsrc',minzoom:7,paint:{
-                    'circle-color':'#0DBFAC','circle-radius':['interpolate',['linear'],['zoom'],8,3,12,6,16,12],'circle-stroke-width':1,'circle-stroke-color':'rgba(255,255,255,0.7)'}});
+                    'circle-color':'#e8763d','circle-radius':['interpolate',['linear'],['zoom'],8,3,12,6,16,12],'circle-stroke-width':1,'circle-stroke-color':'rgba(255,255,255,0.7)'}});
                 if(!c.center_lat){
                     const lngs=locs.map(l=>l.lng),lats=locs.map(l=>l.lat);
                     m.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]],{padding:30,maxZoom:14,duration:0});
@@ -1124,7 +1124,7 @@ function activateEditorEmbeds(){
             if(c.show_places !== false && places.length){
                 const feats = places.map(p=>({type:'Feature',geometry:{type:'Point',coordinates:[p.longitude,p.latitude]},properties:{}}));
                 m.addSource(bid+'-pl',{type:'geojson',data:{type:'FeatureCollection',features:feats}});
-                m.addLayer({id:bid+'-places',type:'circle',source:bid+'-pl',paint:{'circle-color':'#9B8EF7','circle-radius':6,'circle-stroke-width':2,'circle-stroke-color':'#fff'}});
+                m.addLayer({id:bid+'-places',type:'circle',source:bid+'-pl',paint:{'circle-color':'#a888a0','circle-radius':6,'circle-stroke-width':2,'circle-stroke-color':'#fff'}});
             }
         });
     });
@@ -1629,7 +1629,7 @@ function initMap(locs){
                 id:'track-dots', type:'circle', source:'track', minzoom:7,
                 layout:{visibility: showTrack ? 'visible' : 'none'},
                 paint:{
-                    'circle-color':'#0DBFAC',
+                    'circle-color':'#e8763d',
                     'circle-radius':['interpolate',['linear'],['zoom'],8,3,12,6,16,12],
                     'circle-stroke-width':1,
                     'circle-stroke-color':'rgba(255,255,255,0.7)'

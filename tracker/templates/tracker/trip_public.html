@@ -322,7 +322,7 @@ function fetchPublicData() {
             }
             map.addLayer({ id:'pub-dots', type:'circle', source:'pub-pts',
                 minzoom: smallAdv ? 0 : 8,
-                paint: { 'circle-color': _speedGradient==='on' ? _speedColorExpr() : '#3b82f6',
+                paint: { 'circle-color': _speedGradient==='on' ? _speedColorExpr() : '#e8763d',
                     'circle-radius':['interpolate',['linear'],['zoom'],..._dotArgs],
                     'circle-stroke-width':1, 'circle-stroke-color':'rgba(255,255,255,0.6)',
                     'circle-opacity': smallAdv ? 1 : ['interpolate',['linear'],['zoom'],8,0,10,1] }
@@ -340,7 +340,7 @@ function fetchPublicData() {
                 if (seg.length > 1) lineFeats.push({type:'Feature',geometry:{type:'LineString',coordinates:seg}});
                 map.addSource('pub-line', {type:'geojson',data:{type:'FeatureCollection',features:lineFeats}});
                 map.addLayer({id:'pub-line', type:'line', source:'pub-line',
-                    paint:{'line-color':'#3b82f6','line-width':2,'line-opacity':0.55}});
+                    paint:{'line-color':'#e8763d','line-width':2,'line-opacity':0.55}});
             }
 
             map.on('click','pub-dots', e => {

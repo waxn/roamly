@@ -395,7 +395,7 @@ function loadMemberLocations() {
                 Object.entries(data.members).forEach(([username, info]) => {
                     if (info.locations.length === 0) return;
                     const coords = info.locations.map(l => [l.lng, l.lat]);
-                    const color = info.avatar.type === 'initials' ? info.avatar.color : '#3b82f6';
+                    const color = info.avatar.type === 'initials' ? info.avatar.color : '#e8763d';
 
                     // Route line
                     if (palMap.getSource(`route-${username}`)) palMap.removeLayer(`route-${username}`);

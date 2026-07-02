@@ -88,7 +88,7 @@
     position: absolute;
     top: 0; left: -60%;
     width: 60%; height: 100%;
-    background: var(--primary, #3b82f6);
+    background: var(--primary, #e8763d);
     animation: loading-sweep 1.4s infinite cubic-bezier(0.4, 0, 0.2, 1);
 }
 @keyframes loading-sweep {
@@ -997,7 +997,7 @@ function renderTripOnMap(data) {
             });
             tripMap.addLayer({
                 id: 'trip-line', type: 'line', source: 'trip-line',
-                paint: { 'line-color': '#3b82f6', 'line-width': 2, 'line-opacity': 0.6 }
+                paint: { 'line-color': '#e8763d', 'line-width': 2, 'line-opacity': 0.6 }
             });
         }
     }
@@ -1033,7 +1033,7 @@ function renderTripOnMap(data) {
         data: { type: 'FeatureCollection', features }
     });
 
-    let circleColor = '#3b82f6';
+    let circleColor = '#e8763d';
     if (speedGradient === 'on') {
         circleColor = [
             'case',
@@ -1129,7 +1129,7 @@ function renderPlaceMarkers(places) {
     tripMap.addLayer({
         id: 'place-circles', type: 'fill', source: 'place-circles',
         paint: {
-            'fill-color': '#22c55e',
+            'fill-color': '#7ba3b8',
             'fill-opacity': 0.15
         }
     });
@@ -1148,7 +1148,7 @@ function renderPlaceMarkers(places) {
     tripMap.addLayer({
         id: 'place-markers', type: 'circle', source: 'place-markers',
         paint: {
-            'circle-color': '#22c55e',
+            'circle-color': '#7ba3b8',
             'circle-radius': 7,
             'circle-stroke-width': 2,
             'circle-stroke-color': '#fff'
@@ -1163,7 +1163,7 @@ function renderPlaceMarkers(places) {
             'text-anchor': 'top'
         },
         paint: {
-            'text-color': '#22c55e',
+            'text-color': '#7ba3b8',
             'text-halo-color': 'rgba(0,0,0,0.7)',
             'text-halo-width': 1
         }
@@ -1306,7 +1306,7 @@ function showPlaceForm(lat, lng) {
     });
     tripMap.addLayer({
         id: tempId, type: 'circle', source: tempId,
-        paint: { 'circle-color': '#f59e0b', 'circle-radius': 8, 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' }
+        paint: { 'circle-color': '#cf9a44', 'circle-radius': 8, 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' }
     });
 
     // Initial radius circle
@@ -1355,7 +1355,7 @@ function updateTempCircle(lng, lat, radiusM) {
     });
     tripMap.addLayer({
         id: tempCircleId, type: 'fill', source: tempCircleId,
-        paint: { 'fill-color': '#f59e0b', 'fill-opacity': 0.2 }
+        paint: { 'fill-color': '#cf9a44', 'fill-opacity': 0.2 }
     });
 }
 
@@ -1599,7 +1599,7 @@ function setBlurbLocation(lat, lng) {
     });
     tripMap.addLayer({
         id: 'blurb-pin', type: 'circle', source: 'blurb-pin',
-        paint: { 'circle-color': '#a855f7', 'circle-radius': 8, 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' }
+        paint: { 'circle-color': '#7ba3b8', 'circle-radius': 8, 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' }
     });
 }
 

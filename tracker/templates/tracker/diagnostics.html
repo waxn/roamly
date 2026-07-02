@@ -184,7 +184,7 @@
 .review-reason {
     font-size: 0.68rem; font-weight: 700; padding: 0.1rem 0.45rem;
     border-radius: 999px; text-transform: uppercase; letter-spacing: 0.04em;
-    background: rgba(239,68,68,0.15); color: #ef4444;
+    background: rgba(239,68,68,0.15); color: #d4553f;
 }
 .review-actions { display: flex; gap: 0.4rem; }
 .review-actions .btn { font-size: 0.75rem; padding: 0.25rem 0.6rem; }
@@ -605,10 +605,10 @@ function initReviewMap() {
             filter: ['==', ['get', 'flag'], 'suspect'],
             paint: {
                 'circle-radius': 6,
-                'circle-color': '#ef4444',
+                'circle-color': '#d4553f',
                 'circle-opacity': 0.85,
                 'circle-stroke-width': 2,
-                'circle-stroke-color': '#ff2020',
+                'circle-stroke-color': '#d4553f',
             }
         });
         // Highlighted selected point (shown on top via separate source)
@@ -619,7 +619,7 @@ function initReviewMap() {
             source: 'review-sel',
             paint: {
                 'circle-radius': 9,
-                'circle-color': '#ef4444',
+                'circle-color': '#d4553f',
                 'circle-stroke-width': 3,
                 'circle-stroke-color': '#fff',
             }

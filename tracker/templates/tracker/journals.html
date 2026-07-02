@@ -841,7 +841,7 @@ function renderDayMap(track) {
             jmap.addSource('line', {type:'geojson', data:{type:'Feature', geometry:{type:'MultiLineString', coordinates:segs}}});
             jmap.addLayer({id:'j-line', type:'line', source:'line',
                 layout:{'line-join':'round','line-cap':'round'},
-                paint:{'line-color':'#0DBFAC','line-width':4,'line-opacity':0.9,'line-blur':0.3}});
+                paint:{'line-color':'#e8763d','line-width':4,'line-opacity':0.9,'line-blur':0.3}});
         }
 
         const startPt = track.start || track.points[0];
@@ -853,9 +853,9 @@ function renderDayMap(track) {
             ]};
             jmap.addSource('startend', {type:'geojson', data:startend});
             jmap.addLayer({id:'j-start', type:'circle', source:'startend', filter:['==','kind','start'],
-                paint:{'circle-radius':7,'circle-color':'#5BA4E5','circle-stroke-width':2.5,'circle-stroke-color':'#fff'}});
+                paint:{'circle-radius':7,'circle-color':'#7ba3b8','circle-stroke-width':2.5,'circle-stroke-color':'#fff'}});
             jmap.addLayer({id:'j-end', type:'circle', source:'startend', filter:['==','kind','end'],
-                paint:{'circle-radius':7,'circle-color':'#FF6B6B','circle-stroke-width':2.5,'circle-stroke-color':'#fff'}});
+                paint:{'circle-radius':7,'circle-color':'#d0694a','circle-stroke-width':2.5,'circle-stroke-color':'#fff'}});
         }
 
         // fit bounds to all decimated points
