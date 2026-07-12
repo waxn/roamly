@@ -153,6 +153,21 @@
     padding: 0.6rem 0.75rem;
     border-bottom: 1px solid var(--border);
 }
+/* Bare .btn (no -primary/-outline modifier) sets no background, so it falls
+   back to the browser's default white button and clashes with the panel.
+   Give the review controls the flat surface style used elsewhere. */
+.review-group-btn,
+.review-nav .btn,
+.review-actions .btn {
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+}
+.review-nav .btn:not(:disabled):hover,
+.review-actions .btn:hover,
+.review-group-btn:not(.active):hover {
+    border-color: var(--accent);
+}
 .review-group-btn { flex: 1; text-align:center; }
 .review-group-btn.active { background:var(--accent); border-color:var(--accent); color:#fff; }
 .review-nav {
