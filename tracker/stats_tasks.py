@@ -21,7 +21,7 @@ import threading
 from contextlib import contextmanager
 from datetime import timedelta
 
-from django.db import connection
+from django.db import connection, close_old_connections
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -174,6 +174,17 @@ def _stats_scheduler_loop():
 
     while True:
         try:
+            # This daemon thread has no request/response cycle, so Django never
+            # fires the request_started/request_finished signals that normally
+            # enforce CONN_MAX_AGE and discard broken connections. We sleep 900s
+            # between sweeps — longer than conn_max_age (600s) — so the held
+            # connection is always obsolete by the next pass, and a DB restart /
+            # network blip leaves it errored. Without this call the first stale
+            # connection makes every subsequent sweep raise (caught + swallowed
+            # below), silently freezing snapshots forever. Closing here forces a
+            # fresh, healthy connection for each sweep.
+            close_old_connections()
+
             today = timezone.localdate()
             # NOTE the .order_by(): Location has Meta.ordering = ['-timestamp'],
             # and a values_list(...).distinct() inherits it — which forces the
