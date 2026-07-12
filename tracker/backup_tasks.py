@@ -6,6 +6,7 @@ import logging
 import time
 from datetime import timedelta
 
+from django.db import close_old_connections
 from django.utils import timezone
 from django.core.serializers.json import DjangoJSONEncoder
 
@@ -441,6 +442,15 @@ def _backup_scheduler_loop():
 
     while True:
         try:
+            # This daemon thread has no request cycle, so Django never fires the
+            # signals that enforce CONN_MAX_AGE / discard broken connections. The
+            # sweep sleeps 900s (> conn_max_age 600s), so the reused connection is
+            # stale by the next pass, and a DB restart leaves it errored. Without
+            # this the first stale connection makes every later sweep raise (caught
+            # below), silently stopping scheduled backups while manual "backup now"
+            # (request-driven) still works. Force a fresh connection each sweep.
+            close_old_connections()
+
             now = timezone.now()
             configs = BackupConfig.objects.filter(
                 interval__in=['daily', 'weekly', 'monthly'],
