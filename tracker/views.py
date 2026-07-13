@@ -684,7 +684,7 @@ def push_location_batch(request):
             except (ValueError, OSError):
                 pass
 
-        to_create.append(Location(
+        loc_obj = Location(
             device=devices[device_id],
             latitude=lat,
             longitude=lng,
@@ -693,7 +693,16 @@ def push_location_batch(request):
             accuracy=_safe_float(raw.get("accuracy")),
             speed=_safe_float(raw.get("speed")),
             battery=_safe_float(raw.get("battery")),
-        ))
+        )
+        # bulk_create() below bypasses Location.save(), which is what normally
+        # populates the PostGIS `location` PointField from lat/lon. Without this,
+        # every batch-uploaded point has location=NULL and is invisible to all
+        # spatial queries (Places membership/last-seen, "have I been here",
+        # search, map "my places") — freezing them at the last single-pushed
+        # point. Set it here exactly as save() and the restore path do.
+        if HAS_POSTGIS and Point:
+            loc_obj.location = Point(lng, lat, srid=4326)
+        to_create.append(loc_obj)
 
     accepted = 0
     if to_create:
