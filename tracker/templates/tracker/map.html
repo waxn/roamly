@@ -630,6 +630,48 @@ const mapStyles = {
     }
 };
 
+// Optional Mapbox basemaps — only added when the user has saved a public token
+// in Settings (localStorage 'roamly_mapbox_token'). Uses Mapbox raster tiles so it
+// slots into the same style-8 raster pattern as the built-in basemaps. The built-in
+// free basemaps above are always available regardless.
+const _mapboxToken = (localStorage.getItem('roamly_mapbox_token') || '').trim();
+function _mapboxRasterStyle(styleId, attribution) {
+    return {
+        version: 8,
+        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+        sources: {
+            'mapbox': {
+                type: 'raster',
+                tiles: ['https://api.mapbox.com/styles/v1/mapbox/' + styleId +
+                        '/tiles/256/{z}/{x}/{y}?access_token=' + encodeURIComponent(_mapboxToken)],
+                tileSize: 256,
+                maxzoom: 22,
+                attribution: attribution
+            }
+        },
+        layers: [{ id: 'mapbox', type: 'raster', source: 'mapbox' }]
+    };
+}
+if (_mapboxToken) {
+    const _mbAttr = '&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> &copy; OpenStreetMap contributors';
+    mapStyles['Mapbox Streets'] = _mapboxRasterStyle('streets-v12', _mbAttr);
+    mapStyles['Mapbox Outdoors'] = _mapboxRasterStyle('outdoors-v12', _mbAttr);
+    mapStyles['Mapbox Satellite'] = _mapboxRasterStyle('satellite-streets-v12', _mbAttr);
+    // Add matching basemap buttons next to the built-in ones (before the button
+    // wiring below runs, so they pick up the same click behaviour).
+    const _basemapGroup = document.querySelector('.style-btn')?.parentElement;
+    if (_basemapGroup) {
+        [['Mapbox Streets', 'mb streets'], ['Mapbox Outdoors', 'mb outdoors'],
+         ['Mapbox Satellite', 'mb sat']].forEach(([style, label]) => {
+            const btn = document.createElement('button');
+            btn.className = 'style-btn';
+            btn.dataset.style = style;
+            btn.textContent = label;
+            _basemapGroup.appendChild(btn);
+        });
+    }
+}
+
 function showMapLoading(label) {
     document.getElementById('map-loading-bar').classList.add('active');
     document.getElementById('map-info').textContent = label || 'loading...';
@@ -674,11 +716,14 @@ function speedColorExpr(fallback) {
 const defaultTimeRange = localStorage.getItem('roamly_default_time_range') || '24';
 document.getElementById('time-range').value = defaultTimeRange;
 
-const _savedTileStyle = localStorage.getItem('roamly_map_tile_style') || 'Streets';
+// Fall back to Streets if the saved style is unavailable (e.g. a Mapbox basemap
+// was chosen, then the token was later removed in Settings).
+const _rawSavedTileStyle = localStorage.getItem('roamly_map_tile_style') || 'Streets';
+const _savedTileStyle = mapStyles[_rawSavedTileStyle] ? _rawSavedTileStyle : 'Streets';
 
 const map = new maplibregl.Map({
     container: 'map',
-    style: mapStyles[_savedTileStyle] || mapStyles['Streets'],
+    style: mapStyles[_savedTileStyle],
     center: [0, 20],
     zoom: 2,
 });

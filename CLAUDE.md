@@ -220,6 +220,8 @@ Detail points load progressively via `/api/locations/` as user pans/zooms (viewp
 
 Adventure map loads from `/api/trips/<id>/` (capped 30k). Under 20k: all dots immediately; over 20k: heatmap-first, dots on zoom.
 
+**Basemaps (`map.html`).** Selected by the sidebar "basemap" buttons, persisted in `roamly_map_tile_style`. Built-in free basemaps (always available): `Streets` (CARTO light), `Dark` (CARTO dark), `Satellite` (Esri). **Optional Mapbox basemaps** appear only when the user pastes a public Mapbox token (`pk.…`) into Settings → Main Map Settings (stored client-side in `roamly_mapbox_token`, never sent to the server): `Mapbox Streets`/`Mapbox Outdoors`/`Mapbox Satellite`, built via `_mapboxRasterStyle` from Mapbox raster-tile URLs (style-8 raster source, same pattern as the built-ins), with matching buttons injected into the basemap group at load. If a saved Mapbox style becomes unavailable (token removed), the map falls back to `Streets`. Purely additive — no built-in basemap was removed.
+
 **Map tools (`map.html` only):**
 - **Globe** — `map.setProjection({type:'globe'|'mercator'})`. Requires **MapLibre GL v5** (globally in `base.html`, v5.24.0). Persists in `roamly_globe`; re-applied on `style.load`.
 - **Scratch** — highlights visited countries. `/api/countries/` returns visited `country_code`s (uppercase ISO-2 + US `states` list); client fills `tracker/static/tracker/data/world-countries.json` (Natural Earth 110m, ~170KB). **New static files need `collectstatic` — `--build` runs it on container start.**
@@ -246,6 +248,8 @@ All stored in `localStorage` with `roamly_` prefix:
 | `roamly_default_time_range` | hours or 'all' | 24 |
 | `roamly_globe` | on / off | off |
 | `roamly_show_places` | on / off | off |
+| `roamly_map_tile_style` | Streets / Dark / Satellite / Mapbox Streets / Mapbox Outdoors / Mapbox Satellite | Streets |
+| `roamly_mapbox_token` | Mapbox public token (`pk.…`) or empty | empty |
 
 ## Visit time spent
 

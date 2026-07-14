@@ -245,6 +245,15 @@
                     </select>
                 </div>
 
+                <div class="pref-form-group" style="grid-column: 1 / -1;">
+                    <label class="pref-label">
+                        Mapbox Access Token
+                        <div class="info-icon" data-tooltip="Optional. Paste a Mapbox public token (pk.…) to unlock Mapbox Streets, Outdoors & Satellite basemaps on the main map. Leave blank to keep using the built-in free basemaps — nothing else changes.">?</div>
+                    </label>
+                    <input type="text" id="mapbox-token" class="form-control" placeholder="pk.…" autocomplete="off" spellcheck="false" onchange="saveMapboxToken(this.value)">
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">Stored only in this browser. Leave blank to use the built-in free basemaps.</div>
+                </div>
+
                 <div class="pref-form-group classic-only" style="display: none;">
                     <label class="pref-label">
                         Map Point Limit
@@ -1278,6 +1287,14 @@ function savePref(key, value) {
 document.getElementById('default-time-range').value = localStorage.getItem('roamly_default_time_range') || '24';
 document.getElementById('speed-gradient').value = localStorage.getItem('roamly_speed_gradient') || 'on';
 document.getElementById('connect-lines').value = localStorage.getItem('roamly_connect_lines') || 'off';
+
+// Mapbox access token — optional, unlocks Mapbox basemaps on the main map
+function saveMapboxToken(value) {
+    const token = (value || '').trim();
+    if (token) localStorage.setItem('roamly_mapbox_token', token);
+    else localStorage.removeItem('roamly_mapbox_token');
+}
+document.getElementById('mapbox-token').value = localStorage.getItem('roamly_mapbox_token') || '';
 
 // Map renderer preference
 function updateClassicOptions() {
