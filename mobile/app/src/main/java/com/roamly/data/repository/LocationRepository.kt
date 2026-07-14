@@ -15,6 +15,15 @@ import javax.inject.Singleton
 @Singleton
 class LocationRepository @Inject constructor(private val api: RoamlyApi) {
 
+    /** The user's optional Mapbox token (configured on the web). Returns null on
+     *  any failure so the caller can just fall back to the built-in basemap. */
+    suspend fun getMapboxToken(): String? = try {
+        val resp = api.getMapboxToken()
+        if (resp.isSuccessful) resp.body()?.mapboxToken?.trim() else null
+    } catch (e: Exception) {
+        null
+    }
+
     suspend fun getLocations(hours: Int? = null, startDate: String? = null, endDate: String? = null, limit: Int? = null): Result<LocationsResponse> =
         safeApiCall {
             if (hours != null)

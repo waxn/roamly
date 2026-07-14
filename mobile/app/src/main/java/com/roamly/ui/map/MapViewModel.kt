@@ -6,6 +6,7 @@ import com.roamly.data.api.LocationPoint
 import com.roamly.data.api.LocationsResponse
 import com.roamly.data.api.StatsResponse
 import com.roamly.data.local.LocationStore
+import com.roamly.data.prefs.UserPreferences
 import com.roamly.data.repository.LocationRepository
 import com.roamly.data.repository.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -55,6 +56,8 @@ data class MapUiState(
     val customDateRange: DateRange? = null,
     val focus: MapFocus? = null,
     val showDateRangePicker: Boolean = false,
+    // Optional Mapbox token (from the web account). Blank = use the built-in basemap.
+    val mapboxToken: String = "",
 ) {
     val periodLabel: String get() = if (timePeriod == TimePeriod.CUSTOM && customDateRange != null)
         customDateRange.label else timePeriod.label
@@ -64,6 +67,7 @@ data class MapUiState(
 class MapViewModel @Inject constructor(
     private val locationRepository: LocationRepository,
     private val store: LocationStore,
+    private val userPreferences: UserPreferences,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MapUiState())
@@ -98,6 +102,18 @@ class MapViewModel @Inject constructor(
             loadData(showSpinnerIfEmpty = false)
         }
         viewModelScope.launch { loadStats() }
+
+        // Mapbox basemap token: paint immediately from the cached value, then
+        // refresh from the server so a change made on the web propagates here.
+        viewModelScope.launch {
+            userPreferences.mapboxToken.collect { token ->
+                _uiState.update { it.copy(mapboxToken = token) }
+            }
+        }
+        viewModelScope.launch {
+            val token = locationRepository.getMapboxToken()
+            if (token != null) userPreferences.setMapboxToken(token)
+        }
 
         // Re-paint automatically whenever a background sync completes (e.g. from
         // MainActivity.onResume after the user was away tracking for a while).

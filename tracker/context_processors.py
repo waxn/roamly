@@ -21,6 +21,7 @@ def custom_js_snippet(request):
     AI Ask feature flag to all templates."""
     is_admin = False
     ai_ask_enabled = False
+    mapbox_token = ''
     user = getattr(request, 'user', None)
     if user is not None and user.is_authenticated:
         profile = getattr(user, 'profile', None)
@@ -28,8 +29,12 @@ def custom_js_snippet(request):
         # Reuse the same profile object — the Ask tab shows only once the user
         # has enabled AI and supplied a base URL, key, and model.
         ai_ask_enabled = bool(profile and profile.ai_configured)
+        # Server-side Mapbox token so the map + settings render it inline and it
+        # stays in sync across the user's devices.
+        mapbox_token = (profile.mapbox_token if profile else '') or ''
     return {
         'CUSTOM_JS_SNIPPET': get_custom_js(),
         'IS_ADMIN': is_admin,
         'AI_ASK_ENABLED': ai_ask_enabled,
+        'MAPBOX_TOKEN': mapbox_token,
     }

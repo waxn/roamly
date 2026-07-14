@@ -273,6 +273,12 @@ data class ApiKeyResponse(
     val id: Int,
 )
 
+// Optional Mapbox public token, configured on the web and read here so the
+// map can use the same Mapbox basemap the user picked on their other devices.
+data class MapboxTokenResponse(
+    @SerializedName("mapbox_token") val mapboxToken: String? = null,
+)
+
 // --- Native location push ---
 
 data class LocationPushPayload(

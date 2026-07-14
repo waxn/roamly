@@ -27,6 +27,10 @@ class UserPreferences @Inject constructor(
         private val KEY_USERNAME   = stringPreferencesKey("username")
         private val KEY_DEVICE_ID  = stringPreferencesKey("device_id")
         private val KEY_DARK_MODE  = booleanPreferencesKey("dark_mode")
+        // Optional Mapbox token, mirrored from the server so the map can use the
+        // same Mapbox basemap the user configured on the web. Cached here so the
+        // map still gets it offline / before the refresh completes.
+        private val KEY_MAPBOX_TOKEN = stringPreferencesKey("mapbox_token")
 
         // Tracking state
         private val KEY_TRACKING_ACTIVE        = booleanPreferencesKey("tracking_active")
@@ -53,6 +57,7 @@ class UserPreferences @Inject constructor(
     val username:   Flow<String?>  = context.dataStore.data.map { it[KEY_USERNAME] }
     val deviceId:   Flow<String?>  = context.dataStore.data.map { it[KEY_DEVICE_ID] }
     val darkMode:   Flow<Boolean?> = context.dataStore.data.map { it[KEY_DARK_MODE] }
+    val mapboxToken: Flow<String>  = context.dataStore.data.map { it[KEY_MAPBOX_TOKEN] ?: "" }
 
     // ── Tracking ───────────────────────────────────────────────────────────
 
@@ -101,6 +106,10 @@ class UserPreferences @Inject constructor(
 
     suspend fun setDarkMode(enabled: Boolean) {
         context.dataStore.edit { it[KEY_DARK_MODE] = enabled }
+    }
+
+    suspend fun setMapboxToken(token: String) {
+        context.dataStore.edit { it[KEY_MAPBOX_TOKEN] = token }
     }
 
     suspend fun setApiKey(key: String) {
@@ -160,6 +169,7 @@ class UserPreferences @Inject constructor(
             prefs.remove(KEY_SESSION_ID)
             prefs.remove(KEY_API_KEY)
             prefs.remove(KEY_USERNAME)
+            prefs.remove(KEY_MAPBOX_TOKEN)
         }
     }
 }

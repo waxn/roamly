@@ -523,6 +523,12 @@ class UserProfile(models.Model):
     # so this is off by default and gated separately from ai_ask_enabled).
     ai_allow_journals = models.BooleanField(default=False)
 
+    # Optional Mapbox public access token (pk.…). Stored server-side so the
+    # user's Mapbox basemap choice follows them across every device — web and
+    # mobile both read it. It's a public/client-side token by design (safe to
+    # embed in the browser and app), so it is not masked.
+    mapbox_token = models.CharField(max_length=500, blank=True, default='')
+
     @property
     def ai_configured(self):
         return bool(self.ai_ask_enabled and self.ai_base_url and self.ai_api_key and self.ai_model)

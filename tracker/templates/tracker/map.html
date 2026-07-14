@@ -630,11 +630,11 @@ const mapStyles = {
     }
 };
 
-// Optional Mapbox basemaps — only added when the user has saved a public token
-// in Settings (localStorage 'roamly_mapbox_token'). Uses Mapbox raster tiles so it
-// slots into the same style-8 raster pattern as the built-in basemaps. The built-in
-// free basemaps above are always available regardless.
-const _mapboxToken = (localStorage.getItem('roamly_mapbox_token') || '').trim();
+// Optional Mapbox basemaps — only added when the user has a public token saved
+// on their account (Settings; served here via MAPBOX_TOKEN). Uses Mapbox raster
+// tiles so it slots into the same style-8 raster pattern as the built-in basemaps.
+// The built-in free basemaps above are always available regardless.
+const _mapboxToken = '{{ MAPBOX_TOKEN|escapejs }}'.trim();
 function _mapboxRasterStyle(styleId, attribution) {
     return {
         version: 8,

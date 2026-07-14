@@ -457,6 +457,25 @@ def profile_ai_config_api(request):
 
 
 @login_required
+def profile_mapbox_token_api(request):
+    """Get or set the requesting user's Mapbox access token. Stored server-side
+    so the token follows the user to every device — the web map and the mobile
+    app both read it (mobile is read-only; the token is only set here / from
+    Settings on the web). It's a public token by design, so it's returned in
+    full (not masked)."""
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body or '{}')
+        except (json.JSONDecodeError, ValueError):
+            return JsonResponse({'error': 'Invalid request.'}, status=400)
+        profile.mapbox_token = (data.get('mapbox_token') or '').strip()[:500]
+        profile.save(update_fields=['mapbox_token'])
+        return JsonResponse({'ok': True, 'mapbox_token': profile.mapbox_token})
+    return JsonResponse({'mapbox_token': profile.mapbox_token})
+
+
+@login_required
 @require_POST
 def ask_test_api(request):
     """Probe the user's AI provider (no tools) so Settings can show a precise

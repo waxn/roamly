@@ -251,7 +251,7 @@
                         <div class="info-icon" data-tooltip="Optional. Paste a Mapbox public token (pk.…) to unlock Mapbox Streets, Outdoors & Satellite basemaps on the main map. Leave blank to keep using the built-in free basemaps — nothing else changes.">?</div>
                     </label>
                     <input type="text" id="mapbox-token" class="form-control" placeholder="pk.…" autocomplete="off" spellcheck="false" onchange="saveMapboxToken(this.value)">
-                    <div style="font-size: 0.8rem; color: var(--text-muted);">Stored only in this browser. Leave blank to use the built-in free basemaps.</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">Synced to your account — used on every device, including the mobile app. Leave blank to use the built-in free basemaps.</div>
                 </div>
 
                 <div class="pref-form-group classic-only" style="display: none;">
@@ -1288,13 +1288,17 @@ document.getElementById('default-time-range').value = localStorage.getItem('roam
 document.getElementById('speed-gradient').value = localStorage.getItem('roamly_speed_gradient') || 'on';
 document.getElementById('connect-lines').value = localStorage.getItem('roamly_connect_lines') || 'off';
 
-// Mapbox access token — optional, unlocks Mapbox basemaps on the main map
+// Mapbox access token — optional, unlocks Mapbox basemaps on the main map.
+// Stored server-side (UserProfile) so it syncs to every device, including the
+// mobile app, which reads the same token.
 function saveMapboxToken(value) {
-    const token = (value || '').trim();
-    if (token) localStorage.setItem('roamly_mapbox_token', token);
-    else localStorage.removeItem('roamly_mapbox_token');
+    fetch('/api/profile/mapbox-token/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+        body: JSON.stringify({ mapbox_token: (value || '').trim() }),
+    }).catch(() => {});
 }
-document.getElementById('mapbox-token').value = localStorage.getItem('roamly_mapbox_token') || '';
+document.getElementById('mapbox-token').value = '{{ MAPBOX_TOKEN|escapejs }}';
 
 // Map renderer preference
 function updateClassicOptions() {

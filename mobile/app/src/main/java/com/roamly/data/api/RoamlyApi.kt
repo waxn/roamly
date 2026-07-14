@@ -31,6 +31,11 @@ interface RoamlyApi {
     @POST("api/keys/app/")
     suspend fun ensureAppApiKey(): Response<ApiKeyResponse>
 
+    /** The user's optional Mapbox token (set on the web). Read-only here — the
+     *  app uses it to render Mapbox basemaps but never changes it. */
+    @GET("api/profile/mapbox-token/")
+    suspend fun getMapboxToken(): Response<MapboxTokenResponse>
+
     // --- Push location (native tracker) ---
 
     @POST("api/push/")

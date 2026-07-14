@@ -133,6 +133,18 @@ fun MapScreen(
     val heatmapOverlay = holder.heatmap
     val pointsOverlay = holder.points
 
+    // Swap in the Mapbox basemap when the account has a token, else the default
+    // OSM (MAPNIK) tiles. Re-runs when the token arrives/changes from the server.
+    LaunchedEffect(mapView, state.mapboxToken) {
+        val token = state.mapboxToken.trim()
+        val desired = if (token.isNotEmpty()) mapboxTileSource(token)
+                      else org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK
+        if (mapView.tileProvider.tileSource.name() != desired.name()) {
+            mapView.setTileSource(desired)
+            mapView.invalidate()
+        }
+    }
+
     DisposableEffect(mapView) {
         val listener = object : org.osmdroid.events.MapListener {
             override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean {
@@ -726,6 +738,23 @@ private fun formatDuration(seconds: Int): String {
         else -> "<1m"
     }
 }
+
+/** An osmdroid tile source backed by Mapbox raster tiles, authenticated with the
+ *  user's public token. Mirrors the web map's Mapbox Streets basemap. A distinct
+ *  name keeps its tiles in a separate cache from the default OSM source. */
+private fun mapboxTileSource(token: String): org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase =
+    object : org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase(
+        "MapboxStreets", 0, 22, 256, "",
+        arrayOf("https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256/"),
+        "© Mapbox © OpenStreetMap",
+    ) {
+        override fun getTileURLString(pMapTileIndex: Long): String {
+            val z = org.osmdroid.util.MapTileIndex.getZoom(pMapTileIndex)
+            val x = org.osmdroid.util.MapTileIndex.getX(pMapTileIndex)
+            val y = org.osmdroid.util.MapTileIndex.getY(pMapTileIndex)
+            return baseUrl + z + "/" + x + "/" + y + "?access_token=" + token
+        }
+    }
 
 // ---- Heatmap overlay ----
 

@@ -175,7 +175,7 @@ Streaks (`_journal_compute_streaks`) and lifetime totals computed from entry dat
 - `BackupConfig` — S3 backup config + status
 
 **User:**
-- `UserProfile` — profile picture, `is_admin`, AI Ask config (`ai_ask_enabled`/`ai_base_url`/`ai_api_key`/`ai_model`/`ai_system_prompt`/`ai_allow_journals` + `ai_configured` property); `get_or_create`'d in `settings_view`
+- `UserProfile` — profile picture, `is_admin`, AI Ask config (`ai_ask_enabled`/`ai_base_url`/`ai_api_key`/`ai_model`/`ai_system_prompt`/`ai_allow_journals` + `ai_configured` property), `mapbox_token` (server-side Mapbox basemap token, synced to all devices); `get_or_create`'d in `settings_view`
 - `POI` — locally cached OpenStreetMap points of interest
 - `CustomPlace` — user-defined geofence (`name`, `latitude`, `longitude`, `radius_m`, auto-assigned `color`)
 
@@ -220,7 +220,9 @@ Detail points load progressively via `/api/locations/` as user pans/zooms (viewp
 
 Adventure map loads from `/api/trips/<id>/` (capped 30k). Under 20k: all dots immediately; over 20k: heatmap-first, dots on zoom.
 
-**Basemaps (`map.html`).** Selected by the sidebar "basemap" buttons, persisted in `roamly_map_tile_style`. Built-in free basemaps (always available): `Streets` (CARTO light), `Dark` (CARTO dark), `Satellite` (Esri). **Optional Mapbox basemaps** appear only when the user pastes a public Mapbox token (`pk.…`) into Settings → Main Map Settings (stored client-side in `roamly_mapbox_token`, never sent to the server): `Mapbox Streets`/`Mapbox Outdoors`/`Mapbox Satellite`, built via `_mapboxRasterStyle` from Mapbox raster-tile URLs (style-8 raster source, same pattern as the built-ins), with matching buttons injected into the basemap group at load. If a saved Mapbox style becomes unavailable (token removed), the map falls back to `Streets`. Purely additive — no built-in basemap was removed.
+**Basemaps (`map.html`).** Selected by the sidebar "basemap" buttons, persisted in `roamly_map_tile_style` (per-device UI choice, localStorage). Built-in free basemaps (always available): `Streets` (CARTO light), `Dark` (CARTO dark), `Satellite` (Esri). **Optional Mapbox basemaps** appear only when the user has a public Mapbox token (`pk.…`) set in Settings → Main Map Settings: `Mapbox Streets`/`Mapbox Outdoors`/`Mapbox Satellite`, built via `_mapboxRasterStyle` from Mapbox raster-tile URLs (style-8 raster source, same pattern as the built-ins), with matching buttons injected into the basemap group at load. If a saved Mapbox style becomes unavailable (token removed), the map falls back to `Streets`. Purely additive — no built-in basemap was removed.
+
+**Mapbox token is stored server-side** on `UserProfile.mapbox_token` (migration `0039`) so it syncs across every device the user logs in from — web *and* the mobile app. It's a public/client-side token by design, so it is **not masked**. Get/set via `GET/POST /api/profile/mapbox-token/` (`profile_mapbox_token_api`, login-required). The `custom_js_snippet` context processor exposes it to templates as `MAPBOX_TOKEN`; `map.html` reads it inline (`const _mapboxToken = '{{ MAPBOX_TOKEN|escapejs }}'`) and `settings.html` renders the field from it + POSTs changes. **Mobile reads the same token** (`RoamlyApi.getMapboxToken` → cached in `UserPreferences.mapboxToken` DataStore key, refreshed on `MapViewModel` init) and swaps the osmdroid tile source to a Mapbox raster source (`mapboxTileSource` in `MapScreen.kt`, `streets-v12`) when present, else `MAPNIK` — the mobile app never sets the token, only consumes it. **New `UserProfile` field ⇒ build + migrate; mobile change ⇒ rebuild APK.**
 
 **Map tools (`map.html` only):**
 - **Globe** — `map.setProjection({type:'globe'|'mercator'})`. Requires **MapLibre GL v5** (globally in `base.html`, v5.24.0). Persists in `roamly_globe`; re-applied on `style.load`.
@@ -249,7 +251,6 @@ All stored in `localStorage` with `roamly_` prefix:
 | `roamly_globe` | on / off | off |
 | `roamly_show_places` | on / off | off |
 | `roamly_map_tile_style` | Streets / Dark / Satellite / Mapbox Streets / Mapbox Outdoors / Mapbox Satellite | Streets |
-| `roamly_mapbox_token` | Mapbox public token (`pk.…`) or empty | empty |
 
 ## Visit time spent
 
