@@ -114,6 +114,7 @@ private data class TrackingConfig(
     val intervalMs: Long,
     val priority: String,
     val maxAccuracyM: Float,
+    val suppressDrift: Boolean,
 )
 
 @AndroidEntryPoint
@@ -131,6 +132,7 @@ class LocationTrackingService : Service() {
     private val callbackLooper get() = callbackThread.looper
     private var locationCallback: LocationCallback? = null
     private val filter = LocationFilter()
+    private val driftAnchor = DriftAnchor()
     private var isPaused = false
     private var initialized = false
     private var lastUploadScheduleAt = System.currentTimeMillis()
@@ -184,7 +186,7 @@ class LocationTrackingService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_PAUSE  -> {
-                isPaused = true; filter.reset(); cancelNextFix()
+                isPaused = true; filter.reset(); driftAnchor.reset(); cancelNextFix()
                 stopLocationUpdates(); streaming = false; releaseWakeLock(); updateNotification()
                 return START_STICKY
             }
@@ -403,15 +405,18 @@ class LocationTrackingService : Service() {
                 prefs.trackingIntervalSecs,
                 prefs.locationPriority,
                 prefs.maxAccuracyM,
-            ) { interval, priority, maxAcc ->
+                prefs.suppressStationaryDrift,
+            ) { interval, priority, maxAcc, suppressDrift ->
                 TrackingConfig(
                     intervalMs = interval.coerceIn(5, 120) * 1000L,
                     priority = priority,
                     maxAccuracyM = maxAcc.coerceAtLeast(1).toFloat(),
+                    suppressDrift = suppressDrift,
                 )
             }.distinctUntilChanged().collect { cfg ->
                 currentConfig = cfg
                 filter.minTimeBetweenMs = cfg.intervalMs
+                driftAnchor.enabled = cfg.suppressDrift
                 // Allow a fix to be up to two intervals old before it's "stale", so a
                 // freshly-acquired or post-wake fix is never dropped for lagging now().
                 filter.maxAgeMs = (cfg.intervalMs * 2).coerceAtLeast(30_000L)
@@ -803,7 +808,11 @@ class LocationTrackingService : Service() {
         }
     }
 
-    private suspend fun savePoint(loc: android.location.Location) {
+    private suspend fun savePoint(rawLoc: android.location.Location) {
+        // Suppress stationary GPS drift: while parked, snap the wandering fix back onto a
+        // stable anchor (speed 0). Pass-through when disabled or genuinely moving.
+        val loc = if (driftAnchor.enabled) driftAnchor.resolve(rawLoc) else rawLoc
+
         val bm = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
         val battery = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).takeIf { it >= 0 }
 

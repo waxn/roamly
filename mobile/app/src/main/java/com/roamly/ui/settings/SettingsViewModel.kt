@@ -35,6 +35,7 @@ data class SettingsUiState(
     val locationPriority: String = "auto",
     val autoStartTracking: Boolean = true,
     val syncOnMobileData: Boolean = true,
+    val suppressStationaryDrift: Boolean = true,
     val batteryOptimizationDisabled: Boolean = false,
     val csvPath: String = "",
     // Sync status
@@ -78,6 +79,7 @@ class SettingsViewModel @Inject constructor(
         collect(prefs.locationPriority)      { v -> _state.update { it.copy(locationPriority = v) } }
         collect(prefs.autoStartTracking)     { v -> _state.update { it.copy(autoStartTracking = v) } }
         collect(prefs.syncOnMobileData)      { v -> _state.update { it.copy(syncOnMobileData = v) } }
+        collect(prefs.suppressStationaryDrift) { v -> _state.update { it.copy(suppressStationaryDrift = v) } }
         collect(prefs.lastSyncTime)          { v -> _state.update { it.copy(lastSyncTime = v) } }
         collect(prefs.lastSyncSuccess)       { v -> _state.update { it.copy(lastSyncSuccess = v) } }
         collect(prefs.lastSyncCount)         { v -> _state.update { it.copy(lastSyncCount = v) } }
@@ -222,6 +224,10 @@ class SettingsViewModel @Inject constructor(
             UploadWorker.reschedulePeriodic(context, enabled)
             if (_state.value.isTracking) UploadWorker.scheduleNow(context, enabled)
         }
+    }
+
+    fun setSuppressStationaryDrift(enabled: Boolean) {
+        viewModelScope.launch { prefs.setSuppressStationaryDrift(enabled) }
     }
 
     fun refreshBatteryOptimizationState() {

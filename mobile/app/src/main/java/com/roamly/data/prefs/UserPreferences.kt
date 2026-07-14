@@ -44,6 +44,7 @@ class UserPreferences @Inject constructor(
         private val KEY_LOCATION_PRIORITY      = stringPreferencesKey("location_priority")
         private val KEY_AUTO_START_TRACKING    = booleanPreferencesKey("auto_start_tracking")
         private val KEY_SYNC_ON_MOBILE_DATA    = booleanPreferencesKey("sync_on_mobile_data")
+        private val KEY_SUPPRESS_DRIFT         = booleanPreferencesKey("suppress_stationary_drift")
 
         // Last sync result (written by UploadWorker after every run)
         private val KEY_LAST_SYNC_TIME    = longPreferencesKey("last_sync_time")
@@ -77,6 +78,8 @@ class UserPreferences @Inject constructor(
     val locationPriority:      Flow<String>  = context.dataStore.data.map { it[KEY_LOCATION_PRIORITY] ?: "auto" }
     val autoStartTracking:     Flow<Boolean> = context.dataStore.data.map { it[KEY_AUTO_START_TRACKING] ?: true }
     val syncOnMobileData:      Flow<Boolean> = context.dataStore.data.map { it[KEY_SYNC_ON_MOBILE_DATA] ?: true }
+    /** Snap wandering GPS fixes to a stable anchor while parked (suppresses stationary drift). */
+    val suppressStationaryDrift: Flow<Boolean> = context.dataStore.data.map { it[KEY_SUPPRESS_DRIFT] ?: true }
 
     // ── Last sync result ───────────────────────────────────────────────────
 
@@ -154,6 +157,10 @@ class UserPreferences @Inject constructor(
 
     suspend fun setSyncOnMobileData(enabled: Boolean) {
         context.dataStore.edit { it[KEY_SYNC_ON_MOBILE_DATA] = enabled }
+    }
+
+    suspend fun setSuppressStationaryDrift(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_SUPPRESS_DRIFT] = enabled }
     }
 
     suspend fun setSyncResult(time: Long, success: Boolean, count: Int, error: String) {

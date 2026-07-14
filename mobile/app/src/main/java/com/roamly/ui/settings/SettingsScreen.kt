@@ -335,6 +335,14 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(16.dp))
             ToggleRow(
+                title = "Suppress stationary drift",
+                subtitle = "Keeps you pinned in place when parked instead of letting GPS wander",
+                checked = state.suppressStationaryDrift,
+                onCheckedChange = viewModel::setSuppressStationaryDrift,
+            )
+
+            Spacer(Modifier.height(16.dp))
+            ToggleRow(
                 title = "Advanced",
                 subtitle = "Type exact values for each setting",
                 checked = advancedGps,
