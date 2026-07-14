@@ -108,9 +108,11 @@
     border-color: var(--text-muted);
 }
 
-/* Basemap button group */
+/* Basemap button group — grid so extra basemaps (e.g. Mapbox) wrap onto their
+   own rows instead of squishing together on one line. */
 .sidebar-btn-group {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     background: rgba(0, 0, 0, 0.18);
     border: 1px solid var(--border);
     border-radius:0;
@@ -118,7 +120,6 @@
     gap: 2px;
 }
 .style-btn {
-    flex: 1;
     background: none;
     border: none;
     color: var(--text-muted);
@@ -730,6 +731,23 @@ const map = new maplibregl.Map({
 
 map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
+// Surface Mapbox tile auth failures instead of showing a silent blank map.
+// A correct token returns tiles; a 401/403 here almost always means the token
+// is invalid or has URL restrictions that exclude this site's domain.
+let _mapboxErrorShown = false;
+map.on('error', (e) => {
+    const url = e && e.error && (e.error.url || '');
+    const status = e && e.error && e.error.status;
+    const isMapbox = (e && e.sourceId === 'mapbox') || (typeof url === 'string' && url.indexOf('api.mapbox.com') !== -1);
+    if (!isMapbox) return;
+    console.warn('Mapbox tile error', status || '', url || '', e && e.error);
+    if (!_mapboxErrorShown) {
+        _mapboxErrorShown = true;
+        document.getElementById('map-info').textContent =
+            'Mapbox tiles failed to load — check your token and its URL restrictions in Settings.';
+    }
+});
+
 // Restore active button for saved style
 document.querySelectorAll('.style-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.style === _savedTileStyle);
@@ -741,6 +759,7 @@ document.querySelectorAll('.style-btn').forEach(btn => {
         document.querySelectorAll('.style-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         localStorage.setItem('roamly_map_tile_style', btn.dataset.style);
+        _mapboxErrorShown = false;  // allow the diagnostic to show again for the new basemap
         map.setStyle(mapStyles[btn.dataset.style]);
         map.once('styledata', () => {
             renderTrack(lastTrackData, false);

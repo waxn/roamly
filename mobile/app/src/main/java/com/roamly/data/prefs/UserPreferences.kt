@@ -31,6 +31,9 @@ class UserPreferences @Inject constructor(
         // same Mapbox basemap the user configured on the web. Cached here so the
         // map still gets it offline / before the refresh completes.
         private val KEY_MAPBOX_TOKEN = stringPreferencesKey("mapbox_token")
+        // Selected map basemap (label shared with the web map, e.g. "Streets",
+        // "Satellite", "Dark", "Mapbox Streets"). Per-device UI choice.
+        private val KEY_MAP_BASEMAP = stringPreferencesKey("map_basemap")
 
         // Tracking state
         private val KEY_TRACKING_ACTIVE        = booleanPreferencesKey("tracking_active")
@@ -58,6 +61,7 @@ class UserPreferences @Inject constructor(
     val deviceId:   Flow<String?>  = context.dataStore.data.map { it[KEY_DEVICE_ID] }
     val darkMode:   Flow<Boolean?> = context.dataStore.data.map { it[KEY_DARK_MODE] }
     val mapboxToken: Flow<String>  = context.dataStore.data.map { it[KEY_MAPBOX_TOKEN] ?: "" }
+    val mapBasemap:  Flow<String>  = context.dataStore.data.map { it[KEY_MAP_BASEMAP] ?: "Streets" }
 
     // ── Tracking ───────────────────────────────────────────────────────────
 
@@ -110,6 +114,10 @@ class UserPreferences @Inject constructor(
 
     suspend fun setMapboxToken(token: String) {
         context.dataStore.edit { it[KEY_MAPBOX_TOKEN] = token }
+    }
+
+    suspend fun setMapBasemap(name: String) {
+        context.dataStore.edit { it[KEY_MAP_BASEMAP] = name }
     }
 
     suspend fun setApiKey(key: String) {

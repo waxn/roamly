@@ -32,8 +32,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.DateRange
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MyLocation
@@ -107,6 +109,7 @@ fun MapScreen(
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     var showTimeMenu by remember { mutableStateOf(false) }
+    var showBasemapMenu by remember { mutableStateOf(false) }
 
     val holder = remember(viewModel) {
         viewModel.mapHolder ?: run {
@@ -121,6 +124,8 @@ fun MapScreen(
                 setDestroyMode(false)
                 setTileSource(org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK)
                 setMultiTouchControls(true)
+                // Hide osmdroid's built-in +/- overlay — we draw our own zoom FABs.
+                zoomController.setVisibility(org.osmdroid.views.CustomZoomButtonsController.Visibility.NEVER)
                 controller.setZoom(10.0)
                 controller.setCenter(GeoPoint(20.0, 0.0))
                 overlays.add(heatmap)
@@ -133,12 +138,10 @@ fun MapScreen(
     val heatmapOverlay = holder.heatmap
     val pointsOverlay = holder.points
 
-    // Swap in the Mapbox basemap when the account has a token, else the default
-    // OSM (MAPNIK) tiles. Re-runs when the token arrives/changes from the server.
-    LaunchedEffect(mapView, state.mapboxToken) {
-        val token = state.mapboxToken.trim()
-        val desired = if (token.isNotEmpty()) mapboxTileSource(token)
-                      else org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK
+    // Apply the selected basemap (and re-apply when the Mapbox token arrives or
+    // the selection changes).
+    LaunchedEffect(mapView, state.basemap, state.mapboxToken) {
+        val desired = basemapTileSource(state.basemap, state.mapboxToken)
         if (mapView.tileProvider.tileSource.name() != desired.name()) {
             mapView.setTileSource(desired)
             mapView.invalidate()
@@ -275,6 +278,45 @@ fun MapScreen(
                         onClick = {
                             showTimeMenu = false
                             viewModel.setTimePeriod(period)
+                        }
+                    )
+                }
+            }
+        }
+
+        // Top-right basemap (layers) picker, sitting left of the search button.
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(top = 12.dp, end = 60.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
+        ) {
+            IconButton(onClick = { showBasemapMenu = true }) {
+                Icon(Icons.Rounded.Layers, contentDescription = "basemap", tint = MaterialTheme.colorScheme.primary)
+            }
+            val basemaps = buildList {
+                add("Streets"); add("Satellite"); add("Dark")
+                if (state.mapboxToken.isNotBlank()) {
+                    add("Mapbox Streets"); add("Mapbox Outdoors"); add("Mapbox Satellite")
+                }
+            }
+            DropdownMenu(
+                expanded = showBasemapMenu,
+                onDismissRequest = { showBasemapMenu = false },
+                shape = RoundedCornerShape(16.dp),
+                offset = androidx.compose.ui.unit.DpOffset(0.dp, 4.dp),
+            ) {
+                basemaps.forEach { name ->
+                    DropdownMenuItem(
+                        text = { Text(name) },
+                        trailingIcon = if (name == state.basemap) {
+                            { Icon(Icons.Rounded.Check, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary) }
+                        } else null,
+                        onClick = {
+                            showBasemapMenu = false
+                            viewModel.setBasemap(name)
                         }
                     )
                 }
@@ -739,13 +781,13 @@ private fun formatDuration(seconds: Int): String {
     }
 }
 
-/** An osmdroid tile source backed by Mapbox raster tiles, authenticated with the
- *  user's public token. Mirrors the web map's Mapbox Streets basemap. A distinct
- *  name keeps its tiles in a separate cache from the default OSM source. */
-private fun mapboxTileSource(token: String): org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase =
+/** An osmdroid tile source backed by Mapbox raster tiles for the given style,
+ *  authenticated with the user's public token. Mirrors the web map's Mapbox
+ *  basemaps. A distinct name per style keeps their tile caches separate. */
+private fun mapboxTileSource(token: String, styleId: String): org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase =
     object : org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase(
-        "MapboxStreets", 0, 22, 256, "",
-        arrayOf("https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256/"),
+        "Mapbox-$styleId", 0, 22, 256, "",
+        arrayOf("https://api.mapbox.com/styles/v1/mapbox/$styleId/tiles/256/"),
         "© Mapbox © OpenStreetMap",
     ) {
         override fun getTileURLString(pMapTileIndex: Long): String {
@@ -755,6 +797,44 @@ private fun mapboxTileSource(token: String): org.osmdroid.tileprovider.tilesourc
             return baseUrl + z + "/" + x + "/" + y + "?access_token=" + token
         }
     }
+
+/** Esri World Imagery satellite tiles. Esri serves tiles in z/y/x order, so it
+ *  needs a custom URL builder rather than the standard XYZ XYTileSource. */
+private fun esriTileSource(): org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase =
+    object : org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase(
+        "EsriWorldImagery", 0, 19, 256, "",
+        arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/"),
+        "© Esri",
+    ) {
+        override fun getTileURLString(pMapTileIndex: Long): String {
+            val z = org.osmdroid.util.MapTileIndex.getZoom(pMapTileIndex)
+            val x = org.osmdroid.util.MapTileIndex.getX(pMapTileIndex)
+            val y = org.osmdroid.util.MapTileIndex.getY(pMapTileIndex)
+            return baseUrl + z + "/" + y + "/" + x
+        }
+    }
+
+/** CARTO dark-matter basemap — standard XYZ, so a plain XYTileSource works. */
+private fun cartoDarkTileSource(): org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase =
+    org.osmdroid.tileprovider.tilesource.XYTileSource(
+        "CartoDark", 0, 20, 256, ".png",
+        arrayOf("https://basemaps.cartocdn.com/dark_all/"),
+        "© CARTO © OpenStreetMap",
+    )
+
+/** Resolve a basemap name (shared with the web map's labels) to a tile source.
+ *  Mapbox entries need a token; without one they fall back to OSM streets. */
+internal fun basemapTileSource(name: String, mapboxToken: String): org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase {
+    val token = mapboxToken.trim()
+    return when (name) {
+        "Satellite" -> esriTileSource()
+        "Dark" -> cartoDarkTileSource()
+        "Mapbox Streets" -> if (token.isNotEmpty()) mapboxTileSource(token, "streets-v12") else org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK
+        "Mapbox Outdoors" -> if (token.isNotEmpty()) mapboxTileSource(token, "outdoors-v12") else org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK
+        "Mapbox Satellite" -> if (token.isNotEmpty()) mapboxTileSource(token, "satellite-streets-v12") else org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK
+        else -> org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK  // "Streets"
+    }
+}
 
 // ---- Heatmap overlay ----
 

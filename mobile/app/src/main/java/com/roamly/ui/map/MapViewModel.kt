@@ -58,6 +58,8 @@ data class MapUiState(
     val showDateRangePicker: Boolean = false,
     // Optional Mapbox token (from the web account). Blank = use the built-in basemap.
     val mapboxToken: String = "",
+    // Selected basemap label (e.g. "Streets", "Satellite", "Mapbox Streets").
+    val basemap: String = "Streets",
 ) {
     val periodLabel: String get() = if (timePeriod == TimePeriod.CUSTOM && customDateRange != null)
         customDateRange.label else timePeriod.label
@@ -114,6 +116,12 @@ class MapViewModel @Inject constructor(
             val token = locationRepository.getMapboxToken()
             if (token != null) userPreferences.setMapboxToken(token)
         }
+        // Selected basemap (persisted per device).
+        viewModelScope.launch {
+            userPreferences.mapBasemap.collect { name ->
+                _uiState.update { it.copy(basemap = name) }
+            }
+        }
 
         // Re-paint automatically whenever a background sync completes (e.g. from
         // MainActivity.onResume after the user was away tracking for a while).
@@ -125,6 +133,12 @@ class MapViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    /** Change the map basemap. Persisted so the choice survives app restarts;
+     *  the collector above pushes it back into uiState. */
+    fun setBasemap(name: String) {
+        viewModelScope.launch { userPreferences.setMapBasemap(name) }
     }
 
     fun setTimePeriod(period: TimePeriod) {
