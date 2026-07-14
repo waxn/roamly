@@ -118,7 +118,45 @@
             gap: 1.5rem;
             flex-wrap: wrap;
         }
+        /* Side jump-nav for settings categories */
+        .settings-layout {
+            display: flex;
+            gap: 1.5rem;
+            align-items: flex-start;
+        }
+        .settings-layout > .settings-grid { flex: 1; min-width: 0; }
+        .settings-nav { display: none; }
+        @media (min-width: 960px) {
+            .settings-nav {
+                display: block;
+                position: sticky;
+                top: 1rem;
+                flex: 0 0 190px;
+                width: 190px;
+                max-height: calc(100vh - 2rem);
+                overflow-y: auto;
+                border: 1px solid var(--border);
+                padding: 0.4rem;
+                background: var(--bg-card);
+            }
+        }
+        .settings-nav a {
+            display: block;
+            padding: 0.4rem 0.6rem;
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            text-decoration: none;
+            border-left: 2px solid transparent;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            transition: color .12s, border-color .12s, background .12s;
+        }
+        .settings-nav a:hover { color: var(--text); background: var(--bg-input); }
+        .settings-nav a.active { color: var(--primary); border-left-color: var(--primary); font-weight: 600; }
     </style>
+    <div class="settings-layout">
+    <nav class="settings-nav" id="settings-nav" aria-label="Settings sections"></nav>
     <div class="settings-grid">
         <!-- Profile Picture -->
         <div class="card settings-span-12">
@@ -792,6 +830,7 @@ curl -X POST {{ request.scheme }}://{{ request.get_host }}/api/push/ \
                 <button class="btn btn-danger btn-sm" onclick="deleteAccount()">Delete Account</button>
             </div>
         </div>
+    </div>
     </div>
 </div>
 
@@ -1852,5 +1891,53 @@ function deleteAccount() {
         alert('Something went wrong. Please try again.');
     });
 }
+
+// ── Settings side jump-nav ──────────────────────────────────────────────
+// Build the category nav from the cards so it never drifts out of sync with
+// the sections on the page.
+(function buildSettingsNav() {
+    const nav = document.getElementById('settings-nav');
+    if (!nav) return;
+    const cards = document.querySelectorAll('.settings-grid > .card');
+    const links = {};
+    const used = {};
+    cards.forEach(card => {
+        const header = card.querySelector('.card-header');
+        if (!header) return;
+        // Prefer the header's first text node so badges/icons don't leak in.
+        let label = '';
+        for (const n of header.childNodes) {
+            if (n.nodeType === Node.TEXT_NODE && n.textContent.trim()) { label = n.textContent.trim(); break; }
+        }
+        if (!label) label = header.textContent.trim();
+        if (!label) return;
+        let id = 'sec-' + label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        if (used[id]) { used[id]++; id += '-' + used[id]; } else { used[id] = 1; }
+        card.id = id;
+        card.style.scrollMarginTop = '80px';
+        const a = document.createElement('a');
+        a.href = '#' + id;
+        a.textContent = label;
+        a.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            history.replaceState(null, '', '#' + id);
+        });
+        nav.appendChild(a);
+        links[id] = a;
+    });
+    // Highlight the section currently in view.
+    if ('IntersectionObserver' in window) {
+        const obs = new IntersectionObserver((entries) => {
+            entries.forEach(e => {
+                if (e.isIntersecting && links[e.target.id]) {
+                    Object.values(links).forEach(a => a.classList.remove('active'));
+                    links[e.target.id].classList.add('active');
+                }
+            });
+        }, { rootMargin: '-15% 0px -75% 0px', threshold: 0 });
+        cards.forEach(c => { if (c.id) obs.observe(c); });
+    }
+})();
 </script>
 {% endblock %}
