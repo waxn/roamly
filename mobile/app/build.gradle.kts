@@ -19,13 +19,35 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Upload keystore is supplied via env vars (CI) or a local roamly-upload.jks
+    // + gradle.properties (dev machine). Falls back to the debug keystore when
+    // absent so local builds without secrets still work.
+    val uploadStorePath = System.getenv("ROAMLY_UPLOAD_STORE_FILE")
+        ?: (project.findProperty("ROAMLY_UPLOAD_STORE_FILE") as String?)
+    val hasUploadSigning = uploadStorePath != null && file(uploadStorePath).exists()
+
+    signingConfigs {
+        if (hasUploadSigning) {
+            create("release") {
+                storeFile = file(uploadStorePath!!)
+                storePassword = System.getenv("ROAMLY_UPLOAD_STORE_PASSWORD")
+                    ?: project.findProperty("ROAMLY_UPLOAD_STORE_PASSWORD") as String?
+                keyAlias = System.getenv("ROAMLY_UPLOAD_KEY_ALIAS")
+                    ?: project.findProperty("ROAMLY_UPLOAD_KEY_ALIAS") as String?
+                keyPassword = System.getenv("ROAMLY_UPLOAD_KEY_PASSWORD")
+                    ?: project.findProperty("ROAMLY_UPLOAD_KEY_PASSWORD") as String?
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
-            // Signed with the auto-generated debug keystore so the optimized
-            // (R8, non-debuggable) build installs locally. Swap for a real
-            // upload keystore before publishing to the Play Store.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasUploadSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
