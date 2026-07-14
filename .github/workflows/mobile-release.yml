@@ -40,8 +40,13 @@ jobs:
         if: always()
         run: rm -f roamly-upload.jks
 
+      - name: Rename APK
+        run: |
+          version="${GITHUB_REF_NAME#mobile-v}"
+          mv app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/release/Roamly${version}.apk"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: mobile/app/build/outputs/apk/release/app-release.apk
+          files: mobile/app/build/outputs/apk/release/Roamly*.apk
           generate_release_notes: true
