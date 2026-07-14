@@ -2233,11 +2233,19 @@ _FLAG_MAX_SPEED_MPS  = 200.0   # ~720 km/h, computed between consecutive stored 
 _FLAG_MAX_ALT_JUMP_M = 500.0   # altitude change in < 5 min triggers a flag
 
 
-def _flag_suspicious_locations(user):
-    """Scan all of a user's locations (skipping user-accepted 'ok' ones) and mark any
+def _flag_suspicious_locations(user, window_start=None, window_end=None):
+    """Scan a user's locations (skipping user-accepted 'ok' ones) and mark any
     with bad accuracy, impossible speed between consecutive points, or extreme altitude
-    jumps as 'suspect'. Returns the number of newly flagged points."""
+    jumps as 'suspect'. Returns the number of newly flagged points.
+
+    When window_start/window_end are given, only points in that range are scanned
+    (and only their existing 'suspect' flags are reset), leaving flags outside the
+    window untouched."""
     qs = Location.objects.filter(device__user=user).exclude(flag='ok')
+    if window_start is not None:
+        qs = qs.filter(timestamp__gte=window_start)
+    if window_end is not None:
+        qs = qs.filter(timestamp__lte=window_end)
     qs.filter(flag='suspect').update(flag='', flag_reason='')
 
     to_update = []
@@ -2288,8 +2296,32 @@ def _flag_suspicious_locations(user):
 @login_required
 @require_http_methods(["POST"])
 def flag_scan_api(request):
-    """Run the suspicious-point scan for the current user and return the count."""
-    count = _flag_suspicious_locations(request.user)
+    """Run the suspicious-point scan for the current user, optionally scoped to a
+    time window (?start_date & ?end_date, or ?hours=N, or ?all=1 for everything).
+    Mirrors `location_diagnostics_api`'s filter parsing. Returns the count."""
+    all_time = request.GET.get("all")
+    start_date = request.GET.get("start_date")
+    end_date = request.GET.get("end_date")
+    win_start = win_end = None
+    if start_date and end_date:
+        try:
+            start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
+            end = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
+            if timezone.is_naive(start):
+                start = timezone.make_aware(start)
+            if timezone.is_naive(end):
+                end = timezone.make_aware(end)
+            win_start, win_end = start, end
+        except (ValueError, TypeError):
+            pass
+    elif not all_time:
+        try:
+            hours = int(request.GET.get("hours", 24))
+        except (ValueError, TypeError):
+            hours = 24
+        win_start = timezone.now() - timedelta(hours=hours)
+
+    count = _flag_suspicious_locations(request.user, window_start=win_start, window_end=win_end)
     return JsonResponse({'status': 'ok', 'flagged': count})
 
 

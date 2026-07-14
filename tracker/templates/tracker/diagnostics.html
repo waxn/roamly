@@ -53,7 +53,20 @@
                 <h1>quality review</h1>
                 <p class="page-lead" style="margin-bottom:0;">flag and review suspicious GPS points — poor accuracy, impossible speed, altitude spikes.</p>
             </div>
-            <div class="toolbar-actions">
+            <div class="toolbar-actions" style="flex-wrap:wrap;">
+                <select id="review-range" class="form-control" style="width:auto;" onchange="onReviewRangeChange()">
+                    <option value="24">Last 24h</option>
+                    <option value="72">Last 3 days</option>
+                    <option value="168">Last week</option>
+                    <option value="720">Last 30 days</option>
+                    <option value="all" selected>All time</option>
+                    <option value="custom">Custom range…</option>
+                </select>
+                <span id="review-custom" style="display:none;gap:0.5rem;align-items:center;">
+                    <input type="date" id="review-start" class="form-control" style="width:auto;" placeholder="start date">
+                    <span style="color:var(--text-muted);">to</span>
+                    <input type="date" id="review-end" class="form-control" style="width:auto;" placeholder="end date">
+                </span>
                 <button class="btn btn-primary btn-sm" id="scan-btn" onclick="runScan()">Scan for issues</button>
                 <span id="scan-status" style="font-size:0.82rem;color:var(--text-muted);">No scan run yet.</span>
             </div>
@@ -650,13 +663,31 @@ function initReviewMap() {
     });
 }
 
+function onReviewRangeChange() {
+    const custom = document.getElementById('review-range').value === 'custom';
+    document.getElementById('review-custom').style.display = custom ? 'inline-flex' : 'none';
+}
+
 function runScan() {
     const btn = document.getElementById('scan-btn');
     const status = document.getElementById('scan-status');
+    const range = document.getElementById('review-range').value;
+    const params = new URLSearchParams();
+    if (range === 'custom') {
+        const s = document.getElementById('review-start').value;
+        const e = document.getElementById('review-end').value;
+        if (!s || !e) { alert('Pick a start and end date.'); return; }
+        params.set('start_date', s);
+        params.set('end_date', e);
+    } else if (range === 'all') {
+        params.set('all', '1');
+    } else {
+        params.set('hours', range);
+    }
     btn.disabled = true;
     btn.textContent = 'Scanning…';
-    status.textContent = 'Running scan over all your points…';
-    fetch('/api/diagnostics/flag-scan/', {
+    status.textContent = range === 'all' ? 'Running scan over all your points…' : 'Running scan…';
+    fetch('/api/diagnostics/flag-scan/?' + params.toString(), {
         method: 'POST',
         headers: { 'X-CSRFToken': CSRF }
     })
