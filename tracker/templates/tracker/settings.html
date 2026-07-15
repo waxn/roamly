@@ -512,6 +512,24 @@
 
                 <div style="border-top:1px solid var(--border);"></div>
 
+                <!-- Detect transport modes -->
+                <div>
+                    <div style="font-size:0.875rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">Detect Transport Modes</div>
+                    <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;">Work out how you were moving — <strong>still</strong>, <strong>walk</strong>, <strong>cycle</strong>, <strong>vehicle</strong> or <strong>plane</strong> — and show the split on the <strong>Stats</strong> page. Your track is cut into journeys at each long stop and scored as a whole, so a red light stays part of the drive. Re-run any time; it recomputes from scratch.</div>
+                    <div class="settings-actions">
+                        <button class="btn btn-primary btn-sm" id="transport-btn" onclick="startTransport()">Detect Modes</button>
+                        <button class="btn btn-outline btn-sm" id="transport-stop-btn" onclick="stopTransport()" style="display:none;">Stop</button>
+                    </div>
+                    <div id="transport-progress-wrap" style="margin-top:0.6rem;display:none;">
+                        <div style="background:var(--bg-input);border-radius:0;height:6px;overflow:hidden;margin-bottom:0.35rem;">
+                            <div id="transport-bar" style="height:100%;width:0%;background:var(--primary);border-radius:0;transition:width 0.4s ease;"></div>
+                        </div>
+                        <div id="transport-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
+                    </div>
+                </div>
+
+                <div style="border-top:1px solid var(--border);"></div>
+
                 <!-- Recalculate stats snapshot -->
                 <div>
                     <div style="font-size:0.875rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">Recalculate Stats</div>
@@ -1229,6 +1247,104 @@ fetch('/api/poi/match/status/')
             poiMatchStartTime = Date.now();
             updatePoiMatchUI(data, false);
             pollPoiMatchStatus();
+        }
+    })
+    .catch(() => {});
+
+// ── Detect transport modes ───────────────────────────────────────────────────
+let transportStartTime = null;
+
+function setTransportUI(running) {
+    const btn = document.getElementById('transport-btn');
+    const stopBtn = document.getElementById('transport-stop-btn');
+    btn.disabled = running;
+    btn.style.opacity = running ? '0.5' : '';
+    stopBtn.disabled = false;
+    stopBtn.style.display = running ? 'inline-block' : 'none';
+}
+
+function updateTransportUI(data, finished) {
+    const wrap = document.getElementById('transport-progress-wrap');
+    const bar = document.getElementById('transport-bar');
+    const statusEl = document.getElementById('transport-status');
+    wrap.style.display = 'block';
+
+    const pct = data.total > 0 ? Math.round(data.processed / data.total * 100) : 0;
+    bar.style.width = pct + '%';
+    const done = (data.classified || 0).toLocaleString();
+
+    if (finished) {
+        bar.style.background = data.status === 'completed' ? 'var(--success)' : 'var(--text-muted)';
+        if (data.status === 'completed' && data.total === 0) {
+            statusEl.textContent = 'no location points to classify yet.';
+        } else {
+            const label = data.status === 'completed' ? 'done' : 'stopped';
+            statusEl.textContent = `${label} — ${data.processed.toLocaleString()}/${data.total.toLocaleString()} points, ${done} classified`;
+        }
+    } else {
+        const saved = geocodeStartTime;
+        geocodeStartTime = transportStartTime;
+        const eta = formatEta(data.processed, data.total);
+        geocodeStartTime = saved;
+        bar.style.background = 'var(--primary)';
+        statusEl.innerHTML = `<span class="spinner"></span> ${data.processed.toLocaleString()}/${data.total.toLocaleString()} points${data.total > 0 ? ' (' + pct + '%)' : ''}, ${done} classified${eta ? ' — ' + eta : ''}`;
+    }
+}
+
+function startTransport() {
+    const wrap = document.getElementById('transport-progress-wrap');
+    const statusEl = document.getElementById('transport-status');
+    wrap.style.display = 'block';
+    statusEl.innerHTML = '<span class="spinner"></span> starting...';
+    document.getElementById('transport-bar').style.width = '0%';
+    setTransportUI(true);
+    transportStartTime = Date.now();
+
+    fetch('/api/transport/detect/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+    })
+    .then(r => r.json())
+    .then(() => pollTransportStatus());
+}
+
+function stopTransport() {
+    document.getElementById('transport-stop-btn').disabled = true;
+    document.getElementById('transport-status').innerHTML = '<span class="spinner"></span> stopping...';
+    fetch('/api/transport/detect/stop/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+    });
+}
+
+function pollTransportStatus() {
+    setTransportUI(true);
+    const interval = setInterval(() => {
+        fetch('/api/transport/detect/status/')
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'running') {
+                updateTransportUI(data, false);
+            } else if (data.status === 'completed' || data.status === 'stopped') {
+                updateTransportUI(data, true);
+                clearInterval(interval);
+                setTransportUI(false);
+            } else {
+                clearInterval(interval);
+                setTransportUI(false);
+            }
+        });
+    }, 2000);
+}
+
+// Resume UI if a detection job is already running on page load
+fetch('/api/transport/detect/status/')
+    .then(r => { if (r.ok) return r.json(); })
+    .then(data => {
+        if (data && data.status === 'running') {
+            transportStartTime = Date.now();
+            updateTransportUI(data, false);
+            pollTransportStatus();
         }
     })
     .catch(() => {});

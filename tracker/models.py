@@ -74,6 +74,9 @@ if HAS_POSTGIS and gis_models:
         # Quality review: '' = normal, 'suspect' = auto-flagged, 'ok' = user-accepted.
         flag = gis_models.CharField(max_length=10, blank=True, default='', db_index=True)
         flag_reason = gis_models.CharField(max_length=100, blank=True, default='')
+        # How the user was moving, populated by the "Detect transport modes" job.
+        # '' = unclassified. See tracker/transport_tasks.py for the codes.
+        transport_mode = gis_models.CharField(max_length=10, blank=True, default='', db_index=True)
 
         class Meta:
             ordering = ['-timestamp']
@@ -120,6 +123,9 @@ else:
         # Quality review: '' = normal, 'suspect' = auto-flagged, 'ok' = user-accepted.
         flag = models.CharField(max_length=10, blank=True, default='', db_index=True)
         flag_reason = models.CharField(max_length=100, blank=True, default='')
+        # How the user was moving, populated by the "Detect transport modes" job.
+        # '' = unclassified. See tracker/transport_tasks.py for the codes.
+        transport_mode = models.CharField(max_length=10, blank=True, default='', db_index=True)
 
         class Meta:
             ordering = ['-timestamp']
@@ -371,6 +377,25 @@ class POIMatchJob(models.Model):
 
     def __str__(self):
         return f"POI Match {self.user.username}: {self.processed}/{self.total}"
+
+
+class TransportJob(models.Model):
+    """Persistent state for the background transport-mode detection task."""
+    STATUS_CHOICES = [
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('stopped', 'Stopped'),
+    ]
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='transport_job')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='running')
+    processed = models.IntegerField(default=0)
+    total = models.IntegerField(default=0)
+    classified = models.IntegerField(default=0)
+    started_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Transport Detection {self.user.username}: {self.processed}/{self.total}"
 
 
 class BackupConfig(models.Model):

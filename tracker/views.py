@@ -5707,6 +5707,117 @@ def poi_match_stop_api(request):
 
 
 # ---------------------------------------------------------------------------
+# Transport mode detection
+# ---------------------------------------------------------------------------
+
+@login_required
+@require_http_methods(["POST"])
+def transport_detect_api(request):
+    """Start labelling every point with how the user was moving."""
+    from .transport_tasks import start_transport_detect
+    job = start_transport_detect(request.user.id)
+    return JsonResponse({'status': job.status, 'total': job.total})
+
+
+@login_required
+def transport_status_api(request):
+    """Check transport-detection progress."""
+    from .transport_tasks import get_transport_status
+    return JsonResponse(get_transport_status(request.user.id))
+
+
+@login_required
+@require_http_methods(["POST"])
+def transport_stop_api(request):
+    """Stop a running transport-detection job."""
+    from .transport_tasks import stop_transport_detect
+    return JsonResponse({'stopped': stop_transport_detect(request.user.id)})
+
+
+@login_required
+def transport_breakdown_api(request):
+    """Distance and time split by transport mode, for the Stats page.
+
+    Distance reuses the same gated segments as distance_api, so the totals here
+    agree with the headline number instead of being a second, rawer estimate.
+    """
+    from .transport_tasks import MODES
+
+    device_id = request.GET.get("device_id")
+    all_time = request.GET.get("all")
+    start_date = request.GET.get("start_date")
+    end_date = request.GET.get("end_date")
+
+    gen = cache.get(f"cache_gen:{request.user.id}", 0)
+    cache_key = f"transport:{request.user.id}:{gen}:{request.GET.urlencode()}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached)
+
+    qs = Location.objects.filter(device__user=request.user)
+
+    # Same range parsing as distance_api, so the Stats toolbar drives both alike.
+    if start_date and end_date:
+        try:
+            start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
+            end = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
+            if timezone.is_naive(start):
+                start = timezone.make_aware(start)
+            if timezone.is_naive(end):
+                end = timezone.make_aware(end)
+            qs = qs.filter(timestamp__gte=start, timestamp__lte=end)
+        except (ValueError, TypeError):
+            pass
+    elif not all_time:
+        try:
+            hours = int(request.GET.get("hours", 24))
+        except (ValueError, TypeError):
+            hours = 24
+        qs = qs.filter(timestamp__gte=timezone.now() - timedelta(hours=hours))
+
+    if device_id:
+        qs = qs.filter(device__device_id=device_id)
+
+    per_mode = {m: {'km': 0.0, 'points': 0, 'seconds': 0.0} for m in MODES}
+    unclassified = 0
+
+    for dev_id in qs.values_list('device_id', flat=True).distinct():
+        rows = list(
+            qs.filter(device_id=dev_id)
+            .order_by('timestamp', 'id')
+            .values('latitude', 'longitude', 'timestamp', 'accuracy', 'transport_mode')
+        )
+        # Walk each run of same-mode points as its own track so the gated
+        # distance never credits movement across a mode change.
+        for mode, group in groupby(rows, key=lambda r: r['transport_mode']):
+            g = list(group)
+            if not mode:
+                unclassified += len(g)
+                continue
+            bucket = per_mode.setdefault(mode, {'km': 0.0, 'points': 0, 'seconds': 0.0})
+            bucket['points'] += len(g)
+            if len(g) > 1:
+                bucket['seconds'] += (g[-1]['timestamp'] - g[0]['timestamp']).total_seconds()
+            pts = [(r['latitude'], r['longitude'], r['timestamp'], r['accuracy']) for r in g]
+            for _ts, km in _gated_distance_segments(pts):
+                bucket['km'] += km
+
+    modes = [
+        {
+            'mode': m,
+            'km': round(v['km'], 2),
+            'points': v['points'],
+            'hours': round(v['seconds'] / 3600.0, 2),
+        }
+        for m, v in per_mode.items() if v['points']
+    ]
+    modes.sort(key=lambda d: -d['km'])
+    result = {'modes': modes, 'unclassified': unclassified}
+    cache.set(cache_key, result, timeout=1800)
+    return JsonResponse(result)
+
+
+# ---------------------------------------------------------------------------
 # Automatic Backups (S3-compatible)
 # ---------------------------------------------------------------------------
 

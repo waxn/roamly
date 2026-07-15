@@ -69,6 +69,103 @@
     pointer-events: none;
     transition: opacity 0.12s;
 }
+
+/* ── Transport mode breakdown ───────────────────────────────────────────── */
+.tm-row {
+    display: grid;
+    grid-template-columns: 5.5rem 1fr auto;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.4rem 0;
+}
+.tm-row + .tm-row { border-top: 1px solid var(--border); }
+.tm-name { font-size: 0.8125rem; color: var(--text); }
+.tm-track {
+    background: var(--bg-input);
+    height: 8px;
+    overflow: hidden;
+}
+.tm-fill { height: 100%; transition: width 0.4s ease; }
+.tm-val {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+.tm-empty { font-size: 0.875rem; color: var(--text-muted); }
+
+/* ── Distance heatmap (trailing year, one square per day) ───────────────── */
+.heat-card { position: relative; }
+.heat-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.25rem 0 0.375rem;
+}
+.heatmap {
+    --heat-cell: 12px;
+    --heat-gap: 3px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 0.5rem;
+    row-gap: 0.375rem;
+    width: max-content;
+}
+.heat-months, .heat-grid { grid-column: 2; }
+.heat-dows { grid-column: 1; grid-row: 2; }
+.heat-months {
+    grid-row: 1;
+    display: grid;
+    grid-auto-rows: 11px;
+    column-gap: var(--heat-gap);
+}
+.heat-month {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-muted);
+    line-height: 11px;
+    white-space: nowrap;
+}
+.heat-dows {
+    display: grid;
+    grid-template-rows: repeat(7, var(--heat-cell));
+    gap: var(--heat-gap);
+}
+.heat-dow {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-muted);
+    line-height: var(--heat-cell);
+    text-align: right;
+}
+.heat-grid {
+    grid-row: 2;
+    display: grid;
+    grid-auto-flow: column;
+    grid-template-rows: repeat(7, var(--heat-cell));
+    grid-auto-columns: var(--heat-cell);
+    gap: var(--heat-gap);
+}
+.heat-cell {
+    width: var(--heat-cell);
+    height: var(--heat-cell);
+    border-radius: 0;
+    border: 1px solid var(--border);
+    background: var(--bg-input);
+}
+.heat-cell[data-day] { cursor: pointer; }
+.heat-cell[data-day]:hover { outline: 1px solid var(--border-bright); outline-offset: 1px; }
+.heat-void { visibility: hidden; }
+.heat-legend {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.375rem;
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+.heat-legend .heat-cell { cursor: default; }
 {% endblock %}
 
 {% block content %}
@@ -125,6 +222,28 @@
                 <div class="chart-hover-dot" id="chart-hdot"></div>
                 <div class="chart-tooltip" id="chart-tooltip"></div>
             </div>
+        </div>
+        <div class="card heat-card" style="grid-column: 1 / -1;">
+            <div class="card-header" style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;">
+                <span>Daily Distance</span>
+                <span id="heat-summary" style="font-size:0.75rem;font-weight:500;color:var(--text-muted);font-family:var(--font-mono);"></span>
+            </div>
+            <div class="heat-scroll">
+                <div class="heatmap">
+                    <div class="heat-months" id="heat-months"></div>
+                    <div class="heat-dows" id="heat-dows"></div>
+                    <div class="heat-grid" id="heat-grid"></div>
+                </div>
+            </div>
+            <div class="heat-legend" id="heat-legend"></div>
+            <div class="chart-tooltip" id="heat-tooltip"></div>
+        </div>
+        <div class="card" style="grid-column: 1 / -1;">
+            <div class="card-header" style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;">
+                <span>How You Travelled</span>
+                <span id="transport-summary" style="font-size:0.75rem;font-weight:500;color:var(--text-muted);font-family:var(--font-mono);"></span>
+            </div>
+            <div id="transport-body"></div>
         </div>
         <div class="card">
             <div class="card-header">Timeline</div>
@@ -221,10 +340,60 @@ function isImperial() {
     return (localStorage.getItem('roamly_speed_unit') || 'kmh') === 'mph';
 }
 
+// ── How you travelled — distance split by detected transport mode ────────────
+// Populated by the "Detect Transport Modes" job in Settings → Background Jobs;
+// until that's run, every point is unclassified and the card says so.
+const TM_LABELS = { still: 'still', walk: 'walking', cycle: 'cycling', vehicle: 'vehicle', plane: 'flying' };
+const TM_COLORS = {
+    still: 'var(--text-dim)',
+    walk: 'var(--clay-mint)',
+    cycle: 'var(--clay-amber)',
+    vehicle: 'var(--clay-sky)',
+    plane: 'var(--clay-lavender)',
+};
+
+function loadTransport() {
+    const body = document.getElementById('transport-body');
+    const summary = document.getElementById('transport-summary');
+    body.innerHTML = '<div class="tm-empty">Loading...</div>';
+    summary.textContent = '';
+
+    fetch(`/api/transport/breakdown/?${getFilterParams()}`)
+        .then(r => r.json())
+        .then(data => {
+            // 'still' is excluded from the bars: it's most of the points and would
+            // dwarf every real mode, and standing still isn't travelling.
+            const moving = (data.modes || []).filter(m => m.mode !== 'still' && m.km > 0);
+            if (!moving.length) {
+                body.innerHTML = data.unclassified
+                    ? '<div class="tm-empty">No modes detected in this range. Run <strong>Detect Transport Modes</strong> in Settings → Background Jobs.</div>'
+                    : '<div class="tm-empty">No travel in this range.</div>';
+                return;
+            }
+            const total = moving.reduce((s, m) => s + m.km, 0);
+            body.innerHTML = moving.map(m => {
+                const pct = total > 0 ? (m.km / total * 100) : 0;
+                return `<div class="tm-row">
+                    <span class="tm-name">${TM_LABELS[m.mode] || m.mode}</span>
+                    <span class="tm-track"><span class="tm-fill" style="width:${pct.toFixed(1)}%;background:${TM_COLORS[m.mode] || 'var(--primary)'};"></span></span>
+                    <span class="tm-val">${formatDistance(m.km)} · ${pct.toFixed(0)}%</span>
+                </div>`;
+            }).join('');
+            summary.textContent = data.unclassified
+                ? `${data.unclassified.toLocaleString()} points unclassified`
+                : `${formatDistance(total)} total`;
+        })
+        .catch(() => {
+            body.innerHTML = '<div class="tm-empty">Could not load transport breakdown.</div>';
+        });
+}
+
 function loadStats() {
     const params = getFilterParams();
 
     document.querySelectorAll('.stat-value').forEach(el => el.textContent = '...');
+
+    loadTransport();
 
     fetch(`/api/stats/?${params}`)
         .then(r => r.json())
@@ -755,7 +924,155 @@ window.addEventListener('resize', () => {
 
 loadStats();
 loadYearlyOverview();
-window.onSnapshotReady = function() { loadStats(); loadYearlyOverview(); };
+loadHeatmap();
+window.onSnapshotReady = function() { loadStats(); loadYearlyOverview(); loadHeatmap(); };
+
+// ─── Daily distance heatmap (trailing year) ────────────────────
+// Deliberately independent of the toolbar range filter: it always shows the
+// last year. Fetched with `all=1&granularity=daily`, which is the one distance
+// request served straight from the precomputed StatsSnapshot.
+
+const HEAT_WEEKS = 53;
+const HEAT_ALPHA = [null, 0.22, 0.45, 0.7, 1];   // index = level 1..4; 0 renders as empty
+const DOW_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', ''];
+
+function heatCellStyle(level) {
+    if (!level) return '';
+    return `background:${hexA(heatAccent(), HEAT_ALPHA[level])};border-color:${hexA(heatAccent(), Math.min(1, HEAT_ALPHA[level] + 0.15))};`;
+}
+
+function heatAccent() {
+    return (getComputedStyle(document.documentElement).getPropertyValue('--primary') || '#e8763d').trim();
+}
+
+// Bucket daily distances into 4 levels by quartile of the *active* days. Daily
+// distance is heavily skewed — a year of short commutes plus a handful of
+// travel days — so a linear scale would flatten almost every day to level 1.
+// Quartiles adapt to whatever the user's history actually looks like.
+function makeHeatLevel(values) {
+    const nz = values.filter(v => v > 0).sort((a, b) => a - b);
+    if (!nz.length) return null;
+    const q = p => nz[Math.min(nz.length - 1, Math.floor(p * nz.length))];
+    let t = [q(0.25), q(0.5), q(0.75)];
+    if (!(t[0] < t[1] && t[1] < t[2])) {
+        // Quartiles collapse when most active days are identical. Fall back to an
+        // even split of the range so the ramp still separates them.
+        const lo = nz[0], hi = nz[nz.length - 1];
+        if (hi <= lo) return v => (v > 0 ? 4 : 0);
+        t = [1, 2, 3].map(i => lo + (hi - lo) * i / 4);
+    }
+    return v => {
+        if (!(v > 0)) return 0;
+        if (v <= t[0]) return 1;
+        if (v <= t[1]) return 2;
+        if (v <= t[2]) return 3;
+        return 4;
+    };
+}
+
+// Monday-first row index (0=Mon .. 6=Sun) for a 'YYYY-MM-DD' string. Parsed as
+// UTC to match the API's day keys and to dodge local-timezone date shifts.
+function dowIndex(dateStr) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7;
+}
+
+function loadHeatmap() {
+    fetch('/api/distance/?all=1&granularity=daily')
+        .then(r => r.json())
+        .then(data => drawHeatmap(data.days || [], data.distances || []));
+}
+
+function drawHeatmap(days, distancesKm) {
+    const grid = document.getElementById('heat-grid');
+    const monthsEl = document.getElementById('heat-months');
+    const dowsEl = document.getElementById('heat-dows');
+    const legendEl = document.getElementById('heat-legend');
+    const summaryEl = document.getElementById('heat-summary');
+
+    const byDay = new Map(days.map((d, i) => [d, distancesKm[i]]));
+
+    // Window: HEAT_WEEKS whole Mon–Sun columns, the last of which holds today.
+    const today = new Date().toISOString().slice(0, 10);
+    const gridStart = addDays(today, -dowIndex(today) - (HEAT_WEEKS - 1) * 7);
+
+    const cells = [];
+    const windowVals = [];
+    for (let c = 0; c < HEAT_WEEKS; c++) {
+        for (let r = 0; r < 7; r++) {
+            const day = addDays(gridStart, c * 7 + r);
+            if (day > today) { cells.push(null); continue; }
+            const km = byDay.get(day) || 0;
+            cells.push({ day, km });
+            windowVals.push(km);
+        }
+    }
+
+    const levelOf = makeHeatLevel(windowVals);
+    const activeDays = windowVals.filter(v => v > 0).length;
+    const totalKm = windowVals.reduce((a, b) => a + b, 0);
+
+    dowsEl.innerHTML = DOW_LABELS.map(l => `<div class="heat-dow">${l}</div>`).join('');
+
+    grid.innerHTML = cells.map(c => {
+        if (!c) return '<div class="heat-cell heat-void"></div>';
+        const level = levelOf ? levelOf(c.km) : 0;
+        const tip = `${c.day}\n${c.km > 0 ? formatDistance(c.km) : 'no distance'}`;
+        return `<div class="heat-cell" style="${heatCellStyle(level)}" data-day="${c.day}" data-tip="${tip.replace(/\n/g, '&#10;')}"></div>`;
+    }).join('');
+
+    // Month labels sit above the column where each month first appears; skipped
+    // when too close to the previous label to fit without overlapping.
+    let lastMonth = null, lastCol = -3;
+    const labels = [];
+    for (let c = 0; c < HEAT_WEEKS; c++) {
+        const day = addDays(gridStart, c * 7);
+        const month = day.slice(0, 7);
+        if (month !== lastMonth) {
+            lastMonth = month;
+            if (c - lastCol >= 3 && c <= HEAT_WEEKS - 3) {
+                labels.push(`<div class="heat-month" style="grid-column:${c + 1} / span 4;">${MONTH_NAMES[parseInt(day.slice(5, 7), 10) - 1]}</div>`);
+                lastCol = c;
+            }
+        }
+    }
+    monthsEl.style.gridTemplateColumns = `repeat(${HEAT_WEEKS}, var(--heat-cell))`;
+    monthsEl.innerHTML = labels.join('');
+
+    summaryEl.textContent = activeDays
+        ? `${formatDistance(totalKm)} over ${activeDays} active day${activeDays !== 1 ? 's' : ''} in the last year`
+        : 'no distance data in the last year';
+
+    legendEl.innerHTML = 'less'
+        + [0, 1, 2, 3, 4].map(l => `<div class="heat-cell" style="${heatCellStyle(l)}"></div>`).join('')
+        + 'more';
+}
+
+// Hover/click on the cells (delegated — the grid is rebuilt on every draw).
+(function attachHeatmapHover() {
+    const card = document.querySelector('.heat-card');
+    const grid = document.getElementById('heat-grid');
+    const tooltip = document.getElementById('heat-tooltip');
+
+    grid.addEventListener('mouseover', function(e) {
+        const cell = e.target.closest('.heat-cell[data-day]');
+        if (!cell) return;
+        tooltip.innerHTML = cell.dataset.tip.replace('\n', '<br>');
+        tooltip.style.opacity = '1';
+        const cr = card.getBoundingClientRect();
+        const r = cell.getBoundingClientRect();
+        const x = Math.max(60, Math.min(cr.width - 60, r.left - cr.left + r.width / 2));
+        tooltip.style.left = x + 'px';
+        tooltip.style.top = (r.top - cr.top - 34) + 'px';
+        tooltip.style.transform = 'translateX(-50%)';
+    });
+    grid.addEventListener('mouseleave', () => { tooltip.style.opacity = '0'; });
+    grid.addEventListener('click', function(e) {
+        const cell = e.target.closest('.heat-cell[data-day]');
+        if (!cell) return;
+        window.location.href = `/map/?start=${cell.dataset.day}&end=${cell.dataset.day}`;
+    });
+})();
 
 // ─── Yearly Overview ───────────────────────────────────────────
 
