@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Explore
@@ -39,6 +40,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.roamly.ui.ask.AskScreen
+import com.roamly.ui.ask.AskViewModel
 import com.roamly.ui.auth.AuthViewModel
 import com.roamly.ui.auth.LoginScreen
 import com.roamly.ui.groups.GroupsScreen
@@ -55,6 +58,7 @@ import com.roamly.ui.update.UpdateViewModel
 sealed class Screen(val route: String, val label: String) {
     object Map        : Screen("map",         "Map")
     object Adventures : Screen("adventures",  "Trips")   // shorter label to avoid truncation
+    object Ask        : Screen("ask",         "Ask")
     object Journal    : Screen("journal",     "Journal")
     object Stats      : Screen("stats",       "Stats")
     object Settings   : Screen("settings",    "Settings")
@@ -63,13 +67,16 @@ sealed class Screen(val route: String, val label: String) {
     object PalDetail  : Screen("pals/{palId}",  "Pal")
 }
 
-private val bottomNavItems = listOf(
-    Screen.Map, Screen.Adventures, Screen.Journal, Screen.Stats, Screen.Settings
-)
+// Ask sits in the middle only when the user has it configured — inserted here
+// (rather than always present) so a fixed slot doesn't reshuffle every time.
+private fun bottomNavItems(askEnabled: Boolean): List<Screen> =
+    if (askEnabled) listOf(Screen.Map, Screen.Adventures, Screen.Ask, Screen.Journal, Screen.Stats, Screen.Settings)
+    else listOf(Screen.Map, Screen.Adventures, Screen.Journal, Screen.Stats, Screen.Settings)
 
 private fun iconFor(screen: Screen): ImageVector = when (screen) {
     Screen.Map        -> Icons.Rounded.Map
     Screen.Adventures -> Icons.Rounded.Explore
+    Screen.Ask        -> Icons.Rounded.AutoAwesome
     Screen.Journal    -> Icons.Rounded.AutoStories
     Screen.Stats      -> Icons.Rounded.BarChart
     else              -> Icons.Rounded.Settings
@@ -81,7 +88,9 @@ fun RoamlyNavHost() {
     val authViewModel: AuthViewModel = hiltViewModel()
     val mapViewModel: MapViewModel   = hiltViewModel()
     val updateViewModel: UpdateViewModel = hiltViewModel()
+    val askViewModel: AskViewModel = hiltViewModel()
     val isLoggedIn by authViewModel.isLoggedIn.collectAsState()
+    val askState by askViewModel.state.collectAsState()
 
     // Check for a newer sideloaded build once logged in (throttled to ~24h).
     LaunchedEffect(isLoggedIn) {
@@ -124,7 +133,7 @@ fun RoamlyNavHost() {
                     containerColor = MaterialTheme.colorScheme.surface,
                     tonalElevation = 3.dp,
                 ) {
-                    bottomNavItems.forEach { screen ->
+                    bottomNavItems(askState.askEnabled).forEach { screen ->
                         val selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true
                         NavigationBarItem(
                             selected = selected,
@@ -189,6 +198,19 @@ fun RoamlyNavHost() {
                 arguments = listOf(navArgument("palId") { type = NavType.IntType })
             ) { back ->
                 PalDetailScreen(palId = back.arguments!!.getInt("palId"), onBack = { navController.popBackStack() })
+            }
+            composable(Screen.Ask.route) {
+                AskScreen(
+                    viewModel = askViewModel,
+                    onOpenMapDate = { dateStr ->
+                        mapViewModel.navigateToDate(dateStr)
+                        navController.navigate(Screen.Map.route) {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                )
             }
             composable(Screen.Journal.route) {
                 JournalsScreen(

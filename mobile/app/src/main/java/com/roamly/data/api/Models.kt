@@ -279,6 +279,30 @@ data class MapboxTokenResponse(
     @SerializedName("mapbox_token") val mapboxToken: String? = null,
 )
 
+// --- AI "Ask" ---
+
+// Whether the requesting user has AI Ask enabled/configured on the server —
+// used to decide whether to show the Ask tab at all.
+data class AiConfigResponse(
+    @SerializedName("ai_ask_enabled") val aiAskEnabled: Boolean = false,
+    @SerializedName("configured")     val configured: Boolean = false,
+)
+
+data class AskMessage(
+    val role: String,
+    val content: String,
+)
+
+data class AskRequest(
+    val messages: List<AskMessage>,
+    @SerializedName("tz_offset") val tzOffset: Int = 0,
+)
+
+data class AskResponse(
+    val reply: String? = null,
+    val error: String? = null,
+)
+
 // --- In-app update ---
 
 // Latest available Android build, reported by the server (which proxies the

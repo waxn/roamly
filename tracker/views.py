@@ -429,17 +429,21 @@ _AI_KEY_MASK = '••••••••'
 
 
 @login_required
-@require_POST
 def profile_ai_config_api(request):
-    """Save the requesting user's own AI Ask config. The API key is only
-    overwritten when a new (non-masked) value is supplied — mirrors the
-    BackupConfig.secret_key pattern."""
+    """GET: whether AI Ask is enabled/configured for the requesting user (used
+    by the mobile app to decide whether to show the Ask tab). POST: save the
+    requesting user's own AI Ask config. The API key is only overwritten when
+    a new (non-masked) value is supplied — mirrors the BackupConfig.secret_key
+    pattern."""
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if request.method != 'POST':
+        return JsonResponse({'ai_ask_enabled': profile.ai_ask_enabled, 'configured': profile.ai_configured})
+
     try:
         data = json.loads(request.body or '{}')
     except (json.JSONDecodeError, ValueError):
         return JsonResponse({'error': 'Invalid request.'}, status=400)
 
-    profile, _ = UserProfile.objects.get_or_create(user=request.user)
     profile.ai_ask_enabled = bool(data.get('ai_ask_enabled'))
     profile.ai_base_url = (data.get('ai_base_url') or '').strip().rstrip('/')[:500]
     profile.ai_model = (data.get('ai_model') or '').strip()[:200]

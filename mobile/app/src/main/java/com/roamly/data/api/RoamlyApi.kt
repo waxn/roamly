@@ -37,6 +37,16 @@ interface RoamlyApi {
     @GET("api/profile/mapbox-token/")
     suspend fun getMapboxToken(): Response<MapboxTokenResponse>
 
+    // --- AI "Ask" ---
+
+    /** Whether the user has AI Ask enabled/configured — gates the Ask tab. */
+    @GET("api/profile/ai-config/")
+    suspend fun getAiConfig(): Response<AiConfigResponse>
+
+    /** One Ask turn: full message history in, assistant reply out. */
+    @POST("api/ask/")
+    suspend fun askChat(@Body payload: AskRequest): Response<AskResponse>
+
     // --- In-app update ---
 
     /** Latest available Android build (server proxies the GitHub release). */
