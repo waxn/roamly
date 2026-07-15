@@ -51,6 +51,9 @@ class UserPreferences @Inject constructor(
         private val KEY_LAST_SYNC_SUCCESS = booleanPreferencesKey("last_sync_success")
         private val KEY_LAST_SYNC_COUNT   = intPreferencesKey("last_sync_count")
         private val KEY_LAST_SYNC_ERROR   = stringPreferencesKey("last_sync_error")
+
+        // In-app update: epoch millis of the last on-launch update check (throttle).
+        private val KEY_LAST_UPDATE_CHECK = longPreferencesKey("last_update_check")
     }
 
     // ── Auth / connection ──────────────────────────────────────────────────
@@ -87,6 +90,11 @@ class UserPreferences @Inject constructor(
     val lastSyncSuccess: Flow<Boolean> = context.dataStore.data.map { it[KEY_LAST_SYNC_SUCCESS] ?: false }
     val lastSyncCount:   Flow<Int>     = context.dataStore.data.map { it[KEY_LAST_SYNC_COUNT] ?: 0 }
     val lastSyncError:   Flow<String>  = context.dataStore.data.map { it[KEY_LAST_SYNC_ERROR] ?: "" }
+
+    // ── In-app update ──────────────────────────────────────────────────────
+
+    /** Epoch millis of the last on-launch update check (used to throttle to ~24h). */
+    val lastUpdateCheck: Flow<Long> = context.dataStore.data.map { it[KEY_LAST_UPDATE_CHECK] ?: 0L }
 
     // ── Writers ────────────────────────────────────────────────────────────
 
@@ -161,6 +169,10 @@ class UserPreferences @Inject constructor(
 
     suspend fun setSuppressStationaryDrift(enabled: Boolean) {
         context.dataStore.edit { it[KEY_SUPPRESS_DRIFT] = enabled }
+    }
+
+    suspend fun setLastUpdateCheck(time: Long) {
+        context.dataStore.edit { it[KEY_LAST_UPDATE_CHECK] = time }
     }
 
     suspend fun setSyncResult(time: Long, success: Boolean, count: Int, error: String) {

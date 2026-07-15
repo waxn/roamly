@@ -12,6 +12,7 @@ import retrofit2.http.POST
 import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.Streaming
 
 interface RoamlyApi {
 
@@ -35,6 +36,18 @@ interface RoamlyApi {
      *  app uses it to render Mapbox basemaps but never changes it. */
     @GET("api/profile/mapbox-token/")
     suspend fun getMapboxToken(): Response<MapboxTokenResponse>
+
+    // --- In-app update ---
+
+    /** Latest available Android build (server proxies the GitHub release). */
+    @GET("api/mobile/version/")
+    suspend fun getLatestVersion(): Response<VersionInfo>
+
+    /** Download the latest signed APK. `@Streaming` so the body isn't buffered
+     *  fully in memory. */
+    @Streaming
+    @GET("api/mobile/apk/")
+    suspend fun downloadApk(): Response<ResponseBody>
 
     // --- Push location (native tracker) ---
 

@@ -54,6 +54,7 @@ import java.util.*
 fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
     onLoggedOut: () -> Unit,
+    updateViewModel: com.roamly.ui.update.UpdateViewModel = hiltViewModel(),
 ) {
     var showDiagnostics by remember { mutableStateOf(false) }
     if (showDiagnostics) {
@@ -61,6 +62,7 @@ fun SettingsScreen(
         return
     }
     val state by viewModel.uiState.collectAsState()
+    val updateState by updateViewModel.state.collectAsState()
     val context = LocalContext.current
     val clay = Clay.colors
     LaunchedEffect(Unit) { viewModel.refreshBatteryOptimizationState() }
@@ -522,6 +524,77 @@ fun SettingsScreen(
                 }.getOrNull() ?: "—"
             }
             InfoRow(Icons.Rounded.Tag, "Version", appVersion)
+            Spacer(Modifier.height(12.dp))
+
+            // ── Updates ───────────────────────────────────────────────
+            val update = updateState
+            when {
+                update.available != null -> {
+                    Text(
+                        "Update available: Roamly ${update.available!!.versionName}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    if (update.needsInstallPermission) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Allow \"install unknown apps\" for Roamly, then tap Update again.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    ClayButton(
+                        onClick = { updateViewModel.downloadAndInstall() },
+                        gradient = clay.secondaryGradient,
+                        contentColor = Color(0xFF052B26),
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !update.downloading,
+                    ) {
+                        if (update.downloading) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Color(0xFF052B26))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Downloading ${update.progress}%", fontWeight = FontWeight.Bold)
+                        } else {
+                            Icon(Icons.Rounded.SystemUpdate, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Update now", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                else -> {
+                    ClayButton(
+                        onClick = { updateViewModel.checkNow() },
+                        gradient = clay.secondaryGradient,
+                        contentColor = Color(0xFF052B26),
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !update.checking,
+                    ) {
+                        if (update.checking) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Color(0xFF052B26))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Checking…", fontWeight = FontWeight.Bold)
+                        } else {
+                            Icon(Icons.Rounded.SystemUpdate, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Check for updates", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    if (update.upToDate) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "You're on the latest version.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    update.error?.let {
+                        Spacer(Modifier.height(6.dp))
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+
             Spacer(Modifier.height(12.dp))
             ClayButton(
                 onClick = { showDiagnostics = true },

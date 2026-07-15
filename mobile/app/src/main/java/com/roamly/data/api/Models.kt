@@ -279,6 +279,17 @@ data class MapboxTokenResponse(
     @SerializedName("mapbox_token") val mapboxToken: String? = null,
 )
 
+// --- In-app update ---
+
+// Latest available Android build, reported by the server (which proxies the
+// GitHub release). `downloadUrl` points at the server's own APK endpoint.
+data class VersionInfo(
+    @SerializedName("version_name")  val versionName: String = "",
+    @SerializedName("download_url")  val downloadUrl: String = "",
+    @SerializedName("release_notes") val releaseNotes: String = "",
+    @SerializedName("size")          val size: Long = 0,
+)
+
 // --- Native location push ---
 
 data class LocationPushPayload(

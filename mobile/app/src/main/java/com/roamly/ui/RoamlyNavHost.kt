@@ -3,6 +3,7 @@ package com.roamly.ui
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.unit.dp
@@ -20,6 +21,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +49,8 @@ import com.roamly.ui.pals.PalDetailScreen
 import com.roamly.ui.settings.SettingsScreen
 import com.roamly.ui.stats.StatsScreen
 import com.roamly.ui.trips.TripDetailScreen
+import com.roamly.ui.update.UpdateBanner
+import com.roamly.ui.update.UpdateViewModel
 
 sealed class Screen(val route: String, val label: String) {
     object Map        : Screen("map",         "Map")
@@ -76,7 +80,13 @@ fun RoamlyNavHost() {
     val navController = rememberNavController()
     val authViewModel: AuthViewModel = hiltViewModel()
     val mapViewModel: MapViewModel   = hiltViewModel()
+    val updateViewModel: UpdateViewModel = hiltViewModel()
     val isLoggedIn by authViewModel.isLoggedIn.collectAsState()
+
+    // Check for a newer sideloaded build once logged in (throttled to ~24h).
+    LaunchedEffect(isLoggedIn) {
+        if (isLoggedIn == true) updateViewModel.checkOnLaunch()
+    }
 
     var splashDone by rememberSaveable { mutableStateOf(false) }
     if (!splashDone || isLoggedIn == null) {
@@ -128,10 +138,19 @@ fun RoamlyNavHost() {
             }
         }
     ) { innerPadding ->
+      Column(modifier = Modifier.padding(innerPadding)) {
+        val updateState by updateViewModel.state.collectAsState()
+        if (isLoggedIn == true && showBottomBar) {
+            UpdateBanner(
+                state = updateState,
+                onUpdate = updateViewModel::downloadAndInstall,
+                onDismiss = updateViewModel::dismissBanner,
+            )
+        }
         NavHost(
             navController = navController,
             startDestination = initialRoute,
-            modifier = Modifier.padding(innerPadding),
+            modifier = Modifier.weight(1f),
             enterTransition    = { fadeIn(tween(100)) },
             exitTransition     = { fadeOut(tween(100)) },
             popEnterTransition = { fadeIn(tween(100)) },
@@ -180,10 +199,14 @@ fun RoamlyNavHost() {
             }
             composable(Screen.Stats.route)    { StatsScreen(onNavigateToMap = { dateStr -> mapViewModel.navigateToDate(dateStr); navController.navigate(Screen.Map.route) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true } }) }
             composable(Screen.Settings.route) {
-                SettingsScreen(onLoggedOut = {
-                    navController.navigate(Screen.Login.route) { popUpTo(0) { inclusive = true } }
-                })
+                SettingsScreen(
+                    onLoggedOut = {
+                        navController.navigate(Screen.Login.route) { popUpTo(0) { inclusive = true } }
+                    },
+                    updateViewModel = updateViewModel,
+                )
             }
         }
+      }
     }
 }
