@@ -140,13 +140,6 @@ fun RoamlyNavHost() {
     ) { innerPadding ->
       Column(modifier = Modifier.padding(innerPadding)) {
         val updateState by updateViewModel.state.collectAsState()
-        if (isLoggedIn == true && showBottomBar) {
-            UpdateBanner(
-                state = updateState,
-                onUpdate = updateViewModel::downloadAndInstall,
-                onDismiss = updateViewModel::dismissBanner,
-            )
-        }
         NavHost(
             navController = navController,
             startDestination = initialRoute,
@@ -206,6 +199,15 @@ fun RoamlyNavHost() {
                     updateViewModel = updateViewModel,
                 )
             }
+        }
+        // Sits just above the bottom navbar so it never hides under the status
+        // bar and shortens content instead of overlapping it.
+        if (isLoggedIn == true && showBottomBar) {
+            UpdateBanner(
+                state = updateState,
+                onUpdate = updateViewModel::downloadAndInstall,
+                onDismiss = updateViewModel::dismissBanner,
+            )
         }
       }
     }

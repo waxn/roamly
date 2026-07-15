@@ -23,8 +23,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 /**
- * Slim "Update available" banner shown at the top of the app when the server
- * reports a newer build. Tapping Update downloads + launches the installer.
+ * Slim "Update available" banner shown just above the bottom navbar when the
+ * server reports a newer build. Tapping Install downloads + launches the
+ * installer; Dismiss hides it for the session.
  */
 @Composable
 fun UpdateBanner(
@@ -70,7 +71,7 @@ fun UpdateBanner(
                         modifier = Modifier.padding(end = 8.dp),
                     )
                 } else {
-                    TextButton(onClick = onUpdate) { Text("Update") }
+                    TextButton(onClick = onUpdate) { Text("Install") }
                     IconButton(onClick = onDismiss) {
                         Icon(
                             Icons.Rounded.Close,
