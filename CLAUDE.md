@@ -25,8 +25,10 @@ The backup JSON format version (in `backup_tasks.py`) must also be bumped whenev
 **Every individual fix or change gets its own commit — no batching.** Commit messages must be **properly capitalized** — capital letter after the `type(scope):` prefix (e.g. `fix(ai): Correct displayed URL`). Each commit must be signed:
 
 ```
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Claude <model> <noreply@anthropic.com>
 ```
+
+Use the model that actually wrote the commit (e.g. `Claude Opus 4.8`), not a fixed name.
 
 Also update this CLAUDE.md whenever something architectural or behavioural is added or changed.
 
@@ -233,6 +235,7 @@ The basemap buttons live in a **3-column grid** (`.sidebar-btn-group`) so the ex
 **Map tools (`map.html` only):**
 - **Globe** — `map.setProjection({type:'globe'|'mercator'})`. Requires **MapLibre GL v5** (globally in `base.html`, v5.24.0). Persists in `roamly_globe`; re-applied on `style.load`.
 - **Scratch** — highlights visited countries. `/api/countries/` returns visited `country_code`s (uppercase ISO-2 + US `states` list); client fills `tracker/static/tracker/data/world-countries.json` (Natural Earth 110m, ~170KB). **New static files need `collectstatic` — `--build` runs it on container start.**
+- **Fog of War** — dims everywhere the user has never been. **Always all-time, never date-filtered** (explored territory stays explored), so it can't be fed by the map's own points — those are viewport- and date-scoped. `GET /api/fog/` (`fog_api`) returns the DISTINCT ~110m grid cells (`_FOG_CELLS_PER_DEG` = 1000, i.e. lat/lon rounded to 3dp) over the user's whole history, as a flat `[gy, gx, …]` int array. **Deliberately not keyed on `cache_gen`** — every push bumps the gen and a full-history DISTINCT is far too expensive to redo per push, so it uses a plain `fog:{user_id}` key with a 1h TTL (same reasoning as `StatsSnapshot`). Client renders a 2D `#fog-canvas` over the map (**not** a MapLibre layer — a world polygon with tens of thousands of holes can't be tessellated) and punches holes with `destination-out` at `FOG_REVEAL_M` (200m) per cell, `FOG_ALPHA` 0.75. Redrawn on `map.on('render')` to stay glued during pan/zoom. Cells are bucketed by whole degree (`fogBucketsInView`) and the frame scans whichever is smaller — viewport buckets or the whole index — since at world zoom the viewport spans ~65k buckets. **Fog and Globe are mutually exclusive** (a flat mask can't wrap a sphere); each toggle turns the other off. Persists in `roamly_fog`.
 - **Replay** — animates one day's track. Fetches from `/api/locations/` (`all=1`), builds per-device sorted arrays, draws growing trail + head dot via `requestAnimationFrame` (60s at 1×). Base layers hidden while replaying.
 
 ## User-facing preferences
@@ -256,6 +259,7 @@ All stored in `localStorage` with `roamly_` prefix:
 | `roamly_default_time_range` | hours or 'all' | 24 |
 | `roamly_globe` | on / off | off |
 | `roamly_show_places` | on / off | off |
+| `roamly_fog` | on / off | off |
 | `roamly_map_tile_style` | Streets / Dark / Satellite / Mapbox Streets / Mapbox Outdoors / Mapbox Satellite | Streets |
 
 ## Visit time spent

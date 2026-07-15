@@ -11,6 +11,18 @@
 }
 #map { width: 100%; height: 100%; }
 
+/* Fog of war — sits above the basemap, below the sidebar/controls. */
+#fog-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+    pointer-events: none;
+    display: none;
+}
+
 /* ── Floating collapsible sidebar ── */
 .map-sidebar {
     position: absolute;
@@ -525,6 +537,10 @@
                         my places
                         <span class="tool-btn-badge" id="places-badge"></span>
                     </button>
+                    <button class="tool-btn" id="fog-btn" type="button">
+                        fog of war
+                        <span class="tool-btn-badge" id="fog-badge"></span>
+                    </button>
                     <button class="tool-btn" id="replay-btn" type="button">
                         replay day
                         <span class="tool-btn-badge" id="replay-badge"></span>
@@ -583,6 +599,7 @@
     </div>
 
     <div id="map"></div>
+    <canvas id="fog-canvas"></canvas>
 </div>
 {% endblock %}
 
@@ -1421,6 +1438,8 @@ globeBtn.addEventListener('click', () => {
     localStorage.setItem('roamly_globe', globeOn ? 'on' : 'off');
     globeBtn.classList.toggle('active', globeOn);
     applyProjection();
+    // Fog is a flat-screen mask — it can't be drawn over a globe. See setFog().
+    if (globeOn && fogOn) setFog(false);
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1546,6 +1565,155 @@ placesBtn.addEventListener('click', async () => {
 });
 
 if (placesOn) applyPlacesToggle();
+
+// ═══════════════════════════════════════════════════════════════════
+// Fog of war — dim everywhere the user has never been.
+//
+// Always all-time, never date-filtered: explored territory stays explored.
+// The map's own points are viewport- and date-scoped, so the mask is fed by
+// /api/fog/ instead — distinct ~110m cells over the whole history.
+//
+// Rendered as a 2D canvas over the map rather than a MapLibre layer: a world
+// polygon with tens of thousands of holes is hopeless to tessellate, whereas
+// punching holes with destination-out is O(visible cells) per frame.
+// ═══════════════════════════════════════════════════════════════════
+const fogBtn = document.getElementById('fog-btn');
+const fogBadge = document.getElementById('fog-badge');
+const fogCanvas = document.getElementById('fog-canvas');
+const fogCtx = fogCanvas.getContext('2d');
+
+const FOG_REVEAL_M = 200;      // how far you "see" from a visited point
+const FOG_ALPHA = 0.75;        // unexplored dimming; basemap still shows through
+const FOG_COLOR = '10, 14, 20';
+
+let fogOn = localStorage.getItem('roamly_fog') === 'on';
+let fogCells = null;           // Int32Array [gy, gx, gy, gx, ...] of grid indices
+let fogPerDeg = 1000;
+let fogIndex = null;           // "gyDeg:gxDeg" -> [offsets into fogCells]
+let fogLoading = null;         // in-flight promise, so concurrent toggles share one fetch
+let fogLabel = '';
+
+async function loadFogCells() {
+    if (fogCells) return;
+    if (fogLoading) return fogLoading;
+    fogLoading = (async () => {
+        try {
+            const d = await fetch('/api/fog/').then(r => r.json());
+            fogPerDeg = d.per_deg || 1000;
+            fogCells = Int32Array.from(d.cells || []);
+            // Bucket cells by whole degree so a frame only projects what's on screen.
+            fogIndex = new Map();
+            for (let i = 0; i < fogCells.length; i += 2) {
+                const key = Math.floor(fogCells[i] / fogPerDeg) + ':' + Math.floor(fogCells[i + 1] / fogPerDeg);
+                let bucket = fogIndex.get(key);
+                if (!bucket) { bucket = []; fogIndex.set(key, bucket); }
+                bucket.push(i);
+            }
+            const n = d.count || 0;
+            fogLabel = n ? `${n.toLocaleString()} cells` : 'nothing explored yet';
+        } catch (e) {
+            fogCells = new Int32Array(0);
+            fogIndex = new Map();
+            fogLabel = 'failed to load';
+        }
+    })();
+    await fogLoading;
+    fogLoading = null;
+}
+
+// Buckets worth scanning this frame. Walking the viewport degree-by-degree is
+// right when zoomed in, but at world zoom that's ~65k lookups per frame — more
+// than the whole index. Whichever set is smaller wins; the per-cell screen cull
+// in drawFog() catches the rest either way.
+function fogBucketsInView() {
+    const b = map.getBounds();
+    const pad = 1;  // buckets are whole degrees, so reach one past each edge
+    const y0 = Math.floor(b.getSouth()) - pad, y1 = Math.ceil(b.getNorth()) + pad;
+    let x0 = Math.floor(b.getWest()) - pad, x1 = Math.ceil(b.getEast()) + pad;
+    // Bounds crossing the antimeridian come back with west > east; unwrap so the
+    // loop still runs, and wrap each degree back into range on lookup.
+    if (x1 < x0) x1 += 360;
+
+    const span = (y1 - y0 + 1) * (x1 - x0 + 1);
+    if (span > fogIndex.size) return fogIndex.values();
+
+    const out = [];
+    for (let dy = y0; dy <= y1; dy++) {
+        for (let dx = x0; dx <= x1; dx++) {
+            const wrapped = ((dx + 180) % 360 + 360) % 360 - 180;
+            const bucket = fogIndex.get(dy + ':' + wrapped);
+            if (bucket) out.push(bucket);
+        }
+    }
+    return out;
+}
+
+function drawFog() {
+    if (!fogOn || !fogCells || globeOn) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const w = fogCanvas.clientWidth, h = fogCanvas.clientHeight;
+    if (fogCanvas.width !== w * dpr || fogCanvas.height !== h * dpr) {
+        fogCanvas.width = w * dpr;
+        fogCanvas.height = h * dpr;
+    }
+    fogCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    fogCtx.clearRect(0, 0, w, h);
+    fogCtx.fillStyle = `rgba(${FOG_COLOR}, ${FOG_ALPHA})`;
+    fogCtx.fillRect(0, 0, w, h);
+
+    // Reveal radius is fixed in metres, so convert once from the centre latitude
+    // rather than per cell — it varies negligibly across a single viewport.
+    const centreLat = map.getCenter().lat;
+    const mPerPx = 156543.03392 * Math.cos(centreLat * Math.PI / 180) / Math.pow(2, map.getZoom());
+    const rPx = Math.max(1.2, FOG_REVEAL_M / mPerPx);
+
+    fogCtx.globalCompositeOperation = 'destination-out';
+    for (const bucket of fogBucketsInView()) {
+        for (const i of bucket) {
+            const p = map.project([fogCells[i + 1] / fogPerDeg, fogCells[i] / fogPerDeg]);
+            if (p.x < -rPx || p.y < -rPx || p.x > w + rPx || p.y > h + rPx) continue;
+            // Soft edge so the revealed area reads as a glow, not a stamped hole.
+            const g = fogCtx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rPx);
+            g.addColorStop(0, 'rgba(0,0,0,1)');
+            g.addColorStop(0.6, 'rgba(0,0,0,1)');
+            g.addColorStop(1, 'rgba(0,0,0,0)');
+            fogCtx.fillStyle = g;
+            fogCtx.beginPath();
+            fogCtx.arc(p.x, p.y, rPx, 0, Math.PI * 2);
+            fogCtx.fill();
+        }
+    }
+    fogCtx.globalCompositeOperation = 'source-over';
+}
+
+async function setFog(on) {
+    fogOn = on;
+    localStorage.setItem('roamly_fog', fogOn ? 'on' : 'off');
+    fogBtn.classList.toggle('active', fogOn);
+    fogCanvas.style.display = fogOn ? 'block' : 'none';
+    if (!fogOn) { fogBadge.textContent = ''; return; }
+    // A flat mask can't wrap a sphere, so fog forces mercator (see globe-btn).
+    if (globeOn) {
+        globeOn = false;
+        localStorage.setItem('roamly_globe', 'off');
+        globeBtn.classList.toggle('active', false);
+        applyProjection();
+    }
+    fogBadge.textContent = fogLabel || 'loading…';
+    await loadFogCells();
+    fogBadge.textContent = fogLabel;
+    drawFog();
+}
+
+fogBtn.addEventListener('click', () => setFog(!fogOn));
+
+// 'render' fires every frame the map paints, which is what keeps the mask glued
+// to the basemap during pan/zoom/rotate — 'move' alone drifts visibly.
+map.on('render', drawFog);
+window.addEventListener('resize', drawFog);
+
+if (fogOn) setFog(true);
 
 // Re-apply projection + scratch + places layers after any basemap style swap.
 map.on('style.load', () => {

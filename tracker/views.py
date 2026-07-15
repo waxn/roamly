@@ -18,8 +18,8 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, Min, Max, Avg, Q, Case, When, Value, IntegerField, FloatField
-from django.db.models.functions import Coalesce
+from django.db.models import Count, Min, Max, Avg, Q, Case, When, Value, F, IntegerField, FloatField
+from django.db.models.functions import Coalesce, Cast, Round
 from django.http import FileResponse, JsonResponse, HttpResponse, StreamingHttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
@@ -1632,6 +1632,50 @@ def countries_api(request):
         'states': states,
     }
     cache.set(cache_key, result, timeout=600)
+    return JsonResponse(result)
+
+
+# Fog of war grid: 0.001° ≈ 111m of latitude. Cells narrow toward the poles,
+# which only makes the dedup finer — the client reveals a fixed metre radius.
+_FOG_CELLS_PER_DEG = 1000
+
+
+@login_required
+def fog_api(request):
+    """Distinct ~110m cells the user has ever been in, for the fog-of-war mask.
+
+    Deliberately *not* keyed on cache_gen. Every push increments the gen, and a
+    full-history DISTINCT is far too expensive to redo per push. All-time
+    exploration barely moves in an hour, so a plain TTL is the right trade —
+    same reasoning as StatsSnapshot being decoupled from the gen.
+    """
+    cache_key = f"fog:{request.user.id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached)
+
+    # order_by() clears Location's Meta.ordering ['-timestamp']; without it the
+    # inherited ordering forces timestamp into the SELECT and breaks DISTINCT.
+    rows = (
+        Location.objects.filter(device__user=request.user)
+        .annotate(
+            gy=Cast(Round(F('latitude') * _FOG_CELLS_PER_DEG), IntegerField()),
+            gx=Cast(Round(F('longitude') * _FOG_CELLS_PER_DEG), IntegerField()),
+        )
+        .order_by().values_list('gy', 'gx').distinct()
+    )
+
+    # Flat [y0, x0, y1, x1, ...] of grid indices — a third the JSON of objects,
+    # and gzip compresses the runs well.
+    cells = []
+    for gy, gx in rows.iterator(chunk_size=10000):
+        if gy is None or gx is None:
+            continue
+        cells.append(gy)
+        cells.append(gx)
+
+    result = {'cells': cells, 'count': len(cells) // 2, 'per_deg': _FOG_CELLS_PER_DEG}
+    cache.set(cache_key, result, timeout=3600)
     return JsonResponse(result)
 
 
