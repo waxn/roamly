@@ -4,6 +4,56 @@
 {% block extra_css %}
 .places-wrap { max-width: 1150px; }
 
+/* ── Suggested places (clustered recurring stays) ────────────────────────── */
+.sg-header {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    margin-bottom: 0.75rem;
+}
+.sg-title {
+    font-family: var(--font-display);
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text);
+}
+.sg-sub {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+.sg-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.sg-item {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.7rem 0.9rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 0;
+}
+.sg-main { flex: 1; min-width: 0; }
+.sg-name {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.sg-meta {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    color: var(--text-muted);
+    margin-top: 0.15rem;
+}
+.sg-actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
+@media (max-width: 560px) {
+    .sg-item { flex-wrap: wrap; }
+    .sg-actions { width: 100%; }
+    .sg-actions .btn { flex: 1; }
+}
+
 .places-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -176,6 +226,17 @@
     <p class="page-lead" style="margin-top:-0.75rem;margin-bottom:1.5rem;">
         name your own spots — home, work, the gym — and see when you were there.
     </p>
+
+    <!-- Recurring stays not yet inside any place. Confirming one opens the
+         create modal prefilled; creating the place is what clears it from here. -->
+    <div id="suggest-wrap" style="display:none;margin-bottom:1.5rem;">
+        <div class="sg-header">
+            <span class="sg-title">suggested places</span>
+            <span class="sg-sub" id="suggest-sub"></span>
+        </div>
+        <div id="suggest-list" class="sg-list"></div>
+        <button class="btn btn-outline btn-sm" id="suggest-more" style="display:none;margin-top:0.75rem;">show all</button>
+    </div>
 
     <div id="places-grid" class="places-grid"></div>
     <div id="places-empty" class="card place-empty" style="display:none;">
@@ -385,12 +446,104 @@ function redrawEditCircle() {
     editMap.getSource('edit-circle').setData(circleGeoJSON(editCenter[1], editCenter[0], editRadius));
 }
 
+// ── Suggested places ──────────────────────────────────────────────────────
+// Recurring stays clustered from visit history that aren't inside a place yet.
+// Nothing is stored per suggestion: confirming just opens the create modal, and
+// saving the place is what removes it from this list. Only rejections persist.
+let suggestions = [];
+let suggestShowAll = false;
+const SUGGEST_PREVIEW = 5;
+
+function _sgAgo(iso) {
+    if (!iso) return '';
+    const days = Math.floor((Date.now() - new Date(iso)) / 86400000);
+    if (days <= 0) return 'today';
+    if (days === 1) return 'yesterday';
+    if (days < 30) return `${days}d ago`;
+    if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+    return `${Math.floor(days / 365)}y ago`;
+}
+
+function renderSuggestions() {
+    const wrap = document.getElementById('suggest-wrap');
+    const list = document.getElementById('suggest-list');
+    const more = document.getElementById('suggest-more');
+    if (!suggestions.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+
+    const shown = suggestShowAll ? suggestions : suggestions.slice(0, SUGGEST_PREVIEW);
+    document.getElementById('suggest-sub').textContent =
+        `${suggestions.length} spot${suggestions.length === 1 ? '' : 's'} you keep returning to`;
+
+    list.innerHTML = shown.map((s, i) => {
+        const title = s.suggested_name || s.city || `${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}`;
+        const where = s.suggested_name && s.city ? ` · ${s.city}` : '';
+        return `<div class="sg-item" data-i="${i}">
+            <div class="sg-main">
+                <div class="sg-name">${escHtml(title)}${escHtml(where)}</div>
+                <div class="sg-meta">${s.visits} visits · ${s.hours}h total · last ${_sgAgo(s.last_seen)}</div>
+            </div>
+            <div class="sg-actions">
+                <button class="btn btn-primary btn-sm" data-act="add" data-i="${i}">name it</button>
+                <button class="btn btn-outline btn-sm" data-act="dismiss" data-i="${i}">not a place</button>
+            </div>
+        </div>`;
+    }).join('');
+
+    more.style.display = suggestions.length > SUGGEST_PREVIEW ? 'inline-block' : 'none';
+    more.textContent = suggestShowAll ? 'show fewer' : `show all ${suggestions.length}`;
+}
+
+document.getElementById('suggest-list').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    const s = suggestions[parseInt(btn.dataset.i)];
+    if (!s) return;
+    if (btn.dataset.act === 'add') {
+        openEdit(null, s);
+    } else {
+        dismissSuggestion(s, btn);
+    }
+});
+
+document.getElementById('suggest-more').addEventListener('click', () => {
+    suggestShowAll = !suggestShowAll;
+    renderSuggestions();
+});
+
+async function dismissSuggestion(s, btn) {
+    btn.disabled = true;
+    try {
+        await fetch('/api/places/suggestions/dismiss/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+            body: JSON.stringify({ lat: s.lat, lng: s.lng }),
+        });
+        suggestions = suggestions.filter(x => x !== s);
+        renderSuggestions();
+    } catch (e) {
+        btn.disabled = false;
+    }
+}
+
+async function loadSuggestions() {
+    try {
+        const d = await fetch('/api/places/suggestions/').then(r => r.json());
+        suggestions = d.suggestions || [];
+    } catch (e) {
+        suggestions = [];
+    }
+    renderSuggestions();
+}
+
 function openCreate() { openEdit(null); }
-function openEdit(place) {
+function openEdit(place, suggestion) {
     editId = place ? place.id : null;
     document.getElementById('edit-title').textContent = place ? 'edit place' : 'new place';
-    document.getElementById('edit-name').value = place ? place.name : '';
-    editRadius = place ? Math.round(place.radius_m) : 150;
+    document.getElementById('edit-name').value =
+        place ? place.name : (suggestion && suggestion.suggested_name) || '';
+    editRadius = place ? Math.round(place.radius_m)
+        : (suggestion ? Math.round(suggestion.radius_m) : 150);
     const slider = document.getElementById('edit-radius');
     if (editRadius > parseInt(slider.max)) slider.max = Math.ceil(editRadius / 25) * 25;
     slider.value = editRadius;
@@ -403,6 +556,16 @@ function openEdit(place) {
         editMap.jumpTo({ center: editCenter, zoom: 14 });
         editMarker.setLngLat(editCenter).addTo(editMap);
         redrawEditCircle();
+    } else if (suggestion) {
+        // Confirming a suggestion: prefill the centre so it's one click to save,
+        // but leave everything editable rather than inventing a place outright.
+        editCenter = [suggestion.lng, suggestion.lat];
+        editMap.jumpTo({ center: editCenter, zoom: 16 });
+        editMarker.setLngLat(editCenter).addTo(editMap);
+        redrawEditCircle();
+        if (!document.getElementById('edit-name').value) {
+            setTimeout(() => document.getElementById('edit-name').focus(), 80);
+        }
     } else {
         editCenter = null;
         editMarker.remove();
@@ -441,7 +604,9 @@ async function savePlace() {
         const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.error || 'save failed'); return; }
         closeEdit();
-        await loadPlaces();
+        // The saved place may cover a suggested cluster, which is what retires
+        // the suggestion — so refresh both lists.
+        await Promise.all([loadPlaces(), loadSuggestions()]);
     } finally {
         btn.disabled = false;
         btn.textContent = 'save';
@@ -593,7 +758,8 @@ async function openDetail(id) {
 async function deletePlace(id, name) {
     if (!confirm(`delete "${name}"? this only removes the place, not your location data.`)) return;
     const res = await fetch(`/api/places/${id}/delete/`, { method: 'POST' });
-    if (res.ok) { closeDetail(); await loadPlaces(); }
+    // Deleting a place can re-expose the cluster it was covering as a suggestion.
+    if (res.ok) { closeDetail(); await Promise.all([loadPlaces(), loadSuggestions()]); }
 }
 
 // Close modals on overlay click / escape
@@ -610,5 +776,6 @@ document.addEventListener('keydown', (e) => {
 
 window.onSnapshotReady = loadPlaces;
 loadPlaces();
+loadSuggestions();
 </script>
 {% endblock %}

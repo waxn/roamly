@@ -757,6 +757,29 @@ class CustomPlace(models.Model):
         return f"{self.name} ({self.user.username})"
 
 
+class DismissedSuggestion(models.Model):
+    """A place suggestion the user rejected, so it stops resurfacing.
+
+    Suggestions themselves are *not* stored — they're clustered from Visit rows
+    on the fly, and confirming one just creates a CustomPlace, which then covers
+    the cluster and drops it from the queue on its own. So the only state worth
+    persisting is the rejections, which nothing else can infer.
+
+    Rejecting says "don't offer this as a place", not "this stay never happened":
+    the underlying Visit rows are left alone, so Stats/Search/AI are unaffected.
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='dismissed_suggestions')
+    latitude = models.FloatField()
+    longitude = models.FloatField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['user'], name='tracker_dismissed_user_idx')]
+
+    def __str__(self):
+        return f"Dismissed suggestion at {self.latitude:.4f},{self.longitude:.4f} ({self.user.username})"
+
+
 class StatsSnapshot(models.Model):
     """Per-user nightly precomputation of the heavy Stats/Visits/Places payloads.
 

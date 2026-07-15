@@ -37,6 +37,7 @@ from .models import (
     UserProfile, Pal, PalMember, PalBlurb, PalBlurbPhoto, PalMilestone, PalComment,
     AdventureMember, AdventureBlurb, AdventureBlurbPhoto, AdventureMilestone, AdventureComment,
     SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig, StatsSnapshot,
+    DismissedSuggestion,
 )
 from .image_utils import resize_image, resize_photo
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
@@ -5473,6 +5474,9 @@ def places_api(request):
             radius_m=radius_m, color=_PLACE_COLORS[count % len(_PLACE_COLORS)],
         )
         _bust_user_cache(request.user.id)
+        # The new place may cover a suggested cluster — drop it from the queue now
+        # rather than leaving a confirmed place sitting there for the TTL.
+        cache.delete(f"suggestions:{request.user.id}")
         threading.Thread(target=_refresh_places_snapshot, args=(request.user,), daemon=True).start()
         return JsonResponse(_serialize_place(place))
 
@@ -5638,6 +5642,8 @@ def place_update(request, place_id):
     # Only the geometry/name affect the cards + snapshot list; a notes-only
     # autosave must not trigger the heavy per-place recompute.
     if any(k in data for k in ('name', 'lat', 'lng', 'radius_m')):
+        # Moving or resizing changes which clusters this place covers.
+        cache.delete(f"suggestions:{request.user.id}")
         threading.Thread(target=_refresh_places_snapshot, args=(request.user,), daemon=True).start()
     return JsonResponse(_serialize_place(place))
 
@@ -5649,8 +5655,147 @@ def place_delete(request, place_id):
     place = get_object_or_404(CustomPlace, id=place_id, user=request.user)
     place.delete()
     _bust_user_cache(request.user.id)
+    # Deleting a place can re-expose the cluster it covered as a suggestion.
+    cache.delete(f"suggestions:{request.user.id}")
     threading.Thread(target=_refresh_places_snapshot, args=(request.user,), daemon=True).start()
     return JsonResponse({'deleted': True})
+
+
+# ---------------------------------------------------------------------------
+# Place suggestions — recurring stays the user hasn't named yet
+# ---------------------------------------------------------------------------
+
+# Repeat visits to one spot land within a stone's throw of each other (the Visit
+# worker already clusters each stay at 150m), so merge candidates at the same
+# radius it used.
+_SUGGEST_RADIUS_M = 150.0
+_SUGGEST_CELL_DEG = 0.004        # ~440m; a 3×3 neighbourhood covers the radius
+_SUGGEST_MIN_VISITS = 3          # a spot you stopped at 3 separate times…
+_SUGGEST_MIN_HOURS = 1.0         # …for an hour all told, is somewhere that matters
+_SUGGEST_LIMIT = 30
+
+
+def _cluster_visits(rows):
+    """Greedily merge Visit rows into place candidates within _SUGGEST_RADIUS_M.
+
+    Grid-indexed so this stays linear-ish rather than comparing every visit to
+    every cluster. `rows` are dicts of latitude/longitude/start_time/end_time/
+    place_name/city.
+    """
+    grid = defaultdict(list)     # cell -> [cluster]
+    clusters = []
+
+    for r in rows:
+        lat, lon = r['latitude'], r['longitude']
+        cy, cx = int(lat / _SUGGEST_CELL_DEG), int(lon / _SUGGEST_CELL_DEG)
+        best, best_d = None, _SUGGEST_RADIUS_M
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                for c in grid.get((cy + dy, cx + dx), ()):
+                    d = _haversine_km(c['lat'], c['lon'], lat, lon) * 1000.0
+                    if d <= best_d:
+                        best_d, best = d, c
+        hours = max(0.0, (r['end_time'] - r['start_time']).total_seconds() / 3600.0)
+        if best is None:
+            c = {
+                'lat': lat, 'lon': lon, 'lat_sum': lat, 'lon_sum': lon, 'n': 1,
+                'hours': hours, 'last_seen': r['end_time'],
+                'names': Counter(), 'cities': Counter(),
+            }
+            clusters.append(c)
+            grid[(cy, cx)].append(c)
+            best = c
+        else:
+            best['lat_sum'] += lat
+            best['lon_sum'] += lon
+            best['n'] += 1
+            best['hours'] += hours
+            best['lat'] = best['lat_sum'] / best['n']
+            best['lon'] = best['lon_sum'] / best['n']
+            if r['end_time'] > best['last_seen']:
+                best['last_seen'] = r['end_time']
+        if r.get('place_name'):
+            best['names'][r['place_name']] += 1
+        if r.get('city'):
+            best['cities'][r['city']] += 1
+
+    return clusters
+
+
+@login_required
+def place_suggestions_api(request):
+    """Recurring stays that aren't inside a custom place yet.
+
+    Suggestions are clustered from Visit rows on the fly rather than stored:
+    confirming one just creates a CustomPlace, which then covers the cluster and
+    drops it from this list on its own, so there is no confirm state to keep in
+    sync. Only dismissals need persisting.
+    """
+    cache_key = f"suggestions:{request.user.id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached)
+
+    rows = list(
+        Visit.objects.filter(device__user=request.user)
+        .order_by()
+        .values('latitude', 'longitude', 'start_time', 'end_time', 'place_name', 'city')
+    )
+    clusters = _cluster_visits(rows)
+
+    places = list(CustomPlace.objects.filter(user=request.user)
+                  .values('latitude', 'longitude', 'radius_m'))
+    dismissed = list(request.user.dismissed_suggestions.values('latitude', 'longitude'))
+
+    out = []
+    for c in clusters:
+        if c['n'] < _SUGGEST_MIN_VISITS or c['hours'] < _SUGGEST_MIN_HOURS:
+            continue
+        # Already named — the place covering it is the confirmation.
+        if any(_haversine_km(p['latitude'], p['longitude'], c['lat'], c['lon']) * 1000.0 <= p['radius_m']
+               for p in places):
+            continue
+        if any(_haversine_km(d['latitude'], d['longitude'], c['lat'], c['lon']) * 1000.0 <= _SUGGEST_RADIUS_M
+               for d in dismissed):
+            continue
+        name = c['names'].most_common(1)[0][0] if c['names'] else ''
+        city = c['cities'].most_common(1)[0][0] if c['cities'] else ''
+        out.append({
+            'lat': round(c['lat'], 6),
+            'lng': round(c['lon'], 6),
+            'visits': c['n'],
+            'hours': round(c['hours'], 1),
+            'last_seen': c['last_seen'].isoformat() if c['last_seen'] else None,
+            'suggested_name': name,
+            'city': city,
+            'radius_m': _SUGGEST_RADIUS_M,
+        })
+
+    # Most-frequented first — the places worth naming float to the top.
+    out.sort(key=lambda s: (-s['visits'], -s['hours']))
+    result = {'suggestions': out[:_SUGGEST_LIMIT], 'total': len(out)}
+    cache.set(cache_key, result, timeout=1800)
+    return JsonResponse(result)
+
+
+@login_required
+@require_http_methods(["POST"])
+def place_suggestion_dismiss_api(request):
+    """Reject a suggestion so it stops resurfacing.
+
+    Records only that the user doesn't want a place here — the underlying Visit
+    rows are untouched, so Stats/Search/AI keep seeing the stays.
+    """
+    try:
+        data = json.loads(request.body or '{}')
+        lat = float(data['lat'])
+        lng = float(data['lng'])
+    except (ValueError, TypeError, KeyError):
+        return JsonResponse({'error': 'lat, lng required'}, status=400)
+
+    DismissedSuggestion.objects.create(user=request.user, latitude=lat, longitude=lng)
+    cache.delete(f"suggestions:{request.user.id}")
+    return JsonResponse({'dismissed': True})
 
 
 # ---------------------------------------------------------------------------
