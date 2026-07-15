@@ -19,3 +19,8 @@ class TrackerConfig(AppConfig):
                 start_stats_scheduler()
             except Exception:
                 pass
+            try:
+                from .mobile_release_tasks import start_mobile_release_scheduler
+                start_mobile_release_scheduler()
+            except Exception:
+                pass
