@@ -35,6 +35,8 @@ urlpatterns = [
     # Location API
     path('api/push/', views.push_location, name='push_location'),
     path('api/push/batch/', views.push_location_batch, name='push_location_batch'),
+    path('api/mobile/version/', views.mobile_version_check, name='mobile_version_check'),
+    path('api/mobile/apk/', views.mobile_download_apk, name='mobile_download_apk'),
     path('api/locations/', views.locations_api, name='locations_api'),
     path('api/track/', views.track_api, name='track_api'),
     path('api/locations/bounds/', views.locations_bounds_api, name='locations_bounds_api'),

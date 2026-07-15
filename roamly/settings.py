@@ -109,6 +109,10 @@ else:
 
 SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
 
+# GitHub repo (owner/name) whose latest `mobile-v*` release the in-app updater
+# checks. Self-hosters / forks can repoint this to their own release repo.
+MOBILE_UPDATE_REPO = os.environ.get('MOBILE_UPDATE_REPO', 'waxn/roamly')
+
 # Secret key that, when entered on the signup form's "admin account" section,
 # creates an instance-admin account. Leave unset to disable admin signups.
 ADMIN_SIGNUP_KEY = os.environ.get('ADMIN_SIGNUP_KEY', '')

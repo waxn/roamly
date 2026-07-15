@@ -7023,3 +7023,119 @@ def admin_delete_user_api(request, user_id):
     # Everything the user owns (devices, locations, …) cascades on delete.
     target.delete()
     return JsonResponse({'ok': True, 'deleted': username})
+
+
+# ---------------------------------------------------------------------------
+# In-app mobile updates
+#
+# The Android app is sideloaded (no Play Store). CI publishes a signed APK as a
+# GitHub Release asset (Roamly<version>.apk) on every `mobile-v*` tag. These two
+# endpoints let the app check for and download a newer build while only ever
+# talking to its own configured server — the server proxies GitHub.
+# ---------------------------------------------------------------------------
+
+_MOBILE_RELEASE_CACHE_KEY = 'mobile_latest_release'
+_MOBILE_RELEASE_TTL = 3600  # 1h — GitHub unauth API is 60 req/hr/IP.
+
+
+def _fetch_latest_mobile_release():
+    """Return parsed metadata for the latest `mobile-v*` release, or None.
+
+    Cached for ``_MOBILE_RELEASE_TTL`` so we never hit GitHub per-request.
+    Shape: {version_name, tag, asset_name, asset_url, size, release_notes}.
+    """
+    cached = cache.get(_MOBILE_RELEASE_CACHE_KEY)
+    if cached is not None:
+        return cached or None  # cache empty-dict sentinel means "no release"
+
+    repo = getattr(settings, 'MOBILE_UPDATE_REPO', 'waxn/roamly')
+    url = f'https://api.github.com/repos/{repo}/releases/latest'
+    req = urllib.request.Request(url, headers={
+        'User-Agent': 'Roamly-update-check',
+        'Accept': 'application/vnd.github+json',
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+    except Exception:
+        logger.exception('Failed to fetch latest mobile release from GitHub')
+        # Cache the miss briefly so a GitHub outage doesn't hammer us.
+        cache.set(_MOBILE_RELEASE_CACHE_KEY, {}, 300)
+        return None
+
+    tag = data.get('tag_name') or ''
+    version_name = tag[len('mobile-v'):] if tag.startswith('mobile-v') else tag.lstrip('v')
+    apk = None
+    for asset in data.get('assets') or []:
+        name = asset.get('name') or ''
+        if name.lower().endswith('.apk'):
+            apk = asset
+            break
+    if not version_name or apk is None:
+        cache.set(_MOBILE_RELEASE_CACHE_KEY, {}, 300)
+        return None
+
+    parsed = {
+        'version_name': version_name,
+        'tag': tag,
+        'asset_name': apk.get('name'),
+        'asset_url': apk.get('browser_download_url'),
+        'size': apk.get('size') or 0,
+        'release_notes': data.get('body') or '',
+    }
+    cache.set(_MOBILE_RELEASE_CACHE_KEY, parsed, _MOBILE_RELEASE_TTL)
+    return parsed
+
+
+def mobile_version_check(request):
+    """Public: latest available Android version + download URL (proxies GitHub)."""
+    release = _fetch_latest_mobile_release()
+    if release is None:
+        return JsonResponse({'error': 'No release information available'}, status=503)
+    return JsonResponse({
+        'version_name': release['version_name'],
+        'download_url': '/api/mobile/apk/',
+        'release_notes': release['release_notes'],
+        'size': release['size'],
+    })
+
+
+def mobile_download_apk(request):
+    """Stream the latest signed APK, cached to disk to avoid re-hitting GitHub."""
+    release = _fetch_latest_mobile_release()
+    if release is None or not release.get('asset_url'):
+        return HttpResponse('APK not available', status=503)
+
+    apk_dir = os.path.join(settings.MEDIA_ROOT, 'apk')
+    os.makedirs(apk_dir, exist_ok=True)
+    # Sanitise the asset name into a safe local filename.
+    safe_name = os.path.basename(release['asset_name'] or f"Roamly{release['version_name']}.apk")
+    apk_path = os.path.join(apk_dir, safe_name)
+
+    if not os.path.exists(apk_path):
+        # First request for this version — pull it from GitHub to disk once.
+        tmp_path = apk_path + '.part'
+        try:
+            req = urllib.request.Request(release['asset_url'], headers={'User-Agent': 'Roamly-update-check'})
+            with urllib.request.urlopen(req, timeout=120) as resp, open(tmp_path, 'wb') as out:
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+            os.replace(tmp_path, apk_path)
+        except Exception:
+            logger.exception('Failed to fetch APK asset from GitHub')
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            return HttpResponse('Failed to fetch APK', status=502)
+
+    response = FileResponse(
+        open(apk_path, 'rb'),
+        content_type='application/vnd.android.package-archive',
+        as_attachment=True,
+        filename=safe_name,
+    )
+    return response
