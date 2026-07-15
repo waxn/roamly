@@ -13,8 +13,8 @@ android {
         applicationId = "com.roamly"
         minSdk = 26
         targetSdk = 36
-        versionCode = 20
-        versionName = "1.13.2"
+        versionCode = 21
+        versionName = "1.13.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -24,12 +24,30 @@ android {
     // absent so local builds without secrets still work.
     val uploadStorePath = System.getenv("ROAMLY_UPLOAD_STORE_FILE")
         ?: (project.findProperty("ROAMLY_UPLOAD_STORE_FILE") as String?)
-    val hasUploadSigning = uploadStorePath != null && file(uploadStorePath).exists()
+    // A bare filename resolves against the :app module dir here, NOT the repo root
+    // where CI writes the keystore — so try the module-relative path first, then
+    // fall back to resolving against rootProject. Without this the release silently
+    // fell back to the debug key, which is regenerated per CI runner, so every
+    // release was signed with a different key and updates failed ("App not
+    // installed"). An absolute path passes through file() unchanged.
+    val uploadStoreFile = uploadStorePath?.let { p ->
+        file(p).takeIf { it.exists() } ?: rootProject.file(p)
+    }
+    val hasUploadSigning = uploadStoreFile != null && uploadStoreFile.exists()
+
+    // On CI (ROAMLY_REQUIRE_UPLOAD_SIGNING=1) a missing keystore must fail the
+    // build rather than quietly producing a debug-signed, un-updatable APK.
+    if (System.getenv("ROAMLY_REQUIRE_UPLOAD_SIGNING") == "1" && !hasUploadSigning) {
+        throw GradleException(
+            "Upload signing required but keystore not found (ROAMLY_UPLOAD_STORE_FILE=" +
+                "'${uploadStorePath ?: "<unset>"}'). Refusing to sign the release with the debug key."
+        )
+    }
 
     signingConfigs {
         if (hasUploadSigning) {
             create("release") {
-                storeFile = file(uploadStorePath!!)
+                storeFile = uploadStoreFile
                 storePassword = System.getenv("ROAMLY_UPLOAD_STORE_PASSWORD")
                     ?: project.findProperty("ROAMLY_UPLOAD_STORE_PASSWORD") as String?
                 keyAlias = System.getenv("ROAMLY_UPLOAD_KEY_ALIAS")

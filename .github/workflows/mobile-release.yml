@@ -26,19 +26,29 @@ jobs:
           distribution: 'temurin'
 
       - name: Decode upload keystore
-        run: echo "${{ secrets.ROAMLY_UPLOAD_STORE_BASE64 }}" | base64 -d > roamly-upload.jks
+        run: echo "${{ secrets.ROAMLY_UPLOAD_STORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/roamly-upload.jks"
 
       - name: Build signed release APK
         env:
-          ROAMLY_UPLOAD_STORE_FILE: roamly-upload.jks
+          # Absolute path — a relative name would resolve against the :app module
+          # dir, miss the keystore, and silently fall back to the debug key.
+          ROAMLY_UPLOAD_STORE_FILE: ${{ runner.temp }}/roamly-upload.jks
           ROAMLY_UPLOAD_STORE_PASSWORD: ${{ secrets.ROAMLY_UPLOAD_STORE_PASSWORD }}
           ROAMLY_UPLOAD_KEY_ALIAS: ${{ secrets.ROAMLY_UPLOAD_KEY_ALIAS }}
           ROAMLY_UPLOAD_KEY_PASSWORD: ${{ secrets.ROAMLY_UPLOAD_KEY_PASSWORD }}
+          # Refuse to publish a debug-signed (un-updatable) release.
+          ROAMLY_REQUIRE_UPLOAD_SIGNING: '1'
         run: ./gradlew assembleRelease
 
       - name: Clean up keystore
         if: always()
-        run: rm -f roamly-upload.jks
+        run: rm -f "$RUNNER_TEMP/roamly-upload.jks"
+
+      - name: Verify APK is signed with the upload key
+        run: |
+          apksigner=$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -name apksigner | sort | tail -n1)
+          echo "Using: $apksigner"
+          "$apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk
 
       - name: Rename APK
         run: |
