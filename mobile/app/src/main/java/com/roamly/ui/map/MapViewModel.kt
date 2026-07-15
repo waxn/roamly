@@ -15,6 +15,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -95,15 +96,25 @@ class MapViewModel @Inject constructor(
     private var lastKnownSyncMs = 0L
 
     init {
-        loadData(showSpinnerIfEmpty = true)
-        // Build/refresh the on-device history in the background, then repaint so
-        // the local store becomes the instant source for subsequent opens and for
-        // an accurate "have I been here?".
+        // Wait for a real server URL before touching the network. This VM is
+        // Activity-scoped and constructed at the top of RoamlyNavHost — during the
+        // splash, before login resolves — so firing requests immediately hits the
+        // placeholder base URL ("http://roamly.placeholder/") and leaves an
+        // "unable to resolve host" error stuck on the first map view. Once logged
+        // in the value is already present, so this returns instantly.
         viewModelScope.launch {
+            userPreferences.serverUrl.first { !it.isNullOrBlank() }
+            loadData(showSpinnerIfEmpty = true)
+            // Build/refresh the on-device history in the background, then repaint
+            // so the local store becomes the instant source for subsequent opens
+            // and for an accurate "have I been here?".
             store.syncIfDue()
             loadData(showSpinnerIfEmpty = false)
         }
-        viewModelScope.launch { loadStats() }
+        viewModelScope.launch {
+            userPreferences.serverUrl.first { !it.isNullOrBlank() }
+            loadStats()
+        }
 
         // Mapbox basemap token: paint immediately from the cached value, then
         // refresh from the server so a change made on the web propagates here.
@@ -113,6 +124,7 @@ class MapViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            userPreferences.serverUrl.first { !it.isNullOrBlank() }
             val token = locationRepository.getMapboxToken()
             if (token != null) userPreferences.setMapboxToken(token)
         }
