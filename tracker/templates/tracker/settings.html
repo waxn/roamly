@@ -3,10 +3,6 @@
 
 {% block content %}
 <div class="container settings-container">
-    <div class="page-header">
-        <h1>Settings</h1>
-    </div>
-
     <style>
         .settings-grid {
             display: grid;
@@ -127,19 +123,35 @@
         }
         .settings-layout {
             display: flex;
+            flex-direction: column;
             gap: 1.5rem;
-            align-items: flex-start;
+            align-items: stretch;
         }
         .settings-layout > .settings-grid { flex: 1; min-width: 0; }
+        .settings-side { min-width: 0; }
         .settings-nav { display: none; }
         @media (min-width: 960px) {
-            .settings-nav {
-                display: block;
+            .settings-layout {
+                flex-direction: row;
+                align-items: flex-start;
+            }
+            /* Heading + nav share one sticky column so both stay in the
+               viewport at all times while the cards scroll past. */
+            .settings-side {
                 position: sticky;
                 top: 1rem;
                 flex: 0 0 190px;
                 width: 190px;
                 max-height: calc(100vh - 2rem);
+                display: flex;
+                flex-direction: column;
+                gap: 0.75rem;
+            }
+            .settings-side .page-header { margin: 0; }
+            .settings-nav {
+                display: block;
+                flex: 1 1 auto;
+                min-height: 0;
                 overflow-y: auto;
                 border: 1px solid var(--border);
                 padding: 0.4rem;
@@ -162,7 +174,12 @@
         .settings-nav a.active { color: var(--primary); border-left-color: var(--primary); font-weight: 600; }
     </style>
     <div class="settings-layout">
-    <nav class="settings-nav" id="settings-nav" aria-label="Settings sections"></nav>
+    <div class="settings-side">
+        <div class="page-header">
+            <h1>Settings</h1>
+        </div>
+        <nav class="settings-nav" id="settings-nav" aria-label="Settings sections"></nav>
+    </div>
     <div class="settings-grid">
         <!-- Profile Picture -->
         <div class="card settings-span-12">
