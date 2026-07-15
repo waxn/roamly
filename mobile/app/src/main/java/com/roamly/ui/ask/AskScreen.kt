@@ -76,7 +76,7 @@ fun AskScreen(
         }
 
         if (state.messages.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                 Text(
                     "Ask about your location history — \"where was I last weekend?\", \"how far did I travel in June?\"",
                     style = MaterialTheme.typography.bodyMedium,
