@@ -99,6 +99,18 @@ fun RoamlyNavHost() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
+    // If the session goes invalid while the app is open — the SessionGuard
+    // interceptor clears it after the server bounces an API call to the login
+    // page — isLoggedIn flips to false. Route back to login so the user
+    // re-authenticates instead of sitting on a screen that can't load anything.
+    LaunchedEffect(isLoggedIn) {
+        if (isLoggedIn == false && currentDestination != null &&
+            currentDestination?.route != Screen.Login.route
+        ) {
+            navController.navigate(Screen.Login.route) { popUpTo(0) { inclusive = true } }
+        }
+    }
+
     val showBottomBar = currentDestination?.route != Screen.Login.route &&
             currentDestination?.route != Screen.TripDetail.route &&
             currentDestination?.route != Screen.PalDetail.route

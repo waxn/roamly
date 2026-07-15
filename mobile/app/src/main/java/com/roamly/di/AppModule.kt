@@ -31,6 +31,10 @@ annotation class AuthInterceptor
 @Retention(AnnotationRetention.BINARY)
 annotation class BaseUrlInterceptor
 
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class SessionGuardInterceptor
+
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
@@ -83,19 +87,47 @@ object AppModule {
         }
     }
 
+    /**
+     * Detects an expired/invalid session. `@login_required` API endpoints answer
+     * with a 302 to `/login/` when the session cookie is missing/expired and no
+     * valid Bearer key is present; OkHttp follows it, so we land on the 200 HTML
+     * login page. Gson (lenient) then reads that HTML as a bare string and throws
+     * "Expected BEGIN_OBJECT but was STRING at line 1 column 1 path $", which
+     * surfaced as a cryptic error on the map. Instead, spot the bounce (an /api/
+     * request that ended up on /login/ after a redirect) and clear the stale
+     * session so the app returns to the login screen cleanly.
+     */
+    @Provides
+    @Singleton
+    @SessionGuardInterceptor
+    fun provideSessionGuardInterceptor(prefs: UserPreferences): Interceptor {
+        return Interceptor { chain ->
+            val request = chain.request()
+            val response = chain.proceed(request)
+            val startedAtApi = request.url.encodedPath.startsWith("/api/")
+            val landedAtLogin = response.request.url.encodedPath.trimEnd('/').endsWith("/login")
+            if (startedAtApi && landedAtLogin && response.priorResponse != null) {
+                runBlocking { prefs.clearSession() }
+            }
+            response
+        }
+    }
+
     @Provides
     @Singleton
     fun provideOkHttpClient(
         @AuthInterceptor authInterceptor: Interceptor,
-        @BaseUrlInterceptor baseUrlInterceptor: Interceptor
+        @BaseUrlInterceptor baseUrlInterceptor: Interceptor,
+        @SessionGuardInterceptor sessionGuardInterceptor: Interceptor
     ): OkHttpClient {
         // BASIC (request line + status only) — BODY serialized every full
         // response (e.g. large location/sync payloads) to a string on each call,
         // which is wasteful churn for no user benefit.
         val logging = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC }
         return OkHttpClient.Builder()
-            .addInterceptor(baseUrlInterceptor)   // rewrite URL first
-            .addInterceptor(authInterceptor)       // then add auth header
+            .addInterceptor(baseUrlInterceptor)       // rewrite URL first
+            .addInterceptor(authInterceptor)          // then add auth header
+            .addInterceptor(sessionGuardInterceptor)  // catch expired-session redirects
             .addInterceptor(logging)
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)

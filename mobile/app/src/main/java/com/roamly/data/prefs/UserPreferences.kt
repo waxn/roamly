@@ -185,6 +185,17 @@ class UserPreferences @Inject constructor(
     }
 
     /**
+     * Clear only the session cookie, keeping the server URL and username so the
+     * login screen stays pre-filled. Used when the server bounces a `@login_required`
+     * API call to the HTML login page (expired/invalid session and no working
+     * Bearer key): flipping `sessionId` to blank makes `isLoggedIn` false so the
+     * app routes back to login instead of trying to parse the login page as JSON.
+     */
+    suspend fun clearSession() {
+        context.dataStore.edit { it.remove(KEY_SESSION_ID) }
+    }
+
+    /**
      * Full sign-out. Removes the credentials that gate "logged in" — including the
      * API key, which is now the durable credential (the session cookie is optional
      * because the server authenticates the Bearer key on every endpoint). Tracking
