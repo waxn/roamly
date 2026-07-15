@@ -7035,18 +7035,33 @@ def admin_delete_user_api(request, user_id):
 # ---------------------------------------------------------------------------
 
 _MOBILE_RELEASE_CACHE_KEY = 'mobile_latest_release'
-_MOBILE_RELEASE_TTL = 3600  # 1h — GitHub unauth API is 60 req/hr/IP.
+_MOBILE_RELEASE_TTL = 900  # 15m — GitHub unauth API is 60 req/hr/IP; well under.
+# Minimum spacing between forced (?refresh=1) GitHub fetches, so the public
+# bypass can't be used to burn through GitHub's rate limit.
+_MOBILE_RELEASE_REFRESH_COOLDOWN_KEY = 'mobile_latest_release_refresh_lock'
+_MOBILE_RELEASE_REFRESH_COOLDOWN = 120  # 2m
 
 
-def _fetch_latest_mobile_release():
+def _fetch_latest_mobile_release(force=False):
     """Return parsed metadata for the latest `mobile-v*` release, or None.
 
-    Cached for ``_MOBILE_RELEASE_TTL`` so we never hit GitHub per-request.
+    Cached for ``_MOBILE_RELEASE_TTL`` so we never hit GitHub per-request. A
+    newly published release is otherwise invisible until the entry expires, so
+    ``force=True`` (from ``?refresh=1``) bypasses the read cache and re-fetches
+    from GitHub — rate-limited by a short cooldown so it can't be abused.
     Shape: {version_name, tag, asset_name, asset_url, size, release_notes}.
     """
-    cached = cache.get(_MOBILE_RELEASE_CACHE_KEY)
-    if cached is not None:
-        return cached or None  # cache empty-dict sentinel means "no release"
+    # Honour a forced refresh only when the cooldown has elapsed; otherwise fall
+    # back to the cached value so bursts of ?refresh=1 don't hammer GitHub.
+    if force and cache.add(_MOBILE_RELEASE_REFRESH_COOLDOWN_KEY, 1, _MOBILE_RELEASE_REFRESH_COOLDOWN):
+        force = True
+    else:
+        force = False
+
+    if not force:
+        cached = cache.get(_MOBILE_RELEASE_CACHE_KEY)
+        if cached is not None:
+            return cached or None  # cache empty-dict sentinel means "no release"
 
     repo = getattr(settings, 'MOBILE_UPDATE_REPO', 'waxn/roamly')
     url = f'https://api.github.com/repos/{repo}/releases/latest'
@@ -7088,8 +7103,13 @@ def _fetch_latest_mobile_release():
 
 
 def mobile_version_check(request):
-    """Public: latest available Android version + download URL (proxies GitHub)."""
-    release = _fetch_latest_mobile_release()
+    """Public: latest available Android version + download URL (proxies GitHub).
+
+    ``?refresh=1`` forces a fresh GitHub fetch (bypassing the read cache) so a
+    just-published release shows up immediately instead of after the TTL.
+    """
+    force = request.GET.get('refresh') in ('1', 'true', 'yes')
+    release = _fetch_latest_mobile_release(force=force)
     if release is None:
         return JsonResponse({'error': 'No release information available'}, status=503)
     return JsonResponse({
