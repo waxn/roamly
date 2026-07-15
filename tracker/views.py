@@ -5926,7 +5926,11 @@ def transport_breakdown_api(request):
     per_mode = {m: {'km': 0.0, 'points': 0, 'seconds': 0.0} for m in MODES}
     unclassified = 0
 
-    for dev_id in qs.values_list('device_id', flat=True).distinct():
+    # order_by() is required: Location has Meta.ordering ['-timestamp'], which a
+    # values_list(...).distinct() inherits — forcing timestamp into the SELECT and
+    # breaking the DISTINCT, so this would yield one row per point rather than one
+    # per device.
+    for dev_id in qs.order_by().values_list('device_id', flat=True).distinct():
         rows = list(
             qs.filter(device_id=dev_id)
             .order_by('timestamp', 'id')
