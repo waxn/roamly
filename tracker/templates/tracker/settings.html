@@ -2,7 +2,7 @@
 {% block title %}Settings - Roamly{% endblock %}
 
 {% block content %}
-<div class="container">
+<div class="container settings-container">
     <div class="page-header">
         <h1>Settings</h1>
     </div>
@@ -118,7 +118,13 @@
             gap: 1.5rem;
             flex-wrap: wrap;
         }
-        /* Side jump-nav for settings categories */
+        /* Side jump-nav for settings categories.
+           On wide screens, widen the settings container by exactly the nav
+           column (190px) + gap (1.5rem) so the cards keep their original,
+           pre-nav width and the pinned nav lives in the added side space. */
+        @media (min-width: 960px) {
+            body > .container.settings-container { max-width: calc(1150px + 190px + 1.5rem); }
+        }
         .settings-layout {
             display: flex;
             gap: 1.5rem;
