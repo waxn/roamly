@@ -31,7 +31,28 @@
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: 0;
+    cursor: pointer;
 }
+.sg-item:hover { border-color: var(--primary); }
+.sg-entry.open .sg-item { border-color: var(--primary); border-bottom-color: var(--border); }
+.sg-chevron {
+    flex-shrink: 0;
+    color: var(--text-dim);
+    font-size: 0.7rem;
+    transition: transform 0.15s;
+}
+.sg-entry.open .sg-chevron { transform: rotate(90deg); color: var(--primary); }
+
+/* One shared MapLibre instance is moved into whichever row is open, rather than
+   spinning up a map per row. */
+.sg-mini {
+    display: none;
+    height: 220px;
+    border: 1px solid var(--primary);
+    border-top: none;
+}
+.sg-entry.open .sg-mini { display: block; }
+.sg-mini-map { width: 100%; height: 100%; }
 .sg-main { flex: 1; min-width: 0; }
 .sg-name {
     font-size: 0.875rem;
@@ -454,6 +475,14 @@ let suggestions = [];
 let suggestShowAll = false;
 const SUGGEST_PREVIEW = 5;
 
+// Inline preview state. A single MapLibre instance is moved into whichever row
+// is expanded, instead of one map per row — a long queue would otherwise mean a
+// dozen live GL contexts. Declared up here because renderSuggestions() below
+// detaches miniHost before replacing the rows.
+let miniMap = null, miniMarker = null, expandedIdx = null;
+const miniHost = document.createElement('div');
+miniHost.className = 'sg-mini-map';
+
 function _sgAgo(iso) {
     if (!iso) return '';
     const days = Math.floor((Date.now() - new Date(iso)) / 86400000);
@@ -468,6 +497,11 @@ function renderSuggestions() {
     const wrap = document.getElementById('suggest-wrap');
     const list = document.getElementById('suggest-list');
     const more = document.getElementById('suggest-more');
+    // The rows are about to be replaced wholesale, which would take the shared
+    // map element down with them — lift it out first and forget which row was
+    // open, since dismissing shifts every index after it anyway.
+    if (miniHost.parentNode) miniHost.parentNode.removeChild(miniHost);
+    expandedIdx = null;
     if (!suggestions.length) { wrap.style.display = 'none'; return; }
     wrap.style.display = 'block';
 
@@ -478,15 +512,19 @@ function renderSuggestions() {
     list.innerHTML = shown.map((s, i) => {
         const title = s.suggested_name || s.city || `${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}`;
         const where = s.suggested_name && s.city ? ` · ${s.city}` : '';
-        return `<div class="sg-item" data-i="${i}">
-            <div class="sg-main">
-                <div class="sg-name">${escHtml(title)}${escHtml(where)}</div>
-                <div class="sg-meta">${s.visits} visits · ${s.hours}h total · last ${_sgAgo(s.last_seen)}</div>
+        return `<div class="sg-entry" data-i="${i}">
+            <div class="sg-item" data-act="toggle" data-i="${i}">
+                <span class="sg-chevron">▶</span>
+                <div class="sg-main">
+                    <div class="sg-name">${escHtml(title)}${escHtml(where)}</div>
+                    <div class="sg-meta">${s.visits} visits · ${s.hours}h total · last ${_sgAgo(s.last_seen)}</div>
+                </div>
+                <div class="sg-actions">
+                    <button class="btn btn-primary btn-sm" data-act="add" data-i="${i}">name it</button>
+                    <button class="btn btn-outline btn-sm" data-act="dismiss" data-i="${i}">not a place</button>
+                </div>
             </div>
-            <div class="sg-actions">
-                <button class="btn btn-primary btn-sm" data-act="add" data-i="${i}">name it</button>
-                <button class="btn btn-outline btn-sm" data-act="dismiss" data-i="${i}">not a place</button>
-            </div>
+            <div class="sg-mini" data-i="${i}"></div>
         </div>`;
     }).join('');
 
@@ -494,15 +532,70 @@ function renderSuggestions() {
     more.textContent = suggestShowAll ? 'show fewer' : `show all ${suggestions.length}`;
 }
 
-document.getElementById('suggest-list').addEventListener('click', (e) => {
-    const btn = e.target.closest('button[data-act]');
-    if (!btn) return;
-    const s = suggestions[parseInt(btn.dataset.i)];
+// ── Inline preview ────────────────────────────────────────────────────────
+function ensureMiniMap() {
+    if (miniMap) return;
+    miniMap = new maplibregl.Map({
+        container: miniHost, style: basemapStyle, center: [0, 20], zoom: 1,
+        attributionControl: false,
+    });
+    miniMap.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+    miniMarker = new maplibregl.Marker({ color: '#e8763d' });
+    miniMap.on('load', () => {
+        miniMap.addSource('mini-circle', { type: 'geojson', data: circleGeoJSON(0, 0, 1) });
+        miniMap.addLayer({ id: 'mini-circle-fill', type: 'fill', source: 'mini-circle',
+            paint: { 'fill-color': '#e8763d', 'fill-opacity': 0.18 } });
+        miniMap.addLayer({ id: 'mini-circle-line', type: 'line', source: 'mini-circle',
+            paint: { 'line-color': '#e8763d', 'line-width': 2 } });
+        paintMini();   // the map may finish loading after the row already opened
+    });
+}
+
+function paintMini() {
+    if (!miniMap || expandedIdx === null) return;
+    const s = suggestions[expandedIdx];
     if (!s) return;
-    if (btn.dataset.act === 'add') {
+    miniMap.resize();   // the container only got its size when the row opened
+    miniMap.jumpTo({ center: [s.lng, s.lat], zoom: 16 });
+    miniMarker.setLngLat([s.lng, s.lat]).addTo(miniMap);
+    const src = miniMap.getSource('mini-circle');
+    if (src) src.setData(circleGeoJSON(s.lat, s.lng, s.radius_m));
+}
+
+function collapseSuggestion() {
+    if (expandedIdx === null) return;
+    const entry = document.querySelector(`.sg-entry[data-i="${expandedIdx}"]`);
+    if (entry) entry.classList.remove('open');
+    if (miniHost.parentNode) miniHost.parentNode.removeChild(miniHost);
+    expandedIdx = null;
+}
+
+function toggleSuggestion(i) {
+    if (expandedIdx === i) { collapseSuggestion(); return; }
+    collapseSuggestion();
+    const entry = document.querySelector(`.sg-entry[data-i="${i}"]`);
+    const slot = entry && entry.querySelector('.sg-mini');
+    if (!slot || !suggestions[i]) return;
+    slot.appendChild(miniHost);
+    entry.classList.add('open');
+    expandedIdx = i;
+    ensureMiniMap();
+    // Wait for the row to actually lay out before measuring/centring the map.
+    requestAnimationFrame(paintMini);
+}
+
+document.getElementById('suggest-list').addEventListener('click', (e) => {
+    const el = e.target.closest('[data-act]');
+    if (!el) return;
+    const i = parseInt(el.dataset.i);
+    const s = suggestions[i];
+    if (!s) return;
+    if (el.dataset.act === 'add') {
         openEdit(null, s);
+    } else if (el.dataset.act === 'dismiss') {
+        dismissSuggestion(s, el);
     } else {
-        dismissSuggestion(s, btn);
+        toggleSuggestion(i);
     }
 });
 

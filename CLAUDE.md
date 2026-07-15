@@ -222,6 +222,8 @@ Places page: **suggested-places list** + card grid (point count + last-seen) + t
 
 Cached under a plain `suggestions:{user_id}` key (30m TTL, **not** gen-keyed — visits accrue slowly and the clustering is a whole-history pass). All three `CustomPlace` mutations `cache.delete` that key, since creating/moving/deleting a place changes which clusters it covers. Unlike the other Places endpoints, `place_suggestion_dismiss_api` is **not** `@csrf_exempt` — the template sends `X-CSRFToken` instead.
 
+Clicking a suggestion row expands an **inline mini-map** (accordion — one row at a time). A **single** MapLibre instance (`miniHost`, created detached) is *moved into* whichever `.sg-mini` slot is open rather than one map per row, since a long queue would otherwise hold a dozen live GL contexts; `paintMini()` re-centres it and is called both on expand and on the map's `load` (whichever lands second). `renderSuggestions()` detaches `miniHost` before replacing rows, so a re-render can't destroy the shared map with the DOM it was sitting in.
+
 Every mutation calls `_bust_user_cache`. Custom places also appear in:
 - **Data table** — `locations_api` resolves via `_place_membership` (bbox+haversine), sets `custom_place`; template prefers it over `poi_name`, renders in coral.
 - **Search** — `search_api` matches `CustomPlace.name__icontains`, prepends results above OSM POIs.
