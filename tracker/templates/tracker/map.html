@@ -284,9 +284,18 @@
    (Fraunces / IBM Plex) don't exist as SDF glyph PBFs, so a symbol layer can
    only ever render the stock demotiles font. DOM markers also live outside the
    style, so they survive basemap swaps instead of needing to be re-added.
-   `--place-color` is set inline per marker from CustomPlace.color. */
+   `--place-color` is set inline per marker from CustomPlace.color.
+
+   position MUST stay absolute. This element is the marker itself, so MapLibre
+   also puts .maplibregl-marker on it — and that rule's `position:absolute` is
+   single-class specificity, same as ours, while this block loads later (base
+   .html pulls maplibre-gl.css in <head>, extra_css renders far below). So any
+   position we set here wins over MapLibre's. `relative` dropped the tags into
+   normal flow, where a display:flex box stretched the full viewport width and
+   the transform positioned them from the wrong origin. Absolute also gives the
+   tail's pseudo-elements their containing block. */
 .place-tag {
-    position: relative;
+    position: absolute;
     display: flex;
     align-items: center;
     gap: 5px;
