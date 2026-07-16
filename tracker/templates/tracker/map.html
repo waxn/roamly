@@ -121,7 +121,9 @@
 }
 
 /* Basemap button group — grid so extra basemaps (e.g. Mapbox) wrap onto their
-   own rows instead of squishing together on one line. */
+   own rows instead of squishing together on one line. Mapbox gets its own
+   group below rather than more columns here: the sidebar is only 220px, so
+   six buttons on one grid cannot label themselves legibly. */
 .sidebar-btn-group {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -131,16 +133,28 @@
     padding: 3px;
     gap: 2px;
 }
+.sidebar-sublabel {
+    font-size: 0.55rem;
+    font-family: var(--font-body);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--text-muted);
+    opacity: 0.75;
+    margin-top: 2px;
+}
 .style-btn {
     background: none;
     border: none;
     color: var(--text-muted);
-    padding: 4px 4px;
+    padding: 4px 2px;
     border-radius:0;
     font-size: 0.7rem;
     font-family: var(--font-body);
     font-weight: 700;
-    
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     cursor: pointer;
     white-space: nowrap;
     transition: background 0.12s, color 0.12s;
@@ -513,7 +527,7 @@
                 </select>
             </div>
 
-            <div class="sidebar-section">
+            <div class="sidebar-section" id="basemap-section">
                 <div class="sidebar-label">basemap</div>
                 <div class="sidebar-btn-group">
                     <button class="style-btn active" data-style="Streets">streets</button>
@@ -675,18 +689,32 @@ if (_mapboxToken) {
     mapStyles['Mapbox Streets'] = _mapboxRasterStyle('streets-v12', _mbAttr);
     mapStyles['Mapbox Outdoors'] = _mapboxRasterStyle('outdoors-v12', _mbAttr);
     mapStyles['Mapbox Satellite'] = _mapboxRasterStyle('satellite-streets-v12', _mbAttr);
-    // Add matching basemap buttons next to the built-in ones (before the button
-    // wiring below runs, so they pick up the same click behaviour).
-    const _basemapGroup = document.querySelector('.style-btn')?.parentElement;
-    if (_basemapGroup) {
-        [['Mapbox Streets', 'mb streets'], ['Mapbox Outdoors', 'mb outdoors'],
-         ['Mapbox Satellite', 'mb sat']].forEach(([style, label]) => {
+    // Give the Mapbox basemaps their own labelled group under the built-in one.
+    // Appending them to the built-in grid crushed them into unreadable slivers —
+    // the sidebar is 220px, so a shared row leaves ~60px per button and "mb
+    // outdoors" simply does not fit. Their own group means the same three
+    // one-word labels as above, and the "mapbox" sublabel carries the prefix.
+    // Injected before the button wiring below runs, so they pick up the same
+    // click behaviour from the global .style-btn query.
+    const _basemapSection = document.getElementById('basemap-section');
+    if (_basemapSection) {
+        const _mbLabel = document.createElement('div');
+        _mbLabel.className = 'sidebar-sublabel';
+        _mbLabel.textContent = 'mapbox';
+        _basemapSection.appendChild(_mbLabel);
+
+        const _mbGroup = document.createElement('div');
+        _mbGroup.className = 'sidebar-btn-group';
+        [['Mapbox Streets', 'streets'], ['Mapbox Outdoors', 'outdoors'],
+         ['Mapbox Satellite', 'sat']].forEach(([style, label]) => {
             const btn = document.createElement('button');
             btn.className = 'style-btn';
             btn.dataset.style = style;
             btn.textContent = label;
-            _basemapGroup.appendChild(btn);
+            btn.title = style;
+            _mbGroup.appendChild(btn);
         });
+        _basemapSection.appendChild(_mbGroup);
     }
 }
 
