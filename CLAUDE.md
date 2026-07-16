@@ -229,7 +229,7 @@ Clicking a suggestion row expands an **inline mini-map** (accordion — one row 
 Every mutation calls `_bust_user_cache`. Custom places also appear in:
 - **Data table** — `locations_api` resolves via `_place_membership` (bbox+haversine), sets `custom_place`; template prefers it over `poi_name`, renders in coral.
 - **Search** — `search_api` matches `CustomPlace.name__icontains`, prepends results above OSM POIs.
-- **Map layer** — optional "my places" toggle draws labeled color circles, persisted in `roamly_show_places`, re-added on `style.load`.
+- **Map layer** — optional "my places" toggle, persisted in `roamly_show_places`. Draws two things: the radius **circles** as GL layers (`myplaces-fill`/`myplaces-line`), and the **name tags** as DOM `maplibregl.Marker`s (`.place-tag` — a bordered plate in the place's colour with a wedge tail whose tip sits on the exact centre). Tags are markers rather than a `symbol` layer because the design fonts have no SDF glyph PBFs, so a symbol layer could only ever render the stock demotiles font — and being outside the style, markers also survive basemap swaps untouched. Only the circles need re-adding after a style swap: `addPlacesLayers` is idempotent and guards internally, called from both `style.load` **and `styledata`** — `isStyleLoaded()` can still be false at the instant `style.load` fires and `style.load` never fires again, which is why the layer used to go missing at random.
 
 ## Map rendering
 

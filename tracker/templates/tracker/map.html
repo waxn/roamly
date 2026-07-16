@@ -276,7 +276,70 @@
 .maplibregl-map, .maplibregl-ctrl {
     font-family: var(--font-body) !important;
     font-weight: 700 !important;
-    
+
+}
+
+/* My-places labels.
+   HTML markers rather than a MapLibre symbol layer: the design system's fonts
+   (Fraunces / IBM Plex) don't exist as SDF glyph PBFs, so a symbol layer can
+   only ever render the stock demotiles font. DOM markers also live outside the
+   style, so they survive basemap swaps instead of needing to be re-added.
+   `--place-color` is set inline per marker from CustomPlace.color. */
+.place-tag {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--bg-card);
+    border: 1px solid var(--place-color, var(--border));
+    padding: 3px 7px;
+    font-family: var(--font-body);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    line-height: 1.25;
+    color: var(--text);
+    white-space: nowrap;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+    user-select: none;
+}
+.place-tag-dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    background: var(--place-color, var(--primary));
+}
+/* Tail — two stacked wedges so the box's 1px border carries on around the
+   point. The outer wedge is the border colour; the inner one paints the fill
+   back over it and over the box's bottom border, so the tail reads as part of
+   the box rather than a shape stuck under it.
+   `top` percentages resolve against the padding box, so the outer wedge needs
+   the +1px border back to start at the box's true bottom edge — that puts its
+   7px tip exactly on the marker's anchor coordinate (the -7px marker offset
+   lifts the box by the same amount). The inner wedge deliberately keeps the
+   plain 100% so it starts 1px higher and covers the bottom border. */
+.place-tag::before,
+.place-tag::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    width: 0;
+    height: 0;
+}
+.place-tag::before {
+    top: calc(100% + 1px);
+    margin-left: -6px;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 7px solid var(--place-color, var(--border));
+}
+.place-tag::after {
+    top: 100%;
+    margin-left: -5px;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 5px solid var(--bg-card);
 }
 
 /* Loading bar */
@@ -1533,6 +1596,7 @@ const placesBtn = document.getElementById('places-btn');
 const placesBadge = document.getElementById('places-badge');
 let placesOn = localStorage.getItem('roamly_show_places') === 'on';
 let myPlaces = null;
+let placeMarkers = [];
 
 function placeCircleGeoJSON(lat, lng, radiusM, props, steps = 64) {
     const coords = [];
@@ -1553,31 +1617,60 @@ async function loadMyPlaces() {
     } catch (e) { myPlaces = []; }
 }
 
+// Name tags are DOM markers, not a symbol layer — see .place-tag in the CSS.
+// They're anchored bottom-centre and lifted by the tail's height so the tail
+// tip lands exactly on the place's centre coordinate.
+function addPlaceMarkers() {
+    removePlaceMarkers();
+    (myPlaces || []).forEach(p => {
+        const el = document.createElement('div');
+        el.className = 'place-tag';
+        el.style.setProperty('--place-color', p.color || 'var(--primary)');
+        const dot = document.createElement('span');
+        dot.className = 'place-tag-dot';
+        const name = document.createElement('span');
+        name.textContent = p.name;
+        el.append(dot, name);
+        placeMarkers.push(
+            new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -7] })
+                .setLngLat([p.lng, p.lat])
+                .addTo(map)
+        );
+    });
+}
+
+function removePlaceMarkers() {
+    placeMarkers.forEach(m => m.remove());
+    placeMarkers = [];
+}
+
+// Circles are GL layers, so they're tied to the style and must be re-added
+// after every style swap. Guards internally instead of at the call sites so
+// the styledata retry below can just call it blind.
 function addPlacesLayers() {
-    if (!myPlaces || !myPlaces.length || map.getSource('myplaces-src')) return;
+    if (!placesOn || !myPlaces || !myPlaces.length) return;
+    if (!map.isStyleLoaded() || map.getSource('myplaces-src')) return;
     const circles = myPlaces.map(p => placeCircleGeoJSON(p.lat, p.lng, p.radius_m, { name: p.name, color: p.color }));
-    const labels = myPlaces.map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { name: p.name } }));
     map.addSource('myplaces-src', { type: 'geojson', data: { type: 'FeatureCollection', features: circles } });
-    map.addSource('myplaces-labels', { type: 'geojson', data: { type: 'FeatureCollection', features: labels } });
     map.addLayer({ id: 'myplaces-fill', type: 'fill', source: 'myplaces-src',
         paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.15 } });
     map.addLayer({ id: 'myplaces-line', type: 'line', source: 'myplaces-src',
         paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.9 } });
-    map.addLayer({ id: 'myplaces-label', type: 'symbol', source: 'myplaces-labels',
-        layout: { 'text-field': ['get', 'name'], 'text-size': 13, 'text-offset': [0, 0.2], 'text-anchor': 'center' },
-        paint: { 'text-color': '#ffffff', 'text-halo-color': '#0c1220', 'text-halo-width': 1.4 } });
 }
 
 function removePlacesLayers() {
-    ['myplaces-fill', 'myplaces-line', 'myplaces-label'].forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
-    ['myplaces-src', 'myplaces-labels'].forEach(s => { if (map.getSource(s)) map.removeSource(s); });
+    ['myplaces-fill', 'myplaces-line'].forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
+    if (map.getSource('myplaces-src')) map.removeSource('myplaces-src');
+    removePlaceMarkers();
 }
 
 async function applyPlacesToggle() {
     placesBtn.classList.toggle('active', placesOn);
     if (placesOn) {
         await loadMyPlaces();
-        if (map.isStyleLoaded()) addPlacesLayers();  // else the style.load handler adds them
+        if (!placesOn) return;  // toggled back off while the fetch was in flight
+        addPlaceMarkers();
+        addPlacesLayers();      // no-ops if the style isn't ready; styledata retries
         const n = (myPlaces || []).length;
         placesBadge.textContent = n ? `${n} ${n === 1 ? 'place' : 'places'}` : 'none yet';
     } else {
@@ -1747,8 +1840,15 @@ if (fogOn) setFog(true);
 map.on('style.load', () => {
     applyProjection();
     if (scratchOn) addScratchLayers();
-    if (placesOn) addPlacesLayers();
+    addPlacesLayers();
 });
+
+// Places-circle retry. isStyleLoaded() can still be false at the instant
+// style.load fires, and style.load won't fire again — so the one attempt used
+// to be dropped on the floor and the layer just never appeared. styledata
+// fires repeatedly while the style settles, and addPlacesLayers is idempotent,
+// so the layer reliably lands on whichever tick is ready.
+map.on('styledata', addPlacesLayers);
 
 // ═══════════════════════════════════════════════════════════════════
 // Daily replay — scrub/animate a single day's track
@@ -2191,10 +2291,7 @@ addplaceSaveBtn.addEventListener('click', async () => {
         myPlaces = null;
         if (placesOn) {
             removePlacesLayers();
-            await loadMyPlaces();
-            if (map.isStyleLoaded()) addPlacesLayers();
-            const n = (myPlaces || []).length;
-            placesBadge.textContent = n ? `${n} ${n === 1 ? 'place' : 'places'}` : 'none yet';
+            await applyPlacesToggle();
         }
     } finally {
         addplaceSaveBtn.disabled = false;
