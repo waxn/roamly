@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <!-- Black so the white Roamly mark is actually visible (it was invisible on white). -->
+    <!-- Black so the orange Roamly mark reads with strong contrast. -->
     <solid android:color="#000000" />
 </shape>

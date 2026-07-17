@@ -104,14 +104,23 @@
             text-decoration: none;
             display: flex;
             align-items: center;
+            gap: 0.5rem;
             flex-shrink: 0;
         }
         .nav-brand img {
-            height: 38px;
-            filter: brightness(0) invert(1);
+            height: 34px;
+            width: auto;
             transition: transform 0.3s var(--ease-spring);
         }
         .nav-brand:hover img { transform: scale(1.06) rotate(-2deg); }
+        .nav-word {
+            font-family: var(--font-display);
+            font-weight: 600;
+            font-size: 1.4rem;
+            line-height: 1;
+            letter-spacing: -0.01em;
+            color: var(--text);
+        }
 
         .nav-sep { width: 1px; height: 22px; background: var(--border); flex-shrink: 0; }
 
@@ -757,7 +766,8 @@
 <!-- Navigation -->
 <nav class="nav">
     <a href="{% url 'tracker:landing' %}" class="nav-brand">
-        <img src="{% static 'tracker/roamly.svg' %}" alt="Roamly">
+        <img src="{% static 'tracker/roamlymark.svg' %}" alt="">
+        <span class="nav-word">Roamly</span>
     </a>
     <div class="nav-sep"></div>
     <span class="nav-label">docs</span>

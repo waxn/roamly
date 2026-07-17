@@ -109,12 +109,23 @@
         }
 
         .logo-wrap {
-            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
             margin-bottom: 0.6rem;
         }
         .logo-wrap img {
             height: 42px;
-            filter: brightness(0) invert(1);
+            width: auto;
+        }
+        .logo-word {
+            font-family: var(--font-display);
+            font-weight: 600;
+            font-size: 1.7rem;
+            line-height: 1;
+            letter-spacing: -0.01em;
+            color: var(--text);
         }
 
         .card-subtitle {
@@ -262,7 +273,8 @@
 
     <div class="card">
         <div class="logo-wrap">
-            <img src="{% static 'tracker/roamly.svg' %}" alt="Roamly">
+            <img src="{% static 'tracker/roamlymark.svg' %}" alt="">
+            <span class="logo-word">Roamly</span>
         </div>
         <p class="card-subtitle">create your account</p>
 

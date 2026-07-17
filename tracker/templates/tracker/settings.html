@@ -1446,8 +1446,6 @@ function testAiConnection() {
 function saveTheme(theme) {
     localStorage.setItem('roamly_theme', theme);
     document.documentElement.setAttribute('data-theme', theme);
-    const logo = document.querySelector('.navbar-logo');
-    if (logo) logo.style.filter = theme === 'light' ? 'brightness(0)' : 'brightness(0) invert(1)';
     document.querySelector('meta[name="theme-color"]').content = theme === 'light' ? '#f5f5f7' : '#0f1117';
 }
 document.getElementById('theme-select').value = localStorage.getItem('roamly_theme') || 'dark';
