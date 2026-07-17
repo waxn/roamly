@@ -96,8 +96,9 @@
             transition:box-shadow 0.25s var(--ease-out);
         }
         .nav.scrolled{box-shadow:0 4px 12px rgba(0,0,0,0.25)}
-        .nav-logo{grid-area:logo;display:flex;align-items:center}
-        .nav-logo img{height:34px;filter:brightness(0) invert(1)}
+        .nav-logo{grid-area:logo;display:flex;align-items:center;gap:0.45rem}
+        .nav-logo img{height:34px;width:auto}
+        .nav-logo .nav-word{font-family:var(--font-display);font-weight:600;font-size:1.4rem;line-height:1;letter-spacing:-0.01em;color:var(--text)}
         .nav-auth{grid-area:auth;display:flex;align-items:center;gap:0.4rem;flex-shrink:0}
         .tab-strip{grid-area:tabs;display:flex;gap:0.3rem;overflow-x:auto;scrollbar-width:none;justify-content:center}
         .tab-strip::-webkit-scrollbar{display:none}
@@ -196,7 +197,8 @@
 
     <nav class="nav" id="nav">
         <a href="{% url 'tracker:landing' %}" class="nav-logo">
-            <img src="{% static 'tracker/roamly.svg' %}" alt="Roamly" width="150" height="38" fetchpriority="high" decoding="async">
+            <img src="{% static 'tracker/roamlymark.svg' %}" alt="" width="38" height="38" fetchpriority="high" decoding="async">
+            <span class="nav-word">Roamly</span>
         </a>
 
         <div class="tab-strip" role="tablist" aria-label="Page sections">

@@ -229,10 +229,20 @@
             text-decoration: none;
             display: flex;
             align-items: center;
+            gap: 0.5rem;
         }
-        .navbar-logo {
+        .navbar-mark {
             height: 38px;
             width: auto;
+            display: block;
+        }
+        .navbar-wordmark {
+            font-family: var(--font-display);
+            font-weight: 600;
+            font-size: 1.55rem;
+            line-height: 1;
+            letter-spacing: -0.01em;
+            color: var(--text);
         }
         .navbar-center {
             justify-self: center;
@@ -974,7 +984,8 @@
     <nav class="navbar">
         <div class="navbar-start">
             <a href="{% url 'tracker:map' %}" class="navbar-brand">
-                <img src="{% static 'tracker/roamly.svg' %}" alt="Roamly" class="navbar-logo">
+                <img src="{% static 'tracker/roamlymark.svg' %}" alt="" class="navbar-mark">
+                <span class="navbar-wordmark">Roamly</span>
             </a>
         </div>
         <div class="navbar-center">
@@ -1067,7 +1078,7 @@
     {% block content %}{% endblock %}
 
     {% if not standalone %}
-    <div style="text-align:center;padding:1.5rem 0 0.5rem;font-size:0.7rem;color:var(--text-dim);opacity:0.6;margin-top:auto;">v0.12.0</div>
+    <div style="text-align:center;padding:1.5rem 0 0.5rem;font-size:0.7rem;color:var(--text-dim);opacity:0.6;margin-top:auto;">v0.13.0</div>
     {% endif %}
 
     <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
@@ -1451,8 +1462,6 @@
         (function() {
             const theme = localStorage.getItem('roamly_theme') || 'dark';
             document.documentElement.setAttribute('data-theme', theme);
-            const logo = document.querySelector('.navbar-logo');
-            if (logo) logo.style.filter = theme === 'light' ? 'brightness(0)' : 'brightness(0) invert(1)';
             document.querySelector('meta[name="theme-color"]').content = theme === 'light' ? '#f2efe4' : '#14160f';
         })();
 

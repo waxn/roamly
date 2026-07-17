@@ -1,6 +1,6 @@
 const CACHE_NAME = 'roamly-v1';
 const STATIC_ASSETS = [
-  '/static/tracker/roamly.svg',
+  '/static/tracker/roamlymark.svg',
   '/static/tracker/roamlymark.ico',
   '/static/tracker/icon-192.png',
   '/static/tracker/icon-512.png',
