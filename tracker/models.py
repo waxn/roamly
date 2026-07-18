@@ -794,6 +794,7 @@ class StatsSnapshot(models.Model):
     visits_json = models.JSONField(default=dict, blank=True)   # full visits payload
     yearly_json = models.JSONField(default=dict, blank=True)   # yearly overview payload
     places_json = models.JSONField(default=dict, blank=True)   # custom-places list payload
+    transport_json = models.JSONField(default=dict, blank=True)  # transport-mode breakdown payload
     status = models.CharField(max_length=20, default='idle')   # idle|running|done|error
     error = models.TextField(blank=True)
     started_at = models.DateTimeField(null=True, blank=True)

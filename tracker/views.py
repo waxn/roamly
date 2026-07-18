@@ -1523,6 +1523,55 @@ def _compute_distance_from_qs(locations, granularity='daily'):
     }
 
 
+def _compute_transport_breakdown_from_qs(qs):
+    """Distance and time split by transport mode.
+
+    Distance reuses the same gated segments as distance_api, so the totals here
+    agree with the headline number instead of being a second, rawer estimate.
+    """
+    from .transport_tasks import MODES
+
+    per_mode = {m: {'km': 0.0, 'points': 0, 'seconds': 0.0} for m in MODES}
+    unclassified = 0
+
+    # order_by() is required: Location has Meta.ordering ['-timestamp'], which a
+    # values_list(...).distinct() inherits — forcing timestamp into the SELECT and
+    # breaking the DISTINCT, so this would yield one row per point rather than one
+    # per device.
+    for dev_id in qs.order_by().values_list('device_id', flat=True).distinct():
+        rows = list(
+            qs.filter(device_id=dev_id)
+            .order_by('timestamp', 'id')
+            .values('latitude', 'longitude', 'timestamp', 'accuracy', 'transport_mode')
+        )
+        # Walk each run of same-mode points as its own track so the gated
+        # distance never credits movement across a mode change.
+        for mode, group in groupby(rows, key=lambda r: r['transport_mode']):
+            g = list(group)
+            if not mode:
+                unclassified += len(g)
+                continue
+            bucket = per_mode.setdefault(mode, {'km': 0.0, 'points': 0, 'seconds': 0.0})
+            bucket['points'] += len(g)
+            if len(g) > 1:
+                bucket['seconds'] += (g[-1]['timestamp'] - g[0]['timestamp']).total_seconds()
+            pts = [(r['latitude'], r['longitude'], r['timestamp'], r['accuracy']) for r in g]
+            for _ts, km in _gated_distance_segments(pts):
+                bucket['km'] += km
+
+    modes = [
+        {
+            'mode': m,
+            'km': round(v['km'], 2),
+            'points': v['points'],
+            'hours': round(v['seconds'] / 3600.0, 2),
+        }
+        for m, v in per_mode.items() if v['points']
+    ]
+    modes.sort(key=lambda d: -d['km'])
+    return {'modes': modes, 'unclassified': unclassified}
+
+
 def _get_snapshot_or_kick(user):
     """Return the user's StatsSnapshot if a finished computation exists, else
     trigger a background compute (once) and return None so the caller falls back
@@ -5890,12 +5939,16 @@ def transport_breakdown_api(request):
     Distance reuses the same gated segments as distance_api, so the totals here
     agree with the headline number instead of being a second, rawer estimate.
     """
-    from .transport_tasks import MODES
-
     device_id = request.GET.get("device_id")
     all_time = request.GET.get("all")
     start_date = request.GET.get("start_date")
     end_date = request.GET.get("end_date")
+
+    # Default all-time view (no filters) → serve the precomputed snapshot instantly.
+    if all_time and not device_id and not (start_date and end_date):
+        snap = _get_snapshot_or_kick(request.user)
+        if snap:
+            return _snapshot_response(snap, 'transport_json')
 
     gen = cache.get(f"cache_gen:{request.user.id}", 0)
     cache_key = f"transport:{request.user.id}:{gen}:{request.GET.urlencode()}"
@@ -5927,45 +5980,7 @@ def transport_breakdown_api(request):
     if device_id:
         qs = qs.filter(device__device_id=device_id)
 
-    per_mode = {m: {'km': 0.0, 'points': 0, 'seconds': 0.0} for m in MODES}
-    unclassified = 0
-
-    # order_by() is required: Location has Meta.ordering ['-timestamp'], which a
-    # values_list(...).distinct() inherits — forcing timestamp into the SELECT and
-    # breaking the DISTINCT, so this would yield one row per point rather than one
-    # per device.
-    for dev_id in qs.order_by().values_list('device_id', flat=True).distinct():
-        rows = list(
-            qs.filter(device_id=dev_id)
-            .order_by('timestamp', 'id')
-            .values('latitude', 'longitude', 'timestamp', 'accuracy', 'transport_mode')
-        )
-        # Walk each run of same-mode points as its own track so the gated
-        # distance never credits movement across a mode change.
-        for mode, group in groupby(rows, key=lambda r: r['transport_mode']):
-            g = list(group)
-            if not mode:
-                unclassified += len(g)
-                continue
-            bucket = per_mode.setdefault(mode, {'km': 0.0, 'points': 0, 'seconds': 0.0})
-            bucket['points'] += len(g)
-            if len(g) > 1:
-                bucket['seconds'] += (g[-1]['timestamp'] - g[0]['timestamp']).total_seconds()
-            pts = [(r['latitude'], r['longitude'], r['timestamp'], r['accuracy']) for r in g]
-            for _ts, km in _gated_distance_segments(pts):
-                bucket['km'] += km
-
-    modes = [
-        {
-            'mode': m,
-            'km': round(v['km'], 2),
-            'points': v['points'],
-            'hours': round(v['seconds'] / 3600.0, 2),
-        }
-        for m, v in per_mode.items() if v['points']
-    ]
-    modes.sort(key=lambda d: -d['km'])
-    result = {'modes': modes, 'unclassified': unclassified}
+    result = _compute_transport_breakdown_from_qs(qs)
     cache.set(cache_key, result, timeout=1800)
     return JsonResponse(result)
 

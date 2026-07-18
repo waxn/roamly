@@ -83,6 +83,7 @@ def compute_snapshot(user_id):
     from .views import (
         _compute_overview_from_qs, _compute_distance_from_qs,
         _compute_visits_from_qs, _compute_yearly_payload, _compute_places_payload,
+        _compute_transport_breakdown_from_qs,
     )
 
     # Resolve the row's pk without dragging the (potentially multi-MB) JSON
@@ -125,10 +126,11 @@ def compute_snapshot(user_id):
             visits = _compute_visits_from_qs(all_qs.exclude(city=''))
             yearly = _compute_yearly_payload(user)
             places = _compute_places_payload(user)
+            transport = _compute_transport_breakdown_from_qs(all_qs)
 
             StatsSnapshot.objects.filter(pk=snap_id).update(
                 stats_json=overview, visits_json=visits, yearly_json=yearly,
-                places_json=places, status='done', error='',
+                places_json=places, transport_json=transport, status='done', error='',
                 computed_at=timezone.now(),
             )
             logger.info(f"Stats snapshot computed for user {user_id}")
