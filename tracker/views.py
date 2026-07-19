@@ -37,8 +37,9 @@ from .models import (
     UserProfile, Pal, PalMember, PalBlurb, PalBlurbPhoto, PalMilestone, PalComment,
     AdventureMember, AdventureBlurb, AdventureBlurbPhoto, AdventureMilestone, AdventureComment,
     SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig, StatsSnapshot,
-    DismissedSuggestion, PlannedStop,
+    DismissedSuggestion, PlannedStop, KnownDevice,
 )
+from .email_utils import email_enabled, gen_code, send_code_email
 from .image_utils import resize_image, resize_photo
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
 from .poi_tasks import start_poi_download, get_poi_status, stop_poi_download
@@ -269,6 +270,64 @@ def robots_txt(request):
     return HttpResponse('\n'.join(lines), content_type='text/plain')
 
 
+# ── Email verification helpers (only active when settings.EMAIL_ENABLED) ─────
+_CODE_TTL = 900  # 15 minutes
+_DEVICE_COOKIE = 'roamly_device'
+_DEVICE_COOKIE_AGE = 60 * 60 * 24 * 365 * 2  # 2 years
+
+
+def _safe_next(request, default='tracker:map'):
+    """Return a safe local redirect target from ?next=, else a default."""
+    from django.utils.http import url_has_allowed_host_and_scheme
+    nxt = request.POST.get('next') or request.GET.get('next') or ''
+    if nxt and url_has_allowed_host_and_scheme(nxt, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+        return nxt
+    return default
+
+
+def _hash_token(token):
+    import hashlib
+    return hashlib.sha256((token or '').encode()).hexdigest()
+
+
+def _is_known_device(user, request):
+    token = request.COOKIES.get(_DEVICE_COOKIE, '')
+    if not token:
+        return False
+    return KnownDevice.objects.filter(user=user, token_hash=_hash_token(token)).exists()
+
+
+def _trust_device(user, request, response):
+    """Register this browser/app as a known device and set the cookie on `response`."""
+    import secrets as _secrets
+    token = request.COOKIES.get(_DEVICE_COOKIE, '') or _secrets.token_urlsafe(32)
+    KnownDevice.objects.get_or_create(
+        user=user, token_hash=_hash_token(token),
+        defaults={'label': request.META.get('HTTP_USER_AGENT', '')[:200]},
+    )
+    response.set_cookie(_DEVICE_COOKIE, token, max_age=_DEVICE_COOKIE_AGE,
+                        httponly=True, samesite='Lax', secure=not settings.DEBUG)
+    return response
+
+
+def _mask_email(email):
+    if not email or '@' not in email:
+        return email or ''
+    name, dom = email.split('@', 1)
+    keep = name[0] if name else ''
+    return f"{keep}{'•' * max(2, len(name) - 1)}@{dom}"
+
+
+def _start_verification(request, user, purpose, next_url=''):
+    """Generate + email a code, stash pending state in the session."""
+    code = gen_code()
+    cache.set(f'email_code:{purpose}:{user.id}', code, _CODE_TTL)
+    send_code_email(user.email, code, purpose)
+    request.session['pending_verify'] = {
+        'user_id': user.id, 'purpose': purpose, 'email': user.email, 'next': next_url,
+    }
+
+
 def login_view(request):
     if request.user.is_authenticated:
         return redirect('tracker:map')
@@ -277,8 +336,21 @@ def login_view(request):
         password = request.POST.get('password')
         user = authenticate(request, username=username, password=password)
         if user:
+            next_url = _safe_next(request)
+            profile, _ = UserProfile.objects.get_or_create(user=user)
+            if email_enabled() and user.email and not profile.email_verified:
+                # Signed up but never verified — resume signup verification.
+                _start_verification(request, user, 'signup', next_url)
+                return redirect('tracker:verify')
+            if email_enabled() and user.email and not _is_known_device(user, request):
+                # New/unrecognized device — challenge with an emailed code.
+                _start_verification(request, user, 'login', next_url)
+                return redirect('tracker:verify')
             login(request, user)
-            return redirect(request.GET.get('next', 'tracker:map'))
+            resp = redirect(next_url)
+            if email_enabled() and user.email:
+                _trust_device(user, request, resp)
+            return resp
         messages.error(request, 'Invalid username or password.')
     return render(request, 'tracker/login.html')
 
@@ -286,22 +358,76 @@ def login_view(request):
 def signup_view(request):
     if request.user.is_authenticated:
         return redirect('tracker:map')
+    email_required = email_enabled()
     if request.method == 'POST':
         form = SignUpForm(request.POST)
+        if email_required and not request.POST.get('email', '').strip():
+            form.add_error('email', 'An email address is required.')
         if form.is_valid():
             user = form.save()
             # A valid admin key (validated in the form) makes this an admin account.
             UserProfile.objects.update_or_create(
                 user=user, defaults={'is_admin': form.is_admin_signup},
             )
+            next_url = _safe_next(request)
+            if email_enabled() and user.email:
+                # Verify-to-activate: don't sign in until the emailed code is entered.
+                UserProfile.objects.filter(user=user).update(email_verified=False)
+                _start_verification(request, user, 'signup', next_url)
+                return redirect('tracker:verify')
             login(request, user)
-            return redirect('tracker:map')
+            return redirect(next_url)
     else:
         form = SignUpForm()
     return render(request, 'tracker/signup.html', {
         'form': form,
         'admin_signup_enabled': bool(getattr(settings, 'ADMIN_SIGNUP_KEY', '')),
+        'email_required': email_required,
     })
+
+
+def verify_view(request):
+    """Enter the emailed code to finish signup activation or new-device login."""
+    pv = request.session.get('pending_verify')
+    if not pv:
+        return redirect('tracker:login')
+    from django.contrib.auth.models import User as AuthUser
+    user = AuthUser.objects.filter(id=pv['user_id']).first()
+    if not user:
+        request.session.pop('pending_verify', None)
+        return redirect('tracker:login')
+    purpose = pv['purpose']
+    if request.method == 'POST':
+        code = (request.POST.get('code') or '').strip()
+        real = cache.get(f'email_code:{purpose}:{user.id}')
+        if real and code == real:
+            cache.delete(f'email_code:{purpose}:{user.id}')
+            if purpose == 'signup':
+                UserProfile.objects.filter(user=user).update(email_verified=True)
+            login(request, user)
+            request.session.pop('pending_verify', None)
+            resp = redirect(pv.get('next') or 'tracker:map')
+            _trust_device(user, request, resp)  # trust the device that just verified
+            return resp
+        messages.error(request, 'Invalid or expired code. Try again or resend.')
+    return render(request, 'tracker/verify_code.html', {
+        'purpose': purpose,
+        'email_masked': _mask_email(pv.get('email')),
+        'resend_url': '/verify/resend/',
+    })
+
+
+@require_POST
+def verify_resend(request):
+    pv = request.session.get('pending_verify')
+    if not pv:
+        return redirect('tracker:login')
+    from django.contrib.auth.models import User as AuthUser
+    user = AuthUser.objects.filter(id=pv['user_id']).first()
+    if user:
+        _start_verification(request, user, pv['purpose'], pv.get('next', ''))
+        messages.error(request, 'A new code is on its way.')
+    return redirect('tracker:verify')
 
 
 def logout_view(request):

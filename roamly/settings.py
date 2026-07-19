@@ -117,6 +117,27 @@ MOBILE_UPDATE_REPO = os.environ.get('MOBILE_UPDATE_REPO', 'waxn/roamly')
 # creates an instance-admin account. Leave unset to disable admin signups.
 ADMIN_SIGNUP_KEY = os.environ.get('ADMIN_SIGNUP_KEY', '')
 
+# ── Email / SMTP ────────────────────────────────────────────────────────────
+# All email features (signup verification, new-device login codes, invite
+# emails) are GATED on EMAIL_HOST being set. With no SMTP configured, the app
+# behaves exactly as before: no verification, invites shown as copyable links.
+EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True').lower() in ('true', '1')
+EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'False').lower() in ('true', '1')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'roamly@localhost')
+EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', '10'))
+# True when the instance operator has configured outbound mail.
+EMAIL_ENABLED = bool(EMAIL_HOST)
+if EMAIL_ENABLED:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+else:
+    # No SMTP: keep a harmless backend so any stray send_mail call is a no-op-ish
+    # console write rather than an error.
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
 LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/map/'
 

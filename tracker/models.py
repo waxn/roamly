@@ -583,12 +583,37 @@ class UserProfile(models.Model):
     # embed in the browser and app), so it is not masked.
     mapbox_token = models.CharField(max_length=500, blank=True, default='')
 
+    # Email verification (only enforced when SMTP is configured). Defaults True
+    # so existing accounts and no-SMTP instances are never blocked; signup with
+    # email enabled explicitly sets it False until the emailed code is entered.
+    email_verified = models.BooleanField(default=True)
+
     @property
     def ai_configured(self):
         return bool(self.ai_ask_enabled and self.ai_base_url and self.ai_api_key and self.ai_model)
 
     def __str__(self):
         return f"Profile: {self.user.username}"
+
+
+class KnownDevice(models.Model):
+    """A browser/app the user has verified, so it skips new-device email codes.
+
+    The raw token lives in a long-lived cookie (web) or app storage (mobile);
+    only its SHA-256 hash is stored here. New-device login verification is only
+    triggered when SMTP is configured (see settings.EMAIL_ENABLED).
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='known_devices')
+    token_hash = models.CharField(max_length=64, db_index=True)
+    label = models.CharField(max_length=200, blank=True)  # user-agent summary
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ['user', 'token_hash']
+
+    def __str__(self):
+        return f"Device for {self.user.username}"
 
 
 class SiteConfig(models.Model):

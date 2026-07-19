@@ -253,6 +253,7 @@
 
         <form method="post">
             {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.GET.next }}">
             <div class="form-group">
                 <label for="username">username</label>
                 <input type="text" name="username" id="username" class="form-control" placeholder="your username" required autofocus>

@@ -31,6 +31,8 @@ urlpatterns = [
     path('login/', views.login_view, name='login'),
     path('signup/', views.signup_view, name='signup'),
     path('logout/', views.logout_view, name='logout'),
+    path('verify/', views.verify_view, name='verify'),
+    path('verify/resend/', views.verify_resend, name='verify_resend'),
 
     # Location API
     path('api/push/', views.push_location, name='push_location'),
