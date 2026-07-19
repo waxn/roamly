@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Join a trip — Roamly</title>
+    {% load static %}
+    <link rel="icon" type="image/x-icon" href="{% static 'tracker/roamlymark.ico' %}">
+    <meta name="theme-color" content="#14160f">
+    <meta name="robots" content="noindex, nofollow">
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}">
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/fraunces-latin-var.woff2' %}">
+    <style>
+        @font-face{font-family:'Fraunces';font-style:normal;font-weight:300 700;font-display:swap;src:url("{% static 'tracker/fonts/fraunces-latin-var.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:400;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:600;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-600.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:700;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-700.woff2' %}") format('woff2')}
+        :root {
+            --bg: #14160f; --bg-card: #1b1e15; --bg-elevated: #23271c; --bg-input: #1e2118;
+            --border: #30352a; --border-bright: rgba(232,118,61,0.55);
+            --text: #e9e5d8; --text-muted: #a9a794; --text-dim: #706e5d;
+            --primary: #e8763d; --primary-soft: rgba(232,118,61,0.13); --primary-hover: #f2884e;
+            --font-display: 'Fraunces', Georgia, serif;
+            --font-body: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: var(--font-body); background: var(--bg); color: var(--text); min-height: 100vh; display: flex; align-items: center; justify-content: center; -webkit-font-smoothing: antialiased; }
+        .card { width: 100%; max-width: 420px; margin: 1rem; background: var(--bg-card); border: 1px solid var(--border); box-shadow: 0 2px 8px rgba(0,0,0,0.3); overflow: hidden; }
+        .cover { height: 150px; background-size: cover; background-position: center; background-color: var(--bg-elevated); }
+        .card-body { padding: 2rem 2.25rem; }
+        .logo-wrap { display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-bottom: 1rem; }
+        .logo-wrap img { height: 34px; }
+        .logo-word { font-family: var(--font-display); font-weight: 600; font-size: 1.4rem; color: var(--text); }
+        .eyebrow { text-align: center; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 0.4rem; }
+        .trip-name { font-family: var(--font-display); font-size: 1.5rem; font-weight: 700; text-align: center; line-height: 1.15; margin-bottom: 0.5rem; }
+        .lede { text-align: center; color: var(--text-muted); font-size: 0.9rem; line-height: 1.5; margin-bottom: 1.75rem; }
+        .btn { display: block; width: 100%; padding: 0.8rem; text-align: center; text-decoration: none; font-size: 0.9rem; font-weight: 700; border: 1px solid var(--border); color: var(--text); background: var(--bg-input); margin-bottom: 0.6rem; }
+        .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+        .btn.primary:hover { background: var(--primary-hover); }
+        .btn:hover { border-color: var(--border-bright); }
+    </style>
+</head>
+<body>
+    <div class="card">
+        {% if invalid %}
+        <div class="card-body">
+            <div class="logo-wrap"><img src="{% static 'tracker/roamlymark.svg' %}" alt=""><span class="logo-word">Roamly</span></div>
+            <p class="lede">This invite link is invalid or has been revoked. Ask the trip owner for a new one.</p>
+            <a class="btn" href="{% url 'tracker:login' %}">go to Roamly</a>
+        </div>
+        {% else %}
+        {% if cover %}<div class="cover" style="background-image:url('{{ cover }}')"></div>{% endif %}
+        <div class="card-body">
+            <div class="logo-wrap"><img src="{% static 'tracker/roamlymark.svg' %}" alt=""><span class="logo-word">Roamly</span></div>
+            <div class="eyebrow">you're invited to join</div>
+            <div class="trip-name">{{ trip.name }}</div>
+            <p class="lede">Join this trip on Roamly to follow along and add your own track. Log in or create a free account to continue.</p>
+            <a class="btn primary" href="{% url 'tracker:signup' %}?next={{ next|urlencode }}">create account &amp; join →</a>
+            <a class="btn" href="{% url 'tracker:login' %}?next={{ next|urlencode }}">I already have an account</a>
+        </div>
+        {% endif %}
+    </div>
+    {% if CUSTOM_JS_SNIPPET %}{{ CUSTOM_JS_SNIPPET|safe }}{% endif %}
+</body>
+</html>

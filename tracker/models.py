@@ -283,6 +283,9 @@ class Adventure(models.Model):
     end_time = models.DateTimeField()
     public_slug = models.SlugField(max_length=64, unique=True, null=True, blank=True)
     access_pin = models.CharField(max_length=20, blank=True)
+    # Open-join invite token — anyone with the link can log in / sign up and be
+    # added as a member. Distinct from public_slug (read-only page) + access_pin.
+    invite_token = models.CharField(max_length=32, unique=True, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     cover_image = models.ImageField(upload_to='adventures/covers/', null=True, blank=True)
     cover_image_thumbnail = models.ImageField(upload_to='adventures/covers/thumbs/', null=True, blank=True)

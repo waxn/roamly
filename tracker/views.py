@@ -39,7 +39,7 @@ from .models import (
     SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig, StatsSnapshot,
     DismissedSuggestion, PlannedStop, KnownDevice,
 )
-from .email_utils import email_enabled, gen_code, send_code_email
+from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email
 from .image_utils import resize_image, resize_photo
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
 from .poi_tasks import start_poi_download, get_poi_status, stop_poi_download
@@ -493,6 +493,7 @@ def adventure_plan_view(request, trip_id):
         'trip': trip,
         'trip_id': trip_id,
         'is_creator': is_creator,
+        'email_enabled': email_enabled(),
     })
 
 
@@ -3022,6 +3023,8 @@ def _trip_detail_inner(request, trip_id):
         "is_public": bool(trip.public_slug),
         "public_slug": trip.public_slug,
         "access_pin": trip.access_pin,
+        "invite_token": trip.invite_token,
+        "invite_url": request.build_absolute_uri(f"/adventure/join/{trip.invite_token}/") if trip.invite_token else None,
         "members": members,
         "member_locations": member_locations,
     })
@@ -3265,6 +3268,80 @@ def delete_trip_plan_stop(request, trip_id, stop_id):
     stop = get_object_or_404(PlannedStop, id=stop_id, adventure=trip)
     stop.delete()
     return JsonResponse({"status": "ok"})
+
+
+# ---------------------------------------------------------------------------
+# Trip invites (open join by link, optional email)
+# ---------------------------------------------------------------------------
+
+def _ensure_invite_token(trip):
+    """Create the invite token if missing; return it."""
+    if not trip.invite_token:
+        import secrets as _secrets
+        trip.invite_token = _secrets.token_urlsafe(18)[:32]
+        trip.save(update_fields=['invite_token'])
+    return trip.invite_token
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_invite_api(request, trip_id):
+    """Create (or rotate) the invite link. Any member may share it."""
+    trip = _get_trip_for_user(trip_id, request.user)
+    try:
+        data = json.loads(request.body or '{}')
+    except json.JSONDecodeError:
+        data = {}
+    if data.get('rotate'):
+        import secrets as _secrets
+        trip.invite_token = _secrets.token_urlsafe(18)[:32]
+        trip.save(update_fields=['invite_token'])
+    else:
+        _ensure_invite_token(trip)
+    url = request.build_absolute_uri(f"/adventure/join/{trip.invite_token}/")
+    return JsonResponse({"status": "ok", "invite_token": trip.invite_token, "invite_url": url})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_invite_email_api(request, trip_id):
+    """Email the invite link to an address (requires SMTP configured)."""
+    trip = _get_trip_for_user(trip_id, request.user)
+    try:
+        data = json.loads(request.body or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    email = (data.get('email') or '').strip()
+    if not email or '@' not in email:
+        return JsonResponse({"error": "A valid email is required"}, status=400)
+    if not email_enabled():
+        return JsonResponse({"error": "Email isn't configured on this server — share the link instead."}, status=400)
+    _ensure_invite_token(trip)
+    url = request.build_absolute_uri(f"/adventure/join/{trip.invite_token}/")
+    ok = send_invite_email(email, trip.name, url, request.user.username)
+    if not ok:
+        return JsonResponse({"error": "Could not send the email — check the server's SMTP settings."}, status=502)
+    return JsonResponse({"status": "ok"})
+
+
+def trip_join_view(request, token):
+    """Open-join landing: log in / sign up and be added to the trip."""
+    trip = Adventure.objects.filter(invite_token=token).first()
+    if not trip:
+        return render(request, 'tracker/adventure_join.html', {'invalid': True}, status=404)
+    if request.user.is_authenticated:
+        AdventureMember.objects.get_or_create(
+            adventure=trip, user=request.user, defaults={'role': 'member'},
+        )
+        return redirect('tracker:adventure_plan', trip_id=trip.id)
+    # Anonymous: show a small landing with login/signup carrying ?next back here.
+    return render(request, 'tracker/adventure_join.html', {
+        'trip': trip,
+        'next': f"/adventure/join/{token}/",
+        'cover': trip.cover_image_thumbnail.url if trip.cover_image_thumbnail else (trip.cover_image.url if trip.cover_image else ''),
+    })
 
 
 # ---------------------------------------------------------------------------

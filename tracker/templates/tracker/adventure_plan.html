@@ -111,6 +111,31 @@
             </div>
             <div id="add-member-msg" style="font-size:0.72rem;color:var(--text-muted);margin-top:0.35rem;"></div>
             {% endif %}
+
+            <!-- Invite by link -->
+            <div style="margin-top:1.1rem;border-top:1px solid var(--border);padding-top:0.85rem;">
+                <div class="pm-label" style="margin-bottom:0.4rem;">invite link</div>
+                <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.5rem;">anyone with this link can log in or sign up and join the trip.</div>
+                <div id="invite-none" style="display:none;">
+                    <button class="plan-btn primary" id="invite-create-btn">create invite link</button>
+                </div>
+                <div id="invite-have" style="display:none;">
+                    <div style="display:flex;gap:0.5rem;">
+                        <input class="pm-input" id="invite-url" readonly style="flex:1;font-size:0.78rem;">
+                        <button class="plan-btn" id="invite-copy-btn">copy</button>
+                    </div>
+                    <div style="display:flex;gap:0.5rem;margin-top:0.4rem;">
+                        <button class="plan-btn" id="invite-rotate-btn" style="font-size:0.72rem;">reset link</button>
+                    </div>
+                    {% if email_enabled %}
+                    <div style="display:flex;gap:0.5rem;margin-top:0.6rem;">
+                        <input class="pm-input" id="invite-email-in" type="email" placeholder="email an invite…" style="flex:1;">
+                        <button class="plan-btn primary" id="invite-email-btn">send</button>
+                    </div>
+                    {% endif %}
+                    <div id="invite-msg" style="font-size:0.72rem;color:var(--text-muted);margin-top:0.35rem;"></div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -450,6 +475,41 @@ async function removeMember(userId, username){
     if(r.ok) await load();
 }
 
+// ── Invite link ─────────────────────────────────────────────────────────────
+function renderInvite(){
+    const has = !!tripData.invite_url;
+    document.getElementById('invite-none').style.display = has ? 'none' : '';
+    document.getElementById('invite-have').style.display = has ? '' : 'none';
+    if(has) document.getElementById('invite-url').value = tripData.invite_url;
+}
+async function createInvite(rotate){
+    const r = await fetch(`/api/trips/${TRIP_ID}/invite/`, {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF}, body: JSON.stringify({rotate: !!rotate})
+    });
+    if(r.ok){ const d = await r.json(); tripData.invite_url = d.invite_url; tripData.invite_token = d.invite_token; renderInvite(); }
+}
+async function emailInvite(){
+    const inp = document.getElementById('invite-email-in');
+    const msg = document.getElementById('invite-msg');
+    const email = inp.value.trim();
+    if(!email){ return; }
+    const r = await fetch(`/api/trips/${TRIP_ID}/invite/email/`, {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF}, body: JSON.stringify({email})
+    });
+    const d = await r.json().catch(()=>({}));
+    if(r.ok){ inp.value=''; msg.textContent = `invite sent to ${email}`; msg.style.color='var(--clay-mint,#0dbfac)'; }
+    else { msg.textContent = d.error || 'could not send'; msg.style.color='var(--clay-coral,#c96a5e)'; }
+}
+document.getElementById('invite-create-btn').addEventListener('click', ()=>createInvite(false));
+document.getElementById('invite-rotate-btn').addEventListener('click', ()=>{ if(confirm('reset the link? the old one stops working.')) createInvite(true); });
+document.getElementById('invite-copy-btn').addEventListener('click', () => {
+    const el = document.getElementById('invite-url');
+    el.select(); navigator.clipboard.writeText(el.value);
+    const b = document.getElementById('invite-copy-btn'); b.textContent = 'copied'; setTimeout(()=>b.textContent='copy', 1200);
+});
+const emailBtn = document.getElementById('invite-email-btn');
+if(emailBtn) emailBtn.addEventListener('click', emailInvite);
+
 // ── Buttons ─────────────────────────────────────────────────────────────────
 document.getElementById('plan-add-btn').addEventListener('click', () => {
     stopEditId = null; stopDropCoords = null;
@@ -515,6 +575,7 @@ async function load(){
     plannedStops = (tripData.planned_stops || []).slice();
     renderPlanList();
     renderPeople();
+    renderInvite();
     if(planMap && planMap.isStyleLoaded()){ drawTracks(); renderPlanLayer(); }
 }
 
