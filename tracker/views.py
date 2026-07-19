@@ -39,7 +39,7 @@ from .models import (
     SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig, StatsSnapshot,
     DismissedSuggestion, PlannedStop, KnownDevice,
 )
-from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email
+from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email
 from .image_utils import resize_image, resize_photo
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
 from .poi_tasks import start_poi_download, get_poi_status, stop_poi_download
@@ -367,7 +367,64 @@ def login_view(request):
         if is_app:
             return JsonResponse({'status': 'error', 'message': 'Invalid username or password'}, status=401)
         messages.error(request, 'Invalid username or password.')
-    return render(request, 'tracker/login.html')
+    return render(request, 'tracker/login.html', {'email_enabled': email_enabled()})
+
+
+def password_reset_request(request):
+    """Send a password-reset link to a submitted email (requires SMTP)."""
+    if not email_enabled():
+        return render(request, 'tracker/password_reset_request.html', {'disabled': True})
+    sent = False
+    if request.method == 'POST':
+        from django.contrib.auth.models import User as AuthUser
+        from django.contrib.auth.tokens import default_token_generator
+        from django.utils.http import urlsafe_base64_encode
+        from django.utils.encoding import force_bytes
+        email = (request.POST.get('email') or '').strip()
+        if email:
+            for user in AuthUser.objects.filter(email__iexact=email, is_active=True):
+                if not user.email:
+                    continue
+                uid = urlsafe_base64_encode(force_bytes(user.pk))
+                token = default_token_generator.make_token(user)
+                url = request.build_absolute_uri(f'/reset/{uid}/{token}/')
+                send_password_reset_email(user.email, url, user.username)
+        # Always show the same message — never reveal whether an account exists.
+        sent = True
+    return render(request, 'tracker/password_reset_request.html', {'sent': sent})
+
+
+def password_reset_confirm(request, uidb64, token):
+    """Validate the reset token and let the user choose a new password."""
+    from django.contrib.auth.models import User as AuthUser
+    from django.contrib.auth.tokens import default_token_generator
+    from django.utils.http import urlsafe_base64_decode
+    from django.utils.encoding import force_str
+    try:
+        uid = force_str(urlsafe_base64_decode(uidb64))
+        user = AuthUser.objects.get(pk=uid)
+    except (TypeError, ValueError, OverflowError, AuthUser.DoesNotExist):
+        user = None
+    valid = user is not None and default_token_generator.check_token(user, token)
+    done = False
+    if request.method == 'POST' and valid:
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError
+        p1 = request.POST.get('password1') or ''
+        p2 = request.POST.get('password2') or ''
+        if p1 != p2:
+            messages.error(request, 'The two passwords do not match.')
+        else:
+            try:
+                validate_password(p1, user)
+            except ValidationError as exc:
+                for m in exc.messages:
+                    messages.error(request, m)
+            else:
+                user.set_password(p1)
+                user.save()
+                done = True  # token is now invalid (password changed)
+    return render(request, 'tracker/password_reset_confirm.html', {'valid': valid, 'done': done})
 
 
 def signup_view(request):

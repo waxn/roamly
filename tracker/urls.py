@@ -33,6 +33,8 @@ urlpatterns = [
     path('logout/', views.logout_view, name='logout'),
     path('verify/', views.verify_view, name='verify'),
     path('verify/resend/', views.verify_resend, name='verify_resend'),
+    path('reset/', views.password_reset_request, name='password_reset'),
+    path('reset/<uidb64>/<token>/', views.password_reset_confirm, name='password_reset_confirm'),
 
     # Location API
     path('api/push/', views.push_location, name='push_location'),

@@ -265,6 +265,12 @@
             <button type="submit" class="btn-submit">sign in →</button>
         </form>
 
+        {% if email_enabled %}
+        <div class="card-footer" style="margin-top:1rem;">
+            <a href="{% url 'tracker:password_reset' %}">forgot your password?</a>
+        </div>
+        {% endif %}
+
         <div class="divider"><span class="divider-text">or</span></div>
 
         <div class="card-footer">
