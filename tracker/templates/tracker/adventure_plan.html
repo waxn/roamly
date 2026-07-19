@@ -10,18 +10,18 @@
 .plan-title { font-family: var(--font-display); font-size: 1.6rem; font-weight: 800; line-height: 1.1; flex: 1; min-width: 0; }
 .plan-top-actions { display: flex; gap: 0.5rem; }
 .plan-linkbtn { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8125rem; padding: 0.4rem 0.7rem;
-    border: 1px solid var(--border); border-radius: 8px; color: var(--text); text-decoration: none; background: var(--bg-card); }
+    border: 1px solid var(--border); border-radius: 0; color: var(--text); text-decoration: none; background: var(--bg-card); }
 .plan-linkbtn:hover { border-color: var(--primary); }
 .plan-linkbtn svg { width: 15px; height: 15px; }
 
-#plan-map { width: 100%; height: 420px; border-radius: 12px; border: 1px solid var(--border); overflow: hidden; position: relative; }
+#plan-map { width: 100%; height: 420px; border-radius: 0; border: 1px solid var(--border); overflow: hidden; position: relative; }
 
 .plan-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin: 1.25rem 0 3rem; }
 @media (max-width: 820px){ .plan-cols { grid-template-columns: 1fr; } }
-.plan-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.125rem; }
+.plan-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 0; padding: 1rem 1.125rem; }
 .plan-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
 .plan-card-title { font-family: var(--font-display); font-size: 1.05rem; font-weight: 700; }
-.plan-btn { font-size: 0.8125rem; padding: 0.4rem 0.7rem; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text); cursor: pointer; }
+.plan-btn { font-size: 0.8125rem; padding: 0.4rem 0.7rem; border-radius: 0; border: 1px solid var(--border); background: var(--bg-card); color: var(--text); cursor: pointer; }
 .plan-btn:hover { border-color: var(--primary); }
 .plan-btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
 
@@ -31,14 +31,14 @@
     font-size: 0.8125rem; font-weight: 700; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.45); cursor: pointer; }
 
 /* Itinerary list */
-.plan-stop-card { border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.625rem; margin-bottom: 0.5rem; }
+.plan-stop-card { border: 1px solid var(--border); border-radius: 0; padding: 0.5rem 0.625rem; margin-bottom: 0.5rem; }
 .plan-stop-head { display: flex; align-items: center; gap: 0.5rem; }
 .plan-stop-num { flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%; background: #5a8fb0; color: #fff;
     display: flex; align-items: center; justify-content: center; font-family: var(--font-mono, monospace); font-size: 0.72rem; font-weight: 700; }
 .plan-stop-name { flex: 1; font-weight: 600; font-size: 0.875rem; }
 .plan-stop-meta { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem; margin-left: 30px; font-family: var(--font-mono, monospace); }
 .plan-stop-actions { display: flex; gap: 0.2rem; }
-.plan-icon-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px; line-height: 0; border-radius: 4px; }
+.plan-icon-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px; line-height: 0; border-radius: 0; }
 .plan-icon-btn:hover { color: var(--text); background: var(--border); }
 .plan-icon-btn:disabled { opacity: 0.3; cursor: default; }
 .plan-icon-btn svg { width: 15px; height: 15px; }
@@ -55,15 +55,15 @@
 /* Stop modal */
 .plan-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 2000; padding: 1rem; }
 .plan-modal-overlay.open { display: flex; }
-.plan-modal { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; width: 100%; max-width: 420px; }
+.plan-modal { background: var(--bg-card); border: 1px solid var(--border); border-radius: 0; padding: 1.25rem; width: 100%; max-width: 420px; }
 .plan-modal h3 { font-family: var(--font-display); font-size: 1.1rem; font-weight: 700; margin-bottom: 0.75rem; }
 .pm-field { margin-bottom: 0.6rem; }
 .pm-label { display: block; font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0.2rem; text-transform: uppercase; letter-spacing: 0.03em; }
-.pm-input { width: 100%; padding: 0.45rem 0.55rem; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); color: var(--text); font-size: 0.875rem; }
+.pm-input { width: 100%; padding: 0.45rem 0.55rem; border: 1px solid var(--border); border-radius: 0; background: var(--bg); color: var(--text); font-size: 0.875rem; }
 .pm-btns { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.75rem; }
 
 .plan-hint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.75); color: #fff;
-    padding: 0.35rem 0.7rem; border-radius: 20px; font-size: 0.8rem; display: none; z-index: 5; }
+    padding: 0.35rem 0.7rem; border-radius: 0; font-size: 0.8rem; display: none; z-index: 5; }
 .plan-hint.show { display: block; }
 {% endblock %}
 
