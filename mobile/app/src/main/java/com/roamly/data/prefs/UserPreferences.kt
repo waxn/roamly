@@ -26,6 +26,7 @@ class UserPreferences @Inject constructor(
         private val KEY_API_KEY    = stringPreferencesKey("api_key")
         private val KEY_USERNAME   = stringPreferencesKey("username")
         private val KEY_DEVICE_ID  = stringPreferencesKey("device_id")
+        private val KEY_DEVICE_COOKIE = stringPreferencesKey("device_cookie")  // roamly_device trust token
         private val KEY_DARK_MODE  = booleanPreferencesKey("dark_mode")
         // Optional Mapbox token, mirrored from the server so the map can use the
         // same Mapbox basemap the user configured on the web. Cached here so the
@@ -66,6 +67,7 @@ class UserPreferences @Inject constructor(
     val apiKey:     Flow<String?>  = context.dataStore.data.map { it[KEY_API_KEY] }
     val username:   Flow<String?>  = context.dataStore.data.map { it[KEY_USERNAME] }
     val deviceId:   Flow<String?>  = context.dataStore.data.map { it[KEY_DEVICE_ID] }
+    val deviceCookie: Flow<String?> = context.dataStore.data.map { it[KEY_DEVICE_COOKIE] }
     val darkMode:   Flow<Boolean?> = context.dataStore.data.map { it[KEY_DARK_MODE] }
     val mapboxToken: Flow<String>  = context.dataStore.data.map { it[KEY_MAPBOX_TOKEN] ?: "" }
     val mapBasemap:  Flow<String>  = context.dataStore.data.map { it[KEY_MAP_BASEMAP] ?: "Streets" }
@@ -113,6 +115,12 @@ class UserPreferences @Inject constructor(
 
     suspend fun setDeviceId(deviceId: String) {
         context.dataStore.edit { it[KEY_DEVICE_ID] = deviceId }
+    }
+
+    /** The roamly_device trust token — sent on login so a verified device skips
+     *  the new-device email code. Persisted across logout so re-login stays trusted. */
+    suspend fun setDeviceCookie(token: String) {
+        context.dataStore.edit { it[KEY_DEVICE_COOKIE] = token }
     }
 
     /** Set a device id only if one isn't already stored. Used to make the

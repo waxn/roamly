@@ -328,8 +328,14 @@ def _start_verification(request, user, purpose, next_url=''):
     }
 
 
+def _is_app_client(request):
+    """True when the request comes from the Roamly mobile app (it sets this header)."""
+    return request.META.get('HTTP_X_ROAMLY_CLIENT') == 'app'
+
+
 def login_view(request):
-    if request.user.is_authenticated:
+    is_app = _is_app_client(request)
+    if request.user.is_authenticated and not is_app:
         return redirect('tracker:map')
     if request.method == 'POST':
         username = request.POST.get('username')
@@ -341,16 +347,25 @@ def login_view(request):
             if email_enabled() and user.email and not profile.email_verified:
                 # Signed up but never verified — resume signup verification.
                 _start_verification(request, user, 'signup', next_url)
+                if is_app:
+                    return JsonResponse({'status': 'verify', 'purpose': 'signup', 'email': _mask_email(user.email)})
                 return redirect('tracker:verify')
             if email_enabled() and user.email and not _is_known_device(user, request):
                 # New/unrecognized device — challenge with an emailed code.
                 _start_verification(request, user, 'login', next_url)
+                if is_app:
+                    return JsonResponse({'status': 'verify', 'purpose': 'login', 'email': _mask_email(user.email)})
                 return redirect('tracker:verify')
             login(request, user)
+            # Both app and web get a 302 on success — the app already reads the
+            # session cookie off the redirect, so older builds keep working; only
+            # the new-device *verify* path (below) is app-specific JSON.
             resp = redirect(next_url)
             if email_enabled() and user.email:
                 _trust_device(user, request, resp)
             return resp
+        if is_app:
+            return JsonResponse({'status': 'error', 'message': 'Invalid username or password'}, status=401)
         messages.error(request, 'Invalid username or password.')
     return render(request, 'tracker/login.html')
 
@@ -388,13 +403,18 @@ def signup_view(request):
 
 def verify_view(request):
     """Enter the emailed code to finish signup activation or new-device login."""
+    is_app = _is_app_client(request)
     pv = request.session.get('pending_verify')
     if not pv:
+        if is_app:
+            return JsonResponse({'status': 'error', 'message': 'No pending verification'}, status=400)
         return redirect('tracker:login')
     from django.contrib.auth.models import User as AuthUser
     user = AuthUser.objects.filter(id=pv['user_id']).first()
     if not user:
         request.session.pop('pending_verify', None)
+        if is_app:
+            return JsonResponse({'status': 'error', 'message': 'No pending verification'}, status=400)
         return redirect('tracker:login')
     purpose = pv['purpose']
     if request.method == 'POST':
@@ -406,9 +426,11 @@ def verify_view(request):
                 UserProfile.objects.filter(user=user).update(email_verified=True)
             login(request, user)
             request.session.pop('pending_verify', None)
-            resp = redirect(pv.get('next') or 'tracker:map')
+            resp = JsonResponse({'status': 'ok'}) if is_app else redirect(pv.get('next') or 'tracker:map')
             _trust_device(user, request, resp)  # trust the device that just verified
             return resp
+        if is_app:
+            return JsonResponse({'status': 'error', 'message': 'Invalid or expired code'}, status=400)
         messages.error(request, 'Invalid or expired code. Try again or resend.')
     return render(request, 'tracker/verify_code.html', {
         'purpose': purpose,

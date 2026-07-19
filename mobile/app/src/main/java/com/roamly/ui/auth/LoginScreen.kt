@@ -2,6 +2,7 @@ package com.roamly.ui.auth
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -117,6 +118,56 @@ fun LoginScreen(
 
             ClaySurface(modifier = Modifier.fillMaxWidth(), cornerRadius = 28.dp) {
                 Column(modifier = Modifier.padding(22.dp)) {
+                    if (state.needsVerification) {
+                        Text(
+                            "Check your email",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onBackground,
+                        )
+                        Text(
+                            "New device — we sent a 6-digit code to ${state.verifyEmail}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(18.dp))
+
+                        ClayField(
+                            value = state.code,
+                            onValueChange = viewModel::onCodeChange,
+                            label = "Verification code",
+                            placeholder = "••••••",
+                            keyboardType = KeyboardType.NumberPassword,
+                        )
+
+                        if (state.error != null) {
+                            Spacer(Modifier.height(12.dp))
+                            Text(state.error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        }
+
+                        Spacer(Modifier.height(20.dp))
+
+                        ClayButton(
+                            onClick = viewModel::verify,
+                            enabled = !state.isLoading,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            if (state.isLoading) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
+                            } else {
+                                Text("Verify", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Use a different account",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { viewModel.cancelVerification() }
+                                .padding(vertical = 8.dp),
+                        )
+                    } else {
                     Text(
                         "Welcome back",
                         style = MaterialTheme.typography.titleLarge,
@@ -186,6 +237,7 @@ fun LoginScreen(
                         } else {
                             Text("Sign in", fontWeight = FontWeight.Bold)
                         }
+                    }
                     }
                 }
             }

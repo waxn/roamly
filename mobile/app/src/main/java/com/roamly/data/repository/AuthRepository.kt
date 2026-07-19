@@ -8,8 +8,18 @@ import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
+import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/** Outcome of a login attempt. */
+sealed class LoginResult {
+    object Success : LoginResult()
+    /** Server emailed a code (new device / unverified signup); call [AuthRepository.verifyCode]. */
+    data class NeedsVerification(val email: String, val purpose: String) : LoginResult()
+    data class Error(val message: String) : LoginResult()
+}
 
 @Singleton
 class AuthRepository @Inject constructor(
@@ -17,85 +27,142 @@ class AuthRepository @Inject constructor(
     private val prefs: UserPreferences,
     private val okHttpClient: OkHttpClient,
 ) {
-    suspend fun login(serverUrl: String, username: String, password: String): Result<Unit> {
+    // Held between a NeedsVerification login and the follow-up verifyCode() call.
+    // Kept in memory (not prefs.sessionId) so "logged in" doesn't flip true early.
+    private var pendingSessionId: String? = null
+    private var pendingBase: String? = null
+
+    suspend fun login(serverUrl: String, username: String, password: String): LoginResult {
         return try {
             val base = serverUrl.trimEnd('/')
+            prefs.save(base, "", "", username)  // save URL so interceptors target the right host
 
-            // Save URL first so BaseUrlInterceptor rewrites requests correctly
-            prefs.save(base, "", "", username)
+            val noRedirect = okHttpClient.newBuilder().followRedirects(false).build()
 
-            // Use a no-redirect client so we can read Set-Cookie from the 302 login response
-            val noRedirectClient = okHttpClient.newBuilder().followRedirects(false).build()
-
-            // GET the login page to obtain the CSRF token from Set-Cookie
             val csrfToken = withContext(Dispatchers.IO) {
-                val req = Request.Builder().url("$base/login/").get().build()
-                val resp = noRedirectClient.newCall(req).execute()
-                resp.headers("Set-Cookie")
-                    .firstOrNull { it.startsWith("csrftoken=") }
-                    ?.substringAfter("csrftoken=")
-                    ?.substringBefore(";")
-            } ?: return Result.Error("Could not get CSRF token from server")
+                val req = Request.Builder().url("$base/login/").get()
+                    .header("X-Roamly-Client", "app").build()
+                extractCookie(noRedirect.newCall(req).execute(), "csrftoken")
+            } ?: return LoginResult.Error("Could not get CSRF token from server")
 
-            // POST login directly (not via Retrofit) so we can:
-            //  1. Send Cookie: csrftoken=<value> — Django requires the cookie AND the POST field to match
-            //  2. Avoid OkHttp following the 302, which hides the Set-Cookie: sessionid header
+            val deviceCookie = prefs.deviceCookie.first()
             val loginResponse = withContext(Dispatchers.IO) {
                 val body = FormBody.Builder()
-                    .add("username", username)
-                    .add("password", password)
-                    .add("csrfmiddlewaretoken", csrfToken)
-                    .build()
-                val req = Request.Builder()
-                    .url("$base/login/")
-                    .post(body)
-                    .header("Cookie", "csrftoken=$csrfToken")
-                    .build()
-                noRedirectClient.newCall(req).execute()
+                    .add("username", username).add("password", password)
+                    .add("csrfmiddlewaretoken", csrfToken).build()
+                val cookie = buildString {
+                    append("csrftoken=").append(csrfToken)
+                    if (!deviceCookie.isNullOrBlank()) append("; roamly_device=").append(deviceCookie)
+                }
+                val req = Request.Builder().url("$base/login/").post(body)
+                    .header("X-Roamly-Client", "app")
+                    .header("Cookie", cookie).build()
+                noRedirect.newCall(req).execute()
             }
 
-            if (loginResponse.code != 302) {
-                return Result.Error("Login failed (${loginResponse.code})")
+            // Any new device-trust token the server hands back, remember it.
+            extractCookie(loginResponse, "roamly_device")?.let { prefs.setDeviceCookie(it) }
+
+            when {
+                loginResponse.code == 302 -> {
+                    val sessionId = extractCookie(loginResponse, "sessionid")
+                        ?: return LoginResult.Error("Invalid username or password")
+                    finishLogin(base, username, sessionId)
+                    LoginResult.Success
+                }
+                loginResponse.code == 200 -> {
+                    // JSON signal from the app-aware login view.
+                    val json = JSONObject(loginResponse.body?.string() ?: "{}")
+                    if (json.optString("status") == "verify") {
+                        pendingSessionId = extractCookie(loginResponse, "sessionid")
+                        pendingBase = base
+                        LoginResult.NeedsVerification(
+                            email = json.optString("email"),
+                            purpose = json.optString("purpose", "login"),
+                        )
+                    } else {
+                        LoginResult.Error(json.optString("message", "Login failed"))
+                    }
+                }
+                else -> LoginResult.Error(errorMessage(loginResponse))
             }
-
-            // Extract sessionid from the 302 Set-Cookie header
-            val sessionId = loginResponse.headers("Set-Cookie")
-                .firstOrNull { it.startsWith("sessionid=") }
-                ?.substringAfter("sessionid=")
-                ?.substringBefore(";")
-                ?: return Result.Error("Invalid username or password")
-
-            // Logging in does NOT create or require an API key. The session is what
-            // signs you in; the key is only needed for tracking and is set up later
-            // (in Settings, automatically or by hand). Keep any key already saved so a
-            // re-login stays connected, but never mint a new one here.
-            val existingKey = prefs.apiKey.first() ?: ""
-            prefs.save(base, sessionId, existingKey, username)
-
-            // Give this device a stable id automatically so the uploader works out of
-            // the box once tracking is enabled — without it, cached points pile up
-            // locally and never sync.
-            prefs.setDeviceIdIfUnset(defaultDeviceId())
-
-            Result.Success(Unit)
         } catch (e: Exception) {
-            Result.Error("${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+            LoginResult.Error("${e.javaClass.simpleName}: ${e.message ?: "no message"}")
         }
     }
 
+    /** Submit the emailed code to finish a NeedsVerification login. */
+    suspend fun verifyCode(code: String): LoginResult {
+        val base = pendingBase ?: return LoginResult.Error("Nothing to verify")
+        val pending = pendingSessionId
+        return try {
+            val noRedirect = okHttpClient.newBuilder().followRedirects(false).build()
+            // A fresh CSRF token (double-submit — any matching cookie+field value works).
+            val csrfToken = withContext(Dispatchers.IO) {
+                val req = Request.Builder().url("$base/login/").get()
+                    .header("X-Roamly-Client", "app").build()
+                extractCookie(noRedirect.newCall(req).execute(), "csrftoken")
+            } ?: return LoginResult.Error("Could not get CSRF token")
+
+            val deviceCookie = prefs.deviceCookie.first()
+            val resp = withContext(Dispatchers.IO) {
+                val body = FormBody.Builder()
+                    .add("code", code).add("csrfmiddlewaretoken", csrfToken).build()
+                val cookie = buildString {
+                    append("csrftoken=").append(csrfToken)
+                    if (!pending.isNullOrBlank()) append("; sessionid=").append(pending)
+                    if (!deviceCookie.isNullOrBlank()) append("; roamly_device=").append(deviceCookie)
+                }
+                val req = Request.Builder().url("$base/verify/").post(body)
+                    .header("X-Roamly-Client", "app")
+                    .header("Cookie", cookie).build()
+                noRedirect.newCall(req).execute()
+            }
+
+            extractCookie(resp, "roamly_device")?.let { prefs.setDeviceCookie(it) }
+
+            if (resp.code == 200 && JSONObject(resp.body?.string() ?: "{}").optString("status") == "ok") {
+                val sessionId = extractCookie(resp, "sessionid")
+                    ?: return LoginResult.Error("Verified, but no session was returned")
+                val username = prefs.username.first() ?: ""
+                finishLogin(base, username, sessionId)
+                pendingSessionId = null; pendingBase = null
+                LoginResult.Success
+            } else {
+                LoginResult.Error(errorMessage(resp))
+            }
+        } catch (e: Exception) {
+            LoginResult.Error("${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+        }
+    }
+
+    private suspend fun finishLogin(base: String, username: String, sessionId: String) {
+        val existingKey = prefs.apiKey.first() ?: ""
+        prefs.save(base, sessionId, existingKey, username)
+        prefs.setDeviceIdIfUnset(defaultDeviceId())
+    }
+
+    private fun extractCookie(resp: Response, name: String): String? =
+        resp.headers("Set-Cookie")
+            .firstOrNull { it.startsWith("$name=") }
+            ?.substringAfter("$name=")?.substringBefore(";")
+            ?.takeIf { it.isNotBlank() }
+
+    private fun errorMessage(resp: Response): String = try {
+        val body = resp.body?.string() ?: ""
+        if (body.startsWith("{")) JSONObject(body).optString("message", "Login failed (${resp.code})")
+        else "Login failed (${resp.code})"
+    } catch (e: Exception) { "Login failed (${resp.code})" }
+
     /**
      * Obtain the account's single durable tracking key, creating it once if absent.
-     * Idempotent on the server (`/api/keys/app/`): there is just one key and it works
-     * forever, so calling this repeatedly never spawns duplicates. Saves it locally.
+     * Idempotent on the server (`/api/keys/app/`). Saves it locally.
      */
     suspend fun ensureApiKey(): Result<String> {
         return try {
             val resp = api.ensureAppApiKey()
-            if (!resp.isSuccessful) {
-                return Result.Error("Could not get API key (${resp.code()})")
-            }
-            val key = resp.body()?.key
-                ?: return Result.Error("API key response was empty")
+            if (!resp.isSuccessful) return Result.Error("Could not get API key (${resp.code()})")
+            val key = resp.body()?.key ?: return Result.Error("API key response was empty")
             prefs.setApiKey(key)
             Result.Success(key)
         } catch (e: Exception) {
@@ -106,11 +173,7 @@ class AuthRepository @Inject constructor(
     /** A friendly, URL-safe id derived from the phone model, e.g. "pixel-8-pro". */
     private fun defaultDeviceId(): String {
         val raw = "${android.os.Build.MODEL}".trim().ifBlank { "android" }
-        val slug = raw.lowercase()
-            .replace(Regex("[^a-z0-9]+"), "-")
-            .trim('-')
-            .ifBlank { "android" }
-        // A short random suffix avoids collisions when two of the same model share an account.
+        val slug = raw.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').ifBlank { "android" }
         val suffix = (1000..9999).random()
         return "$slug-$suffix"
     }

@@ -6,7 +6,7 @@ import com.roamly.data.cache.DiskCache
 import com.roamly.data.local.LocationStore
 import com.roamly.data.prefs.UserPreferences
 import com.roamly.data.repository.AuthRepository
-import com.roamly.data.repository.Result
+import com.roamly.data.repository.LoginResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -22,7 +22,12 @@ data class LoginUiState(
     val username: String = "",
     val password: String = "",
     val isLoading: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    // New-device / signup email verification
+    val needsVerification: Boolean = false,
+    val verifyEmail: String = "",
+    val verifyPurpose: String = "",
+    val code: String = "",
 )
 
 @HiltViewModel
@@ -49,6 +54,7 @@ class AuthViewModel @Inject constructor(
     fun onServerUrlChange(value: String) = _uiState.update { it.copy(serverUrl = value) }
     fun onUsernameChange(value: String) = _uiState.update { it.copy(username = value) }
     fun onPasswordChange(value: String) = _uiState.update { it.copy(password = value) }
+    fun onCodeChange(value: String) = _uiState.update { it.copy(code = value.filter { c -> c.isDigit() }.take(6)) }
 
     fun login() {
         val state = _uiState.value
@@ -59,10 +65,34 @@ class AuthViewModel @Inject constructor(
         _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
             when (val result = authRepository.login(state.serverUrl, state.username, state.password)) {
-                is Result.Success -> _uiState.update { it.copy(isLoading = false) }
-                is Result.Error -> _uiState.update { it.copy(isLoading = false, error = result.message) }
+                is LoginResult.Success -> _uiState.update { it.copy(isLoading = false) }
+                is LoginResult.NeedsVerification -> _uiState.update {
+                    it.copy(isLoading = false, error = null, needsVerification = true,
+                        verifyEmail = result.email, verifyPurpose = result.purpose, code = "")
+                }
+                is LoginResult.Error -> _uiState.update { it.copy(isLoading = false, error = result.message) }
             }
         }
+    }
+
+    fun verify() {
+        val state = _uiState.value
+        if (state.code.length < 6) {
+            _uiState.update { it.copy(error = "Enter the 6-digit code") }
+            return
+        }
+        _uiState.update { it.copy(isLoading = true, error = null) }
+        viewModelScope.launch {
+            when (val result = authRepository.verifyCode(state.code)) {
+                is LoginResult.Success -> _uiState.update { it.copy(isLoading = false, needsVerification = false) }
+                is LoginResult.NeedsVerification -> _uiState.update { it.copy(isLoading = false) }
+                is LoginResult.Error -> _uiState.update { it.copy(isLoading = false, error = result.message) }
+            }
+        }
+    }
+
+    fun cancelVerification() = _uiState.update {
+        it.copy(needsVerification = false, code = "", error = null)
     }
 
     fun logout() {
