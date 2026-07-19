@@ -528,6 +528,35 @@ class AdventureComment(models.Model):
         return f"Comment by {self.author.username if self.author else self.guest_name}"
 
 
+class PlannedStop(models.Model):
+    """A forward-looking itinerary stop on an Adventure.
+
+    Distinct from AdventureBlurb (a past located note/POI): a PlannedStop is
+    ordered future *intent* — where you plan to go, when, how you'll get there,
+    and where you'll stay. One Adventure holds both the plan (these rows) and
+    the reality (the recorded track via Adventure.locations), so plan-vs-actual
+    lives side by side.
+    """
+    adventure = models.ForeignKey(Adventure, on_delete=models.CASCADE, related_name='planned_stops')
+    name = models.CharField(max_length=200)
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+    location_name = models.CharField(max_length=300, blank=True)
+    arrival_date = models.DateField(null=True, blank=True)   # planned arrival, not actual
+    nights = models.PositiveIntegerField(default=0)
+    transport = models.CharField(max_length=30, blank=True)  # leg to here: plane/car/train/cycle/walk/boat/…
+    notes = models.TextField(blank=True)
+    accommodation = models.CharField(max_length=300, blank=True)
+    order = models.PositiveIntegerField(default=0)           # manual itinerary order
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['order', 'arrival_date', 'id']
+
+    def __str__(self):
+        return f"Planned: {self.name}"
+
+
 class UserProfile(models.Model):
     """Extended user profile for profile pictures."""
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')

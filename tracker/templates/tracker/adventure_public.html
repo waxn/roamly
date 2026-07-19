@@ -181,6 +181,19 @@
 .pub-tl-event-title { font-weight: 700; font-size: 1rem; margin-top: 0.0625rem; text-transform: none; }
 .pub-tl-note { font-size: 0.9rem; color: var(--text-muted); margin-top: 0.25rem; line-height: 1.6; white-space: pre-wrap; }
 
+/* Itinerary (planned stops) */
+.pub-itinerary { margin: 1.75rem 0; }
+.pub-itinerary-title { font-family: var(--font-display); font-size: 1.25rem; font-weight: 700; margin-bottom: 1rem; text-transform: none; }
+.pub-itin-track { position: relative; padding-left: 1.75rem; }
+.pub-itin-track::before { content:''; position:absolute; left: 10px; top: 10px; bottom: 10px; width: 0; border-left: 2px dashed rgba(91,143,176,0.6); }
+.pub-itin-item { position: relative; padding-bottom: 1.25rem; }
+.pub-itin-item:last-child { padding-bottom: 0; }
+.pub-itin-num { position: absolute; left: -1.75rem; top: 2px; width: 22px; height: 22px; border-radius: 50%; background: #5a8fb0; color:#fff;
+    display: flex; align-items: center; justify-content: center; font-family: var(--font-mono, monospace); font-size: 0.72rem; font-weight: 700; border: 2px solid var(--bg); }
+.pub-itin-name { font-weight: 700; font-size: 1.0625rem; text-transform: none; }
+.pub-itin-meta { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.2rem; font-family: var(--font-mono, monospace); }
+.pub-itin-notes { font-size: 0.9rem; color: var(--text-muted); margin-top: 0.35rem; line-height: 1.6; white-space: pre-wrap; }
+
 /* Blurbs section */
 .pub-blurbs-section { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 1.5rem; }
 .pub-blurbs-title { font-family: var(--font-display); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 1rem; }
@@ -235,6 +248,9 @@
 .poi-marker { color: var(--clay-coral); cursor: pointer; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); transition: transform 0.12s; }
 .poi-marker svg { width: 28px; height: 28px; display: block; stroke: #fff; stroke-width: 1; }
 .poi-marker:hover { transform: scale(1.18); }
+.plan-marker { width: 26px; height: 26px; border-radius: 50%; background: #5a8fb0; color: #fff;
+    display: flex; align-items: center; justify-content: center; font-family: var(--font-mono, monospace);
+    font-size: 0.8125rem; font-weight: 700; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.45); }
 .poi-popup-card { text-align: center; }
 .poi-popup-author { font-size: 0.75rem; color: var(--text-muted); font-weight: 700; margin-bottom: 0.4rem; }
 .poi-popup-star { color: var(--clay-coral); display: flex; justify-content: center; margin-bottom: 0.25rem; }
@@ -344,6 +360,9 @@
 
     <!-- Meta row (dates · travelers · copy link) — always shown under the title -->
     <div class="pub-article-meta" id="pub-article-meta"></div>
+
+    <!-- Planned itinerary (forward-looking stops) -->
+    <div id="pub-itinerary"></div>
 
     <!-- Document body -->
     <div id="pub-body-blocks"></div>
@@ -582,10 +601,11 @@ async function postComment(blurbId){
 }
 
 // ── Map embed activation ──────────────────────────────────────────────────────
-function activateMapEmbed(wrapEl, locs, pois){
+function activateMapEmbed(wrapEl, locs, pois, plan){
     const mapId = wrapEl.dataset.mapId;
     const config = JSON.parse(wrapEl.dataset.config || '{}');
     if(embeddedMaps[mapId]) return;
+    plan = plan || [];
 
     const theme = localStorage.getItem('roamly_theme') === 'light' ? 'Streets' : 'Dark';
     const m = new maplibregl.Map({
@@ -625,9 +645,50 @@ function activateMapEmbed(wrapEl, locs, pois){
                     .setLngLat([poi.longitude, poi.latitude]).addTo(m);
             });
         }
+
+        // Planned itinerary: dashed connector line + numbered stop markers
+        const located = plan.filter(s => s.latitude != null && s.longitude != null);
+        if(located.length >= 2){
+            m.addSource(mapId+'-plan',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:located.map(s=>[s.longitude,s.latitude])}}});
+            m.addLayer({id:mapId+'-plan-line',type:'line',source:mapId+'-plan',
+                layout:{'line-cap':'round','line-join':'round'},
+                paint:{'line-color':'#5a8fb0','line-width':2.5,'line-dasharray':[1.5,1.5],'line-opacity':0.9}});
+        }
+        plan.forEach((s, i) => {
+            if(s.latitude == null || s.longitude == null) return;
+            const el = document.createElement('div');
+            el.className = 'plan-marker';
+            el.textContent = (i + 1);
+            el.title = s.name || '';
+            new maplibregl.Marker({element: el, anchor: 'center'})
+                .setLngLat([s.longitude, s.latitude]).addTo(m);
+        });
     });
     wrapEl.classList.remove('static');
     wrapEl.classList.add('interactive');
+}
+
+// ── Itinerary (planned stops) ──────────────────────────────────────────────────
+const TRANSPORT_ICON = {plane:'✈️', car:'🚗', train:'🚆', bus:'🚌', boat:'⛴️', cycle:'🚲', walk:'🚶', other:'•'};
+function renderItinerary(plan){
+    const host = document.getElementById('pub-itinerary');
+    if(!host) return;
+    if(!plan || !plan.length){ host.innerHTML = ''; return; }
+    const items = plan.map((s, i) => {
+        const meta = [];
+        if(s.transport) meta.push((TRANSPORT_ICON[s.transport] || '') + ' ' + esc(s.transport));
+        if(s.arrival_date) meta.push(esc(s.arrival_date));
+        if(s.nights) meta.push(s.nights + (s.nights === 1 ? ' night' : ' nights'));
+        if(s.accommodation) meta.push('🛏 ' + esc(s.accommodation));
+        const metaHtml = meta.length ? `<div class="pub-itin-meta">${meta.join('  ·  ')}</div>` : '';
+        const notesHtml = s.notes ? `<div class="pub-itin-notes">${esc(s.notes)}</div>` : '';
+        return `<div class="pub-itin-item">
+            <span class="pub-itin-num">${i + 1}</span>
+            <div class="pub-itin-name">${esc(s.name || 'untitled')}</div>
+            ${metaHtml}${notesHtml}
+        </div>`;
+    }).join('');
+    host.innerHTML = `<div class="pub-itinerary"><div class="pub-itinerary-title">Itinerary</div><div class="pub-itin-track">${items}</div></div>`;
 }
 
 // ── Load and render ────────────────────────────────────────────────────────────
@@ -641,6 +702,10 @@ async function loadAndRender(){
 
     // Located POIs (blurbs) for the map star markers (skip hidden photo containers)
     const pois = (tripData.blurbs||[]).filter(b=>b.latitude&&b.longitude&&b.text!==PHOTO_CONTAINER_SENTINEL);
+
+    // Planned itinerary stops (already ordered by the API)
+    const plan = tripData.planned_stops || [];
+    renderItinerary(plan);
 
     // Build photo lookup from blurbs (blurb photos are the photo store for now)
     const allPhotos = {};
@@ -675,9 +740,9 @@ async function loadAndRender(){
             bodyEl.innerHTML = `<p class="pub-block pub-paragraph">${esc(tripData.description)}</p>`;
         }
 
-        // Map embeds render live by default — track + POIs shown
+        // Map embeds render live by default — track + POIs + itinerary shown
         bodyEl.querySelectorAll('.pub-map-embed').forEach(wrap => {
-            activateMapEmbed(wrap, locs, pois);
+            activateMapEmbed(wrap, locs, pois, plan);
         });
 
         // Photo lightbox

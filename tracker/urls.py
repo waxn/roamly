@@ -79,6 +79,7 @@ urlpatterns = [
     # Trips pages
     path('adventure/<slug:slug>/', views.adventure_public_view, name='adventure_public'),
     path('adventures/<int:trip_id>/edit/', views.adventure_edit_view, name='adventure_edit'),
+    path('adventures/<int:trip_id>/plan/', views.adventure_plan_view, name='adventure_plan'),
 
     # Adventures API
     path('api/trips/', views.trips_api, name='trips_api'),
@@ -89,6 +90,10 @@ urlpatterns = [
     path('api/trips/<int:trip_id>/places/create/', views.create_trip_place, name='create_trip_place'),
     path('api/trips/<int:trip_id>/places/<int:place_id>/update/', views.update_trip_place, name='update_trip_place'),
     path('api/trips/<int:trip_id>/places/<int:place_id>/delete/', views.delete_trip_place, name='delete_trip_place'),
+    path('api/trips/<int:trip_id>/plan/', views.trip_plan_list, name='trip_plan_list'),
+    path('api/trips/<int:trip_id>/plan/create/', views.create_trip_plan_stop, name='create_trip_plan_stop'),
+    path('api/trips/<int:trip_id>/plan/<int:stop_id>/update/', views.update_trip_plan_stop, name='update_trip_plan_stop'),
+    path('api/trips/<int:trip_id>/plan/<int:stop_id>/delete/', views.delete_trip_plan_stop, name='delete_trip_plan_stop'),
     path('api/trips/<int:trip_id>/members/add/', views.trip_add_member, name='trip_add_member'),
     path('api/trips/<int:trip_id>/members/<int:user_id>/remove/', views.trip_remove_member, name='trip_remove_member'),
     path('api/trips/<int:trip_id>/toggle-public/', views.trip_toggle_public, name='trip_toggle_public'),

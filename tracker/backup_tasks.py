@@ -106,6 +106,7 @@ def _build_adventures_data(user):
         'blurbs__photos',
         'blurbs__comments__author',
         'milestones__author',
+        'planned_stops',
     )
 
     result = []
@@ -164,6 +165,21 @@ def _build_adventures_data(user):
                     'created_at': m.created_at,
                 }
                 for m in adv.milestones.all()
+            ],
+            'planned_stops': [
+                {
+                    'name': s.name,
+                    'latitude': s.latitude,
+                    'longitude': s.longitude,
+                    'location_name': s.location_name,
+                    'arrival_date': s.arrival_date,
+                    'nights': s.nights,
+                    'transport': s.transport,
+                    'notes': s.notes,
+                    'accommodation': s.accommodation,
+                    'order': s.order,
+                }
+                for s in adv.planned_stops.all()
             ],
         })
 
@@ -236,7 +252,7 @@ def _build_backup_json(user):
 
     data = {
         'meta': {
-            'version': 6,
+            'version': 7,
             'exported_at': timezone.now().isoformat(),
             'username': user.username,
         },

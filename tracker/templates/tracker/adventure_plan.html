@@ -1,0 +1,524 @@
+{% extends "tracker/base.html" %}
+{% block title %}Plan — {{ trip.name }} — Roamly{% endblock %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
+
+{% block extra_css %}
+.plan-top { display: flex; align-items: center; gap: 0.75rem; margin: 0.25rem 0 1rem; flex-wrap: wrap; }
+.plan-back { color: var(--text-muted); display: inline-flex; align-items: center; gap: 0.35rem; text-decoration: none; font-size: 0.85rem; }
+.plan-back:hover { color: var(--text); }
+.plan-back svg { width: 18px; height: 18px; }
+.plan-title { font-family: var(--font-display); font-size: 1.6rem; font-weight: 800; line-height: 1.1; flex: 1; min-width: 0; }
+.plan-top-actions { display: flex; gap: 0.5rem; }
+.plan-linkbtn { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8125rem; padding: 0.4rem 0.7rem;
+    border: 1px solid var(--border); border-radius: 8px; color: var(--text); text-decoration: none; background: var(--bg-card); }
+.plan-linkbtn:hover { border-color: var(--primary); }
+.plan-linkbtn svg { width: 15px; height: 15px; }
+
+#plan-map { width: 100%; height: 420px; border-radius: 12px; border: 1px solid var(--border); overflow: hidden; position: relative; }
+
+.plan-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin: 1.25rem 0 3rem; }
+@media (max-width: 820px){ .plan-cols { grid-template-columns: 1fr; } }
+.plan-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.125rem; }
+.plan-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
+.plan-card-title { font-family: var(--font-display); font-size: 1.05rem; font-weight: 700; }
+.plan-btn { font-size: 0.8125rem; padding: 0.4rem 0.7rem; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text); cursor: pointer; }
+.plan-btn:hover { border-color: var(--primary); }
+.plan-btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+/* Numbered itinerary markers on the map */
+.plan-marker { width: 26px; height: 26px; border-radius: 50%; background: #5a8fb0; color: #fff;
+    display: flex; align-items: center; justify-content: center; font-family: var(--font-mono, monospace);
+    font-size: 0.8125rem; font-weight: 700; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.45); cursor: pointer; }
+
+/* Itinerary list */
+.plan-stop-card { border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.625rem; margin-bottom: 0.5rem; }
+.plan-stop-head { display: flex; align-items: center; gap: 0.5rem; }
+.plan-stop-num { flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%; background: #5a8fb0; color: #fff;
+    display: flex; align-items: center; justify-content: center; font-family: var(--font-mono, monospace); font-size: 0.72rem; font-weight: 700; }
+.plan-stop-name { flex: 1; font-weight: 600; font-size: 0.875rem; }
+.plan-stop-meta { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem; margin-left: 30px; font-family: var(--font-mono, monospace); }
+.plan-stop-actions { display: flex; gap: 0.2rem; }
+.plan-icon-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px; line-height: 0; border-radius: 4px; }
+.plan-icon-btn:hover { color: var(--text); background: var(--border); }
+.plan-icon-btn:disabled { opacity: 0.3; cursor: default; }
+.plan-icon-btn svg { width: 15px; height: 15px; }
+.plan-empty { font-size: 0.8125rem; color: var(--text-muted); }
+
+/* People list */
+.plan-person { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0; border-bottom: 1px solid var(--border); }
+.plan-person:last-child { border-bottom: none; }
+.plan-avatar { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; background-size: cover; background-position: center; border: 2px solid var(--border); }
+.plan-person-name { flex: 1; font-size: 0.875rem; font-weight: 600; }
+.plan-person-role { font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono, monospace); text-transform: uppercase; }
+.plan-swatch { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+/* Stop modal */
+.plan-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 2000; padding: 1rem; }
+.plan-modal-overlay.open { display: flex; }
+.plan-modal { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; width: 100%; max-width: 420px; }
+.plan-modal h3 { font-family: var(--font-display); font-size: 1.1rem; font-weight: 700; margin-bottom: 0.75rem; }
+.pm-field { margin-bottom: 0.6rem; }
+.pm-label { display: block; font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0.2rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.pm-input { width: 100%; padding: 0.45rem 0.55rem; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); color: var(--text); font-size: 0.875rem; }
+.pm-btns { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.75rem; }
+
+.plan-hint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.75); color: #fff;
+    padding: 0.35rem 0.7rem; border-radius: 20px; font-size: 0.8rem; display: none; z-index: 5; }
+.plan-hint.show { display: block; }
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="plan-top">
+        <a class="plan-back" href="/adventures/"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2"><path d="M15 18l-6-6 6-6"/></svg> trips</a>
+        <div class="plan-title">{{ trip.name }}</div>
+        <div class="plan-top-actions">
+            <button class="plan-linkbtn" id="edit-trip-btn">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+                edit trip
+            </button>
+            <a class="plan-linkbtn" href="/adventures/{{ trip_id }}/edit/">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4z"/></svg>
+                story editor
+            </a>
+        </div>
+    </div>
+
+    <div id="plan-map">
+        <div class="plan-hint" id="plan-hint">click the map to place your stop</div>
+    </div>
+
+    <div class="plan-cols">
+        <!-- Itinerary -->
+        <div class="plan-card">
+            <div class="plan-card-head">
+                <span class="plan-card-title">Itinerary</span>
+                <button class="plan-btn primary" id="plan-add-btn">+ add stop</button>
+            </div>
+            <div id="plan-list"><div class="plan-empty">loading…</div></div>
+        </div>
+
+        <!-- People -->
+        <div class="plan-card">
+            <div class="plan-card-head">
+                <span class="plan-card-title">People</span>
+            </div>
+            <div id="plan-people"><div class="plan-empty">loading…</div></div>
+            {% if is_creator %}
+            <div style="display:flex;gap:0.5rem;margin-top:0.75rem;">
+                <input class="pm-input" id="add-member-in" placeholder="username to add…" style="flex:1;">
+                <button class="plan-btn primary" id="add-member-btn">add</button>
+            </div>
+            <div id="add-member-msg" style="font-size:0.72rem;color:var(--text-muted);margin-top:0.35rem;"></div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Stop create/edit modal -->
+<div class="plan-modal-overlay" id="stop-modal">
+    <div class="plan-modal">
+        <h3 id="stop-modal-title">add stop</h3>
+        <div class="pm-field">
+            <label class="pm-label">place name</label>
+            <input class="pm-input" id="stop-name-in" placeholder="e.g. Kyoto" maxlength="200">
+        </div>
+        <div style="display:flex;gap:0.6rem;">
+            <div class="pm-field" style="flex:1;">
+                <label class="pm-label">arrival date</label>
+                <input class="pm-input" type="date" id="stop-date-in">
+            </div>
+            <div class="pm-field" style="width:90px;">
+                <label class="pm-label">nights</label>
+                <input class="pm-input" type="number" id="stop-nights-in" min="0" value="0">
+            </div>
+        </div>
+        <div class="pm-field">
+            <label class="pm-label">getting there</label>
+            <select class="pm-input" id="stop-transport-in">
+                <option value="">—</option>
+                <option value="plane">✈️ plane</option>
+                <option value="car">🚗 car</option>
+                <option value="train">🚆 train</option>
+                <option value="bus">🚌 bus</option>
+                <option value="boat">⛴️ boat</option>
+                <option value="cycle">🚲 cycle</option>
+                <option value="walk">🚶 walk</option>
+                <option value="other">• other</option>
+            </select>
+        </div>
+        <div class="pm-field">
+            <label class="pm-label">accommodation</label>
+            <input class="pm-input" id="stop-accom-in" placeholder="where you're staying…" maxlength="300">
+        </div>
+        <div class="pm-field">
+            <label class="pm-label">notes</label>
+            <textarea class="pm-input" id="stop-notes-in" rows="3" placeholder="plans, must-sees…" style="resize:vertical;"></textarea>
+        </div>
+        <div class="pm-btns">
+            <button class="plan-btn" id="stop-cancel">cancel</button>
+            <button class="plan-btn primary" id="stop-save">save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Edit trip details modal -->
+<div class="plan-modal-overlay" id="trip-modal">
+    <div class="plan-modal">
+        <h3>Edit trip</h3>
+        <div class="pm-field">
+            <label class="pm-label">name</label>
+            <input class="pm-input" id="trip-name-in" maxlength="200">
+        </div>
+        <div class="pm-field">
+            <label class="pm-label">subtitle</label>
+            <input class="pm-input" id="trip-subtitle-in" maxlength="400">
+        </div>
+        <div style="display:flex;gap:0.6rem;">
+            <div class="pm-field" style="flex:1;">
+                <label class="pm-label">start date</label>
+                <input class="pm-input" type="date" id="trip-start-in">
+            </div>
+            <div class="pm-field" style="flex:1;">
+                <label class="pm-label">end date <span style="text-transform:none;">(blank = ongoing)</span></label>
+                <input class="pm-input" type="date" id="trip-end-in">
+            </div>
+        </div>
+        <div class="pm-field">
+            <label class="pm-label">description</label>
+            <textarea class="pm-input" id="trip-desc-in" rows="3" style="resize:vertical;"></textarea>
+        </div>
+        <div class="pm-btns">
+            <button class="plan-btn" id="trip-cancel">cancel</button>
+            <button class="plan-btn primary" id="trip-save">save</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const TRIP_ID = {{ trip_id }};
+const CSRF = '{{ csrf_token }}';
+const IS_CREATOR = {{ is_creator|yesno:"true,false" }};
+const MEMBER_COLORS = ['#e8763d','#5a8fb0','#7fae7a','#c9922e','#a888a0','#c96a5e','#4fa3a3','#b06fb0'];
+const TRANSPORT_ICON = {plane:'✈️', car:'🚗', train:'🚆', bus:'🚌', boat:'⛴️', cycle:'🚲', walk:'🚶', other:'•'};
+
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+const mapStyles = {
+    Streets: {version:8, sources:{c:{type:'raster',tiles:['https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png'],tileSize:256,attribution:'© OpenStreetMap © CARTO'}},layers:[{id:'c',type:'raster',source:'c'}]},
+    Dark:    {version:8, sources:{c:{type:'raster',tiles:['https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'],tileSize:256,attribution:'© OpenStreetMap © CARTO'}},layers:[{id:'c',type:'raster',source:'c'}]},
+};
+
+let tripData = null;
+let planMap = null;
+let plannedStops = [];
+let planMarkers = [];
+let droppingStop = false, stopEditId = null, stopDropCoords = null;
+
+// ── Map ─────────────────────────────────────────────────────────────────────
+function initMap(){
+    const theme = localStorage.getItem('roamly_theme') === 'light' ? 'Streets' : 'Dark';
+    planMap = new maplibregl.Map({ container:'plan-map', style: mapStyles[theme], center:[0,20], zoom:2 });
+    planMap.addControl(new maplibregl.NavigationControl(), 'bottom-right');
+    planMap.on('load', () => { drawTracks(); renderPlanLayer(); });
+    planMap.on('click', e => {
+        if(droppingStop){
+            stopDropCoords = {lat:e.lngLat.lat, lng:e.lngLat.lng};
+            droppingStop = false;
+            document.getElementById('plan-hint').classList.remove('show');
+            planMap.getCanvas().style.cursor = '';
+            openStopModal(stopEditId);
+        }
+    });
+}
+
+function allTrackBounds(){
+    const pts = [];
+    (tripData.locations||[]).forEach(l => pts.push([l.lng, l.lat]));
+    Object.values(tripData.member_locations||{}).forEach(arr => arr.forEach(l => pts.push([l.lng, l.lat])));
+    plannedStops.forEach(s => { if(s.latitude!=null && s.longitude!=null) pts.push([s.longitude, s.latitude]); });
+    return pts;
+}
+
+function fitToData(){
+    const pts = allTrackBounds();
+    if(!pts.length) return;
+    const lngs = pts.map(p=>p[0]), lats = pts.map(p=>p[1]);
+    planMap.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]], {padding:50, maxZoom:14, duration:0});
+}
+
+function pointsFeature(locs){
+    // Render each member's track as points, not a connected polyline — a
+    // LineString would draw long straight segments across GPS gaps (and can
+    // look like a stray "closing" line), which isn't wanted on the plan map.
+    return {type:'FeatureCollection', features: locs.map(l => ({type:'Feature', geometry:{type:'Point', coordinates:[l.lng,l.lat]}}))};
+}
+
+function drawTracks(){
+    if(!planMap || !planMap.isStyleLoaded()) return;
+    // Owner points (member index 0 color) + each other member in their color.
+    const tracks = [];
+    if((tripData.locations||[]).length) tracks.push({key:'owner', locs:tripData.locations, color:MEMBER_COLORS[0]});
+    let ci = 1;
+    Object.entries(tripData.member_locations||{}).forEach(([uname, locs]) => {
+        tracks.push({key:'m-'+uname, locs, color: MEMBER_COLORS[ci % MEMBER_COLORS.length]});
+        ci++;
+    });
+    tracks.forEach(t => {
+        const src = 'trk-'+t.key;
+        if(!planMap.getSource(src)) planMap.addSource(src, {type:'geojson', data: pointsFeature(t.locs)});
+        else planMap.getSource(src).setData(pointsFeature(t.locs));
+        if(!planMap.getLayer(src+'-dots')){
+            planMap.addLayer({id:src+'-dots', type:'circle', source:src,
+                paint:{'circle-color':t.color,
+                    'circle-radius':['interpolate',['linear'],['zoom'],3,1.6,10,3.5,16,6],
+                    'circle-opacity':0.85,
+                    'circle-stroke-width':0.5,'circle-stroke-color':'rgba(255,255,255,0.5)'}});
+        }
+    });
+    fitToData();
+}
+
+// ── Itinerary layer ─────────────────────────────────────────────────────────
+function orderedStops(){ return plannedStops.slice().sort((a,b)=>(a.order-b.order)||(a.id-b.id)); }
+
+function renderPlanLayer(){
+    if(!planMap || !planMap.isStyleLoaded()) return;
+    const located = orderedStops().filter(s => s.latitude!=null && s.longitude!=null);
+    const line = {type:'FeatureCollection', features: located.length>=2 ? [{type:'Feature', geometry:{type:'LineString', coordinates: located.map(s=>[s.longitude,s.latitude])}}] : []};
+    if(planMap.getSource('plan-line')) planMap.getSource('plan-line').setData(line);
+    else {
+        planMap.addSource('plan-line', {type:'geojson', data: line});
+        planMap.addLayer({id:'plan-line', type:'line', source:'plan-line',
+            layout:{'line-cap':'round','line-join':'round'},
+            paint:{'line-color':'#5a8fb0','line-width':2.5,'line-dasharray':[1.5,1.5],'line-opacity':0.9}});
+    }
+    planMarkers.forEach(m=>m.remove()); planMarkers = [];
+    orderedStops().forEach((s,i) => {
+        if(s.latitude==null || s.longitude==null) return;
+        const el = document.createElement('div');
+        el.className = 'plan-marker'; el.textContent = (i+1); el.title = s.name||'';
+        el.addEventListener('click', ev => { ev.stopPropagation(); openStopModal(s.id); });
+        planMarkers.push(new maplibregl.Marker({element:el, anchor:'center'}).setLngLat([s.longitude,s.latitude]).addTo(planMap));
+    });
+}
+
+// ── Itinerary list ──────────────────────────────────────────────────────────
+function stopMeta(s){
+    const bits = [];
+    if(s.transport) bits.push((TRANSPORT_ICON[s.transport]||'') + ' ' + s.transport);
+    if(s.arrival_date) bits.push(s.arrival_date);
+    if(s.nights) bits.push(s.nights + (s.nights===1?' night':' nights'));
+    if(s.accommodation) bits.push('🛏 ' + s.accommodation);
+    return bits.join('  ·  ');
+}
+
+function renderPlanList(){
+    const list = document.getElementById('plan-list');
+    const stops = orderedStops();
+    if(!stops.length){ list.innerHTML = '<div class="plan-empty">no stops yet — add your first one.</div>'; return; }
+    list.innerHTML = '';
+    stops.forEach((s,i) => {
+        const card = document.createElement('div');
+        card.className = 'plan-stop-card';
+        const meta = stopMeta(s);
+        const noLoc = (s.latitude==null||s.longitude==null) ? ' <span title="no map location" style="color:var(--clay-amber,#c9922e);">◇</span>' : '';
+        card.innerHTML =
+            '<div class="plan-stop-head">' +
+              '<span class="plan-stop-num">' + (i+1) + '</span>' +
+              '<span class="plan-stop-name">' + esc(s.name||'untitled') + noLoc + '</span>' +
+              '<span class="plan-stop-actions">' +
+                '<button class="plan-icon-btn" data-act="up" ' + (i===0?'disabled':'') + ' title="up"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg></button>' +
+                '<button class="plan-icon-btn" data-act="down" ' + (i===stops.length-1?'disabled':'') + ' title="down"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></button>' +
+                '<button class="plan-icon-btn" data-act="edit" title="edit"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4z"/></svg></button>' +
+                '<button class="plan-icon-btn" data-act="del" title="delete"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg></button>' +
+              '</span>' +
+            '</div>' +
+            (meta ? '<div class="plan-stop-meta">' + esc(meta) + '</div>' : '');
+        card.querySelector('[data-act="up"]').addEventListener('click', ()=>moveStop(s.id,-1));
+        card.querySelector('[data-act="down"]').addEventListener('click', ()=>moveStop(s.id,1));
+        card.querySelector('[data-act="edit"]').addEventListener('click', ()=>openStopModal(s.id));
+        card.querySelector('[data-act="del"]').addEventListener('click', ()=>deleteStop(s.id));
+        list.appendChild(card);
+    });
+}
+
+function refreshPlan(){ renderPlanList(); renderPlanLayer(); }
+
+// ── Stop modal ──────────────────────────────────────────────────────────────
+function openStopModal(id){
+    stopEditId = id;
+    const s = id ? plannedStops.find(x=>x.id===id) : null;
+    document.getElementById('stop-modal-title').textContent = id ? 'edit stop' : 'add stop';
+    document.getElementById('stop-name-in').value = s ? (s.name||'') : '';
+    document.getElementById('stop-date-in').value = s && s.arrival_date ? s.arrival_date : '';
+    document.getElementById('stop-nights-in').value = s ? (s.nights||0) : 0;
+    document.getElementById('stop-transport-in').value = s ? (s.transport||'') : '';
+    document.getElementById('stop-accom-in').value = s ? (s.accommodation||'') : '';
+    document.getElementById('stop-notes-in').value = s ? (s.notes||'') : '';
+    document.getElementById('stop-modal').classList.add('open');
+    setTimeout(()=>document.getElementById('stop-name-in').focus(), 30);
+}
+function closeStopModal(){ document.getElementById('stop-modal').classList.remove('open'); stopEditId=null; stopDropCoords=null; }
+
+async function saveStop(){
+    const name = document.getElementById('stop-name-in').value.trim();
+    if(!name){ alert('give the stop a name'); return; }
+    const payload = {
+        name,
+        arrival_date: document.getElementById('stop-date-in').value || null,
+        nights: parseInt(document.getElementById('stop-nights-in').value,10) || 0,
+        transport: document.getElementById('stop-transport-in').value || '',
+        accommodation: document.getElementById('stop-accom-in').value.trim(),
+        notes: document.getElementById('stop-notes-in').value.trim(),
+    };
+    if(stopDropCoords){ payload.latitude = stopDropCoords.lat; payload.longitude = stopDropCoords.lng; }
+    const url = stopEditId ? `/api/trips/${TRIP_ID}/plan/${stopEditId}/update/` : `/api/trips/${TRIP_ID}/plan/create/`;
+    const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF}, body: JSON.stringify(payload)});
+    if(r.ok){
+        const d = await r.json();
+        const idx = plannedStops.findIndex(x=>x.id===d.stop.id);
+        if(idx>=0) plannedStops[idx] = d.stop; else plannedStops.push(d.stop);
+        closeStopModal(); refreshPlan();
+    } else {
+        const d = await r.json().catch(()=>({}));
+        alert(d.error || 'could not save stop');
+    }
+}
+
+async function deleteStop(id){
+    if(!confirm('delete this stop?')) return;
+    const r = await fetch(`/api/trips/${TRIP_ID}/plan/${id}/delete/`, {method:'POST', headers:{'X-CSRFToken':CSRF}});
+    if(r.ok){ plannedStops = plannedStops.filter(x=>x.id!==id); refreshPlan(); }
+}
+
+async function moveStop(id, dir){
+    const stops = orderedStops();
+    const i = stops.findIndex(s=>s.id===id), j = i+dir;
+    if(i<0 || j<0 || j>=stops.length) return;
+    const tmp = stops[i]; stops[i] = stops[j]; stops[j] = tmp;
+    await Promise.all(stops.map((s,idx) => {
+        s.order = idx;
+        return fetch(`/api/trips/${TRIP_ID}/plan/${s.id}/update/`, {method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF}, body: JSON.stringify({order:idx})});
+    }));
+    refreshPlan();
+}
+
+// ── People ──────────────────────────────────────────────────────────────────
+function renderPeople(){
+    const host = document.getElementById('plan-people');
+    const members = tripData.members || [];
+    if(!members.length){ host.innerHTML = '<div class="plan-empty">no people yet.</div>'; return; }
+    host.innerHTML = '';
+    members.forEach((m,i) => {
+        const color = MEMBER_COLORS[i % MEMBER_COLORS.length];
+        const row = document.createElement('div');
+        row.className = 'plan-person';
+        const av = m.avatar ? `style="background-image:url('${esc(m.avatar)}')"` : `style="background:${color}"`;
+        const canRemove = IS_CREATOR && m.role !== 'creator';
+        row.innerHTML =
+            `<span class="plan-swatch" style="background:${color}"></span>` +
+            `<div class="plan-avatar" ${av}></div>` +
+            `<span class="plan-person-name">${esc(m.username)}</span>` +
+            `<span class="plan-person-role">${esc(m.role)}</span>` +
+            (canRemove ? `<button class="plan-icon-btn" title="remove"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>` : '');
+        if(canRemove){
+            row.querySelector('button').addEventListener('click', () => removeMember(m.user_id, m.username));
+        }
+        host.appendChild(row);
+    });
+}
+
+async function addMember(){
+    const inp = document.getElementById('add-member-in');
+    const msg = document.getElementById('add-member-msg');
+    const username = inp.value.trim();
+    if(!username) return;
+    const r = await fetch(`/api/trips/${TRIP_ID}/members/add/`, {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF}, body: JSON.stringify({username})
+    });
+    const d = await r.json().catch(()=>({}));
+    if(r.ok){ inp.value=''; msg.textContent = `added ${username}`; msg.style.color='var(--clay-mint,#0dbfac)'; await load(); }
+    else { msg.textContent = d.error || 'could not add'; msg.style.color='var(--clay-coral,#c96a5e)'; }
+}
+
+async function removeMember(userId, username){
+    if(!confirm(`remove ${username} from this trip?`)) return;
+    const r = await fetch(`/api/trips/${TRIP_ID}/members/${userId}/remove/`, {method:'POST', headers:{'X-CSRFToken':CSRF}});
+    if(r.ok) await load();
+}
+
+// ── Buttons ─────────────────────────────────────────────────────────────────
+document.getElementById('plan-add-btn').addEventListener('click', () => {
+    stopEditId = null; stopDropCoords = null;
+    droppingStop = true;
+    planMap.getCanvas().style.cursor = 'crosshair';
+    document.getElementById('plan-hint').classList.add('show');
+});
+document.getElementById('stop-save').addEventListener('click', saveStop);
+document.getElementById('stop-cancel').addEventListener('click', closeStopModal);
+document.getElementById('stop-modal').addEventListener('click', e => { if(e.target===e.currentTarget) closeStopModal(); });
+
+const addBtn = document.getElementById('add-member-btn');
+if(addBtn){
+    addBtn.addEventListener('click', addMember);
+    document.getElementById('add-member-in').addEventListener('keydown', e => { if(e.key==='Enter') addMember(); });
+}
+
+// ── Edit trip details ───────────────────────────────────────────────────────
+function isoDate(s){ return s ? String(s).slice(0,10) : ''; }
+function openTripModal(){
+    document.getElementById('trip-name-in').value = tripData.name || '';
+    document.getElementById('trip-subtitle-in').value = tripData.subtitle || '';
+    document.getElementById('trip-start-in').value = isoDate(tripData.start_time);
+    const endYear = tripData.end_time ? new Date(tripData.end_time).getFullYear() : 0;
+    document.getElementById('trip-end-in').value = endYear >= 2099 ? '' : isoDate(tripData.end_time);
+    document.getElementById('trip-desc-in').value = tripData.description || '';
+    document.getElementById('trip-modal').classList.add('open');
+}
+function closeTripModal(){ document.getElementById('trip-modal').classList.remove('open'); }
+async function saveTrip(){
+    const name = document.getElementById('trip-name-in').value.trim();
+    if(!name){ alert('the trip needs a name'); return; }
+    const start = document.getElementById('trip-start-in').value;
+    const end = document.getElementById('trip-end-in').value;
+    const payload = {
+        name,
+        subtitle: document.getElementById('trip-subtitle-in').value.trim(),
+        description: document.getElementById('trip-desc-in').value.trim(),
+        end_time: end ? end + 'T23:59:59' : '',   // blank end → server sets the ongoing sentinel
+    };
+    if(start) payload.start_time = start + 'T00:00:00';
+    const r = await fetch(`/api/trips/${TRIP_ID}/update/`, {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF}, body: JSON.stringify(payload)
+    });
+    if(r.ok){
+        closeTripModal();
+        document.querySelector('.plan-title').textContent = name;
+        await load();
+    } else {
+        const d = await r.json().catch(()=>({}));
+        alert(d.error || 'could not save');
+    }
+}
+document.getElementById('edit-trip-btn').addEventListener('click', openTripModal);
+document.getElementById('trip-save').addEventListener('click', saveTrip);
+document.getElementById('trip-cancel').addEventListener('click', closeTripModal);
+document.getElementById('trip-modal').addEventListener('click', e => { if(e.target===e.currentTarget) closeTripModal(); });
+
+// ── Load ────────────────────────────────────────────────────────────────────
+async function load(){
+    const r = await fetch(`/api/trips/${TRIP_ID}/`);
+    tripData = await r.json();
+    plannedStops = (tripData.planned_stops || []).slice();
+    renderPlanList();
+    renderPeople();
+    if(planMap && planMap.isStyleLoaded()){ drawTracks(); renderPlanLayer(); }
+}
+
+initMap();
+load();
+</script>
+{% endblock %}

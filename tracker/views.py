@@ -37,7 +37,7 @@ from .models import (
     UserProfile, Pal, PalMember, PalBlurb, PalBlurbPhoto, PalMilestone, PalComment,
     AdventureMember, AdventureBlurb, AdventureBlurbPhoto, AdventureMilestone, AdventureComment,
     SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig, StatsSnapshot,
-    DismissedSuggestion,
+    DismissedSuggestion, PlannedStop,
 )
 from .image_utils import resize_image, resize_photo
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
@@ -354,6 +354,18 @@ def adventure_edit_view(request, trip_id):
         'trip': trip,
         'trip_id': trip_id,
         'devices': devices,
+        'is_creator': is_creator,
+    })
+
+
+@login_required
+def adventure_plan_view(request, trip_id):
+    """The trip planning hub: itinerary, people & invites, members map."""
+    trip = _get_trip_for_user(trip_id, request.user)
+    is_creator = trip.device.user == request.user or trip.creator == request.user
+    return render(request, 'tracker/adventure_plan.html', {
+        'trip': trip,
+        'trip_id': trip_id,
         'is_creator': is_creator,
     })
 
@@ -2835,6 +2847,9 @@ def _trip_detail_inner(request, trip_id):
                 "thumb": p.thumbnail.url if p.thumbnail else p.image.url,
             }
 
+    # Planned stops (forward-looking itinerary) — ordered.
+    planned_stops = [_planned_stop_payload(s) for s in trip.planned_stops.all()]
+
     is_creator = trip.device.user == request.user or trip.creator == request.user
     owner_user = trip.device.user
     members = []
@@ -2875,6 +2890,7 @@ def _trip_detail_inner(request, trip_id):
         "locations": locs,
         "total_location_count": total_count,
         "places": places,
+        "planned_stops": planned_stops,
         "photos": photos_map,
         "is_creator": is_creator,
         "is_public": bool(trip.public_slug),
@@ -3014,6 +3030,114 @@ def delete_trip_place(request, trip_id, place_id):
     trip = _get_trip_for_user(trip_id, request.user)
     blurb = get_object_or_404(AdventureBlurb, id=place_id, adventure=trip)
     blurb.delete()
+    return JsonResponse({"status": "ok"})
+
+
+# ---------------------------------------------------------------------------
+# Trip Planning API (PlannedStop — forward-looking itinerary)
+# ---------------------------------------------------------------------------
+
+def _planned_stop_payload(stop):
+    return {
+        "id": stop.id,
+        "name": stop.name,
+        "latitude": _jf(stop.latitude),
+        "longitude": _jf(stop.longitude),
+        "location_name": stop.location_name,
+        "arrival_date": stop.arrival_date.isoformat() if stop.arrival_date else None,
+        "nights": stop.nights,
+        "transport": stop.transport,
+        "notes": stop.notes,
+        "accommodation": stop.accommodation,
+        "order": stop.order,
+    }
+
+
+def _apply_planned_stop_fields(stop, data):
+    """Copy editable fields from a request dict onto a PlannedStop (unsaved)."""
+    if 'name' in data:
+        stop.name = (data['name'] or '')[:200]
+    if 'location_name' in data:
+        stop.location_name = (data['location_name'] or '')[:300]
+    if 'latitude' in data:
+        stop.latitude = _safe_float(data['latitude']) if data['latitude'] is not None else None
+    if 'longitude' in data:
+        stop.longitude = _safe_float(data['longitude']) if data['longitude'] is not None else None
+    if 'arrival_date' in data:
+        stop.arrival_date = _parse_date_only(data['arrival_date'])
+    if 'nights' in data:
+        try:
+            stop.nights = max(0, int(data['nights']))
+        except (TypeError, ValueError):
+            stop.nights = 0
+    if 'transport' in data:
+        stop.transport = (data['transport'] or '')[:30]
+    if 'notes' in data:
+        stop.notes = data['notes'] or ''
+    if 'accommodation' in data:
+        stop.accommodation = (data['accommodation'] or '')[:300]
+    if 'order' in data:
+        try:
+            stop.order = max(0, int(data['order']))
+        except (TypeError, ValueError):
+            pass
+
+
+@login_required
+@require_http_methods(["GET"])
+def trip_plan_list(request, trip_id):
+    """List the planned stops (itinerary) for an adventure."""
+    trip = _get_trip_for_user(trip_id, request.user)
+    stops = [_planned_stop_payload(s) for s in trip.planned_stops.all()]
+    return JsonResponse({"planned_stops": stops})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def create_trip_plan_stop(request, trip_id):
+    """Create a planned itinerary stop on an adventure."""
+    trip = _get_trip_for_user(trip_id, request.user)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    name = (data.get('name') or '').strip()
+    if not name:
+        return JsonResponse({"error": "name required"}, status=400)
+    stop = PlannedStop(adventure=trip)
+    _apply_planned_stop_fields(stop, data)
+    # Default order to the end of the itinerary when the client didn't supply one.
+    if 'order' not in data:
+        last = trip.planned_stops.order_by('-order').first()
+        stop.order = (last.order + 1) if last else 0
+    stop.save()
+    return JsonResponse({"status": "ok", "stop": _planned_stop_payload(stop)})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def update_trip_plan_stop(request, trip_id, stop_id):
+    """Update a planned itinerary stop (also handles reorder via `order`)."""
+    trip = _get_trip_for_user(trip_id, request.user)
+    stop = get_object_or_404(PlannedStop, id=stop_id, adventure=trip)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    _apply_planned_stop_fields(stop, data)
+    stop.save()
+    return JsonResponse({"status": "ok", "stop": _planned_stop_payload(stop)})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST", "DELETE"])
+def delete_trip_plan_stop(request, trip_id, stop_id):
+    trip = _get_trip_for_user(trip_id, request.user)
+    stop = get_object_or_404(PlannedStop, id=stop_id, adventure=trip)
+    stop.delete()
     return JsonResponse({"status": "ok"})
 
 
@@ -3469,6 +3593,7 @@ def trip_public_detail_api(request, slug):
         "locations": locs,
         "members": members,
         "places": places,
+        "planned_stops": [_planned_stop_payload(s) for s in trip.planned_stops.all()],
         "blurbs": blurbs,
     })
 
@@ -3664,7 +3789,7 @@ def _write_backup_json(user, f):
     """Write backup JSON to a file-like object row-by-row to avoid OOM on large datasets."""
     encoder = DjangoJSONEncoder()
 
-    meta = {'version': 6, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 7, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # Same complete, nested schema as the S3 backup (_build_backup_json) so the
@@ -4128,6 +4253,24 @@ def restore_backup(request):
                             except Exception as e:
                                 errors += 1
                                 logger.warning(f"Backup restore adventure milestone error: {e}")
+                        # Planned stops (v7+ itinerary)
+                        for s in a.get('planned_stops', []):
+                            try:
+                                PlannedStop.objects.create(
+                                    adventure=adv,
+                                    name=(s.get('name') or '')[:200],
+                                    latitude=s.get('latitude'), longitude=s.get('longitude'),
+                                    location_name=(s.get('location_name') or '')[:300],
+                                    arrival_date=_parse_date_only(s.get('arrival_date')),
+                                    nights=s.get('nights') or 0,
+                                    transport=(s.get('transport') or '')[:30],
+                                    notes=s.get('notes', ''),
+                                    accommodation=(s.get('accommodation') or '')[:300],
+                                    order=s.get('order') or 0,
+                                )
+                            except Exception as e:
+                                errors += 1
+                                logger.warning(f"Backup restore planned stop error: {e}")
                 except Exception as e:
                     errors += 1
                     logger.warning(f"Backup restore adventure error: {e}")
@@ -4223,6 +4366,19 @@ def _get_csv_field(row, *candidates):
                 if val is not None and str(val).strip():
                     return str(val).strip()
     return None
+
+
+def _parse_date_only(value):
+    """Parse a plain YYYY-MM-DD calendar date string into a date (or None)."""
+    if not value:
+        return None
+    value = str(value).strip()
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value[:10], '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        return None
 
 
 def _parse_timestamp(value):
