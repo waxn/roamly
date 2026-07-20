@@ -787,11 +787,15 @@ def ask_test_api(request):
     return JsonResponse({'ok': ok, 'error': err})
 
 
+@csrf_exempt
 @login_required
 @require_POST
 def ask_api(request):
     """Run one Ask turn: take the client's message history, run the tool-calling
-    loop scoped to this user, and return the assistant's reply."""
+    loop scoped to this user, and return the assistant's reply.
+
+    CSRF-exempt so the mobile app (session cookie, no CSRF token) can POST here,
+    matching the other mobile-hit endpoints. Session auth still required."""
     from . import ai_tasks
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
     if not profile.ai_ask_enabled:
