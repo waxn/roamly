@@ -378,7 +378,17 @@
         <p class="page-lead">one entry a day — what happened, how it felt, and the map of where you went.</p>
     </div>
 
-    <div class="j-stats" id="j-stats"></div>
+    <div class="j-stats" id="j-stats" aria-busy="true">
+        {% for i in "123456" %}
+        <div class="j-stat" aria-hidden="true">
+            <span class="skeleton skel-circle" style="width:1.4rem;height:1.4rem;"></span>
+            <div>
+                <div class="skeleton skel-line" style="width:2.2rem;height:1.1rem;margin-bottom:0.35rem;"></div>
+                <div class="skeleton skel-line sm" style="width:3.2rem;"></div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
 
     <div class="j-layout">
         <!-- Calendar -->
@@ -411,8 +421,17 @@
             </div>
             <div class="card" id="j-recent-card">
                 <div class="j-side-title">recent entries</div>
-                <div class="j-recent" id="j-recent">
-                    <div class="j-empty-state">loading…</div>
+                <div class="j-recent" id="j-recent" aria-busy="true">
+                    {% for i in "1234" %}
+                    <div class="j-entry-card" aria-hidden="true" style="pointer-events:none;">
+                        <div class="skeleton" style="width:54px;height:54px;flex-shrink:0;"></div>
+                        <div class="j-entry-meta">
+                            <div class="skeleton skel-line sm" style="width:40%;margin-bottom:0.5rem;"></div>
+                            <div class="skeleton skel-line" style="width:70%;margin-bottom:0.5rem;"></div>
+                            <div class="skeleton skel-line sm" style="width:55%;"></div>
+                        </div>
+                    </div>
+                    {% endfor %}
                 </div>
             </div>
         </div>
@@ -511,6 +530,7 @@ function loadStats() {
             {emoji:'✍️', num:s.total_words.toLocaleString(), label:'words'},
             {emoji:'📷', num:s.total_photos, label:'photos'},
         ];
+        document.getElementById('j-stats').removeAttribute('aria-busy');
         document.getElementById('j-stats').innerHTML = chips.map(c=>`
             <div class="j-stat">
                 <span class="j-stat-emoji">${c.emoji}</span>
@@ -562,6 +582,7 @@ function renderGrid() {
 function loadRecent() {
     fetch('/api/journals/').then(r=>r.json()).then(data=>{
         const el = document.getElementById('j-recent');
+        el.removeAttribute('aria-busy');
         if (!data.entries.length) {
             el.innerHTML = `<div class="j-empty-state">no entries yet — start with today ✍️</div>`;
             return;

@@ -52,9 +52,18 @@
         </div>
     </div>
 
-    <div id="pals-list">
-        <div style="text-align: center; padding: 2rem; color: var(--text-muted);">
-            <span class="spinner"></span> loading...
+    <div id="pals-list" aria-busy="true">
+        <div class="card pal-card" aria-hidden="true" style="pointer-events:none;">
+            <div class="skeleton skel-line" style="width:35%;height:1rem;margin-bottom:0.6rem;"></div>
+            <div class="skeleton skel-line sm" style="width:55%;"></div>
+        </div>
+        <div class="card pal-card" aria-hidden="true" style="pointer-events:none;">
+            <div class="skeleton skel-line" style="width:45%;height:1rem;margin-bottom:0.6rem;"></div>
+            <div class="skeleton skel-line sm" style="width:48%;"></div>
+        </div>
+        <div class="card pal-card" aria-hidden="true" style="pointer-events:none;">
+            <div class="skeleton skel-line" style="width:28%;height:1rem;margin-bottom:0.6rem;"></div>
+            <div class="skeleton skel-line sm" style="width:60%;"></div>
         </div>
     </div>
 </div>
@@ -71,6 +80,7 @@ function loadPals() {
     fetch('/api/pals/')
         .then(r => r.json())
         .then(data => {
+            document.getElementById('pals-list').removeAttribute('aria-busy');
             if (data.pals.length === 0) {
                 document.getElementById('pals-list').innerHTML =
                     '<div class="card" style="text-align:center;color:var(--text-muted);padding:2rem;">no pals yet. create one to share a trip with friends.</div>';

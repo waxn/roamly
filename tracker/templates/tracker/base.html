@@ -799,6 +799,64 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        /* ── Skeleton loaders ──
+           A reusable shimmer placeholder. Use `.skeleton` on any block to give
+           it the animated tint; the `.skel-*` helpers are common shapes. */
+        .skeleton {
+            position: relative;
+            overflow: hidden;
+            background: var(--bg-elevated);
+            border-radius: 6px;
+        }
+        .skeleton::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            transform: translateX(-100%);
+            background: linear-gradient(
+                90deg,
+                transparent,
+                var(--skeleton-sheen, rgba(255, 255, 255, 0.06)),
+                transparent
+            );
+            animation: skeleton-shimmer 1.3s ease-in-out infinite;
+        }
+        [data-theme="light"] {
+            --skeleton-sheen: rgba(255, 255, 255, 0.55);
+        }
+        @keyframes skeleton-shimmer { 100% { transform: translateX(100%); } }
+        @media (prefers-reduced-motion: reduce) {
+            .skeleton::after { animation: none; }
+            .skeleton { animation: skeleton-pulse 1.6s ease-in-out infinite; }
+            @keyframes skeleton-pulse { 50% { opacity: 0.55; } }
+        }
+        .skel-line { height: 0.8rem; border-radius: 5px; }
+        .skel-line.sm { height: 0.65rem; }
+        .skel-line.lg { height: 1.1rem; }
+        .skel-text-60 { width: 60%; }
+        .skel-text-40 { width: 40%; }
+        .skel-text-80 { width: 80%; }
+        .skel-circle { border-radius: 50%; }
+        /* Inline placeholder for a big numeric stat value — scales with the
+           element's own font-size so it fits tiles of any size. */
+        .skel-statval {
+            display: inline-block;
+            width: 2.6em;
+            height: 0.72em;
+            border-radius: 6px;
+            vertical-align: -0.02em;
+        }
+        /* A generic skeleton card matching the app's .card chrome */
+        .skel-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.1rem 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.7rem;
+        }
+
         /* ── Sortable table headers ── */
         th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
         th.sortable:hover { color: var(--primary); }

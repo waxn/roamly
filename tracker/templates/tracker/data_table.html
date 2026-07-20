@@ -46,9 +46,11 @@
                     </tr>
                 </thead>
                 <tbody id="data-table-body">
-                    <tr><td colspan="11" style="text-align: center; color: var(--text-muted); padding: 2rem;">
-                        <span class="spinner"></span> Loading...
-                    </td></tr>
+                    {% for i in "123456789012" %}
+                    <tr aria-hidden="true">
+                        {% for c in "12345678901" %}<td><span class="skeleton skel-line" style="display:inline-block;width:60%;"></span></td>{% endfor %}
+                    </tr>
+                    {% endfor %}
                 </tbody>
             </table>
         </div>
@@ -187,12 +189,25 @@ function buildParams(append = false, limit = LIMIT) {
     return params;
 }
 
+// Shimmer placeholder rows matching the 11-column layout.
+function dataTableSkeleton(rows = 12) {
+    const widths = [55, 70, 70, 60, 45, 40, 65, 40, 45, 80, 30];
+    let out = '';
+    for (let r = 0; r < rows; r++) {
+        let tds = '';
+        for (let c = 0; c < 11; c++) {
+            tds += `<td><span class="skeleton skel-line" style="display:inline-block;width:${widths[c]}%;"></span></td>`;
+        }
+        out += `<tr aria-hidden="true">${tds}</tr>`;
+    }
+    return out;
+}
+
 function loadData(append = false) {
     const params = buildParams(append, LIMIT);
 
     if (!append) {
-        document.getElementById('data-table-body').innerHTML =
-            '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);padding:2rem;"><span class="spinner"></span> Loading...</td></tr>';
+        document.getElementById('data-table-body').innerHTML = dataTableSkeleton();
     }
 
     const loadMoreBtn = document.getElementById('load-more-btn');

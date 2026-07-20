@@ -259,7 +259,26 @@
         <button class="btn btn-outline btn-sm" id="suggest-more" style="display:none;margin-top:0.75rem;">show all</button>
     </div>
 
-    <div id="places-grid" class="places-grid"></div>
+    <div id="places-grid" class="places-grid" aria-busy="true">
+        <div class="card place-card skel-place" aria-hidden="true">
+            <div class="pc-top"><span class="skeleton skel-circle" style="width:16px;height:16px;"></span><span class="skeleton skel-line" style="width:55%;"></span></div>
+            <div class="skeleton skel-line lg" style="width:45%;margin-bottom:0.4rem;"></div>
+            <div class="skeleton skel-line sm" style="width:35%;"></div>
+            <div class="skeleton skel-line sm" style="width:60%;margin-top:0.85rem;"></div>
+        </div>
+        <div class="card place-card skel-place" aria-hidden="true">
+            <div class="pc-top"><span class="skeleton skel-circle" style="width:16px;height:16px;"></span><span class="skeleton skel-line" style="width:65%;"></span></div>
+            <div class="skeleton skel-line lg" style="width:50%;margin-bottom:0.4rem;"></div>
+            <div class="skeleton skel-line sm" style="width:35%;"></div>
+            <div class="skeleton skel-line sm" style="width:50%;margin-top:0.85rem;"></div>
+        </div>
+        <div class="card place-card skel-place" aria-hidden="true">
+            <div class="pc-top"><span class="skeleton skel-circle" style="width:16px;height:16px;"></span><span class="skeleton skel-line" style="width:45%;"></span></div>
+            <div class="skeleton skel-line lg" style="width:40%;margin-bottom:0.4rem;"></div>
+            <div class="skeleton skel-line sm" style="width:35%;"></div>
+            <div class="skeleton skel-line sm" style="width:55%;margin-top:0.85rem;"></div>
+        </div>
+    </div>
     <div id="places-empty" class="card place-empty" style="display:none;">
         <div class="pe-emoji">📍</div>
         <p style="margin-top:0.75rem;font-weight:700;">no places yet</p>
@@ -415,6 +434,7 @@ async function loadPlaces() {
     if (window.setSnapshotUpdated) window.setSnapshotUpdated(data.computed_at);
     const grid = document.getElementById('places-grid');
     const empty = document.getElementById('places-empty');
+    grid.removeAttribute('aria-busy');
     if (!placesCache.length) {
         grid.innerHTML = '';
         empty.style.display = 'block';
@@ -716,16 +736,19 @@ function ensureDetailMap() {
 function closeDetail() { document.getElementById('detail-overlay').classList.remove('open'); }
 
 function setDetailLoading(loading, keepNotes) {
-    document.getElementById('detail-loading').style.display = loading ? 'flex' : 'none';
-    document.getElementById('detail-stats').style.display = loading ? 'none' : 'grid';
+    document.getElementById('detail-loading').style.display = 'none';
+    document.getElementById('detail-stats').style.display = 'grid';
     // When we already have the place geometry cached we render notes straight
-    // away, so only the stats/days spinner shows while the aggregate loads.
+    // away, so only the stats/days skeletons show while the aggregate loads.
     document.getElementById('detail-notes-wrap').style.display = (loading && !keepNotes) ? 'none' : 'block';
     document.querySelector('#detail-overlay .pl-actions').style.display = loading ? 'none' : 'flex';
     if (loading) {
         document.getElementById('detail-cities-wrap').style.display = 'none';
         document.getElementById('detail-days-wrap').style.display = 'none';
-        document.getElementById('detail-loading').innerHTML = '<span class="spinner"></span> loading…';
+        const lbls = ['points', 'days', 'time spent', 'first seen'];
+        document.getElementById('detail-stats').innerHTML = lbls.map(l =>
+            `<div class="pl-stat"><div class="pl-stat-num"><span class="skeleton skel-statval"></span></div><div class="pl-stat-lbl">${l}</div></div>`
+        ).join('');
     }
 }
 
@@ -778,7 +801,10 @@ async function openDetail(id) {
         const res = await fetch(`/api/places/${id}/`);
         d = await res.json();
     } catch (e) {
-        document.getElementById('detail-loading').innerHTML = 'failed to load — try again';
+        const dl = document.getElementById('detail-loading');
+        dl.style.display = 'flex';
+        dl.innerHTML = 'failed to load — try again';
+        document.getElementById('detail-stats').style.display = 'none';
         return;
     }
     if (detailId !== id) return;  // a different place was opened meanwhile

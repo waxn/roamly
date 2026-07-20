@@ -520,9 +520,7 @@
         </select>
     </div>
 
-    <div class="adv-cards-grid" id="trips-list">
-        <div class="adv-empty"><span class="spinner"></span> loading...</div>
-    </div>
+    <div class="adv-cards-grid" id="trips-list" aria-busy="true"></div>
 </div>
 
 <!-- FAB -->
@@ -942,11 +940,27 @@ function renderAdventureCards() {
     }).join('');
 }
 
+function advSkeletonCards(n) {
+    let out = '';
+    const w = [60, 45, 70, 50, 55, 40];
+    for (let i = 0; i < n; i++) {
+        out += `<div class="adv-card" aria-hidden="true" style="pointer-events:none;">
+            <div class="skeleton" style="width:100%;height:120px;border-radius:0;"></div>
+            <div class="adv-card-body">
+                <div class="skeleton skel-line lg" style="width:${w[i % w.length]}%;margin-bottom:0.55rem;"></div>
+                <div class="skeleton skel-line sm" style="width:35%;margin-bottom:0.7rem;"></div>
+                <div class="skeleton skel-line sm" style="width:55%;"></div>
+            </div>
+        </div>`;
+    }
+    return out;
+}
+
 function loadAdventures() {
-    document.getElementById('trips-list').innerHTML = '<div class="adv-empty"><span class="spinner"></span> loading...</div>';
+    document.getElementById('trips-list').innerHTML = advSkeletonCards(6);
     fetch('/api/trips/')
         .then(r => r.json())
-        .then(data => { allTrips = data.trips || []; renderAdventureCards(); })
+        .then(data => { document.getElementById('trips-list').removeAttribute('aria-busy'); allTrips = data.trips || []; renderAdventureCards(); })
         .catch(() => { document.getElementById('trips-list').innerHTML = '<div class="adv-empty" style="color:var(--danger)">Failed to load adventures.</div>'; });
 }
 
