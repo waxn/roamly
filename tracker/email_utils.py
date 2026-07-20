@@ -94,6 +94,38 @@ def _button(label, url):
     )
 
 
+def _stat_grid(rows):
+    """A responsive-ish 2-column grid of headline stat tiles.
+
+    ``rows`` is a list of ``(label, value)`` pairs — value is the big monospaced
+    figure (e.g. "412 km"), label the small caption (e.g. "Distance"). Both are
+    escaped. Built as a nested table so it survives email clients.
+    """
+    if not rows:
+        return ""
+    cells = []
+    for label, value in rows:
+        cells.append(
+            f'<td width="50%" style="padding:6px;" valign="top">'
+            f'<div style="background:{_BG};border:1px solid {_BORDER};border-radius:8px;padding:14px 16px;">'
+            f'<div style="font-family:{_MONO};font-size:24px;font-weight:bold;color:{_TEXT};line-height:1.1;">{escape(str(value))}</div>'
+            f'<div style="font-family:{_SANS};font-size:12px;color:{_MUTED};margin-top:4px;">{escape(str(label))}</div>'
+            f'</div></td>'
+        )
+    # Pair cells two-per-row; pad an odd trailing cell with an empty column.
+    row_html = []
+    for i in range(0, len(cells), 2):
+        pair = cells[i:i + 2]
+        if len(pair) == 1:
+            pair.append('<td width="50%" style="padding:6px;"></td>')
+        row_html.append('<tr>' + ''.join(pair) + '</tr>')
+    return (
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        'style="margin:8px 0 4px 0;border-collapse:separate;">'
+        + ''.join(row_html) + '</table>'
+    )
+
+
 def _send(subject, text_body, html_body, to_email):
     """Send one multipart email, swallowing errors (returns True on success).
 
@@ -150,6 +182,35 @@ def send_invite_email(to_email, trip_name, join_url, inviter_name=''):
                   _p('View the trip and join — you can log in or create a free account and add your own track.') +
                   _button('View &amp; join trip', join_url),
                   preheader=f'Join {trip_name} on Roamly')
+    return _send(subject, text, html, to_email)
+
+
+def send_summary_email(to_email, *, period_label, heading, narrative_paras,
+                       stat_rows, cta_label='', cta_url='', map_url=None):
+    """Send an AI-generated travel recap for a period.
+
+    ``period_label`` is a short phrase like "day", "week", "month", "year" (used
+    in the subject). ``heading`` is the card headline. ``narrative_paras`` is a
+    list of plain-text paragraphs from the LLM (escaped here). ``stat_rows`` is a
+    list of ``(label, value)`` headline stats rendered as tiles. ``map_url`` is
+    reserved for a future static-map image and currently unused.
+    """
+    subject = f'Your Roamly {period_label} recap'
+    paras = [p for p in (narrative_paras or []) if p and p.strip()]
+    body = ''.join(_p(escape(p.strip())) for p in paras)
+    body += _stat_grid(stat_rows)
+    if cta_label and cta_url:
+        body += _button(cta_label, cta_url)
+    preheader = paras[0][:120] if paras else f'Your Roamly {period_label} recap'
+    text_lines = [f'Your Roamly {period_label} recap', '']
+    text_lines += paras
+    if stat_rows:
+        text_lines.append('')
+        text_lines += [f'{label}: {value}' for label, value in stat_rows]
+    if cta_label and cta_url:
+        text_lines += ['', f'{cta_label}: {cta_url}']
+    text = '\n'.join(text_lines)
+    html = _shell(heading, body, preheader=preheader)
     return _send(subject, text, html, to_email)
 
 

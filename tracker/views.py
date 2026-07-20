@@ -621,6 +621,14 @@ def settings_view(request):
         'ai_system_prompt': profile.ai_system_prompt,
         'ai_allow_journals': profile.ai_allow_journals,
         'ai_api_key_set': bool(profile.ai_api_key),
+        # Summary emails — only usable when SMTP + AI Ask are both configured.
+        'summary_available': bool(email_enabled() and profile.ai_configured),
+        'email_enabled': email_enabled(),
+        'ai_configured': profile.ai_configured,
+        'summary_daily': profile.summary_daily,
+        'summary_weekly': profile.summary_weekly,
+        'summary_monthly': profile.summary_monthly,
+        'summary_yearly': profile.summary_yearly,
     }
     return render(request, 'tracker/settings.html', ctx)
 
@@ -687,6 +695,51 @@ def profile_ai_config_api(request):
         'ai_allow_journals', 'ai_api_key',
     ])
     return JsonResponse({'ok': True, 'configured': profile.ai_configured})
+
+
+@login_required
+def profile_summary_email_api(request):
+    """GET: the user's summary-email cadence flags + whether the feature is
+    available (SMTP + AI both configured). POST: save the four cadence toggles,
+    or (with ``test`` set) fire an immediate test send of one cadence. Mirrors
+    profile_ai_config_api. See tracker/summary_email_tasks.py."""
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    available = bool(email_enabled() and profile.ai_configured)
+
+    if request.method != 'POST':
+        return JsonResponse({
+            'available': available,
+            'email_enabled': email_enabled(),
+            'ai_configured': profile.ai_configured,
+            'summary_daily': profile.summary_daily,
+            'summary_weekly': profile.summary_weekly,
+            'summary_monthly': profile.summary_monthly,
+            'summary_yearly': profile.summary_yearly,
+        })
+
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+
+    # Test send: fire one cadence immediately (bypasses due-check, no cursor change).
+    test_period = data.get('test')
+    if test_period:
+        if not available:
+            return JsonResponse(
+                {'error': 'Summary emails need both SMTP and AI Ask configured.'}, status=400)
+        from .summary_email_tasks import send_summary_now
+        send_summary_now(request.user.id, str(test_period))
+        return JsonResponse({'ok': True, 'test': True})
+
+    profile.summary_daily = bool(data.get('summary_daily'))
+    profile.summary_weekly = bool(data.get('summary_weekly'))
+    profile.summary_monthly = bool(data.get('summary_monthly'))
+    profile.summary_yearly = bool(data.get('summary_yearly'))
+    profile.save(update_fields=[
+        'summary_daily', 'summary_weekly', 'summary_monthly', 'summary_yearly',
+    ])
+    return JsonResponse({'ok': True, 'available': available})
 
 
 @login_required

@@ -591,9 +591,28 @@ class UserProfile(models.Model):
     # email enabled explicitly sets it False until the emailed code is entered.
     email_verified = models.BooleanField(default=True)
 
+    # Opt-in AI-generated summary emails (see summary_email_tasks.py). Only sent
+    # when SMTP is configured (EMAIL_ENABLED) *and* the user's AI Ask provider is
+    # configured (ai_configured). Each flag is an independent cadence; the
+    # summary_last_* cursor records when that cadence was last delivered so the
+    # scheduler is restart-safe (no external cron, no duplicate sends).
+    summary_daily = models.BooleanField(default=False)
+    summary_weekly = models.BooleanField(default=False)
+    summary_monthly = models.BooleanField(default=False)
+    summary_yearly = models.BooleanField(default=False)
+    summary_last_daily = models.DateTimeField(null=True, blank=True)
+    summary_last_weekly = models.DateTimeField(null=True, blank=True)
+    summary_last_monthly = models.DateTimeField(null=True, blank=True)
+    summary_last_yearly = models.DateTimeField(null=True, blank=True)
+
     @property
     def ai_configured(self):
         return bool(self.ai_ask_enabled and self.ai_base_url and self.ai_api_key and self.ai_model)
+
+    @property
+    def summary_any(self):
+        return bool(self.summary_daily or self.summary_weekly
+                    or self.summary_monthly or self.summary_yearly)
 
     def __str__(self):
         return f"Profile: {self.user.username}"

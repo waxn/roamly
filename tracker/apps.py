@@ -24,3 +24,8 @@ class TrackerConfig(AppConfig):
                 start_mobile_release_scheduler()
             except Exception:
                 pass
+            try:
+                from .summary_email_tasks import start_summary_email_scheduler
+                start_summary_email_scheduler()
+            except Exception:
+                pass
