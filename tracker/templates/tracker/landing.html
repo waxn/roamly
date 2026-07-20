@@ -176,12 +176,95 @@
         .footer-links a{color:var(--text-dim);text-decoration:none;font-size:0.8rem;font-weight:700;transition:color 0.15s}
         .footer-links a:hover{color:var(--primary)}
 
+        /* ── eyebrow / section label ── */
+        .eyebrow{display:inline-flex;align-items:center;gap:0.55rem;font-family:var(--font-mono);font-size:0.68rem;font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:var(--text-dim);margin-bottom:1rem}
+        .eyebrow::before{content:'';width:1.7rem;height:1px;background:var(--primary)}
+        .eyebrow[data-accent="sky"]::before{background:var(--sky)}
+        .eyebrow[data-accent="amber"]::before{background:var(--amber)}
+
+        /* ── button microinteractions: the arrow leans into the click ── */
+        .btn .ar{display:inline-block;transition:transform 0.2s var(--ease-out)}
+        .btn:hover .ar{transform:translateX(3px)}
+        .btn-primary{transition:background 0.15s,color 0.15s,border-color 0.15s,transform 0.1s,box-shadow 0.25s var(--ease-out)}
+        .btn-primary:hover{box-shadow:0 8px 22px -8px rgba(232,118,61,0.6)}
+        .btn-outline:hover .ar,.btn-ghost:hover .ar{transform:translateX(3px)}
+
+        /* ── nav logo + tab microinteractions ── */
+        .nav-logo img{transition:transform 0.4s var(--ease-out)}
+        .nav-logo:hover img{transform:rotate(-8deg) scale(1.06)}
+        .tab-flag{transition:background 0.15s,color 0.15s,border-color 0.15s,transform 0.18s var(--ease-out)}
+        .tab-flag:hover{transform:translateY(-1px)}
+        .tab-flag[aria-selected="true"] .tab-flag-num{color:var(--flag)}
+
+        /* ── scroll reveal (connective motion; content never hidden without motion) ── */
+        @media (prefers-reduced-motion:no-preference){
+            .reveal{opacity:0;transform:translateY(16px);transition:opacity 0.6s var(--ease-out),transform 0.6s var(--ease-out)}
+            .reveal.in{opacity:1;transform:none}
+            .reveal[data-d="1"]{transition-delay:0.05s}
+            .reveal[data-d="2"]{transition-delay:0.12s}
+            .reveal[data-d="3"]{transition-delay:0.19s}
+            .reveal[data-d="4"]{transition-delay:0.26s}
+            .reveal[data-d="5"]{transition-delay:0.33s}
+            .reveal[data-d="6"]{transition-delay:0.4s}
+        }
+
+        /* ── hero specimen: the trail plots itself, then keeps logging ── */
+        .specimen-card{overflow:hidden}
+        .specimen-svg .trail{stroke-dasharray:640;stroke-dashoffset:640;animation:trailDraw 2.4s var(--ease-out) 0.45s forwards}
+        @keyframes trailDraw{to{stroke-dashoffset:0}}
+        .specimen-svg .wp{opacity:0;animation:wpDrop 0.5s var(--ease-out) forwards}
+        .specimen-svg .wp1{animation-delay:1s}
+        .specimen-svg .wp2{animation-delay:1.9s}
+        @keyframes wpDrop{from{opacity:0}to{opacity:1}}
+        .specimen-svg .rec-dot{animation:recBlink 1.4s steps(1,end) infinite}
+        @keyframes recBlink{0%,55%{opacity:1}56%,100%{opacity:0.12}}
+        .no-motion .specimen-svg .gps-live{display:none}
+        .no-motion .specimen-svg .trail{animation:none;stroke-dashoffset:0}
+        .no-motion .specimen-svg .wp{animation:none;opacity:1}
+
+        /* ── field notes: the depth band under the hero ── */
+        .field-notes{margin-top:clamp(2.5rem,6vw,4rem);border-top:1px solid var(--border);padding-top:clamp(1.75rem,4vw,2.5rem)}
+        .fn-head{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;margin-bottom:1.4rem;flex-wrap:wrap}
+        .fn-head h2{font-size:clamp(1.4rem,3vw,1.95rem);font-weight:800;letter-spacing:-0.02em}
+        .fn-meta{font-family:var(--font-mono);font-size:0.68rem;color:var(--text-dim);letter-spacing:0.08em}
+        .fn-grid{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--border)}
+        .fn-card{padding:1.6rem 1.4rem;border-right:1px solid var(--border);transition:background 0.25s var(--ease-out)}
+        .fn-card:last-child{border-right:none}
+        .fn-card:hover{background:var(--bg-card)}
+        .fn-num{font-family:var(--font-mono);font-size:0.7rem;font-weight:600;color:var(--primary);letter-spacing:0.1em}
+        .fn-card[data-accent="sky"] .fn-num{color:var(--sky)}
+        .fn-card[data-accent="amber"] .fn-num{color:var(--amber)}
+        .fn-card h3{font-size:1.05rem;font-weight:700;margin:0.75rem 0 0.5rem}
+        .fn-card p{color:var(--text-muted);font-size:0.86rem;line-height:1.62;font-weight:500}
+        .fn-card p code{font-family:var(--font-mono);font-size:0.8em;color:var(--text);background:var(--bg-input);padding:0.05rem 0.3rem;border:1px solid var(--border)}
+
+        /* ── capability card hover: a survey rule sweeps the top edge ── */
+        .cap-item{position:relative;transition:background 0.25s var(--ease-out)}
+        .cap-item::after{content:'';position:absolute;left:0;top:-1px;height:2px;width:0;background:var(--primary);transition:width 0.4s var(--ease-out)}
+        .cap-item:hover{background:var(--bg-card)}
+        .cap-item:hover::after{width:100%}
+        .cap-icon{transition:transform 0.3s var(--ease-out)}
+        .cap-item:hover .cap-icon{transform:translateY(-2px) scale(1.08)}
+        .cap-tag{transition:border-color 0.2s,color 0.2s}
+        .cap-item:hover .cap-tag{border-color:var(--border-strong);color:var(--text-muted)}
+
+        /* ── setup step: the leading number lights on hover ── */
+        .field-step{transition:background 0.25s var(--ease-out)}
+        .field-step:hover{background:var(--bg-card)}
+        .field-step::before{transition:color 0.2s,transform 0.25s var(--ease-out)}
+        .field-step:hover::before{transform:translateX(-2px)}
+        .cmd-block{transition:border-color 0.2s var(--ease-out)}
+        .cmd-block:hover{border-color:var(--border-strong)}
+
         @media (max-width:860px){
             .nav{grid-template-columns:1fr auto;grid-template-areas:"logo auth" "tabs tabs"}
             .tab-strip{justify-content:flex-start;padding-top:0.5rem;margin-top:0.5rem;border-top:1px solid var(--border)}
             .overview-grid{grid-template-columns:1fr}
             .cap-list{grid-template-columns:1fr}
             .cap-item:nth-child(odd){border-right:none}
+            .fn-grid{grid-template-columns:1fr}
+            .fn-card{border-right:none;border-bottom:1px solid var(--border)}
+            .fn-card:last-child{border-bottom:none}
         }
         @media (max-width:600px){
             .overview-copy h1{font-size:2.15rem}
@@ -215,10 +298,10 @@
 
         <div class="nav-auth">
             {% if user.is_authenticated %}
-                <a href="{% url 'tracker:map' %}" class="btn btn-primary">open app →</a>
+                <a href="{% url 'tracker:map' %}" class="btn btn-primary">open app <span class="ar">→</span></a>
             {% else %}
                 <a href="{% url 'tracker:login' %}" class="btn btn-ghost">login</a>
-                <a href="{% url 'tracker:signup' %}" class="btn btn-primary">get started →</a>
+                <a href="{% url 'tracker:signup' %}" class="btn btn-primary">get started <span class="ar">→</span></a>
             {% endif %}
         </div>
     </nav>
@@ -226,28 +309,36 @@
     <main>
         <!-- ═══ 01 OVERVIEW ═══ -->
         <section class="panel active" id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
-            <div class="panel-inner overview-grid">
+            <div class="panel-inner">
+              <div class="overview-grid">
                 <div class="overview-copy">
-                    <h1>Every mile you log<br>stays <em>yours.</em></h1>
-                    <p class="lede">A private GPS journal you run yourself — MapLibre heatmaps, adventure journals, dwell-time analytics, group Pals trips, a native Android app, and push from GPSLogger, OwnTracks, or anything that speaks HTTP.</p>
-                    <div class="cta-row">
-                        <a href="{% url 'tracker:signup' %}" class="btn btn-primary btn-lg">start tracking free →</a>
+                    <span class="eyebrow reveal" data-d="1">Self-hosted · Field Journal No. 01</span>
+                    <h1 class="reveal" data-d="2">Every mile you log<br>stays <em>yours.</em></h1>
+                    <p class="lede reveal" data-d="3">A private GPS journal you run yourself — MapLibre heatmaps, adventure journals, dwell-time analytics, group Pals trips, a native Android app, and push from GPSLogger, OwnTracks, or anything that speaks HTTP.</p>
+                    <div class="cta-row reveal" data-d="4">
+                        <a href="{% url 'tracker:signup' %}" class="btn btn-primary btn-lg">start tracking free <span class="ar">→</span></a>
                         {% if user.is_authenticated %}
                             <a href="{% url 'tracker:map' %}" class="btn btn-outline btn-lg">open your map</a>
                         {% else %}
                             <a href="{% url 'tracker:docs' %}" class="btn btn-outline btn-lg">read the docs</a>
                         {% endif %}
                     </div>
-                    <dl class="ledger-stats">
+                    <dl class="ledger-stats reveal" data-d="5">
                         <div class="ledger-stat"><dd data-count="{{ site_total_points }}">0</dd><dt>points logged</dt></div>
                         <div class="ledger-stat"><dd data-count="{{ site_total_cities }}">0</dd><dt>cities visited</dt></div>
                         <div class="ledger-stat"><dd data-meters="{{ site_total_meters }}">0</dd><dt data-distance-label>km tracked</dt></div>
                     </dl>
                 </div>
 
-                <div class="specimen-card" aria-hidden="true">
-                    <svg viewBox="0 0 380 260" role="img">
+                <div class="specimen-card reveal" data-d="2" aria-hidden="true">
+                    <svg viewBox="0 0 380 260" role="img" class="specimen-svg">
                         <rect width="380" height="260" fill="#14160f"/>
+                        <!-- graticule -->
+                        <g stroke="#232a1c" stroke-width="1">
+                            <line x1="0" y1="65" x2="380" y2="65"/><line x1="0" y1="130" x2="380" y2="130"/><line x1="0" y1="195" x2="380" y2="195"/>
+                            <line x1="95" y1="0" x2="95" y2="260"/><line x1="190" y1="0" x2="190" y2="260"/><line x1="285" y1="0" x2="285" y2="260"/>
+                        </g>
+                        <!-- contour lines -->
                         <g fill="none" stroke="#30352a" stroke-width="1">
                             <path d="M-10,60 C90,20 180,90 390,50"/>
                             <path d="M-10,150 C110,110 200,180 390,140"/>
@@ -255,10 +346,25 @@
                         </g>
                         <text x="16" y="22" font-family="IBM Plex Mono" font-size="9" letter-spacing="1.5" fill="#8f8d7a">FIELD LOG — LIVE</text>
                         <text x="364" y="22" text-anchor="end" font-family="IBM Plex Mono" font-size="9" fill="#8f8d7a">45.523°N 122.676°W</text>
-                        <path d="M40,210 Q100,90 170,140 T300,70" fill="none" stroke="#e8763d" stroke-width="2" stroke-dasharray="5 6" stroke-linecap="round"/>
-                        <polygon points="40,202 33,215 47,215" fill="#7f9b6d"/>
-                        <polygon points="170,132 163,145 177,145" fill="#d0694a"/>
-                        <polygon points="300,62 293,75 307,75" fill="#e8763d"/>
+                        <!-- REC indicator + running clock -->
+                        <circle class="rec-dot" cx="20" cy="37" r="3" fill="#d0694a"/>
+                        <text x="29" y="40" font-family="IBM Plex Mono" font-size="8.5" letter-spacing="0.5" fill="#a9a794">REC <tspan id="rec-clock" fill="#e9e5d8">00:00:00</tspan></text>
+                        <!-- the recorded track, plotted on load -->
+                        <path class="trail" d="M40,210 Q100,90 170,140 T300,70" fill="none" stroke="#e8763d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <!-- survey waypoints -->
+                        <polygon class="wp wp1" points="40,202 33,215 47,215" fill="#7f9b6d"/>
+                        <polygon class="wp wp2" points="170,132 163,145 177,145" fill="#d0694a"/>
+                        <!-- live logger dot tracing the route -->
+                        <circle class="gps-live" r="3.5" fill="#f2884e">
+                            <animateMotion dur="5.5s" begin="2.7s" repeatCount="indefinite" path="M40,210 Q100,90 170,140 T300,70"/>
+                        </circle>
+                        <!-- current position: pulsing beacon -->
+                        <circle class="gps-live" cx="300" cy="70" r="5" fill="none" stroke="#e8763d" stroke-width="1.5">
+                            <animate attributeName="r" values="5;17" dur="2.4s" begin="3s" repeatCount="indefinite"/>
+                            <animate attributeName="opacity" values="0.85;0" dur="2.4s" begin="3s" repeatCount="indefinite"/>
+                        </circle>
+                        <circle class="wp" cx="300" cy="70" r="3.5" fill="#e8763d" style="animation-delay:2.7s"/>
+                        <!-- scale bar -->
                         <g stroke="#8f8d7a" stroke-width="1">
                             <line x1="20" y1="238" x2="80" y2="238"/>
                             <line x1="20" y1="234" x2="20" y2="242"/>
@@ -267,17 +373,43 @@
                         <text x="20" y="252" font-family="IBM Plex Mono" font-size="8" fill="#8f8d7a">500 M</text>
                     </svg>
                 </div>
+              </div>
+
+              <section class="field-notes" aria-label="Field notes">
+                <div class="fn-head reveal">
+                    <h2>Field notes on ownership</h2>
+                    <span class="fn-meta">three principles, no asterisks</span>
+                </div>
+                <div class="fn-grid">
+                    <div class="fn-card reveal" data-d="1" data-accent="primary">
+                        <span class="fn-num">N. 01</span>
+                        <h3>It never phones home</h3>
+                        <p>Your points live in your Postgres, your Docker volume, your S3 bucket. There is no telemetry, no analytics beacon, no third party in the loop — the only server Roamly talks to is the one you started.</p>
+                    </div>
+                    <div class="fn-card reveal" data-d="2" data-accent="sky">
+                        <span class="fn-num">N. 02</span>
+                        <h3>Offline where it counts</h3>
+                        <p>US points reverse-geocode against bundled Census boundaries with point-in-polygon lookups — no Google, no per-point API call, no rate limit. A town resolves to the place that <em>contains</em> it, not the nearest guess.</p>
+                    </div>
+                    <div class="fn-card reveal" data-d="3" data-accent="amber">
+                        <span class="fn-num">N. 03</span>
+                        <h3>Built to run for years</h3>
+                        <p>Gated distance that ignores GPS jitter, nightly stat snapshots, Doze-proof capture on Android, idempotent backups. Boring in the way infrastructure should be — it just keeps logging.</p>
+                    </div>
+                </div>
+              </section>
             </div>
         </section>
 
         <!-- ═══ 02 CAPABILITIES ═══ -->
         <section class="panel" id="panel-capabilities" role="tabpanel" aria-labelledby="tab-capabilities" tabindex="0">
             <div class="panel-inner">
-                <h2 style="font-size:clamp(1.7rem,3.6vw,2.3rem);font-weight:800;margin-bottom:0.5rem;">Not another SaaS map widget</h2>
-                <p class="lede">Roamly is a full Django app you self-host — map, journals, adventures, pals, diagnostics, an AI you bring yourself, and a native Android client, all in one place.</p>
+                <span class="eyebrow reveal" data-accent="sky">02 — What's in the box</span>
+                <h2 class="reveal" data-d="1" style="font-size:clamp(1.7rem,3.6vw,2.3rem);font-weight:800;margin-bottom:0.5rem;">Not another SaaS map widget</h2>
+                <p class="lede reveal" data-d="2">Roamly is a full Django app you self-host — map, journals, adventures, pals, diagnostics, an AI you bring yourself, and a native Android client, all in one place.</p>
 
                 <div class="cap-list">
-                    <div class="cap-item">
+                    <div class="cap-item reveal">
                         <span class="cap-icon"><svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
                         <div>
                             <h3>Map</h3>
@@ -285,7 +417,7 @@
                             <div class="cap-tags"><span class="cap-tag">heatmap</span><span class="cap-tag">replay</span><span class="cap-tag">scratch map</span></div>
                         </div>
                     </div>
-                    <div class="cap-item">
+                    <div class="cap-item reveal">
                         <span class="cap-icon"><svg viewBox="0 0 24 24"><path d="M3 20l6-10 4 6 3-5 5 9H3z"/></svg></span>
                         <div>
                             <h3>Adventures</h3>
@@ -293,7 +425,7 @@
                             <div class="cap-tags"><span class="cap-tag">8 block types</span><span class="cap-tag">pin-gated sharing</span></div>
                         </div>
                     </div>
-                    <div class="cap-item">
+                    <div class="cap-item reveal">
                         <span class="cap-icon"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M4 20c0-3 2.4-5 5-5s5 2 5 5"/><circle cx="17" cy="9" r="2.5"/><path d="M14.3 20c0-2.5 1.9-4.4 4.2-4.7"/></svg></span>
                         <div>
                             <h3>Pals</h3>
@@ -301,7 +433,7 @@
                             <div class="cap-tags"><span class="cap-tag">per-member tracks</span><span class="cap-tag">shared timeline</span></div>
                         </div>
                     </div>
-                    <div class="cap-item">
+                    <div class="cap-item reveal">
                         <span class="cap-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18"/><path d="M3 9h18M9 21V9"/></svg></span>
                         <div>
                             <h3>Stats &amp; visits</h3>
@@ -309,7 +441,7 @@
                             <div class="cap-tags"><span class="cap-tag">gated distance</span><span class="cap-tag">dwell time</span></div>
                         </div>
                     </div>
-                    <div class="cap-item">
+                    <div class="cap-item reveal">
                         <span class="cap-icon"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="M20 20l-5.5-5.5"/></svg></span>
                         <div>
                             <h3>Search &amp; places</h3>
@@ -317,7 +449,7 @@
                             <div class="cap-tags"><span class="cap-tag">proximity search</span><span class="cap-tag">custom geofences</span></div>
                         </div>
                     </div>
-                    <div class="cap-item">
+                    <div class="cap-item reveal">
                         <span class="cap-icon"><svg viewBox="0 0 24 24"><path d="M12 6c-2-1.4-5-1.8-8-.9v13c3-.9 6-.5 8 .9 2-1.4 5-1.8 8-.9v-13c-3-.9-6-.5-8 .9z"/><path d="M12 6v13"/></svg></span>
                         <div>
                             <h3>Journals</h3>
@@ -325,7 +457,7 @@
                             <div class="cap-tags"><span class="cap-tag">streaks</span><span class="cap-tag">day track</span></div>
                         </div>
                     </div>
-                    <div class="cap-item">
+                    <div class="cap-item reveal">
                         <span class="cap-icon"><svg viewBox="0 0 24 24"><path d="M3 12h4l2 7 4-15 2 8h6"/></svg></span>
                         <div>
                             <h3>Diagnostics</h3>
@@ -333,7 +465,7 @@
                             <div class="cap-tags"><span class="cap-tag">quality review</span><span class="cap-tag">coverage timeline</span></div>
                         </div>
                     </div>
-                    <div class="cap-item">
+                    <div class="cap-item reveal">
                         <span class="cap-icon"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.5 8.5 0 01-8.5 8.5 8.4 8.4 0 01-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 01-.9-3.8A8.5 8.5 0 0112.5 3H13a8 8 0 018 8v.5z"/></svg></span>
                         <div>
                             <h3>AI Ask</h3>
@@ -341,7 +473,7 @@
                             <div class="cap-tags"><span class="cap-tag">bring your own LLM</span><span class="cap-tag">read-only</span></div>
                         </div>
                     </div>
-                    <div class="cap-item">
+                    <div class="cap-item reveal">
                         <span class="cap-icon"><svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20"/><path d="M11 18h2"/></svg></span>
                         <div>
                             <h3>Android app</h3>
@@ -349,7 +481,7 @@
                             <div class="cap-tags"><span class="cap-tag">survives doze</span><span class="cap-tag">offline-first</span></div>
                         </div>
                     </div>
-                    <div class="cap-item">
+                    <div class="cap-item reveal">
                         <span class="cap-icon"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="6"/><rect x="4" y="14" width="16" height="6"/><circle cx="7.5" cy="7" r="0.6" fill="currentColor" stroke="none"/><circle cx="7.5" cy="17" r="0.6" fill="currentColor" stroke="none"/></svg></span>
                         <div>
                             <h3>Your server</h3>
@@ -364,11 +496,12 @@
         <!-- ═══ 03 SETUP ═══ -->
         <section class="panel" id="panel-setup" role="tabpanel" aria-labelledby="tab-setup" tabindex="0">
             <div class="panel-inner">
-                <h2 style="font-size:clamp(1.7rem,3.6vw,2.3rem);font-weight:800;margin-bottom:0.5rem;">Live in about two minutes</h2>
-                <p class="lede">Docker Compose brings up the database, migrations, and web app. Create an API key, point GPSLogger at your instance, watch points appear.</p>
+                <span class="eyebrow reveal" data-accent="amber">03 — From zero to logging</span>
+                <h2 class="reveal" data-d="1" style="font-size:clamp(1.7rem,3.6vw,2.3rem);font-weight:800;margin-bottom:0.5rem;">Live in about two minutes</h2>
+                <p class="lede reveal" data-d="2">Docker Compose brings up the database, migrations, and web app. Create an API key, point GPSLogger at your instance, watch points appear.</p>
 
                 <ol class="field-steps">
-                    <li class="field-step">
+                    <li class="field-step reveal">
                         <h3>Grab &amp; start</h3>
                         <p>Pull the prebuilt <code>waxn/roamly</code> image. PostGIS and migrations run automatically.</p>
                         <div class="cmd-block">
@@ -380,11 +513,11 @@
                             <button type="button" class="copy-btn" data-copy-target="cmd-2">copy</button>
                         </div>
                     </li>
-                    <li class="field-step">
+                    <li class="field-step reveal">
                         <h3>Sign up &amp; API key</h3>
                         <p>Open your instance, create an account, then Settings → API Keys for your phone.</p>
                     </li>
-                    <li class="field-step">
+                    <li class="field-step reveal">
                         <h3>Push locations</h3>
                         <p>GPSLogger custom URL or OwnTracks → <code>/api/push/</code> with your key. Garmin/Strava exports work via CSV import too.</p>
                         <div class="cmd-block">
@@ -394,11 +527,11 @@
                             <button type="button" class="copy-btn" data-copy-target="cmd-3">copy</button>
                         </div>
                     </li>
-                    <li class="field-step">
+                    <li class="field-step reveal">
                         <h3>Explore</h3>
                         <p>Map your history, run geocoding, check visits dwell time, log an adventure, invite pals.</p>
                     </li>
-                    <li class="field-step">
+                    <li class="field-step reveal">
                         <h3>Staying current</h3>
                         <p>Updates are just a pull and restart — no git clone, no rebuild.</p>
                         <div class="cmd-block">
@@ -408,8 +541,8 @@
                     </li>
                 </ol>
 
-                <div style="margin-top:1.75rem;">
-                    <a href="{% url 'tracker:docs' %}" class="btn btn-outline">full setup guide →</a>
+                <div class="reveal" style="margin-top:1.75rem;">
+                    <a href="{% url 'tracker:docs' %}" class="btn btn-outline">full setup guide <span class="ar">→</span></a>
                 </div>
             </div>
         </section>
@@ -519,6 +652,44 @@
                 requestAnimationFrame(tick);
             }
             els.forEach(animate);
+        })();
+
+        // ── reduced-motion guard ──────────────────────────────
+        const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (REDUCED) document.body.classList.add('no-motion');
+
+        // ── scroll reveal ─────────────────────────────────────
+        // Elements start hidden (CSS, only when motion is allowed) and fade up
+        // as they cross into view. Grid/stack position gives a natural cascade.
+        (function () {
+            const items = document.querySelectorAll('.reveal');
+            const reveal = (el) => el.classList.add('in');
+            if (REDUCED || !('IntersectionObserver' in window)) {
+                items.forEach(reveal);
+                return;
+            }
+            const io = new IntersectionObserver((entries, obs) => {
+                entries.forEach((e) => {
+                    if (e.isIntersecting) { reveal(e.target); obs.unobserve(e.target); }
+                });
+            }, { threshold: 0.12, rootMargin: '0px 0px -6% 0px' });
+            items.forEach((el) => io.observe(el));
+            // Safety net: content must never stay invisible. If the observer
+            // never fires (background/prerendered tab, odd embeds), reveal
+            // everything after a grace period — worst case is no stagger.
+            setTimeout(() => items.forEach(reveal), 2600);
+        })();
+
+        // ── REC clock: the specimen keeps time like a real logger ──
+        (function () {
+            const el = document.getElementById('rec-clock');
+            if (!el) return;
+            const pad = (n) => String(n).padStart(2, '0');
+            let s = 0;
+            setInterval(() => {
+                s += 1;
+                el.textContent = pad((s / 3600) | 0) + ':' + pad(((s / 60) | 0) % 60) + ':' + pad(s % 60);
+            }, 1000);
         })();
 
         // ── service worker ────────────────────────────────────
