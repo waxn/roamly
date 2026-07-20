@@ -9,12 +9,41 @@ Emails are sent as multipart text + branded HTML (the HTML mirrors the site's
 """
 import logging
 import secrets
+from email.mime.image import MIMEImage
 
 from django.conf import settings
+from django.contrib.staticfiles import finders
 from django.core.mail import EmailMultiAlternatives
 from django.utils.html import escape
 
 logger = logging.getLogger(__name__)
+
+# Inline brand logo (the trail-blaze mark + "Roamly" in Fraunces) embedded via a
+# Content-ID reference so the real lockup renders instead of a plain-text word.
+_LOGO_CID = 'roamlylogo'
+_LOGO_STATIC = 'tracker/email/logo.png'
+# Display dimensions in the email (asset is rendered at 2x for retina).
+_LOGO_W, _LOGO_H = 152, 39
+_logo_bytes_cache = None  # None = not looked up yet; False = looked up, missing
+
+
+def _logo_bytes():
+    """The committed logo PNG bytes, or None if the asset can't be found.
+
+    Cached across sends. Reading fails soft — a missing asset just falls back to
+    the plain-text wordmark (the ``<img>`` alt), never breaks a send.
+    """
+    global _logo_bytes_cache
+    if _logo_bytes_cache is None:
+        _logo_bytes_cache = False
+        try:
+            path = finders.find(_LOGO_STATIC)
+            if path:
+                with open(path, 'rb') as fh:
+                    _logo_bytes_cache = fh.read()
+        except Exception as exc:  # noqa: BLE001 — asset is optional
+            logger.warning("Could not load email logo asset: %s", exc)
+    return _logo_bytes_cache or None
 
 # Brand palette (matches base.html :root dark theme).
 _BG = "#14160f"
@@ -51,9 +80,9 @@ def _shell(heading, body_html, preheader=""):
 {pre}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_BG};padding:32px 12px;">
   <tr><td align="center">
-    <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:{_CARD};border:1px solid {_BORDER};border-radius:12px;">
+    <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:{_CARD};border:1px solid {_BORDER};border-radius:0;">
       <tr><td style="padding:28px 32px 8px 32px;">
-        <div style="font-family:{_SERIF};font-size:24px;font-weight:bold;color:{_PRIMARY};letter-spacing:-0.01em;">Roamly</div>
+        <img src="cid:{_LOGO_CID}" width="{_LOGO_W}" height="{_LOGO_H}" alt="Roamly" style="display:block;border:0;outline:none;text-decoration:none;height:{_LOGO_H}px;width:{_LOGO_W}px;" />
       </td></tr>
       <tr><td style="padding:8px 32px 28px 32px;">
         <h1 style="margin:12px 0 16px 0;font-family:{_SERIF};font-size:22px;font-weight:bold;color:{_TEXT};">{escape(heading)}</h1>
@@ -77,7 +106,7 @@ def _p(text):
 def _code_box(code):
     return (
         f'<div style="margin:20px 0;padding:16px;background:{_BG};border:1px solid {_BORDER};'
-        f'border-radius:8px;text-align:center;font-family:{_MONO};font-size:30px;font-weight:bold;'
+        f'border-radius:0;text-align:center;font-family:{_MONO};font-size:30px;font-weight:bold;'
         f'letter-spacing:10px;color:{_TEXT};">{escape(code)}</div>'
     )
 
@@ -85,9 +114,9 @@ def _code_box(code):
 def _button(label, url):
     return (
         '<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:22px 0;">'
-        f'<tr><td align="center" bgcolor="{_PRIMARY}" style="border-radius:8px;">'
+        f'<tr><td align="center" bgcolor="{_PRIMARY}" style="border-radius:0;">'
         f'<a href="{escape(url)}" target="_blank" style="display:inline-block;padding:13px 28px;'
-        f'font-family:{_SANS};font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;">'
+        f'font-family:{_SANS};font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:0;">'
         f'{escape(label)}</a></td></tr></table>'
         f'<p style="margin:0 0 8px 0;font-family:{_SANS};font-size:12px;color:{_DIM};word-break:break-all;">'
         f'Or paste this link: {escape(url)}</p>'
@@ -107,7 +136,7 @@ def _stat_grid(rows):
     for label, value in rows:
         cells.append(
             f'<td width="50%" style="padding:6px;" valign="top">'
-            f'<div style="background:{_BG};border:1px solid {_BORDER};border-radius:8px;padding:14px 16px;">'
+            f'<div style="background:{_BG};border:1px solid {_BORDER};padding:14px 16px;">'
             f'<div style="font-family:{_MONO};font-size:24px;font-weight:bold;color:{_TEXT};line-height:1.1;">{escape(str(value))}</div>'
             f'<div style="font-family:{_SANS};font-size:12px;color:{_MUTED};margin-top:4px;">{escape(str(label))}</div>'
             f'</div></td>'
@@ -136,6 +165,16 @@ def _send(subject, text_body, html_body, to_email):
     try:
         msg = EmailMultiAlternatives(subject, text_body, settings.DEFAULT_FROM_EMAIL, [to_email])
         msg.attach_alternative(html_body, "text/html")
+        logo = _logo_bytes()
+        if logo:
+            # Embed the lockup as a related inline image the HTML references by CID.
+            # Promoting the container to multipart/related nests the text/html
+            # alternative + the image correctly for Gmail/Apple/Outlook.
+            img = MIMEImage(logo, _subtype='png')
+            img.add_header('Content-ID', f'<{_LOGO_CID}>')
+            img.add_header('Content-Disposition', 'inline', filename='roamly.png')
+            msg.attach(img)
+            msg.mixed_subtype = 'related'
         msg.send()
         return True
     except Exception as exc:  # noqa: BLE001 — deliberately broad; log and move on
