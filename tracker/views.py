@@ -1841,7 +1841,11 @@ def _compute_transport_breakdown_from_qs(qs):
             if len(g) > 1:
                 bucket['seconds'] += (g[-1]['timestamp'] - g[0]['timestamp']).total_seconds()
             pts = [(r['latitude'], r['longitude'], r['timestamp'], r['accuracy']) for r in g]
-            for _ts, km in _gated_distance_segments(pts):
+            # These runs are already classified *motion* (still/unclassified runs
+            # are skipped above), so start MOVING — otherwise each run would drop
+            # its leading ≤_DIST_EXIT_RADIUS_M and the per-mode totals would fall
+            # short of the headline whole-track distance.
+            for _ts, km in _gated_distance_segments(pts, initial_state='MOVING'):
                 bucket['km'] += km
 
     modes = [
@@ -2149,10 +2153,17 @@ def _haversine_km(lat1, lon1, lat2, lon2):
 # Summing the straight line between every consecutive fix turns a stationary
 # device that logs rapidly (e.g. GPSLogger at 1 fix/sec) into thousands of phantom
 # miles: each fix jitters by metres-to-tens-of-metres and that random walk piles
-# up. Two-stage defence: (1) resample to a short time-window *centroid* — averaging
-# N jittery fixes collapses their noise by ~√N, so a stationary cluster's centroids
-# barely move; (2) *anchor-gate* the centroids — only credit movement that clears
-# the GPS error bars, and don't let a stray fix walk the anchor off true position.
+# up. Three-stage defence: (1) resample to a short time-window *centroid* —
+# averaging N jittery fixes collapses their noise by ~√N, so a stationary
+# cluster's centroids barely move; (2) *anchor-gate* the centroids — only credit
+# movement that clears the GPS error bars, and don't let a stray fix walk the
+# anchor off true position; (3) a STATIONARY↔MOVING *dwell* state machine — a
+# parked phone whose position slowly wanders (and whose Doppler speed reads a
+# nonzero ~1-2 mph, indistinguishable from a real slow walk) still oscillates
+# around one centre. The gate alone can't catch that: each ~30-100 m drift hop
+# clears it and walks the anchor along, integrating to miles. So credit is only
+# released once the track *sustains* a departure well past a dwell radius (real
+# travel) and is suppressed while it merely wanders in place.
 _DIST_WINDOW_S = 30            # resample window: centroid of all fixes in each 30s bin
 _DIST_MIN_GATE_M = 25.0        # ignore moves below this even with a perfect fix
 _DIST_ACC_GATE_MULT = 2.5      # ...otherwise require 2.5× the (worse) reported accuracy
@@ -2160,6 +2171,13 @@ _DIST_DEFAULT_ACC_M = 15.0     # assumed accuracy when a fix reports none
 _DIST_MAX_ACCURACY_M = 100.0   # drop fixes less accurate than this from the distance stream
 _DIST_MAX_SPEED_MPS = 280.0    # ~1000 km/h: a faster segment is a GPS teleport, not travel
 _DIST_GAP_RESET_S = 7200       # >2h between fixes → separate trip, re-anchor
+# Dwell state machine (kills stationary-drift phantom miles without a speed filter):
+_DIST_DWELL_RADIUS_M = 50.0    # inner "home/settled" radius (hysteresis low)
+_DIST_EXIT_RADIUS_M = 150.0    # sustained net displacement to confirm a real departure (hysteresis high)
+_DIST_EXIT_ACC_MULT = 2.5      # exit bar for coarse fixes: max(150, 2.5× worst accuracy)
+_DIST_EXIT_CONFIRM_S = 60.0    # min continuous time outside dwell before an exit can confirm
+_DIST_SETTLE_S = 180.0         # continuous in-radius dwell to declare arrival → STATIONARY
+_DIST_DWELL_EMA_ALPHA = 0.2    # pull dwell/settle centre toward incoming centroids
 
 
 def _seg_distance_m(anchor, pt):
@@ -2187,28 +2205,104 @@ def _seg_distance_m(anchor, pt):
     return d_m, True       # real movement → count it and advance
 
 
-def _gated_distance_segments(points):
+def _gated_distance_segments(points, initial_state='STATIONARY'):
     """Yield ``(ts, km)`` for each credited travel segment of one device's track.
 
     `points` is a time-ordered iterable of ``(lat, lon, ts, accuracy)`` (``ts`` a
     datetime). Fixes are resampled to ``_DIST_WINDOW_S`` centroids to kill GPS
-    jitter, then gated by [_seg_distance_m]. ``ts`` of each yield is the window's
-    last fix time (for day/hour bucketing).
+    jitter, then run through a STATIONARY↔MOVING dwell machine so a parked phone
+    whose position slowly drifts credits ~0 while genuine travel counts in full.
+    ``ts`` of each yield is the window's last fix time (for day/hour bucketing).
+
+    While STATIONARY the ``anchor`` is the dwell centre: nothing is credited until
+    the track *sustains* a departure past ``_DIST_EXIT_RADIUS_M`` for
+    ``_DIST_EXIT_CONFIRM_S`` (then one straight-line ``anchor→exit`` is credited,
+    so an in-place wander that eventually leaves counts only the net departure).
+    While MOVING the anchor walks forward and each hop is credited via
+    [_seg_distance_m] exactly as before (so full travel paths and round-trip legs
+    are preserved), until the track settles within ``_DIST_DWELL_RADIUS_M`` for
+    ``_DIST_SETTLE_S`` and snaps back to STATIONARY.
+
+    `initial_state` lets callers that pre-split a track into already-classified
+    *motion* runs (``_compute_transport_breakdown_from_qs``) start in ``'MOVING'``
+    so each run credits from its first gated hop, keeping their totals in step with
+    the headline whole-track pass, which uses the ``'STATIONARY'`` default.
     """
-    anchor = None     # (lat, lon, epoch, acc)
-    win = None        # [win_id, sum_lat, sum_lon, sum_epoch, sum_acc, n, last_dt]
+    state = initial_state    # 'STATIONARY' | 'MOVING'
+    anchor = None            # (lat, lon, epoch, acc): dwell centre / last-credited pos
+    exc_since = None         # epoch the track first went continuously outside the dwell radius
+    settle_center = None     # (lat, lon) arrival candidate while MOVING
+    settle_since = None      # epoch that candidate began
+    win = None               # [win_id, sum_lat, sum_lon, sum_epoch, sum_acc, n, last_dt]
 
     def _finalize(w):
-        nonlocal anchor
+        nonlocal state, anchor, exc_since, settle_center, settle_since
         n = w[5]
         clat, clon, cep, cacc = w[1] / n, w[2] / n, w[3] / n, w[4] / n
         cdt = w[6]
         if anchor is None:
             anchor = (clat, clon, cep, cacc)
             return None
+
+        # Gap / out-of-order reset applies in either state: a >2h gap is a new trip.
+        dt = cep - anchor[2]
+        if dt <= 0 or dt > _DIST_GAP_RESET_S:
+            state = 'STATIONARY'
+            anchor = (clat, clon, cep, cacc)
+            exc_since = None
+            settle_center = None
+            settle_since = None
+            return None
+
+        worst_acc = max(anchor[3] or _DIST_DEFAULT_ACC_M, cacc or _DIST_DEFAULT_ACC_M)
+
+        if state == 'STATIONARY':
+            d = _haversine_km(anchor[0], anchor[1], clat, clon) * 1000.0
+            if d < _DIST_DWELL_RADIUS_M:
+                # Still inside the dwell neighbourhood: track the true centre so a
+                # skewed first fix or a slowly-repositioned phone stays centred.
+                a = _DIST_DWELL_EMA_ALPHA
+                anchor = (anchor[0] + a * (clat - anchor[0]),
+                          anchor[1] + a * (clon - anchor[1]),
+                          cep,
+                          anchor[3] + a * (cacc - anchor[3]))
+                exc_since = None
+                return None
+            # Outside the dwell neighbourhood — a candidate departure.
+            if exc_since is None:
+                exc_since = cep
+            rexit = max(_DIST_EXIT_RADIUS_M, _DIST_EXIT_ACC_MULT * worst_acc)
+            sustained = (cep - exc_since) >= _DIST_EXIT_CONFIRM_S
+            speed_ok = (d / dt) <= _DIST_MAX_SPEED_MPS
+            if d >= rexit and sustained and speed_ok:
+                # Confirmed real departure: credit the net move only, then travel.
+                anchor = (clat, clon, cep, cacc)
+                state = 'MOVING'
+                exc_since = None
+                settle_center = None
+                settle_since = None
+                return (cdt, d / 1000.0)
+            return None  # outside but unconfirmed → hold the anchor, credit nothing
+
+        # state == 'MOVING': credit each gated hop, and watch for arrival.
         credit_m, advance = _seg_distance_m(anchor, (clat, clon, cep, cacc))
         if advance:
             anchor = (clat, clon, cep, cacc)
+        if (settle_center is None or
+                _haversine_km(settle_center[0], settle_center[1], clat, clon) * 1000.0
+                >= _DIST_DWELL_RADIUS_M):
+            settle_center = (clat, clon)
+            settle_since = cep
+        else:
+            a = _DIST_DWELL_EMA_ALPHA
+            settle_center = (settle_center[0] + a * (clat - settle_center[0]),
+                             settle_center[1] + a * (clon - settle_center[1]))
+            if cep - settle_since >= _DIST_SETTLE_S:
+                state = 'STATIONARY'
+                anchor = (settle_center[0], settle_center[1], cep, cacc)
+                exc_since = None
+                settle_center = None
+                settle_since = None
         return (cdt, credit_m / 1000.0) if credit_m else None
 
     for lat, lon, ts, acc in points:
