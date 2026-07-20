@@ -20,6 +20,7 @@
     <div class="tab-bar" style="display:flex;gap:0.25rem;margin-bottom:1.5rem;flex-wrap:wrap;">
         <button class="btn btn-primary btn-sm tab-btn active" onclick="showTab('users',this)">Users</button>
         <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('custom-js',this)">Custom JS</button>
+        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('contact',this)">Contact</button>
     </div>
 
     <!-- ── Users tab ── -->
@@ -70,6 +71,23 @@
             </div>
         </div>
     </div>
+
+    <!-- ── Contact tab ── -->
+    <div id="tab-contact" style="display:none;">
+        <div class="card" style="transition:none;">
+            <div class="card-header">Contact Address</div>
+            <p class="settings-section-desc">
+                Shown as a <strong>contact</strong> link in the footer of the landing and settings pages. When SMTP email is configured, that link opens a contact form that emails this address (replies go to the sender); otherwise it's a plain <code>mailto:</code> link. Leave empty to hide the contact link entirely.
+            </p>
+            <input type="email" id="contact-email-input" class="form-control" maxlength="254"
+                placeholder="you@example.com" value="{{ site_contact_email }}"
+                style="max-width:360px;">
+            <div class="settings-actions" style="margin-top:0.75rem;">
+                <button class="btn btn-primary btn-sm" onclick="saveContactEmail()">Save</button>
+                <span id="contact-email-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -84,7 +102,7 @@
 {% block extra_js %}
 <script>
 // ── Tab switching ──────────────────────────────────────────────────────────
-const TABS = ['users','custom-js'];
+const TABS = ['users','custom-js','contact'];
 function showTab(name, btn) {
     TABS.forEach(t => {
         document.getElementById('tab-'+t).style.display = (t === name) ? '' : 'none';
@@ -171,6 +189,21 @@ async function saveCustomJs() {
         body: JSON.stringify({custom_js: val}),
     });
     st.textContent = r.ok ? 'Saved.' : 'Error saving.';
+    st.style.color = r.ok ? 'var(--success)' : 'var(--danger)';
+    setTimeout(()=>{ st.textContent=''; }, 3000);
+}
+
+// ── Contact address ─────────────────────────────────────────────────────────
+async function saveContactEmail() {
+    const val = document.getElementById('contact-email-input').value.trim();
+    const st = document.getElementById('contact-email-status');
+    st.textContent = 'Saving…'; st.style.color = 'var(--text-muted)';
+    const r = await fetch('/api/site/contact-email/', {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
+        body: JSON.stringify({contact_email: val}),
+    });
+    let d = {}; try { d = await r.json(); } catch(e) {}
+    st.textContent = r.ok ? 'Saved.' : (d.error || 'Error saving.');
     st.style.color = r.ok ? 'var(--success)' : 'var(--danger)';
     setTimeout(()=>{ st.textContent=''; }, 3000);
 }

@@ -39,7 +39,7 @@ from .models import (
     SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig, StatsSnapshot,
     DismissedSuggestion, PlannedStop, KnownDevice,
 )
-from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email
+from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email, send_contact_email
 from .image_utils import resize_image, resize_photo
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
 from .poi_tasks import start_poi_download, get_poi_status, stop_poi_download
@@ -653,6 +653,82 @@ def site_custom_js_api(request):
     config.custom_js = custom_js or ''
     config.save(update_fields=['custom_js', 'updated_at'])
     cache.delete(CUSTOM_JS_CACHE_KEY)
+    return JsonResponse({'ok': True})
+
+
+@login_required
+@require_POST
+def site_contact_email_api(request):
+    """Save the instance contact address (shown in footers). Admins only."""
+    from .context_processors import CONTACT_EMAIL_CACHE_KEY
+    from django.core.cache import cache
+    from django.core.validators import validate_email
+    from django.core.exceptions import ValidationError
+
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if not profile.is_admin:
+        return JsonResponse({'error': 'Admin access required.'}, status=403)
+
+    try:
+        contact_email = json.loads(request.body).get('contact_email', '')
+    except (json.JSONDecodeError, AttributeError):
+        contact_email = request.POST.get('contact_email', '')
+    contact_email = (contact_email or '').strip()
+    if contact_email:
+        try:
+            validate_email(contact_email)
+        except ValidationError:
+            return JsonResponse({'error': 'Enter a valid email address.'}, status=400)
+
+    config = SiteConfig.load()
+    config.contact_email = contact_email
+    config.save(update_fields=['contact_email', 'updated_at'])
+    cache.delete(CONTACT_EMAIL_CACHE_KEY)
+    return JsonResponse({'ok': True, 'contact_email': contact_email})
+
+
+@csrf_exempt
+def contact_api(request):
+    """Public contact form → email the instance contact address.
+
+    Unauthenticated (the landing page is public). CSRF-exempt: the landing page
+    is cached per-anonymous-visitor so an embedded token would mismatch, and a
+    forged submission only mails the admin — no victim-side state changes. A
+    filled ``website`` honeypot field is silently accepted as spam (returns ok
+    without sending) so bots get no signal. Requires SMTP + a contact address.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed.'}, status=405)
+
+    from .context_processors import get_contact_email
+    contact_to = get_contact_email()
+    if not (email_enabled() and contact_to):
+        return JsonResponse({'error': 'Contact form is unavailable.'}, status=400)
+
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, AttributeError):
+        payload = request.POST
+
+    # Honeypot — a real user never fills this hidden field.
+    if (payload.get('website') or '').strip():
+        return JsonResponse({'ok': True})
+
+    name = (payload.get('name') or '').strip()[:120]
+    sender_email = (payload.get('email') or '').strip()[:254]
+    message = (payload.get('message') or '').strip()[:5000]
+    if not sender_email or not message:
+        return JsonResponse({'error': 'Email and message are required.'}, status=400)
+    from django.core.validators import validate_email
+    from django.core.exceptions import ValidationError
+    try:
+        validate_email(sender_email)
+    except ValidationError:
+        return JsonResponse({'error': 'Enter a valid email address.'}, status=400)
+
+    sent = send_contact_email(contact_to, name, sender_email, message)
+    if not sent:
+        return JsonResponse({'error': 'Could not send message. Try again later.'}, status=500)
     return JsonResponse({'ok': True})
 
 
@@ -7908,6 +7984,7 @@ def admin_panel_view(request):
     site_config = SiteConfig.load()
     return render(request, 'tracker/admin_panel.html', {
         'site_custom_js': site_config.custom_js,
+        'site_contact_email': site_config.contact_email,
     })
 
 

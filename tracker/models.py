@@ -644,6 +644,9 @@ class SiteConfig(models.Model):
     # snippets as-is, *including* their <script> tags (so e.g. GoatCounter's
     # <script src> tag works). Replaces the old CUSTOM_JS_SNIPPET env var.
     custom_js = models.TextField(blank=True, default='')
+    # Instance contact address shown in page footers + used as the destination
+    # for the public contact form. Blank hides the contact link entirely.
+    contact_email = models.EmailField(blank=True, default='')
     updated_at = models.DateTimeField(auto_now=True)
 
     @classmethod

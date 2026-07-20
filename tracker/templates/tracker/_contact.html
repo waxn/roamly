@@ -1,0 +1,99 @@
+{% comment %}
+Reusable contact modal + form. Included on the landing and settings pages.
+Renders only when a contact address is set AND SMTP is configured (so the form
+can actually deliver). When SMTP is off, the including template shows a plain
+mailto: link instead and never includes this. Uses shared CSS vars present in
+both base.html and landing.html, square-cornered to match the sharp UI.
+{% endcomment %}
+{% if CONTACT_EMAIL and EMAIL_ENABLED %}
+<div class="rly-contact-overlay" id="rlyContactOverlay" aria-hidden="true">
+  <div class="rly-contact-modal" role="dialog" aria-modal="true" aria-labelledby="rlyContactTitle">
+    <button type="button" class="rly-contact-close" onclick="closeContactForm()" aria-label="Close">&times;</button>
+    <h2 class="rly-contact-title" id="rlyContactTitle">Contact</h2>
+    <p class="rly-contact-sub">Send a message — we'll reply to the address you give.</p>
+    <form id="rlyContactForm" onsubmit="return submitContactForm(event)">
+      <label class="rly-contact-label" for="rlyContactName">Name <span class="rly-contact-opt">(optional)</span></label>
+      <input class="rly-contact-input" type="text" id="rlyContactName" name="name" autocomplete="name" maxlength="120">
+      <label class="rly-contact-label" for="rlyContactEmail">Your email</label>
+      <input class="rly-contact-input" type="email" id="rlyContactEmail" name="email" autocomplete="email" maxlength="254" required>
+      <label class="rly-contact-label" for="rlyContactMessage">Message</label>
+      <textarea class="rly-contact-input rly-contact-textarea" id="rlyContactMessage" name="message" rows="5" maxlength="5000" required></textarea>
+      <input type="text" name="website" tabindex="-1" autocomplete="off" class="rly-contact-hp" aria-hidden="true">
+      <div class="rly-contact-actions">
+        <span class="rly-contact-status" id="rlyContactStatus" role="status"></span>
+        <button type="submit" class="rly-contact-submit" id="rlyContactSubmit">Send message</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<style>
+  .rly-contact-overlay{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;padding:1.25rem;background:rgba(0,0,0,0.6);}
+  .rly-contact-overlay.open{display:flex;}
+  .rly-contact-modal{position:relative;width:100%;max-width:440px;background:var(--bg-card);border:1px solid var(--border);padding:1.75rem;font-family:var(--font-body);max-height:90vh;overflow-y:auto;}
+  .rly-contact-close{position:absolute;top:0.75rem;right:0.9rem;background:none;border:none;color:var(--text-muted);font-size:1.6rem;line-height:1;cursor:pointer;padding:0.15rem 0.35rem;}
+  .rly-contact-close:hover{color:var(--text);}
+  .rly-contact-title{margin:0 0 0.35rem;font-family:var(--font-display);font-size:1.4rem;color:var(--text);font-weight:700;}
+  .rly-contact-sub{margin:0 0 1.1rem;font-size:0.85rem;color:var(--text-muted);line-height:1.5;}
+  .rly-contact-label{display:block;font-size:0.78rem;font-weight:600;color:var(--text-dim);margin:0.85rem 0 0.35rem;}
+  .rly-contact-opt{font-weight:400;color:var(--text-muted);}
+  .rly-contact-input{width:100%;box-sizing:border-box;background:var(--bg-input);border:1px solid var(--border);color:var(--text);font-family:var(--font-body);font-size:0.9rem;padding:0.6rem 0.7rem;border-radius:0;}
+  .rly-contact-input:focus{outline:none;border-color:var(--primary);}
+  .rly-contact-textarea{resize:vertical;min-height:110px;}
+  .rly-contact-hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0;}
+  .rly-contact-actions{display:flex;align-items:center;justify-content:flex-end;gap:0.9rem;margin-top:1.1rem;}
+  .rly-contact-status{flex:1;font-size:0.82rem;color:var(--text-muted);}
+  .rly-contact-status.err{color:var(--flag,#e8763d);}
+  .rly-contact-status.ok{color:var(--success,#7aa06a);}
+  .rly-contact-submit{background:var(--primary);border:1px solid var(--primary);color:#fff;font-family:var(--font-body);font-size:0.88rem;font-weight:600;padding:0.6rem 1.1rem;border-radius:0;cursor:pointer;}
+  .rly-contact-submit:hover{background:var(--primary-hover);}
+  .rly-contact-submit:disabled{opacity:0.6;cursor:default;}
+</style>
+
+<script>
+  function openContactForm(){
+    var o=document.getElementById('rlyContactOverlay');
+    if(!o)return;
+    o.classList.add('open');o.setAttribute('aria-hidden','false');
+    var e=document.getElementById('rlyContactEmail');if(e)setTimeout(function(){e.focus();},30);
+  }
+  function closeContactForm(){
+    var o=document.getElementById('rlyContactOverlay');
+    if(!o)return;
+    o.classList.remove('open');o.setAttribute('aria-hidden','true');
+  }
+  (function(){
+    var o=document.getElementById('rlyContactOverlay');
+    if(!o)return;
+    o.addEventListener('click',function(ev){if(ev.target===o)closeContactForm();});
+    document.addEventListener('keydown',function(ev){if(ev.key==='Escape'&&o.classList.contains('open'))closeContactForm();});
+  })();
+  function submitContactForm(ev){
+    ev.preventDefault();
+    var st=document.getElementById('rlyContactStatus');
+    var btn=document.getElementById('rlyContactSubmit');
+    var payload={
+      name:document.getElementById('rlyContactName').value,
+      email:document.getElementById('rlyContactEmail').value,
+      message:document.getElementById('rlyContactMessage').value,
+      website:document.querySelector('#rlyContactForm [name=website]').value
+    };
+    st.className='rly-contact-status';st.textContent='Sending…';
+    btn.disabled=true;
+    fetch('/api/contact/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+      .then(function(r){return r.json().then(function(d){return {ok:r.ok,d:d};});})
+      .then(function(res){
+        if(res.ok&&res.d.ok){
+          st.className='rly-contact-status ok';st.textContent='Message sent — thanks!';
+          document.getElementById('rlyContactForm').reset();
+          setTimeout(closeContactForm,1400);
+        }else{
+          st.className='rly-contact-status err';st.textContent=(res.d&&res.d.error)||'Could not send. Try again.';
+        }
+      })
+      .catch(function(){st.className='rly-contact-status err';st.textContent='Could not send. Try again.';})
+      .finally(function(){btn.disabled=false;});
+    return false;
+  }
+</script>
+{% endif %}

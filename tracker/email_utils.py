@@ -155,15 +155,19 @@ def _stat_grid(rows):
     )
 
 
-def _send(subject, text_body, html_body, to_email):
+def _send(subject, text_body, html_body, to_email, reply_to=None):
     """Send one multipart email, swallowing errors (returns True on success).
 
-    Never raises — a mail outage must not 500 a signup/login request.
+    Never raises — a mail outage must not 500 a signup/login request. ``reply_to``
+    (a single address) is used by the contact form so a reply reaches the sender.
     """
     if not email_enabled() or not to_email:
         return False
     try:
-        msg = EmailMultiAlternatives(subject, text_body, settings.DEFAULT_FROM_EMAIL, [to_email])
+        msg = EmailMultiAlternatives(
+            subject, text_body, settings.DEFAULT_FROM_EMAIL, [to_email],
+            reply_to=[reply_to] if reply_to else None,
+        )
         msg.attach_alternative(html_body, "text/html")
         logo = _logo_bytes()
         if logo:
@@ -271,3 +275,30 @@ def send_password_reset_email(to_email, reset_url, username=''):
                   _p('If you didn\'t ask for this, ignore this email — your password won\'t change.'),
                   preheader='Reset your Roamly password')
     return _send(subject, text, html, to_email)
+
+
+def send_contact_email(to_email, sender_name, sender_email, message):
+    """Deliver a public contact-form submission to the instance contact address.
+
+    Sent from ``DEFAULT_FROM_EMAIL`` (the instance's own address) with the
+    sender's address as Reply-To, so hitting reply answers the person who wrote
+    in. Returns True on success.
+    """
+    name = (sender_name or '').strip() or 'Someone'
+    subject = f'Roamly contact: {name}'
+    text = (
+        f"New message from the Roamly contact form.\n\n"
+        f"From: {name} <{sender_email}>\n\n"
+        f"{message}"
+    )
+    body_html = (
+        _p(f'New message from the Roamly contact form.') +
+        _p(f'<b style="color:{_TEXT};">From:</b> {escape(name)} '
+           f'&lt;{escape(sender_email)}&gt;') +
+        f'<div style="margin:16px 0;padding:16px;background:{_BG};border:1px solid {_BORDER};'
+        f'font-family:{_SANS};font-size:15px;line-height:1.6;color:{_TEXT};white-space:pre-wrap;">'
+        f'{escape(message)}</div>'
+    )
+    html = _shell('New contact message', body_html,
+                  preheader=f'From {name}')
+    return _send(subject, text, html, to_email, reply_to=sender_email or None)

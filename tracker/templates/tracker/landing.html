@@ -555,8 +555,14 @@
             <a href="{% url 'tracker:docs' %}">docs</a>
             <a href="{% url 'tracker:terms' %}">terms</a>
             <a href="{% url 'tracker:privacy' %}">privacy</a>
+            {% if CONTACT_EMAIL %}
+            {% if EMAIL_ENABLED %}<a href="#" onclick="openContactForm();return false;">contact</a>
+            {% else %}<a href="mailto:{{ CONTACT_EMAIL }}">contact</a>{% endif %}
+            {% endif %}
         </div>
     </footer>
+
+    {% include 'tracker/_contact.html' %}
 
     <script>
         // ── nav scroll shadow ──────────────────────────────────
