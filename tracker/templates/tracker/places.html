@@ -715,10 +715,12 @@ function ensureDetailMap() {
 }
 function closeDetail() { document.getElementById('detail-overlay').classList.remove('open'); }
 
-function setDetailLoading(loading) {
+function setDetailLoading(loading, keepNotes) {
     document.getElementById('detail-loading').style.display = loading ? 'flex' : 'none';
     document.getElementById('detail-stats').style.display = loading ? 'none' : 'grid';
-    document.getElementById('detail-notes-wrap').style.display = loading ? 'none' : 'block';
+    // When we already have the place geometry cached we render notes straight
+    // away, so only the stats/days spinner shows while the aggregate loads.
+    document.getElementById('detail-notes-wrap').style.display = (loading && !keepNotes) ? 'none' : 'block';
     document.querySelector('#detail-overlay .pl-actions').style.display = loading ? 'none' : 'flex';
     if (loading) {
         document.getElementById('detail-cities-wrap').style.display = 'none';
@@ -752,15 +754,24 @@ async function saveNotes(id, notes, status) {
 
 async function openDetail(id) {
     detailId = id;
+    const token = ++detailPtsToken;
+    detailPtsFeatures = [];
     document.getElementById('detail-overlay').classList.add('open');
     ensureDetailMap();
     detailMap.resize();
 
-    // Immediate feedback: show the name we already know + a loading state,
-    // clearing any stale content from the previously-opened place.
+    // Immediate feedback: everything we can show without hitting the server —
+    // name, the circle + map zoom, and the (autosaving) notes — all come from
+    // the place geometry we already cached, so they paint instantly. Only the
+    // aggregate stats/days/cities wait on the fetch.
     const known = placesCache.find(p => p.id === id);
     document.getElementById('detail-title').textContent = known ? known.name : 'place';
-    setDetailLoading(true);
+    if (known) {
+        drawDetailCircle(known);
+        setupDetailNotes(known);
+        streamDetailPoints(id, token);
+    }
+    setDetailLoading(true, !!known);
 
     let d;
     try {
@@ -774,8 +785,13 @@ async function openDetail(id) {
     setDetailLoading(false);
     document.getElementById('detail-title').textContent = d.name;
 
-    // Notes (autosaving)
-    setupDetailNotes(d);
+    // Fallback: no cached geometry (shouldn't normally happen) — draw + stream
+    // from the fetched detail instead.
+    if (!known) {
+        drawDetailCircle(d);
+        setupDetailNotes(d);
+        streamDetailPoints(id, token);
+    }
 
     timeSpentRaw = false;
     document.getElementById('detail-stats').innerHTML = `
@@ -821,31 +837,78 @@ async function openDetail(id) {
         openEdit({ id: d.id, name: d.name, lat: d.lat, lng: d.lng, radius_m: d.radius_m });
     };
     document.getElementById('detail-delete').onclick = () => deletePlace(d.id, d.name);
+}
 
-    // Draw circle + sample points
-    const draw = () => {
-        for (const id of ['d-circle-fill', 'd-circle-line', 'd-points']) {
-            if (detailMap.getLayer(id)) detailMap.removeLayer(id);
+// Points streamed onto the detail map. `detailPtsToken` bumps on every open so
+// a still-running stream from a previously-opened place cancels itself instead
+// of painting into the current one.
+let detailPtsToken = 0;
+let detailPtsFeatures = [];
+
+// Draw the geofence circle, zoom to it, and prime an (initially empty) point
+// layer that streamDetailPoints fills in. `g` needs lat/lng/radius_m/color.
+function drawDetailCircle(g) {
+    const run = () => {
+        for (const lid of ['d-circle-fill', 'd-circle-line', 'd-points']) {
+            if (detailMap.getLayer(lid)) detailMap.removeLayer(lid);
         }
-        for (const id of ['d-circle', 'd-points-src']) {
-            if (detailMap.getSource(id)) detailMap.removeSource(id);
+        for (const sid of ['d-circle', 'd-points-src']) {
+            if (detailMap.getSource(sid)) detailMap.removeSource(sid);
         }
-        detailMap.addSource('d-circle', { type: 'geojson', data: circleGeoJSON(d.lat, d.lng, d.radius_m) });
+        detailMap.addSource('d-circle', { type: 'geojson', data: circleGeoJSON(g.lat, g.lng, g.radius_m) });
         detailMap.addLayer({ id: 'd-circle-fill', type: 'fill', source: 'd-circle',
-            paint: { 'fill-color': d.color, 'fill-opacity': 0.15 } });
+            paint: { 'fill-color': g.color, 'fill-opacity': 0.15 } });
         detailMap.addLayer({ id: 'd-circle-line', type: 'line', source: 'd-circle',
-            paint: { 'line-color': d.color, 'line-width': 2 } });
-        const pts = (d.sample || []).map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: {} }));
-        detailMap.addSource('d-points-src', { type: 'geojson', data: { type: 'FeatureCollection', features: pts } });
+            paint: { 'line-color': g.color, 'line-width': 2 } });
+        detailMap.addSource('d-points-src', { type: 'geojson',
+            data: { type: 'FeatureCollection', features: detailPtsFeatures } });
         detailMap.addLayer({ id: 'd-points', type: 'circle', source: 'd-points-src',
-            paint: { 'circle-radius': 3, 'circle-color': d.color, 'circle-opacity': 0.6 } });
+            paint: { 'circle-radius': 3, 'circle-color': g.color, 'circle-opacity': 0.6 } });
         // Fit to the circle bbox
-        const latR = d.radius_m / 111320.0;
-        const lngR = d.radius_m / (111320.0 * Math.cos(d.lat * Math.PI / 180));
-        detailMap.fitBounds([[d.lng - lngR, d.lat - latR], [d.lng + lngR, d.lat + latR]], { padding: 40, duration: 0 });
+        const latR = g.radius_m / 111320.0;
+        const lngR = g.radius_m / (111320.0 * Math.cos(g.lat * Math.PI / 180));
+        detailMap.fitBounds([[g.lng - lngR, g.lat - latR], [g.lng + lngR, g.lat + latR]], { padding: 40, duration: 0 });
     };
-    if (detailMap.isStyleLoaded()) draw(); else detailMap.once('load', draw);
+    if (detailMap.isStyleLoaded()) run(); else detailMap.once('load', run);
     setTimeout(() => detailMap.resize(), 60);
+}
+
+// Progressively read the newline-delimited point stream and repaint the layer
+// as each chunk lands, so a big place fills in gradually rather than blocking.
+async function streamDetailPoints(id, token) {
+    const repaint = () => {
+        const src = detailMap.getSource('d-points-src');
+        if (src) src.setData({ type: 'FeatureCollection', features: detailPtsFeatures });
+    };
+    try {
+        const res = await fetch(`/api/places/${id}/points/`);
+        if (!res.ok || !res.body) return;
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = '';
+        const drain = () => {
+            let nl;
+            while ((nl = buf.indexOf('\n')) >= 0) {
+                const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+                if (!line.trim()) continue;
+                let coords;
+                try { coords = JSON.parse(line); } catch (e) { continue; }
+                for (const c of coords) detailPtsFeatures.push(
+                    { type: 'Feature', geometry: { type: 'Point', coordinates: c }, properties: {} });
+            }
+        };
+        while (true) {
+            const { done, value } = await reader.read();
+            if (token !== detailPtsToken) { reader.cancel(); return; }  // another place opened
+            if (done) break;
+            buf += dec.decode(value, { stream: true });
+            drain();
+            repaint();
+        }
+        buf += dec.decode();
+        drain();
+        repaint();
+    } catch (e) { /* stream failed — circle + stats are still shown */ }
 }
 
 async function deletePlace(id, name) {

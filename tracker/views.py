@@ -6104,28 +6104,41 @@ def place_detail_api(request, place_id):
 
 
 def _compute_place_detail(user, place):
-    """Full stats for one custom place: points, days, time spent, cities, sample track.
+    """Stats for one custom place: points, days, time spent, cities.
 
-    Single DB pass: the inside-points are fetched once (ordered by time) and
-    counts / first-last / per-day dwell / cities / map sample are all derived in
-    Python. The previous version ran ~4 separate full scans of the geofence,
-    which made big places (tens of thousands of points) slow to open. Shared by
-    the place_detail_api view and the AI `get_custom_place_detail` tool."""
+    Deliberately lightweight so the detail modal pops open fast even for a place
+    that holds hundreds of thousands of points. Cities come from a DB `GROUP BY`
+    (only the top handful transfer), and the per-day counts + dwell time from a
+    **timestamps-only** ordered scan — one narrow column, no lat/lon/city rows.
+    The map's point sample is no longer built here: it streams separately from
+    `place_points_api`, off the modal's critical path. Shared by the
+    `place_detail_api` view and the AI `get_custom_place_detail` tool."""
     base = Location.objects.filter(device__user=user)
     nearby = _find_nearby_locations(base, place.latitude, place.longitude, place.radius_m)
 
-    rows = list(
-        nearby.order_by('timestamp')
-        .values_list('timestamp', 'latitude', 'longitude', 'city', 'state')
-        .iterator(chunk_size=10000)
-    )
-    total = len(rows)
+    # Cities: aggregate in the DB — only the top 12 rows come back, no Python
+    # pass over every inside point.
+    cities = [
+        {'city': r['city'], 'state': r['state'] or '', 'count': r['n']}
+        for r in (
+            nearby.exclude(city='')
+            .values('city', 'state')
+            .annotate(n=Count('id'))
+            .order_by('-n')[:12]
+        )
+    ]
 
+    # Per-day counts + dwell from a single timestamps-only scan.
     by_day = {}
-    city_counter = Counter()
+    total = 0
     total_dwell = 0
+    first_ts = last_ts = None
     prev_ts = None
-    for ts, lat, lon, city, state in rows:
+    for (ts,) in nearby.order_by('timestamp').values_list('timestamp').iterator(chunk_size=10000):
+        total += 1
+        if first_ts is None:
+            first_ts = ts
+        last_ts = ts
         d = ts.date().isoformat()
         day = by_day.get(d)
         if day is None:
@@ -6142,30 +6155,61 @@ def _compute_place_detail(user, place):
             if 0 < g <= 600:
                 total_dwell += int(g)
         prev_ts = ts
-        if city:
-            city_counter[(city, state or '')] += 1
 
     days = sorted(
         ({'date': v['date'], 'count': v['count'], 'time_spent': v['time_spent']} for v in by_day.values()),
         key=lambda x: x['date'], reverse=True,
     )[:100]
-    cities = [{'city': c, 'state': s, 'count': n} for (c, s), n in city_counter.most_common(12)]
-
-    # Decimated sample of inside-points to draw on the detail map (cap ~2000).
-    stride = max(1, total // 2000)
-    sample = [{'lat': _jf(rows[i][1]), 'lng': _jf(rows[i][2])} for i in range(0, total, stride)]
 
     data = _serialize_place(place)
     data.update({
         'point_count': total,
-        'first_seen': rows[0][0].isoformat() if rows else None,
-        'last_seen': rows[-1][0].isoformat() if rows else None,
+        'first_seen': first_ts.isoformat() if first_ts else None,
+        'last_seen': last_ts.isoformat() if last_ts else None,
         'time_spent': total_dwell,
         'days': days,
         'cities': cities,
-        'sample': sample,
     })
     return data
+
+
+@login_required
+def place_points_api(request, place_id):
+    """Stream the detail map's decimated point sample as newline-delimited JSON.
+
+    A big place can hold hundreds of thousands of inside points; building the
+    whole sample before responding is what used to make the modal's map lag. So
+    this does one ordered scan, decimates to ~3000 points (stride from the total
+    count), and yields them in small chunks as they're read — the client paints
+    each chunk onto the map as it arrives, so points fill in progressively
+    instead of appearing all at once after a long wait."""
+    place = get_object_or_404(CustomPlace, id=place_id, user=request.user)
+    base = Location.objects.filter(device__user=request.user)
+    nearby = _find_nearby_locations(base, place.latitude, place.longitude, place.radius_m)
+
+    total = nearby.count()
+    stride = max(1, total // 3000)
+
+    def gen():
+        chunk = []
+        for i, (lat, lon) in enumerate(
+            nearby.order_by('timestamp')
+            .values_list('latitude', 'longitude')
+            .iterator(chunk_size=10000)
+        ):
+            if i % stride:
+                continue
+            chunk.append([_jf(lon), _jf(lat)])
+            if len(chunk) >= 400:
+                yield json.dumps(chunk) + '\n'
+                chunk = []
+        if chunk:
+            yield json.dumps(chunk) + '\n'
+
+    resp = StreamingHttpResponse(gen(), content_type='application/x-ndjson')
+    resp['Cache-Control'] = 'no-store'
+    resp['X-Accel-Buffering'] = 'no'  # let chunks flush past nginx buffering
+    return resp
 
 
 @login_required

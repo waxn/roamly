@@ -78,6 +78,7 @@ urlpatterns = [
     path('api/places/suggestions/', views.place_suggestions_api, name='place_suggestions'),
     path('api/places/suggestions/dismiss/', views.place_suggestion_dismiss_api, name='place_suggestion_dismiss'),
     path('api/places/<int:place_id>/', views.place_detail_api, name='place_detail_api'),
+    path('api/places/<int:place_id>/points/', views.place_points_api, name='place_points_api'),
     path('api/places/<int:place_id>/update/', views.place_update, name='place_update'),
     path('api/places/<int:place_id>/delete/', views.place_delete, name='place_delete'),
 

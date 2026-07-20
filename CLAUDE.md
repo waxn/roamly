@@ -224,8 +224,11 @@ Places page: **suggested-places list** + card grid (point count + last-seen) + t
 - `GET/POST /api/places/` — list / create
 - `GET /api/places/suggestions/` — recurring stays not yet named (registered **before** the `<int:place_id>` routes)
 - `POST /api/places/suggestions/dismiss/` — reject a suggestion
-- `GET /api/places/<id>/` — full stats in a single DB pass
+- `GET /api/places/<id>/` — aggregate stats (`_compute_place_detail`). Kept **lightweight** so the detail modal opens fast on a huge place: cities via a DB `GROUP BY`, per-day counts + dwell time from a **timestamps-only** ordered scan (one narrow column). It **no longer returns a map point sample** — those stream separately (below).
+- `GET /api/places/<id>/points/` — `place_points_api`, a `StreamingHttpResponse` of newline-delimited JSON coordinate chunks (`[[lng,lat],…]` per line). One ordered scan decimated to ~3000 points (stride from the total count); yields 400-point chunks as read so the detail map fills in progressively. `X-Accel-Buffering: no` so nginx doesn't buffer the stream.
 - `POST /api/places/<id>/update/`, `POST /api/places/<id>/delete/`
+
+**Detail modal load order (`openDetail` in `places.html`).** Circle + map zoom + name + autosaving notes paint **instantly from the cached place geometry** (`placesCache` already carries lat/lng/radius_m/color/notes) — no server wait. The aggregate `GET /api/places/<id>/` fills the stats/days/cities a moment later. Map points stream in via `streamDetailPoints` reading `/points/` progressively (`detailPtsToken` cancels a prior place's still-running stream so it can't paint into the current one).
 
 **Place suggestions.** Surfaces recurring stays the user hasn't named, so Places stops being purely manual. `place_suggestions_api` clusters **`Visit` rows** (the existing dwell detection in `visit_tasks.py`) — not raw points — via `_cluster_visits`, a grid-indexed greedy merge at `_SUGGEST_RADIUS_M` (150m, matching the radius the Visit worker already used, so repeat stays at one spot collapse into one candidate). A cluster is offered only at `_SUGGEST_MIN_VISITS` (3) **and** `_SUGGEST_MIN_HOURS` (1.0), which filters out one-off stops and traffic jams.
 
