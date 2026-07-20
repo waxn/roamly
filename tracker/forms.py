@@ -14,6 +14,14 @@ class SignUpForm(UserCreationForm):
         model = User
         fields = ('username', 'email', 'password1', 'password2')
 
+    def clean_email(self):
+        """Enforce case-insensitive email uniqueness so email-based login stays
+        unambiguous. Only checked at signup — the only place email is set."""
+        email = (self.cleaned_data.get('email') or '').strip()
+        if email and User.objects.filter(email__iexact=email).exists():
+            raise forms.ValidationError('An account with this email already exists.')
+        return email
+
     def clean_admin_key(self):
         """An admin key, if given, must match ADMIN_SIGNUP_KEY (which must be set)."""
         key = self.cleaned_data.get('admin_key', '')

@@ -341,6 +341,16 @@ def login_view(request):
         username = request.POST.get('username')
         password = request.POST.get('password')
         user = authenticate(request, username=username, password=password)
+        if user is None and username and '@' in username:
+            # Allow signing in with an email address. Resolve to a username only
+            # when it maps to exactly one active account (legacy duplicate emails
+            # stay username-only — never ambiguously logged in). Everything below
+            # keys off the returned user, so no other change is needed.
+            from django.contrib.auth.models import User as AuthUser
+            matches = list(AuthUser.objects.filter(email__iexact=username.strip(), is_active=True)[:2])
+            if len(matches) == 1:
+                username = matches[0].username
+                user = authenticate(request, username=username, password=password)
         if user:
             next_url = _safe_next(request)
             profile, _ = UserProfile.objects.get_or_create(user=user)
