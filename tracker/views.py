@@ -333,11 +333,44 @@ def _is_app_client(request):
     return request.META.get('HTTP_X_ROAMLY_CLIENT') == 'app'
 
 
+def _client_ip(request):
+    """Best-effort client IP. Behind the reverse proxy the real address is the
+    first entry of X-Forwarded-For; fall back to REMOTE_ADDR for direct hits."""
+    xff = request.META.get('HTTP_X_FORWARDED_FOR', '')
+    if xff:
+        return xff.split(',')[0].strip()
+    return request.META.get('REMOTE_ADDR', '') or 'unknown'
+
+
+def _rate_limited(request, scope, limit, window_s):
+    """Return True if this client has already made `limit` requests to `scope`
+    within the trailing `window_s` seconds. IP-keyed, cache-backed (Redis in
+    prod, LocMem in dev). Fails **open** — a cache hiccup must never lock users
+    out of signing in. Call once per request that should count toward the limit."""
+    key = f'ratelimit:{scope}:{_client_ip(request)}'
+    try:
+        cache.add(key, 0, window_s)  # arm the window on the first hit (no-op after)
+        count = cache.incr(key)
+    except ValueError:
+        # Key expired between add and incr — treat as the first hit of a new window.
+        cache.set(key, 1, window_s)
+        count = 1
+    except Exception:
+        return False  # cache unavailable: don't block legitimate access
+    return count > limit
+
+
 def login_view(request):
     is_app = _is_app_client(request)
     if request.user.is_authenticated and not is_app:
         return redirect('tracker:map')
     if request.method == 'POST':
+        if _rate_limited(request, 'login', 10, 300):
+            msg = 'Too many login attempts. Please wait a few minutes and try again.'
+            if is_app:
+                return JsonResponse({'status': 'error', 'message': msg}, status=429)
+            messages.error(request, msg)
+            return render(request, 'tracker/login.html', {'email_enabled': email_enabled()}, status=429)
         username = request.POST.get('username')
         password = request.POST.get('password')
         user = authenticate(request, username=username, password=password)
@@ -386,6 +419,10 @@ def password_reset_request(request):
         return render(request, 'tracker/password_reset_request.html', {'disabled': True})
     sent = False
     if request.method == 'POST':
+        if _rate_limited(request, 'pwreset', 5, 3600):
+            return render(request, 'tracker/password_reset_request.html', {
+                'rate_limited': True,
+            }, status=429)
         from django.contrib.auth.models import User as AuthUser
         from django.contrib.auth.tokens import default_token_generator
         from django.utils.http import urlsafe_base64_encode
@@ -417,6 +454,9 @@ def password_reset_confirm(request, uidb64, token):
         user = None
     valid = user is not None and default_token_generator.check_token(user, token)
     done = False
+    if request.method == 'POST' and _rate_limited(request, 'pwconfirm', 10, 900):
+        messages.error(request, 'Too many attempts. Please wait a few minutes and try again.')
+        return render(request, 'tracker/password_reset_confirm.html', {'valid': valid, 'done': done}, status=429)
     if request.method == 'POST' and valid:
         from django.contrib.auth.password_validation import validate_password
         from django.core.exceptions import ValidationError
@@ -442,6 +482,13 @@ def signup_view(request):
         return redirect('tracker:map')
     email_required = email_enabled()
     if request.method == 'POST':
+        if _rate_limited(request, 'signup', 5, 3600):
+            return render(request, 'tracker/signup.html', {
+                'form': SignUpForm(),
+                'admin_signup_enabled': bool(getattr(settings, 'ADMIN_SIGNUP_KEY', '')),
+                'email_required': email_required,
+                'rate_limited': True,
+            }, status=429)
         form = SignUpForm(request.POST)
         if email_required and not request.POST.get('email', '').strip():
             form.add_error('email', 'An email address is required.')
@@ -485,6 +532,16 @@ def verify_view(request):
         return redirect('tracker:login')
     purpose = pv['purpose']
     if request.method == 'POST':
+        if _rate_limited(request, 'verify', 10, 900):
+            msg = 'Too many attempts. Please wait a few minutes and try again.'
+            if is_app:
+                return JsonResponse({'status': 'error', 'message': msg}, status=429)
+            messages.error(request, msg)
+            return render(request, 'tracker/verify_code.html', {
+                'purpose': purpose,
+                'email_masked': _mask_email(pv.get('email')),
+                'resend_url': '/verify/resend/',
+            }, status=429)
         code = (request.POST.get('code') or '').strip()
         real = cache.get(f'email_code:{purpose}:{user.id}')
         if real and code == real:
@@ -511,6 +568,9 @@ def verify_resend(request):
     pv = request.session.get('pending_verify')
     if not pv:
         return redirect('tracker:login')
+    if _rate_limited(request, 'verify_resend', 4, 900):
+        messages.error(request, 'Too many code requests. Please wait a few minutes and try again.')
+        return redirect('tracker:verify')
     from django.contrib.auth.models import User as AuthUser
     user = AuthUser.objects.filter(id=pv['user_id']).first()
     if user:
