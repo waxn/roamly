@@ -10,21 +10,211 @@
                 ← Back
             </a>
             <div>
-                <h1>admin panel</h1>
-                <p class="page-lead" style="margin-bottom:0;">user management &amp; instance-wide custom JavaScript.</p>
+                <h1>Admin Panel</h1>
+                <p class="page-lead" style="margin-bottom:0;">Monitoring, logs, user management &amp; instance settings.</p>
             </div>
         </div>
     </div>
 
     <!-- Tab bar -->
     <div class="tab-bar" style="display:flex;gap:0.25rem;margin-bottom:1.5rem;flex-wrap:wrap;">
-        <button class="btn btn-primary btn-sm tab-btn active" onclick="showTab('users',this)">Users</button>
+        <button class="btn btn-primary btn-sm tab-btn active" onclick="showTab('monitoring',this)">Monitoring</button>
+        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('access-log',this)">Access Log</button>
+        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('events',this)">Events</button>
+        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('retention',this)">Retention</button>
+        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('users',this)">Users</button>
         <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('custom-js',this)">Custom JS</button>
         <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('contact',this)">Contact</button>
     </div>
 
+    <!-- ── Monitoring tab ── -->
+    <div id="tab-monitoring">
+        <div class="mon-range" style="display:flex;gap:0.35rem;margin-bottom:1rem;flex-wrap:wrap;">
+            <button class="btn btn-primary btn-sm mon-range-btn active" data-range="24h" onclick="setRange('24h',this)">24 h</button>
+            <button class="btn btn-outline btn-sm mon-range-btn" data-range="7d" onclick="setRange('7d',this)">7 d</button>
+            <button class="btn btn-outline btn-sm mon-range-btn" data-range="30d" onclick="setRange('30d',this)">30 d</button>
+            <button class="btn btn-outline btn-sm mon-range-btn" data-range="all" onclick="setRange('all',this)">All</button>
+        </div>
+
+        <!-- Stat tiles -->
+        <div class="mon-tiles" id="mon-tiles">
+            <div class="mon-tile"><div class="mon-tile-val skeleton skel-statval" id="t-requests">—</div><div class="mon-tile-lbl">Requests</div></div>
+            <div class="mon-tile"><div class="mon-tile-val skeleton skel-statval" id="t-ips">—</div><div class="mon-tile-lbl">Unique IPs</div></div>
+            <div class="mon-tile"><div class="mon-tile-val skeleton skel-statval" id="t-users">—</div><div class="mon-tile-lbl">Unique users</div></div>
+            <div class="mon-tile"><div class="mon-tile-val skeleton skel-statval" id="t-logins">—</div><div class="mon-tile-lbl">Logins</div></div>
+            <div class="mon-tile"><div class="mon-tile-val skeleton skel-statval" id="t-signups">—</div><div class="mon-tile-lbl">Signups</div></div>
+            <div class="mon-tile"><div class="mon-tile-val skeleton skel-statval" id="t-errors">—</div><div class="mon-tile-lbl">Errors</div></div>
+            <div class="mon-tile"><div class="mon-tile-val skeleton skel-statval" id="t-avgms">—</div><div class="mon-tile-lbl">Avg response</div></div>
+        </div>
+
+        <!-- Request volume chart -->
+        <div class="card" style="transition:none;">
+            <div class="card-header">Request volume</div>
+            <div class="chart-container" style="position:relative;height:220px;">
+                <canvas id="req-chart"></canvas>
+                <div class="chart-hover-line" id="req-hline"></div>
+                <div class="chart-hover-dot" id="req-hdot"></div>
+                <div class="chart-tooltip" id="req-tooltip"></div>
+            </div>
+        </div>
+
+        <!-- Auth / error chart -->
+        <div class="card" style="transition:none;">
+            <div class="card-header">Logins, signups &amp; errors</div>
+            <div class="mon-legend" id="ae-legend"></div>
+            <div class="chart-container" style="position:relative;height:200px;">
+                <canvas id="ae-chart"></canvas>
+                <div class="chart-hover-line" id="ae-hline"></div>
+                <div class="chart-hover-dot" id="ae-hdot"></div>
+                <div class="chart-tooltip" id="ae-tooltip"></div>
+            </div>
+        </div>
+
+        <div class="mon-cols">
+            <!-- Status breakdown -->
+            <div class="card" style="transition:none;">
+                <div class="card-header">Status codes</div>
+                <div id="status-bars"><div class="mon-empty">Loading…</div></div>
+            </div>
+            <!-- Top paths -->
+            <div class="card" style="transition:none;">
+                <div class="card-header">Top paths</div>
+                <div id="path-bars"><div class="mon-empty">Loading…</div></div>
+            </div>
+            <!-- Top IPs -->
+            <div class="card" style="transition:none;">
+                <div class="card-header">Top IPs</div>
+                <div id="ip-bars"><div class="mon-empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- Recent events -->
+        <div class="card" style="transition:none;">
+            <div class="card-header">Recent events</div>
+            <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:0.8125rem;">
+                    <tbody id="recent-tbody"><tr><td class="mon-empty">Loading…</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Access Log tab ── -->
+    <div id="tab-access-log" style="display:none;">
+        <div class="card" style="transition:none;">
+            <div class="card-header">Access Log</div>
+            <p class="settings-section-desc">One row per request. Pruned automatically after the access-log retention period (see the <strong>Retention</strong> tab).</p>
+            <div class="mon-filters">
+                <input type="text" id="al-ip" class="form-control" placeholder="IP contains…">
+                <input type="text" id="al-path" class="form-control" placeholder="Path contains…">
+                <input type="text" id="al-user" class="form-control" placeholder="User contains…">
+                <select id="al-hours" class="form-control rly-native">
+                    <option value="">Any time</option>
+                    <option value="1">Last hour</option>
+                    <option value="24">Last 24 h</option>
+                    <option value="168">Last 7 d</option>
+                    <option value="720">Last 30 d</option>
+                </select>
+                <button class="btn btn-primary btn-sm" onclick="loadAccess(1)">Filter</button>
+            </div>
+            <div style="overflow-x:auto;margin-top:0.75rem;">
+                <table style="width:100%;border-collapse:collapse;font-size:0.78rem;">
+                    <thead>
+                        <tr style="color:var(--text-muted);border-bottom:1px solid var(--border);">
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">Time</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">IP</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">User</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">Method</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">Path</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:right;">Status</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:right;">ms</th>
+                        </tr>
+                    </thead>
+                    <tbody id="al-tbody"><tr><td colspan="7" class="mon-empty">Loading…</td></tr></tbody>
+                </table>
+            </div>
+            <div class="mon-pager" id="al-pager"></div>
+        </div>
+    </div>
+
+    <!-- ── Events tab ── -->
+    <div id="tab-events" style="display:none;">
+        <div class="card" style="transition:none;">
+            <div class="card-header">Events</div>
+            <p class="settings-section-desc">Logins, signups, server errors and admin actions. Kept long-term (see the <strong>Retention</strong> tab). Click an error row to view its traceback.</p>
+            <div class="mon-filters">
+                <select id="ev-action" class="form-control rly-native">
+                    <option value="">All events</option>
+                    <option value="auth">Auth (login / logout / signup)</option>
+                    <option value="login">Logins</option>
+                    <option value="login_fail">Failed logins</option>
+                    <option value="signup">Signups</option>
+                    <option value="error">Errors</option>
+                    <option value="admin">Admin actions</option>
+                </select>
+                <select id="ev-hours" class="form-control rly-native">
+                    <option value="">Any time</option>
+                    <option value="24">Last 24 h</option>
+                    <option value="168">Last 7 d</option>
+                    <option value="720">Last 30 d</option>
+                </select>
+                <button class="btn btn-primary btn-sm" onclick="loadEvents(1)">Filter</button>
+            </div>
+            <div style="overflow-x:auto;margin-top:0.75rem;">
+                <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+                    <thead>
+                        <tr style="color:var(--text-muted);border-bottom:1px solid var(--border);">
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">Time</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">Event</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">User</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">IP</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">Detail</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ev-tbody"><tr><td colspan="5" class="mon-empty">Loading…</td></tr></tbody>
+                </table>
+            </div>
+            <div class="mon-pager" id="ev-pager"></div>
+        </div>
+    </div>
+
+    <!-- ── Retention tab ── -->
+    <div id="tab-retention" style="display:none;">
+        <div class="card" style="transition:none;">
+            <div class="card-header">Log retention</div>
+            <p class="settings-section-desc">
+                An hourly background job prunes old log rows. <strong>Daily aggregate rollups are kept forever</strong> (so long-range graphs survive), and low-volume events are kept long-term — only the high-volume per-request access log is pruned aggressively by default.
+            </p>
+            <div class="ret-field">
+                <label for="ret-access">Access log — keep for
+                    <span class="ret-hint">high-volume, one row per request</span>
+                </label>
+                <div class="ret-input">
+                    <input type="number" id="ret-access" class="form-control" min="0" max="3650" style="max-width:120px;">
+                    <span class="ret-suffix">days &nbsp;<em>(0 = keep forever)</em></span>
+                </div>
+            </div>
+            <div class="ret-field">
+                <label for="ret-event">Events log — keep for
+                    <span class="ret-hint">logins, signups, errors, admin actions</span>
+                </label>
+                <div class="ret-input">
+                    <input type="number" id="ret-event" class="form-control" min="0" max="3650" style="max-width:120px;">
+                    <span class="ret-suffix">days &nbsp;<em>(0 = keep forever)</em></span>
+                </div>
+            </div>
+            <div class="settings-actions" style="margin-top:0.75rem;">
+                <button class="btn btn-primary btn-sm" onclick="saveRetention()">Save</button>
+                <span id="ret-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+            </div>
+            <p class="settings-section-desc" style="color:var(--text-muted);margin-top:1rem;">
+                <strong>Privacy:</strong> the access log stores visitor IP addresses. Keeping the access-log retention short (the default is 30 days) limits how long that personal data is held. Everything here is visible to instance admins only.
+            </p>
+        </div>
+    </div>
+
     <!-- ── Users tab ── -->
-    <div id="tab-users">
+    <div id="tab-users" style="display:none;">
         <div class="card" style="transition:none;">
             <div class="card-header">User Management</div>
             <div style="overflow-x:auto;">
@@ -95,14 +285,58 @@
 <style>
 .tab-btn { min-width:90px; }
 .al-row:hover { background:var(--bg-elevated); }
+
+/* Chart canvas + hover overlays (mirrors the Stats page) */
+.chart-container canvas { width:100%; height:100%; }
+.chart-tooltip { position:absolute; pointer-events:none; background:var(--bg-card); border:1px solid var(--border); padding:0.325rem 0.5rem; font-size:0.75rem; font-family:var(--font-body); color:var(--text); white-space:nowrap; opacity:0; transition:opacity 0.15s; z-index:10; }
+.chart-hover-line { position:absolute; width:1px; background:var(--border-bright); opacity:0; pointer-events:none; transition:opacity 0.12s; }
+.chart-hover-dot { position:absolute; width:11px; height:11px; border-radius:50%; background:var(--primary); border:2px solid var(--bg-card); box-shadow:0 0 0 4px var(--primary-soft); transform:translate(-50%,-50%); opacity:0; pointer-events:none; transition:opacity 0.12s; }
 .al-row td { padding:0.35rem 0.5rem; border-bottom:1px solid var(--border); vertical-align:top; }
+
+/* Monitoring */
+.mon-tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:0.6rem; margin-bottom:1.25rem; }
+.mon-tile { border:1px solid var(--border); background:var(--bg-card); padding:0.7rem 0.8rem; }
+.mon-tile-val { font-family:var(--font-mono); font-size:1.5rem; font-weight:600; color:var(--text); line-height:1.1; }
+.mon-tile-lbl { font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em; margin-top:0.2rem; }
+.mon-cols { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:1rem; }
+.mon-empty { padding:1.25rem; text-align:center; color:var(--text-muted); font-size:0.8rem; }
+.mon-legend { display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:0.5rem; font-size:0.75rem; color:var(--text-muted); }
+.mon-legend span { display:inline-flex; align-items:center; gap:0.35rem; }
+.mon-legend i { width:12px; height:3px; border-radius:2px; display:inline-block; }
+
+/* Bar rows (status / paths / IPs) */
+.mon-bar { display:grid; grid-template-columns:1fr auto; align-items:center; gap:0.5rem; margin-bottom:0.4rem; font-size:0.78rem; }
+.mon-bar-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--font-mono); }
+.mon-bar-count { font-family:var(--font-mono); color:var(--text-muted); }
+.mon-bar-track { grid-column:1 / -1; height:6px; background:var(--bg-input); border-radius:3px; overflow:hidden; }
+.mon-bar-fill { height:100%; background:var(--primary); border-radius:3px; }
+
+/* Filters + pager */
+.mon-filters { display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; }
+.mon-filters .form-control { max-width:180px; }
+.mon-pager { display:flex; gap:0.5rem; align-items:center; justify-content:flex-end; margin-top:0.75rem; font-size:0.8rem; color:var(--text-muted); }
+.ev-row td { padding:0.4rem 0.5rem; border-bottom:1px solid var(--border); vertical-align:top; }
+.ev-row.clickable { cursor:pointer; }
+.ev-row.clickable:hover { background:var(--bg-elevated); }
+.ev-trace { font-family:var(--font-mono); font-size:0.72rem; white-space:pre-wrap; word-break:break-word; background:var(--bg-input); border:1px solid var(--border); padding:0.6rem; margin:0.2rem 0; max-height:320px; overflow:auto; }
+.ev-badge { font-family:var(--font-mono); font-size:0.68rem; padding:1px 7px; border:1px solid var(--border); border-radius:3px; }
+.ev-badge.err { color:var(--clay-coral); border-color:var(--clay-coral); }
+
+/* Retention */
+.ret-field { margin-bottom:1rem; }
+.ret-field label { display:block; font-size:0.85rem; font-weight:600; margin-bottom:0.35rem; }
+.ret-hint { display:block; font-weight:400; font-size:0.72rem; color:var(--text-muted); margin-top:0.1rem; }
+.ret-input { display:flex; align-items:center; gap:0.5rem; }
+.ret-suffix { font-size:0.8rem; color:var(--text-muted); }
+.ret-suffix em { font-style:normal; opacity:0.8; }
 </style>
 {% endblock %}
 
 {% block extra_js %}
 <script>
 // ── Tab switching ──────────────────────────────────────────────────────────
-const TABS = ['users','custom-js','contact'];
+const TABS = ['monitoring','access-log','events','retention','users','custom-js','contact'];
+const _loaded = {};
 function showTab(name, btn) {
     TABS.forEach(t => {
         document.getElementById('tab-'+t).style.display = (t === name) ? '' : 'none';
@@ -111,7 +345,11 @@ function showTab(name, btn) {
         b.classList.toggle('btn-primary', b === btn);
         b.classList.toggle('btn-outline', b !== btn);
     });
-    if (name === 'users') loadUsers();
+    if (name === 'monitoring') { loadMonitoring(); }
+    else if (name === 'access-log' && !_loaded['access-log']) { _loaded['access-log']=1; loadAccess(1); }
+    else if (name === 'events' && !_loaded['events']) { _loaded['events']=1; loadEvents(1); }
+    else if (name === 'retention' && !_loaded['retention']) { _loaded['retention']=1; loadRetention(); }
+    else if (name === 'users' && !_loaded['users']) { _loaded['users']=1; loadUsers(); }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -124,6 +362,319 @@ function fmtNum(n) { return n == null ? '—' : n.toLocaleString(); }
 function esc(s) {
     if (s == null) return '';
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function cssVar(name, fallback) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+}
+// "#rrggbb" + alpha → "rgba(...)"
+function hexA(hex, a) {
+    const m = (hex || '').trim().match(/^#?([0-9a-f]{6})$/i);
+    if (!m) return `rgba(232,118,61,${a})`;
+    const n = parseInt(m[1], 16);
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+// Monotone cubic (Fritsch–Carlson) spline control points — the curve passes
+// through every point without overshoot. Same routine used on the Stats page.
+function monotoneSpline(pts) {
+    const nseg = pts.length - 1, segs = [];
+    if (nseg < 1) return segs;
+    const dx=[], dy=[], m=[];
+    for (let i=0;i<nseg;i++){ dx[i]=pts[i+1].x-pts[i].x; dy[i]=pts[i+1].y-pts[i].y; m[i]=dx[i]===0?0:dy[i]/dx[i]; }
+    const t=new Array(nseg+1); t[0]=m[0]; t[nseg]=m[nseg-1];
+    for (let i=1;i<nseg;i++){ t[i]=(m[i-1]*m[i]<=0)?0:(m[i-1]+m[i])/2; }
+    for (let i=0;i<nseg;i++){
+        if (m[i]===0){ t[i]=0; t[i+1]=0; continue; }
+        const a=t[i]/m[i], b=t[i+1]/m[i], s=a*a+b*b;
+        if (s>9){ const tau=3/Math.sqrt(s); t[i]=tau*a*m[i]; t[i+1]=tau*b*m[i]; }
+    }
+    for (let i=0;i<nseg;i++){
+        segs.push({ cp1x:pts[i].x+dx[i]/3, cp1y:pts[i].y+t[i]*dx[i]/3,
+                    cp2x:pts[i+1].x-dx[i]/3, cp2y:pts[i+1].y-t[i+1]*dx[i]/3 });
+    }
+    return segs;
+}
+function attachChartHover(canvas, els, getState) {
+    function nearest(mx, points){ let best=null,bd=Infinity; for(const p of points){const d=Math.abs(p.x-mx); if(d<bd){bd=d;best=p;}} return best; }
+    function hide(){ els.tooltip.style.opacity='0'; if(els.hline)els.hline.style.opacity='0'; if(els.hdot)els.hdot.style.opacity='0'; }
+    canvas.addEventListener('mousemove', function(e){
+        const { points, geom, width } = getState();
+        if (!points || !points.length || !geom){ hide(); return; }
+        const rect = canvas.getBoundingClientRect();
+        const hit = nearest(e.clientX-rect.left, points);
+        if (!hit){ hide(); return; }
+        els.tooltip.innerHTML = hit.tip;
+        els.tooltip.style.opacity='1';
+        const tx = Math.max(60, Math.min((width||rect.width)-60, hit.x));
+        els.tooltip.style.left = tx+'px';
+        els.tooltip.style.bottom = (rect.height-hit.y+14)+'px';
+        els.tooltip.style.top=''; els.tooltip.style.transform='translateX(-50%)';
+        if (els.hline){ els.hline.style.left=hit.x+'px'; els.hline.style.top=geom.top+'px'; els.hline.style.height=geom.height+'px'; els.hline.style.opacity='1'; }
+        if (els.hdot){ els.hdot.style.left=hit.x+'px'; els.hdot.style.top=hit.y+'px'; els.hdot.style.opacity='1'; }
+    });
+    canvas.addEventListener('mouseleave', hide);
+}
+
+// Generic multi-series line chart. series = [{name, values, color}].
+// Returns hover state for attachChartHover. First series gets a gradient fill.
+function drawLineChart(canvasId, labels, series, opts) {
+    opts = opts || {};
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return { points:[], geom:null, width:0 };
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width*dpr; canvas.height = rect.height*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    const W=rect.width, H=rect.height;
+    const pad={ top:16, right:14, bottom:28, left:44 };
+    const cW=W-pad.left-pad.right, cH=H-pad.top-pad.bottom;
+    const grid=cssVar('--border','#30352a'), textCol=cssVar('--text-muted','#a9a794');
+    ctx.clearRect(0,0,W,H);
+
+    const n = labels.length;
+    if (!n) {
+        ctx.fillStyle=textCol; ctx.font="13px "+cssVar('--font-body','sans-serif');
+        ctx.textAlign='center'; ctx.fillText('No data in this range', W/2, H/2);
+        return { points:[], geom:null, width:W };
+    }
+    let maxVal=0;
+    series.forEach(s => s.values.forEach(v => { if(v>maxVal) maxVal=v; }));
+    maxVal = Math.max(maxVal, 1);
+    const step = maxVal>100?50:maxVal>10?5:1;
+    const niceMax = Math.ceil(maxVal/step)*step;
+
+    const gridLines=4;
+    ctx.lineWidth=1; ctx.font="11px "+cssVar('--font-body','sans-serif');
+    for (let i=0;i<=gridLines;i++){
+        const y=pad.top+cH-(cH*i/gridLines);
+        ctx.strokeStyle=grid; ctx.beginPath(); ctx.moveTo(pad.left,y); ctx.lineTo(W-pad.right,y); ctx.stroke();
+        ctx.fillStyle=textCol; ctx.textAlign='right';
+        const val=(niceMax*i/gridLines);
+        ctx.fillText(val%1===0?val.toString():val.toFixed(1), pad.left-8, y+4);
+    }
+    // X labels (first / mid / last)
+    ctx.fillStyle=textCol; ctx.textAlign='center'; ctx.font="10px "+cssVar('--font-body','sans-serif');
+    const xOf=(i)=> n===1 ? pad.left+cW/2 : pad.left+(i/(n-1))*cW;
+    const yOf=(v)=> pad.top+cH-(v/niceMax)*cH;
+    [0, Math.floor((n-1)/2), n-1].forEach((i,k)=>{
+        if (i<0||i>=n) return;
+        if (k>0 && i===0) return;
+        ctx.fillText(labels[i], Math.max(pad.left, Math.min(W-pad.right, xOf(i))), H-8);
+    });
+
+    series.forEach((s, si) => {
+        const pts = s.values.map((v,i)=>({x:xOf(i), y:yOf(v)}));
+        const segs = monotoneSpline(pts);
+        const trace=()=>{ ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
+            for(let i=0;i<segs.length;i++) ctx.bezierCurveTo(segs[i].cp1x,segs[i].cp1y,segs[i].cp2x,segs[i].cp2y,pts[i+1].x,pts[i+1].y); };
+        if (si===0 && pts.length>=2 && opts.fill!==false) {
+            const grad=ctx.createLinearGradient(0,pad.top,0,pad.top+cH);
+            grad.addColorStop(0,hexA(s.color,0.28)); grad.addColorStop(1,hexA(s.color,0.02));
+            trace(); ctx.lineTo(pts[pts.length-1].x,pad.top+cH); ctx.lineTo(pts[0].x,pad.top+cH); ctx.closePath();
+            ctx.fillStyle=grad; ctx.fill();
+        }
+        ctx.strokeStyle=s.color; ctx.lineWidth=2; ctx.lineJoin='round';
+        if (pts.length>=2){ trace(); ctx.stroke(); }
+        else { ctx.fillStyle=s.color; ctx.beginPath(); ctx.arc(pts[0].x,pts[0].y,3,0,Math.PI*2); ctx.fill(); }
+    });
+
+    // Hover points: one per x-index, tip lists every series.
+    const points = labels.map((lab,i)=>{
+        const primary = series[0] ? series[0].values[i] : 0;
+        let tip = `<strong>${esc(lab)}</strong>`;
+        series.forEach(s=>{ tip += `<br>${esc(s.name)}: ${fmtNum(s.values[i])}`; });
+        return { x:xOf(i), y:yOf(primary), tip };
+    });
+    return { points, geom:{top:pad.top, height:cH}, width:W };
+}
+
+// ── Monitoring ─────────────────────────────────────────────────────────────
+let monRange='24h', monData=null;
+let reqHoverState={points:[],geom:null,width:0}, aeHoverState={points:[],geom:null,width:0};
+
+function setRange(r, btn){
+    monRange=r;
+    document.querySelectorAll('.mon-range-btn').forEach(b=>{
+        b.classList.toggle('btn-primary', b===btn); b.classList.toggle('btn-outline', b!==btn);
+    });
+    loadMonitoring(true);
+}
+
+async function loadMonitoring(force){
+    const r = await fetch('/api/admin/overview/?range='+encodeURIComponent(monRange));
+    if (!r.ok) return;
+    monData = await r.json();
+    renderMonitoring();
+}
+
+function renderMonitoring(){
+    if (!monData) return;
+    const d = monData;
+    const setTile=(id,val)=>{ const el=document.getElementById(id); el.textContent=val; el.classList.remove('skeleton','skel-statval'); };
+    setTile('t-requests', fmtNum(d.total_requests));
+    setTile('t-ips', fmtNum(d.unique_ips));
+    setTile('t-users', fmtNum(d.unique_users));
+    setTile('t-logins', fmtNum(d.logins));
+    setTile('t-signups', fmtNum(d.signups));
+    setTile('t-errors', fmtNum(d.errors));
+    setTile('t-avgms', d.avg_response_ms==null?'—':(fmtNum(d.avg_response_ms)+' ms'));
+
+    // Time-series labels
+    const isHour = d.granularity==='hour';
+    const labels = d.series.map(s=>{
+        const dt = new Date(s.t);
+        return isHour ? dt.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+                      : dt.toLocaleDateString([], {month:'short', day:'numeric'});
+    });
+
+    const primary = cssVar('--primary','#e8763d');
+    const mint = cssVar('--clay-mint','#7f9b6f');
+    const sky  = cssVar('--clay-sky','#5b8ba0');
+    const coral= cssVar('--clay-coral','#c56a4d');
+
+    // Request volume
+    reqHoverState = drawLineChart('req-chart', labels,
+        [{name:'Requests', values:d.series.map(s=>s.requests), color:primary}], {fill:true});
+
+    // Logins / signups / errors
+    document.getElementById('ae-legend').innerHTML =
+        `<span><i style="background:${mint}"></i>Logins</span>`+
+        `<span><i style="background:${sky}"></i>Signups</span>`+
+        `<span><i style="background:${coral}"></i>Errors</span>`;
+    aeHoverState = drawLineChart('ae-chart', labels, [
+        {name:'Logins', values:d.series.map(s=>s.logins), color:mint},
+        {name:'Signups', values:d.series.map(s=>s.signups), color:sky},
+        {name:'Errors', values:d.series.map(s=>s.errors), color:coral},
+    ], {fill:false});
+
+    // Status codes (grouped by class)
+    const groups={'2xx':0,'3xx':0,'4xx':0,'5xx':0,'other':0};
+    Object.keys(d.status_breakdown||{}).forEach(code=>{
+        const c=parseInt(code,10), n=d.status_breakdown[code];
+        if (c>=200&&c<300) groups['2xx']+=n; else if(c>=300&&c<400) groups['3xx']+=n;
+        else if(c>=400&&c<500) groups['4xx']+=n; else if(c>=500&&c<600) groups['5xx']+=n; else groups['other']+=n;
+    });
+    const stColors={'2xx':mint,'3xx':sky,'4xx':cssVar('--clay-amber','#c99a3a'),'5xx':coral,'other':cssVar('--text-muted','#999')};
+    renderBars('status-bars', Object.keys(groups).filter(k=>groups[k]>0).map(k=>({label:k,count:groups[k],color:stColors[k]})));
+
+    renderBars('path-bars', (d.top_paths||[]).map(p=>({label:p.path,count:p.count,color:primary})));
+    renderBars('ip-bars', (d.top_ips||[]).map(p=>({label:p.ip,count:p.count,color:sky})));
+
+    // Recent events
+    const rows=(d.recent_actions||[]);
+    document.getElementById('recent-tbody').innerHTML = rows.length ? rows.map(a=>
+        `<tr class="al-row"><td style="white-space:nowrap;color:var(--text-muted);font-size:0.72rem;">${fmtTime(a.timestamp)}</td>`+
+        `<td><span class="ev-badge${a.action==='error'?' err':''}">${esc(a.action)}</span></td>`+
+        `<td>${esc(a.username||'—')}</td>`+
+        `<td style="font-family:var(--font-mono);font-size:0.72rem;color:var(--text-muted);">${esc(a.ip||'—')}</td>`+
+        `<td style="color:var(--text-muted);font-size:0.75rem;">${esc((a.description||'').split('\n')[0].slice(0,80))}</td></tr>`
+    ).join('') : '<tr><td class="mon-empty">No events yet</td></tr>';
+}
+
+function renderBars(containerId, items){
+    const el=document.getElementById(containerId);
+    if (!items || !items.length){ el.innerHTML='<div class="mon-empty">No data</div>'; return; }
+    const max=Math.max(...items.map(i=>i.count),1);
+    el.innerHTML = items.map(i=>{
+        const pct=Math.max(2, Math.round(i.count/max*100));
+        return `<div class="mon-bar"><span class="mon-bar-label" title="${esc(i.label)}">${esc(i.label)}</span>`+
+            `<span class="mon-bar-count">${fmtNum(i.count)}</span>`+
+            `<span class="mon-bar-track"><span class="mon-bar-fill" style="width:${pct}%;background:${i.color}"></span></span></div>`;
+    }).join('');
+}
+
+// ── Access log ─────────────────────────────────────────────────────────────
+let alPage=1, alTotal=0, alPer=50;
+async function loadAccess(page){
+    alPage=page||1;
+    const p=new URLSearchParams({page:alPage, per_page:alPer});
+    const ip=document.getElementById('al-ip').value.trim(); if(ip)p.set('ip',ip);
+    const path=document.getElementById('al-path').value.trim(); if(path)p.set('path',path);
+    const user=document.getElementById('al-user').value.trim(); if(user)p.set('user',user);
+    const hours=document.getElementById('al-hours').value; if(hours)p.set('hours',hours);
+    document.getElementById('al-tbody').innerHTML='<tr><td colspan="7" class="mon-empty">Loading…</td></tr>';
+    const r=await fetch('/api/admin/access-logs/?'+p.toString());
+    if(!r.ok) return;
+    const d=await r.json(); alTotal=d.total;
+    const stColor=(s)=> s>=500?'var(--clay-coral)': s>=400?'var(--clay-amber)': s>=300?'var(--clay-sky)':'var(--clay-mint)';
+    document.getElementById('al-tbody').innerHTML = d.rows.length ? d.rows.map(r=>
+        `<tr class="al-row"><td style="white-space:nowrap;color:var(--text-muted);font-size:0.72rem;">${fmtTime(r.timestamp)}</td>`+
+        `<td style="font-family:var(--font-mono);">${esc(r.ip||'—')}</td>`+
+        `<td>${esc(r.user||'—')}</td>`+
+        `<td style="font-family:var(--font-mono);">${esc(r.method)}</td>`+
+        `<td style="font-family:var(--font-mono);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(r.path)}">${esc(r.path)}</td>`+
+        `<td style="text-align:right;font-family:var(--font-mono);color:${stColor(r.status||0)};">${r.status==null?'—':r.status}</td>`+
+        `<td style="text-align:right;font-family:var(--font-mono);color:var(--text-muted);">${r.ms==null?'—':r.ms}</td></tr>`
+    ).join('') : '<tr><td colspan="7" class="mon-empty">No matching requests</td></tr>';
+    renderPager('al-pager', alPage, alTotal, alPer, 'loadAccess');
+}
+
+// ── Events ─────────────────────────────────────────────────────────────────
+let evPage=1, evTotal=0, evPer=50;
+async function loadEvents(page){
+    evPage=page||1;
+    const p=new URLSearchParams({page:evPage, per_page:evPer});
+    const action=document.getElementById('ev-action').value; if(action)p.set('action',action);
+    const hours=document.getElementById('ev-hours').value; if(hours)p.set('hours',hours);
+    document.getElementById('ev-tbody').innerHTML='<tr><td colspan="5" class="mon-empty">Loading…</td></tr>';
+    const r=await fetch('/api/admin/action-logs/?'+p.toString());
+    if(!r.ok) return;
+    const d=await r.json(); evTotal=d.total;
+    document.getElementById('ev-tbody').innerHTML = d.rows.length ? d.rows.map(r=>{
+        const isErr = r.action==='error';
+        const detail = (r.description||'');
+        const firstLine = esc(detail.split('\n')[0].slice(0,120));
+        const rowAttrs = isErr ? 'class="ev-row clickable" onclick="toggleTrace(this)"' : 'class="ev-row"';
+        const traceRow = isErr ? `<tr class="ev-trace-row" style="display:none;"><td colspan="5"><div class="ev-trace">${esc(detail)}</div></td></tr>` : '';
+        return `<tr ${rowAttrs}>`+
+            `<td style="white-space:nowrap;color:var(--text-muted);font-size:0.72rem;">${fmtTime(r.timestamp)}</td>`+
+            `<td><span class="ev-badge${isErr?' err':''}">${esc(r.action)}</span></td>`+
+            `<td>${esc(r.user||'—')}</td>`+
+            `<td style="font-family:var(--font-mono);font-size:0.72rem;color:var(--text-muted);">${esc(r.ip||'—')}</td>`+
+            `<td style="color:var(--text-muted);font-size:0.75rem;">${firstLine}${isErr?' <span style="color:var(--primary);">▸</span>':''}</td>`+
+            `</tr>${traceRow}`;
+    }).join('') : '<tr><td colspan="5" class="mon-empty">No matching events</td></tr>';
+    renderPager('ev-pager', evPage, evTotal, evPer, 'loadEvents');
+}
+function toggleTrace(row){
+    const next=row.nextElementSibling;
+    if (next && next.classList.contains('ev-trace-row'))
+        next.style.display = next.style.display==='none' ? '' : 'none';
+}
+
+function renderPager(id, page, total, per, fn){
+    const el=document.getElementById(id);
+    const pages=Math.max(1, Math.ceil(total/per));
+    const from=total?((page-1)*per+1):0, to=Math.min(total, page*per);
+    el.innerHTML =
+        `<span>${from}–${to} of ${fmtNum(total)}</span>`+
+        `<button class="btn btn-outline btn-sm" ${page<=1?'disabled':''} onclick="${fn}(${page-1})">Prev</button>`+
+        `<button class="btn btn-outline btn-sm" ${page>=pages?'disabled':''} onclick="${fn}(${page+1})">Next</button>`;
+}
+
+// ── Retention ──────────────────────────────────────────────────────────────
+async function loadRetention(){
+    const r=await fetch('/api/admin/log-config/');
+    if(!r.ok) return;
+    const d=await r.json();
+    document.getElementById('ret-access').value=d.access_log_retention_days;
+    document.getElementById('ret-event').value=d.event_log_retention_days;
+}
+async function saveRetention(){
+    const st=document.getElementById('ret-status');
+    st.textContent='Saving…'; st.style.color='var(--text-muted)';
+    const body={
+        access_log_retention_days: parseInt(document.getElementById('ret-access').value||'0',10),
+        event_log_retention_days: parseInt(document.getElementById('ret-event').value||'0',10),
+    };
+    const r=await fetch('/api/admin/log-config/', {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
+        body: JSON.stringify(body),
+    });
+    st.textContent = r.ok ? 'Saved.' : 'Error saving.';
+    st.style.color = r.ok ? 'var(--success)' : 'var(--danger)';
+    setTimeout(()=>{ st.textContent=''; }, 3000);
 }
 
 // ── Users ──────────────────────────────────────────────────────────────────
@@ -214,7 +765,25 @@ function getCookie(name) {
     return v ? v[2] : null;
 }
 
+// Redraw charts on resize / theme change while Monitoring is visible.
+let _redrawT=null;
+function _maybeRedraw(){
+    if (document.getElementById('tab-monitoring').style.display==='none') return;
+    if (!monData) return;
+    clearTimeout(_redrawT); _redrawT=setTimeout(renderMonitoring, 120);
+}
+window.addEventListener('resize', _maybeRedraw);
+new MutationObserver(_maybeRedraw).observe(document.documentElement, {attributes:true, attributeFilter:['data-theme']});
+
+// Wire hover overlays once.
+attachChartHover(document.getElementById('req-chart'),
+    {tooltip:document.getElementById('req-tooltip'), hline:document.getElementById('req-hline'), hdot:document.getElementById('req-hdot')},
+    ()=>reqHoverState);
+attachChartHover(document.getElementById('ae-chart'),
+    {tooltip:document.getElementById('ae-tooltip'), hline:document.getElementById('ae-hline'), hdot:document.getElementById('ae-hdot')},
+    ()=>aeHoverState);
+
 // ── Init ───────────────────────────────────────────────────────────────────
-loadUsers();
+loadMonitoring();
 </script>
 {% endblock %}

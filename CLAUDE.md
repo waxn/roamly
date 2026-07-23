@@ -79,7 +79,18 @@ Boundaries are loaded by **`import_boundaries`** (`tracker/management/commands/`
 
 **Admin accounts:** `UserProfile.is_admin` marks an instance admin (distinct from `is_staff`/`is_superuser`). Migration `0028` backfills `is_admin=True` for pre-existing accounts. New admins register via the signup form's `<details>` section using `ADMIN_SIGNUP_KEY` (validated in `SignUpForm.clean_admin_key`; section only shows when env key is set). Exposed to templates as `IS_ADMIN` by `tracker.context_processors.custom_js_snippet`.
 
-**Admin panel** (`/admin-panel/`, `admin_panel_view` → `admin_panel.html`, admin-only): two tabs — **Users** (list every account; toggle `is_admin`; delete another user and all their data) and **Custom JS** (edit the instance snippet). Endpoints: `GET /api/admin/users/`, `POST /api/admin/users/<id>/toggle-admin/`, `POST /api/admin/users/<id>/delete/`. All guarded by `_require_admin`. **Request/access/action logging was removed** — there is no `AccessLog`/`ActionLog`/`AdminPanelConfig`, no `RequestLoggingMiddleware`, no `log_writer`/`log_cleanup_tasks`, no `_log_action`, and no IP capture (`UserProfile.signup_ip`/`signup_user_agent` dropped). Migration `0036` deletes those tables/fields.
+**Admin panel** (`/admin-panel/`, `admin_panel_view` → `admin_panel.html`, admin-only): seven client-side tabs — **Monitoring**, **Access Log**, **Events**, **Retention** (all logging, below), **Users** (list every account; toggle `is_admin`; delete another user and all their data), **Custom JS** (edit the instance snippet), **Contact** (contact address). User endpoints: `GET /api/admin/users/`, `POST /api/admin/users/<id>/toggle-admin/`, `POST /api/admin/users/<id>/delete/`. All guarded by `_require_admin`.
+
+**Logging & monitoring** (admin-only; migration `0048`). Restored + extended from the pre-`0036` logging that was removed (the connection-leak that motivated that removal was already fixed by the batched writer). Three tables, all **operational data → excluded from backups** (never referenced by the backup builders, so no `meta.version` bump):
+- **`AccessLog`** — one row per request (ip/path/method/status/response_ms/user/user_agent/timestamp). High-volume; written off the request path by a **batched single-consumer background writer** (`tracker/log_writer.py`, `enqueue_access`/`enqueue_action` — bounded queue, `bulk_create`, drop-on-overflow, `close_old_connections` per flush) fed by **`RequestLoggingMiddleware`** (`tracker/middleware.py`, registered right after `ApiKeyAuthMiddleware` so `request.user` is resolved; skips `/static/`, `/api/tiles/`, etc.). Pruned by retention.
+- **`ActionLog`** — low-volume significant events: `login`/`logout`/`signup`/`login_fail`, `error` (traceback in `description`), `admin_toggle`/`admin_delete_user`/`custom_js_save`, `delete_data`/`delete_account`, `api_key_create`/`api_key_delete`. Written via `_log_action(request, action, description='', user=None)` in `views.py` (uses `_client_ip`; `user=False` forces a null FK when the acting user is being deleted). Kept long-term.
+- **`DailyLogRollup`** — per-day aggregate (requests/unique_ips/unique_users/logins/signups/errors), computed by the cleanup sweep **before** pruning so long-range graphs survive row deletion. **Kept forever.**
+
+**500-error capture:** `settings.LOGGING` attaches `tracker.error_log_handler.ActionLogErrorHandler` to the `django.request` logger; on a 5xx it pulls the traceback + path/IP/user and enqueues an `error` `ActionLog` row (best-effort, never raises).
+
+**Retention + rollups:** `tracker/log_cleanup_tasks.py` runs a daemon thread (started from `apps.ready()`, mirroring `stats_tasks.py`), hourly, under a **PG advisory lock** (namespace `0x52414d47` 'RAMG', key `0` — single sweeping worker), `close_old_connections()` each pass. Each sweep: (a) upserts `DailyLogRollup` for every completed day up to yesterday, then (b) prunes `AccessLog` older than `SiteConfig.access_log_retention_days` (default 30) and (c) `ActionLog` older than `SiteConfig.event_log_retention_days` (default 0 = forever). Both retention knobs live on `SiteConfig`, edited from **Admin Panel → Retention** (`GET/POST /api/admin/log-config/`).
+
+**Admin log endpoints** (all `_require_admin`): `GET /api/admin/overview/?range=24h|7d|30d|all` (`admin_overview_api` — stat tiles, a request-volume time series + logins/signups/errors series, status/top-path/top-IP breakdowns, recent events; hourly buckets for 24h/7d, daily from rollups+live tail for 30d/all via `_admin_daily_series`), `GET /api/admin/access-logs/` (paginated, ip/path/user/hours filters), `GET /api/admin/action-logs/` (paginated; `action=auth|admin` group filters + per-action), `GET/POST /api/admin/log-config/`. The template's charts reuse the app's **hand-rolled Canvas helpers** (`monotoneSpline`/`hexA`/`attachChartHover` + a generic `drawLineChart`, reading CSS vars at draw time for light/dark) — no charting library — and CSS width-% bars.
 
 **Analytics / custom JS:** Instance-wide HTML injected verbatim before `</body>` via `{{ CUSTOM_JS_SNIPPET|safe }}` (paste snippets as-given, including their `<script>` tags). Lives in the `SiteConfig` singleton (`SiteConfig.load()`, pk=1), edited from **Admin Panel → Custom JS** (admin-only, `POST /api/site/custom-js/`). The `custom_js_snippet` context processor exposes `CUSTOM_JS_SNIPPET` to **every** template, but the injection line must exist in each top-level template: `base.html` (all app pages) **and** the standalone public templates that don't extend it — `landing.html`, `login.html`, `signup.html`, `docs.html`, `privacy.html`, `terms.html`. Analytics must reach the public pages, so any new standalone template needs the injection line too. `context_processors.get_custom_js()` reads it cached (`site_custom_js`, 1h TTL); the save endpoint busts that key.
 
@@ -166,6 +177,9 @@ Callbacks run on `HandlerThread` ("RoamlyLocCb"). No-fix retries: quick (4s × 3
 | `tracker/transport_tasks.py` | Transport-mode detection (journey segmentation + classify) |
 | `tracker/ai_tasks.py` | AI "Ask" — tool-call loop (`run_ask`, `TOOL_DISPATCH`) |
 | `tracker/summary_email_tasks.py` | AI summary emails — hourly scheduler + per-period send |
+| `tracker/log_writer.py` | Batched background writer for AccessLog/ActionLog |
+| `tracker/log_cleanup_tasks.py` | Hourly log rollup + retention-pruning scheduler |
+| `tracker/error_log_handler.py` | Logging handler that records 500s into ActionLog |
 | `tracker/image_utils.py` | `resize_image`, `resize_photo` helpers |
 
 ## Models
@@ -197,6 +211,11 @@ Streaks (`_journal_compute_streaks`) and lifetime totals computed from entry dat
 - `POIDownloadJob` — OSM POI download progress
 - `TransportJob` — transport-mode detection progress
 - `BackupConfig` — S3 backup config + status
+
+**Admin logging** (migration `0048`; see Logging & monitoring above; excluded from backups):
+- `AccessLog` — one row per HTTP request (admin traffic/IP-access log)
+- `ActionLog` — significant events (logins/signups/errors/admin actions)
+- `DailyLogRollup` — per-day aggregate counts, kept forever
 
 **User:**
 - `UserProfile` — profile picture, `is_admin`, AI Ask config (`ai_ask_enabled`/`ai_base_url`/`ai_api_key`/`ai_model`/`ai_system_prompt`/`ai_allow_journals` + `ai_configured` property), `mapbox_token` (server-side Mapbox basemap token, synced to all devices), `email_verified` (default True; see Email verification), summary-email opt-in (`summary_daily/weekly/monthly/yearly` + `summary_last_*` cursors + `summary_any` property; see AI summary emails); `get_or_create`'d in `settings_view`

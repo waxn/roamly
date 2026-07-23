@@ -647,6 +647,11 @@ class SiteConfig(models.Model):
     # Instance contact address shown in page footers + used as the destination
     # for the public contact form. Blank hides the contact link entirely.
     contact_email = models.EmailField(blank=True, default='')
+    # Admin logging retention (days). The high-volume per-request AccessLog is
+    # pruned aggressively; the low-volume ActionLog (logins/signups/errors/admin
+    # actions) is kept long-term. 0 = keep forever. DailyLogRollup is never pruned.
+    access_log_retention_days = models.PositiveIntegerField(default=30)
+    event_log_retention_days = models.PositiveIntegerField(default=0)
     updated_at = models.DateTimeField(auto_now=True)
 
     @classmethod
@@ -881,3 +886,89 @@ class StatsSnapshot(models.Model):
 
     def __str__(self):
         return f"StatsSnapshot {self.user.username} ({self.status})"
+
+
+class AccessLog(models.Model):
+    """One row per HTTP request — the admin panel's traffic/IP-access log.
+
+    High volume: written by the batched background writer (log_writer.py) from
+    RequestLoggingMiddleware, and pruned by log_cleanup_tasks after
+    SiteConfig.access_log_retention_days. Operational data — excluded from backups.
+    """
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='access_logs')
+    path = models.CharField(max_length=500)
+    method = models.CharField(max_length=10)
+    user_agent = models.TextField(blank=True)
+    status_code = models.PositiveSmallIntegerField(null=True, blank=True)
+    response_ms = models.PositiveIntegerField(null=True, blank=True)
+    timestamp = models.DateTimeField(db_index=True)
+
+    class Meta:
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['ip_address', '-timestamp'], name='tracker_alog_ip_idx'),
+            models.Index(fields=['user', '-timestamp'], name='tracker_alog_user_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.method} {self.path} {self.status_code} @ {self.timestamp}"
+
+
+class ActionLog(models.Model):
+    """Significant events — logins/signups, server errors, admin ops, deletions.
+
+    Low volume, high value: kept long-term (SiteConfig.event_log_retention_days,
+    default 0 = forever). Error rows carry the traceback in `description`.
+    Operational data — excluded from backups.
+    """
+    ACTION_CHOICES = [
+        ('login', 'Login'),
+        ('logout', 'Logout'),
+        ('signup', 'Signup'),
+        ('login_fail', 'Login failed'),
+        ('error', 'Server error'),
+        ('import', 'Import data'),
+        ('delete_data', 'Delete location data'),
+        ('delete_account', 'Delete account'),
+        ('admin_toggle', 'Admin toggle'),
+        ('admin_delete_user', 'Admin deleted user'),
+        ('custom_js_save', 'Custom JS saved'),
+        ('api_key_create', 'API key created'),
+        ('api_key_delete', 'API key deleted'),
+        ('other', 'Other'),
+    ]
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='action_logs')
+    action = models.CharField(max_length=30, choices=ACTION_CHOICES, db_index=True)
+    description = models.TextField(blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    timestamp = models.DateTimeField(db_index=True)
+
+    class Meta:
+        ordering = ['-timestamp']
+
+    def __str__(self):
+        return f"{self.action} by {self.user_id} @ {self.timestamp}"
+
+
+class DailyLogRollup(models.Model):
+    """Per-day aggregate of log activity — kept forever, powers long-range graphs.
+
+    Computed by log_cleanup_tasks *before* raw rows are pruned, so the analytics
+    time series survives even after AccessLog/ActionLog rows are deleted. Tiny
+    (one row per day). Operational data — excluded from backups.
+    """
+    date = models.DateField(unique=True, db_index=True)
+    requests = models.PositiveIntegerField(default=0)
+    unique_ips = models.PositiveIntegerField(default=0)
+    unique_users = models.PositiveIntegerField(default=0)
+    logins = models.PositiveIntegerField(default=0)
+    signups = models.PositiveIntegerField(default=0)
+    errors = models.PositiveIntegerField(default=0)
+    computed_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date']
+
+    def __str__(self):
+        return f"Rollup {self.date}: {self.requests} req"

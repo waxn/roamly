@@ -342,6 +342,23 @@ def _client_ip(request):
     return request.META.get('REMOTE_ADDR', '') or 'unknown'
 
 
+def _log_action(request, action, description='', user=None):
+    """Queue an ActionLog row for the admin panel via the batched writer.
+
+    Best-effort and non-blocking — a logging failure must never break the flow
+    it's recording, so the whole thing is wrapped in try/except."""
+    try:
+        u = user if user is not None else (request.user if request.user.is_authenticated else None)
+        uid = u.id if u else None
+        from .log_writer import enqueue_action
+        enqueue_action(
+            user_id=uid, action=action, description=description,
+            ip_address=_client_ip(request), timestamp=timezone.now(),
+        )
+    except Exception:
+        pass
+
+
 def _rate_limited(request, scope, limit, window_s):
     """Return True if this client has already made `limit` requests to `scope`
     within the trailing `window_s` seconds. IP-keyed, cache-backed (Redis in
@@ -400,6 +417,7 @@ def login_view(request):
                     return JsonResponse({'status': 'verify', 'purpose': 'login', 'email': _mask_email(user.email)})
                 return redirect('tracker:verify')
             login(request, user)
+            _log_action(request, 'login', user=user)
             # Both app and web get a 302 on success — the app already reads the
             # session cookie off the redirect, so older builds keep working; only
             # the new-device *verify* path (below) is app-specific JSON.
@@ -407,6 +425,7 @@ def login_view(request):
             if email_enabled() and user.email:
                 _trust_device(user, request, resp)
             return resp
+        _log_action(request, 'login_fail', description=f"username={username or ''}"[:200])
         if is_app:
             return JsonResponse({'status': 'error', 'message': 'Invalid username or password'}, status=401)
         messages.error(request, 'Invalid username or password.')
@@ -505,6 +524,7 @@ def signup_view(request):
                 _start_verification(request, user, 'signup', next_url)
                 return redirect('tracker:verify')
             login(request, user)
+            _log_action(request, 'signup', user=user)
             return redirect(next_url)
     else:
         form = SignUpForm()
@@ -549,6 +569,7 @@ def verify_view(request):
             if purpose == 'signup':
                 UserProfile.objects.filter(user=user).update(email_verified=True)
             login(request, user)
+            _log_action(request, 'signup' if purpose == 'signup' else 'login', user=user)
             request.session.pop('pending_verify', None)
             resp = JsonResponse({'status': 'ok'}) if is_app else redirect(pv.get('next') or 'tracker:map')
             _trust_device(user, request, resp)  # trust the device that just verified
@@ -580,6 +601,7 @@ def verify_resend(request):
 
 
 def logout_view(request):
+    _log_action(request, 'logout')
     logout(request)
     return redirect('tracker:login')
 
@@ -713,6 +735,7 @@ def site_custom_js_api(request):
     config.custom_js = custom_js or ''
     config.save(update_fields=['custom_js', 'updated_at'])
     cache.delete(CUSTOM_JS_CACHE_KEY)
+    _log_action(request, 'custom_js_save')
     return JsonResponse({'ok': True})
 
 
@@ -5505,6 +5528,7 @@ def create_api_key(request):
     name = request.POST.get('name', 'My Device')
     api_key = APIKey(user=request.user, name=name)
     api_key.save()
+    _log_action(request, 'api_key_create', description=name[:200])
     return JsonResponse({"status": "ok", "key": api_key.key, "name": api_key.name, "id": api_key.id})
 
 
@@ -5534,7 +5558,9 @@ def app_api_key(request):
 @require_http_methods(["POST", "DELETE"])
 def delete_api_key(request, key_id):
     api_key = get_object_or_404(APIKey, id=key_id, user=request.user)
+    key_name = api_key.name
     api_key.delete()
+    _log_action(request, 'api_key_delete', description=(key_name or '')[:200])
     return JsonResponse({"status": "ok"})
 
 
@@ -5596,6 +5622,7 @@ def delete_location_data(request):
         locations = locations.filter(timestamp__gte=cutoff)
 
     count, _ = locations.delete()
+    _log_action(request, 'delete_data', description=f"range={range_val}, deleted={count}")
     return JsonResponse({"status": "ok", "deleted": count})
 
 
@@ -5619,6 +5646,9 @@ def delete_account(request):
     """Delete the user's account and all associated data."""
     user = request.user
     username = user.username
+    # Log with user=None (the row must outlive the account) before deletion, so
+    # the async writer doesn't insert a now-dangling FK after the user is gone.
+    _log_action(request, 'delete_account', description=f"username={username}", user=False)
     logout(request)
     user.delete()
     return JsonResponse({"status": "ok"})
@@ -8105,6 +8135,8 @@ def admin_toggle_admin_api(request, user_id):
     profile, _ = UserProfile.objects.get_or_create(user=target)
     profile.is_admin = not profile.is_admin
     profile.save(update_fields=['is_admin'])
+    _log_action(request, 'admin_toggle',
+                description=f"{target.username} -> is_admin={profile.is_admin}")
     return JsonResponse({'ok': True, 'is_admin': profile.is_admin})
 
 
@@ -8123,9 +8155,338 @@ def admin_delete_user_api(request, user_id):
     from django.contrib.auth.models import User as AuthUser
     target = get_object_or_404(AuthUser, id=user_id)
     username = target.username
+    # Log before delete (the acting admin survives; the target's own action rows
+    # SET_NULL). Record on the admin's behalf so the audit row keeps a valid FK.
+    _log_action(request, 'admin_delete_user', description=f"deleted user {username}")
     # Everything the user owns (devices, locations, …) cascades on delete.
     target.delete()
     return JsonResponse({'ok': True, 'deleted': username})
+
+
+# ---------------------------------------------------------------------------
+# Admin logging & monitoring
+#
+# Restored + extended from the pre-0036 admin logging. AccessLog is the
+# high-volume per-request log (pruned by retention); ActionLog holds the
+# low-volume kept-long-term events (logins/signups/errors/admin actions);
+# DailyLogRollup preserves per-day aggregates forever so long-range graphs
+# survive pruning. All endpoints are admin-only via _require_admin.
+# ---------------------------------------------------------------------------
+
+# How far back each dashboard window looks, and whether it buckets by hour or day.
+_ADMIN_RANGES = {
+    '24h': (timedelta(hours=24), 'hour'),
+    '7d': (timedelta(days=7), 'hour'),
+    '30d': (timedelta(days=30), 'day'),
+    'all': (None, 'day'),
+}
+
+
+def _admin_daily_series(since_date):
+    """Per-day {date, requests, unique_ips, unique_users, logins, signups, errors}
+    from DailyLogRollup (historical, survives pruning) merged with a live
+    aggregation of AccessLog/ActionLog for any recent days not yet rolled up
+    (today + anything after the last rollup). since_date=None ⇒ whole history."""
+    from django.db.models.functions import TruncDate
+    from .models import AccessLog, ActionLog, DailyLogRollup
+
+    rollups = DailyLogRollup.objects.all()
+    if since_date:
+        rollups = rollups.filter(date__gte=since_date)
+    by_date = {
+        r.date: {
+            'date': r.date.isoformat(),
+            'requests': r.requests, 'unique_ips': r.unique_ips,
+            'unique_users': r.unique_users, 'logins': r.logins,
+            'signups': r.signups, 'errors': r.errors,
+        }
+        for r in rollups
+    }
+
+    # Live-aggregate the not-yet-rolled-up tail (dates strictly after the last
+    # rollup, or everything if there are no rollups yet), so today shows current.
+    last_rollup = DailyLogRollup.objects.order_by('-date').values_list('date', flat=True).first()
+    acc = AccessLog.objects.all()
+    act = ActionLog.objects.all()
+    if last_rollup is not None:
+        live_from = last_rollup + timedelta(days=1)
+        naive = datetime.combine(live_from, dt_time.min)
+        live_from_dt = timezone.make_aware(naive) if timezone.is_naive(naive) else naive
+        acc = acc.filter(timestamp__gte=live_from_dt)
+        act = act.filter(timestamp__gte=live_from_dt)
+    elif since_date:
+        naive = datetime.combine(since_date, dt_time.min)
+        since_dt = timezone.make_aware(naive) if timezone.is_naive(naive) else naive
+        acc = acc.filter(timestamp__gte=since_dt)
+        act = act.filter(timestamp__gte=since_dt)
+
+    req_by_day = dict(
+        acc.annotate(d=TruncDate('timestamp')).values('d')
+        .annotate(n=Count('id')).values_list('d', 'n')
+    )
+    ip_by_day = dict(
+        acc.exclude(ip_address__isnull=True).annotate(d=TruncDate('timestamp'))
+        .values('d').annotate(n=Count('ip_address', distinct=True)).values_list('d', 'n')
+    )
+    usr_by_day = dict(
+        acc.filter(user__isnull=False).annotate(d=TruncDate('timestamp'))
+        .values('d').annotate(n=Count('user', distinct=True)).values_list('d', 'n')
+    )
+    act_by_day = {}
+    for row in (act.annotate(d=TruncDate('timestamp')).values('d', 'action')
+                .annotate(n=Count('id'))):
+        act_by_day.setdefault(row['d'], {}).update({row['action']: row['n']})
+
+    live_dates = set(req_by_day) | set(act_by_day)
+    for d in live_dates:
+        if since_date and d < since_date:
+            continue
+        actions = act_by_day.get(d, {})
+        by_date[d] = {
+            'date': d.isoformat(),
+            'requests': req_by_day.get(d, 0),
+            'unique_ips': ip_by_day.get(d, 0),
+            'unique_users': usr_by_day.get(d, 0),
+            'logins': actions.get('login', 0),
+            'signups': actions.get('signup', 0),
+            'errors': actions.get('error', 0),
+        }
+
+    return [by_date[d] for d in sorted(by_date)]
+
+
+@login_required
+def admin_overview_api(request):
+    """Monitoring dashboard: stat tiles, a request-volume time series, status /
+    top-path / top-IP breakdowns, and recent events."""
+    err = _require_admin(request)
+    if err:
+        return err
+
+    from django.db.models.functions import TruncHour
+    from .models import AccessLog, ActionLog
+
+    rng = request.GET.get('range', '24h')
+    if rng not in _ADMIN_RANGES:
+        rng = '24h'
+    delta, gran = _ADMIN_RANGES[rng]
+    now = timezone.now()
+    since = (now - delta) if delta else None
+
+    acc = AccessLog.objects.all()
+    act = ActionLog.objects.all()
+    if since:
+        acc = acc.filter(timestamp__gte=since)
+        act = act.filter(timestamp__gte=since)
+
+    # Time series.
+    if gran == 'hour':
+        buckets = list(
+            acc.annotate(t=TruncHour('timestamp')).values('t')
+            .annotate(n=Count('id')).order_by('t').values_list('t', 'n')
+        )
+        act_buckets = {}
+        for row in (act.annotate(t=TruncHour('timestamp')).values('t', 'action')
+                    .annotate(n=Count('id'))):
+            act_buckets.setdefault(row['t'], {})[row['action']] = row['n']
+        series = [
+            {
+                't': t.isoformat(), 'requests': n,
+                'logins': act_buckets.get(t, {}).get('login', 0),
+                'signups': act_buckets.get(t, {}).get('signup', 0),
+                'errors': act_buckets.get(t, {}).get('error', 0),
+            }
+            for t, n in buckets
+        ]
+    else:
+        since_date = timezone.localtime(since).date() if since else None
+        series = [
+            {
+                't': d['date'], 'requests': d['requests'],
+                'logins': d['logins'], 'signups': d['signups'], 'errors': d['errors'],
+            }
+            for d in _admin_daily_series(since_date)
+        ]
+
+    # Stat tiles. For hourly windows the raw rows are all present; for day
+    # windows (30d/all) totals sum the series so pruned days still count.
+    if gran == 'hour':
+        total_requests = acc.count()
+        unique_ips = acc.exclude(ip_address__isnull=True).values('ip_address').distinct().count()
+        unique_users = acc.filter(user__isnull=False).values('user').distinct().count()
+        logins = act.filter(action='login').count()
+        signups = act.filter(action='signup').count()
+        errors = act.filter(action='error').count()
+    else:
+        total_requests = sum(s['requests'] for s in series)
+        logins = sum(s['logins'] for s in series)
+        signups = sum(s['signups'] for s in series)
+        errors = sum(s['errors'] for s in series)
+        # Unique counts don't sum across days; report the best-effort distinct
+        # over whatever raw AccessLog rows remain in the window.
+        unique_ips = acc.exclude(ip_address__isnull=True).values('ip_address').distinct().count()
+        unique_users = acc.filter(user__isnull=False).values('user').distinct().count()
+
+    avg_val = acc.filter(response_ms__isnull=False).aggregate(a=Avg('response_ms'))['a']
+    avg_ms = round(avg_val) if avg_val is not None else None
+
+    status_breakdown = dict(
+        acc.exclude(status_code__isnull=True).values('status_code')
+        .annotate(n=Count('id')).values_list('status_code', 'n')
+    )
+    top_paths = list(
+        acc.values('path').annotate(n=Count('id')).order_by('-n')[:15].values_list('path', 'n')
+    )
+    top_ips = list(
+        acc.exclude(ip_address__isnull=True).values('ip_address')
+        .annotate(n=Count('id')).order_by('-n')[:10].values_list('ip_address', 'n')
+    )
+    recent_actions = list(
+        act.select_related('user').order_by('-timestamp')[:20].values(
+            'timestamp', 'action', 'description', 'ip_address', 'user__username'
+        )
+    )
+
+    return JsonResponse({
+        'range': rng,
+        'granularity': gran,
+        'total_requests': total_requests,
+        'unique_ips': unique_ips,
+        'unique_users': unique_users,
+        'logins': logins,
+        'signups': signups,
+        'errors': errors,
+        'avg_response_ms': avg_ms,
+        'series': series,
+        'status_breakdown': {str(k): v for k, v in status_breakdown.items()},
+        'top_paths': [{'path': p, 'count': n} for p, n in top_paths],
+        'top_ips': [{'ip': ip, 'count': n} for ip, n in top_ips],
+        'recent_actions': [
+            {
+                'timestamp': a['timestamp'].isoformat(),
+                'action': a['action'],
+                'description': a['description'],
+                'ip': a['ip_address'],
+                'username': a['user__username'],
+            }
+            for a in recent_actions
+        ],
+    }, encoder=DjangoJSONEncoder)
+
+
+@login_required
+def admin_access_logs_api(request):
+    """Paginated access-log browse with optional ip/path/user/hours filters."""
+    err = _require_admin(request)
+    if err:
+        return err
+    from .models import AccessLog
+
+    page = max(1, int(request.GET.get('page', 1)))
+    per_page = min(200, max(1, int(request.GET.get('per_page', 50))))
+    ip_filter = request.GET.get('ip', '').strip()
+    path_filter = request.GET.get('path', '').strip()
+    user_filter = request.GET.get('user', '').strip()
+    hours = request.GET.get('hours', '')
+
+    qs = AccessLog.objects.select_related('user').order_by('-timestamp')
+    if ip_filter:
+        qs = qs.filter(ip_address__icontains=ip_filter)
+    if path_filter:
+        qs = qs.filter(path__icontains=path_filter)
+    if user_filter:
+        qs = qs.filter(user__username__icontains=user_filter)
+    if hours:
+        try:
+            qs = qs.filter(timestamp__gte=timezone.now() - timedelta(hours=int(hours)))
+        except (ValueError, TypeError):
+            pass
+
+    total = qs.count()
+    offset = (page - 1) * per_page
+    rows = list(qs[offset:offset + per_page].values(
+        'id', 'ip_address', 'user__username', 'path', 'method',
+        'status_code', 'response_ms', 'timestamp', 'user_agent',
+    ))
+    return JsonResponse({
+        'total': total, 'page': page, 'per_page': per_page,
+        'rows': [
+            {
+                'id': r['id'], 'ip': r['ip_address'], 'user': r['user__username'],
+                'path': r['path'], 'method': r['method'], 'status': r['status_code'],
+                'ms': r['response_ms'], 'timestamp': r['timestamp'].isoformat(),
+                'ua': r['user_agent'],
+            }
+            for r in rows
+        ],
+    }, encoder=DjangoJSONEncoder)
+
+
+@login_required
+def admin_action_logs_api(request):
+    """Paginated event-log browse (logins/signups/errors/admin actions)."""
+    err = _require_admin(request)
+    if err:
+        return err
+    from .models import ActionLog
+
+    page = max(1, int(request.GET.get('page', 1)))
+    per_page = min(200, max(1, int(request.GET.get('per_page', 50))))
+    action_filter = request.GET.get('action', '').strip()
+    hours = request.GET.get('hours', '')
+
+    qs = ActionLog.objects.select_related('user').order_by('-timestamp')
+    if action_filter == 'auth':
+        qs = qs.filter(action__in=['login', 'logout', 'signup', 'login_fail'])
+    elif action_filter == 'admin':
+        qs = qs.filter(action__in=['admin_toggle', 'admin_delete_user', 'custom_js_save'])
+    elif action_filter:
+        qs = qs.filter(action=action_filter)
+    if hours:
+        try:
+            qs = qs.filter(timestamp__gte=timezone.now() - timedelta(hours=int(hours)))
+        except (ValueError, TypeError):
+            pass
+
+    total = qs.count()
+    offset = (page - 1) * per_page
+    rows = list(qs[offset:offset + per_page].values(
+        'id', 'user__username', 'action', 'description', 'ip_address', 'timestamp'
+    ))
+    return JsonResponse({
+        'total': total, 'page': page, 'per_page': per_page,
+        'rows': [
+            {
+                'id': r['id'], 'user': r['user__username'], 'action': r['action'],
+                'description': r['description'], 'ip': r['ip_address'],
+                'timestamp': r['timestamp'].isoformat(),
+            }
+            for r in rows
+        ],
+    }, encoder=DjangoJSONEncoder)
+
+
+@login_required
+def admin_log_config_api(request):
+    """GET/POST the log retention settings on SiteConfig (admins only)."""
+    err = _require_admin(request)
+    if err:
+        return err
+    config = SiteConfig.load()
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+        except (json.JSONDecodeError, AttributeError, ValueError):
+            data = request.POST
+        if 'access_log_retention_days' in data:
+            config.access_log_retention_days = max(0, int(data.get('access_log_retention_days') or 0))
+        if 'event_log_retention_days' in data:
+            config.event_log_retention_days = max(0, int(data.get('event_log_retention_days') or 0))
+        config.save(update_fields=['access_log_retention_days', 'event_log_retention_days', 'updated_at'])
+    return JsonResponse({
+        'access_log_retention_days': config.access_log_retention_days,
+        'event_log_retention_days': config.event_log_retention_days,
+    })
 
 
 # ---------------------------------------------------------------------------

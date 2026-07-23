@@ -231,4 +231,9 @@ urlpatterns = [
     path('api/admin/users/', views.admin_users_api, name='admin_users_api'),
     path('api/admin/users/<int:user_id>/toggle-admin/', views.admin_toggle_admin_api, name='admin_toggle_admin'),
     path('api/admin/users/<int:user_id>/delete/', views.admin_delete_user_api, name='admin_delete_user'),
+    # Logging & monitoring
+    path('api/admin/overview/', views.admin_overview_api, name='admin_overview'),
+    path('api/admin/access-logs/', views.admin_access_logs_api, name='admin_access_logs'),
+    path('api/admin/action-logs/', views.admin_action_logs_api, name='admin_action_logs'),
+    path('api/admin/log-config/', views.admin_log_config_api, name='admin_log_config'),
 ]

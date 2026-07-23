@@ -34,6 +34,8 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'tracker.middleware.ApiKeyAuthMiddleware',
+    # After ApiKeyAuthMiddleware so request.user is resolved before we log it.
+    'tracker.middleware.RequestLoggingMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -143,3 +145,25 @@ LOGIN_REDIRECT_URL = '/map/'
 
 # File uploads (for GPX/CSV import)
 DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100MB
+
+# Logging: capture unhandled 500s into the admin panel's ActionLog (with
+# traceback) via a custom handler on Django's 'django.request' logger, which
+# fires on every 5xx response. disable_existing_loggers=False keeps Django's
+# default console logging intact; the handler is best-effort and never raises.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'action_log_errors': {
+            'level': 'ERROR',
+            'class': 'tracker.error_log_handler.ActionLogErrorHandler',
+        },
+    },
+    'loggers': {
+        'django.request': {
+            'handlers': ['action_log_errors'],
+            'level': 'ERROR',
+            'propagate': True,
+        },
+    },
+}
