@@ -9,7 +9,6 @@ Emails are sent as multipart text + branded HTML (the HTML mirrors the site's
 """
 import logging
 import secrets
-from email.mime.image import MIMEImage
 
 from django.conf import settings
 from django.contrib.staticfiles import finders
@@ -17,6 +16,41 @@ from django.core.mail import EmailMultiAlternatives
 from django.utils.html import escape
 
 logger = logging.getLogger(__name__)
+
+
+class _InlineImageEmail(EmailMultiAlternatives):
+    """``EmailMultiAlternatives`` that embeds inline images by Content-ID.
+
+    Django 6.0 rewrote ``django.core.mail`` on top of Python's modern
+    ``email.message.EmailMessage`` and dropped the undocumented
+    ``mixed_subtype`` attribute we previously abused to nest the logo into a
+    ``multipart/related`` part (setting it now raises). Instead we let Django
+    build the message, then attach each related image to the ``text/html`` part
+    via ``add_related``, yielding the RFC 2387 structure clients expect:
+    ``alternative[text/plain, related[text/html, image]]``.
+
+    ``related`` is a list of ``(cid, bytes, subtype)`` tuples; ``cid`` includes
+    the angle brackets (e.g. ``"<roamlylogo>"``), matching the ``cid:roamlylogo``
+    reference in the HTML.
+    """
+
+    def __init__(self, *args, related=None, **kwargs):
+        self._related = related or []
+        super().__init__(*args, **kwargs)
+
+    def message(self, **kwargs):
+        msg = super().message(**kwargs)
+        if self._related:
+            html = next(
+                (p for p in msg.walk() if p.get_content_type() == 'text/html'),
+                None,
+            )
+            if html is not None:
+                for cid, data, subtype in self._related:
+                    html.add_related(
+                        data, maintype='image', subtype=subtype, cid=cid
+                    )
+        return msg
 
 # Inline brand logo (the trail-blaze mark + "Roamly" in Fraunces) embedded via a
 # Content-ID reference so the real lockup renders instead of a plain-text word.
@@ -164,21 +198,17 @@ def _send(subject, text_body, html_body, to_email, reply_to=None):
     if not email_enabled() or not to_email:
         return False
     try:
-        msg = EmailMultiAlternatives(
+        # Embed the lockup as a related inline image the HTML references by CID
+        # (Content-ID ``<roamlylogo>`` ↔ ``cid:roamlylogo``), so the real lockup
+        # renders in Gmail/Apple/Outlook instead of the plain-text alt fallback.
+        logo = _logo_bytes()
+        related = [(f'<{_LOGO_CID}>', logo, 'png')] if logo else []
+        msg = _InlineImageEmail(
             subject, text_body, settings.DEFAULT_FROM_EMAIL, [to_email],
             reply_to=[reply_to] if reply_to else None,
+            related=related,
         )
         msg.attach_alternative(html_body, "text/html")
-        logo = _logo_bytes()
-        if logo:
-            # Embed the lockup as a related inline image the HTML references by CID.
-            # Promoting the container to multipart/related nests the text/html
-            # alternative + the image correctly for Gmail/Apple/Outlook.
-            img = MIMEImage(logo, _subtype='png')
-            img.add_header('Content-ID', f'<{_LOGO_CID}>')
-            img.add_header('Content-Disposition', 'inline', filename='roamly.png')
-            msg.attach(img)
-            msg.mixed_subtype = 'related'
         msg.send()
         return True
     except Exception as exc:  # noqa: BLE001 — deliberately broad; log and move on
