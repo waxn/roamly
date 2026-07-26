@@ -627,6 +627,18 @@
                         fog of war
                         <span class="tool-btn-badge" id="fog-badge"></span>
                     </button>
+                    {% if ROAD_SNAP_ENABLED %}
+                    <button class="tool-btn" id="snap-btn" type="button">
+                        snap to roads
+                        <span class="tool-btn-badge" id="snap-badge"></span>
+                    </button>
+                    {% endif %}
+                    {% if ROAD_GAPFILL_ENABLED %}
+                    <button class="tool-btn" id="inferred-btn" type="button">
+                        filled gaps
+                        <span class="tool-btn-badge" id="inferred-badge"></span>
+                    </button>
+                    {% endif %}
                     <button class="tool-btn" id="replay-btn" type="button">
                         replay day
                         <span class="tool-btn-badge" id="replay-badge"></span>
@@ -1031,6 +1043,8 @@ const dotSizeArgs = DOT_SIZES[dotSizePref] || DOT_SIZES.medium;
 const heatIntArgs = HEATMAP_INTENSITY[heatmapIntensity] || HEATMAP_INTENSITY.medium;
 
 let accMap = new Map();            // "devId:ts" → Feature, deduped accumulated points
+let accGen = 0;                    // bumped on clear, so a late snap can't paint stale data
+const rawCoords = new Map();       // point id → recorded [lng,lat], so snapping is reversible
 let fetchedAreas = [];             // {w,s,e,n} bboxes where we have complete data (no limit hit)
 let detailLoading = false;
 let lastViewportHitLimit = false;  // whether last viewport fetch hit the limit
@@ -1159,8 +1173,19 @@ function initAccLayers() {
     map.on('mouseleave', ACC_DOTS_LAYER, () => map.getCanvas().style.cursor = '');
 }
 
+function repaintAcc() {
+    if (map.getSource(ACC_SOURCE_ID)) {
+        map.getSource(ACC_SOURCE_ID).setData(getAccFC());
+    }
+    if (connectLines === 'on' && map.getSource(ACC_LINES_SOURCE)) {
+        map.getSource(ACC_LINES_SOURCE).setData(buildLinesFC());
+    }
+}
+
 function clearAccumulated() {
     accMap.clear();
+    accGen++;
+    rawCoords.clear();
     fetchedAreas = [];
     lastViewportHitLimit = false;
     if (map.getLayer(ACC_HEAT_LAYER)) map.removeLayer(ACC_HEAT_LAYER);
@@ -1177,12 +1202,12 @@ function mergeAccFeatures(newFeatures) {
         accMap.set(key, f);
     });
     initAccLayers();
-    if (map.getSource(ACC_SOURCE_ID)) {
-        map.getSource(ACC_SOURCE_ID).setData(getAccFC());
-    }
-    if (connectLines === 'on' && map.getSource(ACC_LINES_SOURCE)) {
-        map.getSource(ACC_LINES_SOURCE).setData(buildLinesFC());
-    }
+    repaintAcc();
+    // Snapping is a second, cheap round-trip rather than part of /api/locations/:
+    // it keeps the hottest endpoint (and its caching, and the data table and the
+    // mobile app that share it) completely untouched, and lets a snap failure
+    // cost nothing but the correction.
+    snapAccFeatures(newFeatures);
 }
 
 function updateDetailControls() {
@@ -1482,6 +1507,7 @@ function loadTrack(autoFit) {
 
 map.on('load', () => {
     loadTrack(true);
+    loadInferredGaps();
     if (window.__selectedFromURL) {
         fetchAndFocusSelected(window.__selectedFromURL, window.__selectedDateFromURL);
     }
@@ -1491,7 +1517,11 @@ map.on('zoomend', () => updateDetailControls());
 
 map.on('moveend', () => {
     if (moveDebounce) clearTimeout(moveDebounce);
-    moveDebounce = setTimeout(() => { moveDebounce = null; maybeLoadViewport(); }, 400);
+    moveDebounce = setTimeout(() => {
+        moveDebounce = null;
+        maybeLoadViewport();
+        loadInferredGaps();
+    }, 400);
 });
 
 document.getElementById('map-load-more-btn').addEventListener('click', () => {
@@ -1503,6 +1533,7 @@ document.getElementById('map-load-more-btn').addEventListener('click', () => {
         updateDateFilterUI();
         clearAccumulated();
         loadTrack(true);
+        loadInferredGaps();
     });
 });
 
@@ -1517,6 +1548,7 @@ document.getElementById('map-load-more-btn').addEventListener('click', () => {
         updateDateFilterUI();
         clearAccumulated();
         loadTrack(true);
+        loadInferredGaps();
     });
 });
 
@@ -1697,6 +1729,226 @@ placesBtn.addEventListener('click', async () => {
 if (placesOn) applyPlacesToggle();
 
 // ═══════════════════════════════════════════════════════════════════
+// Snap to roads — display only.
+//
+// The recorded latitude/longitude in the database are never touched: the server
+// works out the nearest road position, caches it per point id, and hands it back
+// for rendering. Toggling off restores the recorded coordinates from rawCoords,
+// so the raw track is always one click away.
+//
+// Only the detail (accMap) layer snaps. The decimated /api/track/ layer only
+// shows below DETAIL_MIN_ZOOM, where a 10m correction is well under a pixel.
+// ═══════════════════════════════════════════════════════════════════
+const SNAP_AVAILABLE = {{ ROAD_SNAP_ENABLED|yesno:"true,false" }};
+const SNAP_BATCH = 2000;          // ids per request; the server caps at 5000
+const snapBtn = document.getElementById('snap-btn');
+const snapBadge = document.getElementById('snap-badge');
+let snapOn = SNAP_AVAILABLE && (localStorage.getItem('roamly_snap_roads') || 'on') === 'on';
+let snapCount = 0;
+
+function updateSnapBadge() {
+    if (!snapBadge) return;
+    snapBadge.textContent = snapOn ? (snapCount ? `${snapCount.toLocaleString()} snapped` : 'on') : '';
+}
+
+function snapAccFeatures(features) {
+    if (!snapOn || !features || !features.length) return;
+    const ids = features.map(f => f.properties.id).filter(v => v !== null && v !== undefined);
+    if (!ids.length) return;
+
+    for (let i = 0; i < ids.length; i += SNAP_BATCH) {
+        const batch = ids.slice(i, i + SNAP_BATCH);
+        const gen = accGen;
+        fetch('/api/roads/snap/', {
+            method: 'POST',
+            headers: { 'X-CSRFToken': csrfToken, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: batch }),
+        })
+            .then(r => r.json())
+            .then(d => {
+                // A filter change cleared the map while this was in flight.
+                if (gen !== accGen || !snapOn) return;
+                if (d.error) { console.warn('Snap to roads:', d.error); return; }
+                const snapped = d.snapped || {};
+                let n = 0;
+                accMap.forEach(f => {
+                    const c = snapped[String(f.properties.id)];
+                    if (!c) return;
+                    if (!rawCoords.has(f.properties.id)) {
+                        rawCoords.set(f.properties.id, f.geometry.coordinates.slice());
+                    }
+                    f.geometry.coordinates = c;
+                    n++;
+                });
+                if (n) {
+                    snapCount = rawCoords.size;
+                    updateSnapBadge();
+                    repaintAcc();
+                }
+            })
+            .catch(() => {});
+    }
+}
+
+function unsnapAcc() {
+    let n = 0;
+    accMap.forEach(f => {
+        const raw = rawCoords.get(f.properties.id);
+        if (raw) { f.geometry.coordinates = raw.slice(); n++; }
+    });
+    rawCoords.clear();
+    snapCount = 0;
+    updateSnapBadge();
+    if (n) repaintAcc();
+}
+
+if (snapBtn) {
+    snapBtn.classList.toggle('active', snapOn);
+    updateSnapBadge();
+    snapBtn.addEventListener('click', () => {
+        snapOn = !snapOn;
+        localStorage.setItem('roamly_snap_roads', snapOn ? 'on' : 'off');
+        snapBtn.classList.toggle('active', snapOn);
+        if (snapOn) {
+            snapAccFeatures(Array.from(accMap.values()));
+            updateSnapBadge();
+        } else {
+            unsnapAcc();
+        }
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Filled gaps — inferred points that bridge tracking dropouts.
+//
+// Drawn as a dashed mauve line with hollow dots, deliberately unlike any real
+// device track, because these points were reconstructed rather than recorded.
+// They live in their own table, so they never reach stats, visits or distance.
+// ═══════════════════════════════════════════════════════════════════
+const GAPFILL_AVAILABLE = {{ ROAD_GAPFILL_ENABLED|yesno:"true,false" }};
+const INF_SOURCE = 'inferred-src';
+const INF_LINE_LAYER = 'inferred-line';
+const INF_DOTS_LAYER = 'inferred-dots';
+const inferredBtn = document.getElementById('inferred-btn');
+const inferredBadge = document.getElementById('inferred-badge');
+let inferredOn = GAPFILL_AVAILABLE && (localStorage.getItem('roamly_show_inferred') || 'on') === 'on';
+let inferredFC = { type: 'FeatureCollection', features: [] };
+let inferredGapCount = 0;
+
+// Idempotent and self-guarding, so it can be called from both style.load and
+// styledata — the same reason addPlacesLayers is written this way.
+function addInferredLayers() {
+    if (!inferredOn) return;
+    if (!map.isStyleLoaded() || map.getSource(INF_SOURCE)) return;
+    map.addSource(INF_SOURCE, { type: 'geojson', data: inferredFC });
+    map.addLayer({
+        id: INF_LINE_LAYER, type: 'line', source: INF_SOURCE,
+        filter: ['==', ['geometry-type'], 'LineString'],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+            'line-color': '#a78bda',
+            'line-width': 3,
+            'line-opacity': 0.85,
+            'line-dasharray': [2, 2],
+        },
+    });
+    map.addLayer({
+        id: INF_DOTS_LAYER, type: 'circle', source: INF_SOURCE,
+        filter: ['==', ['geometry-type'], 'Point'],
+        minzoom: DETAIL_MIN_ZOOM,
+        paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 2, 12, 4, 16, 6],
+            'circle-color': 'rgba(0,0,0,0)',
+            'circle-stroke-width': 1.5,
+            'circle-stroke-color': '#a78bda',
+        },
+    });
+    map.on('click', INF_DOTS_LAYER, e => {
+        const p = e.features[0].properties;
+        const ts = p.timestamp ? new Date(p.timestamp) : null;
+        let html = '<strong>inferred point</strong>'
+            + '<br><span style="color:var(--text-muted)">not a recorded fix</span>';
+        if (ts && !isNaN(ts.getTime())) {
+            html += `<br><span style="color:var(--text-muted)">${ts.toLocaleString()}</span>`;
+        }
+        if (p.provider) html += `<br><span style="color:var(--text-muted)">via ${p.provider}</span>`;
+        new maplibregl.Popup({ offset: 10 })
+            .setLngLat(e.features[0].geometry.coordinates.slice())
+            .setHTML(html)
+            .addTo(map);
+    });
+    map.on('mouseenter', INF_DOTS_LAYER, () => map.getCanvas().style.cursor = 'pointer');
+    map.on('mouseleave', INF_DOTS_LAYER, () => map.getCanvas().style.cursor = '');
+}
+
+function removeInferredLayers() {
+    [INF_LINE_LAYER, INF_DOTS_LAYER].forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
+    if (map.getSource(INF_SOURCE)) map.removeSource(INF_SOURCE);
+}
+
+function updateInferredBadge() {
+    if (!inferredBadge) return;
+    if (!inferredOn) { inferredBadge.textContent = ''; return; }
+    inferredBadge.textContent = inferredGapCount
+        ? `${inferredGapCount} gap${inferredGapCount === 1 ? '' : 's'}`
+        : 'none here';
+}
+
+function loadInferredGaps() {
+    if (!inferredOn) return;
+    const params = new URLSearchParams(buildFilterParams());
+    const b = map.getBounds();
+    params.set('min_lng', b.getWest());
+    params.set('min_lat', b.getSouth());
+    params.set('max_lng', b.getEast());
+    params.set('max_lat', b.getNorth());
+
+    fetch(`/api/inferred/?${params.toString()}`)
+        .then(r => r.json())
+        .then(d => {
+            if (!inferredOn) return;
+            const features = [];
+            (d.gaps || []).forEach(g => {
+                if (g.coords.length >= 2) {
+                    features.push({
+                        type: 'Feature',
+                        geometry: { type: 'LineString', coordinates: g.coords },
+                        properties: { gap_id: g.id, provider: g.provider },
+                    });
+                }
+                g.coords.forEach((c, i) => features.push({
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: c },
+                    properties: { gap_id: g.id, provider: g.provider, timestamp: i === 0 ? g.start : '' },
+                }));
+            });
+            inferredFC = { type: 'FeatureCollection', features };
+            inferredGapCount = (d.gaps || []).length;
+            updateInferredBadge();
+            addInferredLayers();
+            if (map.getSource(INF_SOURCE)) map.getSource(INF_SOURCE).setData(inferredFC);
+        })
+        .catch(() => {});
+}
+
+if (inferredBtn) {
+    inferredBtn.classList.toggle('active', inferredOn);
+    inferredBtn.addEventListener('click', () => {
+        inferredOn = !inferredOn;
+        localStorage.setItem('roamly_show_inferred', inferredOn ? 'on' : 'off');
+        inferredBtn.classList.toggle('active', inferredOn);
+        if (inferredOn) {
+            loadInferredGaps();
+        } else {
+            removeInferredLayers();
+            inferredFC = { type: 'FeatureCollection', features: [] };
+            updateInferredBadge();
+        }
+    });
+    updateInferredBadge();
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Fog of war — dim everywhere the user has never been.
 //
 // Always all-time, never date-filtered: explored territory stays explored.
@@ -1850,6 +2102,7 @@ map.on('style.load', () => {
     applyProjection();
     if (scratchOn) addScratchLayers();
     addPlacesLayers();
+    addInferredLayers();
 });
 
 // Places-circle retry. isStyleLoaded() can still be false at the instant
@@ -1858,6 +2111,7 @@ map.on('style.load', () => {
 // fires repeatedly while the style settles, and addPlacesLayers is idempotent,
 // so the layer reliably lands on whichever tick is ready.
 map.on('styledata', addPlacesLayers);
+map.on('styledata', addInferredLayers);
 
 // ═══════════════════════════════════════════════════════════════════
 // Daily replay — scrub/animate a single day's track
@@ -1887,6 +2141,8 @@ function baseLayerIds() {
     const ids = [];
     activeSources.forEach(id => { [`${id}-heat`, `${id}-dots`].forEach(l => ids.push(l)); });
     [ACC_HEAT_LAYER, ACC_LINES_LAYER, ACC_DOTS_LAYER].forEach(l => ids.push(l));
+    // Inferred gaps hide with the rest of the base layers during replay.
+    [INF_LINE_LAYER, INF_DOTS_LAYER].forEach(l => ids.push(l));
     return ids;
 }
 function setBaseLayersVisible(visible) {
