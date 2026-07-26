@@ -34,3 +34,8 @@ class TrackerConfig(AppConfig):
                 start_log_cleanup_scheduler()
             except Exception:
                 pass
+            try:
+                from .gapfill_tasks import start_gapfill_scheduler
+                start_gapfill_scheduler()
+            except Exception:
+                pass
