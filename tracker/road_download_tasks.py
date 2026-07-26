@@ -14,15 +14,17 @@ Other size controls:
   * only drivable highway classes — no service roads (driveways and parking
     aisles are a large share of all OSM ways and you never snap a drive to one),
     no footways, paths or cycleways
-  * bigint[] node ids rather than JSON
+  * `node_ids` is left empty: the routing graph identifies a junction by the
+    shared *coordinate* (roads._vkey), since connected ways share a node and so
+    carry an identical position, which makes the id list dead weight on the
+    biggest table in the app
   * way_id is unique, so overlapping areas dedupe instead of duplicating
 
 Geometry is stored **unsimplified**, deliberately. Douglas-Peucker would shave
-20-30% of vertices, but RoadSegment.node_ids must stay index-aligned with the
-geometry for the routing graph to find intersections, and a simplifier has no
-way of knowing which vertices are junctions shared with another way — dropping
-one silently disconnects the graph there. The area reduction above already saves
-far more than simplification would.
+20-30% of vertices, but a junction is recognised *by its coordinate*, and a
+simplifier has no way of knowing which vertices are shared with another way —
+dropping one silently disconnects the graph there. The area reduction above
+already saves far more than simplification would.
 """
 
 import json
@@ -141,17 +143,20 @@ def _download_boxes(boxes):
                   if g and g.get('lon') is not None and g.get('lat') is not None]
         if len(coords) < 2:
             continue
-        nodes = el.get('nodes') or []
         tags = el.get('tags') or {}
         ways.append({
             'way_id': el['id'],
             'name': (tags.get('name') or '')[:200],
             'highway': (tags.get('highway') or '')[:32],
             'oneway': tags.get('oneway') in ('yes', 'true', '1', '-1'),
-            # Only keep node ids when they line up 1:1 with the coordinates.
-            # A mismatch (a way clipped at the query edge) still snaps fine —
-            # _load_graph just skips it for routing rather than mis-indexing it.
-            'node_ids': list(nodes) if len(nodes) == len(coords) else [],
+            # Vestigial. The routing graph keys vertices on the coordinates
+            # themselves (roads._vkey), because connected ways share a node and
+            # therefore share an identical coordinate. Depending on node ids
+            # instead used to break routing outright: Overpass returns incomplete
+            # geometry for ways clipped at a query-box edge, those rows got no
+            # node ids, and every one was silently dropped from the graph. Left
+            # unpopulated so it costs nothing on the largest table in the app.
+            'node_ids': [],
             'coords': coords,
         })
     return ways

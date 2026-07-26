@@ -61,10 +61,16 @@ _SNAP_CHUNK = 400          # points per SQL round-trip
 _SNAP_CACHE_TTL = 604800   # 7 days — a snapped fix never changes
 
 # --- Routing ----------------------------------------------------------------
-_MAX_GRAPH_SEGMENTS = 60000   # ways in the search bbox before we give up
+# Ways in the search bbox before we give up. Lower than it looks because the
+# graph is keyed on coordinates, so a way contributes a vertex per shape point,
+# not one per junction — 25k ways is already ~500k transient dict entries.
+_MAX_GRAPH_SEGMENTS = 25000
 _ROUTE_MAX_KM = 150.0         # longer than this is not a plausible road gap
-_BBOX_PAD_FRAC = 0.30
-_BBOX_MIN_PAD_DEG = 0.02
+_BBOX_PAD_FRAC = 0.60         # generous: a detour outside the box is unroutable
+_BBOX_MIN_PAD_DEG = 0.05      # ~5km, so short gaps still see the surrounding grid
+# If the nearest known road to an anchor is further than this, that anchor isn't
+# on the downloaded network and routing from it would invent a leg.
+_ROUTE_MAX_ANCHOR_M = 1000.0
 # Prefer the fast road when several routes are similar in length. Weights
 # multiply true metres, so 0.6 means "a motorway kilometre costs 600m".
 _HIGHWAY_WEIGHT = {
@@ -314,70 +320,97 @@ def _local_snap(pts):
     return out
 
 
+def _vkey(lng, lat):
+    """Vertex identity for the routing graph: the coordinate itself.
+
+    Two OSM ways connect by *sharing a node*, which means they carry the byte
+    identical coordinate at that position. So rounding to ~1cm and keying on the
+    pair is equivalent to keying on the node id — without depending on node ids
+    lining up with the geometry, which is exactly what used to break the graph:
+    Overpass returns incomplete geometry for ways clipped at a query-box edge,
+    the importer then stored no node ids for them, and every such way was
+    silently dropped from the graph. Enough of them are dropped that routes stop
+    existing and every gap degrades to a straight line.
+    """
+    return (round(lng, 7), round(lat, 7))
+
+
 def _load_graph(a, b, mode=''):
     """Build a routing graph from the RoadSegment rows around the two anchors.
 
-    Ways are split at nodes they share with another way — that shared node id is
-    exactly what an intersection is — giving edges between junctions. This is why
-    RoadSegment stores node_ids: without them the rows are drawable but not
-    routable, and reconstructing intersections geometrically would mean an
-    ST_Intersects storm over the biggest table in the database.
+    Ways are split at coordinates shared with another way — an intersection —
+    giving edges between junctions. Splitting rather than using every vertex
+    keeps the node count (and so the A* frontier) roughly an order of magnitude
+    smaller.
     """
     from django.contrib.gis.geos import Polygon
     from .models import RoadSegment
 
     min_lng, max_lng = min(a[0], b[0]), max(a[0], b[0])
     min_lat, max_lat = min(a[1], b[1]), max(a[1], b[1])
-    pad_lng = max((max_lng - min_lng) * _BBOX_PAD_FRAC, _BBOX_MIN_PAD_DEG)
-    pad_lat = max((max_lat - min_lat) * _BBOX_PAD_FRAC, _BBOX_MIN_PAD_DEG)
-    bbox = Polygon.from_bbox((min_lng - pad_lng, min_lat - pad_lat,
-                             max_lng + pad_lng, max_lat + pad_lat))
+    # Pad generously: the road actually taken can detour well outside the box
+    # the two anchors span, and a route that leaves the box cannot be found at
+    # all. Cheap insurance — the bbox filter is index-backed.
+    span = max(max_lng - min_lng, max_lat - min_lat)
+    pad = max(span * _BBOX_PAD_FRAC, _BBOX_MIN_PAD_DEG)
+    bbox = Polygon.from_bbox((min_lng - pad, min_lat - pad,
+                             max_lng + pad, max_lat + pad))
 
     segs = list(
         RoadSegment.objects.filter(geom__bboverlaps=bbox)
-        .values_list('way_id', 'node_ids', 'highway', 'oneway', 'geom')[:_MAX_GRAPH_SEGMENTS + 1]
+        .values_list('highway', 'oneway', 'geom')[:_MAX_GRAPH_SEGMENTS + 1]
     )
     if len(segs) > _MAX_GRAPH_SEGMENTS:
         logger.info('Local route: %d ways in bbox, above cap — bailing', len(segs))
         return None, None
+    if not segs:
+        logger.info('Local route: no road data around (%.4f,%.4f)-(%.4f,%.4f)',
+                    a[0], a[1], b[0], b[1])
+        return None, None
 
-    # A node shared by two or more ways is a junction. Way endpoints always are.
+    # A coordinate touched by two or more ways is a junction; way endpoints
+    # always are, so every way contributes at least one edge.
+    coords_per_seg = []
     seen, junctions = set(), set()
-    for _wid, node_ids, _hw, _ow, _geom in segs:
-        for n in (node_ids or ()):
-            if n in seen:
-                junctions.add(n)
+    for highway, oneway, geom in segs:
+        coords = list(geom.coords)
+        if len(coords) < 2:
+            coords_per_seg.append(None)
+            continue
+        coords_per_seg.append(coords)
+        for c in coords:
+            k = _vkey(c[0], c[1])
+            if k in seen:
+                junctions.add(k)
             else:
-                seen.add(n)
-        if node_ids:
-            junctions.add(node_ids[0])
-            junctions.add(node_ids[-1])
+                seen.add(k)
+        junctions.add(_vkey(coords[0][0], coords[0][1]))
+        junctions.add(_vkey(coords[-1][0], coords[-1][1]))
+    del seen
 
     adj = {}
     node_pos = {}
     # One-way restrictions are a driving concept; on foot both directions are
     # walkable, so honouring them would refuse perfectly ordinary routes.
     honour_oneway = mode not in ('walk', 'cycle')
-    for _wid, node_ids, highway, oneway, geom in segs:
-        coords = list(geom.coords)
-        if not node_ids or len(node_ids) != len(coords) or len(coords) < 2:
-            # Overpass gives node ids and geometry in lockstep; if a row doesn't
-            # line up it's unusable for routing (still fine for snapping).
+    for (highway, oneway, _geom), coords in zip(segs, coords_per_seg):
+        if not coords:
             continue
         weight_mult = _HIGHWAY_WEIGHT.get(highway, _DEFAULT_HIGHWAY_WEIGHT)
-        cut = [i for i, n in enumerate(node_ids) if n in junctions]
+        cut = [i for i, c in enumerate(coords) if _vkey(c[0], c[1]) in junctions]
         for k in range(len(cut) - 1):
             i, j = cut[k], cut[k + 1]
-            n_from, n_to = node_ids[i], node_ids[j]
-            if n_from == n_to:
+            k_from = _vkey(coords[i][0], coords[i][1])
+            k_to = _vkey(coords[j][0], coords[j][1])
+            if k_from == k_to:
                 continue
             sub = coords[i:j + 1]
             cost = _polyline_length_m(sub) * weight_mult
-            node_pos[n_from] = coords[i]
-            node_pos[n_to] = coords[j]
-            adj.setdefault(n_from, []).append((n_to, cost, sub))
+            node_pos[k_from] = coords[i]
+            node_pos[k_to] = coords[j]
+            adj.setdefault(k_from, []).append((k_to, cost, sub))
             if not (oneway and honour_oneway):
-                adj.setdefault(n_to, []).append((n_from, cost, sub[::-1]))
+                adj.setdefault(k_to, []).append((k_from, cost, sub[::-1]))
     return adj, node_pos
 
 
@@ -395,9 +428,15 @@ def _local_route(a, b, mode=''):
     if not adj:
         return None
 
-    start, _ = _nearest_node(node_pos, a)
-    goal, _ = _nearest_node(node_pos, b)
+    start, start_d = _nearest_node(node_pos, a)
+    goal, goal_d = _nearest_node(node_pos, b)
     if start is None or goal is None or start == goal:
+        return None
+    if start_d > _ROUTE_MAX_ANCHOR_M or goal_d > _ROUTE_MAX_ANCHOR_M:
+        # One end is nowhere near a known road — usually means the road download
+        # hasn't covered this area. A straight line is more honest than a route
+        # that teleports to the nearest highway.
+        logger.info('Local route: anchors %.0fm / %.0fm from nearest road', start_d, goal_d)
         return None
 
     goal_pos = node_pos[goal]
