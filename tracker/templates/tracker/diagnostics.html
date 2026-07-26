@@ -6,6 +6,7 @@
     <div class="diag-tabs">
         <button class="diag-tab active" id="tab-stats" onclick="switchTab('stats')">Coverage &amp; Stats</button>
         <button class="diag-tab" id="tab-review" onclick="switchTab('review')">Quality Review</button>
+        <button class="diag-tab" id="tab-inferred" onclick="switchTab('inferred')">Inferred Points</button>
     </div>
 
     <!-- ── Coverage & Stats pane ─────────────────────────────────────────── -->
@@ -89,6 +90,34 @@
                         Hit <strong>Scan for issues</strong> to detect suspicious points.
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Inferred Points pane ──────────────────────────────────────────── -->
+    <div id="pane-inferred" style="display:none;">
+        <div class="page-toolbar" style="margin-bottom:1rem;">
+            <div>
+                <h1>inferred points</h1>
+                <p class="page-lead" style="margin-bottom:0;">audit the points added to fill tracking gaps — delete anything that guessed wrong.</p>
+            </div>
+            <div class="toolbar-actions" style="flex-wrap:wrap;">
+                <select id="inf-status" class="form-control" style="width:auto;" onchange="loadInferred()">
+                    <option value="">All gaps</option>
+                    <option value="filled">Routed on roads</option>
+                    <option value="straight">Straight line</option>
+                    <option value="skipped">Skipped</option>
+                    <option value="failed">Failed</option>
+                    <option value="dismissed">Deleted by me</option>
+                </select>
+                <span id="inf-status-msg" style="font-size:0.82rem;color:var(--text-muted);">Loading…</span>
+            </div>
+        </div>
+        <div class="review-layout">
+            <div id="inf-map-el" class="review-map"></div>
+            <div class="review-panel">
+                <div id="inf-count" class="review-count"></div>
+                <div id="inf-list" class="review-list"></div>
             </div>
         </div>
     </div>
@@ -217,6 +246,37 @@
 .review-actions { display: flex; gap: 0.4rem; }
 .review-actions .btn { font-size: 0.75rem; padding: 0.25rem 0.6rem; }
 .review-empty { padding: 2rem; text-align:center; color:var(--text-muted); font-size:0.85rem; }
+
+/* ── inferred points ───────────────────────────────────────────────────── */
+/* Status badges reuse .review-reason's shape but not its red — only 'failed'
+   is actually a problem; a routed gap is the feature working. */
+.inf-badge {
+    font-size: 0.68rem; font-weight: 700; padding: 0.1rem 0.45rem;
+    border-radius: 0; text-transform: uppercase; letter-spacing: 0.04em;
+    background: rgba(120,140,160,0.18); color: var(--text-muted);
+}
+.inf-badge.inf-filled   { background: rgba(122,158,110,0.18); color: var(--clay-mint); }
+.inf-badge.inf-straight { background: rgba(214,160,74,0.18); color: var(--clay-amber); }
+.inf-badge.inf-failed   { background: rgba(239,68,68,0.15); color: #d4553f; }
+.inf-meta {
+    font-size: 0.76rem; color: var(--text-muted); margin-bottom: 0.35rem;
+    font-variant-numeric: tabular-nums;
+}
+.inf-detail { font-size: 0.74rem; color: var(--text-muted); font-style: italic; margin-bottom: 0.35rem; }
+.inf-points {
+    margin: 0.4rem 0 0.2rem; border-top: 1px dashed var(--border);
+    max-height: 190px; overflow-y: auto;
+}
+.inf-point {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 0.5rem; padding: 0.22rem 0; font-size: 0.74rem;
+    color: var(--text-muted); font-variant-numeric: tabular-nums;
+}
+.inf-point button {
+    background: none; border: none; color: #d4553f; cursor: pointer;
+    font-size: 0.78rem; padding: 0 0.25rem; line-height: 1;
+}
+.inf-point button:hover { text-decoration: underline; }
 </style>
 {% endblock %}
 
@@ -288,9 +348,12 @@ function gapPill(maxS) {
 function switchTab(tab) {
     document.getElementById('pane-stats').style.display = tab === 'stats' ? '' : 'none';
     document.getElementById('pane-review').style.display = tab === 'review' ? '' : 'none';
+    document.getElementById('pane-inferred').style.display = tab === 'inferred' ? '' : 'none';
     document.getElementById('tab-stats').classList.toggle('active', tab === 'stats');
     document.getElementById('tab-review').classList.toggle('active', tab === 'review');
+    document.getElementById('tab-inferred').classList.toggle('active', tab === 'inferred');
     if (tab === 'review') initReviewMap();
+    if (tab === 'inferred') initInferredTab();
 }
 
 // ── range controls ───────────────────────────────────────────────────────────
@@ -872,5 +935,232 @@ function removeReviewItem(id, deleteFromMap) {
         }
     }
 }
+
+// ── inferred points audit ────────────────────────────────────────────────────
+// The gap, not the point, is the unit here: dismissing a gap is what tells the
+// nightly sweep never to infer it again, whereas deleting one point just tidies
+// a single bad guess and leaves the rest of the route in place.
+let infMap = null;
+let infData = null;
+let infExpanded = null;
+const INF_SOURCE = 'inf-src';
+
+const INF_STATUS_LABEL = {
+    filled: 'routed', straight: 'straight line', skipped: 'skipped',
+    failed: 'failed', dismissed: 'deleted',
+};
+
+function initInferredTab() {
+    if (infMap) return;
+    infMap = new maplibregl.Map({
+        container: 'inf-map-el',
+        style: reviewMapStyle(),
+        center: [0, 20],
+        zoom: 1,
+    });
+    infMap.on('load', () => {
+        // Inferred route: dashed, mauve — deliberately unmistakable against the
+        // solid device-coloured tracks on the main map.
+        infMap.addSource(INF_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        infMap.addLayer({
+            id: 'inf-line', type: 'line', source: INF_SOURCE,
+            filter: ['==', ['geometry-type'], 'LineString'],
+            paint: {
+                'line-color': '#a78bda', 'line-width': 3,
+                'line-opacity': 0.9, 'line-dasharray': [2, 2],
+            }
+        });
+        infMap.addLayer({
+            id: 'inf-dots', type: 'circle', source: INF_SOURCE,
+            filter: ['all', ['==', ['geometry-type'], 'Point'], ['!=', ['get', 'kind'], 'anchor']],
+            paint: {
+                'circle-radius': 4, 'circle-color': 'rgba(0,0,0,0)',
+                'circle-stroke-width': 1.5, 'circle-stroke-color': '#a78bda',
+            }
+        });
+        // The two real fixes the gap sits between, for context.
+        infMap.addLayer({
+            id: 'inf-anchors', type: 'circle', source: INF_SOURCE,
+            filter: ['==', ['get', 'kind'], 'anchor'],
+            paint: {
+                'circle-radius': 6, 'circle-color': '#e8763d',
+                'circle-stroke-width': 2, 'circle-stroke-color': '#fff',
+            }
+        });
+        loadInferred();
+    });
+}
+
+function loadInferred() {
+    const msg = document.getElementById('inf-status-msg');
+    msg.textContent = 'loading…';
+    const status = document.getElementById('inf-status').value;
+    fetch('/api/gaps/?limit=200' + (status ? '&status=' + encodeURIComponent(status) : ''))
+        .then(r => r.json())
+        .then(d => {
+            infData = d;
+            msg.textContent = '';
+            renderInferred();
+        })
+        .catch(() => { msg.textContent = 'failed to load.'; });
+}
+
+function renderInferred() {
+    const list = document.getElementById('inf-list');
+    const count = document.getElementById('inf-count');
+    if (!infData || !infData.gaps.length) {
+        count.textContent = '';
+        list.innerHTML = '<div class="review-empty">No inferred gaps yet. Turn on gap filling in '
+            + 'Settings, then run <strong>Fill Tracking Gaps</strong>.</div>';
+        if (infMap && infMap.getSource(INF_SOURCE)) {
+            infMap.getSource(INF_SOURCE).setData({ type: 'FeatureCollection', features: [] });
+        }
+        return;
+    }
+
+    const shown = infData.gaps.length;
+    const pts = infData.gaps.reduce((a, g) => a + g.point_count, 0);
+    count.textContent = `${shown} of ${infData.total.toLocaleString()} gap${infData.total !== 1 ? 's' : ''}`
+        + ` · ${pts.toLocaleString()} inferred point${pts !== 1 ? 's' : ''}`;
+
+    list.innerHTML = infData.gaps.map(g => {
+        const badge = `<span class="inf-badge inf-${g.status}">${esc(INF_STATUS_LABEL[g.status] || g.status)}</span>`;
+        const via = g.provider ? ` · via ${esc(g.provider)}` : '';
+        const route = g.route_distance_m
+            ? ` · ${fmtDist(g.route_distance_m / 1000)} of road`
+            : '';
+        const detail = g.detail ? `<div class="inf-detail">${esc(g.detail)}</div>` : '';
+        const expanded = infExpanded === g.id;
+        const pointRows = expanded && g.points.length
+            ? `<div class="inf-points">${g.points.map(p => `
+                <div class="inf-point" id="ip-${p.id}">
+                    <span>${esc(new Date(p.timestamp).toLocaleTimeString())} · ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}</span>
+                    <button onclick="deleteInferredPoint(${p.id}, event)" title="Delete this point">✗</button>
+                </div>`).join('')}</div>`
+            : '';
+
+        return `<div class="review-item ${expanded ? 'active' : ''}" id="ig-${g.id}" onclick="focusGap(${g.id})">
+            <div class="review-item-ts">${esc(fmtTime(g.start))} · ${esc(g.device)}</div>
+            <div class="review-item-loc">${esc(fmtDur(g.duration_s))} gap · ${esc(fmtDist(g.distance_m / 1000))} apart</div>
+            <div class="inf-meta">${badge} ${g.point_count} point${g.point_count !== 1 ? 's' : ''}${route}${via}</div>
+            ${detail}
+            ${pointRows}
+            <div class="review-actions">
+                ${g.point_count ? `<button class="btn" onclick="toggleGapPoints(${g.id}, event)">${expanded ? 'Hide' : 'Show'} points</button>` : ''}
+                ${g.status === 'dismissed'
+                    ? `<button class="btn" onclick="restoreGap(${g.id}, event)" title="Allow this gap to be filled again">↺ Allow again</button>`
+                    : `<button class="btn" style="color:var(--danger);border-color:var(--danger);" onclick="dismissGap(${g.id}, event)" title="Delete these points and never refill this gap">✗ Delete gap</button>`}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function focusGap(gapId) {
+    if (!infMap || !infData) return;
+    const g = infData.gaps.find(x => x.id === gapId);
+    if (!g) return;
+
+    document.querySelectorAll('#inf-list .review-item').forEach(el => el.classList.remove('active'));
+    const row = document.getElementById('ig-' + gapId);
+    if (row) row.classList.add('active');
+
+    const features = [];
+    const coords = g.points.map(p => [p.lng, p.lat]);
+    const line = [];
+    if (g.start_anchor) line.push([g.start_anchor.lng, g.start_anchor.lat]);
+    line.push(...coords);
+    if (g.end_anchor) line.push([g.end_anchor.lng, g.end_anchor.lat]);
+
+    if (line.length >= 2) {
+        features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: line }, properties: {} });
+    }
+    coords.forEach(c => features.push({
+        type: 'Feature', geometry: { type: 'Point', coordinates: c }, properties: { kind: 'inferred' }
+    }));
+    [g.start_anchor, g.end_anchor].forEach(a => {
+        if (a) features.push({
+            type: 'Feature', geometry: { type: 'Point', coordinates: [a.lng, a.lat] },
+            properties: { kind: 'anchor' }
+        });
+    });
+
+    infMap.getSource(INF_SOURCE).setData({ type: 'FeatureCollection', features });
+
+    if (line.length) {
+        const lngs = line.map(c => c[0]), lats = line.map(c => c[1]);
+        infMap.fitBounds(
+            [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+            { padding: 60, maxZoom: 15, duration: 500 }
+        );
+    }
+}
+
+function toggleGapPoints(gapId, e) {
+    e.stopPropagation();
+    infExpanded = infExpanded === gapId ? null : gapId;
+    renderInferred();
+    if (infExpanded === gapId) focusGap(gapId);
+}
+
+function dismissGap(gapId, e) {
+    e.stopPropagation();
+    const g = infData && infData.gaps.find(x => x.id === gapId);
+    const n = g ? g.point_count : 0;
+    // Confirm here but not for a single point: dismissing also suppresses future
+    // fills of this gap, which is not obvious from the button alone.
+    if (!confirm(`Delete ${n} inferred point${n !== 1 ? 's' : ''} and never fill this gap again?`)) return;
+
+    fetch(`/api/gaps/${gapId}/dismiss/`, { method: 'POST', headers: { 'X-CSRFToken': CSRF } })
+        .then(r => r.json())
+        .then(d => {
+            if (d.status !== 'ok' || !infData) return;
+            if (document.getElementById('inf-status').value) {
+                // A status filter is active, so the row may no longer belong here.
+                loadInferred();
+                return;
+            }
+            g.status = 'dismissed';
+            g.point_count = 0;
+            g.points = [];
+            if (infExpanded === gapId) infExpanded = null;
+            renderInferred();
+            if (infMap && infMap.getSource(INF_SOURCE)) {
+                infMap.getSource(INF_SOURCE).setData({ type: 'FeatureCollection', features: [] });
+            }
+        });
+}
+
+function restoreGap(gapId, e) {
+    e.stopPropagation();
+    fetch(`/api/gaps/${gapId}/restore/`, { method: 'POST', headers: { 'X-CSRFToken': CSRF } })
+        .then(r => r.json())
+        .then(d => { if (d.status === 'ok') loadInferred(); });
+}
+
+function deleteInferredPoint(pointId, e) {
+    e.stopPropagation();
+    fetch(`/api/inferred/${pointId}/delete/`, { method: 'DELETE', headers: { 'X-CSRFToken': CSRF } })
+        .then(r => r.json())
+        .then(d => {
+            if (d.status !== 'ok' || !infData) return;
+            // Patch local state rather than refetching, matching removeReviewItem.
+            for (const g of infData.gaps) {
+                const i = g.points.findIndex(p => p.id === pointId);
+                if (i >= 0) {
+                    g.points.splice(i, 1);
+                    g.point_count = d.point_count;
+                    renderInferred();
+                    focusGap(g.id);
+                    break;
+                }
+            }
+        });
+}
+
+// Settings links straight here with ?tab=inferred.
+(function () {
+    const tab = new URLSearchParams(location.search).get('tab');
+    if (tab === 'inferred' || tab === 'review') switchTab(tab);
+})();
 </script>
 {% endblock %}
