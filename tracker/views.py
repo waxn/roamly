@@ -38,6 +38,7 @@ from .models import (
     AdventureMember, AdventureBlurb, AdventureBlurbPhoto, AdventureMilestone, AdventureComment,
     SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig, StatsSnapshot,
     DismissedSuggestion, PlannedStop, KnownDevice,
+    InferredGap, InferredLocation, RoadSegment,
 )
 from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email, send_contact_email
 from .image_utils import resize_image, resize_photo
@@ -8623,3 +8624,396 @@ def mobile_download_apk(request):
         filename=safe_name,
     )
     return response
+
+
+# ---------------------------------------------------------------------------
+# Roads: snap-to-road rendering + tracking-gap filling
+#
+# Snapping is display-only — nothing here ever writes to Location. Gap filling
+# writes InferredLocation rows, which no aggregate in the app reads, so stats,
+# visits, distance and backups are unaffected by design.
+# ---------------------------------------------------------------------------
+
+_SNAP_MAX_IDS = 5000
+
+
+@login_required
+def profile_roads_config_api(request):
+    """GET/POST the user's road provider + snapping/gap-fill toggles.
+
+    Mirrors profile_ai_config_api. `resolved` tells the UI which provider the
+    "auto" setting actually lands on, so the card can say what will happen
+    rather than leaving the user to guess.
+    """
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+
+    if request.method != 'POST':
+        return JsonResponse({
+            'road_provider': profile.road_provider,
+            'resolved': profile.road_provider_resolved,
+            'osrm_url': profile.osrm_url,
+            'snap_to_roads': profile.snap_to_roads,
+            'gap_fill_enabled': profile.gap_fill_enabled,
+            'gap_fill_auto': profile.gap_fill_auto,
+            'gap_fill_min_minutes': profile.gap_fill_min_minutes,
+            'has_postgis': HAS_POSTGIS,
+            'has_local_roads': RoadSegment.objects.exists() if HAS_POSTGIS else False,
+            'has_mapbox_token': bool(profile.mapbox_token),
+        })
+
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+
+    provider = (data.get('road_provider') or '').strip()
+    if provider not in ('', 'local', 'mapbox', 'osrm'):
+        return JsonResponse({'error': 'Unknown road provider.'}, status=400)
+    profile.road_provider = provider
+    profile.osrm_url = (data.get('osrm_url') or '').strip().rstrip('/')[:300]
+    profile.snap_to_roads = bool(data.get('snap_to_roads'))
+    profile.gap_fill_enabled = bool(data.get('gap_fill_enabled'))
+    profile.gap_fill_auto = bool(data.get('gap_fill_auto'))
+    try:
+        minutes = int(data.get('gap_fill_min_minutes', 2))
+    except (TypeError, ValueError):
+        minutes = 2
+    profile.gap_fill_min_minutes = max(1, min(120, minutes))
+
+    profile.save(update_fields=[
+        'road_provider', 'osrm_url', 'snap_to_roads', 'gap_fill_enabled',
+        'gap_fill_auto', 'gap_fill_min_minutes',
+    ])
+    return JsonResponse({
+        'ok': True,
+        'resolved': profile.road_provider_resolved,
+        'snap_to_roads': profile.snap_to_roads,
+        'gap_fill_enabled': profile.gap_fill_enabled,
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
+def roads_snap_api(request):
+    """Snap a batch of the user's own points to the road network, for display.
+
+    The client sends **only point ids**; the coordinates are read back from the
+    database here. That is deliberate: it enforces ownership, stops a caller
+    seeding the snap cache with coordinates it made up, and guarantees the
+    timestamp ordering the local smoother depends on for continuity.
+    """
+    from . import roads as roads_mod
+
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if not profile.snap_to_roads:
+        return JsonResponse({'snapped': {}, 'provider': ''})
+
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+
+    raw_ids = data.get('ids') or []
+    if not isinstance(raw_ids, list):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+    ids = []
+    for v in raw_ids[:_SNAP_MAX_IDS]:
+        try:
+            ids.append(int(v))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        return JsonResponse({'snapped': {}, 'provider': profile.road_provider_resolved})
+
+    pts = [
+        {'id': r['id'], 'lat': r['latitude'], 'lng': r['longitude'],
+         'accuracy': r['accuracy']}
+        for r in (Location.objects
+                  .filter(id__in=ids, device__user=request.user)
+                  .order_by('timestamp', 'id')
+                  .values('id', 'latitude', 'longitude', 'accuracy'))
+    ]
+    if not pts:
+        return JsonResponse({'snapped': {}, 'provider': profile.road_provider_resolved})
+
+    try:
+        snapped = roads_mod.snap_points(profile, pts)
+    except roads_mod.RoadProviderError as exc:
+        return JsonResponse({'error': str(exc), 'snapped': {}}, status=200)
+
+    return JsonResponse({
+        'provider': profile.road_provider_resolved,
+        'snapped': {str(k): [v[0], v[1]] for k, v in snapped.items()},
+    })
+
+
+# ── Road data download ──────────────────────────────────────────────────────
+
+@login_required
+@require_http_methods(["POST"])
+def road_download_api(request):
+    """Start downloading OSM road geometry for the areas the user has visited."""
+    from .road_download_tasks import start_road_download
+    job = start_road_download(request.user.id)
+    return JsonResponse({'status': job.status, 'total': job.total})
+
+
+@login_required
+def road_download_status_api(request):
+    """Check road-download progress."""
+    from .road_download_tasks import get_road_download_status
+    return JsonResponse(get_road_download_status(request.user.id))
+
+
+@login_required
+@require_http_methods(["POST"])
+def road_download_stop_api(request):
+    """Stop a running road download."""
+    from .road_download_tasks import stop_road_download
+    return JsonResponse({'stopped': stop_road_download(request.user.id)})
+
+
+# ── Gap filling ─────────────────────────────────────────────────────────────
+
+@login_required
+@require_http_methods(["POST"])
+def gap_fill_api(request):
+    """Start filling tracking gaps with routed inferred points."""
+    from .gapfill_tasks import start_gap_fill
+    job = start_gap_fill(request.user.id)
+    return JsonResponse({'status': job.status, 'total': job.total})
+
+
+@login_required
+def gap_fill_status_api(request):
+    """Check gap-fill progress."""
+    from .gapfill_tasks import get_gap_fill_status
+    return JsonResponse(get_gap_fill_status(request.user.id))
+
+
+@login_required
+@require_http_methods(["POST"])
+def gap_fill_stop_api(request):
+    """Stop a running gap fill."""
+    from .gapfill_tasks import stop_gap_fill
+    return JsonResponse({'stopped': stop_gap_fill(request.user.id)})
+
+
+# ── Reading inferred points ─────────────────────────────────────────────────
+
+def _inferred_filter(request, qs):
+    """Apply the map's device + date filters to an InferredGap queryset.
+
+    Same parameter names and precedence as `locations_api` / `distance_api` so
+    the inferred layer follows the map toolbar without a second convention.
+    """
+    device_id = request.GET.get('device_id') or ''
+    if device_id:
+        qs = qs.filter(device__device_id=device_id)
+
+    start_date = request.GET.get('start_date')
+    end_date = request.GET.get('end_date')
+    if start_date and end_date:
+        try:
+            start = datetime.fromisoformat(start_date)
+            end = datetime.fromisoformat(end_date)
+            if timezone.is_naive(start):
+                start = timezone.make_aware(start)
+            if timezone.is_naive(end):
+                end = timezone.make_aware(end)
+            # A gap overlapping the window is in range, not only one contained
+            # by it — a gap can easily straddle midnight.
+            qs = qs.filter(end_time__gte=start, start_time__lte=end)
+        except (ValueError, TypeError):
+            pass
+    elif not request.GET.get('all'):
+        try:
+            hours = int(request.GET.get('hours', 24))
+        except (ValueError, TypeError):
+            hours = 24
+        qs = qs.filter(end_time__gte=timezone.now() - timedelta(hours=hours))
+    return qs
+
+
+_INFERRED_MAX_GAPS = 400
+
+
+@login_required
+def inferred_locations_api(request):
+    """Inferred gap-fill points for the map, as one polyline per gap.
+
+    Returned per gap rather than as a flat point list so the client can draw a
+    dashed line for each filled stretch without having to re-segment anything.
+    """
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if not profile.gap_fill_enabled:
+        return JsonResponse({'gaps': [], 'enabled': False})
+
+    gaps = _inferred_filter(
+        request,
+        InferredGap.objects.filter(
+            device__user=request.user
+        ).exclude(status__in=['dismissed', 'skipped', 'failed'])
+    ).select_related('device')
+
+    # Optional viewport bbox — same parameter names the map already sends.
+    try:
+        min_lng = float(request.GET['min_lng'])
+        min_lat = float(request.GET['min_lat'])
+        max_lng = float(request.GET['max_lng'])
+        max_lat = float(request.GET['max_lat'])
+        bbox = (min_lng, min_lat, max_lng, max_lat)
+    except (KeyError, TypeError, ValueError):
+        bbox = None
+
+    gaps = list(gaps[:_INFERRED_MAX_GAPS])
+    by_gap = {}
+    pts_qs = (InferredLocation.objects
+              .filter(gap__in=gaps)
+              .order_by('gap_id', 'timestamp')
+              .values_list('gap_id', 'longitude', 'latitude'))
+    for gap_id, lng, lat in pts_qs:
+        by_gap.setdefault(gap_id, []).append([_jf(lng), _jf(lat)])
+
+    out = []
+    for g in gaps:
+        coords = by_gap.get(g.id) or []
+        if len(coords) < 1:
+            continue
+        if bbox and not any(bbox[0] <= c[0] <= bbox[2] and bbox[1] <= c[1] <= bbox[3]
+                            for c in coords):
+            continue
+        out.append({
+            'id': g.id,
+            'device_id': g.device.device_id,
+            'status': g.status,
+            'provider': g.provider,
+            'start': g.start_time.isoformat(),
+            'end': g.end_time.isoformat(),
+            'coords': coords,
+        })
+    return JsonResponse({'gaps': out, 'enabled': True})
+
+
+@login_required
+def inferred_gaps_api(request):
+    """Audit list of inferred gaps, newest first, with their generated points.
+
+    Includes dismissed/failed/skipped rows — the point of the audit view is to
+    see everything the filler decided, not only what it drew.
+    """
+    try:
+        limit = min(200, max(1, int(request.GET.get('limit', 50))))
+    except (TypeError, ValueError):
+        limit = 50
+    try:
+        offset = max(0, int(request.GET.get('offset', 0)))
+    except (TypeError, ValueError):
+        offset = 0
+
+    qs = (InferredGap.objects.filter(device__user=request.user)
+          .select_related('device').order_by('-start_time'))
+    status = request.GET.get('status') or ''
+    if status:
+        qs = qs.filter(status=status)
+
+    total = qs.count()
+    page = list(qs[offset:offset + limit + 1])
+    has_more = len(page) > limit
+    page = page[:limit]
+
+    pts_by_gap = {}
+    for gap_id, pid, lng, lat, ts in (
+        InferredLocation.objects.filter(gap__in=page)
+        .order_by('gap_id', 'timestamp')
+        .values_list('gap_id', 'id', 'longitude', 'latitude', 'timestamp')
+    ):
+        pts_by_gap.setdefault(gap_id, []).append({
+            'id': pid, 'lat': _jf(lat), 'lng': _jf(lng), 'timestamp': ts.isoformat(),
+        })
+
+    # The real fixes either side, so the audit map can show what was bridged.
+    anchor_ids = {g.start_location_id for g in page} | {g.end_location_id for g in page}
+    anchors = {
+        r['id']: {'lat': _jf(r['latitude']), 'lng': _jf(r['longitude']),
+                  'timestamp': r['timestamp'].isoformat()}
+        for r in Location.objects.filter(
+            id__in=anchor_ids, device__user=request.user
+        ).values('id', 'latitude', 'longitude', 'timestamp')
+    }
+
+    gaps = []
+    for g in page:
+        gaps.append({
+            'id': g.id,
+            'device': g.device.name or g.device.device_id,
+            'status': g.status,
+            'provider': g.provider,
+            'detail': g.detail,
+            'start': g.start_time.isoformat(),
+            'end': g.end_time.isoformat(),
+            'duration_s': (g.end_time - g.start_time).total_seconds(),
+            'distance_m': _jf(g.distance_m),
+            'route_distance_m': _jf(g.route_distance_m),
+            'point_count': g.point_count,
+            'points': pts_by_gap.get(g.id) or [],
+            'start_anchor': anchors.get(g.start_location_id),
+            'end_anchor': anchors.get(g.end_location_id),
+        })
+
+    return JsonResponse({'gaps': gaps, 'total': total, 'has_more': has_more,
+                         'offset': offset, 'limit': limit})
+
+
+@login_required
+@require_http_methods(["POST"])
+def inferred_gap_dismiss_api(request, gap_id):
+    """Delete a gap's inferred points and mark it dismissed.
+
+    Dismissed rather than deleted on purpose: the row is what stops the nightly
+    sweep from re-inferring the same gap tomorrow. Same reasoning as
+    DismissedSuggestion — rejection is the state worth keeping.
+    """
+    try:
+        gap = InferredGap.objects.get(id=gap_id, device__user=request.user)
+    except InferredGap.DoesNotExist:
+        return JsonResponse({'error': 'Not found'}, status=404)
+
+    gap.points.all().delete()
+    gap.status = 'dismissed'
+    gap.point_count = 0
+    gap.save(update_fields=['status', 'point_count'])
+    _bust_user_cache(request.user.id)
+    return JsonResponse({'status': 'ok'})
+
+
+@login_required
+@require_http_methods(["POST"])
+def inferred_gap_restore_api(request, gap_id):
+    """Un-dismiss a gap so the next fill run may infer it again."""
+    updated = InferredGap.objects.filter(
+        id=gap_id, device__user=request.user, status='dismissed'
+    ).delete()
+    if not updated[0]:
+        return JsonResponse({'error': 'Not found'}, status=404)
+    _bust_user_cache(request.user.id)
+    return JsonResponse({'status': 'ok'})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def inferred_location_delete_api(request, point_id):
+    """Delete a single inferred point. Mirrors delete_location."""
+    try:
+        point = InferredLocation.objects.select_related('gap').get(
+            id=point_id, device__user=request.user)
+    except InferredLocation.DoesNotExist:
+        return JsonResponse({'error': 'Not found'}, status=404)
+
+    gap = point.gap
+    point.delete()
+    remaining = gap.points.count()
+    InferredGap.objects.filter(id=gap.id).update(point_count=remaining)
+    _bust_user_cache(request.user.id)
+    return JsonResponse({'status': 'ok', 'point_count': remaining})

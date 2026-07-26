@@ -156,6 +156,22 @@ urlpatterns = [
     path('api/transport/detect/stop/', views.transport_stop_api, name='transport_stop'),
     path('api/transport/breakdown/', views.transport_breakdown_api, name='transport_breakdown'),
 
+    # Roads & Gap Filling API
+    path('api/profile/roads-config/', views.profile_roads_config_api, name='profile_roads_config'),
+    path('api/roads/snap/', views.roads_snap_api, name='roads_snap'),
+    path('api/roads/download/', views.road_download_api, name='road_download'),
+    path('api/roads/download/status/', views.road_download_status_api, name='road_download_status'),
+    path('api/roads/download/stop/', views.road_download_stop_api, name='road_download_stop'),
+    # Literal routes first so `fill/` can't be captured by the <int:gap_id> converter.
+    path('api/gaps/fill/', views.gap_fill_api, name='gap_fill'),
+    path('api/gaps/fill/status/', views.gap_fill_status_api, name='gap_fill_status'),
+    path('api/gaps/fill/stop/', views.gap_fill_stop_api, name='gap_fill_stop'),
+    path('api/gaps/', views.inferred_gaps_api, name='inferred_gaps'),
+    path('api/gaps/<int:gap_id>/dismiss/', views.inferred_gap_dismiss_api, name='inferred_gap_dismiss'),
+    path('api/gaps/<int:gap_id>/restore/', views.inferred_gap_restore_api, name='inferred_gap_restore'),
+    path('api/inferred/', views.inferred_locations_api, name='inferred_locations'),
+    path('api/inferred/<int:point_id>/delete/', views.inferred_location_delete_api, name='inferred_location_delete'),
+
     # Automatic Backups
     path('api/backup/config/', views.backup_config_api, name='backup_config'),
     path('api/backup/test/', views.backup_test_api, name='backup_test'),
