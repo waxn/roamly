@@ -54,7 +54,7 @@ sudo docker compose exec web python manage.py migrate
 sudo docker compose exec web python manage.py shell
 ```
 
-Templates and `tracker/migrations/` are volume-mounted — template edits are live without a rebuild. Python file changes require a restart. Model changes require a new migration.
+`tracker/migrations/`, `staticfiles/` and `media/` are volume-mounted (see `docker-compose.yml`); **templates are not** — a template edit needs `up -d --build` to reach the container. Python file changes require a restart. Model changes require a new migration.
 
 ## Architecture
 
@@ -175,6 +175,9 @@ Callbacks run on `HandlerThread` ("RoamlyLocCb"). No-fix retries: quick (4s × 3
 | `tracker/management/commands/import_boundaries.py` | Load US Census TIGER boundaries; `--regeocode` relabels all points |
 | `tracker/poi_tasks.py` | OSM POI download (runs in threads) |
 | `tracker/transport_tasks.py` | Transport-mode detection (journey segmentation + classify) |
+| `tracker/roads.py` | Road snapping + routing; local/Mapbox/OSRM providers |
+| `tracker/road_download_tasks.py` | Overpass road download into `RoadSegment` |
+| `tracker/gapfill_tasks.py` | Gap detection + fill job + nightly sweep |
 | `tracker/ai_tasks.py` | AI "Ask" — tool-call loop (`run_ask`, `TOOL_DISPATCH`) |
 | `tracker/summary_email_tasks.py` | AI summary emails — hourly scheduler + per-period send |
 | `tracker/log_writer.py` | Batched background writer for AccessLog/ActionLog |
@@ -217,8 +220,14 @@ Streaks (`_journal_compute_streaks`) and lifetime totals computed from entry dat
 - `ActionLog` — significant events (logins/signups/errors/admin actions)
 - `DailyLogRollup` — per-day aggregate counts, kept forever
 
+**Roads & gap filling** (migration `0049`; see Road snapping + gap filling above; all excluded from backups):
+- `RoadSegment` — an OSM way: `way_id` (unique), `name`, `highway`, `oneway`, `node_ids` (`bigint[]`, index-aligned with the geometry), PostGIS `LineString` `geom` (GiST). PostGIS-only.
+- `RoadDownloadJob` / `GapFillJob` — progress rows for the two background jobs
+- `InferredGap` — one detected track hole + how it was filled (`status` filled|straight|dismissed|failed|skipped); unique on `(device, start_location_id, end_location_id)`
+- `InferredLocation` — a generated point filling a gap. **Never** a recorded fix, and read only by the map and audit view
+
 **User:**
-- `UserProfile` — profile picture, `is_admin`, AI Ask config (`ai_ask_enabled`/`ai_base_url`/`ai_api_key`/`ai_model`/`ai_system_prompt`/`ai_allow_journals` + `ai_configured` property), `mapbox_token` (server-side Mapbox basemap token, synced to all devices), `email_verified` (default True; see Email verification), summary-email opt-in (`summary_daily/weekly/monthly/yearly` + `summary_last_*` cursors + `summary_any` property; see AI summary emails); `get_or_create`'d in `settings_view`
+- `UserProfile` — profile picture, `is_admin`, AI Ask config (`ai_ask_enabled`/`ai_base_url`/`ai_api_key`/`ai_model`/`ai_system_prompt`/`ai_allow_journals` + `ai_configured` property), `mapbox_token` (server-side Mapbox basemap token, synced to all devices), road config (`road_provider`/`osrm_url`/`snap_to_roads`/`gap_fill_enabled`/`gap_fill_auto`/`gap_fill_min_minutes`/`gap_fill_last_run` + `road_provider_resolved` property; see Road snapping), `email_verified` (default True; see Email verification), summary-email opt-in (`summary_daily/weekly/monthly/yearly` + `summary_last_*` cursors + `summary_any` property; see AI summary emails); `get_or_create`'d in `settings_view`
 - `KnownDevice` — a browser/app the user has verified (SHA-256 of the `roamly_device` cookie token), so it skips new-device email login codes (migration `0044`)
 - `POI` — locally cached OpenStreetMap points of interest
 - `CustomPlace` — user-defined geofence (`name`, `latitude`, `longitude`, `radius_m`, auto-assigned `color`)
@@ -315,6 +324,8 @@ All stored in `localStorage` with `roamly_` prefix:
 | `roamly_show_places` | on / off | off |
 | `roamly_fog` | on / off | off |
 | `roamly_map_tile_style` | Streets / Dark / Satellite / Mapbox Streets / Mapbox Outdoors / Mapbox Satellite | Streets |
+| `roamly_snap_roads` | on / off | on (layer visibility; master switch is server-side) |
+| `roamly_show_inferred` | on / off | on (layer visibility; master switch is server-side) |
 
 ## Visit time spent
 
@@ -344,6 +355,32 @@ When adding models or fields, create and commit the migration file — `tracker/
 **Classifies journeys, not points.** A single fix's speed lies (a car at a red light reads 0 m/s), so `_split_journeys` cuts each device's track into runs of movement bounded by stops longer than `_STOP_GAP_S` (180s) — short stops stay *inside* the journey — and never bridges a track gap over `_MAX_BRIDGE_S` (900s). `_classify` scores each journey from its **85th-percentile** speed (not max — one bad fix shouldn't promote a walk to a flight) plus the median as a guard, against `_WALK_MAX_MPS`/`_CYCLE_MAX_MPS`/`_VEHICLE_MAX_MPS`. Every point in the journey gets the journey's mode; **points outside any journey are labelled `still`**, which keeps the whole history classified and makes re-runs idempotent rather than leaving stale modes behind.
 
 Speed comes from `Location.speed` (Doppler — trustworthy even when the position estimate wanders, the same property `DriftAnchor` leans on), falling back to speed derived from consecutive fixes for imported history (CSV/GPX/Takeout), which has no Doppler. The worker paginates on **`(timestamp, id)`, never `id` alone** — imported points get ids in file order, which need not match time order, so an id cursor would silently skip points. The trailing journey of each chunk is carried into the next rather than classified half-scored. Endpoints: `/api/transport/detect/{,status/,stop/}` + `GET /api/transport/breakdown/` (`transport_breakdown_api` — distance/hours per mode, reusing `_gated_distance_segments` per same-mode run so totals agree with `distance_api` instead of being a second, rawer estimate). Surfaced as the **How You Travelled** card on Stats (`still` excluded from the bars — it's most of the points and isn't travelling). Does **not** auto-run. **New model + field ⇒ build + migrate.**
+
+**Road snapping + gap filling** (migration `0049`). Two independent, opt-in fixes for how a recorded drive *looks*: GPS scatter puts points beside the road (or alternating across it), and dropouts leave the track jumping between roads.
+
+- **Snap to roads is display-only.** `Location.latitude/longitude` are **never** rewritten — the recorded fix is the record. `POST /api/roads/snap/` takes **only point ids** (the server reads the coordinates back from the DB: enforces ownership, stops a caller seeding the cache with invented coordinates, and guarantees the timestamp ordering the smoother needs) and returns `{id: [lng,lat]}`. Results are cached per point id (`snap:{provider}:{id}`, 7d — a fix and the road beside it are both immutable), with a falsy sentinel cached for unsnappable points so misses aren't retried. `map.html` calls it from `mergeAccFeatures`, keeps the recorded coords in `rawCoords` so the toggle is reversible, and repaints via `repaintAcc()`. Deliberately a **second request rather than a `?snap=1` on `locations_api`** — that endpoint is the hottest one and is shared with the data table and the mobile app. Only the detail (`accMap`) layer snaps; the decimated `/api/track/` layer only shows below `DETAIL_MIN_ZOOM` where a 10m correction is sub-pixel.
+- **Gap filling adds real rows, in their own tables.** A gap is two consecutive fixes separated by more than `gap_fill_min_minutes` (default 2) and under `_GAP_MAX_S` (6h), at least `_GAP_MIN_DIST_M` (250m) apart, at an implied speed under `_GAP_MAX_MPS` (60 m/s — faster is a flight, recorded `status='skipped'`). `tracker/gapfill_tasks.py` routes each one and lays points along the road at **constant average speed** (`_points_along`, one point per `_FILL_INTERVAL_S`=60s, capped at 500/gap).
+
+**Three interchangeable providers** in `tracker/roads.py` — `snap_points(profile, pts)` and `route_between(profile, a, b, mode)`, dispatching on `UserProfile.road_provider` (`''`=auto → **local → mapbox → osrm**, via the `road_provider_resolved` property):
+- **`local`** — roads in the `RoadSegment` table, no external calls at query time (same reasoning that moved geocoding offline). PostGIS-only. Snapping is a **LATERAL KNN `<->` probe** (nearest 4 ways per point in one statement per 400-point chunk) followed by a **Viterbi pass**: nearest-road-per-point alone ping-pongs between a motorway and its frontage road, so emission cost = distance and transition cost = `_SNAP_SWITCH_PENALTY_M` (40m) for changing way + a stretch penalty. Points with no road inside `max(30m, 2×accuracy)` are **left where they were recorded**. Routing is **A\*** over a graph rebuilt from `RoadSegment.node_ids` — a node id in two ways *is* an intersection — weighted by highway class so it prefers the fast road; bails to straight-line over `_MAX_GRAPH_SEGMENTS` (60k ways in bbox) or `_ROUTE_MAX_KM` (150).
+- **`mapbox`** — Map Matching + Directions using the existing `UserProfile.mapbox_token` (100 coords/request cap).
+- **`osrm`** — `/match/v1` + `/route/v1` against `UserProfile.osrm_url` (self-hosted or the public demo; `host.docker.internal:5000` reaches the host, compose already sets `extra_hosts`). A non-`driving` profile that 400s retries as `driving`, since the demo server only serves driving.
+
+Routing profile comes from the anchors' existing `Location.transport_mode` (`walk→foot/walking`, `cycle→bike/cycling`, else driving; `plane` is skipped), and one-way restrictions are ignored for walk/cycle. Failures degrade rather than raise: a bad snap returns points unchanged, a bad route falls back to straight-line interpolation (`status='straight'`) or records `status='failed'` with a readable `detail` — never a 500.
+
+**`RoadSegment` is the largest table in the app**, so `tracker/road_download_tasks.py` keeps it small: the download area is **derived from the ~2km cells the user actually has fixes in** (merged into runs per latitude row, ~40 bbox clauses per Overpass request) rather than a blanket 15km disc per city like `poi_tasks.py` — same road coverage for ~5-10× less area. Only drivable classes (**no `service`** — driveways and parking aisles are a huge share of OSM ways and you never snap a drive to one, and no footway/path/cycleway), `node_ids` as a `bigint[]` not JSON, `way_id` unique so overlapping areas dedupe. Geometry is stored **unsimplified on purpose**: `node_ids` must stay index-aligned with the coordinates for the routing graph, and a simplifier can't know which vertices are junctions shared with another way — dropping one silently disconnects the graph there.
+
+**Storage is roughly 5-9 KB/km²** (dense metro ~20, rural ~4) including the GiST index: ~20-50MB for one metro, a few hundred MB for a state, low GB for a heavy multi-state road-tripper. `_local_roads_available()` caches an `EXISTS` check (`roads_available`, 300s, busted by the importer) because `road_provider_resolved` is read per-request by the context processor.
+
+**`InferredLocation` is deliberately NOT a flag on `Location`.** `Location.objects` is queried from ~75 sites across 12 files (stats snapshots, distance, visits, fog, geocoding, transport, backups, exports); a synthetic row there would silently inflate every one of them unless all were audited. Separate tables make that impossible by construction — **inferred points never count toward distance, visits or stats**, which is stated in the Settings copy. `InferredGap` is the unit of both audit and idempotency: `unique_together = (device, start_location_id, end_location_id)` (plain ints, not FKs, so deleting a real point can't cascade away the audit record) means re-runs and the nightly sweep are no-ops, and **`status='dismissed'` is what stops a gap the user deleted from being refilled** — same reasoning as `DismissedSuggestion`. All five new tables are derived/operational ⇒ **excluded from backups, no `meta.version` bump**.
+
+Config lives on `UserProfile` (`road_provider`, `osrm_url`, `snap_to_roads`, `gap_fill_enabled`, `gap_fill_auto`, `gap_fill_min_minutes`, `gap_fill_last_run`) rather than as `roamly_*` localStorage prefs — the provider config has to be server-side anyway and the nightly sweep needs a server-side opt-in, so splitting one feature's switches across two stores would be worse. Exposed to templates as `ROAD_SNAP_ENABLED`/`ROAD_GAPFILL_ENABLED`/`ROAD_PROVIDER` by `context_processors.custom_js_snippet` (both flags require a *usable* provider, so the map never wires up a layer with nothing behind it). Edited from Settings → **Roads & Gap Filling** (`GET/POST /api/profile/roads-config/`), which reports which provider "auto" actually resolved to.
+
+**Jobs** (both manual, Settings → Background Jobs, standard start/`status/`/`stop/` trio + `_running_threads` liveness + cooperative stop): `/api/roads/download/{,status/,stop/}` and `/api/gaps/fill/{,status/,stop/}`. Gap fill additionally has an **hourly daemon sweep** (`start_gapfill_scheduler` from `apps.ready()`) that fills new gaps once per local day for users with `gap_fill_auto`, single-flight per user under a PG advisory lock in **its own namespace `0x52414d46` ('RAMF')** — distinct from stats' `'RAML'`, summaries' `'RAMS'` and log cleanup's `'RAMG'`.
+
+**Map rendering** (`map.html`): inferred points draw as a **dashed mauve line + hollow dots** (`inferred-line`/`inferred-dots`), deliberately unlike any real device track; the click popup says "not a recorded fix". `addInferredLayers()` is idempotent and called from **both `style.load` and `styledata`** (the `addPlacesLayers` lesson — `isStyleLoaded()` can be false when `style.load` fires and it never fires again). Both features also get sidebar layer toggles (`roamly_snap_roads`, `roamly_show_inferred`) that only render when the server flag is on; the Settings checkbox is the master enable, the sidebar button is per-view visibility. Inferred layers hide with the rest during replay via `baseLayerIds()`.
+
+**Audit UI**: Diagnostics → **Inferred Points** (third tab, `?tab=inferred` deep-links to it). Reuses the Quality Review `.review-layout`/`.review-item` shell: gap rows with duration/distance/provider/status, expandable point lists, per-point delete, "Delete gap" (confirms — it also suppresses future fills) and "Allow again" to un-dismiss. Endpoints `GET /api/gaps/`, `POST /api/gaps/<id>/{dismiss,restore}/`, `DELETE /api/inferred/<id>/delete/`, plus `GET /api/inferred/` for the map (one polyline per gap so the client needn't re-segment). **New models ⇒ build + migrate.**
 
 **POI matching** (`tracker/poi_match_tasks.py`, `POIMatchJob`, manually run from Settings → Background Jobs). Labels every GPS point with nearest named POI within 150m, stored on `Location.poi` FK (migration `0025`). In-memory degree-grid, one `UPDATE` per POI per 5k chunk. Requires POI table populated first. Endpoints: `/api/poi/match/{,status/,stop/}`. Does **not** auto-run.
 
