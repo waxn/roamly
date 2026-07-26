@@ -1021,6 +1021,7 @@ const MORE_LOAD_LIMIT = 50000;
 const ACC_SOURCE_ID = 'acc-pts';
 const ACC_HEAT_LAYER = 'acc-pts-heat';
 const ACC_DOTS_LAYER = 'acc-pts-dots';
+const ACC_SNAP_RING_LAYER = 'acc-pts-snap-ring';
 const ACC_LINES_SOURCE = 'acc-lines';
 const ACC_LINES_LAYER  = 'acc-lines-layer';
 const connectLines = localStorage.getItem('roamly_connect_lines') || 'off';
@@ -1135,6 +1136,25 @@ function initAccLayers() {
         });
     }
 
+    // Snapped-point halo — sits under the dots so it reads as an outer ring.
+    // A dashed circle stroke isn't expressible in MapLibre, so the "was moved"
+    // cue is a detached mauve ring in the same colour the inferred layers use.
+    map.addLayer({
+        id: ACC_SNAP_RING_LAYER,
+        type: 'circle',
+        source: ACC_SOURCE_ID,
+        minzoom: DETAIL_MIN_ZOOM,
+        filter: ['==', ['get', 'snapped'], true],
+        paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'],
+                8, dotSizeArgs[1] + 3, 12, dotSizeArgs[3] + 4, 16, dotSizeArgs[5] + 5],
+            'circle-color': 'rgba(0,0,0,0)',
+            'circle-stroke-width': 1.2,
+            'circle-stroke-color': '#a78bda',
+            'circle-stroke-opacity': 0.9,
+        }
+    });
+
     // Dots
     map.addLayer({
         id: ACC_DOTS_LAYER,
@@ -1144,9 +1164,12 @@ function initAccLayers() {
         paint: {
             'circle-color': speedGradient === 'on' ? speedColorExpr(['get', 'color']) : ['get', 'color'],
             'circle-radius': ['interpolate', ['linear'], ['zoom'], ...dotSizeArgs],
-            'circle-stroke-width': 1,
+            'circle-stroke-width': ['case', ['==', ['get', 'snapped'], true], 1.6, 1],
             'circle-stroke-color': ['case',
+                // A suspect point still reads as suspect first — that's a data
+                // problem, whereas snapping is only a display choice.
                 ['==', ['get', 'flag'], 'suspect'], '#ff2020',
+                ['==', ['get', 'snapped'], true], '#a78bda',
                 'rgba(255,255,255,0.7)'
             ],
         }
@@ -1164,6 +1187,11 @@ function initAccLayers() {
         if (p.country) html += `<br>${p.country}`;
         const spd = formatSpeed(p.speed);
         if (spd) html += `<br><span style="color:var(--text-muted)">${spd}</span>`;
+        // GeoJSON-source properties survive as real booleans, but be tolerant.
+        if (p.snapped === true || p.snapped === 'true') {
+            html += '<br><span style="color:#a78bda">snapped to road — display only, '
+                 + 'the recorded position is unchanged</span>';
+        }
         new maplibregl.Popup({ offset: 10 })
             .setLngLat(e.features[0].geometry.coordinates.slice())
             .setHTML(html)
@@ -1190,6 +1218,7 @@ function clearAccumulated() {
     lastViewportHitLimit = false;
     if (map.getLayer(ACC_HEAT_LAYER)) map.removeLayer(ACC_HEAT_LAYER);
     if (map.getLayer(ACC_LINES_LAYER)) map.removeLayer(ACC_LINES_LAYER);
+    if (map.getLayer(ACC_SNAP_RING_LAYER)) map.removeLayer(ACC_SNAP_RING_LAYER);
     if (map.getLayer(ACC_DOTS_LAYER)) map.removeLayer(ACC_DOTS_LAYER);
     if (map.getSource(ACC_LINES_SOURCE)) map.removeSource(ACC_LINES_SOURCE);
     if (map.getSource(ACC_SOURCE_ID)) map.removeSource(ACC_SOURCE_ID);
@@ -1778,6 +1807,7 @@ function snapAccFeatures(features) {
                         rawCoords.set(f.properties.id, f.geometry.coordinates.slice());
                     }
                     f.geometry.coordinates = c;
+                    f.properties.snapped = true;
                     n++;
                 });
                 if (n) {
@@ -1794,7 +1824,11 @@ function unsnapAcc() {
     let n = 0;
     accMap.forEach(f => {
         const raw = rawCoords.get(f.properties.id);
-        if (raw) { f.geometry.coordinates = raw.slice(); n++; }
+        if (raw) {
+            f.geometry.coordinates = raw.slice();
+            delete f.properties.snapped;
+            n++;
+        }
     });
     rawCoords.clear();
     snapCount = 0;
@@ -1841,17 +1875,21 @@ function addInferredLayers() {
     if (!inferredOn) return;
     if (!map.isStyleLoaded() || map.getSource(INF_SOURCE)) return;
     map.addSource(INF_SOURCE, { type: 'geojson', data: inferredFC });
-    map.addLayer({
-        id: INF_LINE_LAYER, type: 'line', source: INF_SOURCE,
-        filter: ['==', ['geometry-type'], 'LineString'],
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: {
-            'line-color': '#a78bda',
-            'line-width': 3,
-            'line-opacity': 0.85,
-            'line-dasharray': [2, 2],
-        },
-    });
+    // Connecting lines are one setting for the whole map: if real points aren't
+    // joined up, inferred ones aren't either. Dots always show.
+    if (connectLines === 'on') {
+        map.addLayer({
+            id: INF_LINE_LAYER, type: 'line', source: INF_SOURCE,
+            filter: ['==', ['geometry-type'], 'LineString'],
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: {
+                'line-color': '#a78bda',
+                'line-width': 3,
+                'line-opacity': 0.85,
+                'line-dasharray': [2, 2],
+            },
+        });
+    }
     map.addLayer({
         id: INF_DOTS_LAYER, type: 'circle', source: INF_SOURCE,
         filter: ['==', ['geometry-type'], 'Point'],
@@ -2140,7 +2178,7 @@ let replayCurrentFrac = 0;
 function baseLayerIds() {
     const ids = [];
     activeSources.forEach(id => { [`${id}-heat`, `${id}-dots`].forEach(l => ids.push(l)); });
-    [ACC_HEAT_LAYER, ACC_LINES_LAYER, ACC_DOTS_LAYER].forEach(l => ids.push(l));
+    [ACC_HEAT_LAYER, ACC_LINES_LAYER, ACC_SNAP_RING_LAYER, ACC_DOTS_LAYER].forEach(l => ids.push(l));
     // Inferred gaps hide with the rest of the base layers during replay.
     [INF_LINE_LAYER, INF_DOTS_LAYER].forEach(l => ids.push(l));
     return ids;
