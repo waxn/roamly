@@ -38,7 +38,7 @@ from .models import (
     AdventureMember, AdventureBlurb, AdventureBlurbPhoto, AdventureMilestone, AdventureComment,
     SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig, StatsSnapshot,
     DismissedSuggestion, PlannedStop, KnownDevice,
-    InferredGap, InferredLocation, RoadSegment,
+    InferredGap, InferredLocation, RoadSegment, ROADS_AVAILABLE_CACHE_KEY,
 )
 from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email, send_contact_email
 from .image_utils import resize_image, resize_photo
@@ -9017,3 +9017,34 @@ def inferred_location_delete_api(request, point_id):
     InferredGap.objects.filter(id=gap.id).update(point_count=remaining)
     _bust_user_cache(request.user.id)
     return JsonResponse({'status': 'ok', 'point_count': remaining})
+
+
+@login_required
+@require_http_methods(["POST"])
+def road_data_delete_api(request):
+    """Delete all downloaded road geometry.
+
+    RoadSegment is instance-wide reference data (like POI and Boundary — no user
+    FK), so this clears it for everyone on the instance; the Settings copy says
+    so. Safe to do: it is re-downloadable cache-like data, and nothing else
+    references it. Any running download is stopped first so it can't keep
+    inserting rows behind the delete.
+    """
+    from .road_download_tasks import stop_road_download
+
+    stop_road_download(request.user.id)
+    deleted = RoadSegment.objects.count()
+    # A plain DELETE on a table this size is slow and bloats WAL; TRUNCATE is
+    # near-instant and reclaims the space immediately. Nothing references
+    # RoadSegment by FK, so there is nothing to cascade.
+    if deleted:
+        from django.db import connection
+        if connection.vendor == 'postgresql':
+            with connection.cursor() as cur:
+                cur.execute(f'TRUNCATE TABLE {RoadSegment._meta.db_table}')
+        else:
+            RoadSegment.objects.all().delete()
+
+    # The local provider advertises itself on an EXISTS check that is cached.
+    cache.delete(ROADS_AVAILABLE_CACHE_KEY)
+    return JsonResponse({'status': 'ok', 'deleted': deleted})

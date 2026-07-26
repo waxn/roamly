@@ -537,6 +537,8 @@
                     <div class="settings-actions">
                         <button class="btn btn-primary btn-sm" id="roads-btn" onclick="startRoads()">Download Roads</button>
                         <button class="btn btn-outline btn-sm" id="roads-stop-btn" onclick="stopRoads()" style="display:none;">Stop</button>
+                        <button class="btn btn-outline btn-sm" id="roads-delete-btn" onclick="deleteRoadData()"
+                                style="color:var(--danger);border-color:var(--danger);">Delete Road Data</button>
                     </div>
                     <div id="roads-progress-wrap" style="margin-top:0.6rem;display:none;">
                         <div style="background:var(--bg-input);border-radius:0;height:6px;overflow:hidden;margin-bottom:0.35rem;">
@@ -1611,6 +1613,31 @@ function pollRoadsStatus() {
             }
         });
     }, 2000);
+}
+
+function deleteRoadData() {
+    const statusEl = document.getElementById('roads-status');
+    const btn = document.getElementById('roads-delete-btn');
+    // Instance-wide reference data with no user FK, same as POIs — say so, since
+    // on a shared instance this affects everyone.
+    if (!confirm('Delete all downloaded road data for this instance?\n\n'
+        + 'Snapping and gap routing will fall back to Mapbox or OSRM until you '
+        + 'download it again. Existing inferred points are kept.')) return;
+
+    btn.disabled = true;
+    document.getElementById('roads-progress-wrap').style.display = 'block';
+    statusEl.innerHTML = '<span class="spinner"></span> deleting…';
+
+    fetch('/api/roads/delete/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
+        .then(r => r.json())
+        .then(d => {
+            document.getElementById('roads-bar').style.width = '0%';
+            statusEl.textContent = d.status === 'ok'
+                ? `deleted — ${(d.deleted || 0).toLocaleString()} roads removed.`
+                : 'delete failed.';
+        })
+        .catch(() => { statusEl.textContent = 'delete failed.'; })
+        .finally(() => { btn.disabled = false; });
 }
 
 // --- Gap filling ---

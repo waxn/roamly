@@ -162,6 +162,7 @@ urlpatterns = [
     path('api/roads/download/', views.road_download_api, name='road_download'),
     path('api/roads/download/status/', views.road_download_status_api, name='road_download_status'),
     path('api/roads/download/stop/', views.road_download_stop_api, name='road_download_stop'),
+    path('api/roads/delete/', views.road_data_delete_api, name='road_data_delete'),
     # Literal routes first so `fill/` can't be captured by the <int:gap_id> converter.
     path('api/gaps/fill/', views.gap_fill_api, name='gap_fill'),
     path('api/gaps/fill/status/', views.gap_fill_status_api, name='gap_fill_status'),
