@@ -11,10 +11,12 @@ HAS_POSTGIS = 'postgis' in settings.DATABASES.get('default', {}).get('ENGINE', '
 if HAS_POSTGIS:
     from django.contrib.gis.db import models as gis_models
     from django.contrib.gis.geos import Point
+    from django.contrib.postgres.fields import ArrayField
     from django.contrib.postgres.indexes import GistIndex
 else:
     gis_models = None
     GistIndex = None
+    ArrayField = None
     Point = None
 
 
@@ -401,6 +403,200 @@ class TransportJob(models.Model):
         return f"Transport Detection {self.user.username}: {self.processed}/{self.total}"
 
 
+# ---------------------------------------------------------------------------
+# Road geometry — the prerequisite for snap-to-road and gap routing.
+#
+# Nothing else in the app stores line geometry (POI rows are bare centroids,
+# Boundary is polygons), so this is the only routable road data available to
+# the "local" provider in tracker/roads.py. PostGIS-only: snapping is a KNN
+# `<->` probe against a GiST index and routing needs real line geometry, so the
+# SQLite branch omits the table's geometry exactly like Location omits its
+# PointField, and the local provider reports itself unavailable there.
+#
+# This is the heaviest table in the app, so the importer keeps it as small as
+# it can: only drivable highway classes (no service roads, footways or paths),
+# geometry simplified to ~2m on import (invisible against a 30m snap
+# tolerance), node ids in a bigint array rather than JSON, and download areas
+# derived from where the user actually has fixes rather than a blanket disc
+# around each city.
+# ---------------------------------------------------------------------------
+if HAS_POSTGIS and gis_models:
+    class RoadSegment(gis_models.Model):
+        # OSM way id. Unique so repeated/overlapping downloads dedupe via
+        # bulk_create(ignore_conflicts=True) instead of multiplying storage.
+        way_id = gis_models.BigIntegerField(unique=True)
+        name = gis_models.CharField(max_length=200, blank=True)
+        highway = gis_models.CharField(max_length=32, db_index=True)
+        oneway = gis_models.BooleanField(default=False)
+        # Ordered OSM node ids. This is what makes the table routable: a node id
+        # appearing in two ways is an intersection, so the routing graph can be
+        # rebuilt from the rows alone without a second Overpass round-trip.
+        # A bigint[] costs ~8 bytes/element against JSONB's ~10 plus heavier
+        # per-row overhead — worth it on a table this size.
+        node_ids = ArrayField(gis_models.BigIntegerField(), default=list, blank=True)
+        geom = gis_models.LineStringField(srid=4326)
+
+        class Meta:
+            indexes = [
+                # Load-bearing for both features: snapping is a KNN `geom <-> pt`
+                # probe per point and routing pulls every way in a bbox. Without
+                # the spatial index both degrade to sequential scans over what is
+                # the largest table in the database.
+                GistIndex(fields=['geom'], name='tracker_road_geom_gist'),
+            ]
+
+        def __str__(self):
+            return f"{self.name or self.highway} ({self.way_id})"
+else:
+    class RoadSegment(models.Model):
+        """SQLite fallback — no geometry, so the local road provider is unavailable."""
+        way_id = models.BigIntegerField(unique=True)
+        name = models.CharField(max_length=200, blank=True)
+        highway = models.CharField(max_length=32, db_index=True)
+        oneway = models.BooleanField(default=False)
+
+        def __str__(self):
+            return f"{self.name or self.highway} ({self.way_id})"
+
+
+ROADS_AVAILABLE_CACHE_KEY = 'roads_available'
+
+
+def _local_roads_available():
+    """Whether the local road provider can be used at all.
+
+    Needs a spatial backend *and* at least one downloaded way. Cached because
+    `road_provider_resolved` is read per-request by the context processor, and
+    an `EXISTS` against the largest table in the database is not something to do
+    on every page render. The road importer busts this key when it finishes.
+    """
+    if not HAS_POSTGIS:
+        return False
+    from django.core.cache import cache
+    available = cache.get(ROADS_AVAILABLE_CACHE_KEY)
+    if available is None:
+        try:
+            available = RoadSegment.objects.exists()
+        except Exception:
+            available = False
+        cache.set(ROADS_AVAILABLE_CACHE_KEY, available, 300)
+    return bool(available)
+
+
+class RoadDownloadJob(models.Model):
+    """Persistent state for the background OSM road download task."""
+    STATUS_CHOICES = [
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('stopped', 'Stopped'),
+    ]
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='road_download_job')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='running')
+    processed = models.IntegerField(default=0)   # areas downloaded
+    total = models.IntegerField(default=0)       # areas queued
+    ways = models.IntegerField(default=0)        # road segments stored this run
+    started_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Road Download {self.user.username}: {self.processed}/{self.total}"
+
+
+class GapFillJob(models.Model):
+    """Persistent state for the background tracking-gap fill task."""
+    STATUS_CHOICES = [
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('stopped', 'Stopped'),
+    ]
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='gap_fill_job')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='running')
+    processed = models.IntegerField(default=0)   # gaps examined
+    total = models.IntegerField(default=0)       # gaps detected
+    filled = models.IntegerField(default=0)      # gaps successfully routed
+    started_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Gap Fill {self.user.username}: {self.processed}/{self.total}"
+
+
+class InferredGap(models.Model):
+    """A detected hole in a device's track, and the record of how it was filled.
+
+    The gap — not the individual point — is the unit of both audit and
+    idempotency. `unique_together` on the two anchor ids means re-running the
+    fill job (or the nightly sweep) never duplicates work, and status
+    'dismissed' is what stops a gap the user deleted from being refilled on the
+    next pass. Same reasoning as DismissedSuggestion: rejection is the only
+    state worth persisting.
+
+    The anchors are plain integers rather than FKs on purpose — a real point may
+    be deleted later (quality review, or a data wipe) and that must not cascade
+    away the audit record of what was inferred.
+    """
+    STATUS_CHOICES = [
+        ('filled', 'Filled'),        # routed along real roads
+        ('straight', 'Straight'),    # no route found; straight-line interpolation
+        ('dismissed', 'Dismissed'),  # user deleted it; never refill
+        ('failed', 'Failed'),        # provider error
+        ('skipped', 'Skipped'),      # implausible for road routing (e.g. a flight)
+    ]
+    device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='inferred_gaps')
+    start_location_id = models.BigIntegerField()
+    end_location_id = models.BigIntegerField()
+    start_time = models.DateTimeField()
+    end_time = models.DateTimeField()
+    distance_m = models.FloatField(default=0)     # straight-line anchor separation
+    route_distance_m = models.FloatField(default=0)  # length of the path actually laid down
+    provider = models.CharField(max_length=10, blank=True, default='')  # local|mapbox|osrm
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default='filled', db_index=True)
+    detail = models.CharField(max_length=200, blank=True, default='')   # error/skip reason
+    point_count = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-start_time']
+        unique_together = ['device', 'start_location_id', 'end_location_id']
+        indexes = [
+            models.Index(fields=['device', '-start_time'], name='tracker_gap_device__idx'),
+        ]
+
+    def __str__(self):
+        return f"Gap {self.device} {self.start_time} ({self.status})"
+
+
+class InferredLocation(models.Model):
+    """A generated point filling a tracking gap — never a recorded GPS fix.
+
+    Deliberately a separate table rather than a flag on Location: Location is
+    queried from ~75 places across the app (stats snapshots, distance, visits,
+    fog, geocoding, transport, backups, exports), and a synthetic row in there
+    would silently inflate every one of those unless all of them were audited.
+    Keeping inferred points out of Location makes that impossible by
+    construction — the aggregates stay honest, and only the map and the audit
+    view ever read this table.
+
+    No PostGIS field: the map filters these by lat/lon bbox and nothing does a
+    spatial join against them, so the table stays backend-agnostic.
+    """
+    gap = models.ForeignKey(InferredGap, on_delete=models.CASCADE, related_name='points')
+    device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='inferred_locations')
+    latitude = models.FloatField()
+    longitude = models.FloatField()
+    timestamp = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['timestamp']
+        indexes = [
+            models.Index(fields=['device', 'timestamp'], name='tracker_inf_device__idx'),
+        ]
+
+    def __str__(self):
+        return f"Inferred {self.latitude:.5f},{self.longitude:.5f} @ {self.timestamp}"
+
+
 class BackupConfig(models.Model):
     """S3-compatible automatic backup configuration."""
     INTERVAL_CHOICES = [
@@ -605,9 +801,53 @@ class UserProfile(models.Model):
     summary_last_monthly = models.DateTimeField(null=True, blank=True)
     summary_last_yearly = models.DateTimeField(null=True, blank=True)
 
+    # Roads: snap-to-road rendering + tracking-gap filling (see tracker/roads.py).
+    # Provider is server-side rather than a localStorage map pref because the
+    # provider config has to live here anyway and the nightly sweep needs a
+    # server-side opt-in — splitting one feature's switches across two stores
+    # would be worse. '' means "auto": resolve local → mapbox → osrm.
+    road_provider = models.CharField(max_length=10, blank=True, default='')  # ''|local|mapbox|osrm
+    osrm_url = models.CharField(max_length=300, blank=True, default='')
+    # Display-only: snapped coordinates are cached, never written to Location.
+    snap_to_roads = models.BooleanField(default=False)
+    # Gap filling writes InferredLocation rows, so it is opt-in and auditable.
+    gap_fill_enabled = models.BooleanField(default=False)
+    gap_fill_auto = models.BooleanField(default=False)      # nightly sweep
+    gap_fill_min_minutes = models.IntegerField(default=2)   # what counts as a gap
+    gap_fill_last_run = models.DateTimeField(null=True, blank=True)  # sweep cursor
+
     @property
     def ai_configured(self):
         return bool(self.ai_ask_enabled and self.ai_base_url and self.ai_api_key and self.ai_model)
+
+    @property
+    def road_provider_resolved(self):
+        """Which road provider this profile will actually use ('' = none available).
+
+        The "auto" default the Settings card offers: prefer locally stored OSM
+        roads (no external calls at all), fall back to Mapbox if the user already
+        has a token, then to a configured OSRM instance.
+        """
+        if self.road_provider:
+            # An explicit choice still has to be usable.
+            if self.road_provider == 'local':
+                return 'local' if _local_roads_available() else ''
+            if self.road_provider == 'mapbox':
+                return 'mapbox' if self.mapbox_token else ''
+            if self.road_provider == 'osrm':
+                return 'osrm' if self.osrm_url else ''
+            return ''
+        if _local_roads_available():
+            return 'local'
+        if self.mapbox_token:
+            return 'mapbox'
+        if self.osrm_url:
+            return 'osrm'
+        return ''
+
+    @property
+    def roads_configured(self):
+        return bool(self.road_provider_resolved)
 
     @property
     def summary_any(self):
