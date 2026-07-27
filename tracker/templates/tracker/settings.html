@@ -1568,7 +1568,18 @@ function updateRoadsUI(data, finished) {
             statusEl.textContent = 'no location points to cover yet.';
         } else {
             const label = data.status === 'completed' ? 'done' : 'stopped';
-            statusEl.textContent = `${label} — ${(data.ways || 0).toLocaleString()} new roads, ${stored} stored in total`;
+            let msg = `${label} — ${(data.ways || 0).toLocaleString()} new roads, ${stored} stored in total`;
+            if (data.failed) {
+                // A failed area means no roads there at all, which looks exactly
+                // like snapping/routing being broken. Say so plainly.
+                msg += ` · ${data.failed.toLocaleString()} area${data.failed === 1 ? '' : 's'} failed`;
+                msg += ' — re-run to retry those';
+                statusEl.textContent = msg;
+                statusEl.style.color = 'var(--danger)';
+                return;
+            }
+            statusEl.style.color = 'var(--text-muted)';
+            statusEl.textContent = msg;
         }
     } else {
         const eta = _etaFrom(data.processed, data.total, roadsStartTime);
@@ -1790,10 +1801,17 @@ function _roadsConfigPayload() {
     };
 }
 
-function _roadsResolvedNote(resolved) {
+function _roadsResolvedNote(resolved, totalWays) {
     const status = document.getElementById('roads-config-status');
     if (resolved) {
-        status.textContent = `using ${ROAD_PROVIDER_LABELS[resolved] || resolved}.`;
+        let msg = `using ${ROAD_PROVIDER_LABELS[resolved] || resolved}`;
+        if (resolved === 'local' && totalWays !== undefined) {
+            // Both snapping and gap routing need roads near the points in
+            // question, so the stored count is the first thing to check when
+            // either looks like it isn't working.
+            msg += ` — ${(totalWays || 0).toLocaleString()} roads stored`;
+        }
+        status.textContent = msg + '.';
         status.style.color = 'var(--text-muted)';
     } else {
         status.textContent = 'no usable provider yet — download road data, add a Mapbox token, or set an OSRM URL.';
@@ -1838,7 +1856,7 @@ fetch('/api/profile/roads-config/')
         document.getElementById('gap-fill-enabled').checked = !!d.gap_fill_enabled;
         document.getElementById('gap-fill-auto').checked = !!d.gap_fill_auto;
         document.getElementById('gap-min-minutes').value = d.gap_fill_min_minutes || 2;
-        _roadsResolvedNote(d.resolved);
+        _roadsResolvedNote(d.resolved, d.total_ways);
     })
     .catch(() => {});
 

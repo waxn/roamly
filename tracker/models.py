@@ -495,6 +495,10 @@ class RoadDownloadJob(models.Model):
     processed = models.IntegerField(default=0)   # areas downloaded
     total = models.IntegerField(default=0)       # areas queued
     ways = models.IntegerField(default=0)        # road segments stored this run
+    # Areas Overpass would not return after retries. Surfaced in the UI because a
+    # silent failure leaves a corridor with no roads, which looks identical to
+    # snapping and gap routing simply not working.
+    failed = models.IntegerField(default=0)
     started_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

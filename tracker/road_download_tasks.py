@@ -56,8 +56,12 @@ CELL_DEG = 0.02
 CELL_PAD_DEG = 0.004
 # Overpass clauses per request. Each is a bbox; more clauses means fewer
 # round-trips but a longer server-side query.
-BOXES_PER_REQUEST = 40
+# Fewer, smaller batches: a big merged corridor is exactly what makes Overpass
+# time out, and a bisecting retry costs less when the batch is small to begin with.
+BOXES_PER_REQUEST = 20
 OVERPASS_TIMEOUT = 180
+MAX_ATTEMPTS = 3          # retries per batch before bisecting it
+RETRY_BACKOFF_S = 5
 REQUEST_SLEEP_S = 3       # be a good Overpass citizen between requests
 INSERT_CHUNK = 2000
 
@@ -106,12 +110,15 @@ def _cell_box(gy, gx_from, gx_to):
     return (south, west, north, east)
 
 
-def _download_boxes(boxes):
-    """Fetch every drivable way intersecting any of `boxes`. Returns way dicts.
+def _download_boxes(boxes, attempt=1):
+    """Fetch every drivable way intersecting any of `boxes`.
 
-    `out body geom` is the key: it returns the way's node ids *and* its
-    coordinates, which is what makes the stored rows routable rather than merely
-    drawable. Failures degrade to an empty list, like poi_tasks.
+    Returns (way_dicts, failed_box_count). A whole batch used to degrade silently
+    to an empty list on any Overpass error — a timeout on one busy corridor then
+    left that corridor with no roads at all, and nothing in the UI said so, which
+    reads exactly like snapping and gap routing being broken. So: retry with
+    backoff for transient errors, then bisect the batch (a timeout is usually one
+    dense box, not the whole set), and report what could not be fetched.
     """
     clauses = '\n'.join(
         f'  way["highway"~"{HIGHWAY_RE}"]({s:.5f},{w:.5f},{n:.5f},{e:.5f});'
@@ -128,11 +135,28 @@ def _download_boxes(boxes):
         with urllib.request.urlopen(req, timeout=OVERPASS_TIMEOUT + 20) as resp:
             result = json.loads(resp.read().decode())
     except Exception as exc:
-        logger.warning('Overpass road download failed for %d boxes: %s', len(boxes), exc)
-        return []
+        if attempt < MAX_ATTEMPTS:
+            # Overpass rate-limits and sheds load routinely; back off and retry
+            # the same batch before concluding anything is wrong with it.
+            time.sleep(RETRY_BACKOFF_S * attempt)
+            return _download_boxes(boxes, attempt + 1)
+        if len(boxes) > 1:
+            mid = len(boxes) // 2
+            left, lf = _download_boxes(boxes[:mid])
+            right, rf = _download_boxes(boxes[mid:])
+            return left + right, lf + rf
+        logger.warning('Overpass road download failed for box %s: %s', boxes[0], exc)
+        return [], 1
 
     if result.get('remark'):
+        # A remark means the query was truncated or hit a server limit, so the
+        # result is incomplete even though the request "succeeded".
         logger.warning('Overpass remark on road download: %s', result['remark'])
+        if len(boxes) > 1:
+            mid = len(boxes) // 2
+            left, lf = _download_boxes(boxes[:mid])
+            right, rf = _download_boxes(boxes[mid:])
+            return left + right, lf + rf
 
     ways = []
     for el in result.get('elements', []):
@@ -159,7 +183,7 @@ def _download_boxes(boxes):
             'node_ids': [],
             'coords': coords,
         })
-    return ways
+    return ways, 0
 
 
 def _store_ways(ways):
@@ -190,6 +214,7 @@ def _road_download_worker(user_id):
 
     processed = 0
     ways_added = 0
+    failed = 0
     job = None
     try:
         boxes = _visited_boxes(user_id)
@@ -211,16 +236,18 @@ def _road_download_worker(user_id):
             except RoadDownloadJob.DoesNotExist:
                 break
 
-            ways = _download_boxes(batch)
+            ways, failed_boxes = _download_boxes(batch)
             if ways:
                 ways_added += _store_ways(ways)
+            failed += failed_boxes
             processed += 1
 
             try:
                 job.refresh_from_db()
                 job.processed = processed
                 job.ways = ways_added
-                job.save(update_fields=['processed', 'ways', 'updated_at'])
+                job.failed = failed
+                job.save(update_fields=['processed', 'ways', 'failed', 'updated_at'])
             except RoadDownloadJob.DoesNotExist:
                 break
 
@@ -232,9 +259,10 @@ def _road_download_worker(user_id):
             job = RoadDownloadJob.objects.get(user_id=user_id)
             job.processed = processed
             job.ways = ways_added
+            job.failed = failed
             if job.status == 'running':
                 job.status = 'completed'
-            job.save(update_fields=['processed', 'ways', 'status', 'updated_at'])
+            job.save(update_fields=['processed', 'ways', 'failed', 'status', 'updated_at'])
         except Exception:
             pass
         # The local provider only reports itself available once rows exist, and
@@ -247,8 +275,8 @@ def _road_download_worker(user_id):
             pass
         _running_threads.pop(user_id, None)
         close_old_connections()
-        logger.info('Road download done for user %s: %s batches, %s ways added',
-                    user_id, processed, ways_added)
+        logger.info('Road download done for user %s: %s batches, %s ways added, '
+                    '%s areas failed', user_id, processed, ways_added, failed)
 
 
 def _is_thread_alive(user_id):
@@ -275,7 +303,8 @@ def start_road_download(user_id):
         job.total = 0
         job.processed = 0
         job.ways = 0
-        job.save(update_fields=['status', 'total', 'processed', 'ways', 'updated_at'])
+        job.failed = 0
+        job.save(update_fields=['status', 'total', 'processed', 'ways', 'failed', 'updated_at'])
     _start_thread(user_id)
     return job
 
@@ -312,5 +341,6 @@ def get_road_download_status(user_id):
         'processed': job.processed,
         'total': job.total,
         'ways': job.ways,
+        'failed': job.failed,
         'total_ways': total_ways,
     }
