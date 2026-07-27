@@ -8761,6 +8761,7 @@ def profile_roads_config_api(request):
             'gap_fill_enabled': profile.gap_fill_enabled,
             'gap_fill_auto': profile.gap_fill_auto,
             'gap_fill_min_minutes': profile.gap_fill_min_minutes,
+            'gap_fill_min_distance_m': profile.gap_fill_min_distance_m,
             'has_postgis': HAS_POSTGIS,
             'has_local_roads': RoadSegment.objects.exists() if HAS_POSTGIS else False,
             # Surfaced in the card: if snapping or gap routing look inert, an
@@ -8787,10 +8788,17 @@ def profile_roads_config_api(request):
     except (TypeError, ValueError):
         minutes = 2
     profile.gap_fill_min_minutes = max(1, min(120, minutes))
+    try:
+        min_dist = int(data.get('gap_fill_min_distance_m', 500))
+    except (TypeError, ValueError):
+        min_dist = 500
+    # Floor well above normal tracking spacing (100-200m): below that every
+    # ordinary pair of driving points would count as a gap.
+    profile.gap_fill_min_distance_m = max(250, min(20000, min_dist))
 
     profile.save(update_fields=[
         'road_provider', 'osrm_url', 'snap_to_roads', 'gap_fill_enabled',
-        'gap_fill_auto', 'gap_fill_min_minutes',
+        'gap_fill_auto', 'gap_fill_min_minutes', 'gap_fill_min_distance_m',
     ])
     return JsonResponse({
         'ok': True,
@@ -8833,13 +8841,19 @@ def roads_snap_api(request):
     if not ids:
         return JsonResponse({'snapped': {}, 'provider': profile.road_provider_resolved})
 
+    # speed/transport_mode/timestamp drive the movement gate (roads.snappable):
+    # only road journeys get snapped, so walking a garden or a footpath keeps its
+    # recorded positions. All three are columns of the same row already being
+    # fetched by primary key, so they cost nothing extra.
     pts = [
         {'id': r['id'], 'lat': r['latitude'], 'lng': r['longitude'],
-         'accuracy': r['accuracy']}
+         'accuracy': r['accuracy'], 'speed': r['speed'],
+         'transport_mode': r['transport_mode'], 'timestamp': r['timestamp']}
         for r in (Location.objects
                   .filter(id__in=ids, device__user=request.user)
                   .order_by('timestamp', 'id')
-                  .values('id', 'latitude', 'longitude', 'accuracy'))
+                  .values('id', 'latitude', 'longitude', 'accuracy',
+                          'speed', 'transport_mode', 'timestamp'))
     ]
     if not pts:
         return JsonResponse({'snapped': {}, 'provider': profile.road_provider_resolved})

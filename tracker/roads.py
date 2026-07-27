@@ -45,12 +45,13 @@ _REQUEST_TIMEOUT = 20
 # Candidates per point. More than a handful is wasted work: the right road is
 # essentially always in the nearest few.
 _SNAP_CANDIDATES = 4
-# Never move a point further than this. A fix that is genuinely 80m from any
-# road (a car park, a field, a private drive) must stay where it was recorded —
-# snapping is meant to remove GPS scatter, not to relocate real positions.
-_SNAP_MIN_MAX_M = 30.0
-_SNAP_ACC_MULT = 2.0
-_SNAP_HARD_MAX_M = 120.0
+# Never move a point further than this. A fix that is genuinely off-road (a car
+# park, a field, a private drive, a garden) must stay where it was recorded —
+# snapping removes GPS scatter, it does not relocate real positions. Kept tight
+# because the movement gate below already excludes the cases that need slack.
+_SNAP_MIN_MAX_M = 20.0
+_SNAP_ACC_MULT = 1.5
+_SNAP_HARD_MAX_M = 60.0
 # Cost of moving to a different way between consecutive points. Nearest-road
 # snapping alone ping-pongs between a highway and its frontage road; this makes
 # the smoother prefer staying on one road unless the evidence is strong.
@@ -58,7 +59,35 @@ _SNAP_SWITCH_PENALTY_M = 40.0
 # How much to punish distorting the distance between consecutive points.
 _SNAP_STRETCH_WEIGHT = 0.5
 _SNAP_CHUNK = 400          # points per SQL round-trip
-_SNAP_CACHE_TTL = 604800   # 7 days — a snapped fix never changes
+# 30 days. Snapped coordinates live only in the cache — never in the database, so
+# they are never in a backup either. They are regenerable on demand, so a long
+# TTL is free and Redis eviction is the only thing that needs to reclaim them.
+_SNAP_CACHE_TTL = 2592000
+# Bumped whenever the eligibility rules below change: entries cached under the
+# old rules would otherwise keep returning decisions this version disagrees with.
+_SNAP_CACHE_VERSION = 'v2'
+
+# --- What may be snapped ----------------------------------------------------
+# Only road journeys. Walking is never snapped: no pedestrian geometry is stored
+# (road_download_tasks.HIGHWAY_RE excludes footway/path/track/cycleway), so the
+# nearest candidate for a fix on a trail or in a garden is always a *road* — and
+# dragging it there destroys exactly the granular detail that makes walking
+# around a property worth recording.
+_SNAP_MODES = ('vehicle', 'cycle')
+_SNAP_NEVER_MODES = ('walk', 'still', 'plane')
+# Fallback threshold when transport_mode is unset. ~18 km/h: comfortably clear of
+# transport_tasks._WALK_MAX_MPS (2.2 m/s) so a brisk walk or jog never qualifies,
+# low enough to admit cycling.
+_SNAP_MIN_SPEED_MPS = 5.0
+# Neighbours either side for the median. A *raw* per-point threshold is not
+# usable: a phone sitting still reports wildly varying Doppler speeds (spikes
+# over 30 m/s are common), so isolated readings say nothing about what the user
+# was doing. The median over a short window is what makes the gate hold.
+_SNAP_SPEED_WINDOW = 3
+# A speed above this is a GPS teleport, not travel — same value transport_tasks
+# uses. Such a reading is discarded rather than believed, so it can't drag the
+# median up and let a stationary point qualify.
+_MAX_SANE_MPS = 300.0
 
 # --- Routing ----------------------------------------------------------------
 # Ways in the search bbox before we give up. Lower than it looks because the
@@ -74,6 +103,16 @@ _BBOX_MIN_PAD_DEG = 0.05      # ~5km, so short gaps still see the surrounding gr
 # nearby road at nearly the same spot, producing a tiny stub of a route that had
 # nothing to do with the journey — a short floating line on the map.
 _ROUTE_MAX_ANCHOR_M = 80.0
+# Bucket size for the edge index. ~1.1km, comfortably larger than
+# _ROUTE_MAX_ANCHOR_M, so an anchor's own cell plus its eight neighbours is
+# guaranteed to contain every edge that could be within tolerance.
+_EDGE_CELL_DEG = 0.01
+# Only memoise graphs up to this many ways. A full _MAX_GRAPH_SEGMENTS graph is
+# tens of MB of Python objects, and this runs in a background thread of a web
+# worker — not somewhere to pin that much memory between gaps.
+_GRAPH_CACHE_MAX_WAYS = 8000
+# One entry, replaced wholesale. Holding several would multiply the memory above.
+_graph_cache = {'bbox': None, 'data': None}
 # Prefer the fast road when several routes are similar in length. Weights
 # multiply true metres, so 0.6 means "a motorway kilometre costs 600m".
 _HIGHWAY_WEIGHT = {
@@ -114,6 +153,71 @@ def _snap_limit_m(accuracy):
     return min(_SNAP_HARD_MAX_M, max(_SNAP_MIN_MAX_M, float(accuracy) * _SNAP_ACC_MULT))
 
 
+def _derived_speeds(pts):
+    """Per-point speed in m/s: Doppler where usable, else derived from the track.
+
+    Same policy as transport_tasks._point_speeds — a stored 0.0 is trusted (a
+    stationary phone really does report zero), only None/negative falls back to
+    distance over time, and an implausible value is discarded rather than
+    believed. Imported history (CSV/GPX/Takeout) carries no Doppler at all, which
+    is why the fallback has to exist.
+    """
+    out = []
+    prev = None
+    for p in pts:
+        spd = p.get('speed')
+        if spd is None or spd < 0 or spd > _MAX_SANE_MPS:
+            spd = None
+            ts, pts_ = p.get('timestamp'), prev
+            if pts_ is not None and ts is not None and pts_.get('timestamp') is not None:
+                dt = (ts - pts_['timestamp']).total_seconds()
+                if 0 < dt <= 900:
+                    d = _haversine_m(pts_['lng'], pts_['lat'], p['lng'], p['lat'])
+                    derived = d / dt
+                    if derived <= _MAX_SANE_MPS:
+                        spd = derived
+        prev = p
+        out.append(spd)
+    return out
+
+
+def _median(vals):
+    s = sorted(v for v in vals if v is not None)
+    if not s:
+        return None
+    n = len(s)
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
+
+
+def snappable(pts):
+    """Which points are road-journey points, and so may be snapped.
+
+    `pts` must be in timestamp order. Returns a list of bools aligned with it.
+
+    Prefers `transport_mode`, because it is decided per *journey* —
+    transport_tasks._classify scores a whole run of movement on its 85th
+    percentile speed — so a car waiting at a red light is still 'vehicle' and one
+    fast GPS glitch never promotes a walk. That job is manual though, and every
+    point recorded since the last run is unlabelled, so unlabelled points fall
+    back to the median speed of their neighbours.
+    """
+    speeds = _derived_speeds(pts)
+    out = []
+    for i, p in enumerate(pts):
+        mode = (p.get('transport_mode') or '').strip()
+        if mode in _SNAP_MODES:
+            out.append(True)
+            continue
+        if mode in _SNAP_NEVER_MODES:
+            out.append(False)
+            continue
+        lo = max(0, i - _SNAP_SPEED_WINDOW)
+        hi = min(len(speeds), i + _SNAP_SPEED_WINDOW + 1)
+        med = _median(speeds[lo:hi])
+        out.append(med is not None and med >= _SNAP_MIN_SPEED_MPS)
+    return out
+
+
 def _profile_for(provider, mode):
     """Map a Location.transport_mode to the provider's routing profile."""
     if provider == 'mapbox':
@@ -129,10 +233,11 @@ def _profile_for(provider, mode):
 def snap_points(profile, pts):
     """Snap points to the road network. Display only — nothing is persisted.
 
-    `pts` is a list of {'id', 'lat', 'lng', 'accuracy'} in **timestamp order**;
-    the local smoother relies on that order to reason about continuity. Returns
-    {id: (lng, lat)} containing only the points that actually moved, so a caller
-    can leave the rest untouched.
+    `pts` is a list of {'id', 'lat', 'lng', 'accuracy', 'speed',
+    'transport_mode', 'timestamp'} in **timestamp order** — the smoother relies
+    on that order for continuity, and the movement gate relies on it to look at
+    neighbours. Returns {id: (lng, lat)} containing only the points that actually
+    moved, so a caller can leave the rest untouched.
 
     Results are cached per point id — a recorded fix and the road beside it are
     both immutable, so this is the one place a snapped coordinate lives. Panning
@@ -142,10 +247,21 @@ def snap_points(profile, pts):
     if not provider or not pts:
         return {}
 
+    # Decide eligibility before touching the cache or the road table: a walk is
+    # rejected here for nothing, which is also what keeps the pre-paint snap wait
+    # proportional to driving points only.
+    eligible = snappable(pts)
+
     out = {}
     todo = []
-    for p in pts:
-        key = f"snap:{provider}:{p['id']}"
+    for p, ok in zip(pts, eligible):
+        if not ok:
+            # Deliberately not cached. The gate reads neighbours, so a point at
+            # the edge of one viewport batch sees fewer of them than it will in
+            # another; caching a rejection could pin a genuine driving point
+            # unsnapped for the whole TTL. Re-deciding costs no query.
+            continue
+        key = f"snap:{_SNAP_CACHE_VERSION}:{provider}:{p['id']}"
         hit = cache.get(key)
         if hit is None:
             todo.append(p)
@@ -174,8 +290,8 @@ def snap_points(profile, pts):
             coord = fresh.get(p['id'])
             # Cache the misses too, as a falsy sentinel: a point with no road
             # within tolerance will still have none next time.
-            cache.set(f"snap:{provider}:{p['id']}", list(coord) if coord else 0,
-                      _SNAP_CACHE_TTL)
+            cache.set(f"snap:{_SNAP_CACHE_VERSION}:{provider}:{p['id']}",
+                      list(coord) if coord else 0, _SNAP_CACHE_TTL)
             if coord:
                 out[p['id']] = coord
 
@@ -338,38 +454,65 @@ def _vkey(lng, lat):
     return (round(lng, 7), round(lat, 7))
 
 
+def _graph_bbox(a, b):
+    """(west, south, east, north) to search for a route between two anchors.
+
+    Padded generously: the road actually taken can detour well outside the box
+    the anchors span, and a route that leaves the box cannot be found at all.
+    Cheap insurance — the bbox filter is index-backed.
+    """
+    min_lng, max_lng = min(a[0], b[0]), max(a[0], b[0])
+    min_lat, max_lat = min(a[1], b[1]), max(a[1], b[1])
+    span = max(max_lng - min_lng, max_lat - min_lat)
+    pad = max(span * _BBOX_PAD_FRAC, _BBOX_MIN_PAD_DEG)
+    return (min_lng - pad, min_lat - pad, max_lng + pad, max_lat + pad)
+
+
+def clear_graph_cache():
+    """Release the memoised routing graph. Call at the end of a fill run."""
+    _graph_cache['bbox'] = None
+    _graph_cache['data'] = None
+
+
 def _load_graph(a, b, mode=''):
     """Build a routing graph from the RoadSegment rows around the two anchors.
+
+    Returns (adj, node_pos, edge_index) or None.
 
     Ways are split at coordinates shared with another way — an intersection —
     giving edges between junctions. Splitting rather than using every vertex
     keeps the node count (and so the A* frontier) roughly an order of magnitude
     smaller.
+
+    Memoised for one bbox at a time: gaps along a single drive are spatially
+    adjacent, so the next one is usually inside the box already loaded, and the
+    distance trigger makes many more gaps to route. Only modest graphs are held —
+    a full 25k-way graph is tens of MB of Python objects and this runs inside a
+    web worker. Whoever borrows the cached graph must undo its splices (see
+    _local_route); the cache stores no anchor state itself.
     """
     from django.contrib.gis.geos import Polygon
     from .models import RoadSegment
 
-    min_lng, max_lng = min(a[0], b[0]), max(a[0], b[0])
-    min_lat, max_lat = min(a[1], b[1]), max(a[1], b[1])
-    # Pad generously: the road actually taken can detour well outside the box
-    # the two anchors span, and a route that leaves the box cannot be found at
-    # all. Cheap insurance — the bbox filter is index-backed.
-    span = max(max_lng - min_lng, max_lat - min_lat)
-    pad = max(span * _BBOX_PAD_FRAC, _BBOX_MIN_PAD_DEG)
-    bbox = Polygon.from_bbox((min_lng - pad, min_lat - pad,
-                             max_lng + pad, max_lat + pad))
+    w, s_, e, n = _graph_bbox(a, b)
+    cached = _graph_cache.get('bbox')
+    if cached and _graph_cache.get('data'):
+        cw, cs, ce, cn = cached
+        if cw <= w and cs <= s_ and ce >= e and cn >= n:
+            return _graph_cache['data']
 
+    bbox = Polygon.from_bbox((w, s_, e, n))
     segs = list(
         RoadSegment.objects.filter(geom__bboverlaps=bbox)
         .values_list('highway', 'oneway', 'geom')[:_MAX_GRAPH_SEGMENTS + 1]
     )
     if len(segs) > _MAX_GRAPH_SEGMENTS:
         logger.info('Local route: %d ways in bbox, above cap — bailing', len(segs))
-        return None, None
+        return None
     if not segs:
         logger.info('Local route: no road data around (%.4f,%.4f)-(%.4f,%.4f)',
                     a[0], a[1], b[0], b[1])
-        return None, None
+        return None
 
     # A coordinate touched by two or more ways is a junction; way endpoints
     # always are, so every way contributes at least one edge.
@@ -393,6 +536,7 @@ def _load_graph(a, b, mode=''):
 
     adj = {}
     node_pos = {}
+    edge_index = {}
     # One-way restrictions are a driving concept; on foot both directions are
     # walkable, so honouring them would refuse perfectly ordinary routes.
     honour_oneway = mode not in ('walk', 'cycle')
@@ -414,7 +558,17 @@ def _load_graph(a, b, mode=''):
             adj.setdefault(k_from, []).append((k_to, cost, sub))
             if not (oneway and honour_oneway):
                 adj.setdefault(k_to, []).append((k_from, cost, sub[::-1]))
-    return adj, node_pos
+            # Index the forward edge only; _nearest_edge just needs to find the
+            # geometry, and both directions carry the same shape.
+            _index_edge(edge_index, k_from, k_to, sub)
+
+    data = (adj, node_pos, edge_index)
+    if len(segs) <= _GRAPH_CACHE_MAX_WAYS:
+        _graph_cache['bbox'] = (w, s_, e, n)
+        _graph_cache['data'] = data
+    else:
+        clear_graph_cache()
+    return data
 
 
 def _project_on_segment(pt, s1, s2):
@@ -435,28 +589,68 @@ def _project_on_segment(pt, s1, s2):
     return q, _haversine_m(pt[0], pt[1], q[0], q[1])
 
 
-def _nearest_edge(adj, pt, tol_deg=0.03):
+def _ecell(lng, lat):
+    return (int(lng // _EDGE_CELL_DEG), int(lat // _EDGE_CELL_DEG))
+
+
+def _index_edge(edge_index, u, v, sub):
+    """Register each of an edge's segments in the cells its bbox covers."""
+    for i in range(len(sub) - 1):
+        s1, s2 = sub[i], sub[i + 1]
+        cx0, cy0 = _ecell(min(s1[0], s2[0]), min(s1[1], s2[1]))
+        cx1, cy1 = _ecell(max(s1[0], s2[0]), max(s1[1], s2[1]))
+        for cx in range(cx0, cx1 + 1):
+            for cy in range(cy0, cy1 + 1):
+                edge_index.setdefault((cx, cy), []).append((u, v, sub, i))
+
+
+def _nearest_edge(edge_index, pt):
     """Nearest graph edge to `pt`: (distance_m, u, v, seg_index, projection, sub).
 
-    Edges whose segment bounding box doesn't come within `tol_deg` of the point
-    are rejected with four comparisons, before any trigonometry — that filter is
-    what keeps this affordable over tens of thousands of edges.
+    Consults only the point's own index cell and its eight neighbours. Scanning
+    every edge instead was the dominant cost of routing a gap, and with the
+    distance trigger detecting far more gaps it stopped being affordable. The
+    cell is wider than _ROUTE_MAX_ANCHOR_M, so nothing within tolerance can hide
+    outside that 3x3 block.
     """
     best = None
-    for u, edges in adj.items():
-        for (v, _cost, sub) in edges:
-            for i in range(len(sub) - 1):
-                s1, s2 = sub[i], sub[i + 1]
-                if (pt[0] < min(s1[0], s2[0]) - tol_deg or pt[0] > max(s1[0], s2[0]) + tol_deg
-                        or pt[1] < min(s1[1], s2[1]) - tol_deg or pt[1] > max(s1[1], s2[1]) + tol_deg):
-                    continue
-                q, d = _project_on_segment(pt, s1, s2)
+    cx, cy = _ecell(pt[0], pt[1])
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            for (u, v, sub, i) in edge_index.get((cx + dx, cy + dy), ()):
+                q, d = _project_on_segment(pt, sub[i], sub[i + 1])
                 if best is None or d < best[0]:
                     best = (d, u, v, i, q, sub)
     return best
 
 
-def _splice_anchor(adj, node_pos, pt, label):
+def _note(undo, adj, key):
+    """Record a vertex's adjacency length so the splice can be rolled back.
+
+    Only appends ever happen, so remembering the prior length is a complete
+    record; `None` means the key didn't exist and must be removed outright.
+    """
+    undo.append((key, len(adj[key]) if key in adj else None))
+
+
+def _unsplice(adj, node_pos, undo, anchor_keys):
+    """Restore the graph to its pre-splice state.
+
+    The graph is memoised across gaps, so leaving anchor vertices and their edges
+    behind would let one gap's route wander through a previous gap's anchors —
+    a silent, hard-to-spot corruption. Undone in reverse so repeated notes on one
+    key unwind correctly.
+    """
+    for key, prior in reversed(undo):
+        if prior is None:
+            adj.pop(key, None)
+        else:
+            del adj[key][prior:]
+    for key in anchor_keys:
+        node_pos.pop(key, None)
+
+
+def _splice_anchor(adj, node_pos, edge_index, pt, label, undo):
     """Add `pt`'s projection onto the road network as a temporary graph vertex.
 
     Without this the route could only start at a *junction*, so it opened and
@@ -465,9 +659,10 @@ def _splice_anchor(adj, node_pos, pt, label):
     open ground. Splicing into the nearest edge means the path starts and ends
     exactly on tarmac and never leaves it.
 
+    Mutates `adj`; every touched vertex is recorded in `undo` for _unsplice.
     Returns (vertex_key, distance_m, sub, seg_index) or (None, distance, …).
     """
-    found = _nearest_edge(adj, pt)
+    found = _nearest_edge(edge_index, pt)
     if not found:
         return None, None, None, None
     d, u, v, i, proj, sub = found
@@ -482,20 +677,40 @@ def _splice_anchor(adj, node_pos, pt, label):
     cost_u = _polyline_length_m(to_u)
     # Both directions: one-way rules don't stop you joining or leaving the road
     # you're already stopped on.
+    _note(undo, adj, key)
     adj.setdefault(key, []).append((v, cost_v, to_v))
     adj.setdefault(key, []).append((u, cost_u, to_u))
+    _note(undo, adj, u)
     adj.setdefault(u, []).append((key, cost_u, to_u[::-1]))
+    _note(undo, adj, v)
     adj.setdefault(v, []).append((key, cost_v, to_v[::-1]))
     return key, d, sub, i
 
 
 def _local_route(a, b, mode=''):
-    adj, node_pos = _load_graph(a, b, mode)
+    graph = _load_graph(a, b, mode)
+    if not graph:
+        return None
+    adj, node_pos, edge_index = graph
     if not adj:
         return None
 
-    start, start_d, sub_a, i_a = _splice_anchor(adj, node_pos, a, 'a')
-    goal, goal_d, sub_b, i_b = _splice_anchor(adj, node_pos, b, 'b')
+    undo, anchor_keys = [], []
+    try:
+        return _route_on(adj, node_pos, edge_index, a, b, undo, anchor_keys)
+    finally:
+        # Always, including on an exception: a half-spliced cached graph would
+        # poison every later route.
+        _unsplice(adj, node_pos, undo, anchor_keys)
+
+
+def _route_on(adj, node_pos, edge_index, a, b, undo, anchor_keys):
+    start, start_d, sub_a, i_a = _splice_anchor(adj, node_pos, edge_index, a, 'a', undo)
+    if start is not None:
+        anchor_keys.append(start)
+    goal, goal_d, sub_b, i_b = _splice_anchor(adj, node_pos, edge_index, b, 'b', undo)
+    if goal is not None:
+        anchor_keys.append(goal)
     if start is None or goal is None or start == goal:
         # Nowhere near a known road at one end — usually the road download hasn't
         # covered this area. Report no route; the caller records the gap
@@ -512,7 +727,9 @@ def _local_route(a, b, mode=''):
         mid = list(sub_a[lo + 1:hi + 1])
         seg = [node_pos[start]] + (mid if i_a <= i_b else list(reversed(mid))) + [node_pos[goal]]
         cost = _polyline_length_m(seg)
+        _note(undo, adj, start)
         adj.setdefault(start, []).append((goal, cost, seg))
+        _note(undo, adj, goal)
         adj.setdefault(goal, []).append((start, cost, seg[::-1]))
 
     goal_pos = node_pos[goal]
