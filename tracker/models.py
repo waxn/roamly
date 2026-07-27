@@ -818,6 +818,10 @@ class UserProfile(models.Model):
     gap_fill_enabled = models.BooleanField(default=False)
     gap_fill_auto = models.BooleanField(default=False)      # nightly sweep
     gap_fill_min_minutes = models.IntegerField(default=2)   # what counts as a gap
+    # Distance trigger, an alternative to the time one: a pair this far apart
+    # leaves a visible hole however short the interval was. Time alone missed
+    # stretches where tracking thinned to one fix every kilometre or two.
+    gap_fill_min_distance_m = models.IntegerField(default=500)
     gap_fill_last_run = models.DateTimeField(null=True, blank=True)  # sweep cursor
 
     @property

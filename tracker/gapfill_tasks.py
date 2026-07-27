@@ -48,6 +48,10 @@ _GAP_MAX_S = 6 * 3600
 # Below this the anchors are effectively the same place: a stationary phone
 # whose fixes simply stopped for a while is not a journey to reconstruct.
 _GAP_MIN_DIST_M = 250.0
+# Distance trigger, as an alternative to the time threshold. A pair this far
+# apart leaves a visible hole in the drawn track however short the interval was,
+# which is the case a time-only rule kept missing.
+_GAP_MIN_TRIGGER_DIST_M = 500.0
 # Above this implied speed it is a flight, not a road journey. ~216 km/h.
 _GAP_MAX_MPS = 60.0
 # How far a road route may exceed the straight-line distance before it stops
@@ -69,7 +73,7 @@ _BATCH_SIZE = 20000
 # Gap detection
 # ---------------------------------------------------------------------------
 
-def _detect_gaps(user_id, min_gap_s, since=None, retry=False):
+def _detect_gaps(user_id, min_gap_s, min_trigger_dist_m, since=None, retry=False):
     """Yield fillable gaps for every device belonging to the user.
 
     Paginates on (timestamp, id) rather than id alone — imported history (CSV,
@@ -112,7 +116,7 @@ def _detect_gaps(user_id, min_gap_s, since=None, retry=False):
 
             for cur in chunk:
                 if last is not None:
-                    gap = _classify_pair(last, cur, min_gap_s)
+                    gap = _classify_pair(last, cur, min_gap_s, min_trigger_dist_m)
                     if gap and (last['id'], cur['id']) not in known:
                         gap['device'] = device
                         yield gap
@@ -123,16 +127,25 @@ def _detect_gaps(user_id, min_gap_s, since=None, retry=False):
                 break
 
 
-def _classify_pair(a, b, min_gap_s):
-    """Decide whether a consecutive pair is a gap worth filling."""
+def _classify_pair(a, b, min_gap_s, min_trigger_dist_m):
+    """Decide whether a consecutive pair is a gap worth filling.
+
+    Either trigger qualifies. Time alone missed the common failure the user hit:
+    a stretch of road where tracking thinned out to one fix every kilometre or
+    two still leaves an obvious hole in the drawn track, whatever the clock says.
+    Normal tracking sits at 100-200m spacing, well under the distance trigger, so
+    ordinary drives are untouched.
+    """
     if a['latitude'] is None or b['latitude'] is None:
         return None
     dt = (b['timestamp'] - a['timestamp']).total_seconds()
-    if dt < min_gap_s or dt > _GAP_MAX_S:
+    if dt <= 0 or dt > _GAP_MAX_S:
         return None
     dist = roads._haversine_m(a['longitude'], a['latitude'],
                               b['longitude'], b['latitude'])
     if dist < _GAP_MIN_DIST_M:
+        return None
+    if dt < min_gap_s and dist < min_trigger_dist_m:
         return None
 
     gap = {
@@ -348,9 +361,11 @@ def _run_fill(user_id, job=None, since=None, retry=False):
         return 0, 0
 
     min_gap_s = max(30, int(profile.gap_fill_min_minutes or 2) * 60)
+    min_dist = float(getattr(profile, 'gap_fill_min_distance_m', 0)
+                     or _GAP_MIN_TRIGGER_DIST_M)
     examined = filled = 0
 
-    for gap in _detect_gaps(user_id, min_gap_s, since=since, retry=retry):
+    for gap in _detect_gaps(user_id, min_gap_s, min_dist, since=since, retry=retry):
         if job is not None:
             try:
                 job.refresh_from_db()
@@ -375,6 +390,8 @@ def _run_fill(user_id, job=None, since=None, retry=False):
         # either way, yield to the web workers between gaps.
         time.sleep(0.05)
 
+    # A cached routing graph can be tens of MB; don't hold it past the run.
+    roads.clear_graph_cache()
     return examined, filled
 
 
