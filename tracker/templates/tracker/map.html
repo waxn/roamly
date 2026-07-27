@@ -1499,6 +1499,20 @@ function loadTrack(autoFit) {
     fetch(`/api/track/?${qs}`, { signal: pendingFetch.signal })
         .then(r => r.json())
         .then(data => {
+            // Resolve road positions before the first paint, not after it. This
+            // layer used to render at recorded coordinates and get corrected a
+            // moment later, so every snappable dot visibly jumped on load. The
+            // server-side movement gate rejects walking points without touching
+            // the road table, so the wait scales with driving points only, and a
+            // second visit to an area is served from cache.
+            const ids = [];
+            (data.devices || []).forEach(d => (d.points || []).forEach(p => {
+                if (p.id !== null && p.id !== undefined) ids.push(p.id);
+            }));
+            if (snapOn && ids.length) showMapLoading('snapping to roads...');
+            return fetchSnapsForIds(ids).then(() => data);
+        })
+        .then(data => {
             renderTrack(data.devices, autoFit);
             hideMapLoading();
             const total = data.devices.reduce((s, d) => s + d.total, 0);
@@ -1827,10 +1841,13 @@ function applyKnownSnaps(features) {
 // Resolve any ids we haven't asked about yet. Resolves once every batch has
 // landed, so the caller can paint a fully-settled set of points.
 function fetchSnapsFor(features) {
-    if (!snapOn || !features || !features.length) return Promise.resolve();
-    const ids = features
-        .map(f => f.properties.id)
-        .filter(v => v !== null && v !== undefined && !snapCache.has(v));
+    if (!features || !features.length) return Promise.resolve();
+    return fetchSnapsForIds(features.map(f => f.properties.id));
+}
+
+function fetchSnapsForIds(rawIds) {
+    if (!snapOn || !rawIds || !rawIds.length) return Promise.resolve();
+    const ids = rawIds.filter(v => v !== null && v !== undefined && !snapCache.has(v));
     if (!ids.length) return Promise.resolve();
 
     const batches = [];
