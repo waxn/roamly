@@ -1044,7 +1044,6 @@ const dotSizeArgs = DOT_SIZES[dotSizePref] || DOT_SIZES.medium;
 const heatIntArgs = HEATMAP_INTENSITY[heatmapIntensity] || HEATMAP_INTENSITY.medium;
 
 let accMap = new Map();            // "devId:ts" → Feature, deduped accumulated points
-let accGen = 0;                    // bumped on clear, so a late snap can't paint stale data
 const rawCoords = new Map();       // point id → recorded [lng,lat], so snapping is reversible
 let fetchedAreas = [];             // {w,s,e,n} bboxes where we have complete data (no limit hit)
 let detailLoading = false;
@@ -1212,8 +1211,9 @@ function repaintAcc() {
 
 function clearAccumulated() {
     accMap.clear();
-    accGen++;
-    rawCoords.clear();
+    // rawCoords / snapCache survive on purpose — they map an immutable point id
+    // to an immutable road position, so a filter change must not force a re-query
+    // (and must not let a re-fetched point briefly paint unsnapped).
     fetchedAreas = [];
     lastViewportHitLimit = false;
     if (map.getLayer(ACC_HEAT_LAYER)) map.removeLayer(ACC_HEAT_LAYER);
@@ -1232,11 +1232,6 @@ function mergeAccFeatures(newFeatures) {
     });
     initAccLayers();
     repaintAcc();
-    // Snapping is a second, cheap round-trip rather than part of /api/locations/:
-    // it keeps the hottest endpoint (and its caching, and the data table and the
-    // mobile app that share it) completely untouched, and lets a snap failure
-    // cost nothing but the correction.
-    snapAccFeatures(newFeatures);
 }
 
 function updateDetailControls() {
@@ -1321,13 +1316,21 @@ function loadViewport(limit) {
                 fetchedAreas.push({ w: b.getWest(), s: b.getSouth(), e: b.getEast(), n: b.getNorth() });
             }
 
-            mergeAccFeatures(features);
-            clearTimeout(timeoutId);
-            hideMapLoading();
+            // Resolve road positions before anything is drawn, so each point
+            // appears once in its final place instead of jumping when a later
+            // response lands.
+            if (snapOn) showMapLoading('snapping to roads...');
+            return fetchSnapsFor(features).then(() => {
+                applyKnownSnaps(features);
+                mergeAccFeatures(features);
+                updateSnapBadge();
+                clearTimeout(timeoutId);
+                hideMapLoading();
 
-            const total = lastTrackData.reduce((s, d) => s + d.total, 0);
-            document.getElementById('map-info').textContent =
-                `${total.toLocaleString()} pts · ${accMap.size.toLocaleString()} loaded in detail`;
+                const total = lastTrackData.reduce((s, d) => s + d.total, 0);
+                document.getElementById('map-info').textContent =
+                    `${total.toLocaleString()} pts · ${accMap.size.toLocaleString()} loaded in detail`;
+            });
         })
         .catch(err => {
             clearTimeout(timeoutId);
@@ -1765,6 +1768,14 @@ if (placesOn) applyPlacesToggle();
 // for rendering. Toggling off restores the recorded coordinates from rawCoords,
 // so the raw track is always one click away.
 //
+// Points are snapped BEFORE they are ever drawn, and the result is remembered in
+// snapCache for the life of the page. That matters because panning re-fetches
+// overlapping points as fresh raw features: painting first and correcting later
+// made already-settled dots jump back to their recorded position and then snap
+// again on every pan. A point id's road position is immutable, so it is resolved
+// once, cached client-side (on top of the server's own 7-day cache) and applied
+// to every later copy of that point before it reaches the map.
+//
 // Only the detail (accMap) layer snaps. The decimated /api/track/ layer only
 // shows below DETAIL_MIN_ZOOM, where a 10m correction is well under a pixel.
 // ═══════════════════════════════════════════════════════════════════
@@ -1773,21 +1784,49 @@ const SNAP_BATCH = 2000;          // ids per request; the server caps at 5000
 const snapBtn = document.getElementById('snap-btn');
 const snapBadge = document.getElementById('snap-badge');
 let snapOn = SNAP_AVAILABLE && (localStorage.getItem('roamly_snap_roads') || 'on') === 'on';
-let snapCount = 0;
+// id → [lng,lat], or null for "asked, no road within tolerance". Deliberately
+// never cleared: a recorded fix and the road beside it are both immutable, so
+// this stays valid across pans, zooms and filter changes.
+const snapCache = new Map();
 
 function updateSnapBadge() {
     if (!snapBadge) return;
-    snapBadge.textContent = snapOn ? (snapCount ? `${snapCount.toLocaleString()} snapped` : 'on') : '';
+    if (!snapOn) { snapBadge.textContent = ''; return; }
+    let n = 0;
+    accMap.forEach(f => { if (f.properties.snapped) n++; });
+    snapBadge.textContent = n ? `${n.toLocaleString()} snapped` : 'on';
 }
 
-function snapAccFeatures(features) {
-    if (!snapOn || !features || !features.length) return;
-    const ids = features.map(f => f.properties.id).filter(v => v !== null && v !== undefined);
-    if (!ids.length) return;
+// Move features onto their cached road position. Mutates in place, so callers
+// must do this *before* handing the features to mergeAccFeatures.
+function applyKnownSnaps(features) {
+    if (!snapOn) return 0;
+    let n = 0;
+    features.forEach(f => {
+        const id = f.properties.id;
+        const c = snapCache.get(id);
+        if (!c) return;                       // absent, or a cached miss
+        if (!rawCoords.has(id)) rawCoords.set(id, f.geometry.coordinates.slice());
+        f.geometry.coordinates = [c[0], c[1]];
+        f.properties.snapped = true;
+        n++;
+    });
+    return n;
+}
 
-    for (let i = 0; i < ids.length; i += SNAP_BATCH) {
-        const batch = ids.slice(i, i + SNAP_BATCH);
-        const gen = accGen;
+// Resolve any ids we haven't asked about yet. Resolves once every batch has
+// landed, so the caller can paint a fully-settled set of points.
+function fetchSnapsFor(features) {
+    if (!snapOn || !features || !features.length) return Promise.resolve();
+    const ids = features
+        .map(f => f.properties.id)
+        .filter(v => v !== null && v !== undefined && !snapCache.has(v));
+    if (!ids.length) return Promise.resolve();
+
+    const batches = [];
+    for (let i = 0; i < ids.length; i += SNAP_BATCH) batches.push(ids.slice(i, i + SNAP_BATCH));
+
+    return Promise.all(batches.map(batch =>
         fetch('/api/roads/snap/', {
             method: 'POST',
             headers: { 'X-CSRFToken': csrfToken, 'Content-Type': 'application/json' },
@@ -1795,29 +1834,17 @@ function snapAccFeatures(features) {
         })
             .then(r => r.json())
             .then(d => {
-                // A filter change cleared the map while this was in flight.
-                if (gen !== accGen || !snapOn) return;
                 if (d.error) { console.warn('Snap to roads:', d.error); return; }
                 const snapped = d.snapped || {};
-                let n = 0;
-                accMap.forEach(f => {
-                    const c = snapped[String(f.properties.id)];
-                    if (!c) return;
-                    if (!rawCoords.has(f.properties.id)) {
-                        rawCoords.set(f.properties.id, f.geometry.coordinates.slice());
-                    }
-                    f.geometry.coordinates = c;
-                    f.properties.snapped = true;
-                    n++;
+                batch.forEach(id => {
+                    const c = snapped[String(id)];
+                    // Cache misses too, as null, so a point with no road nearby
+                    // isn't re-requested on every single pan.
+                    snapCache.set(id, c ? [c[0], c[1]] : null);
                 });
-                if (n) {
-                    snapCount = rawCoords.size;
-                    updateSnapBadge();
-                    repaintAcc();
-                }
             })
-            .catch(() => {});
-    }
+            .catch(() => {})
+    ));
 }
 
 function unsnapAcc() {
@@ -1830,8 +1857,7 @@ function unsnapAcc() {
             n++;
         }
     });
-    rawCoords.clear();
-    snapCount = 0;
+    // rawCoords and snapCache are kept: toggling back on must not re-query.
     updateSnapBadge();
     if (n) repaintAcc();
 }
@@ -1844,8 +1870,13 @@ if (snapBtn) {
         localStorage.setItem('roamly_snap_roads', snapOn ? 'on' : 'off');
         snapBtn.classList.toggle('active', snapOn);
         if (snapOn) {
-            snapAccFeatures(Array.from(accMap.values()));
-            updateSnapBadge();
+            const loaded = Array.from(accMap.values());
+            fetchSnapsFor(loaded).then(() => {
+                if (!snapOn) return;          // toggled off again mid-flight
+                applyKnownSnaps(loaded);
+                updateSnapBadge();
+                repaintAcc();
+            });
         } else {
             unsnapAcc();
         }
