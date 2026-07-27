@@ -414,13 +414,76 @@ def _load_graph(a, b, mode=''):
     return adj, node_pos
 
 
-def _nearest_node(node_pos, pt):
-    best, best_d = None, None
-    for n, c in node_pos.items():
-        d = _haversine_m(pt[0], pt[1], c[0], c[1])
-        if best_d is None or d < best_d:
-            best, best_d = n, d
-    return best, best_d
+def _project_on_segment(pt, s1, s2):
+    """Closest point to `pt` on segment s1→s2, as (point, distance_m).
+
+    Planar approximation with longitude scaled by cos(lat) — over a single road
+    segment the error is far below the metre.
+    """
+    scale = math.cos(math.radians(pt[1])) or 1e-9
+    px, py = pt[0] * scale, pt[1]
+    ax, ay = s1[0] * scale, s1[1]
+    bx, by = s2[0] * scale, s2[1]
+    dx, dy = bx - ax, by - ay
+    den = dx * dx + dy * dy
+    t = 0.0 if den <= 0 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / den))
+    qx, qy = ax + dx * t, ay + dy * t
+    q = (qx / scale, qy)
+    return q, _haversine_m(pt[0], pt[1], q[0], q[1])
+
+
+def _nearest_edge(adj, pt, tol_deg=0.03):
+    """Nearest graph edge to `pt`: (distance_m, u, v, seg_index, projection, sub).
+
+    Edges whose segment bounding box doesn't come within `tol_deg` of the point
+    are rejected with four comparisons, before any trigonometry — that filter is
+    what keeps this affordable over tens of thousands of edges.
+    """
+    best = None
+    for u, edges in adj.items():
+        for (v, _cost, sub) in edges:
+            for i in range(len(sub) - 1):
+                s1, s2 = sub[i], sub[i + 1]
+                if (pt[0] < min(s1[0], s2[0]) - tol_deg or pt[0] > max(s1[0], s2[0]) + tol_deg
+                        or pt[1] < min(s1[1], s2[1]) - tol_deg or pt[1] > max(s1[1], s2[1]) + tol_deg):
+                    continue
+                q, d = _project_on_segment(pt, s1, s2)
+                if best is None or d < best[0]:
+                    best = (d, u, v, i, q, sub)
+    return best
+
+
+def _splice_anchor(adj, node_pos, pt, label):
+    """Add `pt`'s projection onto the road network as a temporary graph vertex.
+
+    Without this the route could only start at a *junction*, so it opened and
+    closed with a straight off-road leg from the GPS anchor to that junction —
+    which is what produced long runs of evenly-spaced points cutting across
+    open ground. Splicing into the nearest edge means the path starts and ends
+    exactly on tarmac and never leaves it.
+
+    Returns (vertex_key, distance_m, sub, seg_index) or (None, distance, …).
+    """
+    found = _nearest_edge(adj, pt)
+    if not found:
+        return None, None, None, None
+    d, u, v, i, proj, sub = found
+    if d > _ROUTE_MAX_ANCHOR_M:
+        return None, d, None, None
+
+    key = ('anchor', label)
+    node_pos[key] = proj
+    to_v = [proj] + list(sub[i + 1:])
+    to_u = [proj] + list(reversed(sub[:i + 1]))
+    cost_v = _polyline_length_m(to_v)
+    cost_u = _polyline_length_m(to_u)
+    # Both directions: one-way rules don't stop you joining or leaving the road
+    # you're already stopped on.
+    adj.setdefault(key, []).append((v, cost_v, to_v))
+    adj.setdefault(key, []).append((u, cost_u, to_u))
+    adj.setdefault(u, []).append((key, cost_u, to_u[::-1]))
+    adj.setdefault(v, []).append((key, cost_v, to_v[::-1]))
+    return key, d, sub, i
 
 
 def _local_route(a, b, mode=''):
@@ -428,16 +491,26 @@ def _local_route(a, b, mode=''):
     if not adj:
         return None
 
-    start, start_d = _nearest_node(node_pos, a)
-    goal, goal_d = _nearest_node(node_pos, b)
+    start, start_d, sub_a, i_a = _splice_anchor(adj, node_pos, a, 'a')
+    goal, goal_d, sub_b, i_b = _splice_anchor(adj, node_pos, b, 'b')
     if start is None or goal is None or start == goal:
+        # Nowhere near a known road at one end — usually the road download hasn't
+        # covered this area. Report no route; the caller records the gap
+        # unfilled rather than inventing a line across country.
+        logger.info('Local route: anchors %s / %s m from nearest road',
+                    f'{start_d:.0f}' if start_d else '?',
+                    f'{goal_d:.0f}' if goal_d else '?')
         return None
-    if start_d > _ROUTE_MAX_ANCHOR_M or goal_d > _ROUTE_MAX_ANCHOR_M:
-        # One end is nowhere near a known road — usually means the road download
-        # hasn't covered this area. A straight line is more honest than a route
-        # that teleports to the nearest highway.
-        logger.info('Local route: anchors %.0fm / %.0fm from nearest road', start_d, goal_d)
-        return None
+
+    # Both anchors on the same stretch of road: connect them along it directly,
+    # otherwise A* has to detour out to a junction and back.
+    if sub_a is sub_b:
+        lo, hi = (i_a, i_b) if i_a <= i_b else (i_b, i_a)
+        mid = list(sub_a[lo + 1:hi + 1])
+        seg = [node_pos[start]] + (mid if i_a <= i_b else list(reversed(mid))) + [node_pos[goal]]
+        cost = _polyline_length_m(seg)
+        adj.setdefault(start, []).append((goal, cost, seg))
+        adj.setdefault(goal, []).append((start, cost, seg[::-1]))
 
     goal_pos = node_pos[goal]
 
@@ -446,12 +519,15 @@ def _local_route(a, b, mode=''):
         return _haversine_m(c[0], c[1], goal_pos[0], goal_pos[1])
 
     # A* — the haversine heuristic is admissible for the unweighted case and
-    # near enough with the class multipliers to keep the search tight.
-    open_heap = [(h(start), 0.0, start)]
+    # near enough with the class multipliers to keep the search tight. The
+    # counter is a tiebreaker so the heap never has to compare vertex keys, which
+    # are a mix of coordinate tuples and ('anchor', label) and aren't orderable.
+    counter = 0
+    open_heap = [(h(start), 0.0, counter, start)]
     came = {start: (None, None)}
     best_g = {start: 0.0}
     while open_heap:
-        _f, g, node = heapq.heappop(open_heap)
+        _f, g, _c, node = heapq.heappop(open_heap)
         if node == goal:
             break
         if g > best_g.get(node, float('inf')):
@@ -461,7 +537,8 @@ def _local_route(a, b, mode=''):
             if ng < best_g.get(nxt, float('inf')):
                 best_g[nxt] = ng
                 came[nxt] = (node, sub)
-                heapq.heappush(open_heap, (ng + h(nxt), ng, nxt))
+                counter += 1
+                heapq.heappush(open_heap, (ng + h(nxt), ng, counter, nxt))
 
     if goal not in came:
         return None
@@ -473,13 +550,13 @@ def _local_route(a, b, mode=''):
         node = prev
     parts.reverse()
 
-    path = [a]
+    # No raw anchors: the path is road geometry from end to end.
+    path = []
     for sub in parts:
         for c in sub:
             if not path or (c[0], c[1]) != (path[-1][0], path[-1][1]):
                 path.append((c[0], c[1]))
-    path.append(b)
-    return path if len(path) > 2 else None
+    return path if len(path) >= 2 else None
 
 
 # ---------------------------------------------------------------------------
