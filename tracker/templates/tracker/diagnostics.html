@@ -105,8 +105,8 @@
                 <select id="inf-status" class="form-control" style="width:auto;" onchange="loadInferred()">
                     <option value="">All gaps</option>
                     <option value="filled">Routed on roads</option>
-                    <option value="straight">Straight line</option>
-                    <option value="skipped">Skipped</option>
+                    <option value="skipped">Not filled (no road route)</option>
+                    <option value="straight">Straight line (legacy)</option>
                     <option value="failed">Failed</option>
                     <option value="dismissed">Deleted by me</option>
                 </select>
@@ -946,7 +946,7 @@ let infExpanded = null;
 const INF_SOURCE = 'inf-src';
 
 const INF_STATUS_LABEL = {
-    filled: 'routed', straight: 'straight line', skipped: 'skipped',
+    filled: 'routed', straight: 'straight line', skipped: 'not filled',
     failed: 'failed', dismissed: 'deleted',
 };
 
