@@ -557,6 +557,8 @@
                     <div class="settings-actions">
                         <button class="btn btn-primary btn-sm" id="gapfill-btn" onclick="startGapfill()">Fill Gaps</button>
                         <button class="btn btn-outline btn-sm" id="gapfill-stop-btn" onclick="stopGapfill()" style="display:none;">Stop</button>
+                        <button class="btn btn-outline btn-sm" id="gapfill-clear-btn" onclick="clearInferred()"
+                                style="color:var(--danger);border-color:var(--danger);">Clear Inferred Points</button>
                     </div>
                     <div id="gapfill-progress-wrap" style="margin-top:0.6rem;display:none;">
                         <div style="background:var(--bg-input);border-radius:0;height:6px;overflow:hidden;margin-bottom:0.35rem;">
@@ -1697,6 +1699,34 @@ function stopGapfill() {
     document.getElementById('gapfill-stop-btn').disabled = true;
     document.getElementById('gapfill-status').innerHTML = '<span class="spinner"></span> stopping...';
     fetch('/api/gaps/fill/stop/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } });
+}
+
+function clearInferred() {
+    const statusEl = document.getElementById('gapfill-status');
+    const btn = document.getElementById('gapfill-clear-btn');
+    if (!confirm('Delete all inferred gap-fill points?\n\n'
+        + 'Your recorded GPS points are untouched — only the generated ones go. '
+        + 'Gaps you deleted yourself stay deleted. Run Fill Gaps again afterwards '
+        + 'to rebuild them with the current routing.')) return;
+
+    btn.disabled = true;
+    document.getElementById('gapfill-progress-wrap').style.display = 'block';
+    document.getElementById('gapfill-bar').style.width = '0%';
+    statusEl.innerHTML = '<span class="spinner"></span> clearing…';
+
+    fetch('/api/gaps/clear/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' },
+        body: '{}',
+    })
+        .then(r => r.json())
+        .then(d => {
+            statusEl.textContent = d.status === 'ok'
+                ? `cleared — ${(d.gaps || 0).toLocaleString()} gaps, ${(d.points || 0).toLocaleString()} inferred points removed.`
+                : 'clear failed.';
+        })
+        .catch(() => { statusEl.textContent = 'clear failed.'; })
+        .finally(() => { btn.disabled = false; });
 }
 
 function pollGapfillStatus() {
