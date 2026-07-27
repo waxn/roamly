@@ -8849,11 +8849,15 @@ def inferred_locations_api(request):
     if not profile.gap_fill_enabled:
         return JsonResponse({'gaps': [], 'enabled': False})
 
+    # Only 'filled' draws — a road-routed path. Everything else is either an
+    # honest hole (skipped/failed), a user rejection (dismissed), or a legacy
+    # straight-line interpolation from before the fallback was removed. Drawing
+    # 'straight' rows is what put lines across open country on the map, so the
+    # allowlist is deliberate: any future status is invisible until it is proven
+    # to be real road geometry.
     gaps = _inferred_filter(
         request,
-        InferredGap.objects.filter(
-            device__user=request.user
-        ).exclude(status__in=['dismissed', 'skipped', 'failed'])
+        InferredGap.objects.filter(device__user=request.user, status='filled')
     ).select_related('device')
 
     # Optional viewport bbox — same parameter names the map already sends.
@@ -9048,3 +9052,32 @@ def road_data_delete_api(request):
     # The local provider advertises itself on an EXISTS check that is cached.
     cache.delete(ROADS_AVAILABLE_CACHE_KEY)
     return JsonResponse({'status': 'ok', 'deleted': deleted})
+
+
+@login_required
+@require_http_methods(["POST"])
+def inferred_clear_api(request):
+    """Delete the user's inferred gap records and their points.
+
+    Dismissals are kept by default — those record a decision the user made, and
+    silently undoing it would resurface gaps they had already rejected. Pass
+    ``{"include_dismissed": true}`` to wipe those too.
+
+    This exists so repairing bad output is a button rather than a shell command:
+    the fill job treats 'filled' and 'dismissed' as final, so without a way to
+    clear the rest, results produced by an older version could never be redone.
+    """
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        data = {}
+
+    qs = InferredGap.objects.filter(device__user=request.user)
+    if not data.get('include_dismissed'):
+        qs = qs.exclude(status='dismissed')
+
+    points = InferredLocation.objects.filter(gap__in=qs).count()
+    gaps = qs.count()
+    qs.delete()   # cascades to InferredLocation
+    _bust_user_cache(request.user.id)
+    return JsonResponse({'status': 'ok', 'gaps': gaps, 'points': points})
