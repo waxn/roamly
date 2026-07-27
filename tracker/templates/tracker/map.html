@@ -1012,6 +1012,7 @@ function toLocalDateTimeParam(dateStr, kind) {
 // ═══════════════════════════════════════════════════════════════════
 
 let activeSources = [];   // decimated track source IDs on the map
+const trackFeatures = new Map();  // srcId → its features, so snaps can be re-applied
 let lastTrackData = [];   // for style-swap re-render
 let pendingFetch = null;  // AbortController for track fetch
 
@@ -1054,6 +1055,7 @@ function clearTrackLayers() {
     activeSources.forEach(id => {
         [`${id}-heat`, `${id}-dots`].forEach(lid => { if (map.getLayer(lid)) map.removeLayer(lid); });
         if (map.getSource(id)) map.removeSource(id);
+        trackFeatures.delete(id);
     });
     activeSources = [];
 }
@@ -1146,7 +1148,7 @@ function initAccLayers() {
         filter: ['==', ['get', 'snapped'], true],
         paint: {
             'circle-radius': ['interpolate', ['linear'], ['zoom'],
-                8, dotSizeArgs[1] + 3, 12, dotSizeArgs[3] + 4, 16, dotSizeArgs[5] + 5],
+                8, dotSizeArgs[1] + 1.5, 12, dotSizeArgs[3] + 2, 16, dotSizeArgs[5] + 2.5],
             'circle-color': 'rgba(0,0,0,0)',
             'circle-stroke-width': 1.2,
             'circle-stroke-color': '#a78bda',
@@ -1323,6 +1325,7 @@ function loadViewport(limit) {
             return fetchSnapsFor(features).then(() => {
                 applyKnownSnaps(features);
                 mergeAccFeatures(features);
+                repaintTrackSnaps();
                 updateSnapBadge();
                 clearTimeout(timeoutId);
                 hideMapLoading();
@@ -1422,6 +1425,13 @@ function renderTrack(devices, autoFit) {
             if (p.c[1] > maxLat) maxLat = p.c[1];
         });
 
+        // The decimated track and the detail layer both draw above
+        // DETAIL_MIN_ZOOM, so they render the same fix twice. That was invisible
+        // while both sat on the recorded position — but once the detail dot
+        // snaps and this one doesn't, one point becomes two side by side. Apply
+        // the same cached corrections here so they stay coincident.
+        applyKnownSnaps(features);
+        trackFeatures.set(srcId, features);
         map.addSource(srcId, { type: 'geojson', data: { type: 'FeatureCollection', features } });
         activeSources.push(srcId);
 
@@ -1847,6 +1857,15 @@ function fetchSnapsFor(features) {
     ));
 }
 
+function repaintTrackSnaps() {
+    if (!snapOn) return;
+    trackFeatures.forEach((features, srcId) => {
+        if (!applyKnownSnaps(features)) return;
+        const src = map.getSource(srcId);
+        if (src) src.setData({ type: 'FeatureCollection', features });
+    });
+}
+
 function unsnapAcc() {
     let n = 0;
     accMap.forEach(f => {
@@ -1856,6 +1875,15 @@ function unsnapAcc() {
             delete f.properties.snapped;
             n++;
         }
+    });
+    trackFeatures.forEach((features, srcId) => {
+        let m = 0;
+        features.forEach(f => {
+            const raw = rawCoords.get(f.properties.id);
+            if (raw) { f.geometry.coordinates = raw.slice(); delete f.properties.snapped; m++; }
+        });
+        const src = map.getSource(srcId);
+        if (m && src) src.setData({ type: 'FeatureCollection', features });
     });
     // rawCoords and snapCache are kept: toggling back on must not re-query.
     updateSnapBadge();
@@ -1874,6 +1902,7 @@ if (snapBtn) {
             fetchSnapsFor(loaded).then(() => {
                 if (!snapOn) return;          // toggled off again mid-flight
                 applyKnownSnaps(loaded);
+                repaintTrackSnaps();
                 updateSnapBadge();
                 repaintAcc();
             });
