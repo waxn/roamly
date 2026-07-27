@@ -143,6 +143,12 @@ def _classify_pair(a, b, min_gap_s):
 # Filling
 # ---------------------------------------------------------------------------
 
+def _polyline_len(coords):
+    return sum(roads._haversine_m(coords[i][0], coords[i][1],
+                                  coords[i + 1][0], coords[i + 1][1])
+               for i in range(len(coords) - 1))
+
+
 def _points_along(route, start_dt, end_dt, interval_s=_FILL_INTERVAL_S):
     """Space points along `route` so the traversal is at constant average speed.
 
@@ -203,14 +209,13 @@ def _fill_gap(profile, gap):
         return False
 
     route = None
-    status = 'straight'
+    status = 'filled'
     detail = ''
     try:
         route = roads.route_between(profile, gap['a'], gap['b'], gap['mode'])
-        if route:
-            status = 'filled'
-        else:
-            detail = 'no road route found; interpolated a straight line'
+        if not route:
+            status = 'skipped'
+            detail = 'no road route found between these points'
     except roads.RoadProviderError as exc:
         status = 'failed'
         detail = str(exc)[:200]
@@ -219,7 +224,21 @@ def _fill_gap(profile, gap):
         status = 'failed'
         detail = 'routing failed unexpectedly'
 
-    if status == 'failed':
+    if status == 'filled':
+        # Guard against a route that is technically on roads but absurd for the
+        # time available — a wrong turn out to a motorway and back can be many
+        # times the real distance, and points laid along it would be nonsense.
+        route_len = _polyline_len(route)
+        dt = (gap['end_time'] - gap['start_time']).total_seconds()
+        if dt > 0 and route_len / dt > _GAP_MAX_MPS:
+            status = 'skipped'
+            detail = (f'road route is {route_len / 1000:.1f}km, too far for '
+                      f'{dt / 60:.0f} minutes')
+
+    if status != 'filled':
+        # No straight-line fallback: an inferred track must follow real roads end
+        # to end or not exist. A line drawn across open country looks like data
+        # and isn't, which is worse than an honest hole in the map.
         InferredGap.objects.update_or_create(
             device=gap['device'],
             start_location_id=gap['start_location_id'],
@@ -228,11 +247,6 @@ def _fill_gap(profile, gap):
                       'point_count': 0, 'route_distance_m': 0},
         )
         return False
-
-    # A straight line is still better than a track that teleports, and the row
-    # is labelled 'straight' so the audit view can show why.
-    if not route:
-        route = [gap['a'], gap['b']]
 
     pts, route_len = _points_along(route, gap['start_time'], gap['end_time'])
 
