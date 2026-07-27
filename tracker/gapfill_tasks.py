@@ -54,6 +54,10 @@ _GAP_MAX_MPS = 60.0
 # being believable. Real drives are rarely past ~2x crow-flies; well beyond that
 # means A* looped around a hole in the downloaded road network.
 _MAX_DETOUR_FACTOR = 2.5
+# ...and how much shorter it may be. A genuine route between two points is at
+# least as long as the straight line; the slack only covers the small shift from
+# projecting each anchor onto the roadway.
+_MIN_ROUTE_FACTOR = 0.75
 # Spacing of generated points, and a hard ceiling per gap so one long hole can't
 # dump thousands of rows.
 _FILL_INTERVAL_S = 60
@@ -257,6 +261,14 @@ def _fill_gap(profile, gap):
             detail = (f'road route is {route_len / 1000:.1f}km for a '
                       f'{straight / 1000:.1f}km gap — likely routed around '
                       f'missing road data')
+        # A route can't be meaningfully *shorter* than the crow-flies distance
+        # between the points it connects. When it is, both anchors projected onto
+        # the same stretch of road and the "route" is a stub going nowhere near
+        # the journey — which showed up as a short line floating between points.
+        elif straight > 0 and route_len < straight * _MIN_ROUTE_FACTOR:
+            status = 'skipped'
+            detail = (f'road route is only {route_len:.0f}m for a {straight:.0f}m '
+                      f'gap — the two ends snapped onto the same stretch of road')
 
     if status != 'filled':
         # No straight-line fallback: an inferred track must follow real roads end

@@ -69,8 +69,11 @@ _ROUTE_MAX_KM = 150.0         # longer than this is not a plausible road gap
 _BBOX_PAD_FRAC = 0.60         # generous: a detour outside the box is unroutable
 _BBOX_MIN_PAD_DEG = 0.05      # ~5km, so short gaps still see the surrounding grid
 # If the nearest known road to an anchor is further than this, that anchor isn't
-# on the downloaded network and routing from it would invent a leg.
-_ROUTE_MAX_ANCHOR_M = 1000.0
+# on the downloaded network and routing from it would invent a leg. Kept tight on
+# purpose: a generous tolerance let both ends of a gap project onto the same
+# nearby road at nearly the same spot, producing a tiny stub of a route that had
+# nothing to do with the journey — a short floating line on the map.
+_ROUTE_MAX_ANCHOR_M = 80.0
 # Prefer the fast road when several routes are similar in length. Weights
 # multiply true metres, so 0.6 means "a motorway kilometre costs 600m".
 _HIGHWAY_WEIGHT = {
