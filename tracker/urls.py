@@ -167,6 +167,7 @@ urlpatterns = [
     path('api/gaps/fill/', views.gap_fill_api, name='gap_fill'),
     path('api/gaps/fill/status/', views.gap_fill_status_api, name='gap_fill_status'),
     path('api/gaps/fill/stop/', views.gap_fill_stop_api, name='gap_fill_stop'),
+    path('api/gaps/clear/', views.inferred_clear_api, name='inferred_clear'),
     path('api/gaps/', views.inferred_gaps_api, name='inferred_gaps'),
     path('api/gaps/<int:gap_id>/dismiss/', views.inferred_gap_dismiss_api, name='inferred_gap_dismiss'),
     path('api/gaps/<int:gap_id>/restore/', views.inferred_gap_restore_api, name='inferred_gap_restore'),
