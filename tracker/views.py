@@ -1,4 +1,5 @@
 import csv
+import gzip
 import io
 import json
 import logging
@@ -4388,22 +4389,41 @@ def export_gpx(request):
     return response
 
 
-def _write_backup_json(user, f):
-    """Write backup JSON to a file-like object row-by-row to avoid OOM on large datasets."""
+def _write_backup_json(user, f, progress=None):
+    """Write backup JSON to a file-like object row-by-row to avoid OOM on large datasets.
+
+    ``progress(stage, done, total)`` is called as each section completes and
+    periodically through the (dominant) locations scan, so the browser can show
+    a real progress bar instead of an indeterminate spinner.
+    """
     encoder = DjangoJSONEncoder()
 
+    def report(stage, done=0, total=0):
+        if progress:
+            progress(stage, done, total)
+
+    # Counted up front so the caller can weight the locations scan against the
+    # small sections and turn elapsed time into a meaningful ETA.
+    report('Counting locations')
+    loc_total = Location.objects.filter(device__user=user).count()
+
+    report('Collecting devices')
     meta = {'version': 7, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # Same complete, nested schema as the S3 backup (_build_backup_json) so the
     # downloaded file and the automatic S3 backup contain identical data.
+    report('Collecting adventures')
     adventures = _build_adventures_data(user)
     api_keys = [
         {'name': k.name, 'key': k.key, 'is_active': k.is_active, 'created_at': k.created_at}
         for k in APIKey.objects.filter(user=user)
     ]
+    report('Collecting pals')
     pals = _build_pals_data(user)
+    report('Collecting journals')
     journals = _build_journals_data(user)
+    report('Collecting places')
     custom_places = _build_custom_places_data(user)
 
     f.write(b'{"meta":' + encoder.encode(meta).encode() + b',')
@@ -4414,8 +4434,10 @@ def _write_backup_json(user, f):
     f.write(b'"journals":' + encoder.encode(journals).encode() + b',')
     f.write(b'"custom_places":' + encoder.encode(custom_places).encode() + b',')
 
+    report('Writing locations', 0, loc_total)
     f.write(b'"locations":[')
     first = True
+    written = 0
     qs = (Location.objects.filter(device__user=user)
           .select_related('device').order_by('timestamp').iterator(chunk_size=2000))
     for loc in qs:
@@ -4432,7 +4454,25 @@ def _write_backup_json(user, f):
             'country': loc.country, 'country_code': loc.country_code,
             'place_name': loc.place_name,
         }).encode())
+        written += 1
+        if written % 5000 == 0:
+            report('Writing locations', written, loc_total)
     f.write(b']}')
+    report('Writing locations', loc_total, loc_total)
+
+
+# Share of the progress bar given to the small sections before the locations
+# scan; the scan itself fills the rest.
+_BACKUP_PREP_PCT = 12
+_BACKUP_STAGES = ['Counting locations', 'Collecting devices', 'Collecting adventures',
+                  'Collecting pals', 'Collecting journals', 'Collecting places',
+                  'Writing locations']
+
+
+def _backup_tmp_path(job_id):
+    # Written gzipped so the download can carry a real Content-Length (see
+    # export_backup_download) and the temp file stays small.
+    return os.path.join(tempfile.gettempdir(), f'roamly_backup_{job_id}.json.gz')
 
 
 @login_required
@@ -4440,19 +4480,43 @@ def _write_backup_json(user, f):
 def export_backup_start(request):
     """Start async backup generation, return a job ID to poll."""
     job_id = str(uuid.uuid4())
-    tmp_path = os.path.join(tempfile.gettempdir(), f'roamly_backup_{job_id}.json')
-    cache.set(f'backup_job:{request.user.id}:{job_id}', 'running', timeout=600)
+    tmp_path = _backup_tmp_path(job_id)
+    key = f'backup_job:{request.user.id}:{job_id}'
+    started = time.time()
+
+    def put(payload):
+        # Refreshes the TTL on every update, so a multi-hour backup of a huge
+        # history can't have its own job record expire out from under it.
+        cache.set(key, payload, timeout=3600)
+
+    put({'status': 'running', 'stage': 'Starting', 'pct': 0, 'started': started})
 
     user = request.user
 
     def generate():
         try:
-            with open(tmp_path, 'wb') as f:
-                _write_backup_json(user, f)
-            cache.set(f'backup_job:{user.id}:{job_id}', 'ready', timeout=600)
+            def progress(stage, done, total):
+                try:
+                    idx = _BACKUP_STAGES.index(stage)
+                except ValueError:
+                    idx = 0
+                if total:
+                    pct = _BACKUP_PREP_PCT + (100 - _BACKUP_PREP_PCT) * done / total
+                else:
+                    pct = _BACKUP_PREP_PCT * idx / len(_BACKUP_STAGES)
+                put({'status': 'running', 'stage': stage, 'pct': round(pct, 1),
+                     'done': done, 'total': total, 'started': started})
+
+            # Level 5: the JSON compresses ~10x either way, and this is on the
+            # user's clock while they wait for the bar to fill.
+            with gzip.open(tmp_path, 'wb', compresslevel=5) as f:
+                _write_backup_json(user, f, progress=progress)
+                raw_size = f.tell()
+            put({'status': 'ready', 'stage': 'Ready', 'pct': 100, 'started': started,
+                 'size': os.path.getsize(tmp_path), 'raw_size': raw_size})
         except Exception as e:
             logger.error(f'Backup generation failed: {e}')
-            cache.set(f'backup_job:{user.id}:{job_id}', f'error:{e}', timeout=600)
+            put({'status': 'error', 'message': str(e)})
 
     threading.Thread(target=generate, daemon=True).start()
     return JsonResponse({'job_id': job_id})
@@ -4460,28 +4524,64 @@ def export_backup_start(request):
 
 @login_required
 def export_backup_status(request, job_id):
-    """Poll backup generation status."""
-    status = cache.get(f'backup_job:{request.user.id}:{job_id}')
-    if status is None:
+    """Poll backup generation progress."""
+    job = cache.get(f'backup_job:{request.user.id}:{job_id}')
+    if job is None:
         return JsonResponse({'status': 'not_found'}, status=404)
-    if status.startswith('error:'):
-        return JsonResponse({'status': 'error', 'message': status[6:]})
-    return JsonResponse({'status': status})
+    if not isinstance(job, dict):  # a job started before this deploy
+        return JsonResponse({'status': job})
+    out = dict(job)
+    pct = out.get('pct') or 0
+    if out['status'] == 'running' and pct > 1:
+        elapsed = time.time() - out.get('started', time.time())
+        out['eta'] = max(0, round(elapsed * (100 - pct) / pct))
+    out.pop('started', None)
+    return JsonResponse(out)
 
 
 @login_required
 def export_backup_download(request, job_id):
     """Download a completed backup file."""
-    status = cache.get(f'backup_job:{request.user.id}:{job_id}')
+    job = cache.get(f'backup_job:{request.user.id}:{job_id}')
+    status = job.get('status') if isinstance(job, dict) else job
     if status != 'ready':
         return HttpResponse('Backup not ready', status=404)
-    tmp_path = os.path.join(tempfile.gettempdir(), f'roamly_backup_{job_id}.json')
+    tmp_path = _backup_tmp_path(job_id)
     if not os.path.exists(tmp_path):
         return HttpResponse('Backup file not found', status=404)
     filename = f'roamly_backup_{timezone.now().strftime("%Y-%m-%d")}.json'
     cache.delete(f'backup_job:{request.user.id}:{job_id}')
-    f = open(tmp_path, 'rb')
-    response = FileResponse(f, content_type='application/json', as_attachment=True, filename=filename)
+
+    # The file is stored gzipped. Handing the browser the compressed bytes with
+    # Content-Encoding: gzip both sets a real Content-Length (so the download
+    # shows a total and a progress bar rather than a bare rising byte count)
+    # and keeps GZipMiddleware off it — it skips responses that already carry a
+    # Content-Encoding, and for a streaming response it otherwise *deletes*
+    # Content-Length, which is what made the size unknown. The browser
+    # transparently inflates it, so the saved file is still plain JSON.
+    if 'gzip' in request.META.get('HTTP_ACCEPT_ENCODING', ''):
+        # FileResponse sets Content-Length from the file size, which is exactly
+        # the number of bytes on the wire here.
+        response = FileResponse(open(tmp_path, 'rb'), content_type='application/json',
+                                as_attachment=True, filename=filename)
+        response['Content-Encoding'] = 'gzip'
+    else:
+        # Non-browser client (curl without --compressed). Inflate as we stream;
+        # hand-rolled rather than FileResponse because seeking a GzipFile to
+        # find its length would decompress the whole thing up front.
+        raw_size = job.get('raw_size') if isinstance(job, dict) else None
+
+        def _inflate():
+            with gzip.open(tmp_path, 'rb') as gz:
+                for chunk in iter(lambda: gz.read(64 * 1024), b''):
+                    yield chunk
+
+        response = StreamingHttpResponse(_inflate(), content_type='application/json')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        if raw_size:
+            response['Content-Encoding'] = 'identity'  # keep GZipMiddleware off Content-Length
+            response['Content-Length'] = str(raw_size)
+
     def _cleanup():
         time.sleep(60)
         try:
@@ -4502,8 +4602,13 @@ def restore_backup(request):
         return JsonResponse({'error': 'No file uploaded'}, status=400)
 
     try:
-        data = json.loads(f.read().decode('utf-8-sig'))
-    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        raw = f.read()
+        # Backups are served gzipped over the wire; a client that saved the
+        # compressed bytes without inflating them should still restore.
+        if raw[:2] == b'\x1f\x8b':
+            raw = gzip.decompress(raw)
+        data = json.loads(raw.decode('utf-8-sig'))
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError, EOFError) as e:
         return JsonResponse({'error': f'Invalid JSON file: {e}'}, status=400)
 
     meta = data.get('meta', {})
