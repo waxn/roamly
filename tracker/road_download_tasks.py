@@ -36,6 +36,10 @@ import urllib.request
 
 from django.db import close_old_connections
 
+# Reused rather than reimplemented — note it takes **lat first**, unlike
+# roads._haversine_m which takes lng first.
+from .transport_tasks import _haversine_m
+
 logger = logging.getLogger(__name__)
 
 _running_threads = {}
@@ -54,6 +58,12 @@ CELL_DEG = 0.02
 # Pad each queried box so roads just outside a cell edge are still available to
 # snap against, and a route can leave the corridor briefly.
 CELL_PAD_DEG = 0.004
+# Limits on bridging the cells between two consecutive fixes. Deliberately the
+# same rules gapfill_tasks applies before it will route a gap (_GAP_MAX_MPS and
+# roads._ROUTE_MAX_KM), so the download covers what routing will attempt and no
+# more — without them a flight would rasterise a transcontinental line of cells.
+MAX_BRIDGE_M = 150_000.0
+MAX_BRIDGE_MPS = 60.0
 # Overpass clauses per request. Each is a bbox; more clauses means fewer
 # round-trips but a longer server-side query.
 # Fewer, smaller batches: a big merged corridor is exactly what makes Overpass
@@ -66,22 +76,66 @@ REQUEST_SLEEP_S = 3       # be a good Overpass citizen between requests
 INSERT_CHUNK = 2000
 
 
-def _visited_boxes(user_id):
-    """Bounding boxes covering every ~2km cell the user has a fix in.
+def _line_cells(gy0, gx0, gy1, gx1):
+    """Every grid cell the straight line between two cells passes through.
 
-    Cells are merged along each latitude row first, so a highway corridor
-    collapses into a handful of wide boxes instead of hundreds of squares —
-    fewer Overpass clauses for identical coverage.
+    Integer DDA over the cell grid — a supercover walk, so no cell the segment
+    clips is missed.
+    """
+    dy, dx = gy1 - gy0, gx1 - gx0
+    steps = max(abs(dy), abs(dx))
+    if steps == 0:
+        return [(gy0, gx0)]
+    out = []
+    for i in range(steps + 1):
+        f = i / steps
+        out.append((round(gy0 + dy * f), round(gx0 + dx * f)))
+    return out
+
+
+def _visited_boxes(user_id):
+    """Bounding boxes covering the ~2km cells the user has travelled through.
+
+    Includes the cells *between* consecutive fixes, not only the cells containing
+    them. This is essential rather than a refinement: a tracking gap is by
+    definition a stretch with no fixes, so a fix-only area contributed no cells
+    there, Overpass was never asked for roads along that corridor, and
+    roads._load_graph then had nothing to connect the two anchors with. The gaps
+    the fill job exists to close were precisely the ones it could never route —
+    endpoints snapped, middle permanently empty.
+
+    Cells are merged along each latitude row afterwards, so a corridor collapses
+    into a handful of wide boxes instead of hundreds of squares — fewer Overpass
+    clauses for identical coverage.
     """
     from .models import Location
 
     cells = set()
+    # Ordered by (device, timestamp) so "consecutive" means something. Backed by
+    # the existing tracker_loc_device__idx index on ('device', '-timestamp').
     qs = (Location.objects.filter(device__user_id=user_id)
-          .values_list('latitude', 'longitude').iterator(chunk_size=20000))
-    for lat, lng in qs:
+          .order_by('device_id', 'timestamp')
+          .values_list('device_id', 'latitude', 'longitude', 'timestamp')
+          .iterator(chunk_size=20000))
+
+    prev = None
+    for dev_id, lat, lng, ts in qs:
         if lat is None or lng is None:
             continue
-        cells.add((int(lat // CELL_DEG), int(lng // CELL_DEG)))
+        cell = (int(lat // CELL_DEG), int(lng // CELL_DEG))
+        cells.add(cell)
+
+        if prev is not None and prev[0] == dev_id:
+            _, p_lat, p_lng, p_ts, p_cell = prev
+            # Only bridge what the gap filler would actually try to route, so the
+            # download covers exactly what routing needs and nothing more.
+            span_m = _haversine_m(p_lat, p_lng, lat, lng)
+            dt = (ts - p_ts).total_seconds() if (ts and p_ts) else 0
+            plausible = span_m <= MAX_BRIDGE_M and not (dt > 0 and span_m / dt > MAX_BRIDGE_MPS)
+            if plausible and cell != p_cell:
+                cells.update(_line_cells(p_cell[0], p_cell[1], cell[0], cell[1]))
+
+        prev = (dev_id, lat, lng, ts, cell)
 
     rows = {}
     for gy, gx in cells:
