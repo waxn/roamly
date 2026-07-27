@@ -631,6 +631,12 @@
                 modified. Gap filling adds new points, stored separately and marked as inferred,
                 so they never count toward distance, visits or stats.
             </p>
+            <p class="settings-section-desc" style="margin-top:-0.35rem;">
+                Only road journeys are snapped — walking is left exactly as recorded, so a
+                garden or footpath keeps its detail. Running <strong>Detect Transport Modes</strong>
+                above makes that decision more accurate: without it the split is guessed from
+                speed, with it each journey is classified as a whole.
+            </p>
 
             <div class="pref-grid">
                 <div class="pref-form-group">
@@ -660,6 +666,14 @@
                         <div class="info-icon" data-tooltip="Shorter dropouts are left alone. Gaps longer than 6 hours are never filled.">?</div>
                     </label>
                     <input type="number" id="gap-min-minutes" class="form-control" min="1" max="120" step="1">
+                </div>
+
+                <div class="pref-form-group">
+                    <label class="pref-label">
+                        …or Gap Distance (m)
+                        <div class="info-icon" data-tooltip="A pair of points this far apart is filled even when the time between them is short. Normal tracking is 100-200m apart, so ordinary drives are untouched.">?</div>
+                    </label>
+                    <input type="number" id="gap-min-distance" class="form-control" min="250" max="20000" step="50">
                 </div>
             </div>
 
@@ -1837,6 +1851,7 @@ function _roadsConfigPayload() {
         gap_fill_enabled: document.getElementById('gap-fill-enabled').checked,
         gap_fill_auto: document.getElementById('gap-fill-auto').checked,
         gap_fill_min_minutes: parseInt(document.getElementById('gap-min-minutes').value, 10) || 2,
+        gap_fill_min_distance_m: parseInt(document.getElementById('gap-min-distance').value, 10) || 500,
     };
 }
 
@@ -1895,6 +1910,7 @@ fetch('/api/profile/roads-config/')
         document.getElementById('gap-fill-enabled').checked = !!d.gap_fill_enabled;
         document.getElementById('gap-fill-auto').checked = !!d.gap_fill_auto;
         document.getElementById('gap-min-minutes').value = d.gap_fill_min_minutes || 2;
+        document.getElementById('gap-min-distance').value = d.gap_fill_min_distance_m || 500;
         _roadsResolvedNote(d.resolved, d.total_ways);
     })
     .catch(() => {});
