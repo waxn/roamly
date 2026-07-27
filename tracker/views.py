@@ -8658,6 +8658,9 @@ def profile_roads_config_api(request):
             'gap_fill_min_minutes': profile.gap_fill_min_minutes,
             'has_postgis': HAS_POSTGIS,
             'has_local_roads': RoadSegment.objects.exists() if HAS_POSTGIS else False,
+            # Surfaced in the card: if snapping or gap routing look inert, an
+            # empty or thin road table is the usual reason.
+            'total_ways': RoadSegment.objects.count() if HAS_POSTGIS else 0,
             'has_mapbox_token': bool(profile.mapbox_token),
         })
 
@@ -8879,6 +8882,17 @@ def inferred_locations_api(request):
     for gap_id, lng, lat in pts_qs:
         by_gap.setdefault(gap_id, []).append([_jf(lng), _jf(lat)])
 
+    # The two real fixes each gap bridges. Generated points deliberately exclude
+    # the endpoints (the real ones already sit there), so without these the drawn
+    # line floated between the anchors instead of joining the recorded track.
+    anchor_ids = {g.start_location_id for g in gaps} | {g.end_location_id for g in gaps}
+    anchors = {
+        r['id']: [_jf(r['longitude']), _jf(r['latitude'])]
+        for r in Location.objects.filter(
+            id__in=anchor_ids, device__user=request.user
+        ).values('id', 'latitude', 'longitude')
+    }
+
     out = []
     for g in gaps:
         coords = by_gap.get(g.id) or []
@@ -8887,6 +8901,15 @@ def inferred_locations_api(request):
         if bbox and not any(bbox[0] <= c[0] <= bbox[2] and bbox[1] <= c[1] <= bbox[3]
                             for c in coords):
             continue
+        # `line` closes the visual gap at both ends; `coords` stays the inferred
+        # points alone so the dots don't double up on real fixes.
+        line = list(coords)
+        start_a = anchors.get(g.start_location_id)
+        end_a = anchors.get(g.end_location_id)
+        if start_a:
+            line.insert(0, start_a)
+        if end_a:
+            line.append(end_a)
         out.append({
             'id': g.id,
             'device_id': g.device.device_id,
@@ -8895,6 +8918,7 @@ def inferred_locations_api(request):
             'start': g.start_time.isoformat(),
             'end': g.end_time.isoformat(),
             'coords': coords,
+            'line': line,
         })
     return JsonResponse({'gaps': out, 'enabled': True})
 

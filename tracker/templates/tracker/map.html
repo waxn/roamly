@@ -1978,10 +1978,13 @@ function loadInferredGaps() {
             if (!inferredOn) return;
             const features = [];
             (d.gaps || []).forEach(g => {
-                if (g.coords.length >= 2) {
+                // `line` includes the two real fixes, so the fill visibly joins
+                // the recorded track instead of floating between the anchors.
+                const line = g.line || g.coords;
+                if (line.length >= 2) {
                     features.push({
                         type: 'Feature',
-                        geometry: { type: 'LineString', coordinates: g.coords },
+                        geometry: { type: 'LineString', coordinates: line },
                         properties: { gap_id: g.id, provider: g.provider },
                     });
                 }
