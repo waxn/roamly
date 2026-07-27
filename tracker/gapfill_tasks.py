@@ -50,6 +50,10 @@ _GAP_MAX_S = 6 * 3600
 _GAP_MIN_DIST_M = 250.0
 # Above this implied speed it is a flight, not a road journey. ~216 km/h.
 _GAP_MAX_MPS = 60.0
+# How far a road route may exceed the straight-line distance before it stops
+# being believable. Real drives are rarely past ~2x crow-flies; well beyond that
+# means A* looped around a hole in the downloaded road network.
+_MAX_DETOUR_FACTOR = 2.5
 # Spacing of generated points, and a hard ceiling per gap so one long hole can't
 # dump thousands of rows.
 _FILL_INTERVAL_S = 60
@@ -61,23 +65,28 @@ _BATCH_SIZE = 20000
 # Gap detection
 # ---------------------------------------------------------------------------
 
-def _detect_gaps(user_id, min_gap_s, since=None):
+def _detect_gaps(user_id, min_gap_s, since=None, retry=False):
     """Yield fillable gaps for every device belonging to the user.
 
     Paginates on (timestamp, id) rather than id alone — imported history (CSV,
     GPX, Takeout) gets ids in file order, which need not match time order, so an
     id cursor would silently skip points. Same reasoning as transport_tasks.
+
+    Only two outcomes are final: 'filled' (there is a road route and we drew it)
+    and 'dismissed' (the user rejected it and must not see it again). With
+    `retry` set, everything else — skipped, failed, and legacy straight-line
+    rows — is offered again, so re-running the job repairs earlier results
+    instead of skipping them forever. That is the difference between a job the
+    user can re-run to fix things and one that needs a shell command.
     """
     from django.db.models import Q
     from .models import Device, InferredGap, Location
 
     for device in Device.objects.filter(user_id=user_id):
-        # Every gap already on record — including dismissed ones, which must
-        # stay dismissed.
-        known = set(
-            InferredGap.objects.filter(device=device)
-            .values_list('start_location_id', 'end_location_id')
-        )
+        done = InferredGap.objects.filter(device=device)
+        if retry:
+            done = done.filter(status__in=['filled', 'dismissed'])
+        known = set(done.values_list('start_location_id', 'end_location_id'))
 
         base = Location.objects.filter(device=device)
         if since is not None:
@@ -225,15 +234,29 @@ def _fill_gap(profile, gap):
         detail = 'routing failed unexpectedly'
 
     if status == 'filled':
+        route_len = _polyline_len(route)
+        dt = (gap['end_time'] - gap['start_time']).total_seconds()
+        straight = gap['distance_m']
+
         # Guard against a route that is technically on roads but absurd for the
         # time available — a wrong turn out to a motorway and back can be many
         # times the real distance, and points laid along it would be nonsense.
-        route_len = _polyline_len(route)
-        dt = (gap['end_time'] - gap['start_time']).total_seconds()
         if dt > 0 and route_len / dt > _GAP_MAX_MPS:
             status = 'skipped'
             detail = (f'road route is {route_len / 1000:.1f}km, too far for '
                       f'{dt / 60:.0f} minutes')
+        # And against a huge detour. Only the cells the user has been in get
+        # downloaded, so the stored network is fragmented: the shortest path
+        # through *that* subgraph can loop miles out of the way because the
+        # direct road simply isn't in the table. A real drive rarely exceeds
+        # ~2.5x the straight-line distance, so anything beyond that is a
+        # coverage artefact, not a journey — and it's the thing that puts
+        # inferred points somewhere the user has never been.
+        elif straight > 0 and route_len > max(1500.0, straight * _MAX_DETOUR_FACTOR):
+            status = 'skipped'
+            detail = (f'road route is {route_len / 1000:.1f}km for a '
+                      f'{straight / 1000:.1f}km gap — likely routed around '
+                      f'missing road data')
 
     if status != 'filled':
         # No straight-line fallback: an inferred track must follow real roads end
@@ -295,8 +318,14 @@ def _user_lock(user_id):
                 cur.execute("SELECT pg_advisory_unlock(%s, %s)", [_LOCK_NAMESPACE, user_id])
 
 
-def _run_fill(user_id, job=None, since=None):
-    """Detect and fill gaps for one user. Returns (examined, filled)."""
+def _run_fill(user_id, job=None, since=None, retry=False):
+    """Detect and fill gaps for one user. Returns (examined, filled).
+
+    `retry` re-offers gaps that aren't 'filled' or 'dismissed'. The manual job
+    sets it — pressing the button means "have another go" — while the nightly
+    sweep leaves it off so it doesn't re-attempt known-unroutable gaps every
+    single night.
+    """
     from .models import UserProfile
 
     try:
@@ -309,7 +338,7 @@ def _run_fill(user_id, job=None, since=None):
     min_gap_s = max(30, int(profile.gap_fill_min_minutes or 2) * 60)
     examined = filled = 0
 
-    for gap in _detect_gaps(user_id, min_gap_s, since=since):
+    for gap in _detect_gaps(user_id, min_gap_s, since=since, retry=retry):
         if job is not None:
             try:
                 job.refresh_from_db()
@@ -350,7 +379,7 @@ def _gap_fill_worker(user_id):
                 job = GapFillJob.objects.get(user_id=user_id)
             except GapFillJob.DoesNotExist:
                 return
-            examined, filled = _run_fill(user_id, job=job)
+            examined, filled = _run_fill(user_id, job=job, retry=True)
     except Exception:
         logger.exception('Gap fill crashed for user %s', user_id)
     finally:
