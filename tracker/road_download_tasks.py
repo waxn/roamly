@@ -107,7 +107,7 @@ def _line_cells(gy0, gx0, gy1, gx1):
     return out
 
 
-def _visited_boxes(user_id):
+def _visited_boxes(user_id, beat=None):
     """Bounding boxes covering the ~2km cells the user has travelled through.
 
     Includes the cells *between* consecutive fixes, not only the cells containing
@@ -122,34 +122,42 @@ def _visited_boxes(user_id):
     into a handful of wide boxes instead of hundreds of squares — fewer Overpass
     clauses for identical coverage.
     """
-    from .models import Location
+    from .models import Device, Location
 
     cells = set()
-    # Ordered by (device, timestamp) so "consecutive" means something. Backed by
-    # the existing tracker_loc_device__idx index on ('device', '-timestamp').
-    qs = (Location.objects.filter(device__user_id=user_id)
-          .order_by('device_id', 'timestamp')
-          .values_list('device_id', 'latitude', 'longitude', 'timestamp')
-          .iterator(chunk_size=20000))
+    # One device at a time, ordered by timestamp. A single global
+    # order_by('device_id', 'timestamp') cannot use tracker_loc_device__idx
+    # (which is ('device', '-timestamp')), so Postgres full-sorts every row
+    # before yielding the first one — on a large history that is the slowest
+    # thing the whole job does, and it happens before any progress is reported.
+    # Filtering per device lets the index serve each scan directly.
+    scanned = 0
+    for dev_id in Device.objects.filter(user_id=user_id).values_list('id', flat=True):
+        prev = None
+        qs = (Location.objects.filter(device_id=dev_id)
+              .order_by('timestamp')
+              .values_list('latitude', 'longitude', 'timestamp')
+              .iterator(chunk_size=20000))
+        for lat, lng, ts in qs:
+            scanned += 1
+            if beat and scanned % 20000 == 0:
+                beat(scanned)
+            if lat is None or lng is None:
+                continue
+            cell = (int(lat // CELL_DEG), int(lng // CELL_DEG))
+            cells.add(cell)
 
-    prev = None
-    for dev_id, lat, lng, ts in qs:
-        if lat is None or lng is None:
-            continue
-        cell = (int(lat // CELL_DEG), int(lng // CELL_DEG))
-        cells.add(cell)
+            if prev is not None:
+                p_lat, p_lng, p_ts, p_cell = prev
+                # Only bridge what routing would actually attempt, so the
+                # download covers what it needs and nothing more.
+                span_m = _haversine_m(p_lat, p_lng, lat, lng)
+                dt = (ts - p_ts).total_seconds() if (ts and p_ts) else 0
+                plausible = span_m <= MAX_BRIDGE_M and not (dt > 0 and span_m / dt > MAX_BRIDGE_MPS)
+                if plausible and cell != p_cell:
+                    cells.update(_line_cells(p_cell[0], p_cell[1], cell[0], cell[1]))
 
-        if prev is not None and prev[0] == dev_id:
-            _, p_lat, p_lng, p_ts, p_cell = prev
-            # Only bridge what the gap filler would actually try to route, so the
-            # download covers exactly what routing needs and nothing more.
-            span_m = _haversine_m(p_lat, p_lng, lat, lng)
-            dt = (ts - p_ts).total_seconds() if (ts and p_ts) else 0
-            plausible = span_m <= MAX_BRIDGE_M and not (dt > 0 and span_m / dt > MAX_BRIDGE_MPS)
-            if plausible and cell != p_cell:
-                cells.update(_line_cells(p_cell[0], p_cell[1], cell[0], cell[1]))
-
-        prev = (dev_id, lat, lng, ts, cell)
+            prev = (lat, lng, ts, cell)
 
     rows = {}
     for gy, gx in cells:
@@ -296,8 +304,18 @@ def _road_download_worker(user_id, token):
     ways_added = 0
     failed = 0
     job = None
+
+    def _beat(_n=None):
+        # Touch the row so a slow-but-healthy phase is never mistaken for a dead
+        # worker. Needed during the history scan too, which runs before `total`
+        # is known and used to leave the row untouched for its whole duration.
+        RoadDownloadJob.objects.filter(user_id=user_id, worker_token=token).update(
+            updated_at=timezone.now())
+
     try:
-        boxes = _visited_boxes(user_id)
+        # total stays 0 while this runs; the status endpoint reports that as the
+        # 'scanning' phase so the UI can say what is happening.
+        boxes = _visited_boxes(user_id, beat=_beat)
         batches = [boxes[i:i + BOXES_PER_REQUEST]
                    for i in range(0, len(boxes), BOXES_PER_REQUEST)]
 
@@ -305,14 +323,12 @@ def _road_download_worker(user_id, token):
             job = RoadDownloadJob.objects.get(user_id=user_id)
         except RoadDownloadJob.DoesNotExist:
             return
+        if job.worker_token != token:
+            return
         job.total = len(batches)
         job.save(update_fields=['total', 'updated_at'])
-
-        def _beat():
-            # Touch the row while a slow batch is in flight, so a healthy but
-            # long request is never mistaken for a dead worker.
-            RoadDownloadJob.objects.filter(user_id=user_id, worker_token=token).update(
-                updated_at=timezone.now())
+        logger.info('Road download for user %s: %d areas in %d batches',
+                    user_id, len(boxes), len(batches))
 
         for batch in batches:
             try:
@@ -427,7 +443,8 @@ def get_road_download_status(user_id):
     try:
         job = RoadDownloadJob.objects.get(user_id=user_id)
     except RoadDownloadJob.DoesNotExist:
-        return {'status': 'idle', 'total_ways': total_ways}
+        return {'status': 'idle', 'phase': '', 'processed': 0, 'total': 0,
+                'ways': 0, 'failed': 0, 'total_ways': total_ways}
 
     # Resurrect a run whose worker really did die (a process recycle). The grace
     # is long enough to clear the slowest healthy batch, and claiming a new token
@@ -438,9 +455,13 @@ def get_road_download_status(user_id):
 
     return {
         'status': job.status,
-        'processed': job.processed,
-        'total': job.total,
-        'ways': job.ways,
-        'failed': job.failed,
+        # 'scanning' means the history sweep that works out which areas to fetch
+        # is still running, so there is no batch count yet. Without this the UI
+        # had nothing to distinguish it from a stalled run.
+        'phase': 'scanning' if (job.status == 'running' and not job.total) else 'downloading',
+        'processed': job.processed or 0,
+        'total': job.total or 0,
+        'ways': job.ways or 0,
+        'failed': job.failed or 0,
         'total_ways': total_ways,
     }

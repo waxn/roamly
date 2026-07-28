@@ -1567,9 +1567,22 @@ function updateRoadsUI(data, finished) {
     const statusEl = document.getElementById('roads-status');
     wrap.style.display = 'block';
 
-    const pct = data.total > 0 ? Math.round(data.processed / data.total * 100) : 0;
+    const processed = data.processed || 0;
+    const total = data.total || 0;
+    const pct = total > 0 ? Math.round(processed / total * 100) : 0;
     bar.style.width = pct + '%';
     const stored = (data.total_ways || 0).toLocaleString();
+
+    // The history sweep that decides which areas to fetch runs before there is
+    // any batch count. Say so, rather than showing a frozen 0/0.
+    if (!finished && data.phase === 'scanning') {
+        bar.style.width = '8%';
+        bar.style.background = 'var(--primary)';
+        statusEl.style.color = 'var(--text-muted)';
+        statusEl.innerHTML = '<span class="spinner"></span> scanning your location history '
+            + 'to work out which areas to fetch…';
+        return;
+    }
 
     if (finished) {
         bar.style.background = data.status === 'completed' ? 'var(--success)' : 'var(--text-muted)';
@@ -1591,10 +1604,11 @@ function updateRoadsUI(data, finished) {
             statusEl.textContent = msg;
         }
     } else {
-        const eta = _etaFrom(data.processed, data.total, roadsStartTime);
+        const eta = _etaFrom(processed, total, roadsStartTime);
         bar.style.background = 'var(--primary)';
-        statusEl.innerHTML = `<span class="spinner"></span> area ${data.processed.toLocaleString()}/${data.total.toLocaleString()}`
-            + `${data.total > 0 ? ' (' + pct + '%)' : ''}, ${(data.ways || 0).toLocaleString()} new roads${eta ? ' — ' + eta : ''}`;
+        statusEl.style.color = 'var(--text-muted)';
+        statusEl.innerHTML = `<span class="spinner"></span> area ${processed.toLocaleString()}/${total.toLocaleString()}`
+            + `${total > 0 ? ' (' + pct + '%)' : ''}, ${(data.ways || 0).toLocaleString()} new roads${eta ? ' — ' + eta : ''}`;
     }
 }
 
@@ -1607,8 +1621,19 @@ function startRoads() {
     roadsStartTime = Date.now();
 
     fetch('/api/roads/download/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
-        .then(r => r.json())
-        .then(() => pollRoadsStatus());
+        .then(r => {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        })
+        .then(() => pollRoadsStatus())
+        .catch(err => {
+            // Never leave the spinner sitting on a stale message — that is
+            // indistinguishable from the job hanging.
+            setRoadsUI(false);
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = 'could not start the download (' + err.message
+                + '). Check the server logs.';
+        });
 }
 
 function stopRoads() {
@@ -1619,9 +1644,13 @@ function stopRoads() {
 
 function pollRoadsStatus() {
     setRoadsUI(true);
+    const statusEl = document.getElementById('roads-status');
     const interval = setInterval(() => {
         fetch('/api/roads/download/status/')
-        .then(r => r.json())
+        .then(r => {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        })
         .then(data => {
             if (data.status === 'running') {
                 updateRoadsUI(data, false);
@@ -1630,9 +1659,20 @@ function pollRoadsStatus() {
                 clearInterval(interval);
                 setRoadsUI(false);
             } else {
+                // 'idle' while we believe a run is in flight means the job row
+                // never appeared — say so instead of freezing on the old text.
                 clearInterval(interval);
                 setRoadsUI(false);
+                statusEl.style.color = 'var(--danger)';
+                statusEl.textContent = 'the download did not start — no job was recorded. '
+                    + 'Check the server logs.';
             }
+        })
+        .catch(err => {
+            clearInterval(interval);
+            setRoadsUI(false);
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = 'lost contact with the download (' + err.message + ').';
         });
     }, 2000);
 }
