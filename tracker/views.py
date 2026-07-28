@@ -8946,12 +8946,15 @@ def inferred_locations_api(request):
         by_batch.setdefault(batch_id, []).append(
             {'id': pid, 'lng': _jf(lng), 'lat': _jf(lat), 'timestamp': ts.isoformat()})
 
-    kinds = dict(EditBatch.objects.filter(id__in=by_batch.keys())
-                 .values_list('id', 'kind'))
+    # device_id so the map can colour these with the same per-device palette it
+    # uses for recorded points — they are meant to read as part of the track.
+    meta = {b['id']: b for b in EditBatch.objects.filter(id__in=by_batch.keys())
+            .values('id', 'kind', 'device__device_id')}
 
     out = [{
         'id': batch_id,
-        'kind': kinds.get(batch_id, ''),
+        'kind': (meta.get(batch_id) or {}).get('kind', ''),
+        'device_id': (meta.get(batch_id) or {}).get('device__device_id', ''),
         'points': pts,
         'coords': [[p['lng'], p['lat']] for p in pts],
     } for batch_id, pts in by_batch.items()]

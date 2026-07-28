@@ -262,6 +262,8 @@ const SEL_LAYER = 'ed-sel-layer';
 const INF_SOURCE = 'ed-inferred';
 const INF_LINE = 'ed-inferred-line';
 const INF_DOTS = 'ed-inferred-dots';
+const INF_RING = 'ed-inferred-ring';
+const INF_RING_COLOR = '#4fc3d9';   // matches /map/
 const CAND_SOURCE = 'ed-cand';
 const CAND_LINE = 'ed-cand-line';
 const CAND_PICK = 'ed-cand-pick';
@@ -305,15 +307,29 @@ function addEditorLayers() {
         map.addLayer({
             id: INF_LINE, type: 'line', source: INF_SOURCE,
             filter: ['==', ['geometry-type'], 'LineString'],
-            paint: { 'line-color': '#a78bda', 'line-width': 3, 'line-opacity': 0.85, 'line-dasharray': [2, 2] },
+            paint: { 'line-color': ['get', 'color'], 'line-width': 3,
+                     'line-opacity': 0.7, 'line-dasharray': [2, 2] },
+        });
+        // Ring under the dot, then the dot itself in the device colour — the
+        // same treatment /map/ gives these, so they read the same on both pages.
+        map.addLayer({
+            id: INF_RING, type: 'circle', source: INF_SOURCE,
+            filter: ['==', ['geometry-type'], 'Point'],
+            paint: {
+                'circle-radius': ['interpolate', ['linear'], ['zoom'],
+                    8, dotSizeArgs[1] + 1.5, 12, dotSizeArgs[3] + 2, 16, dotSizeArgs[5] + 2.5],
+                'circle-color': 'rgba(0,0,0,0)',
+                'circle-stroke-width': 1.2, 'circle-stroke-color': INF_RING_COLOR,
+                'circle-stroke-opacity': 0.95,
+            },
         });
         map.addLayer({
             id: INF_DOTS, type: 'circle', source: INF_SOURCE,
             filter: ['==', ['geometry-type'], 'Point'],
             paint: {
-                'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 2, 12, 4, 16, 6],
-                'circle-color': 'rgba(0,0,0,0)',
-                'circle-stroke-width': 1.5, 'circle-stroke-color': '#a78bda',
+                'circle-color': ['get', 'color'],
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], ...dotSizeArgs],
+                'circle-stroke-width': 1.6, 'circle-stroke-color': INF_RING_COLOR,
             },
         });
     }
@@ -463,12 +479,15 @@ function loadInferred() {
         .then(d => {
             const features = [];
             (d.batches || []).forEach(b => {
+                const color = deviceColor(b.device_id || 'default');
                 if (b.coords.length >= 2 && connectLines === 'on') {
-                    features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: b.coords }, properties: { batch: b.id } });
+                    features.push({ type: 'Feature',
+                        geometry: { type: 'LineString', coordinates: b.coords },
+                        properties: { batch: b.id, color } });
                 }
                 b.points.forEach(p => features.push({
                     type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
-                    properties: { id: p.id, timestamp: p.timestamp, batch: b.id },
+                    properties: { id: p.id, timestamp: p.timestamp, batch: b.id, color },
                 }));
             });
             inferredFC = { type: 'FeatureCollection', features };

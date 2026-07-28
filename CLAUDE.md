@@ -325,6 +325,7 @@ All stored in `localStorage` with `roamly_` prefix:
 | `roamly_default_time_range` | hours or 'all' | 24 |
 | `roamly_globe` | on / off | off |
 | `roamly_show_places` | on / off | off |
+| `roamly_show_inferred` | on / off | on (filled-gap layer on the main map) |
 | `roamly_fog` | on / off | off |
 | `roamly_map_tile_style` | Streets / Dark / Satellite / Mapbox Streets / Mapbox Outdoors / Mapbox Satellite | Streets |
 | `roamly_snap_roads` | on / off | on (layer visibility; master switch is server-side) |
@@ -388,6 +389,8 @@ The page is `standalone: True` (no nav chrome) and gets its rendering from **`tr
 **Editor routing uses a much wider anchor tolerance** than `_ROUTE_MAX_ANCHOR_M` (80m): `_EDITOR_ANCHOR_M` is 500m. That gate exists to stop a *background job* inventing a leg from a point nowhere near a road, but here a person picked both ends deliberately. With the tight gate, connecting only worked for points close enough to a road to have been snappable in the first place — which is why it appeared to depend on snapping. `_nearest_edge` takes a matching `reach` so the ~1.1km index cells are searched widely enough to find the road.
 
 **Point spacing follows a speed gradient.** One point per `FILL_INTERVAL_S` (10s) of travel, positioned by assuming speed varies linearly between the two anchors' recorded Doppler values: `v(t) = v0 + (v1-v0)·t/T`, so `s(t) = v0·t + (v1-v0)·t²/(2T)` scaled to the route length. Points therefore bunch where the track was slow and stretch where it was fast, instead of sitting at even distances. With no usable speed at either end it degrades to even spacing. The old 60s spacing with a flat 500-point cap put 500 points on a two-minute hop; 10s spacing means a short connection gets a handful, and `MAX_POINTS_PER_ROUTE` (500) now only bites past ~83 minutes.
+
+**Editor-generated points render on `/map/` too**, behind a `filled gaps` sidebar toggle (`roamly_show_inferred`). They are drawn to read as *part of the track*: the same per-device colour and dot size as a recorded fix, plus a detached ring in a colour used nowhere else (`#4fc3d9` cyan — not in the device palette, and distinct from the mauve snapped-point ring), with a dashed connecting line that respects `roamly_connect_lines`. `addInferredLayers` is idempotent and wired to both `style.load` and `styledata`, and the layers join `baseLayerIds()` so replay hides them. `/api/inferred/` returns `device_id` per batch for exactly this colouring.
 
 `tracker/editor_tasks.py` holds the operations. Output goes to **`InferredLocation`** by default — no aggregate reads that table, so distance, visits, stats, fog and backups are untouched by anything drawn. **"Count as real data"** (offered when pasting or adding) instead writes plain `Location` rows, which are already covered by the backup format, so **`meta.version` stays 7**. Every action records an **`EditBatch`** so it can be undone as a unit; for a paste-as-real the created ids are stored in `EditBatch.location_ids`, which is how the undo works without adding a column to `Location`.
 

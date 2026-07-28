@@ -633,6 +633,10 @@
                         <span class="tool-btn-badge" id="snap-badge"></span>
                     </button>
                     {% endif %}
+                    <button class="tool-btn" id="inferred-btn" type="button">
+                        filled gaps
+                        <span class="tool-btn-badge" id="inferred-badge"></span>
+                    </button>
                     <button class="tool-btn" id="replay-btn" type="button">
                         replay day
                         <span class="tool-btn-badge" id="replay-badge"></span>
@@ -882,6 +886,172 @@ placesBtn.addEventListener('click', async () => {
 if (placesOn) applyPlacesToggle();
 
 // ═══════════════════════════════════════════════════════════════════
+// Filled gaps — points the map editor generated.
+//
+// Styled to read as part of the track rather than as a foreign object: the same
+// per-device colour and dot size as a recorded fix, with a detached ring in a
+// colour used nowhere else to say it was reconstructed. That mirrors how a
+// snapped point is marked (mauve ring) without being mistaken for one.
+// ═══════════════════════════════════════════════════════════════════
+const INF_SOURCE = 'inferred-src';
+const INF_RING_LAYER = 'inferred-ring';
+const INF_DOTS_LAYER = 'inferred-dots';
+const INF_LINE_LAYER = 'inferred-line';
+const INF_RING_COLOR = '#4fc3d9';   // cyan: not in the device palette, not the snap mauve
+const inferredBtn = document.getElementById('inferred-btn');
+const inferredBadge = document.getElementById('inferred-badge');
+let inferredOn = (localStorage.getItem('roamly_show_inferred') || 'on') === 'on';
+let inferredFC = { type: 'FeatureCollection', features: [] };
+let inferredCount = 0;
+
+// Idempotent and called from both style.load and styledata — isStyleLoaded() can
+// still be false when style.load fires, and it never fires again.
+function addInferredLayers() {
+    if (!inferredOn) return;
+    if (!map.isStyleLoaded() || map.getSource(INF_SOURCE)) return;
+    map.addSource(INF_SOURCE, { type: 'geojson', data: inferredFC });
+
+    if (connectLines === 'on') {
+        map.addLayer({
+            id: INF_LINE_LAYER, type: 'line', source: INF_SOURCE,
+            filter: ['==', ['geometry-type'], 'LineString'],
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: {
+                'line-color': ['get', 'color'], 'line-width': 3,
+                'line-opacity': 0.7, 'line-dasharray': [2, 2],
+            },
+        });
+    }
+    // Ring under the dot, same construction as the snapped-point halo.
+    map.addLayer({
+        id: INF_RING_LAYER, type: 'circle', source: INF_SOURCE,
+        filter: ['==', ['geometry-type'], 'Point'],
+        minzoom: DETAIL_MIN_ZOOM,
+        paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'],
+                8, dotSizeArgs[1] + 1.5, 12, dotSizeArgs[3] + 2, 16, dotSizeArgs[5] + 2.5],
+            'circle-color': 'rgba(0,0,0,0)',
+            'circle-stroke-width': 1.2,
+            'circle-stroke-color': INF_RING_COLOR,
+            'circle-stroke-opacity': 0.95,
+        },
+    });
+    map.addLayer({
+        id: INF_DOTS_LAYER, type: 'circle', source: INF_SOURCE,
+        filter: ['==', ['geometry-type'], 'Point'],
+        minzoom: DETAIL_MIN_ZOOM,
+        paint: {
+            // Device colour and dot size exactly as a recorded point. These carry
+            // no speed, so the gradient's fallback branch already yields the
+            // device colour and the two layers agree.
+            'circle-color': ['get', 'color'],
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], ...dotSizeArgs],
+            'circle-stroke-width': 1.6,
+            'circle-stroke-color': INF_RING_COLOR,
+        },
+    });
+
+    map.on('click', INF_DOTS_LAYER, e => {
+        const p = e.features[0].properties;
+        const ts = p.timestamp ? new Date(p.timestamp) : null;
+        let html = '<strong>filled gap</strong>'
+            + '<br><span style="color:var(--text-muted)">added in the map editor, '
+            + 'not a recorded fix</span>';
+        if (ts && !isNaN(ts.getTime())) {
+            html += `<br><span style="color:var(--text-muted)">${ts.toLocaleString()}</span>`;
+        }
+        new maplibregl.Popup({ offset: 10 })
+            .setLngLat(e.features[0].geometry.coordinates.slice())
+            .setHTML(html).addTo(map);
+    });
+    map.on('mouseenter', INF_DOTS_LAYER, () => map.getCanvas().style.cursor = 'pointer');
+    map.on('mouseleave', INF_DOTS_LAYER, () => map.getCanvas().style.cursor = '');
+}
+
+function removeInferredLayers() {
+    [INF_LINE_LAYER, INF_RING_LAYER, INF_DOTS_LAYER].forEach(l => {
+        if (map.getLayer(l)) map.removeLayer(l);
+    });
+    if (map.getSource(INF_SOURCE)) map.removeSource(INF_SOURCE);
+}
+
+function updateInferredBadge() {
+    if (!inferredBadge) return;
+    inferredBadge.textContent = inferredOn
+        ? (inferredCount ? `${inferredCount.toLocaleString()} pts` : 'none here')
+        : '';
+}
+
+function loadInferredGaps() {
+    if (!inferredOn) return;
+    const params = new URLSearchParams(buildFilterParams());
+    const b = map.getBounds();
+    params.set('min_lng', b.getWest());
+    params.set('min_lat', b.getSouth());
+    params.set('max_lng', b.getEast());
+    params.set('max_lat', b.getNorth());
+
+    fetch(`/api/inferred/?${params.toString()}`)
+        .then(r => r.json())
+        .then(d => {
+            if (!inferredOn) return;
+            const features = [];
+            let n = 0;
+            (d.batches || []).forEach(batch => {
+                const color = deviceColor(batch.device_id || 'default');
+                if (batch.coords.length >= 2) {
+                    features.push({
+                        type: 'Feature',
+                        geometry: { type: 'LineString', coordinates: batch.coords },
+                        properties: { color, batch: batch.id },
+                    });
+                }
+                batch.points.forEach(p => {
+                    n++;
+                    features.push({
+                        type: 'Feature',
+                        geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+                        properties: { id: p.id, timestamp: p.timestamp, color, batch: batch.id },
+                    });
+                });
+            });
+            inferredFC = { type: 'FeatureCollection', features };
+            inferredCount = n;
+            updateInferredBadge();
+            addInferredLayers();
+            if (map.getSource(INF_SOURCE)) map.getSource(INF_SOURCE).setData(inferredFC);
+        })
+        .catch(() => {});
+}
+
+if (inferredBtn) {
+    inferredBtn.classList.toggle('active', inferredOn);
+    updateInferredBadge();
+    inferredBtn.addEventListener('click', () => {
+        inferredOn = !inferredOn;
+        localStorage.setItem('roamly_show_inferred', inferredOn ? 'on' : 'off');
+        inferredBtn.classList.toggle('active', inferredOn);
+        if (inferredOn) {
+            loadInferredGaps();
+        } else {
+            removeInferredLayers();
+            inferredFC = { type: 'FeatureCollection', features: [] };
+            inferredCount = 0;
+            updateInferredBadge();
+        }
+    });
+}
+
+// The core owns load/moveend/filter-change; feature layers just add their own
+// listeners rather than the core knowing about them.
+map.on('load', loadInferredGaps);
+map.on('moveend', () => setTimeout(loadInferredGaps, 450));
+['time-range', 'device-filter', 'start-date', 'end-date'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => setTimeout(loadInferredGaps, 60));
+});
+
+// ═══════════════════════════════════════════════════════════════════
 // Fog of war — dim everywhere the user has never been.
 //
 // Always all-time, never date-filtered: explored territory stays explored.
@@ -1035,6 +1205,7 @@ map.on('style.load', () => {
     applyProjection();
     if (scratchOn) addScratchLayers();
     addPlacesLayers();
+    addInferredLayers();
 });
 
 // Places-circle retry. isStyleLoaded() can still be false at the instant
@@ -1043,6 +1214,7 @@ map.on('style.load', () => {
 // fires repeatedly while the style settles, and addPlacesLayers is idempotent,
 // so the layer reliably lands on whichever tick is ready.
 map.on('styledata', addPlacesLayers);
+map.on('styledata', addInferredLayers);
 
 // ═══════════════════════════════════════════════════════════════════
 // Daily replay — scrub/animate a single day's track
@@ -1072,6 +1244,8 @@ function baseLayerIds() {
     const ids = [];
     activeSources.forEach(id => { [`${id}-heat`, `${id}-dots`].forEach(l => ids.push(l)); });
     [ACC_HEAT_LAYER, ACC_LINES_LAYER, ACC_SNAP_RING_LAYER, ACC_DOTS_LAYER].forEach(l => ids.push(l));
+    // Filled gaps hide with the rest of the base layers during replay.
+    [INF_LINE_LAYER, INF_RING_LAYER, INF_DOTS_LAYER].forEach(l => ids.push(l));
     return ids;
 }
 function setBaseLayersVisible(visible) {
