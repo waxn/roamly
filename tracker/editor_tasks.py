@@ -35,10 +35,14 @@ logger = logging.getLogger(__name__)
 # of points rather than a fixed budget spread thinly — the old 60s spacing with a
 # 500-point cap put 500 points on a two-minute hop, which is nonsense.
 FILL_INTERVAL_S = 10
-# Still a ceiling, but now it only bites on very long connections (500 points at
-# 10s is ~83 minutes); past that the spacing widens rather than the route being
-# truncated.
+# Still a ceiling, but it only bites on very long connections.
 MAX_POINTS_PER_ROUTE = 500
+# ...and a floor on how close two generated points may end up. A time-based
+# interval alone cannot bound density: a long gap over a short distance means 10
+# seconds of travel is only a few metres, and the points pile into a solid band
+# — 40 minutes over 2km put 239 of them 8m apart. Real tracking is never that
+# dense, and dots closer than this just overlap and say nothing extra.
+MIN_POINT_SPACING_M = 25.0
 # A route this much longer than the straight line is usually A* looping around a
 # hole in the downloaded road network. The editor *warns* rather than refuses —
 # a person picked both ends, so they get to decide.
@@ -100,7 +104,7 @@ def points_along(route, start_dt, end_dt, interval_s=FILL_INTERVAL_S,
     area = dt_total * (v0 + v1) / 2.0
     scale = (total / area) if area > 0 else 0.0
 
-    out, seg = [], 0
+    out, seg, last = [], 0, None
     for k in range(1, n + 1):
         elapsed = step * k
         if scale > 0:
@@ -114,6 +118,13 @@ def points_along(route, start_dt, end_dt, interval_s=FILL_INTERVAL_S,
         f = 0.0 if span <= 0 else (target - cum[seg]) / span
         lng = route[seg][0] + (route[seg + 1][0] - route[seg][0]) * f
         lat = route[seg][1] + (route[seg + 1][1] - route[seg][1]) * f
+        # Thin as we go rather than up front: under a speed ramp the spacing
+        # varies along the route, so the slow end is where points bunch and only
+        # a running check catches it. Dropping one never moves the others — each
+        # kept point stays at the position its own timestamp implies.
+        if last is not None and roads._haversine_m(last[0], last[1], lng, lat) < MIN_POINT_SPACING_M:
+            continue
+        last = (lng, lat)
         out.append((lng, lat, start_dt + timedelta(seconds=elapsed)))
     return out, total
 
