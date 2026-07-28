@@ -43,7 +43,6 @@ def custom_js_snippet(request):
     ai_ask_enabled = False
     mapbox_token = ''
     road_snap = False
-    road_gapfill = False
     road_provider = ''
     user = getattr(request, 'user', None)
     if user is not None and user.is_authenticated:
@@ -55,19 +54,17 @@ def custom_js_snippet(request):
         # Server-side Mapbox token so the map + settings render it inline and it
         # stays in sync across the user's devices.
         mapbox_token = (profile.mapbox_token if profile else '') or ''
-        # Road features: both need a usable provider, so the map only wires up
-        # its snap / inferred layers when there is something behind them.
+        # Snapping needs a usable provider, so the map only wires up its snap
+        # layer when there is something behind it.
         if profile:
             road_provider = profile.road_provider_resolved
             road_snap = bool(profile.snap_to_roads and road_provider)
-            road_gapfill = bool(profile.gap_fill_enabled and road_provider)
     return {
         'CUSTOM_JS_SNIPPET': get_custom_js(),
         'IS_ADMIN': is_admin,
         'AI_ASK_ENABLED': ai_ask_enabled,
         'MAPBOX_TOKEN': mapbox_token,
         'ROAD_SNAP_ENABLED': road_snap,
-        'ROAD_GAPFILL_ENABLED': road_gapfill,
         'ROAD_PROVIDER': road_provider,
         # Footer contact link + form (landing + settings). The form only renders
         # when SMTP is configured; otherwise the link falls back to a mailto:.

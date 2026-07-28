@@ -39,7 +39,7 @@ from .models import (
     AdventureMember, AdventureBlurb, AdventureBlurbPhoto, AdventureMilestone, AdventureComment,
     SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig, StatsSnapshot,
     DismissedSuggestion, PlannedStop, KnownDevice,
-    InferredGap, InferredLocation, RoadSegment, ROADS_AVAILABLE_CACHE_KEY,
+    InferredLocation, EditBatch, TrashedLocation, RoadSegment, ROADS_AVAILABLE_CACHE_KEY,
 )
 from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email, send_contact_email
 from .image_utils import resize_image, resize_photo
@@ -8734,9 +8734,9 @@ def mobile_download_apk(request):
 # ---------------------------------------------------------------------------
 # Roads: snap-to-road rendering + tracking-gap filling
 #
-# Snapping is display-only — nothing here ever writes to Location. Gap filling
-# writes InferredLocation rows, which no aggregate in the app reads, so stats,
-# visits, distance and backups are unaffected by design.
+# Snapping is display-only — nothing here ever writes to Location. The map
+# editor writes InferredLocation rows, which no aggregate in the app reads, so
+# stats, visits, distance and backups are unaffected by design.
 # ---------------------------------------------------------------------------
 
 _SNAP_MAX_IDS = 5000
@@ -8744,7 +8744,7 @@ _SNAP_MAX_IDS = 5000
 
 @login_required
 def profile_roads_config_api(request):
-    """GET/POST the user's road provider + snapping/gap-fill toggles.
+    """GET/POST the user's road provider and snapping toggle.
 
     Mirrors profile_ai_config_api. `resolved` tells the UI which provider the
     "auto" setting actually lands on, so the card can say what will happen
@@ -8758,14 +8758,10 @@ def profile_roads_config_api(request):
             'resolved': profile.road_provider_resolved,
             'osrm_url': profile.osrm_url,
             'snap_to_roads': profile.snap_to_roads,
-            'gap_fill_enabled': profile.gap_fill_enabled,
-            'gap_fill_auto': profile.gap_fill_auto,
-            'gap_fill_min_minutes': profile.gap_fill_min_minutes,
-            'gap_fill_min_distance_m': profile.gap_fill_min_distance_m,
             'has_postgis': HAS_POSTGIS,
             'has_local_roads': RoadSegment.objects.exists() if HAS_POSTGIS else False,
-            # Surfaced in the card: if snapping or gap routing look inert, an
-            # empty or thin road table is the usual reason.
+            # Surfaced in the card: if snapping or the editor's road routing
+            # look inert, an empty or thin road table is the usual reason.
             'total_ways': RoadSegment.objects.count() if HAS_POSTGIS else 0,
             'has_mapbox_token': bool(profile.mapbox_token),
         })
@@ -8781,30 +8777,14 @@ def profile_roads_config_api(request):
     profile.road_provider = provider
     profile.osrm_url = (data.get('osrm_url') or '').strip().rstrip('/')[:300]
     profile.snap_to_roads = bool(data.get('snap_to_roads'))
-    profile.gap_fill_enabled = bool(data.get('gap_fill_enabled'))
-    profile.gap_fill_auto = bool(data.get('gap_fill_auto'))
-    try:
-        minutes = int(data.get('gap_fill_min_minutes', 2))
-    except (TypeError, ValueError):
-        minutes = 2
-    profile.gap_fill_min_minutes = max(1, min(120, minutes))
-    try:
-        min_dist = int(data.get('gap_fill_min_distance_m', 500))
-    except (TypeError, ValueError):
-        min_dist = 500
-    # Floor well above normal tracking spacing (100-200m): below that every
-    # ordinary pair of driving points would count as a gap.
-    profile.gap_fill_min_distance_m = max(250, min(20000, min_dist))
 
     profile.save(update_fields=[
-        'road_provider', 'osrm_url', 'snap_to_roads', 'gap_fill_enabled',
-        'gap_fill_auto', 'gap_fill_min_minutes', 'gap_fill_min_distance_m',
+        'road_provider', 'osrm_url', 'snap_to_roads',
     ])
     return JsonResponse({
         'ok': True,
         'resolved': profile.road_provider_resolved,
         'snap_to_roads': profile.snap_to_roads,
-        'gap_fill_enabled': profile.gap_fill_enabled,
     })
 
 
@@ -8895,39 +8875,13 @@ def road_download_stop_api(request):
     return JsonResponse({'stopped': stop_road_download(request.user.id)})
 
 
-# ── Gap filling ─────────────────────────────────────────────────────────────
-
-@login_required
-@require_http_methods(["POST"])
-def gap_fill_api(request):
-    """Start filling tracking gaps with routed inferred points."""
-    from .gapfill_tasks import start_gap_fill
-    job = start_gap_fill(request.user.id)
-    return JsonResponse({'status': job.status, 'total': job.total})
-
-
-@login_required
-def gap_fill_status_api(request):
-    """Check gap-fill progress."""
-    from .gapfill_tasks import get_gap_fill_status
-    return JsonResponse(get_gap_fill_status(request.user.id))
-
-
-@login_required
-@require_http_methods(["POST"])
-def gap_fill_stop_api(request):
-    """Stop a running gap fill."""
-    from .gapfill_tasks import stop_gap_fill
-    return JsonResponse({'stopped': stop_gap_fill(request.user.id)})
-
-
-# ── Reading inferred points ─────────────────────────────────────────────────
+# ── Editor-generated points ─────────────────────────────────────────────────
 
 def _inferred_filter(request, qs):
-    """Apply the map's device + date filters to an InferredGap queryset.
+    """Apply the map's device + date filters to an InferredLocation queryset.
 
     Same parameter names and precedence as `locations_api` / `distance_api` so
-    the inferred layer follows the map toolbar without a second convention.
+    the editor layer follows the map toolbar without a second convention.
     """
     device_id = request.GET.get('device_id') or ''
     if device_id:
@@ -8943,9 +8897,7 @@ def _inferred_filter(request, qs):
                 start = timezone.make_aware(start)
             if timezone.is_naive(end):
                 end = timezone.make_aware(end)
-            # A gap overlapping the window is in range, not only one contained
-            # by it — a gap can easily straddle midnight.
-            qs = qs.filter(end_time__gte=start, start_time__lte=end)
+            qs = qs.filter(timestamp__gte=start, timestamp__lte=end)
         except (ValueError, TypeError):
             pass
     elif not request.GET.get('all'):
@@ -8953,34 +8905,25 @@ def _inferred_filter(request, qs):
             hours = int(request.GET.get('hours', 24))
         except (ValueError, TypeError):
             hours = 24
-        qs = qs.filter(end_time__gte=timezone.now() - timedelta(hours=hours))
+        qs = qs.filter(timestamp__gte=timezone.now() - timedelta(hours=hours))
     return qs
 
 
-_INFERRED_MAX_GAPS = 400
+_INFERRED_MAX_POINTS = 20000
 
 
 @login_required
 def inferred_locations_api(request):
-    """Inferred gap-fill points for the map, as one polyline per gap.
+    """Editor-generated points, grouped into one polyline per batch.
 
-    Returned per gap rather than as a flat point list so the client can draw a
-    dashed line for each filled stretch without having to re-segment anything.
+    Grouped rather than returned flat so the client can draw a dashed line per
+    edit without re-segmenting; a batch is a single user action, which is
+    exactly the run of points that belongs on one line.
     """
-    profile, _ = UserProfile.objects.get_or_create(user=request.user)
-    if not profile.gap_fill_enabled:
-        return JsonResponse({'gaps': [], 'enabled': False})
-
-    # Only 'filled' draws — a road-routed path. Everything else is either an
-    # honest hole (skipped/failed), a user rejection (dismissed), or a legacy
-    # straight-line interpolation from before the fallback was removed. Drawing
-    # 'straight' rows is what put lines across open country on the map, so the
-    # allowlist is deliberate: any future status is invisible until it is proven
-    # to be real road geometry.
-    gaps = _inferred_filter(
+    qs = _inferred_filter(
         request,
-        InferredGap.objects.filter(device__user=request.user, status='filled')
-    ).select_related('device')
+        InferredLocation.objects.filter(device__user=request.user, batch__undone=False)
+    )
 
     # Optional viewport bbox — same parameter names the map already sends.
     try:
@@ -8988,182 +8931,38 @@ def inferred_locations_api(request):
         min_lat = float(request.GET['min_lat'])
         max_lng = float(request.GET['max_lng'])
         max_lat = float(request.GET['max_lat'])
-        bbox = (min_lng, min_lat, max_lng, max_lat)
+        qs = qs.filter(longitude__gte=min_lng, longitude__lte=max_lng,
+                       latitude__gte=min_lat, latitude__lte=max_lat)
     except (KeyError, TypeError, ValueError):
-        bbox = None
+        pass
 
-    gaps = list(gaps[:_INFERRED_MAX_GAPS])
-    by_gap = {}
-    pts_qs = (InferredLocation.objects
-              .filter(gap__in=gaps)
-              .order_by('gap_id', 'timestamp')
-              .values_list('gap_id', 'longitude', 'latitude'))
-    for gap_id, lng, lat in pts_qs:
-        by_gap.setdefault(gap_id, []).append([_jf(lng), _jf(lat)])
+    rows = list(qs.order_by('batch_id', 'timestamp')
+                .values_list('batch_id', 'id', 'longitude', 'latitude', 'timestamp')
+                [:_INFERRED_MAX_POINTS])
 
-    # The two real fixes each gap bridges. Generated points deliberately exclude
-    # the endpoints (the real ones already sit there), so without these the drawn
-    # line floated between the anchors instead of joining the recorded track.
-    anchor_ids = {g.start_location_id for g in gaps} | {g.end_location_id for g in gaps}
-    anchors = {
-        r['id']: [_jf(r['longitude']), _jf(r['latitude'])]
-        for r in Location.objects.filter(
-            id__in=anchor_ids, device__user=request.user
-        ).values('id', 'latitude', 'longitude')
-    }
+    by_batch = {}
+    for batch_id, pid, lng, lat, ts in rows:
+        by_batch.setdefault(batch_id, []).append(
+            {'id': pid, 'lng': _jf(lng), 'lat': _jf(lat), 'timestamp': ts.isoformat()})
 
-    out = []
-    for g in gaps:
-        coords = by_gap.get(g.id) or []
-        if len(coords) < 1:
-            continue
-        if bbox and not any(bbox[0] <= c[0] <= bbox[2] and bbox[1] <= c[1] <= bbox[3]
-                            for c in coords):
-            continue
-        # `line` closes the visual gap at both ends; `coords` stays the inferred
-        # points alone so the dots don't double up on real fixes.
-        line = list(coords)
-        start_a = anchors.get(g.start_location_id)
-        end_a = anchors.get(g.end_location_id)
-        if start_a:
-            line.insert(0, start_a)
-        if end_a:
-            line.append(end_a)
-        out.append({
-            'id': g.id,
-            'device_id': g.device.device_id,
-            'status': g.status,
-            'provider': g.provider,
-            'start': g.start_time.isoformat(),
-            'end': g.end_time.isoformat(),
-            'coords': coords,
-            'line': line,
-        })
-    return JsonResponse({'gaps': out, 'enabled': True})
+    kinds = dict(EditBatch.objects.filter(id__in=by_batch.keys())
+                 .values_list('id', 'kind'))
+
+    out = [{
+        'id': batch_id,
+        'kind': kinds.get(batch_id, ''),
+        'points': pts,
+        'coords': [[p['lng'], p['lat']] for p in pts],
+    } for batch_id, pts in by_batch.items()]
+    return JsonResponse({'batches': out, 'enabled': True})
 
 
-@login_required
-def inferred_gaps_api(request):
-    """Audit list of inferred gaps, newest first, with their generated points.
-
-    Includes dismissed/failed/skipped rows — the point of the audit view is to
-    see everything the filler decided, not only what it drew.
-    """
-    try:
-        limit = min(200, max(1, int(request.GET.get('limit', 50))))
-    except (TypeError, ValueError):
-        limit = 50
-    try:
-        offset = max(0, int(request.GET.get('offset', 0)))
-    except (TypeError, ValueError):
-        offset = 0
-
-    qs = (InferredGap.objects.filter(device__user=request.user)
-          .select_related('device').order_by('-start_time'))
-    status = request.GET.get('status') or ''
-    if status:
-        qs = qs.filter(status=status)
-
-    total = qs.count()
-    page = list(qs[offset:offset + limit + 1])
-    has_more = len(page) > limit
-    page = page[:limit]
-
-    pts_by_gap = {}
-    for gap_id, pid, lng, lat, ts in (
-        InferredLocation.objects.filter(gap__in=page)
-        .order_by('gap_id', 'timestamp')
-        .values_list('gap_id', 'id', 'longitude', 'latitude', 'timestamp')
-    ):
-        pts_by_gap.setdefault(gap_id, []).append({
-            'id': pid, 'lat': _jf(lat), 'lng': _jf(lng), 'timestamp': ts.isoformat(),
-        })
-
-    # The real fixes either side, so the audit map can show what was bridged.
-    anchor_ids = {g.start_location_id for g in page} | {g.end_location_id for g in page}
-    anchors = {
-        r['id']: {'lat': _jf(r['latitude']), 'lng': _jf(r['longitude']),
-                  'timestamp': r['timestamp'].isoformat()}
-        for r in Location.objects.filter(
-            id__in=anchor_ids, device__user=request.user
-        ).values('id', 'latitude', 'longitude', 'timestamp')
-    }
-
-    gaps = []
-    for g in page:
-        gaps.append({
-            'id': g.id,
-            'device': g.device.name or g.device.device_id,
-            'status': g.status,
-            'provider': g.provider,
-            'detail': g.detail,
-            'start': g.start_time.isoformat(),
-            'end': g.end_time.isoformat(),
-            'duration_s': (g.end_time - g.start_time).total_seconds(),
-            'distance_m': _jf(g.distance_m),
-            'route_distance_m': _jf(g.route_distance_m),
-            'point_count': g.point_count,
-            'points': pts_by_gap.get(g.id) or [],
-            'start_anchor': anchors.get(g.start_location_id),
-            'end_anchor': anchors.get(g.end_location_id),
-        })
-
-    return JsonResponse({'gaps': gaps, 'total': total, 'has_more': has_more,
-                         'offset': offset, 'limit': limit})
 
 
-@login_required
-@require_http_methods(["POST"])
-def inferred_gap_dismiss_api(request, gap_id):
-    """Delete a gap's inferred points and mark it dismissed.
-
-    Dismissed rather than deleted on purpose: the row is what stops the nightly
-    sweep from re-inferring the same gap tomorrow. Same reasoning as
-    DismissedSuggestion — rejection is the state worth keeping.
-    """
-    try:
-        gap = InferredGap.objects.get(id=gap_id, device__user=request.user)
-    except InferredGap.DoesNotExist:
-        return JsonResponse({'error': 'Not found'}, status=404)
-
-    gap.points.all().delete()
-    gap.status = 'dismissed'
-    gap.point_count = 0
-    gap.save(update_fields=['status', 'point_count'])
-    _bust_user_cache(request.user.id)
-    return JsonResponse({'status': 'ok'})
 
 
-@login_required
-@require_http_methods(["POST"])
-def inferred_gap_restore_api(request, gap_id):
-    """Un-dismiss a gap so the next fill run may infer it again."""
-    updated = InferredGap.objects.filter(
-        id=gap_id, device__user=request.user, status='dismissed'
-    ).delete()
-    if not updated[0]:
-        return JsonResponse({'error': 'Not found'}, status=404)
-    _bust_user_cache(request.user.id)
-    return JsonResponse({'status': 'ok'})
 
 
-@login_required
-@csrf_exempt
-@require_http_methods(["DELETE"])
-def inferred_location_delete_api(request, point_id):
-    """Delete a single inferred point. Mirrors delete_location."""
-    try:
-        point = InferredLocation.objects.select_related('gap').get(
-            id=point_id, device__user=request.user)
-    except InferredLocation.DoesNotExist:
-        return JsonResponse({'error': 'Not found'}, status=404)
-
-    gap = point.gap
-    point.delete()
-    remaining = gap.points.count()
-    InferredGap.objects.filter(id=gap.id).update(point_count=remaining)
-    _bust_user_cache(request.user.id)
-    return JsonResponse({'status': 'ok', 'point_count': remaining})
 
 
 @login_required
@@ -9197,30 +8996,416 @@ def road_data_delete_api(request):
     return JsonResponse({'status': 'ok', 'deleted': deleted})
 
 
+
+
+# ---------------------------------------------------------------------------
+# Map editor (/editor/)
+#
+# Replaces automatic gap filling. Every action is deliberate and synchronous —
+# there is no background job, because the whole problem with the old feature was
+# a job deciding on its own what to change. Output defaults to InferredLocation
+# (invisible to every aggregate); "count as real data" writes real Location rows.
+# Deleted real points are snapshotted to TrashedLocation first.
+# ---------------------------------------------------------------------------
+
+_EDITOR_MAX_IDS = 5000
+
+
+@login_required
+def editor_view(request):
+    """The map editor page. Mirrors map_view's context plus standalone chrome."""
+    devices = Device.objects.filter(user=request.user)
+    return render(request, 'tracker/editor.html', {
+        'devices': devices,
+        'has_postgis': HAS_POSTGIS,
+        # Edge-to-edge viewport: strips the nav and footer, the same lever the
+        # public adventure page already uses.
+        'standalone': True,
+    })
+
+
+def _editor_ids(data, key='ids'):
+    out = []
+    for v in (data.get(key) or [])[:_EDITOR_MAX_IDS]:
+        try:
+            out.append(int(v))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _editor_device(user, device_id=None):
+    """The device an action applies to. Falls back to the user's only device."""
+    qs = Device.objects.filter(user=user)
+    if device_id:
+        return qs.filter(device_id=device_id).first()
+    return qs.first()
+
+
+def _parse_dt(value):
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    return timezone.make_aware(dt) if timezone.is_naive(dt) else dt
+
+
 @login_required
 @require_http_methods(["POST"])
-def inferred_clear_api(request):
-    """Delete the user's inferred gap records and their points.
+def editor_delete_api(request):
+    """Move selected points to the trash (real) or delete them (generated)."""
+    from . import editor_tasks
+    from .models import EditBatch
 
-    Dismissals are kept by default — those record a decision the user made, and
-    silently undoing it would resurface gaps they had already rejected. Pass
-    ``{"include_dismissed": true}`` to wipe those too.
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
 
-    This exists so repairing bad output is a button rather than a shell command:
-    the fill job treats 'filled' and 'dismissed' as final, so without a way to
-    clear the rest, results produced by an older version could never be redone.
+    real_ids = _editor_ids(data, 'ids')
+    inferred_ids = _editor_ids(data, 'inferred_ids')
+    trashed = removed = 0
+    batch = None
+
+    if real_ids:
+        qs = Location.objects.filter(id__in=real_ids, device__user=request.user)
+        device = qs.values_list('device', flat=True).first()
+        if device:
+            batch = EditBatch.objects.create(
+                user=request.user, device_id=device, kind='delete', target='location',
+                note=f'{len(real_ids)} point(s)')
+            trashed = editor_tasks.trash_locations(request.user, qs, batch=batch)
+            batch.point_count = trashed
+            batch.save(update_fields=['point_count'])
+
+    if inferred_ids:
+        removed, _ = InferredLocation.objects.filter(
+            id__in=inferred_ids, device__user=request.user).delete()
+
+    _bust_user_cache(request.user.id)
+    return JsonResponse({'status': 'ok', 'trashed': trashed, 'removed': removed,
+                         'batch_id': batch.id if batch else None})
+
+
+@login_required
+@require_http_methods(["POST"])
+def editor_route_api(request):
+    """Connect two selected real points along real roads."""
+    from . import editor_tasks, roads as roads_mod
+
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+
+    ids = _editor_ids(data)
+    if len(ids) != 2:
+        return JsonResponse({'error': 'Select exactly two points to connect.'}, status=400)
+
+    rows = list(Location.objects.filter(id__in=ids, device__user=request.user)
+                .order_by('timestamp')
+                .values('id', 'latitude', 'longitude', 'timestamp', 'device_id', 'transport_mode'))
+    if len(rows) != 2:
+        return JsonResponse({'error': 'Not found'}, status=404)
+    if rows[0]['device_id'] != rows[1]['device_id']:
+        return JsonResponse({'error': 'Both points must be on the same device.'}, status=400)
+
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if not profile.road_provider_resolved:
+        return JsonResponse({'error': 'No road data provider is configured. '
+                                      'Download road data or set a provider in Settings.'}, status=400)
+
+    a = {'lng': rows[0]['longitude'], 'lat': rows[0]['latitude'],
+         'timestamp': rows[0]['timestamp'], 'mode': rows[0]['transport_mode']}
+    b = {'lng': rows[1]['longitude'], 'lat': rows[1]['latitude'],
+         'timestamp': rows[1]['timestamp'], 'mode': rows[1]['transport_mode']}
+    try:
+        pts, route_len, straight, warn = editor_tasks.route_between_points(profile, a, b)
+    except roads_mod.RoadProviderError as exc:
+        return JsonResponse({'error': str(exc)}, status=400)
+
+    if not pts:
+        return JsonResponse({'error': 'No road route found between those two points. '
+                                      'The area may not have road data downloaded yet.'}, status=400)
+
+    device = Device.objects.get(id=rows[0]['device_id'])
+    batch = editor_tasks.create_batch(
+        request.user, device, 'route', pts, target='inferred',
+        note=f'{route_len / 1000:.1f}km along roads')
+    _bust_user_cache(request.user.id)
+    return JsonResponse({'status': 'ok', 'batch_id': batch.id, 'points': batch.point_count,
+                         'route_m': _jf(route_len), 'straight_m': _jf(straight), 'warning': warn})
+
+
+@login_required
+@require_http_methods(["POST"])
+def editor_add_api(request):
+    """Place points by hand: one at a chosen time, or a run from an anchor.
+
+    A run takes its timestamps from the anchor plus a fixed interval, which is
+    the natural way to lay a short stretch back in over a hole.
+    """
+    from . import editor_tasks
+
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+
+    target = 'location' if data.get('as_real') else 'inferred'
+    coords = data.get('coords') or []
+    if not coords:
+        return JsonResponse({'error': 'No positions given.'}, status=400)
+
+    anchor_id = data.get('anchor_id')
+    if anchor_id:
+        anchor = Location.objects.filter(
+            id=anchor_id, device__user=request.user
+        ).values('timestamp', 'device_id').first()
+        if not anchor:
+            return JsonResponse({'error': 'Anchor point not found.'}, status=404)
+        try:
+            interval = max(1, min(3600, int(data.get('interval_s', 60))))
+        except (TypeError, ValueError):
+            interval = 60
+        device = Device.objects.get(id=anchor['device_id'])
+        base = anchor['timestamp']
+        pts = [(float(c[0]), float(c[1]), base + timedelta(seconds=interval * (i + 1)))
+               for i, c in enumerate(coords)]
+        kind = 'run'
+    else:
+        when = _parse_dt(data.get('timestamp'))
+        if not when:
+            return JsonResponse({'error': 'A valid timestamp is required.'}, status=400)
+        device = _editor_device(request.user, data.get('device_id'))
+        if not device:
+            return JsonResponse({'error': 'No device to attach the point to.'}, status=400)
+        pts = [(float(coords[0][0]), float(coords[0][1]), when)]
+        kind = 'manual'
+
+    batch = editor_tasks.create_batch(request.user, device, kind, pts, target=target)
+    _bust_user_cache(request.user.id)
+    return JsonResponse({'status': 'ok', 'batch_id': batch.id, 'points': batch.point_count})
+
+
+@login_required
+@require_http_methods(["POST"])
+def editor_move_api(request, location_id):
+    """Reposition or retime a single real point."""
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+
+    loc = Location.objects.filter(id=location_id, device__user=request.user).first()
+    if not loc:
+        return JsonResponse({'error': 'Not found'}, status=404)
+
+    if data.get('lat') is not None and data.get('lng') is not None:
+        try:
+            loc.latitude = float(data['lat'])
+            loc.longitude = float(data['lng'])
+        except (TypeError, ValueError):
+            return JsonResponse({'error': 'Invalid coordinates.'}, status=400)
+    when = _parse_dt(data.get('timestamp'))
+    if when:
+        loc.timestamp = when
+
+    # .save() (not .update()) so the PostGIS column is re-derived from lat/lon.
+    from django.db import IntegrityError
+    try:
+        loc.save()
+    except IntegrityError:
+        return JsonResponse({'error': 'Another point on this device already has '
+                                      'that exact position and time.'}, status=409)
+    _bust_user_cache(request.user.id)
+    return JsonResponse({'status': 'ok', 'id': loc.id,
+                         'lat': _jf(loc.latitude), 'lng': _jf(loc.longitude),
+                         'timestamp': loc.timestamp.isoformat()})
+
+
+def _copy_window(data):
+    src_start = _parse_dt(data.get('src_start'))
+    src_end = _parse_dt(data.get('src_end'))
+    dest_start = _parse_dt(data.get('dest_start'))
+    return src_start, src_end, dest_start
+
+
+@login_required
+@require_http_methods(["POST"])
+def editor_copy_preview_api(request):
+    """Report what a paste would land on, before anything is written.
+
+    Location's uniqueness rule is (device, lat, lng, timestamp), so pasting onto
+    a different date collides with nothing and inserts cleanly — which is exactly
+    the hazard: you would silently get two interleaved tracks that every
+    aggregate double-counts. Hence an explicit conflict check.
     """
     try:
         data = json.loads(request.body or '{}')
     except (json.JSONDecodeError, ValueError):
-        data = {}
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
 
-    qs = InferredGap.objects.filter(device__user=request.user)
-    if not data.get('include_dismissed'):
-        qs = qs.exclude(status='dismissed')
+    src_start, src_end, dest_start = _copy_window(data)
+    if not (src_start and src_end and dest_start) or src_end <= src_start:
+        return JsonResponse({'error': 'Pick a source range and a destination time.'}, status=400)
 
-    points = InferredLocation.objects.filter(gap__in=qs).count()
-    gaps = qs.count()
-    qs.delete()   # cascades to InferredLocation
+    device = _editor_device(request.user, data.get('device_id'))
+    if not device:
+        return JsonResponse({'error': 'No device selected.'}, status=400)
+
+    span = src_end - src_start
+    src_count = Location.objects.filter(
+        device=device, timestamp__gte=src_start, timestamp__lte=src_end).count()
+    dest_count = Location.objects.filter(
+        device=device, timestamp__gte=dest_start, timestamp__lte=dest_start + span).count()
+    return JsonResponse({
+        'status': 'ok', 'source_points': src_count, 'conflicts': dest_count,
+        'span_seconds': span.total_seconds(),
+        'dest_end': (dest_start + span).isoformat(),
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
+def editor_copy_api(request):
+    """Paste a copied stretch at another time."""
+    from . import editor_tasks
+
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+
+    src_start, src_end, dest_start = _copy_window(data)
+    if not (src_start and src_end and dest_start) or src_end <= src_start:
+        return JsonResponse({'error': 'Pick a source range and a destination time.'}, status=400)
+
+    device = _editor_device(request.user, data.get('device_id'))
+    if not device:
+        return JsonResponse({'error': 'No device selected.'}, status=400)
+
+    span = src_end - src_start
+    offset = dest_start - src_start
+    dest_qs = Location.objects.filter(
+        device=device, timestamp__gte=dest_start, timestamp__lte=dest_start + span)
+    conflicts = dest_qs.count()
+    if conflicts and not data.get('replace'):
+        return JsonResponse({'error': f'{conflicts} point(s) already exist in that window. '
+                                      f'Choose replace, or pick an empty destination.',
+                             'conflicts': conflicts}, status=409)
+
+    rows = list(Location.objects.filter(
+        device=device, timestamp__gte=src_start, timestamp__lte=src_end)
+        .order_by('timestamp').values('latitude', 'longitude', 'timestamp'))
+    if not rows:
+        return JsonResponse({'error': 'No points in the source range.'}, status=400)
+
+    replaced = 0
+    if conflicts:
+        replaced = editor_tasks.trash_locations(request.user, dest_qs)
+
+    target = 'location' if data.get('as_real') else 'inferred'
+    pts = [(r['longitude'], r['latitude'], r['timestamp'] + offset) for r in rows]
+    batch = editor_tasks.create_batch(
+        request.user, device, 'copy', pts, target=target,
+        note=f"{len(pts)} point(s) from {src_start.date()}")
     _bust_user_cache(request.user.id)
-    return JsonResponse({'status': 'ok', 'gaps': gaps, 'points': points})
+    return JsonResponse({'status': 'ok', 'batch_id': batch.id,
+                         'points': batch.point_count, 'replaced': replaced,
+                         'as_real': target == 'location'})
+
+
+@login_required
+def editor_batches_api(request):
+    """Recent editor actions, newest first, for the undo list."""
+    from .models import EditBatch
+
+    rows = (EditBatch.objects.filter(user=request.user)
+            .select_related('device').order_by('-created_at')[:50])
+    return JsonResponse({'batches': [{
+        'id': b.id,
+        'kind': b.kind,
+        'kind_label': b.get_kind_display(),
+        'target': b.target,
+        'note': b.note,
+        'point_count': b.point_count,
+        'undone': b.undone,
+        'device': b.device.name or b.device.device_id,
+        'created_at': b.created_at.isoformat(),
+    } for b in rows]})
+
+
+@login_required
+@require_http_methods(["POST"])
+def editor_batch_undo_api(request, batch_id):
+    """Reverse one editor action."""
+    from . import editor_tasks
+    from .models import EditBatch
+
+    batch = EditBatch.objects.filter(id=batch_id, user=request.user, undone=False).first()
+    if not batch:
+        return JsonResponse({'error': 'Not found'}, status=404)
+    affected = editor_tasks.undo_batch(request.user, batch)
+    _bust_user_cache(request.user.id)
+    return JsonResponse({'status': 'ok', 'affected': affected})
+
+
+# ── Trash ───────────────────────────────────────────────────────────────────
+
+@login_required
+def trash_api(request):
+    """Deleted real points, newest first."""
+    from .log_cleanup_tasks import trash_retention_days
+    from .models import TrashedLocation
+
+    try:
+        limit = min(500, max(1, int(request.GET.get('limit', 200))))
+    except (TypeError, ValueError):
+        limit = 200
+    qs = (TrashedLocation.objects.filter(user=request.user)
+          .select_related('device').order_by('-deleted_at'))
+    total = qs.count()
+    return JsonResponse({
+        'total': total,
+        'retention_days': trash_retention_days(),
+        'points': [{
+            'id': t.id,
+            'lat': _jf(t.latitude), 'lng': _jf(t.longitude),
+            'timestamp': t.timestamp.isoformat(),
+            'deleted_at': t.deleted_at.isoformat(),
+            'device': t.device.name or t.device.device_id,
+            'city': t.city, 'state': t.state, 'country': t.country,
+        } for t in qs[:limit]],
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
+def trash_restore_api(request):
+    """Put deleted points back. Ids omitted means restore everything."""
+    from . import editor_tasks
+    from .models import TrashedLocation
+
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        data = {}
+    ids = _editor_ids(data)
+    if not ids:
+        ids = list(TrashedLocation.objects.filter(user=request.user)
+                   .values_list('id', flat=True)[:_EDITOR_MAX_IDS])
+    restored = editor_tasks.restore_trashed(request.user, ids)
+    _bust_user_cache(request.user.id)
+    return JsonResponse({'status': 'ok', 'restored': restored})
+
+
+@login_required
+@require_http_methods(["POST"])
+def trash_empty_api(request):
+    """Permanently discard the trash."""
+    from .models import TrashedLocation
+    deleted, _ = TrashedLocation.objects.filter(user=request.user).delete()
+    return JsonResponse({'status': 'ok', 'deleted': deleted})

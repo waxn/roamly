@@ -572,7 +572,7 @@
                 <!-- Download road data -->
                 <div>
                     <div style="font-size:0.875rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">Download Road Data</div>
-                    <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;">Fetch OpenStreetMap roads for the areas you've actually been, so snapping and gap routing can run entirely on your own server with no external calls. Only drivable roads are stored, and only for the ~2km cells you have points in. <strong>This is the largest table in the app</strong> — expect tens of MB for one region, more if you road-trip. Re-run after travelling somewhere new.</div>
+                    <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;">Fetch OpenStreetMap roads for the areas you've actually been, so snapping and the editor's road routing can run entirely on your own server with no external calls. Only drivable roads are stored, and only for the ~2km cells you have points in. <strong>This is the largest table in the app</strong> — expect tens of MB for one region, more if you road-trip. Re-run after travelling somewhere new.</div>
                     <div class="settings-actions">
                         <button class="btn btn-primary btn-sm" id="roads-btn" onclick="startRoads()">Download Roads</button>
                         <button class="btn btn-outline btn-sm" id="roads-stop-btn" onclick="stopRoads()" style="display:none;">Stop</button>
@@ -584,26 +584,6 @@
                             <div id="roads-bar" style="height:100%;width:0%;background:var(--primary);border-radius:0;transition:width 0.4s ease;"></div>
                         </div>
                         <div id="roads-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
-                    </div>
-                </div>
-
-                <div style="border-top:1px solid var(--border);"></div>
-
-                <!-- Fill tracking gaps -->
-                <div>
-                    <div style="font-size:0.875rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">Fill Tracking Gaps</div>
-                    <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;">Find holes in your track and reconstruct the route you likely took, laying points along the roads at the average speed the gap implies. Added points are stored separately and marked as inferred — they never count toward distance, visits or stats. Enable <strong>Roads &amp; Gap Filling</strong> below first; review anything it gets wrong in <strong>Diagnostics → Inferred Points</strong>.</div>
-                    <div class="settings-actions">
-                        <button class="btn btn-primary btn-sm" id="gapfill-btn" onclick="startGapfill()">Fill Gaps</button>
-                        <button class="btn btn-outline btn-sm" id="gapfill-stop-btn" onclick="stopGapfill()" style="display:none;">Stop</button>
-                        <button class="btn btn-outline btn-sm" id="gapfill-clear-btn" onclick="clearInferred()"
-                                style="color:var(--danger);border-color:var(--danger);">Clear Inferred Points</button>
-                    </div>
-                    <div id="gapfill-progress-wrap" style="margin-top:0.6rem;display:none;">
-                        <div style="background:var(--bg-input);border-radius:0;height:6px;overflow:hidden;margin-bottom:0.35rem;">
-                            <div id="gapfill-bar" style="height:100%;width:0%;background:var(--primary);border-radius:0;transition:width 0.4s ease;"></div>
-                        </div>
-                        <div id="gapfill-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
                     </div>
                 </div>
 
@@ -623,13 +603,12 @@
 
         <!-- Roads & Gap Filling (per-user) -->
         <div class="card settings-span-12">
-            <div class="card-header">Roads &amp; Gap Filling <span class="badge" style="font-size:0.65rem;">per-account</span></div>
+            <div class="card-header">Road Snapping <span class="badge" style="font-size:0.65rem;">per-account</span></div>
             <p class="settings-section-desc">
-                GPS scatter puts recorded points beside the road instead of on it, and dropouts
-                leave the track jumping from one road to another. These two features clean that
-                up. <strong>Snapping is display-only</strong> — your recorded coordinates are never
-                modified. Gap filling adds new points, stored separately and marked as inferred,
-                so they never count toward distance, visits or stats.
+                GPS scatter puts recorded points beside the road instead of on it. Snapping
+                draws them where they belong. <strong>It is display-only</strong> — your recorded
+                coordinates are never modified, and one click of the sidebar toggle shows the
+                raw track again.
             </p>
             <p class="settings-section-desc" style="margin-top:-0.35rem;">
                 Only road journeys are snapped — walking is left exactly as recorded, so a
@@ -660,21 +639,6 @@
                     <input type="text" id="osrm-url" class="form-control" placeholder="http://host.docker.internal:5000">
                 </div>
 
-                <div class="pref-form-group">
-                    <label class="pref-label">
-                        Minimum Gap to Fill
-                        <div class="info-icon" data-tooltip="Shorter dropouts are left alone. Gaps longer than 6 hours are never filled.">?</div>
-                    </label>
-                    <input type="number" id="gap-min-minutes" class="form-control" min="1" max="120" step="1">
-                </div>
-
-                <div class="pref-form-group">
-                    <label class="pref-label">
-                        …or Gap Distance (m)
-                        <div class="info-icon" data-tooltip="A pair of points this far apart is filled even when the time between them is short. Normal tracking is 100-200m apart, so ordinary drives are untouched.">?</div>
-                    </label>
-                    <input type="number" id="gap-min-distance" class="form-control" min="250" max="20000" step="50">
-                </div>
             </div>
 
             <div class="settings-subsection">
@@ -682,19 +646,11 @@
                     <input type="checkbox" id="snap-to-roads">
                     Snap points to roads (display only)
                 </label>
-                <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;color:var(--text);cursor:pointer;margin-top:0.5rem;">
-                    <input type="checkbox" id="gap-fill-enabled">
-                    Fill tracking gaps with inferred points
-                </label>
-                <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;color:var(--text);cursor:pointer;margin-top:0.5rem;">
-                    <input type="checkbox" id="gap-fill-auto">
-                    Fill new gaps automatically each night
-                </label>
             </div>
 
             <div class="settings-actions" style="margin-top:0.75rem;">
                 <button class="btn btn-primary btn-sm" onclick="saveRoadsConfig()">Save</button>
-                <a href="{% url 'tracker:diagnostics' %}?tab=inferred" class="btn btn-outline btn-sm">Audit inferred points</a>
+                <a href="{% url 'tracker:editor' %}" class="btn btn-outline btn-sm">Open map editor</a>
                 <span id="roads-config-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
             </div>
         </div>
@@ -1576,7 +1532,7 @@ fetch('/api/transport/detect/status/')
     })
     .catch(() => {});
 
-// ── Roads & gap filling ──────────────────────────────────────────────────────
+// ── Road snapping ────────────────────────────────────────────────────────────
 // formatEta() reads the global geocodeStartTime, which is why the POI-match and
 // transport blocks swap that global around their calls. Not worth imitating —
 // these two jobs pass their start time in instead.
@@ -1624,7 +1580,7 @@ function updateRoadsUI(data, finished) {
             let msg = `${label} — ${(data.ways || 0).toLocaleString()} new roads, ${stored} stored in total`;
             if (data.failed) {
                 // A failed area means no roads there at all, which looks exactly
-                // like snapping/routing being broken. Say so plainly.
+                // like snapping being broken. Say so plainly.
                 msg += ` · ${data.failed.toLocaleString()} area${data.failed === 1 ? '' : 's'} failed`;
                 msg += ' — re-run to retry those';
                 statusEl.textContent = msg;
@@ -1687,8 +1643,8 @@ function deleteRoadData() {
     // Instance-wide reference data with no user FK, same as POIs — say so, since
     // on a shared instance this affects everyone.
     if (!confirm('Delete all downloaded road data for this instance?\n\n'
-        + 'Snapping and gap routing will fall back to Mapbox or OSRM until you '
-        + 'download it again. Existing inferred points are kept.')) return;
+        + 'Snapping and the editor\'s road routing will fall back to Mapbox or OSRM '
+        + 'until you download it again. Points the editor already created are kept.')) return;
 
     btn.disabled = true;
     document.getElementById('roads-progress-wrap').style.display = 'block';
@@ -1706,114 +1662,7 @@ function deleteRoadData() {
         .finally(() => { btn.disabled = false; });
 }
 
-// --- Gap filling ---
-let gapfillStartTime = null;
-
-function setGapfillUI(running) {
-    const btn = document.getElementById('gapfill-btn');
-    const stopBtn = document.getElementById('gapfill-stop-btn');
-    btn.disabled = running;
-    btn.style.opacity = running ? '0.5' : '';
-    stopBtn.disabled = false;
-    stopBtn.style.display = running ? 'inline-block' : 'none';
-}
-
-function updateGapfillUI(data, finished) {
-    const wrap = document.getElementById('gapfill-progress-wrap');
-    const bar = document.getElementById('gapfill-bar');
-    const statusEl = document.getElementById('gapfill-status');
-    wrap.style.display = 'block';
-
-    // Gaps are discovered as the scan runs, so there is no known total to
-    // measure against — show an indeterminate-ish bar rather than a fake %.
-    const filled = (data.filled || 0).toLocaleString();
-    const examined = (data.processed || 0).toLocaleString();
-
-    if (finished) {
-        bar.style.width = '100%';
-        bar.style.background = data.status === 'completed' ? 'var(--success)' : 'var(--text-muted)';
-        if (data.status === 'completed' && !data.processed) {
-            statusEl.textContent = 'done — no fillable gaps found.';
-        } else {
-            const label = data.status === 'completed' ? 'done' : 'stopped';
-            statusEl.textContent = `${label} — ${examined} gaps examined, ${filled} routed`
-                + ` · ${(data.total_points || 0).toLocaleString()} inferred points stored`;
-        }
-    } else {
-        bar.style.width = '65%';
-        bar.style.background = 'var(--primary)';
-        statusEl.innerHTML = `<span class="spinner"></span> ${examined} gaps examined, ${filled} routed`;
-    }
-}
-
-function startGapfill() {
-    const statusEl = document.getElementById('gapfill-status');
-    document.getElementById('gapfill-progress-wrap').style.display = 'block';
-    statusEl.innerHTML = '<span class="spinner"></span> scanning for gaps...';
-    document.getElementById('gapfill-bar').style.width = '0%';
-    setGapfillUI(true);
-    gapfillStartTime = Date.now();
-
-    fetch('/api/gaps/fill/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
-        .then(r => r.json())
-        .then(() => pollGapfillStatus());
-}
-
-function stopGapfill() {
-    document.getElementById('gapfill-stop-btn').disabled = true;
-    document.getElementById('gapfill-status').innerHTML = '<span class="spinner"></span> stopping...';
-    fetch('/api/gaps/fill/stop/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } });
-}
-
-function clearInferred() {
-    const statusEl = document.getElementById('gapfill-status');
-    const btn = document.getElementById('gapfill-clear-btn');
-    if (!confirm('Delete all inferred gap-fill points?\n\n'
-        + 'Your recorded GPS points are untouched — only the generated ones go. '
-        + 'Gaps you deleted yourself stay deleted. Run Fill Gaps again afterwards '
-        + 'to rebuild them with the current routing.')) return;
-
-    btn.disabled = true;
-    document.getElementById('gapfill-progress-wrap').style.display = 'block';
-    document.getElementById('gapfill-bar').style.width = '0%';
-    statusEl.innerHTML = '<span class="spinner"></span> clearing…';
-
-    fetch('/api/gaps/clear/', {
-        method: 'POST',
-        headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' },
-        body: '{}',
-    })
-        .then(r => r.json())
-        .then(d => {
-            statusEl.textContent = d.status === 'ok'
-                ? `cleared — ${(d.gaps || 0).toLocaleString()} gaps, ${(d.points || 0).toLocaleString()} inferred points removed.`
-                : 'clear failed.';
-        })
-        .catch(() => { statusEl.textContent = 'clear failed.'; })
-        .finally(() => { btn.disabled = false; });
-}
-
-function pollGapfillStatus() {
-    setGapfillUI(true);
-    const interval = setInterval(() => {
-        fetch('/api/gaps/fill/status/')
-        .then(r => r.json())
-        .then(data => {
-            if (data.status === 'running') {
-                updateGapfillUI(data, false);
-            } else if (data.status === 'completed' || data.status === 'stopped') {
-                updateGapfillUI(data, true);
-                clearInterval(interval);
-                setGapfillUI(false);
-            } else {
-                clearInterval(interval);
-                setGapfillUI(false);
-            }
-        });
-    }, 2000);
-}
-
-// Resume either job's UI if it is already running on page load
+// Resume the road-download UI if it is already running on page load
 fetch('/api/roads/download/status/')
     .then(r => { if (r.ok) return r.json(); })
     .then(data => {
@@ -1821,17 +1670,6 @@ fetch('/api/roads/download/status/')
             roadsStartTime = Date.now();
             updateRoadsUI(data, false);
             pollRoadsStatus();
-        }
-    })
-    .catch(() => {});
-
-fetch('/api/gaps/fill/status/')
-    .then(r => { if (r.ok) return r.json(); })
-    .then(data => {
-        if (data && data.status === 'running') {
-            gapfillStartTime = Date.now();
-            updateGapfillUI(data, false);
-            pollGapfillStatus();
         }
     })
     .catch(() => {});
@@ -1848,10 +1686,6 @@ function _roadsConfigPayload() {
         road_provider: document.getElementById('road-provider').value,
         osrm_url: document.getElementById('osrm-url').value.trim(),
         snap_to_roads: document.getElementById('snap-to-roads').checked,
-        gap_fill_enabled: document.getElementById('gap-fill-enabled').checked,
-        gap_fill_auto: document.getElementById('gap-fill-auto').checked,
-        gap_fill_min_minutes: parseInt(document.getElementById('gap-min-minutes').value, 10) || 2,
-        gap_fill_min_distance_m: parseInt(document.getElementById('gap-min-distance').value, 10) || 500,
     };
 }
 
@@ -1860,7 +1694,7 @@ function _roadsResolvedNote(resolved, totalWays) {
     if (resolved) {
         let msg = `using ${ROAD_PROVIDER_LABELS[resolved] || resolved}`;
         if (resolved === 'local' && totalWays !== undefined) {
-            // Both snapping and gap routing need roads near the points in
+            // Both snapping and the editor's road routing need roads near the points in
             // question, so the stored count is the first thing to check when
             // either looks like it isn't working.
             msg += ` — ${(totalWays || 0).toLocaleString()} roads stored`;
@@ -1885,7 +1719,7 @@ function saveRoadsConfig() {
     .then(r => r.json().then(d => ({ ok: r.ok, d })))
     .then(({ ok, d }) => {
         if (ok && d.ok) {
-            if (!d.resolved && (d.snap_to_roads || d.gap_fill_enabled)) {
+            if (!d.resolved && d.snap_to_roads) {
                 status.textContent = 'saved, but no usable road provider yet — download road data, add a Mapbox token, or set an OSRM URL.';
                 status.style.color = 'var(--danger)';
             } else {
@@ -1907,10 +1741,6 @@ fetch('/api/profile/roads-config/')
         document.getElementById('road-provider').value = d.road_provider || '';
         document.getElementById('osrm-url').value = d.osrm_url || '';
         document.getElementById('snap-to-roads').checked = !!d.snap_to_roads;
-        document.getElementById('gap-fill-enabled').checked = !!d.gap_fill_enabled;
-        document.getElementById('gap-fill-auto').checked = !!d.gap_fill_auto;
-        document.getElementById('gap-min-minutes').value = d.gap_fill_min_minutes || 2;
-        document.getElementById('gap-min-distance').value = d.gap_fill_min_distance_m || 500;
         _roadsResolvedNote(d.resolved, d.total_ways);
     })
     .catch(() => {});

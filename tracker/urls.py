@@ -26,6 +26,7 @@ urlpatterns = [
     path('ask/', views.ask_view, name='ask'),
     path('settings/', views.settings_view, name='settings'),
     path('diagnostics/', views.diagnostics_view, name='diagnostics'),
+    path('editor/', views.editor_view, name='editor'),
 
     # Auth
     path('login/', views.login_view, name='login'),
@@ -156,23 +157,27 @@ urlpatterns = [
     path('api/transport/detect/stop/', views.transport_stop_api, name='transport_stop'),
     path('api/transport/breakdown/', views.transport_breakdown_api, name='transport_breakdown'),
 
-    # Roads & Gap Filling API
+    # Roads & Editor API
     path('api/profile/roads-config/', views.profile_roads_config_api, name='profile_roads_config'),
     path('api/roads/snap/', views.roads_snap_api, name='roads_snap'),
     path('api/roads/download/', views.road_download_api, name='road_download'),
     path('api/roads/download/status/', views.road_download_status_api, name='road_download_status'),
     path('api/roads/download/stop/', views.road_download_stop_api, name='road_download_stop'),
     path('api/roads/delete/', views.road_data_delete_api, name='road_data_delete'),
-    # Literal routes first so `fill/` can't be captured by the <int:gap_id> converter.
-    path('api/gaps/fill/', views.gap_fill_api, name='gap_fill'),
-    path('api/gaps/fill/status/', views.gap_fill_status_api, name='gap_fill_status'),
-    path('api/gaps/fill/stop/', views.gap_fill_stop_api, name='gap_fill_stop'),
-    path('api/gaps/clear/', views.inferred_clear_api, name='inferred_clear'),
-    path('api/gaps/', views.inferred_gaps_api, name='inferred_gaps'),
-    path('api/gaps/<int:gap_id>/dismiss/', views.inferred_gap_dismiss_api, name='inferred_gap_dismiss'),
-    path('api/gaps/<int:gap_id>/restore/', views.inferred_gap_restore_api, name='inferred_gap_restore'),
     path('api/inferred/', views.inferred_locations_api, name='inferred_locations'),
-    path('api/inferred/<int:point_id>/delete/', views.inferred_location_delete_api, name='inferred_location_delete'),
+
+    # Map Editor API
+    path('api/editor/delete/', views.editor_delete_api, name='editor_delete'),
+    path('api/editor/route/', views.editor_route_api, name='editor_route'),
+    path('api/editor/points/add/', views.editor_add_api, name='editor_add'),
+    path('api/editor/points/<int:location_id>/move/', views.editor_move_api, name='editor_move'),
+    path('api/editor/copy/preview/', views.editor_copy_preview_api, name='editor_copy_preview'),
+    path('api/editor/copy/', views.editor_copy_api, name='editor_copy'),
+    path('api/editor/batches/', views.editor_batches_api, name='editor_batches'),
+    path('api/editor/batches/<int:batch_id>/undo/', views.editor_batch_undo_api, name='editor_batch_undo'),
+    path('api/trash/', views.trash_api, name='trash_api'),
+    path('api/trash/restore/', views.trash_restore_api, name='trash_restore'),
+    path('api/trash/empty/', views.trash_empty_api, name='trash_empty'),
 
     # Automatic Backups
     path('api/backup/config/', views.backup_config_api, name='backup_config'),

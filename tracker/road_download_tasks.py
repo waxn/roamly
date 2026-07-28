@@ -59,8 +59,8 @@ CELL_DEG = 0.02
 # snap against, and a route can leave the corridor briefly.
 CELL_PAD_DEG = 0.004
 # Limits on bridging the cells between two consecutive fixes. Deliberately the
-# same rules gapfill_tasks applies before it will route a gap (_GAP_MAX_MPS and
-# roads._ROUTE_MAX_KM), so the download covers what routing will attempt and no
+# same rules the editor applies before it will route between two points, so
+# the download covers what routing will attempt and no
 # more — without them a flight would rasterise a transcontinental line of cells.
 MAX_BRIDGE_M = 150_000.0
 MAX_BRIDGE_MPS = 60.0

@@ -5,7 +5,8 @@ Sweeps hourly and:
      pruning, so the admin panel's long-range graphs survive row deletion.
   2. Prunes AccessLog older than SiteConfig.access_log_retention_days (the
      high-volume "most stuff").
-  3. Prunes ActionLog older than SiteConfig.event_log_retention_days (the
+  3. Purges map-editor trash older than TRASH_RETENTION_DAYS.
+  4. Prunes ActionLog older than SiteConfig.event_log_retention_days (the
      low-volume logins/signups/errors/admin actions — 0 = keep forever).
 
 Mirrors the daemon-thread pattern in stats_tasks.py: one long-lived thread,
@@ -24,6 +25,16 @@ from django.db import close_old_connections, connection
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
+
+# How long a deleted GPS point stays recoverable. Purged by the sweep below
+# rather than by a scheduler of its own — automatic gap filling's nightly thread
+# was just removed, and adding another daemon to expire trash would be a poor
+# trade when an hourly sweep already runs here under an advisory lock.
+TRASH_RETENTION_DAYS = 30
+
+
+def trash_retention_days():
+    return TRASH_RETENTION_DAYS
 
 _SWEEP_INTERVAL_S = 3600  # 1 hour — longer than CONN_MAX_AGE (600s) so the held
                           # connection is always recycled between passes.
@@ -160,6 +171,19 @@ def _do_sweep():
         if deleted:
             logger.info("log cleanup: pruned %d action log rows older than %d days",
                         deleted, config.event_log_retention_days)
+
+    # (d) Expire the map editor's trash. Deleted GPS points stay recoverable for
+    # TRASH_RETENTION_DAYS and then go for good — this is the only place that
+    # discards them without the user asking.
+    try:
+        from .models import TrashedLocation
+        cutoff = now - timedelta(days=TRASH_RETENTION_DAYS)
+        deleted, _ = TrashedLocation.objects.filter(deleted_at__lt=cutoff).delete()
+        if deleted:
+            logger.info("log cleanup: purged %d trashed points older than %d days",
+                        deleted, TRASH_RETENTION_DAYS)
+    except Exception:
+        logger.exception("trash purge failed")
 
 
 def start_log_cleanup_scheduler():

@@ -1,0 +1,618 @@
+{% extends "tracker/base.html" %}
+{% load static %}
+{% block title %}Map Editor - Roamly{% endblock %}
+
+{% block extra_css %}
+{# Same floating-glass chrome as /map/ — the editor is meant to look like the
+   map with tools bolted on, not like a different application. These classes
+   live in map.html too; they are duplicated rather than shared because moving
+   them into base.html would load 200 lines of map CSS on every page. #}
+#map-container { position: relative; height: calc(100vh - var(--bottom-nav-height)); width: 100%; z-index: 1; }
+#map { width: 100%; height: 100%; }
+
+.map-sidebar { position:absolute; top:12px; left:12px; z-index:10; display:flex; flex-direction:row; align-items:flex-end; pointer-events:none; }
+.sidebar-content {
+    width: 250px; max-width: 250px; max-height: calc(100vh - 100px);
+    background: var(--bg-glass); border: 1px solid var(--border); border-radius:0;
+    padding: 12px 10px; overflow-y:auto; overflow-x:hidden; pointer-events:all;
+    display:flex; flex-direction:column; gap:12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.22);
+    scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+}
+.sidebar-section { display:flex; flex-direction:column; gap:5px; }
+.sidebar-label { font-size:0.6rem; font-family:var(--font-body); font-weight:700; text-transform:uppercase; letter-spacing:0.09em; color:var(--text-muted); padding-bottom:1px; }
+.sidebar-tools { display:flex; flex-direction:column; gap:4px; }
+.tool-btn {
+    background: rgba(0,0,0,0.12); border:1px solid var(--border); color:var(--text-muted);
+    padding:7px 10px; border-radius:0; font-size:0.775rem; font-family:var(--font-body);
+    font-weight:700; cursor:pointer; text-align:left; display:flex; justify-content:space-between;
+    align-items:center; width:100%; transition:background .12s,color .12s,border-color .12s;
+}
+.tool-btn:hover:not(:disabled):not(.active) { color:var(--text); border-color:var(--text-muted); }
+.tool-btn.active { background:rgba(232,118,61,0.14); color:var(--primary); border-color:var(--primary); }
+.tool-btn:disabled { opacity:0.4; cursor:not-allowed; }
+.tool-btn-badge { font-size:0.65rem; color:var(--text-muted); font-weight:700; }
+.tool-btn.active .tool-btn-badge { color:var(--primary); }
+.tool-btn.danger { color:var(--danger); border-color:rgba(220,80,80,0.4); }
+
+.sidebar-btn-group { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; }
+.style-btn { background:rgba(0,0,0,0.12); border:1px solid var(--border); color:var(--text-muted);
+    padding:6px 4px; border-radius:0; font-size:0.7rem; font-weight:700; cursor:pointer; text-align:center; }
+.style-btn.active { background:var(--primary); border-color:var(--primary); color:#fff; }
+
+.ed-hint { font-size:0.68rem; color:var(--text-muted); line-height:1.4; }
+.ed-field { display:flex; flex-direction:column; gap:3px; }
+.ed-field label { font-size:0.65rem; color:var(--text-muted); font-weight:700; }
+.ed-field input, .ed-field select {
+    background:var(--bg-input); border:1px solid var(--border); color:var(--text);
+    padding:5px 7px; font-size:0.75rem; font-family:var(--font-body); border-radius:0; width:100%;
+}
+.ed-check { display:flex; align-items:center; gap:6px; font-size:0.72rem; color:var(--text); cursor:pointer; }
+.ed-panel { border-top:1px solid var(--border); padding-top:8px; display:flex; flex-direction:column; gap:6px; }
+.ed-actions { display:flex; gap:4px; }
+.ed-actions .tool-btn { text-align:center; justify-content:center; }
+
+.ed-status { position:absolute; bottom:12px; left:50%; transform:translateX(-50%); z-index:10;
+    background:var(--bg-glass); border:1px solid var(--border); padding:7px 14px;
+    font-size:0.78rem; color:var(--text); max-width:70vw; display:none; }
+.ed-status.error { border-color:var(--danger); color:var(--danger); }
+.ed-status.warn { border-color:var(--clay-amber); }
+
+.map-info { position:absolute; bottom:12px; right:12px; z-index:10; background:var(--bg-glass);
+    border:1px solid var(--border); padding:6px 12px; font-size:0.72rem; color:var(--text-muted);
+    font-family:var(--font-mono); }
+.map-detail-controls { position:absolute; top:12px; right:12px; z-index:10; display:none;
+    gap:8px; align-items:center; background:var(--bg-glass); border:1px solid var(--border); padding:6px 10px; }
+#map-detail-hint { font-size:0.72rem; color:var(--text-muted); }
+#map-load-more-btn { background:var(--primary); border:none; color:#fff; padding:4px 10px;
+    font-size:0.72rem; font-weight:700; cursor:pointer; border-radius:0; }
+#map-loading-bar { position:absolute; top:0; left:0; height:2px; width:0; background:var(--primary);
+    z-index:20; transition:width .3s ease, opacity .3s ease; opacity:0; }
+#map-loading-bar.active { width:70%; opacity:1; }
+
+.ed-box { position:absolute; border:1px dashed var(--primary); background:rgba(232,118,61,0.12);
+    pointer-events:none; z-index:9; display:none; }
+{% endblock %}
+
+{% block content %}
+<div id="map-container">
+    <div class="map-sidebar">
+        <div class="sidebar-content">
+            <div class="sidebar-section">
+                <div class="sidebar-label">map editor</div>
+                <div class="ed-hint">
+                    Click a point to select. <strong>Ctrl</strong>-click adds to the selection,
+                    <strong>Shift</strong>-drag selects a box.
+                </div>
+                <a href="{% url 'tracker:map' %}" class="tool-btn" style="text-decoration:none;">← back to map</a>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-label">time range</div>
+                <select id="time-range" class="form-control">
+                    <option value="24">Last 24 hours</option>
+                    <option value="168">Last week</option>
+                    <option value="720">Last 30 days</option>
+                    <option value="all">All time</option>
+                </select>
+                <input type="date" id="start-date" class="form-control">
+                <input type="date" id="end-date" class="form-control">
+                <div id="date-hint" class="ed-hint"></div>
+                <button id="date-reset" class="tool-btn" type="button">reset dates</button>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-label">device</div>
+                <select id="device-filter" class="form-control">
+                    <option value="">All devices</option>
+                    {% for device in devices %}
+                    <option value="{{ device.device_id }}">{{ device.name|default:device.device_id }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-label">basemap</div>
+                <div class="sidebar-btn-group" id="basemap-section">
+                    <button class="style-btn active" data-style="Streets" type="button">streets</button>
+                    <button class="style-btn" data-style="Dark" type="button">dark</button>
+                    <button class="style-btn" data-style="Satellite" type="button">sat</button>
+                </div>
+            </div>
+
+            {% if ROAD_SNAP_ENABLED %}
+            <div class="sidebar-section">
+                <div class="sidebar-label">layers</div>
+                <div class="sidebar-tools">
+                    <button class="tool-btn" id="snap-btn" type="button">
+                        snap to roads
+                        <span class="tool-btn-badge" id="snap-badge"></span>
+                    </button>
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="sidebar-section">
+                <div class="sidebar-label">selection <span id="sel-count" class="tool-btn-badge"></span></div>
+                <div class="sidebar-tools">
+                    <button class="tool-btn" id="btn-clear-sel" type="button" disabled>clear selection</button>
+                    <button class="tool-btn" id="btn-route" type="button" disabled>
+                        connect via roads<span class="tool-btn-badge">2 points</span>
+                    </button>
+                    <button class="tool-btn" id="btn-move" type="button" disabled>
+                        move / retime<span class="tool-btn-badge">1 point</span>
+                    </button>
+                    <button class="tool-btn danger" id="btn-delete" type="button" disabled>delete selected</button>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-label">add points</div>
+                <div class="sidebar-tools">
+                    <button class="tool-btn" id="btn-add-single" type="button">place a point</button>
+                    <button class="tool-btn" id="btn-add-run" type="button" disabled>
+                        run from point<span class="tool-btn-badge">1 point</span>
+                    </button>
+                </div>
+                <div class="ed-panel" id="panel-add" style="display:none;">
+                    <div class="ed-field" id="field-add-time">
+                        <label for="add-time">timestamp</label>
+                        <input type="datetime-local" id="add-time" step="1">
+                    </div>
+                    <div class="ed-field" id="field-add-interval" style="display:none;">
+                        <label for="add-interval">seconds between points</label>
+                        <input type="number" id="add-interval" value="60" min="1" max="3600">
+                    </div>
+                    <label class="ed-check"><input type="checkbox" id="add-as-real"> count as real data</label>
+                    <div class="ed-hint" id="add-hint">Click the map to place.</div>
+                    <div class="ed-actions">
+                        <button class="tool-btn" id="btn-add-save" type="button">save</button>
+                        <button class="tool-btn" id="btn-add-cancel" type="button">cancel</button>
+                    </div>
+                </div>
+                <div class="ed-panel" id="panel-move" style="display:none;">
+                    <div class="ed-field">
+                        <label for="move-time">timestamp</label>
+                        <input type="datetime-local" id="move-time" step="1">
+                    </div>
+                    <div class="ed-hint">Click the map to reposition, or just change the time.</div>
+                    <div class="ed-actions">
+                        <button class="tool-btn" id="btn-move-save" type="button">save</button>
+                        <button class="tool-btn" id="btn-move-cancel" type="button">cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-label">copy a stretch</div>
+                <div class="sidebar-tools">
+                    <button class="tool-btn" id="btn-copy" type="button">copy &amp; paste range</button>
+                </div>
+                <div class="ed-panel" id="panel-copy" style="display:none;">
+                    <div class="ed-field"><label for="copy-src-start">source start</label>
+                        <input type="datetime-local" id="copy-src-start" step="1"></div>
+                    <div class="ed-field"><label for="copy-src-end">source end</label>
+                        <input type="datetime-local" id="copy-src-end" step="1"></div>
+                    <div class="ed-field"><label for="copy-dest">paste starting at</label>
+                        <input type="datetime-local" id="copy-dest" step="1"></div>
+                    <label class="ed-check"><input type="checkbox" id="copy-as-real"> count as real data</label>
+                    <div class="ed-hint" id="copy-hint">
+                        Off: stored as reconstruction, invisible to stats. On: real points that
+                        count toward distance and visits.
+                    </div>
+                    <div class="ed-actions">
+                        <button class="tool-btn" id="btn-copy-check" type="button">check</button>
+                        <button class="tool-btn" id="btn-copy-paste" type="button" disabled>paste</button>
+                        <button class="tool-btn" id="btn-copy-cancel" type="button">cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-label">recent edits</div>
+                <div class="sidebar-tools" id="batch-list">
+                    <div class="ed-hint">Nothing yet.</div>
+                </div>
+                <a href="{% url 'tracker:diagnostics' %}?tab=trash" class="tool-btn" style="text-decoration:none;">open trash →</a>
+            </div>
+        </div>
+    </div>
+
+    <div id="map-loading-bar"></div>
+    <div class="map-info" id="map-info">loading...</div>
+    <div class="map-detail-controls" id="map-detail-controls">
+        <span id="map-detail-hint"></span>
+        <button id="map-load-more-btn" type="button">load all points</button>
+    </div>
+    <div class="ed-status" id="ed-status"></div>
+    <div class="ed-box" id="ed-box"></div>
+    <div id="map"></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+window.ROAMLY_MAP_CFG = {
+    mapboxToken: '{{ MAPBOX_TOKEN|escapejs }}',
+    csrfToken: '{{ csrf_token }}',
+    snapAvailable: {{ ROAD_SNAP_ENABLED|yesno:"true,false" }},
+};
+window.ROAMLY_MAP_HOOKS = {};
+</script>
+<script src="{% static 'tracker/map-core.js' %}"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// Map editor.
+//
+// The rendering half — basemaps, dots, heatmap, snapping, viewport loading —
+// is entirely map-core.js, so this page looks and behaves like /map/ by
+// construction rather than by imitation. Everything below is the editing layer:
+// a selection set, the tools that act on it, and the undo list.
+// ═══════════════════════════════════════════════════════════════════
+const SEL_SOURCE = 'ed-sel';
+const SEL_LAYER = 'ed-sel-layer';
+const INF_SOURCE = 'ed-inferred';
+const INF_LINE = 'ed-inferred-line';
+const INF_DOTS = 'ed-inferred-dots';
+
+const selected = new Map();      // id -> {id, lng, lat, timestamp, inferred}
+let mode = null;                 // null | 'add-single' | 'add-run' | 'move'
+let pendingCoords = [];          // positions clicked while an add tool is open
+let movePos = null;
+let inferredFC = { type: 'FeatureCollection', features: [] };
+
+const statusEl = document.getElementById('ed-status');
+function say(msg, kind) {
+    if (!msg) { statusEl.style.display = 'none'; return; }
+    statusEl.textContent = msg;
+    statusEl.className = 'ed-status' + (kind ? ' ' + kind : '');
+    statusEl.style.display = 'block';
+    if (kind !== 'error') setTimeout(() => { if (statusEl.textContent === msg) statusEl.style.display = 'none'; }, 6000);
+}
+
+function post(url, body) {
+    return fetch(url, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrfToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+    }).then(r => r.json().then(d => ({ ok: r.ok, d })));
+}
+
+// ── Layers ──────────────────────────────────────────────────────────────────
+// Idempotent and driven from both style.load and styledata: isStyleLoaded() can
+// still be false when style.load fires and it never fires again. Same lesson the
+// places layer taught on the main map.
+function addEditorLayers() {
+    if (!map.isStyleLoaded()) return;
+    if (!map.getSource(INF_SOURCE)) {
+        map.addSource(INF_SOURCE, { type: 'geojson', data: inferredFC });
+        map.addLayer({
+            id: INF_LINE, type: 'line', source: INF_SOURCE,
+            filter: ['==', ['geometry-type'], 'LineString'],
+            paint: { 'line-color': '#a78bda', 'line-width': 3, 'line-opacity': 0.85, 'line-dasharray': [2, 2] },
+        });
+        map.addLayer({
+            id: INF_DOTS, type: 'circle', source: INF_SOURCE,
+            filter: ['==', ['geometry-type'], 'Point'],
+            paint: {
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 2, 12, 4, 16, 6],
+                'circle-color': 'rgba(0,0,0,0)',
+                'circle-stroke-width': 1.5, 'circle-stroke-color': '#a78bda',
+            },
+        });
+    }
+    if (!map.getSource(SEL_SOURCE)) {
+        map.addSource(SEL_SOURCE, { type: 'geojson', data: selFC() });
+        map.addLayer({
+            id: SEL_LAYER, type: 'circle', source: SEL_SOURCE,
+            paint: {
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 6, 12, 9, 16, 13],
+                'circle-color': 'rgba(0,0,0,0)',
+                'circle-stroke-width': 2.5, 'circle-stroke-color': '#e8763d',
+            },
+        });
+    }
+}
+map.on('style.load', addEditorLayers);
+map.on('styledata', addEditorLayers);
+
+function selFC() {
+    return { type: 'FeatureCollection', features: Array.from(selected.values()).map(p => ({
+        type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { id: p.id },
+    })) };
+}
+function repaintSel() {
+    addEditorLayers();
+    if (map.getSource(SEL_SOURCE)) map.getSource(SEL_SOURCE).setData(selFC());
+    const n = selected.size;
+    document.getElementById('sel-count').textContent = n ? n + ' selected' : '';
+    const real = Array.from(selected.values()).filter(p => !p.inferred).length;
+    document.getElementById('btn-clear-sel').disabled = !n;
+    document.getElementById('btn-delete').disabled = !n;
+    document.getElementById('btn-route').disabled = real !== 2;
+    document.getElementById('btn-move').disabled = real !== 1;
+    document.getElementById('btn-add-run').disabled = real !== 1;
+}
+// The core repaints dots whenever new ones arrive; keep the highlight on top.
+ROAMLY_MAP_HOOKS.onPointsPainted = [() => repaintSel()];
+
+// ── Selection ───────────────────────────────────────────────────────────────
+function pickableLayers() {
+    return [ACC_DOTS_LAYER, INF_DOTS].concat(activeSources.map(s => `${s}-dots`))
+        .filter(l => map.getLayer(l));
+}
+function featureToPoint(f) {
+    const p = f.properties || {};
+    return {
+        id: p.id, lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1],
+        timestamp: p.timestamp || null, inferred: f.layer.id === INF_DOTS,
+    };
+}
+
+map.on('click', e => {
+    if (mode === 'add-single' || mode === 'add-run') {
+        pendingCoords.push([e.lngLat.lng, e.lngLat.lat]);
+        document.getElementById('add-hint').textContent =
+            `${pendingCoords.length} position(s) placed. Click more, or save.`;
+        return;
+    }
+    if (mode === 'move') {
+        movePos = [e.lngLat.lng, e.lngLat.lat];
+        say('New position picked — press save.');
+        return;
+    }
+    const layers = pickableLayers();
+    if (!layers.length) return;
+    const hit = map.queryRenderedFeatures(e.point, { layers })
+        .find(f => f.properties && f.properties.id !== undefined && f.properties.id !== null);
+    const additive = e.originalEvent.ctrlKey || e.originalEvent.metaKey;
+    if (!hit) { if (!additive) { selected.clear(); repaintSel(); } return; }
+    const pt = featureToPoint(hit);
+    if (!additive) selected.clear();
+    if (selected.has(pt.id)) selected.delete(pt.id); else selected.set(pt.id, pt);
+    repaintSel();
+});
+
+// Shift-drag box select. queryRenderedFeatures takes a bbox as readily as a
+// point, so this is the same hit-test the main map already uses for right-click.
+const boxEl = document.getElementById('ed-box');
+let boxStart = null;
+map.getCanvas().addEventListener('mousedown', ev => {
+    if (!ev.shiftKey || mode) return;
+    ev.preventDefault();
+    map.dragPan.disable();
+    boxStart = [ev.clientX, ev.clientY];
+    boxEl.style.display = 'block';
+});
+window.addEventListener('mousemove', ev => {
+    if (!boxStart) return;
+    const x = Math.min(boxStart[0], ev.clientX), y = Math.min(boxStart[1], ev.clientY);
+    boxEl.style.left = x + 'px'; boxEl.style.top = y + 'px';
+    boxEl.style.width = Math.abs(ev.clientX - boxStart[0]) + 'px';
+    boxEl.style.height = Math.abs(ev.clientY - boxStart[1]) + 'px';
+});
+window.addEventListener('mouseup', ev => {
+    if (!boxStart) return;
+    boxEl.style.display = 'none';
+    map.dragPan.enable();
+    const rect = map.getCanvas().getBoundingClientRect();
+    const a = [boxStart[0] - rect.left, boxStart[1] - rect.top];
+    const b = [ev.clientX - rect.left, ev.clientY - rect.top];
+    boxStart = null;
+    if (Math.abs(a[0] - b[0]) < 4 && Math.abs(a[1] - b[1]) < 4) return;
+    const layers = pickableLayers();
+    if (!layers.length) return;
+    const bbox = [[Math.min(a[0], b[0]), Math.min(a[1], b[1])], [Math.max(a[0], b[0]), Math.max(a[1], b[1])]];
+    if (!(ev.ctrlKey || ev.metaKey)) selected.clear();
+    map.queryRenderedFeatures(bbox, { layers }).forEach(f => {
+        if (f.properties && f.properties.id !== undefined && f.properties.id !== null) {
+            const pt = featureToPoint(f);
+            selected.set(pt.id, pt);
+        }
+    });
+    repaintSel();
+    say(`${selected.size} point(s) selected.`);
+});
+
+document.getElementById('btn-clear-sel').addEventListener('click', () => { selected.clear(); repaintSel(); });
+
+// ── Inferred layer ──────────────────────────────────────────────────────────
+function loadInferred() {
+    const params = new URLSearchParams(buildFilterParams());
+    fetch(`/api/inferred/?${params.toString()}`)
+        .then(r => r.json())
+        .then(d => {
+            const features = [];
+            (d.batches || []).forEach(b => {
+                if (b.coords.length >= 2 && connectLines === 'on') {
+                    features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: b.coords }, properties: { batch: b.id } });
+                }
+                b.points.forEach(p => features.push({
+                    type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+                    properties: { id: p.id, timestamp: p.timestamp, batch: b.id },
+                }));
+            });
+            inferredFC = { type: 'FeatureCollection', features };
+            addEditorLayers();
+            if (map.getSource(INF_SOURCE)) map.getSource(INF_SOURCE).setData(inferredFC);
+        })
+        .catch(() => {});
+}
+
+function refreshAll() {
+    selected.clear();
+    repaintSel();
+    clearAccumulated();
+    loadTrack(false);
+    loadInferred();
+    loadBatches();
+}
+
+// ── Tools ───────────────────────────────────────────────────────────────────
+document.getElementById('btn-delete').addEventListener('click', () => {
+    const ids = [], inferredIds = [];
+    selected.forEach(p => (p.inferred ? inferredIds : ids).push(p.id));
+    const msg = ids.length
+        ? `Delete ${ids.length} recorded point(s)? They go to the trash and can be restored.`
+        : `Delete ${inferredIds.length} generated point(s)?`;
+    if (!confirm(msg)) return;
+    post('/api/editor/delete/', { ids, inferred_ids: inferredIds }).then(({ ok, d }) => {
+        if (!ok) return say(d.error || 'Delete failed.', 'error');
+        say(`Deleted — ${d.trashed} to trash, ${d.removed} generated point(s) removed.`);
+        refreshAll();
+    });
+});
+
+document.getElementById('btn-route').addEventListener('click', () => {
+    const ids = Array.from(selected.values()).filter(p => !p.inferred).map(p => p.id);
+    say('Routing along roads…');
+    post('/api/editor/route/', { ids }).then(({ ok, d }) => {
+        if (!ok) return say(d.error || 'Could not connect those points.', 'error');
+        say(d.warning || `Connected — ${d.points} point(s) along ${(d.route_m / 1000).toFixed(1)}km of road.`,
+            d.warning ? 'warn' : null);
+        refreshAll();
+    });
+});
+
+function openPanel(which) {
+    ['add', 'move', 'copy'].forEach(p => {
+        document.getElementById('panel-' + p).style.display = p === which ? 'flex' : 'none';
+    });
+}
+function closePanels() { openPanel(null); mode = null; pendingCoords = []; movePos = null; }
+
+document.getElementById('btn-add-single').addEventListener('click', () => {
+    mode = 'add-single'; pendingCoords = [];
+    document.getElementById('field-add-time').style.display = 'flex';
+    document.getElementById('field-add-interval').style.display = 'none';
+    document.getElementById('add-hint').textContent = 'Click the map to place one point.';
+    openPanel('add');
+});
+document.getElementById('btn-add-run').addEventListener('click', () => {
+    mode = 'add-run'; pendingCoords = [];
+    document.getElementById('field-add-time').style.display = 'none';
+    document.getElementById('field-add-interval').style.display = 'flex';
+    const anchor = Array.from(selected.values()).find(p => !p.inferred);
+    document.getElementById('add-hint').textContent =
+        `Running on from ${anchor && anchor.timestamp ? new Date(anchor.timestamp).toLocaleTimeString() : 'the selected point'}. Click positions in order.`;
+    openPanel('add');
+});
+document.getElementById('btn-add-cancel').addEventListener('click', closePanels);
+
+document.getElementById('btn-add-save').addEventListener('click', () => {
+    if (!pendingCoords.length) return say('Click the map to place at least one position.', 'error');
+    const asReal = document.getElementById('add-as-real').checked;
+    let body;
+    if (mode === 'add-run') {
+        const anchor = Array.from(selected.values()).find(p => !p.inferred);
+        if (!anchor) return say('Select a point to run on from.', 'error');
+        body = { anchor_id: anchor.id, coords: pendingCoords, as_real: asReal,
+                 interval_s: parseInt(document.getElementById('add-interval').value, 10) || 60 };
+    } else {
+        const t = document.getElementById('add-time').value;
+        if (!t) return say('Enter a timestamp.', 'error');
+        body = { coords: [pendingCoords[0]], timestamp: t, as_real: asReal,
+                 device_id: document.getElementById('device-filter').value };
+    }
+    post('/api/editor/points/add/', body).then(({ ok, d }) => {
+        if (!ok) return say(d.error || 'Could not add points.', 'error');
+        say(`Added ${d.points} point(s).`);
+        closePanels();
+        refreshAll();
+    });
+});
+
+document.getElementById('btn-move').addEventListener('click', () => {
+    const p = Array.from(selected.values()).find(x => !x.inferred);
+    if (!p) return;
+    mode = 'move'; movePos = null;
+    if (p.timestamp) document.getElementById('move-time').value = p.timestamp.slice(0, 19);
+    openPanel('move');
+    say('Click the map to reposition, or just change the time.');
+});
+document.getElementById('btn-move-cancel').addEventListener('click', closePanels);
+document.getElementById('btn-move-save').addEventListener('click', () => {
+    const p = Array.from(selected.values()).find(x => !x.inferred);
+    if (!p) return;
+    const body = { timestamp: document.getElementById('move-time').value };
+    if (movePos) { body.lng = movePos[0]; body.lat = movePos[1]; }
+    post(`/api/editor/points/${p.id}/move/`, body).then(({ ok, d }) => {
+        if (!ok) return say(d.error || 'Could not move that point.', 'error');
+        say('Point updated.');
+        closePanels();
+        refreshAll();
+    });
+});
+
+document.getElementById('btn-copy').addEventListener('click', () => { mode = null; openPanel('copy'); });
+document.getElementById('btn-copy-cancel').addEventListener('click', closePanels);
+
+function copyBody() {
+    return {
+        src_start: document.getElementById('copy-src-start').value,
+        src_end: document.getElementById('copy-src-end').value,
+        dest_start: document.getElementById('copy-dest').value,
+        device_id: document.getElementById('device-filter').value,
+        as_real: document.getElementById('copy-as-real').checked,
+    };
+}
+document.getElementById('btn-copy-check').addEventListener('click', () => {
+    post('/api/editor/copy/preview/', copyBody()).then(({ ok, d }) => {
+        if (!ok) return say(d.error || 'Check failed.', 'error');
+        document.getElementById('btn-copy-paste').disabled = d.source_points === 0;
+        if (!d.source_points) return say('No points in that source range.', 'error');
+        say(d.conflicts
+            ? `${d.source_points} point(s) to copy. ${d.conflicts} already exist at the destination — pasting will move those to the trash.`
+            : `${d.source_points} point(s) to copy. Destination is empty.`,
+            d.conflicts ? 'warn' : null);
+    });
+});
+document.getElementById('btn-copy-paste').addEventListener('click', () => {
+    const body = copyBody();
+    post('/api/editor/copy/', body).then(({ ok, d }) => {
+        if (!ok && d.conflicts) {
+            if (!confirm(`${d.conflicts} point(s) already exist there. Move them to the trash and paste over?`)) return;
+            body.replace = true;
+            return post('/api/editor/copy/', body).then(({ ok: ok2, d: d2 }) => {
+                if (!ok2) return say(d2.error || 'Paste failed.', 'error');
+                say(`Pasted ${d2.points} point(s); ${d2.replaced} replaced.`);
+                closePanels(); refreshAll();
+            });
+        }
+        if (!ok) return say(d.error || 'Paste failed.', 'error');
+        say(`Pasted ${d.points} point(s)${d.as_real ? ' as real data' : ''}.`);
+        closePanels();
+        refreshAll();
+    });
+});
+
+// ── Undo list ───────────────────────────────────────────────────────────────
+function loadBatches() {
+    fetch('/api/editor/batches/').then(r => r.json()).then(d => {
+        const el = document.getElementById('batch-list');
+        const rows = (d.batches || []).filter(b => !b.undone).slice(0, 8);
+        if (!rows.length) { el.innerHTML = '<div class="ed-hint">Nothing yet.</div>'; return; }
+        el.innerHTML = rows.map(b => `
+            <button class="tool-btn" type="button" onclick="undoBatch(${b.id})" title="Undo this edit">
+                ${b.kind_label.toLowerCase()} · ${b.point_count}
+                <span class="tool-btn-badge">undo</span>
+            </button>`).join('');
+    }).catch(() => {});
+}
+function undoBatch(id) {
+    post(`/api/editor/batches/${id}/undo/`).then(({ ok, d }) => {
+        if (!ok) return say(d.error || 'Undo failed.', 'error');
+        say(`Undone — ${d.affected} point(s) reversed.`);
+        refreshAll();
+    });
+}
+
+// ── Wire into the shared engine ─────────────────────────────────────────────
+map.on('load', () => { loadInferred(); loadBatches(); });
+map.on('moveend', () => setTimeout(loadInferred, 450));
+['time-range', 'device-filter', 'start-date', 'end-date'].forEach(id => {
+    document.getElementById(id).addEventListener('change', () => setTimeout(loadInferred, 50));
+});
+repaintSel();
+</script>
+{% endblock %}

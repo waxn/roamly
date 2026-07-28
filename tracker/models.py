@@ -506,85 +506,65 @@ class RoadDownloadJob(models.Model):
         return f"Road Download {self.user.username}: {self.processed}/{self.total}"
 
 
-class GapFillJob(models.Model):
-    """Persistent state for the background tracking-gap fill task."""
-    STATUS_CHOICES = [
-        ('running', 'Running'),
-        ('completed', 'Completed'),
-        ('stopped', 'Stopped'),
-    ]
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='gap_fill_job')
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='running')
-    processed = models.IntegerField(default=0)   # gaps examined
-    total = models.IntegerField(default=0)       # gaps detected
-    filled = models.IntegerField(default=0)      # gaps successfully routed
-    started_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+class EditBatch(models.Model):
+    """One action taken in the map editor, so it can be undone as a unit.
 
-    def __str__(self):
-        return f"Gap Fill {self.user.username}: {self.processed}/{self.total}"
+    Replaces the old InferredGap, whose whole design — two anchor ids, a unique
+    constraint on them, a 'dismissed' status — existed to make *automatic*
+    re-detection idempotent. With a person choosing what to change, that concern
+    disappears; what matters instead is being able to reverse exactly what one
+    action did.
 
-
-class InferredGap(models.Model):
-    """A detected hole in a device's track, and the record of how it was filled.
-
-    The gap — not the individual point — is the unit of both audit and
-    idempotency. `unique_together` on the two anchor ids means re-running the
-    fill job (or the nightly sweep) never duplicates work, and status
-    'dismissed' is what stops a gap the user deleted from being refilled on the
-    next pass. Same reasoning as DismissedSuggestion: rejection is the only
-    state worth persisting.
-
-    The anchors are plain integers rather than FKs on purpose — a real point may
-    be deleted later (quality review, or a data wipe) and that must not cascade
-    away the audit record of what was inferred.
+    `location_ids` is how a paste-as-real-data is undone. Recording the created
+    ids here rather than marking rows on Location keeps that model (and the
+    backup format that mirrors it) completely untouched.
     """
-    STATUS_CHOICES = [
-        ('filled', 'Filled'),        # routed along real roads
-        ('straight', 'Straight'),    # no route found; straight-line interpolation
-        ('dismissed', 'Dismissed'),  # user deleted it; never refill
-        ('failed', 'Failed'),        # provider error
-        ('skipped', 'Skipped'),      # implausible for road routing (e.g. a flight)
+    KIND_CHOICES = [
+        ('route', 'Road route'),       # connected two points along real roads
+        ('manual', 'Manual point'),    # a single hand-placed point
+        ('run', 'Point run'),          # a sequence laid down from an anchor
+        ('copy', 'Copied range'),      # a stretch pasted from another time
+        ('delete', 'Deleted points'),  # real points moved to the trash
     ]
-    device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='inferred_gaps')
-    start_location_id = models.BigIntegerField()
-    end_location_id = models.BigIntegerField()
-    start_time = models.DateTimeField()
-    end_time = models.DateTimeField()
-    distance_m = models.FloatField(default=0)     # straight-line anchor separation
-    route_distance_m = models.FloatField(default=0)  # length of the path actually laid down
-    provider = models.CharField(max_length=10, blank=True, default='')  # local|mapbox|osrm
-    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default='filled', db_index=True)
-    detail = models.CharField(max_length=200, blank=True, default='')   # error/skip reason
+    TARGET_CHOICES = [
+        ('inferred', 'Inferred'),      # InferredLocation — invisible to aggregates
+        ('location', 'Real data'),     # real Location rows — counted everywhere
+    ]
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='edit_batches')
+    device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='edit_batches')
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES)
+    target = models.CharField(max_length=10, choices=TARGET_CHOICES, default='inferred')
+    note = models.CharField(max_length=200, blank=True, default='')
     point_count = models.IntegerField(default=0)
+    location_ids = ArrayField(models.BigIntegerField(), default=list, blank=True)
+    undone = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['-start_time']
-        unique_together = ['device', 'start_location_id', 'end_location_id']
+        ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['device', '-start_time'], name='tracker_gap_device__idx'),
+            models.Index(fields=['user', '-created_at'], name='tracker_editbatch_user_idx'),
         ]
 
     def __str__(self):
-        return f"Gap {self.device} {self.start_time} ({self.status})"
+        return f"{self.get_kind_display()} ({self.point_count} pts) {self.created_at}"
 
 
 class InferredLocation(models.Model):
-    """A generated point filling a tracking gap — never a recorded GPS fix.
+    """A point the map editor generated — never a recorded GPS fix.
 
     Deliberately a separate table rather than a flag on Location: Location is
     queried from ~75 places across the app (stats snapshots, distance, visits,
     fog, geocoding, transport, backups, exports), and a synthetic row in there
     would silently inflate every one of those unless all of them were audited.
-    Keeping inferred points out of Location makes that impossible by
-    construction — the aggregates stay honest, and only the map and the audit
-    view ever read this table.
+    Keeping generated points out of Location makes that impossible by
+    construction — the aggregates stay honest, and only the map and the editor
+    ever read this table.
 
     No PostGIS field: the map filters these by lat/lon bbox and nothing does a
     spatial join against them, so the table stays backend-agnostic.
     """
-    gap = models.ForeignKey(InferredGap, on_delete=models.CASCADE, related_name='points')
+    batch = models.ForeignKey(EditBatch, on_delete=models.CASCADE, related_name='points')
     device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='inferred_locations')
     latitude = models.FloatField()
     longitude = models.FloatField()
@@ -599,6 +579,47 @@ class InferredLocation(models.Model):
 
     def __str__(self):
         return f"Inferred {self.latitude:.5f},{self.longitude:.5f} @ {self.timestamp}"
+
+
+class TrashedLocation(models.Model):
+    """A deleted real GPS point, kept so the deletion can be undone.
+
+    A full snapshot rather than a tombstone: unlike DismissedSuggestion or the
+    old InferredGap 'dismissed' status — where "restore" just clears a marker
+    and lets a job regenerate the data — a Location is the primary record and
+    cannot be recomputed from anything. If the row isn't stored here it is gone.
+
+    Purged after TRASH_RETENTION_DAYS by the hourly log-cleanup sweep. Restoring
+    mints a *new* Location id, so `original_id` is informational only.
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='trashed_locations')
+    device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='trashed_locations')
+    batch = models.ForeignKey(EditBatch, on_delete=models.SET_NULL, null=True, blank=True,
+                              related_name='trashed')
+    original_id = models.BigIntegerField()
+    latitude = models.FloatField()
+    longitude = models.FloatField()
+    altitude = models.FloatField(null=True, blank=True)
+    accuracy = models.FloatField(null=True, blank=True)
+    speed = models.FloatField(null=True, blank=True)
+    battery = models.FloatField(null=True, blank=True)
+    timestamp = models.DateTimeField()
+    city = models.CharField(max_length=200, blank=True)
+    state = models.CharField(max_length=200, blank=True)
+    country = models.CharField(max_length=100, blank=True)
+    country_code = models.CharField(max_length=3, blank=True)
+    place_name = models.CharField(max_length=300, blank=True)
+    deleted_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-deleted_at']
+        indexes = [
+            models.Index(fields=['user', '-deleted_at'], name='tracker_trash_user_idx'),
+        ]
+
+    def __str__(self):
+        return f"Trashed {self.latitude:.5f},{self.longitude:.5f} @ {self.timestamp}"
+
 
 
 class BackupConfig(models.Model):
@@ -814,15 +835,6 @@ class UserProfile(models.Model):
     osrm_url = models.CharField(max_length=300, blank=True, default='')
     # Display-only: snapped coordinates are cached, never written to Location.
     snap_to_roads = models.BooleanField(default=False)
-    # Gap filling writes InferredLocation rows, so it is opt-in and auditable.
-    gap_fill_enabled = models.BooleanField(default=False)
-    gap_fill_auto = models.BooleanField(default=False)      # nightly sweep
-    gap_fill_min_minutes = models.IntegerField(default=2)   # what counts as a gap
-    # Distance trigger, an alternative to the time one: a pair this far apart
-    # leaves a visible hole however short the interval was. Time alone missed
-    # stretches where tracking thinned to one fix every kilometre or two.
-    gap_fill_min_distance_m = models.IntegerField(default=500)
-    gap_fill_last_run = models.DateTimeField(null=True, blank=True)  # sweep cursor
 
     @property
     def ai_configured(self):
