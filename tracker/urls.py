@@ -34,6 +34,7 @@ urlpatterns = [
     path('logout/', views.logout_view, name='logout'),
     path('verify/', views.verify_view, name='verify'),
     path('verify/resend/', views.verify_resend, name='verify_resend'),
+    path('totp/', views.totp_verify_view, name='totp_verify'),
     path('reset/', views.password_reset_request, name='password_reset'),
     path('reset/<uidb64>/<token>/', views.password_reset_confirm, name='password_reset_confirm'),
 
@@ -71,6 +72,13 @@ urlpatterns = [
     path('api/profile/ai-config/', views.profile_ai_config_api, name='profile_ai_config'),
     path('api/profile/mapbox-token/', views.profile_mapbox_token_api, name='profile_mapbox_token'),
     path('api/profile/summary-email/', views.profile_summary_email_api, name='profile_summary_email'),
+
+    # TOTP two-factor auth API
+    path('api/profile/totp/', views.totp_status_api, name='totp_status'),
+    path('api/profile/totp/setup/', views.totp_setup_api, name='totp_setup'),
+    path('api/profile/totp/confirm/', views.totp_confirm_api, name='totp_confirm'),
+    path('api/profile/totp/disable/', views.totp_disable_api, name='totp_disable'),
+    path('api/profile/totp/backup-codes/regenerate/', views.totp_backup_codes_regenerate_api, name='totp_backup_regenerate'),
 
     # Custom Places API
     path('api/places/', views.places_api, name='places_api'),

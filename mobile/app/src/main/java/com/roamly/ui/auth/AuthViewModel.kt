@@ -28,6 +28,9 @@ data class LoginUiState(
     val verifyEmail: String = "",
     val verifyPurpose: String = "",
     val code: String = "",
+    // TOTP two-factor auth (authenticator or backup code)
+    val needsTotp: Boolean = false,
+    val totpCode: String = "",
 )
 
 @HiltViewModel
@@ -55,6 +58,8 @@ class AuthViewModel @Inject constructor(
     fun onUsernameChange(value: String) = _uiState.update { it.copy(username = value) }
     fun onPasswordChange(value: String) = _uiState.update { it.copy(password = value) }
     fun onCodeChange(value: String) = _uiState.update { it.copy(code = value.filter { c -> c.isDigit() }.take(6)) }
+    // Digits only, up to 10 — long enough for either a 6-digit TOTP code or a 10-digit backup code.
+    fun onTotpCodeChange(value: String) = _uiState.update { it.copy(totpCode = value.filter { c -> c.isDigit() }.take(10)) }
 
     fun login() {
         val state = _uiState.value
@@ -69,6 +74,9 @@ class AuthViewModel @Inject constructor(
                 is LoginResult.NeedsVerification -> _uiState.update {
                     it.copy(isLoading = false, error = null, needsVerification = true,
                         verifyEmail = result.email, verifyPurpose = result.purpose, code = "")
+                }
+                is LoginResult.NeedsTotp -> _uiState.update {
+                    it.copy(isLoading = false, error = null, needsTotp = true, totpCode = "")
                 }
                 is LoginResult.Error -> _uiState.update { it.copy(isLoading = false, error = result.message) }
             }
@@ -86,6 +94,7 @@ class AuthViewModel @Inject constructor(
             when (val result = authRepository.verifyCode(state.code)) {
                 is LoginResult.Success -> _uiState.update { it.copy(isLoading = false, needsVerification = false) }
                 is LoginResult.NeedsVerification -> _uiState.update { it.copy(isLoading = false) }
+                is LoginResult.NeedsTotp -> _uiState.update { it.copy(isLoading = false) }
                 is LoginResult.Error -> _uiState.update { it.copy(isLoading = false, error = result.message) }
             }
         }
@@ -93,6 +102,27 @@ class AuthViewModel @Inject constructor(
 
     fun cancelVerification() = _uiState.update {
         it.copy(needsVerification = false, code = "", error = null)
+    }
+
+    fun verifyTotp() {
+        val state = _uiState.value
+        if (state.totpCode.length < 6) {
+            _uiState.update { it.copy(error = "Enter your authenticator or backup code") }
+            return
+        }
+        _uiState.update { it.copy(isLoading = true, error = null) }
+        viewModelScope.launch {
+            when (val result = authRepository.verifyTotp(state.totpCode)) {
+                is LoginResult.Success -> _uiState.update { it.copy(isLoading = false, needsTotp = false) }
+                is LoginResult.NeedsVerification -> _uiState.update { it.copy(isLoading = false) }
+                is LoginResult.NeedsTotp -> _uiState.update { it.copy(isLoading = false) }
+                is LoginResult.Error -> _uiState.update { it.copy(isLoading = false, error = result.message) }
+            }
+        }
+    }
+
+    fun cancelTotp() = _uiState.update {
+        it.copy(needsTotp = false, totpCode = "", error = null)
     }
 
     fun logout() {

@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Two-Factor Authentication — Roamly</title>
+    {% load static %}
+    <link rel="icon" type="image/x-icon" href="{% static 'tracker/roamlymark.ico' %}">
+    <meta name="theme-color" content="#14160f">
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}">
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/fraunces-latin-var.woff2' %}">
+    <style>
+        @font-face{font-family:'Fraunces';font-style:normal;font-weight:300 700;font-display:swap;src:url("{% static 'tracker/fonts/fraunces-latin-var.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:400;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:600;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-600.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:700;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-700.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:600;font-display:swap;src:url("{% static 'tracker/fonts/plex-mono-latin-600.woff2' %}") format('woff2')}
+        :root {
+            --bg: #14160f; --bg-card: #1b1e15; --bg-elevated: #23271c; --bg-input: #1e2118;
+            --border: #30352a; --border-strong: #474d3b; --border-bright: rgba(232,118,61,0.55);
+            --text: #e9e5d8; --text-muted: #a9a794; --text-dim: #706e5d;
+            --primary: #e8763d; --primary-soft: rgba(232,118,61,0.13); --primary-hover: #f2884e;
+            --font-display: 'Fraunces', Georgia, serif;
+            --font-body: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+            --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: var(--font-body); background: var(--bg); color: var(--text);
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            overflow: hidden; -webkit-font-smoothing: antialiased;
+        }
+        body::before {
+            content: ''; position: fixed; inset: -700px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='700' height='700'%3E%3Cg fill='none' stroke='%23e9e5d8' stroke-width='1'%3E%3Cpath d='M0,117 C200,27 500,207 700,117'/%3E%3Cpath d='M0,358 C180,278 520,438 700,358'/%3E%3Cpath d='M0,608 C210,533 490,683 700,608'/%3E%3C/g%3E%3Cg fill='none' stroke='%23e9e5d8' stroke-width='1.6'%3E%3Cpath d='M0,233 C220,148 480,318 700,233'/%3E%3Cpath d='M0,483 C200,388 500,578 700,483'/%3E%3C/g%3E%3C/svg%3E");
+            background-size: 700px 700px; background-repeat: repeat; opacity: 0.065; pointer-events: none; z-index: 0;
+        }
+        .card {
+            position: relative; z-index: 1; width: 100%; max-width: 400px; margin: 1rem;
+            background: var(--bg-card); border: 1px solid var(--border); padding: 2.5rem 2.25rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .logo-wrap { display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-bottom: 0.6rem; }
+        .logo-wrap img { height: 44px; width: auto; }
+        .logo-word { font-family: var(--font-display); font-weight: 600; font-size: 1.75rem; line-height: 1; letter-spacing: -0.01em; color: var(--text); }
+        .card-subtitle { text-align: center; color: var(--text-dim); font-size: 0.83rem; font-weight: 600; margin-bottom: 1.5rem; line-height: 1.5; }
+        .card-subtitle b { color: var(--text-muted); }
+        .alert-error { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2); color: #fca5a5; padding: 0.75rem 1rem; font-size: 0.85rem; font-weight: 600; margin-bottom: 1.25rem; line-height: 1.5; }
+        .form-group { margin-bottom: 1rem; }
+        .form-group label { display: block; font-size: 0.8rem; font-weight: 800; color: var(--text-muted); margin-bottom: 0.45rem; }
+        .code-input {
+            width: 100%; padding: 0.75rem; background: var(--bg-input); border: 1px solid var(--border);
+            color: var(--text); font-family: var(--font-mono); font-size: 1.4rem; font-weight: 600;
+            letter-spacing: 0.35em; text-align: center; outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+        }
+        .code-input:focus { border-color: var(--border-bright); box-shadow: 0 0 0 3px var(--primary-soft); }
+        .btn-submit { width: 100%; margin-top: 0.5rem; padding: 0.8rem; background: var(--primary); color: #fff; border: none; font-family: var(--font-body); font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+        .btn-submit:hover { background: var(--primary-hover); }
+        .card-footer { margin-top: 1.5rem; text-align: center; color: var(--text-dim); font-size: 0.83rem; font-weight: 600; line-height: 1.6; }
+        .card-footer a { color: var(--primary); text-decoration: none; font-weight: 800; }
+        .card-footer a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="logo-wrap">
+            <img src="{% static 'tracker/roamlymark.svg' %}" alt="">
+            <span class="logo-word">Roamly</span>
+        </div>
+        <p class="card-subtitle">
+            Enter the 6-digit code from your authenticator app.
+        </p>
+
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert-error">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+
+        <form method="post">
+            {% csrf_token %}
+            <div class="form-group">
+                <label for="code">authentication code</label>
+                <input type="text" name="code" id="code" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="••••••" required autofocus>
+            </div>
+            <button type="submit" class="btn-submit">verify →</button>
+        </form>
+
+        <div class="card-footer">
+            lost your authenticator? enter one of your backup codes above instead
+        </div>
+    </div>
+
+    {% if CUSTOM_JS_SNIPPET %}{{ CUSTOM_JS_SNIPPET|safe }}{% endif %}
+</body>
+</html>

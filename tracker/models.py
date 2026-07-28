@@ -843,6 +843,14 @@ class UserProfile(models.Model):
     # Display-only: snapped coordinates are cached, never written to Location.
     snap_to_roads = models.BooleanField(default=False)
 
+    # TOTP two-factor auth — an alternate 2FA method to the emailed new-device
+    # code above, and independent of it: works with no SMTP configured, and
+    # once enabled it's checked on *every* login rather than only new devices.
+    # totp_secret is set (unconfirmed) by setup and only takes effect once
+    # totp_enabled flips true after the user proves possession of it.
+    totp_secret = models.CharField(max_length=32, blank=True, default='')
+    totp_enabled = models.BooleanField(default=False)
+
     @property
     def ai_configured(self):
         return bool(self.ai_ask_enabled and self.ai_base_url and self.ai_api_key and self.ai_model)
@@ -903,6 +911,20 @@ class KnownDevice(models.Model):
 
     def __str__(self):
         return f"Device for {self.user.username}"
+
+
+class TOTPBackupCode(models.Model):
+    """One single-use recovery code for a user's TOTP enrollment, minted in a
+    batch by _generate_totp_backup_codes whenever TOTP is enabled or the set
+    is regenerated. Only the hash is stored — the plaintext code is shown to
+    the user once, at generation time, and never again."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='totp_backup_codes')
+    code_hash = models.CharField(max_length=64, db_index=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Backup code for {self.user.username}"
 
 
 class SiteConfig(models.Model):
@@ -1203,6 +1225,9 @@ class ActionLog(models.Model):
         ('custom_js_save', 'Custom JS saved'),
         ('api_key_create', 'API key created'),
         ('api_key_delete', 'API key deleted'),
+        ('totp_enable', 'TOTP enabled'),
+        ('totp_disable', 'TOTP disabled'),
+        ('totp_regen_backup', 'TOTP backup codes regenerated'),
         ('other', 'Other'),
     ]
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='action_logs')

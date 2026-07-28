@@ -39,7 +39,7 @@ from .models import (
     UserProfile, Pal, PalMember, PalBlurb, PalBlurbPhoto, PalMilestone, PalComment,
     AdventureMember, AdventureBlurb, AdventureBlurbPhoto, AdventureMilestone, AdventureComment,
     SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig, StatsSnapshot,
-    DismissedSuggestion, PlannedStop, KnownDevice,
+    DismissedSuggestion, PlannedStop, KnownDevice, TOTPBackupCode,
     InferredLocation, EditBatch, TrashedLocation, RoadSegment, ROADS_AVAILABLE_CACHE_KEY,
 )
 from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email, send_contact_email
@@ -331,6 +331,53 @@ def _start_verification(request, user, purpose, next_url=''):
     }
 
 
+def _generate_totp_backup_codes(user, count=8):
+    """Replace this user's backup codes with `count` fresh 10-digit ones.
+    Numeric-only (rather than alphanumeric) so the same digit-only code field
+    works for both a TOTP code and a backup code, on web and mobile alike.
+    Returns the plaintext codes — shown to the user once, at generation time;
+    only the hash is persisted."""
+    TOTPBackupCode.objects.filter(user=user).delete()
+    codes = []
+    for _ in range(count):
+        code = f'{secrets.randbelow(10 ** 10):010d}'
+        codes.append(code)
+        TOTPBackupCode.objects.create(user=user, code_hash=_hash_token(code))
+    return codes
+
+
+def _verify_totp_or_backup(profile, code):
+    """Check a submitted login code against the TOTP secret, falling back to
+    unused backup codes (consuming one on match). Setup/confirm/regenerate
+    verify against the secret directly instead — this is only for the login
+    challenge, where the user may have lost their authenticator app."""
+    import pyotp
+    code = (code or '').strip().replace(' ', '')
+    if profile.totp_secret and code.isdigit() and len(code) == 6:
+        if pyotp.TOTP(profile.totp_secret).verify(code, valid_window=1):
+            return True
+    if code:
+        bc = TOTPBackupCode.objects.filter(
+            user=profile.user, code_hash=_hash_token(code), used_at__isnull=True,
+        ).first()
+        if bc:
+            bc.used_at = timezone.now()
+            bc.save(update_fields=['used_at'])
+            return True
+    return False
+
+
+def _totp_qr_data_uri(secret, user):
+    """Render the otpauth:// enrollment URI as a base64 PNG so the settings
+    page can <img src> it directly — no client-side QR library needed."""
+    import pyotp, qrcode, io, base64
+    uri = pyotp.TOTP(secret).provisioning_uri(name=user.email or user.username, issuer_name='Roamly')
+    img = qrcode.make(uri, box_size=6, border=2)
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    return uri, f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode()}"
+
+
 def _is_app_client(request):
     """True when the request comes from the Roamly mobile app (it sets this header)."""
     return request.META.get('HTTP_X_ROAMLY_CLIENT') == 'app'
@@ -413,6 +460,13 @@ def login_view(request):
                 if is_app:
                     return JsonResponse({'status': 'verify', 'purpose': 'signup', 'email': _mask_email(user.email)})
                 return redirect('tracker:verify')
+            if profile.totp_enabled:
+                # Authenticator-app 2FA — independent of email_enabled(), and
+                # checked on every login rather than only new devices.
+                request.session['pending_totp'] = {'user_id': user.id, 'next': next_url}
+                if is_app:
+                    return JsonResponse({'status': 'totp_required'})
+                return redirect('tracker:totp_verify')
             if email_enabled() and user.email and not _is_known_device(user, request):
                 # New/unrecognized device — challenge with an emailed code.
                 _start_verification(request, user, 'login', next_url)
@@ -603,6 +657,48 @@ def verify_resend(request):
     return redirect('tracker:verify')
 
 
+def totp_verify_view(request):
+    """Enter a code from an authenticator app (or a backup code) to finish a
+    login for an account with TOTP enabled. Unlike verify_view's emailed
+    code, this runs on every login regardless of email_enabled() or device
+    trust — TOTP is the stronger, always-on alternate 2FA method. Mirrors
+    verify_view's session-pending pattern otherwise."""
+    is_app = _is_app_client(request)
+    pv = request.session.get('pending_totp')
+    if not pv:
+        if is_app:
+            return JsonResponse({'status': 'error', 'message': 'No pending verification'}, status=400)
+        return redirect('tracker:login')
+    from django.contrib.auth.models import User as AuthUser
+    user = AuthUser.objects.filter(id=pv['user_id']).first()
+    profile = UserProfile.objects.filter(user=user).first() if user else None
+    if not user or not profile or not profile.totp_enabled:
+        request.session.pop('pending_totp', None)
+        if is_app:
+            return JsonResponse({'status': 'error', 'message': 'No pending verification'}, status=400)
+        return redirect('tracker:login')
+    if request.method == 'POST':
+        if _rate_limited(request, 'totp', 10, 900):
+            msg = 'Too many attempts. Please wait a few minutes and try again.'
+            if is_app:
+                return JsonResponse({'status': 'error', 'message': msg}, status=429)
+            messages.error(request, msg)
+            return render(request, 'tracker/totp_verify.html', {}, status=429)
+        code = request.POST.get('code') or ''
+        if _verify_totp_or_backup(profile, code):
+            login(request, user)
+            _log_action(request, 'login', user=user)
+            request.session.pop('pending_totp', None)
+            resp = JsonResponse({'status': 'ok'}) if is_app else redirect(pv.get('next') or 'tracker:map')
+            if email_enabled() and user.email:
+                _trust_device(user, request, resp)  # skip the emailed-code flow too, going forward
+            return resp
+        if is_app:
+            return JsonResponse({'status': 'error', 'message': 'Invalid code'}, status=400)
+        messages.error(request, 'Invalid code. Try again, or use a backup code.')
+    return render(request, 'tracker/totp_verify.html', {})
+
+
 def logout_view(request):
     _log_action(request, 'logout')
     logout(request)
@@ -714,6 +810,12 @@ def settings_view(request):
         'summary_weekly': profile.summary_weekly,
         'summary_monthly': profile.summary_monthly,
         'summary_yearly': profile.summary_yearly,
+        # TOTP two-factor auth
+        'totp_enabled': profile.totp_enabled,
+        'totp_backup_remaining': (
+            TOTPBackupCode.objects.filter(user=request.user, used_at__isnull=True).count()
+            if profile.totp_enabled else 0
+        ),
     }
     return render(request, 'tracker/settings.html', ctx)
 
@@ -921,6 +1023,101 @@ def profile_mapbox_token_api(request):
         profile.save(update_fields=['mapbox_token'])
         return JsonResponse({'ok': True, 'mapbox_token': profile.mapbox_token})
     return JsonResponse({'mapbox_token': profile.mapbox_token})
+
+
+@login_required
+def totp_status_api(request):
+    """Whether TOTP is enabled + remaining unused backup codes, so the
+    settings page can repaint after setup/regenerate without a full reload."""
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    remaining = (TOTPBackupCode.objects.filter(user=request.user, used_at__isnull=True).count()
+                 if profile.totp_enabled else 0)
+    return JsonResponse({'enabled': profile.totp_enabled, 'backup_codes_remaining': remaining})
+
+
+@login_required
+@require_POST
+def totp_setup_api(request):
+    """Start (or restart) enrollment: mint a fresh secret, not yet enabled
+    until totp_confirm_api verifies possession of it. Restarting overwrites
+    any earlier unconfirmed secret — nothing is trusted until confirmed, so
+    an abandoned setup attempt can't leave a stale secret behind."""
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    import pyotp
+    secret = pyotp.random_base32()
+    profile.totp_secret = secret
+    profile.totp_enabled = False
+    profile.save(update_fields=['totp_secret', 'totp_enabled'])
+    otpauth_url, qr_code = _totp_qr_data_uri(secret, request.user)
+    return JsonResponse({'secret': secret, 'otpauth_url': otpauth_url, 'qr_code': qr_code})
+
+
+@login_required
+@require_POST
+def totp_confirm_api(request):
+    """Finish enrollment: the submitted code must validate against the secret
+    minted by totp_setup_api, proving the authenticator app is actually
+    configured before TOTP starts gating logins. Also mints backup codes."""
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if not profile.totp_secret:
+        return JsonResponse({'status': 'error', 'message': 'Start setup first.'}, status=400)
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'status': 'error', 'message': 'Invalid request.'}, status=400)
+    import pyotp
+    code = (data.get('code') or '').strip()
+    if not pyotp.TOTP(profile.totp_secret).verify(code, valid_window=1):
+        return JsonResponse({'status': 'error', 'message': 'Invalid code.'}, status=400)
+    profile.totp_enabled = True
+    profile.save(update_fields=['totp_enabled'])
+    codes = _generate_totp_backup_codes(request.user)
+    _log_action(request, 'totp_enable')
+    return JsonResponse({'status': 'ok', 'backup_codes': codes})
+
+
+@login_required
+@require_POST
+def totp_disable_api(request):
+    """Disable TOTP and wipe the secret + backup codes. Requires the account
+    password rather than a TOTP code, so losing the authenticator app doesn't
+    also lock the user out of turning 2FA off."""
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'status': 'error', 'message': 'Invalid request.'}, status=400)
+    if not request.user.check_password(data.get('password') or ''):
+        return JsonResponse({'status': 'error', 'message': 'Incorrect password.'}, status=400)
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    profile.totp_enabled = False
+    profile.totp_secret = ''
+    profile.save(update_fields=['totp_enabled', 'totp_secret'])
+    TOTPBackupCode.objects.filter(user=request.user).delete()
+    _log_action(request, 'totp_disable')
+    return JsonResponse({'status': 'ok'})
+
+
+@login_required
+@require_POST
+def totp_backup_codes_regenerate_api(request):
+    """Invalidate all existing backup codes and mint a fresh set. Requires a
+    valid TOTP code (proves the app still works), unlike disable which
+    requires the password — this is routine maintenance for someone who
+    already has 2FA working, not an account-recovery path."""
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if not profile.totp_enabled:
+        return JsonResponse({'status': 'error', 'message': 'TOTP is not enabled.'}, status=400)
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'status': 'error', 'message': 'Invalid request.'}, status=400)
+    import pyotp
+    code = (data.get('code') or '').strip()
+    if not pyotp.TOTP(profile.totp_secret).verify(code, valid_window=1):
+        return JsonResponse({'status': 'error', 'message': 'Invalid code.'}, status=400)
+    codes = _generate_totp_backup_codes(request.user)
+    _log_action(request, 'totp_regen_backup')
+    return JsonResponse({'status': 'ok', 'backup_codes': codes})
 
 
 @login_required

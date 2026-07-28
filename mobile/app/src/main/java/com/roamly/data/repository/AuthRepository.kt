@@ -18,6 +18,8 @@ sealed class LoginResult {
     object Success : LoginResult()
     /** Server emailed a code (new device / unverified signup); call [AuthRepository.verifyCode]. */
     data class NeedsVerification(val email: String, val purpose: String) : LoginResult()
+    /** Account has TOTP 2FA enabled; call [AuthRepository.verifyTotp] with an authenticator or backup code. */
+    object NeedsTotp : LoginResult()
     data class Error(val message: String) : LoginResult()
 }
 
@@ -73,15 +75,21 @@ class AuthRepository @Inject constructor(
                 loginResponse.code == 200 -> {
                     // JSON signal from the app-aware login view.
                     val json = JSONObject(loginResponse.body?.string() ?: "{}")
-                    if (json.optString("status") == "verify") {
-                        pendingSessionId = extractCookie(loginResponse, "sessionid")
-                        pendingBase = base
-                        LoginResult.NeedsVerification(
-                            email = json.optString("email"),
-                            purpose = json.optString("purpose", "login"),
-                        )
-                    } else {
-                        LoginResult.Error(json.optString("message", "Login failed"))
+                    when (json.optString("status")) {
+                        "verify" -> {
+                            pendingSessionId = extractCookie(loginResponse, "sessionid")
+                            pendingBase = base
+                            LoginResult.NeedsVerification(
+                                email = json.optString("email"),
+                                purpose = json.optString("purpose", "login"),
+                            )
+                        }
+                        "totp_required" -> {
+                            pendingSessionId = extractCookie(loginResponse, "sessionid")
+                            pendingBase = base
+                            LoginResult.NeedsTotp
+                        }
+                        else -> LoginResult.Error(json.optString("message", "Login failed"))
                     }
                 }
                 else -> LoginResult.Error(errorMessage(loginResponse))
@@ -114,6 +122,50 @@ class AuthRepository @Inject constructor(
                     if (!deviceCookie.isNullOrBlank()) append("; roamly_device=").append(deviceCookie)
                 }
                 val req = Request.Builder().url("$base/verify/").post(body)
+                    .header("X-Roamly-Client", "app")
+                    .header("Cookie", cookie).build()
+                noRedirect.newCall(req).execute()
+            }
+
+            extractCookie(resp, "roamly_device")?.let { prefs.setDeviceCookie(it) }
+
+            if (resp.code == 200 && JSONObject(resp.body?.string() ?: "{}").optString("status") == "ok") {
+                val sessionId = extractCookie(resp, "sessionid")
+                    ?: return LoginResult.Error("Verified, but no session was returned")
+                val username = prefs.username.first() ?: ""
+                finishLogin(base, username, sessionId)
+                pendingSessionId = null; pendingBase = null
+                LoginResult.Success
+            } else {
+                LoginResult.Error(errorMessage(resp))
+            }
+        } catch (e: Exception) {
+            LoginResult.Error("${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+        }
+    }
+
+    /** Submit an authenticator (or backup) code to finish a NeedsTotp login. */
+    suspend fun verifyTotp(code: String): LoginResult {
+        val base = pendingBase ?: return LoginResult.Error("Nothing to verify")
+        val pending = pendingSessionId
+        return try {
+            val noRedirect = okHttpClient.newBuilder().followRedirects(false).build()
+            val csrfToken = withContext(Dispatchers.IO) {
+                val req = Request.Builder().url("$base/login/").get()
+                    .header("X-Roamly-Client", "app").build()
+                extractCookie(noRedirect.newCall(req).execute(), "csrftoken")
+            } ?: return LoginResult.Error("Could not get CSRF token")
+
+            val deviceCookie = prefs.deviceCookie.first()
+            val resp = withContext(Dispatchers.IO) {
+                val body = FormBody.Builder()
+                    .add("code", code).add("csrfmiddlewaretoken", csrfToken).build()
+                val cookie = buildString {
+                    append("csrftoken=").append(csrfToken)
+                    if (!pending.isNullOrBlank()) append("; sessionid=").append(pending)
+                    if (!deviceCookie.isNullOrBlank()) append("; roamly_device=").append(deviceCookie)
+                }
+                val req = Request.Builder().url("$base/totp/").post(body)
                     .header("X-Roamly-Client", "app")
                     .header("Cookie", cookie).build()
                 noRedirect.newCall(req).execute()

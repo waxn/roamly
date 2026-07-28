@@ -238,6 +238,79 @@
             </div>
         </div>
 
+        <!-- Two-Factor Authentication (TOTP, per-user) -->
+        <div class="card settings-span-12">
+            <div class="card-header" style="display:flex;align-items:center;gap:0.4rem;">
+                Two-Factor Authentication
+                <span class="badge" style="font-size:0.65rem;">per-account</span>
+            </div>
+            <p class="settings-section-desc">
+                Add an authenticator app (Google Authenticator, Authy, 1Password, …) as an alternate second login
+                step — it works even if this instance has no email delivery configured. Once enabled, a code from
+                your app is required on every sign-in, on web and mobile.
+            </p>
+
+            <div id="totp-status-off" style="{% if totp_enabled %}display:none;{% endif %}">
+                <button class="btn btn-primary btn-sm" onclick="totpStartSetup()">Enable two-factor authentication</button>
+                <span id="totp-setup-error" style="font-size:0.8125rem;color:var(--danger);margin-left:0.5rem;"></span>
+            </div>
+
+            <div id="totp-setup" style="display:none;">
+                <div style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:flex-start;margin-bottom:1rem;">
+                    <img id="totp-qr" src="" alt="TOTP QR code" style="width:180px;height:180px;background:#fff;padding:8px;flex-shrink:0;">
+                    <div style="flex:1;min-width:220px;">
+                        <p class="settings-section-desc" style="margin-top:0;">
+                            Scan with your authenticator app, or enter this key manually:
+                        </p>
+                        <code id="totp-secret" style="display:block;background:var(--bg);padding:0.5rem 0.75rem;font-family:var(--font-mono);word-break:break-all;margin-bottom:0.85rem;"></code>
+                        <label style="font-size:0.8125rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">Enter the 6-digit code to confirm</label>
+                        <input type="text" id="totp-confirm-code" class="form-control" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code" style="max-width:160px;">
+                        <div class="settings-actions" style="margin-top:0.75rem;">
+                            <button class="btn btn-primary btn-sm" onclick="totpConfirmSetup()">Confirm &amp; enable</button>
+                            <button class="btn btn-outline btn-sm" onclick="totpCancelSetup()">Cancel</button>
+                            <span id="totp-setup-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="totp-backup-codes" style="display:none;">
+                <p class="settings-section-desc" style="margin-top:0;">
+                    Save these backup codes somewhere safe — each works once, if you ever lose access to your
+                    authenticator app. <strong>They won't be shown again.</strong>
+                </p>
+                <div id="totp-backup-codes-list" style="font-family:var(--font-mono);font-size:0.9rem;background:var(--bg);padding:0.85rem 1rem;display:grid;grid-template-columns:repeat(2,1fr);gap:0.5rem;margin-bottom:0.85rem;max-width:420px;"></div>
+                <button class="btn btn-primary btn-sm" onclick="totpAckBackupCodes()">I've saved these codes</button>
+            </div>
+
+            <div id="totp-status-on" style="{% if not totp_enabled %}display:none;{% endif %}">
+                <p class="settings-section-desc" style="margin-top:0;color:var(--success);">
+                    ✓ Enabled — a code from your authenticator app is required on every sign-in.
+                    <span id="totp-backup-remaining" style="color:var(--text-muted);">{% if totp_enabled %}({{ totp_backup_remaining }} backup code{{ totp_backup_remaining|pluralize }} remaining){% endif %}</span>
+                </p>
+                <div class="settings-actions">
+                    <button class="btn btn-outline btn-sm" onclick="totpToggle('totp-regen-panel')">Regenerate backup codes</button>
+                    <button class="btn btn-outline btn-sm" onclick="totpToggle('totp-disable-panel')" style="color:var(--danger);border-color:var(--danger);">Disable</button>
+                </div>
+                <div id="totp-regen-panel" style="display:none;margin-top:0.85rem;">
+                    <label style="font-size:0.8125rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">Enter your current authenticator code to regenerate backup codes</label>
+                    <input type="text" id="totp-regen-code" class="form-control" inputmode="numeric" maxlength="6" placeholder="123456" style="max-width:160px;">
+                    <div class="settings-actions" style="margin-top:0.5rem;">
+                        <button class="btn btn-primary btn-sm" onclick="totpRegenerateBackupCodes()">Regenerate</button>
+                        <span id="totp-regen-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+                    </div>
+                </div>
+                <div id="totp-disable-panel" style="display:none;margin-top:0.85rem;">
+                    <label style="font-size:0.8125rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">Enter your password to disable two-factor authentication</label>
+                    <input type="password" id="totp-disable-password" class="form-control" autocomplete="current-password" style="max-width:220px;">
+                    <div class="settings-actions" style="margin-top:0.5rem;">
+                        <button class="btn btn-primary btn-sm" onclick="totpDisable()" style="background:var(--danger);border-color:var(--danger);">Disable 2FA</button>
+                        <span id="totp-disable-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Devices -->
         <div class="card settings-span-6">
             <div class="card-header">Devices</div>
@@ -1916,6 +1989,113 @@ function sendSummaryTest() {
         else { status.textContent = d.error || 'test failed.'; status.style.color = 'var(--danger)'; }
     })
     .catch(() => { status.textContent = 'test failed.'; status.style.color = 'var(--danger)'; });
+}
+
+// ── Two-Factor Authentication (TOTP) ────────────────────────────────────────
+function totpToggle(id) {
+    const others = ['totp-regen-panel', 'totp-disable-panel'].filter(x => x !== id);
+    others.forEach(x => { document.getElementById(x).style.display = 'none'; });
+    const el = document.getElementById(id);
+    el.style.display = el.style.display === 'block' ? 'none' : 'block';
+}
+function totpStartSetup() {
+    const err = document.getElementById('totp-setup-error');
+    err.textContent = '';
+    fetch('/api/profile/totp/setup/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+    })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+        if (ok && d.secret) {
+            document.getElementById('totp-qr').src = d.qr_code;
+            document.getElementById('totp-secret').textContent = d.secret;
+            document.getElementById('totp-confirm-code').value = '';
+            document.getElementById('totp-status-off').style.display = 'none';
+            document.getElementById('totp-setup').style.display = 'block';
+        } else {
+            err.textContent = 'could not start setup.';
+        }
+    })
+    .catch(() => { err.textContent = 'could not start setup.'; });
+}
+function totpCancelSetup() {
+    document.getElementById('totp-setup').style.display = 'none';
+    document.getElementById('totp-status-off').style.display = 'block';
+}
+function totpConfirmSetup() {
+    const status = document.getElementById('totp-setup-status');
+    const code = document.getElementById('totp-confirm-code').value.trim();
+    status.textContent = 'checking…'; status.style.color = 'var(--text-muted)';
+    fetch('/api/profile/totp/confirm/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+        body: JSON.stringify({ code }),
+    })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+        if (ok && d.status === 'ok') {
+            status.textContent = '';
+            document.getElementById('totp-setup').style.display = 'none';
+            totpRenderBackupCodes(d.backup_codes);
+            document.getElementById('totp-backup-codes').style.display = 'block';
+        } else {
+            status.textContent = d.message || 'invalid code.'; status.style.color = 'var(--danger)';
+        }
+    })
+    .catch(() => { status.textContent = 'save failed.'; status.style.color = 'var(--danger)'; });
+}
+function totpRenderBackupCodes(codes) {
+    const list = document.getElementById('totp-backup-codes-list');
+    list.innerHTML = '';
+    (codes || []).forEach(c => {
+        const el = document.createElement('div');
+        el.textContent = c.slice(0, 5) + ' ' + c.slice(5);
+        list.appendChild(el);
+    });
+}
+function totpAckBackupCodes() {
+    location.reload();
+}
+function totpRegenerateBackupCodes() {
+    const status = document.getElementById('totp-regen-status');
+    const code = document.getElementById('totp-regen-code').value.trim();
+    status.textContent = 'checking…'; status.style.color = 'var(--text-muted)';
+    fetch('/api/profile/totp/backup-codes/regenerate/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+        body: JSON.stringify({ code }),
+    })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+        if (ok && d.status === 'ok') {
+            document.getElementById('totp-status-on').style.display = 'none';
+            totpRenderBackupCodes(d.backup_codes);
+            document.getElementById('totp-backup-codes').style.display = 'block';
+        } else {
+            status.textContent = d.message || 'invalid code.'; status.style.color = 'var(--danger)';
+        }
+    })
+    .catch(() => { status.textContent = 'failed.'; status.style.color = 'var(--danger)'; });
+}
+function totpDisable() {
+    const status = document.getElementById('totp-disable-status');
+    const password = document.getElementById('totp-disable-password').value;
+    status.textContent = 'checking…'; status.style.color = 'var(--text-muted)';
+    fetch('/api/profile/totp/disable/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+        body: JSON.stringify({ password }),
+    })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+        if (ok && d.status === 'ok') {
+            location.reload();
+        } else {
+            status.textContent = d.message || 'incorrect password.'; status.style.color = 'var(--danger)';
+        }
+    })
+    .catch(() => { status.textContent = 'failed.'; status.style.color = 'var(--danger)'; });
 }
 
 // Theme
