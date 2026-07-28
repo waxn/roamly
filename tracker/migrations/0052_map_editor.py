@@ -23,14 +23,17 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Old inferred data and the background job's state go first; the
-        # InferredLocation drop must precede InferredGap's (it holds the FK).
-        migrations.RemoveField(model_name='inferredlocation', name='device'),
-        migrations.RemoveField(model_name='inferredlocation', name='gap'),
+        # Old inferred data and the background job's state go first. Dropped as
+        # whole models rather than field-by-field: 0049 puts `device` inside
+        # InferredGap.unique_together and inside both models' index definitions,
+        # so a RemoveField('device') would leave the migration state describing a
+        # constraint over a column that no longer exists — which fails when
+        # Django next renders the model. DROP TABLE takes the indexes and
+        # constraints with it, so none of that is needed.
+        #
+        # InferredLocation must go before InferredGap: it holds the FK.
         migrations.DeleteModel(name='InferredLocation'),
-        migrations.RemoveField(model_name='inferredgap', name='device'),
         migrations.DeleteModel(name='InferredGap'),
-        migrations.RemoveField(model_name='gapfilljob', name='user'),
         migrations.DeleteModel(name='GapFillJob'),
 
         # Automatic-fill configuration has nothing left to configure.
