@@ -170,6 +170,14 @@
                         <button class="tool-btn" id="btn-add-cancel" type="button">cancel</button>
                     </div>
                 </div>
+                <div class="ed-panel" id="panel-route" style="display:none;">
+                    <div class="ed-hint">Pick the route you actually took.</div>
+                    <div class="sidebar-tools" id="route-list"></div>
+                    <div class="ed-actions">
+                        <button class="tool-btn" id="btn-route-accept" type="button">use this route</button>
+                        <button class="tool-btn" id="btn-route-cancel" type="button">cancel</button>
+                    </div>
+                </div>
                 <div class="ed-panel" id="panel-move" style="display:none;">
                     <div class="ed-field">
                         <label for="move-time">timestamp</label>
@@ -254,12 +262,20 @@ const SEL_LAYER = 'ed-sel-layer';
 const INF_SOURCE = 'ed-inferred';
 const INF_LINE = 'ed-inferred-line';
 const INF_DOTS = 'ed-inferred-dots';
+const CAND_SOURCE = 'ed-cand';
+const CAND_LINE = 'ed-cand-line';
+const CAND_PICK = 'ed-cand-pick';
+// Distinct colours so the options are told apart at a glance; index 0 is the
+// shortest, which is the one most people want.
+const CAND_COLORS = ['#e8763d', '#7ba3b8', '#7f9b6d'];
 
 const selected = new Map();      // id -> {id, lng, lat, timestamp, inferred}
 let mode = null;                 // null | 'add-single' | 'add-run' | 'move'
 let pendingCoords = [];          // positions clicked while an add tool is open
 let movePos = null;
 let inferredFC = { type: 'FeatureCollection', features: [] };
+let routeToken = null;
+let routeCands = [];
 
 const statusEl = document.getElementById('ed-status');
 function say(msg, kind) {
@@ -300,6 +316,29 @@ function addEditorLayers() {
                 'circle-stroke-width': 1.5, 'circle-stroke-color': '#a78bda',
             },
         });
+    }
+    if (!map.getSource(CAND_SOURCE)) {
+        map.addSource(CAND_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        map.addLayer({
+            id: CAND_LINE, type: 'line', source: CAND_SOURCE,
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: {
+                'line-color': ['get', 'color'],
+                'line-width': ['case', ['==', ['get', 'chosen'], true], 6, 4],
+                'line-opacity': ['case', ['==', ['get', 'chosen'], true], 0.95, 0.5],
+            },
+        });
+        // A fat transparent line on top, purely to make the routes easy to click.
+        map.addLayer({
+            id: CAND_PICK, type: 'line', source: CAND_SOURCE,
+            paint: { 'line-color': 'rgba(0,0,0,0)', 'line-width': 22 },
+        });
+        map.on('click', CAND_PICK, e => {
+            const i = e.features[0].properties.index;
+            if (i !== undefined && i !== null) chooseRoute(i);
+        });
+        map.on('mouseenter', CAND_PICK, () => map.getCanvas().style.cursor = 'pointer');
+        map.on('mouseleave', CAND_PICK, () => map.getCanvas().style.cursor = '');
     }
     if (!map.getSource(SEL_SOURCE)) {
         map.addSource(SEL_SOURCE, { type: 'geojson', data: selFC() });
@@ -465,17 +504,83 @@ document.getElementById('btn-delete').addEventListener('click', () => {
 
 document.getElementById('btn-route').addEventListener('click', () => {
     const ids = Array.from(selected.values()).filter(p => !p.inferred).map(p => p.id);
-    say('Routing along roads…');
+    say('Finding routes…');
     post('/api/editor/route/', { ids }).then(({ ok, d }) => {
         if (!ok) return say(d.error || 'Could not connect those points.', 'error');
-        say(d.warning || `Connected — ${d.points} point(s) along ${(d.route_m / 1000).toFixed(1)}km of road.`,
-            d.warning ? 'warn' : null);
-        refreshAll();
+        routeToken = d.token;
+        routeCands = d.routes || [];
+        drawCandidates(0);
+        renderRouteList(d.straight_m);
+        openPanel('route');
+        say(routeCands.length > 1
+            ? `${routeCands.length} routes found — click one on the map or in the list.`
+            : 'One route found — accept it or cancel.');
     });
 });
 
+function drawCandidates(chosen) {
+    addEditorLayers();
+    const features = routeCands.map(r => ({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: r.coords },
+        properties: { index: r.index, color: CAND_COLORS[r.index % CAND_COLORS.length],
+                      chosen: r.index === chosen },
+    }));
+    // Draw the chosen one last so it sits on top of the others.
+    features.sort((a, b) => (a.properties.chosen ? 1 : 0) - (b.properties.chosen ? 1 : 0));
+    if (map.getSource(CAND_SOURCE)) {
+        map.getSource(CAND_SOURCE).setData({ type: 'FeatureCollection', features });
+    }
+}
+
+function clearCandidates() {
+    routeToken = null; routeCands = [];
+    if (map.getSource(CAND_SOURCE)) {
+        map.getSource(CAND_SOURCE).setData({ type: 'FeatureCollection', features: [] });
+    }
+}
+
+let chosenRoute = 0;
+function chooseRoute(i) {
+    chosenRoute = i;
+    drawCandidates(i);
+    renderRouteList();
+}
+
+function renderRouteList(straightM) {
+    if (straightM !== undefined) renderRouteList._straight = straightM;
+    const el = document.getElementById('route-list');
+    el.innerHTML = routeCands.map(r => {
+        const km = (r.length_m / 1000).toFixed(1);
+        const detour = renderRouteList._straight
+            ? ` · ${(r.length_m / renderRouteList._straight).toFixed(1)}× direct` : '';
+        return `<button class="tool-btn ${r.index === chosenRoute ? 'active' : ''}" type="button"
+                    onclick="chooseRoute(${r.index})">
+                <span><span style="display:inline-block;width:9px;height:9px;background:${CAND_COLORS[r.index % CAND_COLORS.length]};margin-right:6px;"></span>${km} km${detour}</span>
+                <span class="tool-btn-badge">${r.points} pts</span>
+            </button>${r.warning ? `<div class="ed-hint" style="color:var(--clay-amber);">${r.warning}</div>` : ''}`;
+    }).join('');
+}
+
+document.getElementById('btn-route-accept').addEventListener('click', () => {
+    if (routeToken === null) return;
+    say('Placing points…');
+    post('/api/editor/route/commit/', { token: routeToken, index: chosenRoute }).then(({ ok, d }) => {
+        if (!ok) return say(d.error || 'Could not place the points.', 'error');
+        say(`Connected — ${d.points} point(s) along ${(d.route_m / 1000).toFixed(1)}km of road.`);
+        clearCandidates();
+        closePanels();
+        refreshAll();
+    });
+});
+document.getElementById('btn-route-cancel').addEventListener('click', () => {
+    clearCandidates();
+    closePanels();
+    say('');
+});
+
 function openPanel(which) {
-    ['add', 'move', 'copy'].forEach(p => {
+    ['add', 'move', 'copy', 'route'].forEach(p => {
         document.getElementById('panel-' + p).style.display = p === which ? 'flex' : 'none';
     });
 }

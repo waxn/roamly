@@ -298,6 +298,104 @@ def snap_points(profile, pts):
     return out
 
 
+# How much to inflate an edge a previous alternative already used. High enough
+# to push A* onto a different road, not so high that it takes an absurd detour.
+_ALT_PENALTY = 4.0
+# Two routes counted as "the same" if they share this much of their length.
+_ALT_SIMILARITY = 0.75
+
+
+def route_alternatives(profile, a, b, mode='', k=3, max_anchor_m=None):
+    """Up to `k` distinct road routes between two points, best first.
+
+    Returns [{'coords': [...], 'length_m': float}]. The caller picks; that is the
+    whole point — for a lot of gaps there is more than one plausible way round
+    and only the person who drove it knows which.
+    """
+    provider = profile.road_provider_resolved
+    if not provider:
+        raise RoadProviderError('No road data provider is configured.')
+    if _haversine_m(a[0], a[1], b[0], b[1]) / 1000.0 > _ROUTE_MAX_KM:
+        return []
+
+    if provider == 'local':
+        routes = _local_alternatives(a, b, mode, k, max_anchor_m)
+    elif provider == 'mapbox':
+        routes = _mapbox_routes(profile, a, b, mode, k)
+    else:
+        routes = _osrm_routes(profile, a, b, mode, k)
+
+    out = []
+    for coords in routes:
+        if not coords or len(coords) < 2:
+            continue
+        out.append({'coords': coords, 'length_m': _polyline_length_m(coords)})
+    return out
+
+
+def _route_similarity(a, b):
+    """Rough overlap of two polylines, by shared rounded vertices."""
+    sa = {(round(x, 5), round(y, 5)) for x, y in a}
+    sb = {(round(x, 5), round(y, 5)) for x, y in b}
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / min(len(sa), len(sb))
+
+
+def _local_alternatives(a, b, mode='', k=3, max_anchor_m=None):
+    """Find distinct local routes by penalising the edges each one used.
+
+    A* returns the single cheapest path, so asking it again yields the same
+    answer. Inflating the cost of the edges already taken makes the next search
+    prefer a different road — the standard penalty method, and far simpler than
+    a full k-shortest-paths implementation for the two or three options a person
+    actually wants to choose between.
+    """
+    routes = []
+    penalties = {}
+    for _ in range(k):
+        path = _local_route(a, b, mode, max_anchor_m=max_anchor_m, penalties=penalties)
+        if not path:
+            break
+        if any(_route_similarity(path, r) >= _ALT_SIMILARITY for r in routes):
+            # Too close to one we already have; penalise harder and try again.
+            used = penalties.pop('__used__', [])
+            if not used:
+                break
+            for e in used:
+                penalties[e] = penalties.get(e, 1.0) * _ALT_PENALTY
+            continue
+        routes.append(path)
+        used = penalties.pop('__used__', [])
+        if not used:
+            break
+        for e in used:
+            penalties[e] = penalties.get(e, 1.0) * _ALT_PENALTY
+    return routes
+
+
+def _osrm_routes(profile, a, b, mode='', k=3):
+    base = _osrm_base(profile)
+    prof = _profile_for('osrm', mode)
+    data = _get_json(f'{base}/route/v1/{prof}/{a[0]},{a[1]};{b[0]},{b[1]}',
+                     {'geometries': 'geojson', 'overview': 'full',
+                      'alternatives': 'true'})
+    if data.get('code') not in (None, 'Ok'):
+        return []
+    return [[(c[0], c[1]) for c in (r.get('geometry', {}).get('coordinates') or [])]
+            for r in (data.get('routes') or [])[:k]]
+
+
+def _mapbox_routes(profile, a, b, mode='', k=3):
+    prof = _profile_for('mapbox', mode)
+    data = _get_json(
+        f'https://api.mapbox.com/directions/v5/mapbox/{prof}/{a[0]},{a[1]};{b[0]},{b[1]}',
+        {'access_token': profile.mapbox_token, 'geometries': 'geojson',
+         'overview': 'full', 'alternatives': 'true'})
+    return [[(c[0], c[1]) for c in (r.get('geometry', {}).get('coordinates') or [])]
+            for r in (data.get('routes') or [])[:k]]
+
+
 def route_between(profile, a, b, mode=''):
     """Road route between two (lng, lat) anchors.
 
@@ -604,7 +702,7 @@ def _index_edge(edge_index, u, v, sub):
                 edge_index.setdefault((cx, cy), []).append((u, v, sub, i))
 
 
-def _nearest_edge(edge_index, pt):
+def _nearest_edge(edge_index, pt, reach=1):
     """Nearest graph edge to `pt`: (distance_m, u, v, seg_index, projection, sub).
 
     Consults only the point's own index cell and its eight neighbours. Scanning
@@ -615,8 +713,9 @@ def _nearest_edge(edge_index, pt):
     """
     best = None
     cx, cy = _ecell(pt[0], pt[1])
-    for dx in (-1, 0, 1):
-        for dy in (-1, 0, 1):
+    rng = range(-reach, reach + 1)
+    for dx in rng:
+        for dy in rng:
             for (u, v, sub, i) in edge_index.get((cx + dx, cy + dy), ()):
                 q, d = _project_on_segment(pt, sub[i], sub[i + 1])
                 if best is None or d < best[0]:
@@ -650,7 +749,7 @@ def _unsplice(adj, node_pos, undo, anchor_keys):
         node_pos.pop(key, None)
 
 
-def _splice_anchor(adj, node_pos, edge_index, pt, label, undo):
+def _splice_anchor(adj, node_pos, edge_index, pt, label, undo, max_anchor_m=None):
     """Add `pt`'s projection onto the road network as a temporary graph vertex.
 
     Without this the route could only start at a *junction*, so it opened and
@@ -662,11 +761,14 @@ def _splice_anchor(adj, node_pos, edge_index, pt, label, undo):
     Mutates `adj`; every touched vertex is recorded in `undo` for _unsplice.
     Returns (vertex_key, distance_m, sub, seg_index) or (None, distance, …).
     """
-    found = _nearest_edge(edge_index, pt)
+    # A generous tolerance needs a correspondingly wider search: the index cell is
+    # ~1.1km, so one ring around the anchor only covers the default 80m gate.
+    reach = 1 if not max_anchor_m else max(1, int(max_anchor_m / 1100) + 1)
+    found = _nearest_edge(edge_index, pt, reach=reach)
     if not found:
         return None, None, None, None
     d, u, v, i, proj, sub = found
-    if d > _ROUTE_MAX_ANCHOR_M:
+    if d > (max_anchor_m or _ROUTE_MAX_ANCHOR_M):
         return None, d, None, None
 
     key = ('anchor', label)
@@ -687,7 +789,7 @@ def _splice_anchor(adj, node_pos, edge_index, pt, label, undo):
     return key, d, sub, i
 
 
-def _local_route(a, b, mode=''):
+def _local_route(a, b, mode='', max_anchor_m=None, penalties=None):
     graph = _load_graph(a, b, mode)
     if not graph:
         return None
@@ -697,18 +799,20 @@ def _local_route(a, b, mode=''):
 
     undo, anchor_keys = [], []
     try:
-        return _route_on(adj, node_pos, edge_index, a, b, undo, anchor_keys)
+        return _route_on(adj, node_pos, edge_index, a, b, undo, anchor_keys,
+                         max_anchor_m=max_anchor_m, penalties=penalties)
     finally:
         # Always, including on an exception: a half-spliced cached graph would
         # poison every later route.
         _unsplice(adj, node_pos, undo, anchor_keys)
 
 
-def _route_on(adj, node_pos, edge_index, a, b, undo, anchor_keys):
-    start, start_d, sub_a, i_a = _splice_anchor(adj, node_pos, edge_index, a, 'a', undo)
+def _route_on(adj, node_pos, edge_index, a, b, undo, anchor_keys,
+              max_anchor_m=None, penalties=None):
+    start, start_d, sub_a, i_a = _splice_anchor(adj, node_pos, edge_index, a, 'a', undo, max_anchor_m)
     if start is not None:
         anchor_keys.append(start)
-    goal, goal_d, sub_b, i_b = _splice_anchor(adj, node_pos, edge_index, b, 'b', undo)
+    goal, goal_d, sub_b, i_b = _splice_anchor(adj, node_pos, edge_index, b, 'b', undo, max_anchor_m)
     if goal is not None:
         anchor_keys.append(goal)
     if start is None or goal is None or start == goal:
@@ -753,6 +857,11 @@ def _route_on(adj, node_pos, edge_index, a, b, undo, anchor_keys):
         if g > best_g.get(node, float('inf')):
             continue
         for nxt, cost, sub in adj.get(node, ()):
+            # Penalised edges are the ones a previous alternative already used;
+            # inflating them pushes A* onto a genuinely different road rather
+            # than a near-identical variant of the same one.
+            if penalties:
+                cost = cost * penalties.get((node, nxt), 1.0)
             ng = g + cost
             if ng < best_g.get(nxt, float('inf')):
                 best_g[nxt] = ng
@@ -763,12 +872,15 @@ def _route_on(adj, node_pos, edge_index, a, b, undo, anchor_keys):
     if goal not in came:
         return None
 
-    parts, node = [], goal
+    parts, used, node = [], [], goal
     while came[node][0] is not None:
         prev, sub = came[node]
         parts.append(sub)
+        used.append((prev, node))
         node = prev
     parts.reverse()
+    if penalties is not None:
+        penalties['__used__'] = used
 
     # No raw anchors: the path is road geometry from end to end.
     path = []

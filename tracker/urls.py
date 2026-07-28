@@ -169,6 +169,7 @@ urlpatterns = [
     # Map Editor API
     path('api/editor/delete/', views.editor_delete_api, name='editor_delete'),
     path('api/editor/route/', views.editor_route_api, name='editor_route'),
+    path('api/editor/route/commit/', views.editor_route_commit_api, name='editor_route_commit'),
     path('api/editor/points/add/', views.editor_add_api, name='editor_add'),
     path('api/editor/points/<int:location_id>/move/', views.editor_move_api, name='editor_move'),
     path('api/editor/copy/preview/', views.editor_copy_preview_api, name='editor_copy_preview'),

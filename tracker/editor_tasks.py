@@ -31,10 +31,13 @@ from . import roads
 
 logger = logging.getLogger(__name__)
 
-# Spacing of generated points along a route, and a ceiling so one very long
-# connection can't dump thousands of rows. Carried over from the old automatic
-# filler, where they were the only two constants worth keeping.
-FILL_INTERVAL_S = 60
+# One point per 10 seconds of travel. A short connection therefore gets a handful
+# of points rather than a fixed budget spread thinly — the old 60s spacing with a
+# 500-point cap put 500 points on a two-minute hop, which is nonsense.
+FILL_INTERVAL_S = 10
+# Still a ceiling, but now it only bites on very long connections (500 points at
+# 10s is ~83 minutes); past that the spacing widens rather than the route being
+# truncated.
 MAX_POINTS_PER_ROUTE = 500
 # A route this much longer than the straight line is usually A* looping around a
 # hole in the downloaded road network. The editor *warns* rather than refuses —
@@ -55,11 +58,24 @@ def _polyline_len(coords):
                for i in range(len(coords) - 1))
 
 
-def points_along(route, start_dt, end_dt, interval_s=FILL_INTERVAL_S):
-    """Space points along `route` so the traversal is at constant average speed.
+def points_along(route, start_dt, end_dt, interval_s=FILL_INTERVAL_S,
+                 v_start=None, v_end=None):
+    """Space points along `route`, accelerating from `v_start` to `v_end`.
 
     Endpoints are excluded — the two real fixes already sit there. Returns
     ``([(lng, lat, when), …], route_length_m)``.
+
+    Constant average speed put points at even *distances*, which reads wrong
+    whenever the two ends were moving at different speeds: leaving a junction and
+    joining a motorway should show points bunched at the start and stretched out
+    at the end. Assuming speed varies linearly between the two recorded fixes,
+
+        v(t) = v0 + (v1 - v0)·t/T
+        s(t) = v0·t + (v1 - v0)·t²/(2T)
+
+    and scaling s so s(T) equals the route length gives exactly that, while still
+    arriving at the right place at the right time. With both ends stationary (or
+    no Doppler at all) it degrades to the old even spacing.
     """
     cum = [0.0]
     for i in range(len(route) - 1):
@@ -70,16 +86,28 @@ def points_along(route, start_dt, end_dt, interval_s=FILL_INTERVAL_S):
         return [], 0.0
 
     dt_total = (end_dt - start_dt).total_seconds()
+    if dt_total <= 0:
+        return [], total
     n = int(dt_total // interval_s) - 1
     if n < 1:
         return [], total
     n = min(n, MAX_POINTS_PER_ROUTE)
     step = dt_total / (n + 1)
 
+    v0 = max(0.0, v_start or 0.0)
+    v1 = max(0.0, v_end or 0.0)
+    # Area under the speed ramp. Zero means we know nothing useful about speed.
+    area = dt_total * (v0 + v1) / 2.0
+    scale = (total / area) if area > 0 else 0.0
+
     out, seg = [], 0
     for k in range(1, n + 1):
         elapsed = step * k
-        target = (elapsed / dt_total) * total
+        if scale > 0:
+            travelled = v0 * elapsed + (v1 - v0) * elapsed * elapsed / (2.0 * dt_total)
+            target = min(total, scale * travelled)
+        else:
+            target = (elapsed / dt_total) * total
         while seg < len(cum) - 2 and cum[seg + 1] < target:
             seg += 1
         span = cum[seg + 1] - cum[seg]
