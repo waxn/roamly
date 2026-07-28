@@ -497,8 +497,15 @@ class RoadDownloadJob(models.Model):
     ways = models.IntegerField(default=0)        # road segments stored this run
     # Areas Overpass would not return after retries. Surfaced in the UI because a
     # silent failure leaves a corridor with no roads, which looks identical to
-    # snapping and gap routing simply not working.
+    # snapping simply not working.
     failed = models.IntegerField(default=0)
+    # Which worker owns this run. _running_threads is per-process, so with more
+    # than one gunicorn worker the liveness check cannot see a thread running
+    # elsewhere and would resurrect a second one — both then writing their own
+    # progress counter over each other, which made the reported percentage climb
+    # and then jump backwards. The token is the cross-process answer: a worker
+    # exits as soon as the row stops naming it.
+    worker_token = models.CharField(max_length=32, blank=True, default='')
     started_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
