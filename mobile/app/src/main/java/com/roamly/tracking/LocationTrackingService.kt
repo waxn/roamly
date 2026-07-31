@@ -450,8 +450,15 @@ class LocationTrackingService : Service() {
     private fun applyCapture(cfg: TrackingConfig) {
         if (!isPaused) {
             startLocationUpdates(cfg)    // primary: smooth warm stream whenever not deep-Doze
-            acquireWakeLock()            // pin the CPU so stream + watchdog stay alive
-            streaming = true
+            // `streaming` means "the warm stream is genuinely carrying the cadence", which is
+            // only true screen-on — the screen receiver re-runs applyCapture on every toggle.
+            // Hard-coding it true made the screen-off no-skip guard in runFixCycle unreachable
+            // (so alarm cycles skipped the GPS request in Doze, the one place they must not),
+            // never released the pinned wake lock, and left the watchdog re-arming a stream
+            // the OS had already suspended.
+            streaming = screenOn
+            if (screenOn) acquireWakeLock()  // pin the CPU so stream + watchdog stay alive
+            else releaseWakeLock()
             seedLastLocation()           // immediate first point
         } else {
             stopLocationUpdates()
