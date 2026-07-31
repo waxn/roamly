@@ -346,6 +346,13 @@ const showHeatmap = localStorage.getItem('roamly_show_heatmap') || 'on';
 const heatmapIntensity = localStorage.getItem('roamly_heatmap_intensity') || 'medium';
 const dotSizePref = localStorage.getItem('roamly_dot_size') || 'medium';
 const lineGapMs = parseInt(localStorage.getItem('roamly_line_gap_minutes') || '20', 10) * 60 * 1000;
+// Hide points the quality scan flagged as 'suspect'. Default on: a stray fix a kilometre away
+// drags the polyline out and back and expands the auto-fit bbox, so one bad point can rescale
+// the whole map. The rows stay in the database untouched — distance and stats already give
+// them no credit — so this is purely what gets drawn.
+let hideSuspect = (localStorage.getItem('roamly_hide_suspect') || 'on') === 'on';
+const isSuspect = f => f.properties.flag === 'suspect';
+const suspectFilter = () => hideSuspect ? ['!=', ['get', 'flag'], 'suspect'] : ['literal', true];
 
 const DOT_SIZES = {
     small:  [8, 2, 12, 4, 16, 8],
@@ -385,12 +392,16 @@ const LINE_GAP_MS = lineGapMs;
 function buildLinesFC() {
     const byDevice = new Map();
     accMap.forEach(f => {
+        // Skip suspects entirely rather than breaking the segment at them: the line should
+        // run from the point before straight to the point after, not spike out and back.
+        if (hideSuspect && isSuspect(f)) return;
         const id = f.properties.device_id;
         if (!byDevice.has(id)) byDevice.set(id, []);
         byDevice.get(id).push(f);
     });
     const features = [];
     byDevice.forEach(pts => {
+        if (!pts.length) return;
         pts.sort((a, b) => new Date(a.properties.timestamp) - new Date(b.properties.timestamp));
         const color = pts[0].properties.color;
         let seg = [pts[0].geometry.coordinates];
@@ -406,6 +417,33 @@ function buildLinesFC() {
         if (seg.length >= 2) features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: seg }, properties: { color } });
     });
     return { type: 'FeatureCollection', features };
+}
+
+/** Flip the suspect-hiding preference and repaint. Both dot layers carry the filter (the
+ *  decimated track and the detail accumulation draw the same fix above DETAIL_MIN_ZOOM, so
+ *  filtering only one would leave the outlier visible), and the connecting lines are rebuilt
+ *  because they route *around* suspects rather than breaking at them. */
+function setHideSuspect(on) {
+    hideSuspect = on;
+    localStorage.setItem('roamly_hide_suspect', on ? 'on' : 'off');
+    if (map.getLayer(ACC_DOTS_LAYER)) map.setFilter(ACC_DOTS_LAYER, suspectFilter());
+    activeSources.forEach(id => {
+        if (!map.getLayer(`${id}-dots`)) return;
+        map.setFilter(`${id}-dots`, on
+            ? ['all', ['==', ['geometry-type'], 'Point'], ['!=', ['get', 'flag'], 'suspect']]
+            : ['==', ['geometry-type'], 'Point']);
+    });
+    if (map.getSource(ACC_LINES_SOURCE)) map.getSource(ACC_LINES_SOURCE).setData(buildLinesFC());
+}
+
+/** How many accumulated points are currently being hidden — drives the sidebar badge. */
+function suspectCount() {
+    let n = 0;
+    accMap.forEach(f => { if (isSuspect(f)) n++; });
+    trackFeatures.forEach(features => {
+        features.forEach(f => { if (isSuspect(f)) n++; });
+    });
+    return n;
 }
 
 function initAccLayers() {
@@ -478,6 +516,7 @@ function initAccLayers() {
         type: 'circle',
         source: ACC_SOURCE_ID,
         minzoom: DETAIL_MIN_ZOOM,
+        filter: suspectFilter(),
         paint: {
             'circle-color': speedGradient === 'on' ? speedColorExpr(['get', 'color']) : ['get', 'color'],
             'circle-radius': ['interpolate', ['linear'], ['zoom'], ...dotSizeArgs],
@@ -736,6 +775,9 @@ function renderTrack(devices, autoFit) {
                 geometry: { type: 'Point', coordinates: p.c },
                 properties: { ts: p.ts, id: p.id ?? null, speed: p.speed ?? null, flag: p.flag ?? '', color, city: p.city, state: p.state, country: p.country, device_name: device.name }
             });
+            // Keep suspects out of the auto-fit bounds: a single fix a long way off
+            // would otherwise zoom the whole map out to include it.
+            if (hideSuspect && p.flag === 'suspect') return;
             if (p.c[0] < minLng) minLng = p.c[0];
             if (p.c[0] > maxLng) maxLng = p.c[0];
             if (p.c[1] < minLat) minLat = p.c[1];
@@ -779,7 +821,9 @@ function renderTrack(devices, autoFit) {
             id: `${srcId}-dots`,
             type: 'circle',
             source: srcId,
-            filter: ['==', ['geometry-type'], 'Point'],
+            filter: hideSuspect
+                ? ['all', ['==', ['geometry-type'], 'Point'], ['!=', ['get', 'flag'], 'suspect']]
+                : ['==', ['geometry-type'], 'Point'],
             minzoom: DETAIL_MIN_ZOOM,
             paint: {
                 'circle-color': speedGradient === 'on' ? speedColorExpr(color) : color,

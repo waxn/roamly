@@ -637,6 +637,10 @@
                         filled gaps
                         <span class="tool-btn-badge" id="inferred-badge"></span>
                     </button>
+                    <button class="tool-btn" id="suspect-btn" type="button">
+                        hide outliers
+                        <span class="tool-btn-badge" id="suspect-badge"></span>
+                    </button>
                     <button class="tool-btn" id="replay-btn" type="button">
                         replay day
                         <span class="tool-btn-badge" id="replay-badge"></span>
@@ -1022,6 +1026,29 @@ function loadInferredGaps() {
             if (map.getSource(INF_SOURCE)) map.getSource(INF_SOURCE).setData(inferredFC);
         })
         .catch(() => {});
+}
+
+// ── Hide outliers ────────────────────────────────────────────────────────────
+// Points the quality scan flagged as 'suspect'. Purely a display filter — the rows are
+// untouched in the database, and distance/stats never counted them anyway.
+const suspectBtn = document.getElementById('suspect-btn');
+const suspectBadge = document.getElementById('suspect-badge');
+
+function updateSuspectBadge() {
+    if (!suspectBadge) return;
+    const n = suspectCount();
+    suspectBadge.textContent = n ? `${n.toLocaleString()} hidden` : '';
+}
+
+if (suspectBtn) {
+    suspectBtn.classList.toggle('active', hideSuspect);
+    suspectBtn.addEventListener('click', () => {
+        setHideSuspect(!hideSuspect);
+        suspectBtn.classList.toggle('active', hideSuspect);
+        updateSuspectBadge();
+    });
+    map.on('load', updateSuspectBadge);
+    map.on('moveend', () => setTimeout(updateSuspectBadge, 500));
 }
 
 if (inferredBtn) {
