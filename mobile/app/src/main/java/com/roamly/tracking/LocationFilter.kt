@@ -23,6 +23,16 @@ private const val MAX_PLAUSIBLE_SPEED_MPS = 357.0
  * fix worse than the target but substitutes a dwell point (last known position) when one
  * is recent enough, so discarding bad fixes doesn't reopen the gaps a naive cutoff here
  * used to cause.
+ *
+ * **[accept] is a pure check and [commit] is what advances the state**, and they are
+ * deliberately separate. When `accept()` also did the advancing as a side effect of
+ * returning true, a fix that then failed the accuracy gate in `saveOrDwell` still moved
+ * `lastAcceptedTimeMs` to ~now — so the dwell point substituted in its place (stamped now)
+ * was immediately rejected by the de-dup window below, and so was every fast retry that
+ * followed, since 4 s and 10 s are both inside it. A stretch of poor accuracy therefore
+ * recorded *nothing at all* rather than dwelling, which is the opposite of what the dwell
+ * fallback exists for. The window now measures from the last point actually **saved**, so
+ * a discarded fix costs nothing.
  */
 class LocationFilter(
     /** Reject fixes older than this (ms). Set to a couple of intervals by the service so
@@ -35,16 +45,24 @@ class LocationFilter(
     private var lastAcceptedTimeMs: Long = 0L
     private var lastAccepted: Location? = null
 
+    /**
+     * Whether [loc] is worth saving. **Pure** — call [commit] once the point is actually
+     * persisted. Both the stream callback (on the `RoamlyLocCb` HandlerThread) and the fix
+     * cycle (on `Dispatchers.IO`) reach this, hence the lock.
+     */
+    @Synchronized
     fun accept(loc: Location): Boolean {
         val ageMs = System.currentTimeMillis() - loc.time
         if (ageMs > maxAgeMs) {
             Log.d(TAG, "Rejected stale fix: age=${ageMs}ms")
+            CaptureStats.bump(CaptureStats.Counter.STALE)
             return false
         }
         // Cached/repeat fix: its timestamp is at or before the last one we kept. FusedLocation
         // and getCurrentLocation can hand back a previously-seen fix; never log it twice.
         if (lastAccepted != null && loc.time <= lastAcceptedTimeMs) {
             Log.d(TAG, "Rejected duplicate/older fix: ${loc.time} <= $lastAcceptedTimeMs")
+            CaptureStats.bump(CaptureStats.Counter.DUPLICATE)
             return false
         }
         // Teleport guard: a physically impossible jump from the last accepted fix is a
@@ -56,6 +74,7 @@ class LocationFilter(
                 val speed = loc.distanceTo(prev) / dtSec
                 if (speed > MAX_PLAUSIBLE_SPEED_MPS) {
                     Log.w(TAG, "Rejected teleport: ${speed.toInt()}m/s over ${dtSec}s")
+                    CaptureStats.bump(CaptureStats.Counter.TELEPORT)
                     return false
                 }
             }
@@ -66,13 +85,24 @@ class LocationFilter(
             (loc.time - lastAcceptedTimeMs) < minTimeBetweenMs * 8 / 10
         ) {
             Log.d(TAG, "Rejected fix arriving faster than the interval")
+            CaptureStats.bump(CaptureStats.Counter.DEDUP)
             return false
         }
-        lastAcceptedTimeMs = loc.time
-        lastAccepted = loc
         return true
     }
 
+    /**
+     * Record [loc] as the point the next [accept] compares against. Called from `savePoint`
+     * *after* the row is persisted, with the location as recorded (drift-resolved), so the
+     * de-dup and teleport guards reason about what is actually in the database.
+     */
+    @Synchronized
+    fun commit(loc: Location) {
+        lastAcceptedTimeMs = loc.time
+        lastAccepted = loc
+    }
+
+    @Synchronized
     fun reset() {
         lastAcceptedTimeMs = 0L
         lastAccepted = null

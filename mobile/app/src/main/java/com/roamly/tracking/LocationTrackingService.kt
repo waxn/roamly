@@ -148,6 +148,9 @@ class LocationTrackingService : Service() {
     @Volatile private var currentConfig: TrackingConfig? = null
     @Volatile private var lastAcceptedLocation: android.location.Location? = null
     @Volatile private var lastAcceptedAtMs: Long = 0L
+    /** When a genuine fix last landed. Unlike [lastAcceptedAtMs] this is never advanced by a
+     *  dwell point, so the dwell window in `saveOrDwell` can actually expire. */
+    @Volatile private var lastRealFixAtMs: Long = 0L
     private var configJob: Job? = null
     private var watchdogJob: Job? = null
     private var syncPrefJob: Job? = null
@@ -673,12 +676,16 @@ class LocationTrackingService : Service() {
         }
         if (loc != null) {
             Log.d(TAG, "Discarded fix acc=${loc.accuracy}m > ${maxAccuracyM}m target")
+            CaptureStats.bump(CaptureStats.Counter.ACCURACY_DISCARD)
         }
+        // Measured from the last *real* fix, not the last saved point: a dwell save used to
+        // refresh the clock it is checked against, so the 10-minute ceiling never expired and
+        // a long outage produced an endless fabricated stationary track instead of an honest gap.
         val last = lastAcceptedLocation
-        if (last != null && System.currentTimeMillis() - lastAcceptedAtMs < DWELL_MAX_AGE_MS) {
+        if (last != null && System.currentTimeMillis() - lastRealFixAtMs < DWELL_MAX_AGE_MS) {
             val dwell = dwellPointFrom(last)
             if (filter.accept(dwell)) {
-                savePoint(dwell)
+                savePoint(dwell, isDwell = true)
                 Log.d(TAG, "Logged dwell point (no usable fresh fix this cycle)")
                 return true
             }
@@ -812,10 +819,18 @@ class LocationTrackingService : Service() {
         }
     }
 
-    private suspend fun savePoint(rawLoc: android.location.Location) {
+    /**
+     * Persist one point. [isDwell] marks a synthetic re-stamp of the last known position
+     * rather than a real fix — it must not refresh [lastRealFixAtMs] (or the dwell window
+     * below could never expire and an outage would fabricate a parked track forever), and it
+     * skips the drift anchor entirely: it already sits at the last position, and its
+     * synthetic `speed = 0f` would otherwise let an outage *while moving* plant a false
+     * stationary anchor.
+     */
+    private suspend fun savePoint(rawLoc: android.location.Location, isDwell: Boolean = false) {
         // Suppress stationary GPS drift: while parked, snap the wandering fix back onto a
         // stable anchor (speed 0). Pass-through when disabled or genuinely moving.
-        val loc = if (driftAnchor.enabled) driftAnchor.resolve(rawLoc) else rawLoc
+        val loc = if (driftAnchor.enabled && !isDwell) driftAnchor.resolve(rawLoc) else rawLoc
 
         val bm = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
         val battery = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).takeIf { it >= 0 }
@@ -847,8 +862,14 @@ class LocationTrackingService : Service() {
             provider  = loc.provider,
         )
         db.pointDao().insert(point)
+        // Advance the filter only now that the row exists. Doing it inside accept() meant a
+        // fix discarded by the accuracy gate below still moved the de-dup window forward,
+        // which silently blocked the dwell substitute and every fast retry after it.
+        filter.commit(loc)
+        CaptureStats.bump(if (isDwell) CaptureStats.Counter.DWELL else CaptureStats.Counter.SAVED)
         lastAcceptedLocation = loc
         lastAcceptedAtMs = System.currentTimeMillis()
+        if (!isDwell) lastRealFixAtMs = lastAcceptedAtMs
         runCatching { CsvPointLogger.appendPoint(applicationContext, point) }
             .onFailure { Log.e(TAG, "Failed to append point CSV", it) }
         Log.d(TAG, "Saved ${loc.latitude},${loc.longitude} acc=${loc.accuracy}m")
