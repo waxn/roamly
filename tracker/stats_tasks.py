@@ -37,6 +37,10 @@ SCHEDULER_CHECK_INTERVAL = 900   # 15 min between nightly sweeps
 # PostgreSQL the advisory lock below is the real single-flight guard.)
 STALE_RUNNING_S = 1800           # 30 min
 
+# How far back the nightly quality-flag scan looks. Bounded so the piggybacked scan stays
+# cheap next to the stats recompute; Diagnostics still offers an all-time run on demand.
+FLAG_SCAN_DAYS = 7
+
 # Advisory-lock namespace (first of the two int4 keys) so our per-user compute
 # locks never collide with other pg_advisory_lock users in the same database.
 _LOCK_NAMESPACE = 0x52414d4c       # 'RAML'
@@ -83,7 +87,7 @@ def compute_snapshot(user_id):
     from .views import (
         _compute_overview_from_qs, _compute_distance_from_qs,
         _compute_visits_from_qs, _compute_yearly_payload, _compute_places_payload,
-        _compute_transport_breakdown_from_qs,
+        _compute_transport_breakdown_from_qs, _flag_suspicious_locations,
     )
 
     # Resolve the row's pk without dragging the (potentially multi-MB) JSON
@@ -134,6 +138,20 @@ def compute_snapshot(user_id):
                 computed_at=timezone.now(),
             )
             logger.info(f"Stats snapshot computed for user {user_id}")
+
+            # Piggyback the quality scan on the nightly pass: it is already per-user,
+            # already single-flighted by the lock above, and trivial next to the
+            # full-history stats work. Bounded to the trailing week so it stays cheap —
+            # the all-time scan is still available on demand from Diagnostics. Kept out
+            # of the transaction-critical part above: a scan failure must not mark an
+            # otherwise-good snapshot as errored.
+            try:
+                flagged = _flag_suspicious_locations(
+                    user, window_start=timezone.now() - timedelta(days=FLAG_SCAN_DAYS))
+                if flagged:
+                    logger.info(f"Flagged {flagged} suspect point(s) for user {user_id}")
+            except Exception:
+                logger.exception(f"Quality flag scan failed for user {user_id}")
         except Exception as e:
             logger.exception(f"Stats snapshot failed for user {user_id}")
             StatsSnapshot.objects.filter(pk=snap_id).update(status='error', error=str(e)[:500])
