@@ -1250,6 +1250,12 @@ def push_location(request):
     except (TypeError, ValueError):
         return JsonResponse({"error": "Invalid latitude/longitude"}, status=400)
 
+    # Only the impossible is rejected here. Quality filtering (speed, accuracy, teleports)
+    # belongs on the device, where it is reversible and has the neighbouring fixes to reason
+    # about; the server refusing a point loses it for good.
+    if not (-90.0 <= latitude <= 90.0 and -180.0 <= longitude <= 180.0):
+        return JsonResponse({"error": "latitude/longitude out of range"}, status=400)
+
     if not timestamp:
         timestamp = timezone.now()
 
@@ -1333,6 +1339,9 @@ def push_location_batch(request):
             lat = float(raw["latitude"])
             lng = float(raw["longitude"])
         except (KeyError, TypeError, ValueError):
+            continue
+        # Impossible coordinates only — see push_location.
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
             continue
 
         if device_id not in devices:
@@ -1586,6 +1595,10 @@ def track_api(request):
                 'city': p['city'],
                 'state': p['state'],
                 'country': p['country'],
+                # Carried all the way from the query and then dropped here, which quietly
+                # made the map's suspect styling dead code — it read a field that was never
+                # in the payload, so every point looked normal.
+                'flag': p['flag'],
             }
             for p in sampled
         ]
@@ -1863,6 +1876,7 @@ def _locations_api_inner(request):
             "place_name": loc.place_name,
             "poi_name": getattr(loc, 'poi_name', None) or '',
             "custom_place": custom_place,
+            "flag": loc.flag,
         })
         # track last cursor (the last item in this page — remember results are desc)
         last_cursor_ts = loc.timestamp
@@ -2042,7 +2056,7 @@ def vector_tile(request, z, x, y):
     thinned AS (
         SELECT {thinning}
             l.location, l.id, l.speed, l.battery, l.city, l.state, l.country,
-            l.timestamp, d.device_id, COALESCE(d.name, d.device_id) AS device_name
+            l.flag, l.timestamp, d.device_id, COALESCE(d.name, d.device_id) AS device_name
         FROM tracker_location l
         JOIN tracker_device d ON l.device_id = d.id
         CROSS JOIN bounds
@@ -2057,7 +2071,7 @@ def vector_tile(request, z, x, y):
     pts AS (
         SELECT
             ST_AsMVTGeom(ST_Transform(t.location::geometry, 3857), bounds.geom, 4096, 256, true) AS geom,
-            t.id, t.speed, t.battery, t.city, t.state, t.country,
+            t.id, t.speed, t.battery, t.city, t.state, t.country, t.flag,
             EXTRACT(EPOCH FROM t.timestamp)::bigint AS ts,
             t.device_id, t.device_name
         FROM thinned t CROSS JOIN bounds
@@ -3068,6 +3082,40 @@ _FLAG_BAD_ACCURACY_M = 200.0   # fixes worse than this get flagged
 _FLAG_MAX_SPEED_MPS  = 200.0   # ~720 km/h, computed between consecutive stored points
 _FLAG_MAX_ALT_JUMP_M = 500.0   # altitude change in < 5 min triggers a flag
 
+# Isolated-spike detection. The absolute speed bar above is ~720 km/h, so the outlier that
+# actually happens — a stationary phone emitting one fix a couple of km away — sails under it
+# at ~66 m/s, and lowering the bar far enough to catch it would flag every motorway drive and
+# every flight. What separates a glitch from fast travel is that the track *comes back*: the
+# point before and the point after are near each other, and only the middle one is far away.
+_FLAG_SPIKE_SPEED_MPS = 15.0   # ~54 km/h implied, required both into and out of the point
+_FLAG_SPIKE_MIN_M     = 200.0  # ...over at least this much displacement (ignore GPS jitter)
+_FLAG_SPIKE_RETURN_M  = 200.0  # ...with the two neighbours this close to each other
+
+
+def _is_spike(prev, cur, nxt):
+    """Is `cur` an isolated out-and-back excursion between its two neighbours?
+
+    True when the track leaves and returns fast (both implied speeds high) over a real
+    distance, while `prev` and `nxt` stay close to each other. Genuine fast travel fails the
+    last clause — a plane or a motorway keeps going, it does not come back to where it was.
+    """
+    dt_in  = (cur.timestamp - prev.timestamp).total_seconds()
+    dt_out = (nxt.timestamp - cur.timestamp).total_seconds()
+    if not (0 < dt_in < 3600 and 0 < dt_out < 3600):
+        return False
+
+    d_in  = _haversine_km(prev.latitude, prev.longitude, cur.latitude, cur.longitude) * 1000
+    if d_in < _FLAG_SPIKE_MIN_M:
+        return False
+    d_out = _haversine_km(cur.latitude, cur.longitude, nxt.latitude, nxt.longitude) * 1000
+    if d_out < _FLAG_SPIKE_MIN_M:
+        return False
+    if d_in / dt_in <= _FLAG_SPIKE_SPEED_MPS or d_out / dt_out <= _FLAG_SPIKE_SPEED_MPS:
+        return False
+
+    span = _haversine_km(prev.latitude, prev.longitude, nxt.latitude, nxt.longitude) * 1000
+    return span < _FLAG_SPIKE_RETURN_M
+
 
 def _flag_suspicious_locations(user, window_start=None, window_end=None):
     """Scan a user's locations (skipping user-accepted 'ok' ones) and mark any
@@ -3085,8 +3133,19 @@ def _flag_suspicious_locations(user, window_start=None, window_end=None):
     qs.filter(flag='suspect').update(flag='', flag_reason='')
 
     to_update = []
-    prev_loc  = None
-    prev_did  = None
+
+    def finalize(loc):
+        """Commit whatever reasons accumulated on `loc` once it can gain no more."""
+        if loc is not None and loc._reasons:
+            loc.flag        = 'suspect'
+            loc.flag_reason = ','.join(loc._reasons)
+            to_update.append(loc)
+
+    # Sliding window of three consecutive same-device points. The spike rule needs the point
+    # *after* the candidate as well as the one before, so a point is only final once its
+    # successor has been read — but the stream still has to stay a stream, since a user's
+    # whole history does not fit in memory.
+    p0 = p1 = None
 
     for loc in (
         qs
@@ -3095,31 +3154,31 @@ def _flag_suspicious_locations(user, window_start=None, window_end=None):
         .only('id', 'device_id', 'accuracy', 'altitude',
               'latitude', 'longitude', 'timestamp', 'flag')
     ):
-        reasons = []
+        loc._reasons = []
 
         if loc.accuracy is not None and loc.accuracy > _FLAG_BAD_ACCURACY_M:
-            reasons.append('accuracy')
+            loc._reasons.append('accuracy')
 
-        did = loc.device_id
-        if prev_loc is not None and prev_did == did:
-            dt = (loc.timestamp - prev_loc.timestamp).total_seconds()
+        same_as_prev = p1 is not None and p1.device_id == loc.device_id
+        if same_as_prev:
+            dt = (loc.timestamp - p1.timestamp).total_seconds()
             if 0 < dt < 3600:
-                dist_m = _haversine_km(prev_loc.latitude, prev_loc.longitude,
-                                       loc.latitude,      loc.longitude) * 1000
+                dist_m = _haversine_km(p1.latitude, p1.longitude,
+                                       loc.latitude, loc.longitude) * 1000
                 if dist_m / dt > _FLAG_MAX_SPEED_MPS:
-                    reasons.append('speed')
-                if (loc.altitude is not None and prev_loc.altitude is not None
-                        and abs(loc.altitude - prev_loc.altitude) > _FLAG_MAX_ALT_JUMP_M
+                    loc._reasons.append('speed')
+                if (loc.altitude is not None and p1.altitude is not None
+                        and abs(loc.altitude - p1.altitude) > _FLAG_MAX_ALT_JUMP_M
                         and dt < 300):
-                    reasons.append('altitude')
+                    loc._reasons.append('altitude')
+            # p1 now has both neighbours, so it can be spike-checked and closed out.
+            if p0 is not None and p0.device_id == p1.device_id and _is_spike(p0, p1, loc):
+                p1._reasons.append('spike')
 
-        prev_loc = loc
-        prev_did = did
+        finalize(p1)
+        p0, p1 = p1, loc
 
-        if reasons:
-            loc.flag        = 'suspect'
-            loc.flag_reason = ','.join(reasons)
-            to_update.append(loc)
+    finalize(p1)
 
     if to_update:
         chunk = 500
