@@ -718,11 +718,16 @@ class LocationTrackingService : Service() {
         val triggerAt = SystemClock.elapsedRealtime() + delayMs
         val pi = fixPendingIntent(requestCode)
         val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms()
+        // Without exact alarms the OS throttles allow-while-idle wakes to roughly one per
+        // 9–15 min in Doze — a large, recurring gap with no other symptom. Record it so
+        // Diagnostics and the notification can name the cause instead of it being invisible.
+        CaptureStats.exactAlarmsDenied = !canExact
         try {
             if (canExact) am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
             else am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
         } catch (e: SecurityException) {
             Log.w(TAG, "Exact alarm denied, falling back to inexact", e)
+            CaptureStats.exactAlarmsDenied = true
             am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
         }
     }
@@ -957,8 +962,13 @@ class LocationTrackingService : Service() {
         // Surface the make-or-break setting right in the ongoing notification: without the
         // battery-optimization exemption, Doze produces the multi-minute gaps this whole
         // service is built to avoid.
-        val warn = if (!TrackingCoordinator.isIgnoringBatteryOptimizations(this))
+        val batteryWarn = if (!TrackingCoordinator.isIgnoringBatteryOptimizations(this))
             "\n⚠ Battery optimization on — tracking may have gaps" else ""
+        // The other silent gap source: without exact alarms the Doze cadence collapses to
+        // one wake every 9–15 minutes, and nothing else about the app looks wrong.
+        val alarmWarn = if (CaptureStats.exactAlarmsDenied)
+            "\n⚠ Exact alarms denied — Doze cadence limited to ~15 min" else ""
+        val warn = batteryWarn + alarmWarn
         if (isPaused) return "Tracking is paused$warn"
         val loc = lastAcceptedLocation ?: return "Waiting for the next fix$warn"
         val ageSec = ((System.currentTimeMillis() - lastAcceptedAtMs) / 1000L).coerceAtLeast(0)

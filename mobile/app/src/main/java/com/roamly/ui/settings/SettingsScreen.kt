@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.roamly.tracking.CaptureStats
 import com.roamly.tracking.TrackingCoordinator
 import com.roamly.ui.theme.Clay
 import com.roamly.ui.theme.ClayButton
@@ -121,6 +122,21 @@ fun SettingsScreen(
         val ok = runCatching { batteryOptLauncher.launch(direct) }.isSuccess
         if (!ok) runCatching {
             batteryOptLauncher.launch(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        }
+    }
+
+    // Android 12+ only: there is no dialog for this one, the OS just opens its per-app
+    // "Alarms & reminders" screen.
+    fun requestExactAlarms() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        runCatching {
+            context.startActivity(
+                Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+                    .setData(Uri.parse("package:${context.packageName}"))
+            )
+        }.onFailure {
+            runCatching { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                .setData(Uri.parse("package:${context.packageName}"))) }
         }
     }
 
@@ -448,6 +464,29 @@ fun SettingsScreen(
                     Icon(Icons.Rounded.Bolt, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Disable battery optimization", fontWeight = FontWeight.Bold)
+                }
+            }
+
+            // The other permission that silently wrecks the Doze cadence. Without it the OS
+            // downgrades our allow-while-idle alarms to inexact ones and fires them roughly
+            // every 9–15 min instead of every interval — indistinguishable from bad signal.
+            if (CaptureStats.exactAlarmsDenied) {
+                Spacer(Modifier.height(10.dp))
+                InfoRow(
+                    Icons.Rounded.Alarm,
+                    "Exact alarms",
+                    "Denied — Doze cadence limited to ~15 min",
+                    valueColor = MaterialTheme.colorScheme.error,
+                )
+                Spacer(Modifier.height(10.dp))
+                ClayButton(
+                    onClick = { requestExactAlarms() },
+                    gradient = listOf(Sunshine, Coral),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Rounded.Alarm, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Allow exact alarms", fontWeight = FontWeight.Bold)
                 }
             }
 
