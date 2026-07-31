@@ -86,10 +86,11 @@ class UploadWorker @AssistedInject constructor(
                 resp.code() == 404 || resp.code() == 405 ->
                     Unit  // endpoint not on this server, fall through to single-point
                 resp.code() in 400..499 -> {
-                    // Bad batch data — skip the whole batch rather than loop forever
-                    db.pointDao().markSynced(batch.map { it.id })
-                    Log.w(TAG, "Batch rejected by server (${resp.code()}), skipping")
-                    return UploadResult.Success(0)
+                    // A 4xx on the batch is usually *one* malformed point. Marking the whole
+                    // batch synced discarded its 99 innocent neighbours — permanently, once
+                    // pruneOldSynced ran — while still reporting a successful sync. Fall
+                    // through to the single-point path so only the actual offender is dropped.
+                    Log.w(TAG, "Batch rejected by server (${resp.code()}), retrying point by point")
                 }
                 else -> return UploadResult.RetriableError("Server error ${resp.code()}")
             }
@@ -99,6 +100,7 @@ class UploadWorker @AssistedInject constructor(
 
         // ── Single-point fallback ─────────────────────────────────────────────
         val syncedIds = mutableListOf<Long>()
+        var dropped = 0
         for (point in batch) {
             try {
                 val resp = api.pushLocation(point.toPayload(deviceId))
@@ -108,7 +110,12 @@ class UploadWorker @AssistedInject constructor(
                         db.pointDao().markSynced(syncedIds)
                         return UploadResult.AuthFailed("Auth failed (${resp.code()}) — check API key")
                     }
-                    resp.code() in 400..499 -> syncedIds.add(point.id)  // bad point, skip it
+                    // Genuinely unacceptable to the server — drop just this one, but count it
+                    // so Diagnostics shows the loss instead of a clean "upload succeeded".
+                    resp.code() in 400..499 -> {
+                        syncedIds.add(point.id)
+                        dropped++
+                    }
                     else -> {
                         db.pointDao().markSynced(syncedIds)
                         return UploadResult.RetriableError("Server error ${resp.code()}")
@@ -120,7 +127,11 @@ class UploadWorker @AssistedInject constructor(
             }
         }
         db.pointDao().markSynced(syncedIds)
-        return UploadResult.Success(syncedIds.size)
+        if (dropped > 0) {
+            Log.w(TAG, "$dropped point(s) rejected by the server and dropped")
+            CaptureStats.bump(CaptureStats.Counter.UPLOAD_DROPPED, dropped)
+        }
+        return UploadResult.Success(syncedIds.size - dropped)
     }
 
     private suspend fun writeSyncResult(success: Boolean, count: Int, error: String) {
