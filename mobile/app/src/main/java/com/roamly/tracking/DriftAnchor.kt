@@ -8,8 +8,19 @@ private const val TAG = "DriftAnchor"
 // Below this Doppler speed the chip is telling us we aren't actually moving, even if the
 // position estimate wanders (~1.5 mph). Aligned with LocationTrackingService.MIN_LOGGED_SPEED_MPS.
 private const val STILL_SPEED_MPS = 0.7f
-// At/above this Doppler speed we have real-movement evidence (~3.3 mph).
-private const val MOVE_SPEED_MPS = 1.5f
+// At/above this Doppler speed we have real-movement evidence (~1.8 mph). Deliberately below
+// walking pace (1.2–1.4 m/s): at the old 1.5 m/s a walk away from a parked anchor never
+// cleared the bar, so departures on foot were snapped back until the hard break 300 m later.
+private const val MOVE_SPEED_MPS = 0.8f
+// Displacement-based release, for fixes that carry no Doppler at all. PRIORITY_BALANCED
+// (which the service auto-degrades to after two misses) frequently reports no speed, and
+// without this the only escape left was HARD_BREAK_M.
+private const val DEPART_RADIUS_M = 60f
+// Consecutive fixes beyond DEPART_RADIUS_M needed to release on displacement alone.
+private const val EXIT_DISPLACE_STREAK = 3
+// A lone fix beyond HARD_BREAK_M is a glitch until the next fix corroborates it: the second
+// fix must also be far from the anchor *and* this close to the first one.
+private const val BREAK_CLUSTER_M = 150f
 // Consecutive not-moving fixes needed to drop an anchor.
 private const val ENTER_STILL_STREAK = 3
 // Candidate still-fixes must cluster within this to be one stationary spot (m).
@@ -35,9 +46,16 @@ private const val HARD_BREAK_M = 300f
  * stays ≈ 0 even as the position drifts. This class watches for a cluster of low-Doppler
  * fixes, drops an anchor at their centroid, and thereafter returns drift fixes **snapped**
  * to the anchor (speed 0) — so a parked device logs one stable point per interval instead of
- * a drift spider. It releases the anchor the moment Doppler shows real movement, or on a
- * large relocation (in case Doppler is unreliable), so a real departure passes through
- * unchanged with no clipped start.
+ * a drift spider. It releases the anchor the moment Doppler shows real movement, on sustained
+ * displacement (in case Doppler is unreliable or absent), or on a corroborated large
+ * relocation, so a real departure passes through unchanged with no clipped start.
+ *
+ * A large relocation needs **two** fixes, not one. Releasing on the first fix past
+ * [HARD_BREAK_M] meant a single glitch fix passed straight through unmodified — before any
+ * speed check — and then became the baseline for everything after it: exactly the isolated
+ * far-away, high-speed outlier that shows up next to a stationary cluster on the map. A real
+ * departure still releases, one interval later; a lone spike is snapped and never recorded
+ * off-position.
  *
  * Single-writer: [resolve]/[reset] are `@Synchronized` because both the continuous stream
  * callback and the fix-cycle coroutine reach `savePoint`.
@@ -50,6 +68,12 @@ class DriftAnchor(
     private var anchorLon: Double? = null
     private var anchorAccuracy: Float? = null
     private var moveStreak: Int = 0
+    private var departStreak: Int = 0
+
+    // A fix beyond HARD_BREAK_M awaiting corroboration from the next one.
+    private var pendingBreakLat: Double = 0.0
+    private var pendingBreakLon: Double = 0.0
+    private var hasPendingBreak: Boolean = false
 
     // Candidate stationary cluster while not yet anchored.
     private var candLat: Double = 0.0
@@ -81,18 +105,43 @@ class DriftAnchor(
                 moveStreak = 0
             }
 
-            // Hard relocation — release even if Doppler is unreliable/absent.
-            if (d > HARD_BREAK_M) {
-                Log.d(TAG, "Anchor released (relocated ${d.toInt()}m)")
-                clearAnchor()
-                return loc
+            // Sustained displacement — release even when Doppler is absent entirely.
+            if (d > DEPART_RADIUS_M) {
+                departStreak++
+                if (departStreak >= EXIT_DISPLACE_STREAK) {
+                    Log.d(TAG, "Anchor released (departed ${d.toInt()}m over $departStreak fixes)")
+                    clearAnchor()
+                    return loc
+                }
+            } else {
+                departStreak = 0
             }
+
+            // Hard relocation, but only once a second fix corroborates it — a lone far fix is
+            // a glitch, and letting it through is what puts a stray high-speed point on the map.
+            if (d > HARD_BREAK_M) {
+                val corroborated = hasPendingBreak &&
+                    distanceM(loc.latitude, loc.longitude, pendingBreakLat, pendingBreakLon) <= BREAK_CLUSTER_M
+                if (corroborated) {
+                    Log.d(TAG, "Anchor released (relocated ${d.toInt()}m, corroborated)")
+                    clearAnchor()
+                    return loc
+                }
+                pendingBreakLat = loc.latitude
+                pendingBreakLon = loc.longitude
+                hasPendingBreak = true
+                Log.d(TAG, "Suppressed uncorroborated ${d.toInt()}m jump — snapping, awaiting next fix")
+                CaptureStats.bump(CaptureStats.Counter.SPIKE_SUPPRESSED)
+                return snapped(loc)
+            }
+            hasPendingBreak = false
 
             // Still moving-streak but not yet at the exit threshold: keep the real fix so we
             // don't snap the first step of a departure back onto the anchor.
             if (dop != null && dop >= MOVE_SPEED_MPS) return loc
 
             // Drift: snap to the anchor. Nudge the anchor only for genuinely-near fixes.
+            CaptureStats.bump(CaptureStats.Counter.DRIFT_SNAP)
             if (d <= ANCHOR_UPDATE_RADIUS_M) {
                 anchorLat = aLat + (loc.latitude - aLat) * ANCHOR_EMA_ALPHA
                 anchorLon = aLon + (loc.longitude - aLon) * ANCHOR_EMA_ALPHA
@@ -124,6 +173,8 @@ class DriftAnchor(
             anchorLon = candLon
             anchorAccuracy = if (loc.hasAccuracy()) loc.accuracy else null
             moveStreak = 0
+            departStreak = 0
+            hasPendingBreak = false
             Log.d(TAG, "Anchor dropped at $candLat,$candLon")
             return snapped(loc)
         }
@@ -142,6 +193,8 @@ class DriftAnchor(
         anchorLon = null
         anchorAccuracy = null
         moveStreak = 0
+        departStreak = 0
+        hasPendingBreak = false
         stillStreak = 0
     }
 
