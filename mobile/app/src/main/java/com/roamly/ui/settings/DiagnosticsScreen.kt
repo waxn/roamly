@@ -50,6 +50,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,6 +62,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.roamly.data.api.DiagnosticsResponse
+import com.roamly.tracking.CaptureStats
 import com.roamly.ui.theme.Teal
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -80,8 +82,15 @@ fun DiagnosticsScreen(
     var diagError by remember { mutableStateOf<String?>(null) }
     var selectedHours by remember { mutableStateOf(24) }
 
+    // Read once per screen open (and after a reset). These are plain counters, not a flow —
+    // re-reading on every recomposition would be pointless churn.
+    var captureStats by remember { mutableStateOf(CaptureStats.snapshot()) }
+    var captureSince by remember { mutableStateOf(CaptureStats.since) }
+
     // Auto-load on first open
     LaunchedEffect(Unit) {
+        captureStats = CaptureStats.snapshot()
+        captureSince = CaptureStats.since
         viewModel.refreshBatteryOptimizationState()
         if (state.serverUrl.isNotBlank() && state.deviceId.isNotBlank()) {
             diagLoading = true
@@ -305,6 +314,44 @@ fun DiagnosticsScreen(
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+
+                // ── Capture health (local, on-device) ──────────────────────────
+                // The coverage/gap stats above come from the server, so they only ever show
+                // points that were captured *and* uploaded — a hole there can't distinguish
+                // "GPS gave nothing" from "we captured it and threw it away". These counters
+                // are recorded at the decision points themselves and answer exactly that.
+                ElevatedCard {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Capture health", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                            TextButton(onClick = {
+                                CaptureStats.reset()
+                                captureStats = CaptureStats.snapshot()
+                                captureSince = CaptureStats.since
+                            }) { Text("Reset") }
+                        }
+                        if (captureSince > 0L) {
+                            Text(
+                                "since ${relativeTime(captureSince)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        if (CaptureStats.exactAlarmsDenied) {
+                            Text(
+                                "⚠ Exact alarms denied — in Doze the OS throttles wakeups to " +
+                                    "roughly one every 9–15 min, which shows up as long gaps.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        captureStats.forEach { (counter, value) ->
+                            DiagRow(counter.label, value.toInt().toLocaleString())
                         }
                     }
                 }

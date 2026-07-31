@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.roamly.data.prefs.UserPreferences
+import com.roamly.tracking.CaptureStats
 import com.roamly.tracking.TrackingCoordinator
 import com.roamly.tracking.UploadWorker
 import dagger.hilt.android.HiltAndroidApp
@@ -31,6 +32,9 @@ class RoamlyApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannels()
+        // Capture counters must be readable in Diagnostics even when the tracking service
+        // has never started this process.
+        CaptureStats.init(this)
         appScope.launch {
             // Only keep background upload running when tracking is on or set to start
             // on boot. After a full Stop both are off, so we schedule nothing — there's

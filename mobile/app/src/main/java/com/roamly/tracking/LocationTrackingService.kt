@@ -161,6 +161,7 @@ class LocationTrackingService : Service() {
         super.onCreate()
         fusedClient = LocationServices.getFusedLocationProviderClient(this)
         callbackThread = HandlerThread("RoamlyLocCb").also { it.start() }
+        CaptureStats.init(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -506,7 +507,10 @@ class LocationTrackingService : Service() {
                 val accepted = loc?.takeIf { !isPaused && filter.accept(it) }
                 if (!isPaused) {
                     got = saveOrDwell(accepted, cfg.maxAccuracyM)
-                    if (!got) Log.d(TAG, "Fix cycle produced no usable point (null/filtered/imprecise)")
+                    if (!got) {
+                        Log.d(TAG, "Fix cycle produced no usable point (null/filtered/imprecise)")
+                        CaptureStats.bump(CaptureStats.Counter.CYCLE_MISS)
+                    }
                 }
             } catch (t: Throwable) {
                 Log.e(TAG, "Fix cycle failed", t)
