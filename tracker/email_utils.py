@@ -157,6 +157,28 @@ def _button(label, url):
     )
 
 
+def _ensure_unsub_token(profile):
+    """Create the recap-email unsubscribe token if missing; return it.
+
+    Generated lazily on first send (not at profile creation) so a bulk
+    migration can never hand every existing user the same default token —
+    same reasoning as Adventure.invite_token / _ensure_invite_token.
+    """
+    if not profile.email_unsub_token:
+        profile.email_unsub_token = secrets.token_urlsafe(18)[:32]
+        profile.save(update_fields=['email_unsub_token'])
+    return profile.email_unsub_token
+
+
+def _link(label, url):
+    """A plain inline text link — lighter than _button, for a secondary CTA
+    sitting alongside a boxed primary one."""
+    return (
+        f'<a href="{escape(url)}" target="_blank" style="color:{_PRIMARY};'
+        f'font-family:{_SANS};font-size:14px;font-weight:600;text-decoration:none;">{escape(label)}</a>'
+    )
+
+
 def _stat_grid(rows):
     """A responsive-ish 2-column grid of headline stat tiles.
 
@@ -259,14 +281,18 @@ def send_invite_email(to_email, trip_name, join_url, inviter_name=''):
 
 
 def send_summary_email(to_email, *, period_label, heading, narrative_paras,
-                       stat_rows, cta_label='', cta_url='', map_url=None):
+                       stat_rows, cta_label='', cta_url='', map_url=None,
+                       unsubscribe_url=None):
     """Send an AI-generated travel recap for a period.
 
     ``period_label`` is a short phrase like "day", "week", "month", "year" (used
     in the subject). ``heading`` is the card headline. ``narrative_paras`` is a
     list of plain-text paragraphs from the LLM (escaped here). ``stat_rows`` is a
     list of ``(label, value)`` headline stats rendered as tiles. ``map_url`` is
-    reserved for a future static-map image and currently unused.
+    reserved for a future static-map image and currently unused. ``unsubscribe_url``,
+    when given, renders a muted "manage email preferences" line — deliberately
+    scoped to this recap email rather than the shared _shell() footer, since
+    verification/reset/invite emails aren't opt-out recurring mail.
     """
     subject = f'Your Roamly {period_label} recap'
     paras = [p for p in (narrative_paras or []) if p and p.strip()]
@@ -274,6 +300,12 @@ def send_summary_email(to_email, *, period_label, heading, narrative_paras,
     body += _stat_grid(stat_rows)
     if cta_label and cta_url:
         body += _button(cta_label, cta_url)
+    if unsubscribe_url:
+        body += (
+            f'<p style="margin:18px 0 0 0;font-family:{_SANS};font-size:12px;color:{_DIM};">'
+            f'Don\'t want these? <a href="{escape(unsubscribe_url)}" target="_blank" '
+            f'style="color:{_DIM};text-decoration:underline;">Manage email preferences</a></p>'
+        )
     preheader = paras[0][:120] if paras else f'Your Roamly {period_label} recap'
     text_lines = [f'Your Roamly {period_label} recap', '']
     text_lines += paras
@@ -282,6 +314,8 @@ def send_summary_email(to_email, *, period_label, heading, narrative_paras,
         text_lines += [f'{label}: {value}' for label, value in stat_rows]
     if cta_label and cta_url:
         text_lines += ['', f'{cta_label}: {cta_url}']
+    if unsubscribe_url:
+        text_lines += ['', f'Manage email preferences: {unsubscribe_url}']
     text = '\n'.join(text_lines)
     html = _shell(heading, body, preheader=preheader)
     return _send(subject, text, html, to_email)

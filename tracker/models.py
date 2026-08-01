@@ -832,6 +832,11 @@ class UserProfile(models.Model):
     summary_last_weekly = models.DateTimeField(null=True, blank=True)
     summary_last_monthly = models.DateTimeField(null=True, blank=True)
     summary_last_yearly = models.DateTimeField(null=True, blank=True)
+    # Lazily-generated credential for the unauthenticated email-unsubscribe
+    # link (see email_unsubscribe_view). null=True (not '') so multiple
+    # profiles without a token yet don't collide on the unique constraint,
+    # same trick as Adventure.invite_token.
+    email_unsub_token = models.CharField(max_length=32, unique=True, null=True, blank=True)
 
     # Roads: snap-to-road rendering + tracking-gap filling (see tracker/roads.py).
     # Provider is server-side rather than a localStorage map pref because the

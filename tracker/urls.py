@@ -39,6 +39,7 @@ urlpatterns = [
     path('totp/email/', views.totp_email_fallback, name='totp_email_fallback'),
     path('reset/', views.password_reset_request, name='password_reset'),
     path('reset/<uidb64>/<token>/', views.password_reset_confirm, name='password_reset_confirm'),
+    path('email/unsubscribe/<str:token>/', views.email_unsubscribe_view, name='email_unsubscribe'),
 
     # Location API
     path('api/push/', views.push_location, name='push_location'),

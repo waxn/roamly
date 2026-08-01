@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email preferences — Roamly</title>
+    {% load static %}
+    <link rel="icon" type="image/x-icon" href="{% static 'tracker/roamlymark.ico' %}">
+    <meta name="theme-color" content="#14160f">
+    <meta name="robots" content="noindex, nofollow">
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}">
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/fraunces-latin-var.woff2' %}">
+    <style>
+        @font-face{font-family:'Fraunces';font-style:normal;font-weight:300 700;font-display:swap;src:url("{% static 'tracker/fonts/fraunces-latin-var.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:400;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:600;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-600.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:700;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-700.woff2' %}") format('woff2')}
+        :root {
+            --bg: #14160f; --bg-card: #1b1e15; --bg-elevated: #23271c; --bg-input: #1e2118;
+            --border: #30352a; --border-bright: rgba(232,118,61,0.55);
+            --text: #e9e5d8; --text-muted: #a9a794; --text-dim: #706e5d;
+            --primary: #e8763d; --primary-soft: rgba(232,118,61,0.13); --primary-hover: #f2884e;
+            --success: #7fae6f;
+            --font-display: 'Fraunces', Georgia, serif;
+            --font-body: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: var(--font-body); background: var(--bg); color: var(--text); min-height: 100vh; display: flex; align-items: center; justify-content: center; -webkit-font-smoothing: antialiased; }
+        .card { width: 100%; max-width: 440px; margin: 1rem; background: var(--bg-card); border: 1px solid var(--border); box-shadow: 0 2px 8px rgba(0,0,0,0.3); overflow: hidden; }
+        .card-body { padding: 2rem 2.25rem; }
+        .logo-wrap { display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-bottom: 1.25rem; }
+        .logo-wrap img { height: 34px; }
+        .logo-word { font-family: var(--font-display); font-weight: 600; font-size: 1.4rem; color: var(--text); }
+        .heading { font-family: var(--font-display); font-size: 1.4rem; font-weight: 700; text-align: center; line-height: 1.15; margin-bottom: 0.5rem; }
+        .lede { text-align: center; color: var(--text-muted); font-size: 0.9rem; line-height: 1.5; margin-bottom: 1.5rem; }
+        .banner { border: 1px solid var(--border-bright); background: var(--primary-soft); color: var(--text); font-size: 0.85rem; padding: 0.7rem 0.9rem; margin-bottom: 1.5rem; text-align: center; }
+        .banner.saved { border-color: rgba(127,174,111,0.5); background: rgba(127,174,111,0.1); }
+        .field { display: flex; align-items: center; gap: 0.6rem; padding: 0.75rem 0.1rem; border-bottom: 1px solid var(--border); }
+        .field:last-of-type { border-bottom: none; }
+        .field input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); flex-shrink: 0; }
+        .field label { font-size: 0.92rem; color: var(--text); cursor: pointer; }
+        .field .sub { display: block; font-size: 0.78rem; color: var(--text-dim); margin-top: 0.1rem; }
+        .btn { display: block; width: 100%; padding: 0.8rem; text-align: center; text-decoration: none; font-size: 0.9rem; font-weight: 700; border: 1px solid var(--border); color: var(--text); background: var(--bg-input); margin-top: 1.5rem; cursor: pointer; font-family: inherit; }
+        .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+        .btn.primary:hover { background: var(--primary-hover); }
+        .btn:hover { border-color: var(--border-bright); }
+        .back-link { display: block; text-align: center; margin-top: 1rem; color: var(--text-dim); font-size: 0.8rem; text-decoration: none; }
+        .back-link:hover { color: var(--text-muted); }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="card-body">
+            <div class="logo-wrap"><img src="{% static 'tracker/roamlymark.svg' %}" alt=""><span class="logo-word">Roamly</span></div>
+            {% if invalid %}
+            <div class="heading">Link not found</div>
+            <p class="lede">This email preferences link is invalid or has expired. If you're still receiving unwanted emails, sign in and change them from Settings instead.</p>
+            <a class="btn" href="{% url 'tracker:login' %}">go to Roamly</a>
+            {% else %}
+            <div class="heading">Email preferences</div>
+            <p class="lede">Choose which Roamly recap emails you'd like to receive at {{ profile.user.email }}.</p>
+            {% if one_click_period %}
+            <div class="banner">You've been unsubscribed from {{ one_click_period }} recaps.</div>
+            {% elif saved %}
+            <div class="banner saved">Your preferences have been saved.</div>
+            {% endif %}
+            <form method="post">
+                {% csrf_token %}
+                <div class="field">
+                    <input type="checkbox" id="summary_daily" name="summary_daily" {% if profile.summary_daily %}checked{% endif %}>
+                    <label for="summary_daily">Daily recap<span class="sub">Sent each morning for the day before</span></label>
+                </div>
+                <div class="field">
+                    <input type="checkbox" id="summary_weekly" name="summary_weekly" {% if profile.summary_weekly %}checked{% endif %}>
+                    <label for="summary_weekly">Weekly recap<span class="sub">Each Monday, for the week before</span></label>
+                </div>
+                <div class="field">
+                    <input type="checkbox" id="summary_monthly" name="summary_monthly" {% if profile.summary_monthly %}checked{% endif %}>
+                    <label for="summary_monthly">Monthly recap<span class="sub">1st of the month</span></label>
+                </div>
+                <div class="field">
+                    <input type="checkbox" id="summary_yearly" name="summary_yearly" {% if profile.summary_yearly %}checked{% endif %}>
+                    <label for="summary_yearly">Yearly recap<span class="sub">Jan 1st, your year in review</span></label>
+                </div>
+                <button type="submit" class="btn primary">Save preferences</button>
+            </form>
+            <a class="back-link" href="{% url 'tracker:settings' %}">Manage in account settings instead →</a>
+            {% endif %}
+        </div>
+    </div>
+    {% if CUSTOM_JS_SNIPPET %}{{ CUSTOM_JS_SNIPPET|safe }}{% endif %}
+</body>
+</html>

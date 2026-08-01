@@ -20,6 +20,7 @@ import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.db import connection, close_old_connections
 from django.db.models import Q
 from django.utils import timezone
@@ -195,12 +196,16 @@ def _send_period(profile, period, allow_empty=False):
 
     narrative = _narrative(profile, label, summary)
 
+    token = email_utils._ensure_unsub_token(profile)
+    unsubscribe_url = f"{settings.SITE_URL}/email/unsubscribe/{token}/?period={period}"
+
     email_utils.send_summary_email(
         user.email,
         period_label=label,
         heading=f"Your {label} on Roamly",
         narrative_paras=narrative,
         stat_rows=stat_rows,
+        unsubscribe_url=unsubscribe_url,
     )
     logger.info("Summary (%s) email sent to user %s", period, user.id)
     return 'sent'

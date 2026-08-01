@@ -1038,6 +1038,40 @@ def profile_ai_config_api(request):
     return JsonResponse({'ok': True, 'configured': profile.ai_configured})
 
 
+_SUMMARY_PERIODS = ('daily', 'weekly', 'monthly', 'yearly')
+
+
+@require_http_methods(["GET", "POST"])
+def email_unsubscribe_view(request, token):
+    """Unauthenticated recap-email preferences page. The token is the
+    credential (same trust model as the password-reset link / trip-invite
+    join link) so a logged-out recipient can act on it straight from their
+    inbox. ?period=<cadence> on a GET one-click-unsubscribes from just that
+    cadence before rendering the full form for further changes."""
+    profile = UserProfile.objects.filter(email_unsub_token=token).select_related('user').first()
+    if not profile:
+        return render(request, 'tracker/email_unsubscribe.html', {'invalid': True}, status=404)
+
+    saved = False
+    if request.method == 'POST':
+        for period in _SUMMARY_PERIODS:
+            setattr(profile, f'summary_{period}', bool(request.POST.get(f'summary_{period}')))
+        profile.save(update_fields=[f'summary_{p}' for p in _SUMMARY_PERIODS])
+        saved = True
+    else:
+        one_click = request.GET.get('period')
+        if one_click in _SUMMARY_PERIODS and getattr(profile, f'summary_{one_click}'):
+            setattr(profile, f'summary_{one_click}', False)
+            profile.save(update_fields=[f'summary_{one_click}'])
+            saved = True
+
+    return render(request, 'tracker/email_unsubscribe.html', {
+        'profile': profile,
+        'saved': saved,
+        'one_click_period': request.GET.get('period') if request.method == 'GET' else None,
+    })
+
+
 @login_required
 def profile_summary_email_api(request):
     """GET: the user's summary-email cadence flags + whether the feature is
