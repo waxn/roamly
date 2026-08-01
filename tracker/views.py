@@ -3225,6 +3225,41 @@ _FLAG_SPIKE_SPEED_MPS = 15.0   # ~54 km/h implied, required both into and out of
 _FLAG_SPIKE_MIN_M     = 200.0  # ...over at least this much displacement (ignore GPS jitter)
 _FLAG_SPIKE_RETURN_M  = 200.0  # ...with the two neighbours this close to each other
 
+# Stationary-drift detection. Some GPS chips, indoors, emit a wandering position *and* a
+# garbage Doppler velocity while the device is parked — 34-48 mph reported from a phone that
+# never left the house. DriftAnchor on the device can't suppress it (it assumes a stationary
+# phone reports ~0 Doppler, and this chip reports the opposite), and `_is_spike` can't catch
+# it either — the point isn't far from its neighbours, it's clustered *with* them. The tell is
+# that the reported speed is far more than the tiny distance actually covered can support.
+_FLAG_JITTER_SPEED_MPS = 8.0     # only bother when the reported speed clearly implies travel (~18 mph)
+_FLAG_JITTER_MAX_DISP_M = 100.0  # ...while the point stayed within this of BOTH neighbours
+_FLAG_JITTER_RATIO      = 0.4    # ...and moved under this fraction of what speed×dt implies
+
+
+def _is_jitter(prev, cur, nxt):
+    """Is `cur` a stationary-drift point — a high reported speed with almost no movement?
+
+    True when the point's own reported speed is fast, yet it sits close to both neighbours and
+    covered far less ground on each side than that speed over the elapsed time would require.
+    Genuine travel fails it twice over: at any real speed the neighbours are hundreds of metres
+    away, and the distance covered matches the speed. The absolute-distance gate is what keeps
+    a lone Doppler glitch mid-journey (where the track is still visibly moving through) from
+    being flagged — only a point clustered with both neighbours qualifies.
+    """
+    speed = cur.speed
+    if speed is None or speed < _FLAG_JITTER_SPEED_MPS:
+        return False
+    dt_in  = (cur.timestamp - prev.timestamp).total_seconds()
+    dt_out = (nxt.timestamp - cur.timestamp).total_seconds()
+    if not (0 < dt_in < 3600 and 0 < dt_out < 3600):
+        return False
+    d_in  = _haversine_km(prev.latitude, prev.longitude, cur.latitude, cur.longitude) * 1000
+    d_out = _haversine_km(cur.latitude, cur.longitude, nxt.latitude, nxt.longitude) * 1000
+    if d_in >= _FLAG_JITTER_MAX_DISP_M or d_out >= _FLAG_JITTER_MAX_DISP_M:
+        return False
+    return (d_in < _FLAG_JITTER_RATIO * speed * dt_in and
+            d_out < _FLAG_JITTER_RATIO * speed * dt_out)
+
 
 def _is_spike(prev, cur, nxt):
     """Is `cur` an isolated out-and-back excursion between its two neighbours?
@@ -3285,7 +3320,7 @@ def _flag_suspicious_locations(user, window_start=None, window_end=None):
         qs
         .select_related('device')
         .order_by('device_id', 'timestamp')
-        .only('id', 'device_id', 'accuracy', 'altitude',
+        .only('id', 'device_id', 'accuracy', 'altitude', 'speed',
               'latitude', 'longitude', 'timestamp', 'flag')
     ):
         loc._reasons = []
@@ -3305,9 +3340,13 @@ def _flag_suspicious_locations(user, window_start=None, window_end=None):
                         and abs(loc.altitude - p1.altitude) > _FLAG_MAX_ALT_JUMP_M
                         and dt < 300):
                     loc._reasons.append('altitude')
-            # p1 now has both neighbours, so it can be spike-checked and closed out.
-            if p0 is not None and p0.device_id == p1.device_id and _is_spike(p0, p1, loc):
-                p1._reasons.append('spike')
+            # p1 now has both neighbours, so the checks that need a point on each side can
+            # run and p1 can be closed out.
+            if p0 is not None and p0.device_id == p1.device_id:
+                if _is_spike(p0, p1, loc):
+                    p1._reasons.append('spike')
+                if _is_jitter(p0, p1, loc):
+                    p1._reasons.append('jitter')
 
         finalize(p1)
         p0, p1 = p1, loc
