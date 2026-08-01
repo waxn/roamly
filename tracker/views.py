@@ -1584,7 +1584,7 @@ def track_api(request):
     # Group by device, then decimate each device's track independently
     devices_map = {}
     for loc in qs.values('id', 'latitude', 'longitude', 'timestamp', 'speed', 'city', 'state', 'country',
-                          'flag', 'device__device_id', 'device__name'):
+                          'flag', 'device__device_id', 'device__name').iterator(chunk_size=5000):
         did = loc['device__device_id']
         if did not in devices_map:
             devices_map[did] = {
