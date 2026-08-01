@@ -938,6 +938,18 @@ window.addEventListener('resize', () => {
     }, 200);
 });
 
+// Deep-link support (e.g. from a summary email's "View in stats" link):
+// ?start=YYYY-MM-DD&end=YYYY-MM-DD initializes the range picker before the
+// first load. Mirrors map-core.js's ?start=&end= handling.
+(function() {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get('start') && p.get('end')) {
+        document.getElementById('stats-start').value = p.get('start');
+        document.getElementById('stats-end').value = p.get('end');
+        document.getElementById('stats-range').value = 'all';
+    }
+})();
+
 loadStats();
 loadYearlyOverview();
 loadHeatmap();
