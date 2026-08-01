@@ -211,6 +211,36 @@ def _stat_grid(rows):
     )
 
 
+def _ranked_list(heading, rows):
+    """A numbered list section — e.g. top 5 cities/places by time spent.
+
+    ``rows`` is a list of ``(label, detail)`` pairs — ``label`` the place name,
+    ``detail`` a short right-aligned figure (e.g. "3h 20m"). Both escaped.
+    """
+    if not rows:
+        return ""
+    items = []
+    last = len(rows) - 1
+    for i, (label, detail) in enumerate(rows):
+        border = "none" if i == last else f"1px solid {_BORDER}"
+        items.append(
+            f'<tr>'
+            f'<td style="padding:8px 0;border-bottom:{border};font-family:{_MONO};font-size:13px;'
+            f'color:{_DIM};width:20px;" valign="top">{i + 1}</td>'
+            f'<td style="padding:8px 8px 8px 4px;border-bottom:{border};font-family:{_SANS};'
+            f'font-size:14px;color:{_TEXT};" valign="top">{escape(str(label))}</td>'
+            f'<td style="padding:8px 0;border-bottom:{border};font-family:{_MONO};font-size:12px;'
+            f'color:{_MUTED};text-align:right;white-space:nowrap;" valign="top">{escape(str(detail))}</td>'
+            f'</tr>'
+        )
+    return (
+        f'<div style="margin:22px 0 6px 0;font-family:{_SANS};font-size:12px;font-weight:700;'
+        f'letter-spacing:0.04em;text-transform:uppercase;color:{_MUTED};">{escape(heading)}</div>'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        'style="border-collapse:collapse;">' + ''.join(items) + '</table>'
+    )
+
+
 def _send(subject, text_body, html_body, to_email, reply_to=None):
     """Send one multipart email, swallowing errors (returns True on success).
 
@@ -281,25 +311,34 @@ def send_invite_email(to_email, trip_name, join_url, inviter_name=''):
 
 
 def send_summary_email(to_email, *, period_label, heading, narrative_paras,
-                       stat_rows, cta_label='', cta_url='', map_url=None,
-                       unsubscribe_url=None):
+                       stat_rows, top_cities=None, top_places=None,
+                       map_url=None, stats_url=None, unsubscribe_url=None):
     """Send an AI-generated travel recap for a period.
 
     ``period_label`` is a short phrase like "day", "week", "month", "year" (used
     in the subject). ``heading`` is the card headline. ``narrative_paras`` is a
     list of plain-text paragraphs from the LLM (escaped here). ``stat_rows`` is a
-    list of ``(label, value)`` headline stats rendered as tiles. ``map_url`` is
-    reserved for a future static-map image and currently unused. ``unsubscribe_url``,
-    when given, renders a muted "manage email preferences" line — deliberately
-    scoped to this recap email rather than the shared _shell() footer, since
-    verification/reset/invite emails aren't opt-out recurring mail.
+    list of ``(label, value)`` headline stats rendered as tiles. ``top_cities``/
+    ``top_places`` are ``(label, detail)`` lists rendered as ranked sections.
+    ``map_url``/``stats_url``, when given, deep-link into the app pre-filtered to
+    this period (map gets the boxed primary button, stats a lighter text link).
+    ``unsubscribe_url``, when given, renders a muted "manage email preferences"
+    line — deliberately scoped to this recap email rather than the shared
+    _shell() footer, since verification/reset/invite emails aren't opt-out mail.
     """
     subject = f'Your Roamly {period_label} recap'
     paras = [p for p in (narrative_paras or []) if p and p.strip()]
     body = ''.join(_p(escape(p.strip())) for p in paras)
     body += _stat_grid(stat_rows)
-    if cta_label and cta_url:
-        body += _button(cta_label, cta_url)
+    body += _ranked_list('Top cities', top_cities or [])
+    body += _ranked_list('Top places', top_places or [])
+    if map_url:
+        body += _button('View on map', map_url)
+    if stats_url:
+        body += (
+            f'<p style="margin:{"-10px" if map_url else "18px"} 0 4px 0;">'
+            f'{_link("View in Stats →", stats_url)}</p>'
+        )
     if unsubscribe_url:
         body += (
             f'<p style="margin:18px 0 0 0;font-family:{_SANS};font-size:12px;color:{_DIM};">'
@@ -312,8 +351,14 @@ def send_summary_email(to_email, *, period_label, heading, narrative_paras,
     if stat_rows:
         text_lines.append('')
         text_lines += [f'{label}: {value}' for label, value in stat_rows]
-    if cta_label and cta_url:
-        text_lines += ['', f'{cta_label}: {cta_url}']
+    if top_cities:
+        text_lines += ['', 'Top cities:'] + [f'  {label} — {detail}' for label, detail in top_cities]
+    if top_places:
+        text_lines += ['', 'Top places:'] + [f'  {label} — {detail}' for label, detail in top_places]
+    if map_url:
+        text_lines += ['', f'View on map: {map_url}']
+    if stats_url:
+        text_lines += ['', f'View in Stats: {stats_url}']
     if unsubscribe_url:
         text_lines += ['', f'Manage email preferences: {unsubscribe_url}']
     text = '\n'.join(text_lines)

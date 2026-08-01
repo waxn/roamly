@@ -48,18 +48,116 @@ def _format_distance(km, unit):
         return km * KM_TO_MI, 'mi'
     return km, 'km'
 
-# Dedicated summarisation prompt — intentionally NOT the user's Ask system prompt
-# (that one is tuned for interactive Q&A over tools, not for writing a recap).
-SUMMARY_SYSTEM_PROMPT = (
-    "You are a warm, concise travel journal writer for Roamly, a personal "
-    "location-history app. Given a set of statistics about where the user went "
-    "during a period, write a short, friendly recap addressed to them in the "
-    "second person (\"you\"). Keep it to 2-3 short paragraphs. Do NOT use "
-    "headings, bullet points, or any markdown formatting. Refer to the specific "
-    "numbers you are given (distance, places, active days). Make it feel personal "
-    "and encouraging. If the activity was low or zero, keep it light and gentle "
-    "rather than exaggerating. Never invent place names, cities, or facts that "
-    "are not present in the data."
+
+def _human_duration(seconds):
+    seconds = max(int(seconds), 0)
+    hours, rem = divmod(seconds, 3600)
+    minutes = rem // 60
+    if hours and minutes:
+        return f"{hours}h {minutes}m"
+    if hours:
+        return f"{hours}h"
+    return f"{minutes}m"
+
+
+def _top_cities(qs, limit=5):
+    """Top ``limit`` cities in ``qs`` by time spent, as ``(label, duration)`` rows."""
+    from .views import _compute_visits_from_qs
+    data = _compute_visits_from_qs(qs.exclude(city=''))
+    ranked = sorted(data['cities'], key=lambda c: c['time_spent'], reverse=True)[:limit]
+    rows = []
+    for c in ranked:
+        label = f"{c['city']}, {c['state']}" if c['state'] else c['city']
+        rows.append((label, _human_duration(c['time_spent'])))
+    return rows
+
+
+def _period_visits(user, win_start, win_end):
+    """This period's Visit rows (all the user's devices), chronological.
+
+    Visit is a small, precomputed, per-device-indexed table — cheap to
+    range-scan directly rather than re-deriving stays from raw Location.
+    """
+    from .models import Visit
+    return list(
+        Visit.objects.filter(
+            device__user=user, start_time__lt=win_end, end_time__gt=win_start,
+        ).select_related('poi').order_by('start_time')
+    )
+
+
+def _top_places(visits, limit=5):
+    """Top ``limit`` distinct stay locations by total dwell time, as
+    ``(label, duration)`` rows.
+
+    Groups by POI when a visit matched one, else by lat/lon rounded to 3
+    decimals (~111m grid — the same precision the fog-of-war cells use), so
+    repeat stays at one spot collapse into a single ranked entry.
+    """
+    groups = {}
+    for v in visits:
+        if v.poi_id:
+            key = ('poi', v.poi_id)
+            label = v.poi.name
+        else:
+            key = ('geo', round(v.latitude, 3), round(v.longitude, 3))
+            label = v.place_name or v.city or 'Unknown location'
+        seconds = (v.end_time - v.start_time).total_seconds()
+        g = groups.setdefault(key, {'label': label, 'seconds': 0.0})
+        g['seconds'] += seconds
+    ranked = sorted(groups.values(), key=lambda g: g['seconds'], reverse=True)[:limit]
+    return [(g['label'], _human_duration(g['seconds'])) for g in ranked]
+
+
+def _stay_timeline(visits):
+    """Ordered ``"HH:MM–HH:MM place"`` lines for the daily narrative prompt —
+    the chronological story an AI can actually narrate ("you went to X, then
+    spent the afternoon near Y"), rather than flat aggregate stats."""
+    lines = []
+    for v in visits:
+        start_local = timezone.localtime(v.start_time)
+        end_local = timezone.localtime(v.end_time)
+        where = f"{v.city}, {v.state}" if v.state else v.city
+        place = v.poi.name if v.poi_id else v.place_name
+        if place and place != where:
+            label = f"{where} ({place})" if where else place
+        else:
+            label = where or place or 'Unknown location'
+        lines.append(f"{start_local:%H:%M}–{end_local:%H:%M} {label}")
+    return lines
+
+# Dedicated summarisation prompts — intentionally NOT the user's Ask system
+# prompt (that one is tuned for interactive Q&A over tools, not for writing a
+# recap). Two variants: daily gets the actual chronological stay timeline and
+# is told to narrate it directly ("you went to X, then Y"); weekly/monthly/
+# yearly would make an unreadable blow-by-blow out of a timeline that long, so
+# they're grounded in the top-cities/top-places breakdown instead and write
+# thematically. Both demand something short and concrete over the previous
+# generic multi-paragraph recap.
+SUMMARY_SYSTEM_PROMPT_DAILY = (
+    "You are a concise travel journal writer for Roamly, a personal "
+    "location-history app. You are given the user's chronological stay "
+    "timeline for one day (place + time range, in order) plus headline "
+    "stats. Write a short recap addressed to them in the second person "
+    "(\"you\") that narrates the actual sequence of the day — e.g. \"you "
+    "went to X in the morning, then spent the afternoon near Y\". ONE short "
+    "paragraph, 2-3 sentences. No headings, bullet points, or markdown. "
+    "Reference only the places and times you were given — never invent a "
+    "place name, time, or fact not present in the data. If the day was "
+    "quiet or the timeline is empty, say so briefly and gently rather than "
+    "padding it out."
+)
+SUMMARY_SYSTEM_PROMPT_PERIOD = (
+    "You are a concise travel journal writer for Roamly, a personal "
+    "location-history app. You are given headline stats for a completed "
+    "week/month/year plus a ranked breakdown of the cities and places the "
+    "user spent the most time in. Write a short recap addressed to them in "
+    "the second person (\"you\") that names the actual top places — e.g. "
+    "\"you mostly stayed around X, with a trip to Y\". ONE short paragraph, "
+    "2-3 sentences. No headings, bullet points, or markdown, and no vague "
+    "summary that could apply to anyone — ground every claim in the given "
+    "data. Never invent a place name or fact not present in the data. If "
+    "activity was low, keep it light and gentle rather than exaggerating."
 )
 
 
@@ -135,20 +233,36 @@ def _user_email_lock(user_id):
 
 # ── One period → one email ──────────────────────────────────────────────────
 
-def _narrative(profile, label, summary):
+def _narrative(profile, period, label, summary, timeline=None):
     """Ask the user's LLM for a recap; returns a list of paragraph strings.
 
-    Best-effort — any provider failure falls back to a single generic line so the
-    stats email still goes out.
+    ``daily`` gets the chronological ``timeline`` (a list of "HH:MM–HH:MM
+    place" lines) and is asked to narrate the day's actual sequence;
+    weekly/monthly/yearly are grounded in ``summary``'s top_cities/top_places
+    breakdown instead — a full timeline over a month would be unreadable.
+    Best-effort — any provider failure falls back to a single generic line so
+    the stats email still goes out.
     """
     from . import ai_tasks
     fallback = [f"Here's a look back at your {label} on Roamly."]
+    if period == 'daily' and timeline:
+        system_prompt = SUMMARY_SYSTEM_PROMPT_DAILY
+        user_content = (
+            f"My chronological stay timeline for {summary['from']} (24h local time):\n"
+            + "\n".join(timeline)
+            + f"\n\nHeadline stats: {json.dumps(summary)}\n\nWrite my recap."
+        )
+    else:
+        system_prompt = SUMMARY_SYSTEM_PROMPT_PERIOD
+        user_content = (
+            f"My Roamly location stats for the past {label}, including a ranked "
+            f"breakdown of where I spent the most time:\n\n{json.dumps(summary)}"
+            f"\n\nWrite my recap."
+        )
     try:
         data = ai_tasks._provider_chat(profile, [
-            {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
-            {"role": "user", "content":
-                f"Here are my Roamly location stats for the past {label}. "
-                f"Write my recap.\n\n{json.dumps(summary)}"},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
         ])
     except ai_tasks.AIProviderError as exc:
         logger.warning("Summary narrative failed for user %s: %s", profile.user_id, exc)
@@ -183,6 +297,10 @@ def _send_period(profile, period, allow_empty=False):
     active_days = sum(1 for d in dist['distances'] if d > 0)
     dist_value, dist_unit = _format_distance(dist['total_km'], profile.distance_unit)
 
+    visits = _period_visits(user, win_start, win_end)
+    top_cities = _top_cities(qs)
+    top_places = _top_places(visits)
+
     summary = {
         "period": label,
         "from": win_start.strftime('%Y-%m-%d'),
@@ -194,6 +312,8 @@ def _send_period(profile, period, allow_empty=False):
         "states": overview['states'],
         "countries": overview['countries'],
         "active_days": active_days,
+        "top_cities": [{"name": name, "time": detail} for name, detail in top_cities],
+        "top_places": [{"name": name, "time": detail} for name, detail in top_places],
     }
 
     stat_rows = [
@@ -205,10 +325,15 @@ def _send_period(profile, period, allow_empty=False):
     if overview['states']:
         stat_rows.append(("States / regions", str(overview['states'])))
 
-    narrative = _narrative(profile, label, summary)
+    timeline = _stay_timeline(visits) if period == 'daily' else None
+    narrative = _narrative(profile, period, label, summary, timeline=timeline)
 
     token = email_utils._ensure_unsub_token(profile)
     unsubscribe_url = f"{settings.SITE_URL}/email/unsubscribe/{token}/?period={period}"
+    date_qs = (f"start={win_start.strftime('%Y-%m-%d')}"
+               f"&end={(win_end - timedelta(days=1)).strftime('%Y-%m-%d')}")
+    map_url = f"{settings.SITE_URL}/map/?{date_qs}"
+    stats_url = f"{settings.SITE_URL}/stats/?{date_qs}"
 
     email_utils.send_summary_email(
         user.email,
@@ -216,6 +341,10 @@ def _send_period(profile, period, allow_empty=False):
         heading=f"Your {label} on Roamly",
         narrative_paras=narrative,
         stat_rows=stat_rows,
+        top_cities=top_cities,
+        top_places=top_places,
+        map_url=map_url,
+        stats_url=stats_url,
         unsubscribe_url=unsubscribe_url,
     )
     logger.info("Summary (%s) email sent to user %s", period, user.id)
