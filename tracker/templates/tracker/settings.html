@@ -2106,11 +2106,19 @@ function saveTheme(theme) {
 }
 document.getElementById('theme-select').value = localStorage.getItem('roamly_theme') || 'dark';
 
-// Speed unit preference
+// Speed unit preference — localStorage stays the source of truth for the map/
+// stats pages; the POST here is just a mirror so the summary-email background
+// job (which has no browser to read localStorage from) can honor it too.
 function saveSpeedUnit(unit) {
     localStorage.setItem('roamly_speed_unit', unit);
+    fetch('/api/profile/distance-unit/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+        body: JSON.stringify({ distance_unit: unit }),
+    }).catch(() => {});
 }
 document.getElementById('speed-unit').value = localStorage.getItem('roamly_speed_unit') || 'kmh';
+saveSpeedUnit(document.getElementById('speed-unit').value); // sync current pref to the server on load too, not just on change
 
 // Generic preference save + init
 function savePref(key, value) {

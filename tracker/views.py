@@ -1137,6 +1137,28 @@ def profile_mapbox_token_api(request):
 
 
 @login_required
+def profile_distance_unit_api(request):
+    """Get or set the requesting user's distance-unit preference ('kmh'/'mph').
+
+    Server-side mirror of the roamly_speed_unit localStorage key — the map and
+    stats pages keep reading localStorage directly (no round trip needed for
+    those), this endpoint exists so the summary-email background job, which
+    has no browser to ask, can still honor the user's unit."""
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body or '{}')
+        except (json.JSONDecodeError, ValueError):
+            return JsonResponse({'error': 'Invalid request.'}, status=400)
+        unit = data.get('distance_unit')
+        if unit in ('kmh', 'mph'):
+            profile.distance_unit = unit
+            profile.save(update_fields=['distance_unit'])
+        return JsonResponse({'ok': True, 'distance_unit': profile.distance_unit})
+    return JsonResponse({'distance_unit': profile.distance_unit})
+
+
+@login_required
 def totp_status_api(request):
     """Whether TOTP is enabled + remaining unused backup codes, so the
     settings page can repaint after setup/regenerate without a full reload."""

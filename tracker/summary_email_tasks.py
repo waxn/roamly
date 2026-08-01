@@ -39,6 +39,15 @@ _LOCK_NAMESPACE = 0x52414d53       # 'RAMS'
 
 PERIODS = ('daily', 'weekly', 'monthly', 'yearly')
 
+KM_TO_MI = 0.621371
+
+
+def _format_distance(km, unit):
+    """(value, unit_label) for a km figure in the profile's preferred unit."""
+    if unit == 'mph':
+        return km * KM_TO_MI, 'mi'
+    return km, 'km'
+
 # Dedicated summarisation prompt — intentionally NOT the user's Ask system prompt
 # (that one is tuned for interactive Q&A over tools, not for writing a recap).
 SUMMARY_SYSTEM_PROMPT = (
@@ -172,12 +181,14 @@ def _send_period(profile, period, allow_empty=False):
 
     dist = _compute_distance_from_qs(qs, 'daily')
     active_days = sum(1 for d in dist['distances'] if d > 0)
+    dist_value, dist_unit = _format_distance(dist['total_km'], profile.distance_unit)
 
     summary = {
         "period": label,
         "from": win_start.strftime('%Y-%m-%d'),
         "to": (win_end - timedelta(days=1)).strftime('%Y-%m-%d'),
-        "distance_km": dist['total_km'],
+        "distance": round(dist_value, 1),
+        "distance_unit": dist_unit,
         "points_logged": overview['total_points'],
         "cities": overview['cities'],
         "states": overview['states'],
@@ -186,7 +197,7 @@ def _send_period(profile, period, allow_empty=False):
     }
 
     stat_rows = [
-        ("Distance", f"{dist['total_km']:,.0f} km"),
+        ("Distance", f"{dist_value:,.0f} {dist_unit}"),
         ("Points logged", f"{overview['total_points']:,}"),
         ("Cities", str(overview['cities'])),
         ("Countries", str(overview['countries'])),

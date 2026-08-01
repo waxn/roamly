@@ -74,6 +74,7 @@ urlpatterns = [
     path('api/ask/test/', views.ask_test_api, name='ask_test_api'),
     path('api/profile/ai-config/', views.profile_ai_config_api, name='profile_ai_config'),
     path('api/profile/mapbox-token/', views.profile_mapbox_token_api, name='profile_mapbox_token'),
+    path('api/profile/distance-unit/', views.profile_distance_unit_api, name='profile_distance_unit'),
     path('api/profile/summary-email/', views.profile_summary_email_api, name='profile_summary_email'),
 
     # TOTP two-factor auth API
