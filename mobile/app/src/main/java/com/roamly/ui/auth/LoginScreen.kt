@@ -157,6 +157,19 @@ fun LoginScreen(
                                 Text("Verify", fontWeight = FontWeight.Bold)
                             }
                         }
+                        if (state.totpEmailAvailable) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                if (state.verifyEmail.isNotBlank()) "Email a code to ${state.verifyEmail} instead"
+                                else "Email me a code instead",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(enabled = !state.isLoading) { viewModel.useEmailCodeInstead() }
+                                    .padding(vertical = 8.dp),
+                            )
+                        }
                         Spacer(Modifier.height(8.dp))
                         Text(
                             "Use a different account",
@@ -174,7 +187,8 @@ fun LoginScreen(
                             color = MaterialTheme.colorScheme.onBackground,
                         )
                         Text(
-                            "New device — we sent a 6-digit code to ${state.verifyEmail}",
+                            if (state.cameFromTotp) "We sent a 6-digit code to ${state.verifyEmail}"
+                            else "New device — we sent a 6-digit code to ${state.verifyEmail}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -205,6 +219,18 @@ fun LoginScreen(
                             } else {
                                 Text("Verify", fontWeight = FontWeight.Bold)
                             }
+                        }
+                        if (state.cameFromTotp) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "Use your authenticator app instead",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(enabled = !state.isLoading) { viewModel.useTotpInstead() }
+                                    .padding(vertical = 8.dp),
+                            )
                         }
                         Spacer(Modifier.height(8.dp))
                         Text(

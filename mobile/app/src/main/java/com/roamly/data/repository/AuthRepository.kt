@@ -18,8 +18,12 @@ sealed class LoginResult {
     object Success : LoginResult()
     /** Server emailed a code (new device / unverified signup); call [AuthRepository.verifyCode]. */
     data class NeedsVerification(val email: String, val purpose: String) : LoginResult()
-    /** Account has TOTP 2FA enabled; call [AuthRepository.verifyTotp] with an authenticator or backup code. */
-    object NeedsTotp : LoginResult()
+    /**
+     * Account has TOTP 2FA enabled; call [AuthRepository.verifyTotp] with an authenticator
+     * or backup code. When [emailAvailable] the server can also mail a code instead —
+     * see [AuthRepository.switchToEmailCode].
+     */
+    data class NeedsTotp(val emailAvailable: Boolean = false, val email: String = "") : LoginResult()
     data class Error(val message: String) : LoginResult()
 }
 
@@ -87,7 +91,10 @@ class AuthRepository @Inject constructor(
                         "totp_required" -> {
                             pendingSessionId = extractCookie(loginResponse, "sessionid")
                             pendingBase = base
-                            LoginResult.NeedsTotp
+                            LoginResult.NeedsTotp(
+                                emailAvailable = json.optBoolean("email_available", false),
+                                email = json.optString("email"),
+                            )
                         }
                         else -> LoginResult.Error(json.optString("message", "Login failed"))
                     }
@@ -182,6 +189,60 @@ class AuthRepository @Inject constructor(
                 LoginResult.Success
             } else {
                 LoginResult.Error(errorMessage(resp))
+            }
+        } catch (e: Exception) {
+            LoginResult.Error("${e.javaClass.simpleName}: ${e.message ?: "no message"}")
+        }
+    }
+
+    /**
+     * Swap the pending authenticator challenge for an emailed code (server route
+     * `/totp/email/`), for a user who can't reach their authenticator app.
+     * Only meaningful after a [LoginResult.NeedsTotp] carrying `emailAvailable`.
+     */
+    suspend fun switchToEmailCode(): LoginResult = switchChallenge("/totp/email/")
+
+    /** Go back to the authenticator challenge after [switchToEmailCode] (`/verify/totp/`). */
+    suspend fun switchToTotp(): LoginResult = switchChallenge("/verify/totp/")
+
+    /**
+     * POST an empty form to a challenge-switching endpoint, carrying the pending
+     * session so the server can move its own pending state, and map the JSON back
+     * onto a LoginResult. Neither endpoint can complete a login, so a `Success`
+     * is never a valid answer here.
+     */
+    private suspend fun switchChallenge(path: String): LoginResult {
+        val base = pendingBase ?: return LoginResult.Error("Nothing to verify")
+        val pending = pendingSessionId
+        return try {
+            val noRedirect = okHttpClient.newBuilder().followRedirects(false).build()
+            val csrfToken = withContext(Dispatchers.IO) {
+                val req = Request.Builder().url("$base/login/").get()
+                    .header("X-Roamly-Client", "app").build()
+                extractCookie(noRedirect.newCall(req).execute(), "csrftoken")
+            } ?: return LoginResult.Error("Could not get CSRF token")
+
+            val resp = withContext(Dispatchers.IO) {
+                val body = FormBody.Builder().add("csrfmiddlewaretoken", csrfToken).build()
+                val cookie = buildString {
+                    append("csrftoken=").append(csrfToken)
+                    if (!pending.isNullOrBlank()) append("; sessionid=").append(pending)
+                }
+                val req = Request.Builder().url("$base$path").post(body)
+                    .header("X-Roamly-Client", "app")
+                    .header("Cookie", cookie).build()
+                noRedirect.newCall(req).execute()
+            }
+            extractCookie(resp, "sessionid")?.let { pendingSessionId = it }
+
+            val json = JSONObject(resp.body?.string() ?: "{}")
+            when (json.optString("status")) {
+                "verify" -> LoginResult.NeedsVerification(
+                    email = json.optString("email"),
+                    purpose = json.optString("purpose", "login"),
+                )
+                "totp_required" -> LoginResult.NeedsTotp()
+                else -> LoginResult.Error(json.optString("message", "Could not switch method"))
             }
         } catch (e: Exception) {
             LoginResult.Error("${e.javaClass.simpleName}: ${e.message ?: "no message"}")

@@ -31,6 +31,10 @@ data class LoginUiState(
     // TOTP two-factor auth (authenticator or backup code)
     val needsTotp: Boolean = false,
     val totpCode: String = "",
+    // Whether the server can mail a code instead of the authenticator challenge,
+    // and whether the emailed code currently showing was reached that way.
+    val totpEmailAvailable: Boolean = false,
+    val cameFromTotp: Boolean = false,
 )
 
 @HiltViewModel
@@ -73,10 +77,12 @@ class AuthViewModel @Inject constructor(
                 is LoginResult.Success -> _uiState.update { it.copy(isLoading = false) }
                 is LoginResult.NeedsVerification -> _uiState.update {
                     it.copy(isLoading = false, error = null, needsVerification = true,
-                        verifyEmail = result.email, verifyPurpose = result.purpose, code = "")
+                        verifyEmail = result.email, verifyPurpose = result.purpose, code = "",
+                        cameFromTotp = false)
                 }
                 is LoginResult.NeedsTotp -> _uiState.update {
-                    it.copy(isLoading = false, error = null, needsTotp = true, totpCode = "")
+                    it.copy(isLoading = false, error = null, needsTotp = true, totpCode = "",
+                        totpEmailAvailable = result.emailAvailable, verifyEmail = result.email)
                 }
                 is LoginResult.Error -> _uiState.update { it.copy(isLoading = false, error = result.message) }
             }
@@ -101,7 +107,7 @@ class AuthViewModel @Inject constructor(
     }
 
     fun cancelVerification() = _uiState.update {
-        it.copy(needsVerification = false, code = "", error = null)
+        it.copy(needsVerification = false, code = "", error = null, cameFromTotp = false)
     }
 
     fun verifyTotp() {
@@ -122,7 +128,41 @@ class AuthViewModel @Inject constructor(
     }
 
     fun cancelTotp() = _uiState.update {
-        it.copy(needsTotp = false, totpCode = "", error = null)
+        it.copy(needsTotp = false, totpCode = "", error = null,
+            totpEmailAvailable = false, cameFromTotp = false)
+    }
+
+    /** Ask the server to mail a code instead of the authenticator challenge. */
+    fun useEmailCodeInstead() {
+        _uiState.update { it.copy(isLoading = true, error = null) }
+        viewModelScope.launch {
+            when (val result = authRepository.switchToEmailCode()) {
+                is LoginResult.NeedsVerification -> _uiState.update {
+                    it.copy(isLoading = false, error = null, needsTotp = false, totpCode = "",
+                        needsVerification = true, verifyEmail = result.email,
+                        verifyPurpose = result.purpose, code = "", cameFromTotp = true)
+                }
+                is LoginResult.Error -> _uiState.update { it.copy(isLoading = false, error = result.message) }
+                else -> _uiState.update { it.copy(isLoading = false) }
+            }
+        }
+    }
+
+    /** Go back to the authenticator challenge after switching to the emailed code. */
+    fun useTotpInstead() {
+        _uiState.update { it.copy(isLoading = true, error = null) }
+        viewModelScope.launch {
+            when (val result = authRepository.switchToTotp()) {
+                // The server's reply carries no email-availability flag here; it hasn't
+                // changed since login, so keep what we already know.
+                is LoginResult.NeedsTotp -> _uiState.update {
+                    it.copy(isLoading = false, error = null, needsVerification = false, code = "",
+                        needsTotp = true, totpCode = "", cameFromTotp = false)
+                }
+                is LoginResult.Error -> _uiState.update { it.copy(isLoading = false, error = result.message) }
+                else -> _uiState.update { it.copy(isLoading = false) }
+            }
+        }
     }
 
     fun logout() {
