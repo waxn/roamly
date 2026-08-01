@@ -105,8 +105,8 @@
             </div>
             <div class="toolbar-actions" style="flex-wrap:wrap;">
                 <a href="{% url 'tracker:editor' %}" class="btn btn-primary btn-sm">Open map editor</a>
-                <button class="btn btn-sm" id="trash-restore-all" onclick="restoreAllTrash()">Restore all</button>
-                <button class="btn btn-sm" style="color:var(--danger);border-color:var(--danger);"
+                <button class="btn btn-outline btn-sm" id="trash-restore-all" onclick="restoreAllTrash()">Restore all</button>
+                <button class="btn btn-outline btn-sm" style="color:var(--danger);border-color:var(--danger);"
                         onclick="emptyTrash()">Empty trash</button>
                 <span id="trash-msg" style="font-size:0.82rem;color:var(--text-muted);"></span>
             </div>
