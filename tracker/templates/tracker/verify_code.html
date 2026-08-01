@@ -69,7 +69,7 @@
             <span class="logo-word">Roamly</span>
         </div>
         <p class="card-subtitle">
-            {% if purpose == 'login' %}New device detected. {% endif %}We emailed a 6-digit code to<br><b>{{ email_masked }}</b>.
+            {% if from_totp %}Can't use your authenticator? {% elif purpose == 'login' %}New device detected. {% endif %}We emailed a 6-digit code to<br><b>{{ email_masked }}</b>.
         </p>
 
         {% if messages %}
@@ -92,6 +92,12 @@
                 {% csrf_token %}
                 didn't get it? <button type="submit" class="link-btn">resend code</button>
             </form>
+            {% if from_totp %}
+                <form method="post" action="{% url 'tracker:verify_use_totp' %}" style="margin-top:0.4rem;">
+                    {% csrf_token %}
+                    <button type="submit" class="link-btn">use your authenticator app instead</button>
+                </form>
+            {% endif %}
         </div>
     </div>
 

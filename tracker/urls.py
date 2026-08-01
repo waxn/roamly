@@ -34,7 +34,9 @@ urlpatterns = [
     path('logout/', views.logout_view, name='logout'),
     path('verify/', views.verify_view, name='verify'),
     path('verify/resend/', views.verify_resend, name='verify_resend'),
+    path('verify/totp/', views.verify_use_totp, name='verify_use_totp'),
     path('totp/', views.totp_verify_view, name='totp_verify'),
+    path('totp/email/', views.totp_email_fallback, name='totp_email_fallback'),
     path('reset/', views.password_reset_request, name='password_reset'),
     path('reset/<uidb64>/<token>/', views.password_reset_confirm, name='password_reset_confirm'),
 

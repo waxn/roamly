@@ -462,10 +462,16 @@ def login_view(request):
                 return redirect('tracker:verify')
             if profile.totp_enabled:
                 # Authenticator-app 2FA — independent of email_enabled(), and
-                # checked on every login rather than only new devices.
+                # checked on every login rather than only new devices. The
+                # emailed code stays reachable as a fallback (totp_email_fallback)
+                # for a user who can't get at their authenticator right now.
                 request.session['pending_totp'] = {'user_id': user.id, 'next': next_url}
                 if is_app:
-                    return JsonResponse({'status': 'totp_required'})
+                    return JsonResponse({
+                        'status': 'totp_required',
+                        'email_available': bool(email_enabled() and user.email),
+                        'email': _mask_email(user.email) if email_enabled() else '',
+                    })
                 return redirect('tracker:totp_verify')
             if email_enabled() and user.email and not _is_known_device(user, request):
                 # New/unrecognized device — challenge with an emailed code.
@@ -618,6 +624,7 @@ def verify_view(request):
                 'purpose': purpose,
                 'email_masked': _mask_email(pv.get('email')),
                 'resend_url': '/verify/resend/',
+                'from_totp': bool(pv.get('from_totp')),
             }, status=429)
         code = (request.POST.get('code') or '').strip()
         real = cache.get(f'email_code:{purpose}:{user.id}')
@@ -638,7 +645,30 @@ def verify_view(request):
         'purpose': purpose,
         'email_masked': _mask_email(pv.get('email')),
         'resend_url': '/verify/resend/',
+        'from_totp': bool(pv.get('from_totp')),
     })
+
+
+@require_POST
+def verify_use_totp(request):
+    """Go back to the authenticator-app challenge after choosing the emailed
+    code. Only offered when the emailed code *was* reached from the TOTP page
+    (`from_totp`), so this can never downgrade a plain new-device challenge —
+    it just restores the pending state totp_email_fallback swapped out."""
+    is_app = _is_app_client(request)
+    pv = request.session.get('pending_verify') or {}
+    from django.contrib.auth.models import User as AuthUser
+    user = AuthUser.objects.filter(id=pv.get('user_id')).first() if pv.get('from_totp') else None
+    profile = UserProfile.objects.filter(user=user).first() if user else None
+    if not profile or not profile.totp_enabled:
+        if is_app:
+            return JsonResponse({'status': 'error', 'message': 'No pending verification'}, status=400)
+        return redirect('tracker:verify' if pv else 'tracker:login')
+    request.session['pending_totp'] = {'user_id': user.id, 'next': pv.get('next', '')}
+    request.session.pop('pending_verify', None)
+    if is_app:
+        return JsonResponse({'status': 'totp_required'})
+    return redirect('tracker:totp_verify')
 
 
 @require_POST
@@ -677,13 +707,19 @@ def totp_verify_view(request):
         if is_app:
             return JsonResponse({'status': 'error', 'message': 'No pending verification'}, status=400)
         return redirect('tracker:login')
+    # The emailed code stays available as a fallback for a user who can't reach
+    # their authenticator app — offered as a button, never taken automatically.
+    ctx = {
+        'email_fallback': bool(email_enabled() and user.email),
+        'email_masked': _mask_email(user.email),
+    }
     if request.method == 'POST':
         if _rate_limited(request, 'totp', 10, 900):
             msg = 'Too many attempts. Please wait a few minutes and try again.'
             if is_app:
                 return JsonResponse({'status': 'error', 'message': msg}, status=429)
             messages.error(request, msg)
-            return render(request, 'tracker/totp_verify.html', {}, status=429)
+            return render(request, 'tracker/totp_verify.html', ctx, status=429)
         code = request.POST.get('code') or ''
         if _verify_totp_or_backup(profile, code):
             login(request, user)
@@ -696,7 +732,47 @@ def totp_verify_view(request):
         if is_app:
             return JsonResponse({'status': 'error', 'message': 'Invalid code'}, status=400)
         messages.error(request, 'Invalid code. Try again, or use a backup code.')
-    return render(request, 'tracker/totp_verify.html', {})
+    return render(request, 'tracker/totp_verify.html', ctx)
+
+
+@require_POST
+def totp_email_fallback(request):
+    """Swap a pending TOTP challenge for an emailed code.
+
+    TOTP is the primary factor once enabled, but an authenticator app can be
+    out of reach (phone lost, app not to hand) while the mailbox isn't — so
+    the challenge page offers this as a second route rather than dead-ending
+    at the backup codes. Requires SMTP and an address on the account; the
+    pending state simply moves from `pending_totp` to `pending_verify`, marked
+    `from_totp` so the emailed-code page can offer the way back. Shares the
+    resend flood budget, since it too sends mail."""
+    is_app = _is_app_client(request)
+    pv = request.session.get('pending_totp')
+    if not pv:
+        if is_app:
+            return JsonResponse({'status': 'error', 'message': 'No pending verification'}, status=400)
+        return redirect('tracker:login')
+    from django.contrib.auth.models import User as AuthUser
+    user = AuthUser.objects.filter(id=pv['user_id']).first()
+    if not user or not email_enabled() or not user.email:
+        if is_app:
+            return JsonResponse({'status': 'error', 'message': 'Email codes are not available'}, status=400)
+        messages.error(request, 'Email codes are not available on this account.')
+        return redirect('tracker:totp_verify')
+    if _rate_limited(request, 'verify_resend', 4, 900):
+        msg = 'Too many code requests. Please wait a few minutes and try again.'
+        if is_app:
+            return JsonResponse({'status': 'error', 'message': msg}, status=429)
+        messages.error(request, msg)
+        return redirect('tracker:totp_verify')
+    _start_verification(request, user, 'login', pv.get('next', ''))
+    stashed = request.session['pending_verify']
+    stashed['from_totp'] = True
+    request.session['pending_verify'] = stashed  # reassign: nested edits aren't tracked
+    request.session.pop('pending_totp', None)
+    if is_app:
+        return JsonResponse({'status': 'verify', 'purpose': 'login', 'email': _mask_email(user.email)})
+    return redirect('tracker:verify')
 
 
 def logout_view(request):

@@ -57,8 +57,12 @@
         .btn-submit { width: 100%; margin-top: 0.5rem; padding: 0.8rem; background: var(--primary); color: #fff; border: none; font-family: var(--font-body); font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: background 0.15s; }
         .btn-submit:hover { background: var(--primary-hover); }
         .card-footer { margin-top: 1.5rem; text-align: center; color: var(--text-dim); font-size: 0.83rem; font-weight: 600; line-height: 1.6; }
-        .card-footer a { color: var(--primary); text-decoration: none; font-weight: 800; }
-        .card-footer a:hover { text-decoration: underline; }
+        .card-footer a, .link-btn { color: var(--primary); text-decoration: none; font-weight: 800; background: none; border: none; cursor: pointer; font-size: 0.83rem; font-family: var(--font-body); padding: 0; }
+        .card-footer a:hover, .link-btn:hover { text-decoration: underline; }
+        .btn-alt { width: 100%; margin-top: 0.75rem; padding: 0.75rem; background: none; color: var(--text-muted); border: 1px solid var(--border-strong); font-family: var(--font-body); font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: border-color 0.15s, color 0.15s; }
+        .btn-alt:hover { border-color: var(--border-bright); color: var(--text); }
+        .divider { display: flex; align-items: center; gap: 0.75rem; margin-top: 1.25rem; color: var(--text-dim); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; }
+        .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
     </style>
 </head>
 <body>
@@ -85,6 +89,14 @@
             </div>
             <button type="submit" class="btn-submit">verify →</button>
         </form>
+
+        {% if email_fallback %}
+            <div class="divider">or</div>
+            <form method="post" action="{% url 'tracker:totp_email_fallback' %}">
+                {% csrf_token %}
+                <button type="submit" class="btn-alt">email a code to {{ email_masked }}</button>
+            </form>
+        {% endif %}
 
         <div class="card-footer">
             lost your authenticator? enter one of your backup codes above instead
