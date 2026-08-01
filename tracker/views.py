@@ -2273,10 +2273,11 @@ def _compute_transport_breakdown_from_qs(qs):
     # breaking the DISTINCT, so this would yield one row per point rather than one
     # per device.
     for dev_id in qs.order_by().values_list('device_id', flat=True).distinct():
-        rows = list(
+        rows = (
             qs.filter(device_id=dev_id)
             .order_by('timestamp', 'id')
             .values('latitude', 'longitude', 'timestamp', 'accuracy', 'transport_mode')
+            .iterator(chunk_size=5000)
         )
         # Walk each run of same-mode points as its own track so the gated
         # distance never credits movement across a mode change.
