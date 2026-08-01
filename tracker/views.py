@@ -44,6 +44,7 @@ from .models import (
 )
 from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email, send_contact_email
 from .image_utils import resize_image, resize_photo
+from . import geoip_utils
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
 from .poi_tasks import start_poi_download, get_poi_status, stop_poi_download
 from .backup_tasks import (
@@ -8698,7 +8699,7 @@ def _admin_daily_series(since_date):
 @login_required
 def admin_overview_api(request):
     """Monitoring dashboard: stat tiles, a request-volume time series, status /
-    top-path / top-IP breakdowns, and recent events."""
+    top-path / top-IP / top-country breakdowns, and recent events."""
     err = _require_admin(request)
     if err:
         return err
@@ -8781,6 +8782,11 @@ def admin_overview_api(request):
         acc.exclude(ip_address__isnull=True).values('ip_address')
         .annotate(n=Count('id')).order_by('-n')[:10].values_list('ip_address', 'n')
     )
+    ip_counts = list(
+        acc.exclude(ip_address__isnull=True).values('ip_address')
+        .annotate(n=Count('id')).values_list('ip_address', 'n')
+    )
+    country_breakdown, unknown_country_count = geoip_utils.country_counts(ip_counts)
     recent_actions = list(
         act.select_related('user').order_by('-timestamp')[:20].values(
             'timestamp', 'action', 'description', 'ip_address', 'user__username'
@@ -8801,6 +8807,8 @@ def admin_overview_api(request):
         'status_breakdown': {str(k): v for k, v in status_breakdown.items()},
         'top_paths': [{'path': p, 'count': n} for p, n in top_paths],
         'top_ips': [{'ip': ip, 'count': n} for ip, n in top_ips],
+        'top_countries': country_breakdown[:15],
+        'unknown_country_count': unknown_country_count,
         'recent_actions': [
             {
                 'timestamp': a['timestamp'].isoformat(),

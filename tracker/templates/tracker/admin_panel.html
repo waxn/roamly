@@ -1,4 +1,5 @@
 {% extends "tracker/base.html" %}
+{% load static %}
 {% block title %}Admin Panel - Roamly{% endblock %}
 {% block robots_meta %}noindex, nofollow{% endblock %}
 
@@ -70,6 +71,15 @@
             </div>
         </div>
 
+        <!-- Requests by country -->
+        <div class="card" style="transition:none;">
+            <div class="card-header">Requests by country</div>
+            <div class="chart-container" id="country-map-wrap" style="position:relative;height:280px;border:1px solid var(--border);">
+                <div id="country-map" style="position:absolute;inset:0;"></div>
+                <div class="chart-tooltip" id="country-tooltip"></div>
+            </div>
+        </div>
+
         <div class="mon-cols">
             <!-- Status breakdown -->
             <div class="card" style="transition:none;">
@@ -85,6 +95,11 @@
             <div class="card" style="transition:none;">
                 <div class="card-header">Top IPs</div>
                 <div id="ip-bars"><div class="mon-empty">Loading…</div></div>
+            </div>
+            <!-- Top countries -->
+            <div class="card" style="transition:none;">
+                <div class="card-header">Top countries</div>
+                <div id="country-bars"><div class="mon-empty">Loading…</div></div>
             </div>
         </div>
 
@@ -345,7 +360,7 @@ function showTab(name, btn) {
         b.classList.toggle('btn-primary', b === btn);
         b.classList.toggle('btn-outline', b !== btn);
     });
-    if (name === 'monitoring') { loadMonitoring(); }
+    if (name === 'monitoring') { loadMonitoring(); if (countryMap) setTimeout(()=>countryMap.resize(), 0); }
     else if (name === 'access-log' && !_loaded['access-log']) { _loaded['access-log']=1; loadAccess(1); }
     else if (name === 'events' && !_loaded['events']) { _loaded['events']=1; loadEvents(1); }
     else if (name === 'retention' && !_loaded['retention']) { _loaded['retention']=1; loadRetention(); }
@@ -489,6 +504,92 @@ function drawLineChart(canvasId, labels, series, opts) {
     return { points, geom:{top:pad.top, height:cH}, width:W };
 }
 
+// ── Country choropleth ───────────────────────────────────────────────────
+const COUNTRY_GEO_URL = "{% static 'tracker/data/world-countries.json' %}";
+let countryMap=null, countryMapLoaded=false, countryGeoData=null, pendingCountryPayload=null;
+
+function ensureCountryMap(){
+    if (countryMap) return;
+    countryMap = new maplibregl.Map({
+        container: 'country-map',
+        style: { version: 8, sources: {}, layers: [
+            { id:'bg', type:'background', paint:{ 'background-color': cssVar('--bg-card','#1c1a16') } },
+        ] },
+        center: [12, 22], zoom: 0.35, minZoom: 0.2, maxZoom: 5,
+        attributionControl: false, dragRotate: false, pitchWithRotate: false,
+    });
+    countryMap.touchZoomRotate.disableRotation();
+    countryMap.on('load', async () => {
+        if (!countryGeoData) {
+            countryGeoData = await fetch(COUNTRY_GEO_URL).then(r => r.json());
+        }
+        countryMap.addSource('country-src', { type: 'geojson', data: countryGeoData });
+        countryMap.addLayer({
+            id: 'country-fill', type: 'fill', source: 'country-src',
+            paint: { 'fill-color': cssVar('--bg-elevated','#26241f'), 'fill-opacity': 1 },
+        });
+        countryMap.addLayer({
+            id: 'country-heat', type: 'fill', source: 'country-src',
+            paint: { 'fill-color': cssVar('--primary','#e8763d'), 'fill-opacity': 0 },
+        });
+        countryMap.addLayer({
+            id: 'country-line', type: 'line', source: 'country-src',
+            paint: { 'line-color': cssVar('--border','#30352a'), 'line-width': 0.5 },
+        });
+        countryMapLoaded = true;
+        if (pendingCountryPayload) { paintCountryHeat(pendingCountryPayload); pendingCountryPayload=null; }
+        const tooltip = document.getElementById('country-tooltip');
+        countryMap.on('mousemove', 'country-heat', (e) => {
+            const f = e.features[0];
+            const cc = f.properties.cc, name = f.properties.name;
+            const n = _lastCountryCounts[cc];
+            countryMap.getCanvas().style.cursor = 'pointer';
+            tooltip.innerHTML = `<strong>${esc(name)}</strong><br>${fmtNum(n||0)} requests`;
+            tooltip.style.opacity = '1';
+            tooltip.style.left = e.point.x + 'px';
+            tooltip.style.bottom = (countryMap.getCanvas().clientHeight - e.point.y + 14) + 'px';
+            tooltip.style.top = ''; tooltip.style.transform = 'translateX(-50%)';
+        });
+        countryMap.on('mouseleave', 'country-heat', () => {
+            countryMap.getCanvas().style.cursor = '';
+            tooltip.style.opacity = '0';
+        });
+    });
+}
+
+let _lastCountryCounts = {};
+function paintCountryHeat(countsByCode){
+    if (!countryMap || !countryMapLoaded) { pendingCountryPayload = countsByCode; return; }
+    _lastCountryCounts = countsByCode;
+    const codes = Object.keys(countsByCode);
+    const counts = Object.values(countsByCode);
+    const maxLog = counts.length ? Math.max(...counts.map(n => Math.log1p(n))) : 0;
+    let expr = 0;
+    if (codes.length) {
+        expr = ['match', ['get', 'cc']];
+        codes.forEach(cc => {
+            const opacity = maxLog > 0 ? 0.18 + 0.72 * (Math.log1p(countsByCode[cc]) / maxLog) : 0;
+            expr.push(cc, opacity);
+        });
+        expr.push(0);
+    }
+    countryMap.setPaintProperty('country-heat', 'fill-opacity', expr);
+    countryMap.setPaintProperty('country-fill', 'fill-color', cssVar('--bg-elevated','#26241f'));
+    countryMap.setPaintProperty('country-line', 'line-color', cssVar('--border','#30352a'));
+}
+
+function renderCountryChoropleth(countries, unknownCount){
+    ensureCountryMap();
+    const countsByCode = {};
+    (countries||[]).forEach(c => { countsByCode[c.code] = c.count; });
+    paintCountryHeat(countsByCode);
+
+    const primary = cssVar('--primary','#e8763d');
+    const bars = (countries||[]).map(c => ({ label: `${c.name} (${c.code})`, count: c.count, color: primary }));
+    if (unknownCount) bars.push({ label: 'Unknown / private', count: unknownCount, color: cssVar('--text-muted','#999') });
+    renderBars('country-bars', bars);
+}
+
 // ── Monitoring ─────────────────────────────────────────────────────────────
 let monRange='24h', monData=null;
 let reqHoverState={points:[],geom:null,width:0}, aeHoverState={points:[],geom:null,width:0};
@@ -560,6 +661,7 @@ function renderMonitoring(){
 
     renderBars('path-bars', (d.top_paths||[]).map(p=>({label:p.path,count:p.count,color:primary})));
     renderBars('ip-bars', (d.top_ips||[]).map(p=>({label:p.ip,count:p.count,color:sky})));
+    renderCountryChoropleth(d.top_countries||[], d.unknown_country_count||0);
 
     // Recent events
     const rows=(d.recent_actions||[]);
@@ -769,6 +871,7 @@ function getCookie(name) {
 let _redrawT=null;
 function _maybeRedraw(){
     if (document.getElementById('tab-monitoring').style.display==='none') return;
+    if (countryMap) countryMap.resize();
     if (!monData) return;
     clearTimeout(_redrawT); _redrawT=setTimeout(renderMonitoring, 120);
 }
