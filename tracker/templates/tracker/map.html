@@ -736,45 +736,64 @@ globeBtn.addEventListener('click', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// Scratch map — highlight countries visited
+// Scratch map — highlight countries visited, US states individually
 // ═══════════════════════════════════════════════════════════════════
 const SCRATCH_URL = "{% static 'tracker/data/world-countries.json' %}";
+const SCRATCH_STATES_URL = "{% static 'tracker/data/us-states.json' %}";
 const scratchBtn = document.getElementById('scratch-btn');
 const scratchBadge = document.getElementById('scratch-badge');
 let scratchOn = false;
 let scratchGeo = null;
+let scratchStatesGeo = null;
 let visitedCodes = [];
 let visitedCount = 0;
+let visitedStates = [];
 
 async function loadScratchData() {
     if (!scratchGeo) scratchGeo = await fetch(SCRATCH_URL).then(r => r.json());
+    if (!scratchStatesGeo) scratchStatesGeo = await fetch(SCRATCH_STATES_URL).then(r => r.json());
     if (!visitedCodes.length) {
         try {
             const d = await fetch('/api/countries/').then(r => r.json());
             visitedCodes = d.codes || [];
             visitedCount = d.count || visitedCodes.length;
-        } catch (e) { visitedCodes = []; }
+            visitedStates = d.states || [];
+        } catch (e) { visitedCodes = []; visitedStates = []; }
     }
 }
 
 function addScratchLayers() {
     if (!scratchGeo || map.getSource('scratch-src')) return;
+    // US is shaded state-by-state below, so the whole-country fill excludes it
+    // to avoid painting a flat blob underneath the per-state detail.
     map.addSource('scratch-src', { type: 'geojson', data: scratchGeo });
     map.addLayer({
         id: 'scratch-fill', type: 'fill', source: 'scratch-src',
-        filter: ['in', ['get', 'cc'], ['literal', visitedCodes]],
+        filter: ['all', ['in', ['get', 'cc'], ['literal', visitedCodes]], ['!=', ['get', 'cc'], 'US']],
         paint: { 'fill-color': '#d0694a', 'fill-opacity': 0.45 },
     });
     map.addLayer({
         id: 'scratch-line', type: 'line', source: 'scratch-src',
-        filter: ['in', ['get', 'cc'], ['literal', visitedCodes]],
+        filter: ['all', ['in', ['get', 'cc'], ['literal', visitedCodes]], ['!=', ['get', 'cc'], 'US']],
+        paint: { 'line-color': '#d0694a', 'line-width': 1, 'line-opacity': 0.9 },
+    });
+
+    map.addSource('scratch-states-src', { type: 'geojson', data: scratchStatesGeo });
+    map.addLayer({
+        id: 'scratch-states-fill', type: 'fill', source: 'scratch-states-src',
+        filter: ['in', ['get', 'name'], ['literal', visitedStates]],
+        paint: { 'fill-color': '#d0694a', 'fill-opacity': 0.45 },
+    });
+    map.addLayer({
+        id: 'scratch-states-line', type: 'line', source: 'scratch-states-src',
+        filter: ['in', ['get', 'name'], ['literal', visitedStates]],
         paint: { 'line-color': '#d0694a', 'line-width': 1, 'line-opacity': 0.9 },
     });
 }
 
 function removeScratchLayers() {
-    ['scratch-fill', 'scratch-line'].forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
-    if (map.getSource('scratch-src')) map.removeSource('scratch-src');
+    ['scratch-fill', 'scratch-line', 'scratch-states-fill', 'scratch-states-line'].forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
+    ['scratch-src', 'scratch-states-src'].forEach(s => { if (map.getSource(s)) map.removeSource(s); });
 }
 
 scratchBtn.addEventListener('click', async () => {
@@ -784,7 +803,11 @@ scratchBtn.addEventListener('click', async () => {
         await loadScratchData();
         addScratchLayers();
         const n = visitedCount || visitedCodes.length;
-        scratchBadge.textContent = n ? `${n} ${n === 1 ? 'country' : 'countries'}` : '';
+        const s = visitedStates.length;
+        const parts = [];
+        if (n) parts.push(`${n} ${n === 1 ? 'country' : 'countries'}`);
+        if (s) parts.push(`${s} ${s === 1 ? 'state' : 'states'}`);
+        scratchBadge.textContent = parts.join(', ');
     } else {
         removeScratchLayers();
         scratchBadge.textContent = '';
