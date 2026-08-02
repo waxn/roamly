@@ -163,9 +163,15 @@ def _ensure_unsub_token(profile):
     Generated lazily on first send (not at profile creation) so a bulk
     migration can never hand every existing user the same default token —
     same reasoning as Adventure.invite_token / _ensure_invite_token.
+
+    Uses lowercase hex rather than base64url: mail scanners and click-trackers
+    that rewrite links have been known to alter the ``-``/``_`` in a urlsafe
+    token or case-fold the whole URL, either of which would break the exact
+    match in email_unsubscribe_view. Hex has neither hazard. 32 hex chars
+    (128 bits) fits the field and stays well beyond guessing.
     """
     if not profile.email_unsub_token:
-        profile.email_unsub_token = secrets.token_urlsafe(18)[:32]
+        profile.email_unsub_token = secrets.token_hex(16)
         profile.save(update_fields=['email_unsub_token'])
     return profile.email_unsub_token
 

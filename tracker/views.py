@@ -1048,7 +1048,18 @@ def email_unsubscribe_view(request, token):
     join link) so a logged-out recipient can act on it straight from their
     inbox. ?period=<cadence> on a GET one-click-unsubscribes from just that
     cadence before rendering the full form for further changes."""
-    profile = UserProfile.objects.filter(email_unsub_token=token).select_related('user').first()
+    # The token is the credential. Be tolerant of the ways an email path mangles
+    # it before it gets back here: plain-text line-wrapping can staple on
+    # surrounding whitespace/newlines, and some mail scanners / click-trackers
+    # case-fold the URL. Try the exact value first, then a trimmed
+    # case-insensitive match (tokens are 24 random base64url chars, so a
+    # case-folded collision between two users is astronomically unlikely).
+    token = (token or '').strip()
+    profile = (UserProfile.objects.filter(email_unsub_token=token)
+               .select_related('user').first())
+    if not profile and token:
+        profile = (UserProfile.objects.filter(email_unsub_token__iexact=token)
+                   .select_related('user').first())
     if not profile:
         return render(request, 'tracker/email_unsubscribe.html', {'invalid': True}, status=404)
 
