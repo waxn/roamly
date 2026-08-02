@@ -56,8 +56,8 @@ class _InlineImageEmail(EmailMultiAlternatives):
 # Content-ID reference so the real lockup renders instead of a plain-text word.
 _LOGO_CID = 'roamlylogo'
 _LOGO_STATIC = 'tracker/email/logo.png'
-# Display dimensions in the email (asset is rendered at 2x for retina).
-_LOGO_W, _LOGO_H = 152, 39
+# Display dimensions in the email (asset is 280x84, rendered at 2x for retina).
+_LOGO_W, _LOGO_H = 140, 42
 _logo_bytes_cache = None  # None = not looked up yet; False = looked up, missing
 
 
