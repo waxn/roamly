@@ -36,8 +36,9 @@ from django.contrib.staticfiles import finders
 from .forms import SignUpForm, APIKeyForm, AdventureForm
 from .models import (
     Device, Location, APIKey, Adventure, POI, BackupConfig,
-    UserProfile,
+    UserProfile, ADVENTURE_PLACE_CATEGORIES,
     AdventureMember, AdventureBlurb, AdventureBlurbPhoto, AdventureMilestone, AdventureComment,
+    AdventureDayNote, AdventureDayPhoto,
     SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig, StatsSnapshot,
     DismissedSuggestion, PlannedStop, KnownDevice, TOTPBackupCode,
     InferredLocation, EditBatch, TrashedLocation, RoadSegment, ROADS_AVAILABLE_CACHE_KEY,
@@ -3797,13 +3798,7 @@ def _trip_detail_inner(request, trip_id):
     for b in trip.blurbs.all():
         if b.latitude is None or b.longitude is None:
             continue
-        places.append({
-            "id": b.id,
-            "name": b.title or "",
-            "latitude": b.latitude,
-            "longitude": b.longitude,
-            "notes": b.text,
-        })
+        places.append(_poi_payload(b))
 
     # Photo store: photos live on blurbs; photo_grid body blocks reference them
     # by id. Expose a flat {id: {url, thumb}} map so the editor can resolve them.
@@ -3859,6 +3854,8 @@ def _trip_detail_inner(request, trip_id):
         "total_location_count": total_count,
         "places": places,
         "planned_stops": planned_stops,
+        "day_notes": _adventure_day_notes(trip, request.user),
+        "categories": [{"slug": s, "label": l} for s, l in ADVENTURE_PLACE_CATEGORIES],
         "photos": photos_map,
         "is_creator": is_creator,
         "is_public": bool(trip.public_slug),
@@ -3939,7 +3936,59 @@ def _poi_payload(b):
         "latitude": b.latitude,
         "longitude": b.longitude,
         "notes": b.text,
+        "rating": b.rating,
+        "category": b.category,
     }
+
+
+# Valid place category slugs (mirror ADVENTURE_PLACE_CATEGORIES in models.py).
+_PLACE_CATEGORY_SLUGS = {c[0] for c in ADVENTURE_PLACE_CATEGORIES}
+
+
+def _clean_rating(val):
+    """Coerce an incoming rating to an int 1–5, or None (unrated / cleared)."""
+    if val in (None, '', 0, '0'):
+        return None
+    try:
+        r = int(val)
+    except (TypeError, ValueError):
+        return None
+    return r if 1 <= r <= 5 else None
+
+
+def _clean_category(val):
+    """Return a valid category slug, or '' if unknown/blank."""
+    v = (val or '').strip()
+    return v if v in _PLACE_CATEGORY_SLUGS else ''
+
+
+def _day_note_payload(note, request_user=None):
+    """Serialize an AdventureDayNote (Day Log entry) with author + photos."""
+    return {
+        "id": note.id,
+        "date": note.date.isoformat(),
+        "author_id": note.author_id,
+        "author": note.author.username,
+        "avatar": _get_user_avatar(note.author),
+        "title": note.title,
+        "body": note.body,
+        "is_mine": bool(request_user and request_user.is_authenticated and note.author_id == request_user.id),
+        "photos": [
+            {"id": p.id, "url": p.image.url,
+             "thumb": p.thumbnail.url if p.thumbnail else p.image.url}
+            for p in note.photos.all()
+        ],
+        "updated_at": note.updated_at.isoformat(),
+    }
+
+
+def _adventure_day_notes(trip, request_user=None):
+    """All members' day notes for an adventure, ordered by date then author."""
+    notes = (trip.day_notes
+             .select_related('author')
+             .prefetch_related('photos')
+             .order_by('date', 'author__username'))
+    return [_day_note_payload(n, request_user) for n in notes]
 
 
 @login_required
@@ -3965,6 +4014,8 @@ def create_trip_place(request, trip_id):
         text=data.get('notes', ''),
         latitude=float(lat),
         longitude=float(lng),
+        rating=_clean_rating(data.get('rating')),
+        category=_clean_category(data.get('category')),
     )
     return JsonResponse({"status": "ok", "place": _poi_payload(blurb)})
 
@@ -3989,6 +4040,10 @@ def update_trip_place(request, trip_id, place_id):
         blurb.latitude = float(data['latitude'])
     if data.get('longitude') is not None:
         blurb.longitude = float(data['longitude'])
+    if 'rating' in data:
+        blurb.rating = _clean_rating(data['rating'])
+    if 'category' in data:
+        blurb.category = _clean_category(data['category'])
     blurb.save()
     return JsonResponse({"status": "ok", "place": _poi_payload(blurb)})
 
@@ -4323,6 +4378,105 @@ def trip_delete_blurb(request, trip_id, blurb_id):
     return JsonResponse({"status": "ok"})
 
 
+# ---------------------------------------------------------------------------
+# Day Log — per-member, per-day adventure notes (AdventureDayNote)
+# ---------------------------------------------------------------------------
+
+def _parse_iso_date(s):
+    """Parse a YYYY-MM-DD string into a date, or None."""
+    try:
+        return date.fromisoformat((s or '')[:10])
+    except (ValueError, TypeError):
+        return None
+
+
+@login_required
+def trip_day_notes_list(request, trip_id):
+    """All members' day-log entries for an adventure (any member may read)."""
+    trip = _get_trip_for_user(trip_id, request.user)
+    return JsonResponse({"day_notes": _adventure_day_notes(trip, request.user)})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_day_note_save(request, trip_id, date_str):
+    """Create or update the requesting member's own note for one date.
+
+    Author-scoped: each member edits only their own note (get_or_create on
+    adventure+author+date), so co-members' notes are never overwritten.
+    """
+    trip = _get_trip_for_user(trip_id, request.user)
+    d = _parse_iso_date(date_str)
+    if not d:
+        return JsonResponse({"error": "Invalid date"}, status=400)
+    try:
+        data = json.loads(request.body or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    note, _created = AdventureDayNote.objects.get_or_create(
+        adventure=trip, author=request.user, date=d)
+    if 'title' in data:
+        note.title = (data.get('title') or '')[:200]
+    if 'body' in data:
+        note.body = data.get('body') or ''
+    note.save()
+    return JsonResponse({"status": "ok", "day_note": _day_note_payload(note, request.user)})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_day_note_photos(request, trip_id, date_str):
+    """Attach photos (multipart) to the requesting member's note for a date.
+
+    Creates the note if it doesn't exist yet, so a member can add a photo to a
+    day before writing anything. Max 10 photos per note.
+    """
+    trip = _get_trip_for_user(trip_id, request.user)
+    d = _parse_iso_date(date_str)
+    if not d:
+        return JsonResponse({"error": "Invalid date"}, status=400)
+    note, _created = AdventureDayNote.objects.get_or_create(
+        adventure=trip, author=request.user, date=d)
+    existing = note.photos.count()
+    room = max(0, 10 - existing)
+    photos = request.FILES.getlist('photos')[:room]
+    for i, photo_file in enumerate(photos):
+        if photo_file.size > 10 * 1024 * 1024:
+            continue
+        full_file, thumb_file = resize_photo(photo_file)
+        AdventureDayPhoto.objects.create(
+            day_note=note, image=full_file, thumbnail=thumb_file, order=existing + i)
+    return JsonResponse({"status": "ok", "day_note": _day_note_payload(note, request.user)})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_day_note_photo_delete(request, trip_id, photo_id):
+    """Delete one day-note photo (author or adventure owner only)."""
+    trip = _get_trip_for_user(trip_id, request.user)
+    photo = get_object_or_404(AdventureDayPhoto, id=photo_id, day_note__adventure=trip)
+    if photo.day_note.author != request.user and trip.device.user != request.user:
+        return JsonResponse({"error": "Permission denied"}, status=403)
+    photo.delete()
+    return JsonResponse({"status": "ok"})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST", "DELETE"])
+def trip_day_note_delete(request, trip_id, date_str):
+    """Delete the requesting member's own note for a date."""
+    trip = _get_trip_for_user(trip_id, request.user)
+    d = _parse_iso_date(date_str)
+    if not d:
+        return JsonResponse({"error": "Invalid date"}, status=400)
+    AdventureDayNote.objects.filter(adventure=trip, author=request.user, date=d).delete()
+    return JsonResponse({"status": "ok"})
+
+
 @login_required
 def trip_blurb_comments(request, trip_id, blurb_id):
     trip = _get_trip_for_user(trip_id, request.user)
@@ -4604,7 +4758,27 @@ def trip_public_detail_api(request, slug):
         "timestamp": l.timestamp.isoformat(),
         "city": l.city, "country": l.country,
     } for l in locations]
-    members = [{"username": m.user.username, "role": m.role} for m in trip.members.select_related('user')]
+    members = [{"username": m.user.username, "role": m.role, "avatar": _get_user_avatar(m.user)}
+               for m in trip.members.select_related('user')]
+    # Each member's own track over the window, so the public map shows everyone
+    # (mirrors _trip_detail_inner). The owner's track is already `locations`.
+    owner_user = trip.device.user
+    member_locations = {}
+    for m in trip.members.select_related('user'):
+        if m.user == owner_user:
+            continue
+        member_locs = list(
+            Location.objects.filter(
+                device__user=m.user,
+                timestamp__gte=trip.start_time,
+                timestamp__lte=trip.end_time,
+            ).order_by('timestamp')[:30000]
+        )
+        if member_locs:
+            member_locations[m.user.username] = [{
+                "lat": _jf(l.latitude), "lng": _jf(l.longitude),
+                "timestamp": l.timestamp.isoformat(),
+            } for l in member_locs]
     blurbs = []
     places = []
     for b in trip.blurbs.select_related('author').prefetch_related('photos'):
@@ -4616,14 +4790,15 @@ def trip_public_detail_api(request, slug):
             "latitude": b.latitude,
             "longitude": b.longitude,
             "location_name": b.location_name,
+            "rating": b.rating,
+            "category": b.category,
             "photos": [{"id": p.id, "url": p.image.url, "thumb": p.thumbnail.url if p.thumbnail else p.image.url}
                        for p in b.photos.all()],
             "created_at": b.created_at.isoformat(),
         })
         # POIs (located blurbs) resolve inline pin refs / location_card blocks.
         if b.latitude is not None and b.longitude is not None:
-            places.append({"id": b.id, "name": b.title or "", "latitude": b.latitude,
-                           "longitude": b.longitude, "notes": b.text})
+            places.append(_poi_payload(b))
     return JsonResponse({
         "id": trip.id,
         "name": trip.name,
@@ -4636,9 +4811,11 @@ def trip_public_detail_api(request, slug):
         "end_time": trip.end_time.isoformat(),
         "locations": locs,
         "members": members,
+        "member_locations": member_locations,
         "places": places,
         "planned_stops": [_planned_stop_payload(s) for s in trip.planned_stops.all()],
         "blurbs": blurbs,
+        "day_notes": _adventure_day_notes(trip, request.user),
     })
 
 
@@ -5275,6 +5452,8 @@ def restore_backup(request):
                                     text=b.get('text', ''),
                                     latitude=b.get('latitude'), longitude=b.get('longitude'),
                                     location_name=b.get('location_name', ''),
+                                    rating=_clean_rating(b.get('rating')),
+                                    category=_clean_category(b.get('category')),
                                 )
                                 for ph in b.get('photos', []):
                                     if ph.get('image'):
@@ -5325,6 +5504,30 @@ def restore_backup(request):
                             except Exception as e:
                                 errors += 1
                                 logger.warning(f"Backup restore planned stop error: {e}")
+                        # Day notes (v8+ Day Log): per-member per-day entries
+                        for n in a.get('day_notes', []):
+                            try:
+                                note_date = _parse_date_only(n.get('date'))
+                                if not note_date:
+                                    continue
+                                note_author = AuthUser.objects.filter(username=n.get('author_username')).first() or user
+                                note, _nc = AdventureDayNote.objects.get_or_create(
+                                    adventure=adv, author=note_author, date=note_date,
+                                    defaults={
+                                        'title': (n.get('title') or '')[:200],
+                                        'body': n.get('body', ''),
+                                    }
+                                )
+                                for ph in n.get('photos', []):
+                                    if ph.get('image'):
+                                        AdventureDayPhoto.objects.create(
+                                            day_note=note, image=ph['image'],
+                                            thumbnail=ph.get('thumbnail') or '',
+                                            order=ph.get('order', 0),
+                                        )
+                            except Exception as e:
+                                errors += 1
+                                logger.warning(f"Backup restore day note error: {e}")
                 except Exception as e:
                     errors += 1
                     logger.warning(f"Backup restore adventure error: {e}")

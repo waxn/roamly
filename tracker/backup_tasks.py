@@ -38,6 +38,8 @@ def _build_adventures_data(user):
         'blurbs__comments__author',
         'milestones__author',
         'planned_stops',
+        'day_notes__author',
+        'day_notes__photos',
     )
 
     result = []
@@ -51,6 +53,8 @@ def _build_adventures_data(user):
                 'latitude': b.latitude,
                 'longitude': b.longitude,
                 'location_name': b.location_name,
+                'rating': b.rating,
+                'category': b.category,
                 'created_at': b.created_at,
                 'photos': [
                     {'image': p.image.name, 'thumbnail': p.thumbnail.name if p.thumbnail else '', 'order': p.order}
@@ -111,6 +115,20 @@ def _build_adventures_data(user):
                     'order': s.order,
                 }
                 for s in adv.planned_stops.all()
+            ],
+            'day_notes': [
+                {
+                    'author_username': n.author.username,
+                    'date': n.date,
+                    'title': n.title,
+                    'body': n.body,
+                    'created_at': n.created_at,
+                    'photos': [
+                        {'image': p.image.name, 'thumbnail': p.thumbnail.name if p.thumbnail else '', 'order': p.order}
+                        for p in n.photos.all()
+                    ],
+                }
+                for n in adv.day_notes.all()
             ],
         })
 
@@ -472,7 +490,7 @@ def _get_image_s3_client(config):
 def _get_user_media_files(user):
     """Collect all media file paths (relative to MEDIA_ROOT) belonging to a user."""
     from .models import (
-        UserProfile, AdventureBlurbPhoto, Adventure, JournalPhoto,
+        UserProfile, AdventureBlurbPhoto, AdventureDayPhoto, Adventure, JournalPhoto,
     )
 
     files = []
@@ -493,6 +511,12 @@ def _get_user_media_files(user):
             files.append(adv.cover_image_thumbnail.name)
 
     for photo in AdventureBlurbPhoto.objects.filter(blurb__adventure__device__user=user):
+        if photo.image:
+            files.append(photo.image.name)
+        if photo.thumbnail:
+            files.append(photo.thumbnail.name)
+
+    for photo in AdventureDayPhoto.objects.filter(day_note__adventure__device__user=user):
         if photo.image:
             files.append(photo.image.name)
         if photo.thumbnail:
