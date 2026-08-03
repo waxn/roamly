@@ -314,7 +314,7 @@
                 <div class="overview-copy">
                     <span class="eyebrow reveal" data-d="1">Self-hosted · Field Journal No. 01</span>
                     <h1 class="reveal" data-d="2">Every mile you log<br>stays <em>yours.</em></h1>
-                    <p class="lede reveal" data-d="3">A private GPS journal you run yourself — MapLibre heatmaps, adventure journals, dwell-time analytics, group Pals trips, a native Android app, and push from GPSLogger, OwnTracks, or anything that speaks HTTP.</p>
+                    <p class="lede reveal" data-d="3">A private GPS journal you run yourself — MapLibre heatmaps, shared adventures, dwell-time analytics, a native Android app, and push from GPSLogger, OwnTracks, or anything that speaks HTTP.</p>
                     <div class="cta-row reveal" data-d="4">
                         <a href="{% url 'tracker:signup' %}" class="btn btn-primary btn-lg">start tracking free <span class="ar">→</span></a>
                         {% if user.is_authenticated %}
@@ -406,7 +406,7 @@
             <div class="panel-inner">
                 <span class="eyebrow reveal" data-accent="sky">02 — What's in the box</span>
                 <h2 class="reveal" data-d="1" style="font-size:clamp(1.7rem,3.6vw,2.3rem);font-weight:800;margin-bottom:0.5rem;">Not another SaaS map widget</h2>
-                <p class="lede reveal" data-d="2">Roamly is a full Django app you self-host — map, journals, adventures, pals, diagnostics, an AI you bring yourself, and a native Android client, all in one place.</p>
+                <p class="lede reveal" data-d="2">Roamly is a full Django app you self-host — map, journals, adventures, diagnostics, an AI you bring yourself, and a native Android client, all in one place.</p>
 
                 <div class="cap-list">
                     <div class="cap-item reveal">
@@ -421,16 +421,8 @@
                         <span class="cap-icon"><svg viewBox="0 0 24 24"><path d="M3 20l6-10 4 6 3-5 5 9H3z"/></svg></span>
                         <div>
                             <h3>Adventures</h3>
-                            <p class="cap-desc">Trip journals built from eight block types — headings, photo grids, embedded maps, timelines — with named place pins, milestones, and PIN-gated public share links.</p>
-                            <div class="cap-tags"><span class="cap-tag">8 block types</span><span class="cap-tag">pin-gated sharing</span></div>
-                        </div>
-                    </div>
-                    <div class="cap-item reveal">
-                        <span class="cap-icon"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M4 20c0-3 2.4-5 5-5s5 2 5 5"/><circle cx="17" cy="9" r="2.5"/><path d="M14.3 20c0-2.5 1.9-4.4 4.2-4.7"/></svg></span>
-                        <div>
-                            <h3>Pals</h3>
-                            <p class="cap-desc">Group trips where every member's track renders in its own color on one shared map, alongside a joint timeline of posts, photos, and milestones.</p>
-                            <div class="cap-tags"><span class="cap-tag">per-member tracks</span><span class="cap-tag">shared timeline</span></div>
+                            <p class="cap-desc">Shared journeys with a day-by-day log, a freeform story, and rated places with photos. Every member joins, tracks their own route in its own color on one map, and writes what happened — behind a PIN-gated public share link.</p>
+                            <div class="cap-tags"><span class="cap-tag">day-by-day log</span><span class="cap-tag">rated places</span><span class="cap-tag">per-member tracks</span></div>
                         </div>
                     </div>
                     <div class="cap-item reveal">
@@ -529,7 +521,7 @@
                     </li>
                     <li class="field-step reveal">
                         <h3>Explore</h3>
-                        <p>Map your history, run geocoding, check visits dwell time, log an adventure, invite pals.</p>
+                        <p>Map your history, run geocoding, check visits dwell time, log an adventure, invite your family.</p>
                     </li>
                     <li class="field-step reveal">
                         <h3>Staying current</h3>

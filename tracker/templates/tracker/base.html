@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>{% block title %}Roamly{% endblock %}</title>
     {% load static %}
-    <meta name="description" content="{% block meta_description %}Roamly — private GPS tracking, trip sharing, and travel analytics. Own your location data.{% endblock %}">
+    <meta name="description" content="{% block meta_description %}Roamly — private GPS tracking, shared adventures, and travel analytics. Own your location data.{% endblock %}">
     <link rel="canonical" href="{% block canonical %}{{ request.scheme }}://{{ request.get_host }}{{ request.path }}{% endblock %}">
     <meta name="robots" content="{% block robots_meta %}index, follow{% endblock %}">
     <meta property="og:site_name" content="Roamly">
     <meta property="og:type" content="website">
     <meta property="og:title" content="{% block og_title %}Roamly{% endblock %}">
-    <meta property="og:description" content="{% block og_description %}Roamly — private GPS tracking, trip sharing, and travel analytics.{% endblock %}">
+    <meta property="og:description" content="{% block og_description %}Roamly — private GPS tracking, shared adventures, and travel analytics.{% endblock %}">
     <meta property="og:url" content="{{ request.scheme }}://{{ request.get_host }}{{ request.path }}">
     <meta property="og:image" content="{% block og_image %}{{ request.scheme }}://{{ request.get_host }}{% static 'tracker/roamly.png' %}{% endblock %}">
     <meta name="twitter:card" content="summary_large_image">

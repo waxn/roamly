@@ -225,7 +225,7 @@
                 </div>
                 <div>
                     <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.75rem;">
-                        Upload a profile picture. It will appear on PAL maps and timelines.
+                        Upload a profile picture. It will appear on shared adventure maps and timelines.
                     </p>
                     <div style="display: flex; gap: 0.5rem;">
                         <label class="btn btn-primary btn-sm" style="cursor: pointer;">
@@ -521,7 +521,7 @@
                 <h4>Full Backup</h4>
                 <p>
                     Download or restore a complete backup of all your data — locations, devices, adventures (including
-                    write-ups, blurbs, milestones &amp; places), pals, journal entries, and API keys.
+                    day notes, blurbs, milestones &amp; places), journal entries, and API keys.
                     Photos themselves are backed up separately via S3 image backup; cached POIs are not included, as they
                     can be redownloaded at any time.
                 </p>
@@ -924,7 +924,7 @@
             <!-- Image Backup -->
             <hr style="border-color: var(--border); margin: 1.25rem 0;">
             <div style="font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem;">image backup</div>
-            <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.75rem;">Back up all your images to S3 — profile pictures, adventure cover &amp; blurb photos, pal photos, and journal photos. Images are stored under the path prefix below.</p>
+            <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.75rem;">Back up all your images to S3 — profile pictures, adventure cover, blurb &amp; day-note photos, and journal photos. Images are stored under the path prefix below.</p>
 
             <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; cursor: pointer; margin-bottom: 0.75rem;">
                 <input type="checkbox" id="image-backup-enabled" onchange="toggleImageBackup()" {% if backup_config.image_backup_enabled %}checked{% endif %}>
@@ -2416,7 +2416,6 @@ async function restoreBackup(input) {
         if (r.trips) parts.push(`${r.trips} trip(s)`);
         if (r.adventures) parts.push(`${r.adventures} adventure(s)`);
         if (r.trip_places) parts.push(`${r.trip_places} place(s)`);
-        if (r.pals) parts.push(`${r.pals} pal(s)`);
         if (r.journals) parts.push(`${r.journals} journal(s)`);
         if (r.api_keys) parts.push(`${r.api_keys} API key(s)`);
         statusEl.style.color = 'var(--success)';

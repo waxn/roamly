@@ -811,7 +811,6 @@
             <a href="#gpslogger" class="sidebar-link">gpslogger setup</a>
             <a href="#api-guide" class="sidebar-link">sending locations</a>
             <a href="#trips-tutorial" class="sidebar-link">adventures</a>
-            <a href="#pals-tutorial" class="sidebar-link">pals</a>
             <a href="#data-management" class="sidebar-link">import & export</a>
             <a href="#geocoding" class="sidebar-link">geocoding</a>
             <a href="#backups" class="sidebar-link">automatic backups</a>
@@ -837,13 +836,12 @@
 
         <header class="docs-hero">
             <h1>roamly <span>docs</span></h1>
-            <p>setup, api reference, and guides for self-hosted gps tracking — map, adventures, pals, visit analytics, and everything that runs on your server.</p>
+            <p>setup, api reference, and guides for self-hosted gps tracking — map, adventures, visit analytics, and everything that runs on your server.</p>
             <div class="quick-links">
                 <a href="#docker-setup" class="quick-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg> docker</a>
                 <a href="#gpslogger" class="quick-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 0110 10c0 5.52-4.48 10-10 10S2 17.52 2 12"/><circle cx="12" cy="12" r="3"/></svg> gpslogger</a>
                 <a href="#api-reference" class="quick-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg> api</a>
                 <a href="#trips-tutorial" class="quick-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/></svg> adventures</a>
-                <a href="#pals-tutorial" class="quick-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg> pals</a>
                 <a href="#troubleshooting" class="quick-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01"/></svg> help</a>
             </div>
         </header>
@@ -851,20 +849,19 @@
         <!-- Introduction -->
         <section id="introduction" class="doc-section">
             <h1>introduction</h1>
-            <p>roamly is a self-hosted location tracking platform. push gps from your phone, explore your history on a maplibre map, log adventures and pals trips, analyze where you've been, and keep every byte on hardware you control.</p>
+            <p>roamly is a self-hosted location tracking platform. push gps from your phone, explore your history on a maplibre map, log adventures, analyze where you've been, and keep every byte on hardware you control.</p>
 
             <h2>what you get</h2>
             <ul>
                 <li><strong>map</strong> — heatmap, speed-colored dots, path lines, time-range filters; postgis vector tiles or classic clustered mode</li>
                 <li><strong>multi-device</strong> — separate api keys per device, per-device colors on the map</li>
-                <li><strong>adventures</strong> — time-bounded outings with places, timeline blurbs, photos, milestones, public slug + optional pin</li>
-                <li><strong>pals</strong> — group trips where each member contributes their own gps track on one shared map</li>
+                <li><strong>adventures</strong> — shared, date-bounded journeys: a day-by-day log, a freeform story, rated places with photos, and every member's own gps track on one map, with a public slug + optional pin for sharing</li>
                 <li><strong>visit analytics</strong> — dwell time per city/state/country, yearly period comparisons</li>
                 <li><strong>stats & search</strong> — distance charts, location data table, place/date search</li>
                 <li><strong>reverse geocoding</strong> — nominatim with spatial clustering (background job in settings)</li>
                 <li><strong>import & export</strong> — csv, gpx, google takeout json, owntracks json, full backup restore</li>
                 <li><strong>s3 backups</strong> — scheduled data + image backups to any s3-compatible storage</li>
-                <li><strong>native android app</strong> — first-party kotlin client with a reboot-proof background tracker, offline-first uploads, and your map, stats, adventures & pals on your phone</li>
+                <li><strong>native android app</strong> — first-party kotlin client with a reboot-proof background tracker, offline-first uploads, and your map, stats, and adventures on your phone</li>
                 <li><strong>gpslogger & owntracks</strong> — or any client that can post json to <code>/api/push/</code></li>
                 <li><strong>pwa</strong> — installable; dark and light themes</li>
             </ul>
@@ -1207,7 +1204,7 @@ CSRF_TRUSTED_ORIGINS=https://roamly.yourdomain.com</code></pre>
             </div>
 
             <h2>beyond tracking</h2>
-            <p>the app isn't just an uploader — it's a full client. browse your <strong>map</strong>, check <strong>stats</strong>, and open your <strong>adventures</strong> and <strong>pals</strong> from your phone, all in the same claymorphism design as the web app.</p>
+            <p>the app isn't just an uploader — it's a full client. browse your <strong>map</strong>, check <strong>stats</strong>, and open your <strong>adventures</strong> from your phone, all in the same claymorphism design as the web app.</p>
 
             <div class="callout info">
                 <div class="callout-icon"></div>
@@ -1379,7 +1376,7 @@ resp = requests.post(
 print(resp.json())</code></pre>
         </section>
 
-        <!-- Trips -->
+        <!-- Adventures -->
         <section id="trips-tutorial" class="doc-section">
             <h1>adventures</h1>
             <p>adventures let you capture any outing — a 7-hour bike ride, a hiking day, a road trip, a vacation. they group location data by a precise start and end time for a specific device.</p>
@@ -1434,41 +1431,6 @@ print(resp.json())</code></pre>
             <p>adventures can be made public with a custom slug. optional <strong>access pin</strong> gates the public page — visitors enter the pin once per browser session. share link format: <code>/adventure/your-slug/</code></p>
         </section>
 
-        <!-- Pals -->
-        <section id="pals-tutorial" class="doc-section">
-            <h1>pals</h1>
-            <p>pals are multi-user group journeys — like adventures, but each member logs their own device. everyone's track appears on one map with a shared timeline, blurbs, and milestones.</p>
-
-            <h2>creating a pal trip</h2>
-            <div class="steps">
-                <div class="step-card">
-                    <div class="step-num">1</div>
-                    <div class="step-content">
-                        <h4>open pals</h4>
-                        <p>click <strong>pals</strong> in the nav bar → <strong>+ new pal</strong>.</p>
-                    </div>
-                </div>
-                <div class="step-card">
-                    <div class="step-num">2</div>
-                    <div class="step-content">
-                        <h4>invite members</h4>
-                        <p>add roamly users by username. each member pushes locations from their own api key and device.</p>
-                    </div>
-                </div>
-                <div class="step-card">
-                    <div class="step-num">3</div>
-                    <div class="step-content">
-                        <h4>share optionally</h4>
-                        <p>toggle public sharing for a read-only page at <code>/pal/your-slug/</code> — same pattern as adventures.</p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="callout info">
-                <div class="callout-icon"></div>
-                <div><strong>profile photos</strong> show on the pal map and timeline. upload yours under settings → profile picture.</div>
-            </div>
-        </section>
 
         <!-- Data Management -->
         <section id="data-management" class="doc-section">
@@ -1660,7 +1622,7 @@ roamly.yourdomain.com {
             <h2>data deletion</h2>
             <p>from <strong>settings</strong>:</p>
             <ul>
-                <li><strong>delete all locations</strong> — removes location data, keeps account and trips</li>
+                <li><strong>delete all locations</strong> — removes location data, keeps account and adventures</li>
                 <li><strong>delete account</strong> — permanently removes everything</li>
             </ul>
         </section>
@@ -1712,17 +1674,18 @@ docker compose up -d</code></pre>
                 </table>
             </div>
 
-            <h2>trips</h2>
+            <h2>adventures</h2>
+            <p>the paths keep the <code>/api/trips/</code> prefix for backward compatibility — the ui and models call them adventures.</p>
             <div class="table-wrap">
                 <table>
                     <thead><tr><th>method</th><th>endpoint</th><th>auth</th><th>description</th></tr></thead>
                     <tbody>
-                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/trips/</code></td><td>session</td><td>list all trips</td></tr>
-                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/trips/create/</code></td><td>session</td><td>create a trip</td></tr>
-                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/trips/&lt;id&gt;/</code></td><td>session</td><td>trip details with locations and places</td></tr>
-                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/trips/&lt;id&gt;/update/</code></td><td>session</td><td>update trip name/description</td></tr>
-                        <tr><td><span class="badge badge-delete">DELETE</span></td><td><code>/api/trips/&lt;id&gt;/delete/</code></td><td>session</td><td>delete trip (locations preserved)</td></tr>
-                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/trips/&lt;id&gt;/places/create/</code></td><td>session</td><td>add a place to a trip</td></tr>
+                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/trips/</code></td><td>session</td><td>list all adventures</td></tr>
+                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/trips/create/</code></td><td>session</td><td>create an adventure</td></tr>
+                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/trips/&lt;id&gt;/</code></td><td>session</td><td>adventure details with locations, places, and day notes</td></tr>
+                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/trips/&lt;id&gt;/update/</code></td><td>session</td><td>update adventure name/description</td></tr>
+                        <tr><td><span class="badge badge-delete">DELETE</span></td><td><code>/api/trips/&lt;id&gt;/delete/</code></td><td>session</td><td>delete adventure (locations preserved)</td></tr>
+                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/trips/&lt;id&gt;/places/create/</code></td><td>session</td><td>add a place (with optional rating and category)</td></tr>
                         <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/trips/&lt;id&gt;/places/&lt;pid&gt;/update/</code></td><td>session</td><td>update a place</td></tr>
                         <tr><td><span class="badge badge-delete">DELETE</span></td><td><code>/api/trips/&lt;id&gt;/places/&lt;pid&gt;/delete/</code></td><td>session</td><td>delete a place</td></tr>
                     </tbody>
@@ -1798,7 +1761,7 @@ docker compose up -d</code></pre>
     │ POST /api/push/  (api key auth)
     ▼
 roamly web server (django + gunicorn)
-    ├── api endpoints (push, locations, trips, import/export)
+    ├── api endpoints (push, locations, adventures, import/export)
     ├── web ui (maplibre gl, canvas charts, vanilla js)
     └── postgresql 16 + postgis 3.4
             ├── locations with point geometry (srid 4326)
@@ -1818,13 +1781,12 @@ background threads
 ├── device          — unique per (user, device_id)
 │   ├── location    — lat/lng/point, timestamp, geocoded fields
 │   └── visit       — precomputed stay (start/end, point count, optional poi)
-├── adventure       — name, start/end time, public slug, block-based body
-│   ├── adventureplace     — named pin with radius (dwell time)
-│   ├── adventureblurb      — timeline post (+ photos, comments)
+├── adventure       — name, start/end time, public slug, block-based story body
+│   ├── adventureblurb      — located place / timeline post (+ rating, category, photos, comments)
+│   ├── adventuredaynote     — per-member, per-day log entry (+ photos)
 │   ├── adventuremilestone  — titled event with emoji + date
-│   └── adventuremember     — shared access (creator / member)
-├── pal             — group trip; each member brings their own track
-│   ├── palmember / palblurb / palmilestone / palcomment
+│   ├── plannedstop         — forward-looking itinerary stop
+│   └── adventuremember     — shared access (creator / member); each brings their own track
 ├── poi             — cached openstreetmap points of interest
 ├── userprofile     — profile picture
 ├── geocodingjob / visitjob / poidownloadjob — one per user, track progress
@@ -1905,7 +1867,7 @@ background threads
             <p>yes. it runs on your server, no telemetry, no data sharing. the only external call is nominatim for geocoding — which only sends coordinates, no user info.</p>
 
             <h3>can multiple people share one instance?</h3>
-            <p>yes. each user gets their own account with separate data, devices, trips, and api keys. no cross-user data access.</p>
+            <p>yes. each user gets their own account with separate data, devices, adventures, and api keys. no cross-user data access.</p>
 
             <h3>how much storage does it use?</h3>
             <p>a phone sending every 5 minutes generates ~100k points/year, which is roughly 50–100 mb in postgresql. postgis handles millions of points fine.</p>
