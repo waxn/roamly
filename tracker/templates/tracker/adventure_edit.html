@@ -133,6 +133,37 @@
 /* ── Blocks area — extra left padding for the hover toolbar gutter ── */
 .blocks-area { flex: 1; padding: 0.5rem 1.5rem 4rem 3rem; }
 
+/* ── Story / Day Log toggle ── */
+.doc-tabs { display: flex; gap: 0.25rem; padding: 0.75rem 1.5rem 0 3rem; }
+.doc-tab { background: none; border: none; border-bottom: 2px solid transparent; padding: 0.4rem 0.6rem; font: inherit; font-size: 0.8rem; font-weight: 700; color: var(--text-muted); cursor: pointer; }
+.doc-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+/* ── Day Log ── */
+.daylog-area { flex: 1; padding: 0.75rem 1.5rem 4rem 3rem; overflow-y: auto; }
+.daylog-empty { color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0; }
+.day-card { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 1rem; overflow: hidden; }
+.day-head { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.85rem; background: var(--bg-elevated); border-bottom: 1px solid var(--border); }
+.day-date { font-weight: 700; font-size: 0.85rem; }
+.day-focus-btn { font-size: 0.68rem; font-weight: 700; color: var(--clay-sky); background: none; border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; cursor: pointer; }
+.day-focus-btn:hover { border-color: var(--clay-sky); }
+.day-body { padding: 0.6rem 0.85rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.dn-mine { border: 1px dashed var(--border); border-radius: 6px; padding: 0.5rem; }
+.dn-mine input.dn-title { width: 100%; background: none; border: none; font: inherit; font-weight: 700; font-size: 0.85rem; color: var(--text); padding: 2px 0; }
+.dn-mine textarea.dn-body { width: 100%; background: var(--bg-input); border: 1px solid var(--border); border-radius: 5px; font: inherit; font-size: 0.82rem; color: var(--text); padding: 0.4rem; resize: vertical; min-height: 3.5rem; }
+.dn-mine-label { font-size: 0.65rem; color: var(--text-dim); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.25rem; }
+.dn-other { border-left: 2px solid var(--border); padding-left: 0.6rem; }
+.dn-author { display: flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.15rem; }
+.dn-author .dn-ava { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; }
+.dn-author .dn-ava-txt { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.55rem; color: #fff; }
+.dn-title-ro { font-weight: 700; font-size: 0.82rem; }
+.dn-body-ro { font-size: 0.82rem; color: var(--text-muted); white-space: pre-wrap; line-height: 1.5; }
+.dn-photos { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.4rem; }
+.dn-photo { position: relative; width: 64px; height: 64px; border-radius: 5px; overflow: hidden; }
+.dn-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dn-photo-del { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.6); color: #fff; border: none; border-radius: 50%; width: 16px; height: 16px; font-size: 10px; line-height: 1; cursor: pointer; }
+.dn-add-photo { font-size: 0.68rem; color: var(--clay-sky); cursor: pointer; }
+.dn-status { font-size: 0.62rem; color: var(--text-dim); margin-left: 0.4rem; }
+
 /* Loading skeletons (shown until trip data + map are ready) */
 @keyframes rly-shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
 .blocks-skeleton { padding-top: 0.75rem; display: flex; flex-direction: column; gap: 0.85rem; }
@@ -618,7 +649,13 @@
             </div>
         </div>
 
-        <!-- Blocks -->
+        <!-- Story / Day Log toggle (Map stays persistent on the right) -->
+        <div class="doc-tabs" id="doc-tabs">
+            <button class="doc-tab active" data-pane="story">story</button>
+            <button class="doc-tab" data-pane="daylog">day log</button>
+        </div>
+
+        <!-- Blocks (Story) -->
         <div class="blocks-area" id="blocks-area">
             <!-- Skeleton placeholder until blocks render -->
             <div class="blocks-skeleton" id="blocks-skeleton">
@@ -630,6 +667,11 @@
                 <div class="skel skel-line" style="width:92%;"></div>
                 <div class="skel skel-line" style="width:80%;"></div>
             </div>
+        </div>
+
+        <!-- Day Log -->
+        <div class="daylog-area" id="daylog-area" style="display:none">
+            <div class="daylog-empty" id="daylog-loading">loading day log…</div>
         </div>
     </div>
 
@@ -2082,10 +2124,152 @@ document.getElementById('st-delete-btn').addEventListener('click', async functio
 });
 
 // ── Init ───────────────────────────────────────────────────────────────────
+// ── Day Log ─────────────────────────────────────────────────────────────────
+let dayNotes = [];           // raw list from the API
+let dayLogLoaded = false;
+const daySaveTimers = {};
+
+function localDateStr(iso){
+    try { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+    catch(e){ return null; }
+}
+function fmtDayLabel(ds){
+    const [y,m,d] = ds.split('-').map(Number);
+    return new Date(y, m-1, d).toLocaleDateString([], {weekday:'short', month:'short', day:'numeric', year:'numeric'});
+}
+function avatarHtml(av){
+    if(av && av.type === 'image') return `<img class="dn-ava" src="${av.url}" alt="">`;
+    if(av) return `<span class="dn-ava-txt" style="background:${av.color||'#888'}">${(av.initials||'').slice(0,2)}</span>`;
+    return '';
+}
+
+// Collect the set of dates worth showing: those with track points or a note,
+// bounded to [start, min(end, today)] so an open-ended adventure (end 2099)
+// doesn't spin out an infinite list.
+function dayLogDates(){
+    const dates = new Set();
+    (dayNotes || []).forEach(n => dates.add(n.date));
+    const addFromLocs = arr => (arr||[]).forEach(l => { const ds = localDateStr(l.timestamp); if(ds) dates.add(ds); });
+    addFromLocs(tripData.locations);
+    Object.values(tripData.member_locations || {}).forEach(addFromLocs);
+    let list = [...dates];
+    const start = tripData.start_time ? localDateStr(tripData.start_time) : null;
+    const todayStr = localDateStr(new Date().toISOString());
+    let end = tripData.end_time ? localDateStr(tripData.end_time) : null;
+    if(end && end > todayStr) end = todayStr;   // clamp open-ended trips
+    list = list.filter(ds => (!start || ds >= start) && (!end || ds <= end));
+    if(start && !list.length) list = [start];
+    return list.sort();
+}
+
+async function loadDayLog(){
+    try {
+        const r = await fetch(`/api/trips/${TRIP_ID}/days/`);
+        dayNotes = r.ok ? ((await r.json()).day_notes || []) : [];
+    } catch(e){ dayNotes = []; }
+    dayLogLoaded = true;
+    renderDayLog();
+}
+
+function renderDayLog(){
+    const host = document.getElementById('daylog-area');
+    const dates = dayLogDates();
+    if(!dates.length){ host.innerHTML = '<div class="daylog-empty">No days with tracked points yet. Notes appear here once this adventure has location data.</div>'; return; }
+    const byDate = {};
+    (dayNotes||[]).forEach(n => { (byDate[n.date] = byDate[n.date] || []).push(n); });
+    host.innerHTML = dates.map(ds => {
+        const notes = byDate[ds] || [];
+        const mine = notes.find(n => n.is_mine);
+        const others = notes.filter(n => !n.is_mine);
+        const minePhotos = mine ? (mine.photos||[]).map(p =>
+            `<div class="dn-photo"><img src="${p.thumb}" alt=""><button class="dn-photo-del" title="remove" onclick="deleteDayPhoto(${p.id},'${ds}')">×</button></div>`).join('') : '';
+        const mineBlock = `
+            <div class="dn-mine">
+                <div class="dn-mine-label">your note <span class="dn-status" id="dn-status-${ds}"></span></div>
+                <input class="dn-title" placeholder="title…" value="${mine ? esc(mine.title||'') : ''}" oninput="queueDaySave('${ds}')" id="dn-title-${ds}">
+                <textarea class="dn-body" placeholder="what happened on this day…" oninput="queueDaySave('${ds}')" id="dn-body-${ds}">${mine ? esc(mine.body||'') : ''}</textarea>
+                <div class="dn-photos">${minePhotos}<label class="dn-add-photo">+ photo<input type="file" accept="image/*" multiple style="display:none" onchange="uploadDayPhotos('${ds}', this)"></label></div>
+            </div>`;
+        const othersBlock = others.map(n => `
+            <div class="dn-other">
+                <div class="dn-author">${avatarHtml(n.avatar)}${esc(n.author)}</div>
+                ${n.title ? `<div class="dn-title-ro">${esc(n.title)}</div>` : ''}
+                <div class="dn-body-ro">${esc(n.body||'')}</div>
+                ${(n.photos||[]).length ? `<div class="dn-photos">${n.photos.map(p=>`<div class="dn-photo"><img src="${p.thumb}" alt=""></div>`).join('')}</div>` : ''}
+            </div>`).join('');
+        return `<div class="day-card">
+            <div class="day-head"><span class="day-date">${fmtDayLabel(ds)}</span><button class="day-focus-btn" onclick="focusDayOnMap('${ds}')">show on map</button></div>
+            <div class="day-body">${mineBlock}${othersBlock}</div>
+        </div>`;
+    }).join('');
+}
+
+function queueDaySave(ds){
+    const st = document.getElementById('dn-status-' + ds);
+    if(st) st.textContent = 'saving…';
+    clearTimeout(daySaveTimers[ds]);
+    daySaveTimers[ds] = setTimeout(() => saveDayNote(ds), 700);
+}
+async function saveDayNote(ds){
+    const title = (document.getElementById('dn-title-' + ds)||{}).value || '';
+    const body = (document.getElementById('dn-body-' + ds)||{}).value || '';
+    try {
+        const r = await fetch(`/api/trips/${TRIP_ID}/days/${ds}/`, {
+            method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+            body: JSON.stringify({title, body})
+        });
+        if(r.ok){
+            const d = await r.json();
+            upsertDayNote(d.day_note);
+            const st = document.getElementById('dn-status-' + ds); if(st) st.textContent = 'saved';
+        }
+    } catch(e){ const st = document.getElementById('dn-status-' + ds); if(st) st.textContent = 'error'; }
+}
+function upsertDayNote(note){
+    if(!note) return;
+    const i = dayNotes.findIndex(n => n.id === note.id);
+    if(i >= 0) dayNotes[i] = note; else dayNotes.push(note);
+}
+window.uploadDayPhotos = async function(ds, input){
+    if(!input.files || !input.files.length) return;
+    const fd = new FormData();
+    [...input.files].forEach(f => fd.append('photos', f));
+    const r = await fetch(`/api/trips/${TRIP_ID}/days/${ds}/photos/`, {method:'POST', headers:{'X-CSRFToken':CSRF}, body:fd});
+    if(r.ok){ upsertDayNote((await r.json()).day_note); renderDayLog(); }
+};
+window.deleteDayPhoto = async function(photoId, ds){
+    const r = await fetch(`/api/trips/${TRIP_ID}/days/photos/${photoId}/delete/`, {method:'POST', headers:{'X-CSRFToken':CSRF}});
+    if(r.ok){ await loadDayLog(); }
+};
+window.focusDayOnMap = function(ds){
+    if(!editMap) return;
+    const pts = [];
+    const collect = arr => (arr||[]).forEach(l => { if(localDateStr(l.timestamp) === ds && l.lat!=null && l.lng!=null) pts.push([l.lng, l.lat]); });
+    collect(tripData.locations);
+    Object.values(tripData.member_locations || {}).forEach(collect);
+    if(!pts.length) return;
+    const lons = pts.map(p=>p[0]), lats = pts.map(p=>p[1]);
+    editMap.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
+        {padding: 60, maxZoom: 15, duration: 700});
+};
+
+function setupDocTabs(){
+    document.querySelectorAll('.doc-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.doc-tab').forEach(b => b.classList.toggle('active', b === btn));
+            const pane = btn.dataset.pane;
+            document.getElementById('blocks-area').style.display = pane === 'story' ? '' : 'none';
+            document.getElementById('daylog-area').style.display = pane === 'daylog' ? '' : 'none';
+            if(pane === 'daylog' && !dayLogLoaded) loadDayLog();
+        });
+    });
+}
+
 async function init(){
     // Watchdog: never leave the map spinner up forever if something stalls.
     const watchdog = setTimeout(hideMapLoading, 12000);
 
+    setupDocTabs();
     try { await loadTrip(); } catch(e){ console.error('loadTrip failed', e); }
 
     // Start the map as soon as we have locations so a later failure (timeline,
