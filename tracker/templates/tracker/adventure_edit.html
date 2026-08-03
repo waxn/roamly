@@ -334,6 +334,8 @@
 .poi-marker { color: var(--clay-coral); cursor: pointer; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); transition: transform 0.12s; }
 .poi-marker svg { width: 26px; height: 26px; display: block; stroke: #fff; stroke-width: 1; }
 .poi-marker:hover { transform: scale(1.18); }
+.poi-marker-cat { width: 28px; height: 28px; border-radius: 50%; background: var(--clay-coral); border: 2px solid #fff; display: flex; align-items: center; justify-content: center; }
+.poi-marker-emoji { font-size: 15px; line-height: 1; }
 
 /* POI detail popup */
 .poi-popup-card { text-align: center; }
@@ -341,6 +343,15 @@
 .poi-popup-star { color: var(--clay-coral); display: flex; justify-content: center; margin-bottom: 0.25rem; }
 .poi-popup-star svg { width: 30px; height: 30px; }
 .poi-popup-card .pin-popup-notes { white-space: pre-wrap; }
+.poi-popup-meta { display: flex; flex-wrap: wrap; gap: 0.4rem; justify-content: center; align-items: center; margin: 0.15rem 0 0.35rem; }
+.poi-cat-badge { font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-muted); }
+.poi-rating-stars { color: var(--clay-amber); font-size: 0.9rem; letter-spacing: 1px; }
+/* Rating picker in the POI modal */
+.poi-rating-picker { display: flex; align-items: center; gap: 0.2rem; }
+.poi-star-btn { background: none; border: none; cursor: pointer; font-size: 1.5rem; line-height: 1; color: var(--clay-amber); padding: 0 1px; }
+.poi-star-btn:not(.on) { color: var(--text-dim); }
+.poi-star-clear { font-size: 0.7rem; color: var(--text-muted); cursor: pointer; margin-left: 0.5rem; }
+.poi-star-clear:hover { color: var(--clay-coral); }
 .poi-popup-actions { display: flex; gap: 0.5rem; justify-content: center; margin-top: 0.9rem; }
 .poi-popup-actions button {
     background: var(--bg-input); border: 1px solid var(--border); border-radius:0;
@@ -670,6 +681,7 @@
         <div class="poi-popup-author" id="poi-popup-author"></div>
         <div class="poi-popup-star"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15 9 22 9.3 16.5 14 18.5 21 12 17 5.5 21 7.5 14 2 9.3 9 9"/></svg></div>
         <div class="pin-popup-name" id="poi-popup-title"></div>
+        <div class="poi-popup-meta" id="poi-popup-meta"></div>
         <div class="pin-popup-notes" id="poi-popup-notes"></div>
         <div class="poi-popup-actions" id="poi-popup-actions"></div>
     </div>
@@ -686,6 +698,14 @@
         <div class="bm-field">
             <label class="bm-label">notes</label>
             <textarea class="bm-input" id="poi-notes-in" rows="3" placeholder="notes about this point…" style="resize:vertical;"></textarea>
+        </div>
+        <div class="bm-field">
+            <label class="bm-label">category</label>
+            <select class="bm-input" id="poi-category-in"></select>
+        </div>
+        <div class="bm-field">
+            <label class="bm-label">rating</label>
+            <div class="poi-rating-picker" id="poi-rating-in" role="radiogroup" aria-label="rating"></div>
         </div>
         <div class="bm-btns">
             <button class="bm-cancel-btn" data-modal="poi-modal">cancel</button>
@@ -919,6 +939,22 @@ const mapStyles = {
         sources:{osm:{type:'raster',tiles:['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'],tileSize:256}},
         layers:[{id:'osm',type:'raster',source:'osm'}] },
 };
+
+// ── Place categories ────────────────────────────────────────────────────────
+// Emoji per category slug — drives the map marker glyph + popup/card badges.
+const PLACE_CAT_EMOJI = {
+    restaurant:'🍴', cafe:'☕', bar:'🍸', hotel:'🛏️', store:'🛍️',
+    attraction:'📸', nature:'🌲', transport:'🚆', town:'🏙️', other:'📍',
+};
+const PLACE_CAT_LABEL = {
+    restaurant:'Restaurant', cafe:'Café', bar:'Bar / Nightlife', hotel:'Hotel / Lodging',
+    store:'Store / Shopping', attraction:'Attraction / Sight', nature:'Nature / Park',
+    transport:'Transport', town:'Town / City', other:'Other',
+};
+function starString(rating){
+    const n = Math.max(0, Math.min(5, parseInt(rating)||0));
+    return n ? '★★★★★'.slice(0,n) + '☆☆☆☆☆'.slice(0,5-n) : '';
+}
 
 // ── State ──────────────────────────────────────────────────────────────────
 // Photos for photo_grid blocks are stored on a hidden "container" blurb; this
@@ -1664,10 +1700,16 @@ function hideMapLoading(){
 }
 
 // ── POIs (unified places + notes, backed by located blurbs) ─────────────────
-function poiMarkerEl(){
+function poiMarkerEl(cat){
     const el = document.createElement('div');
     el.className = 'poi-marker';
-    el.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15 9 22 9.3 16.5 14 18.5 21 12 17 5.5 21 7.5 14 2 9.3 9 9"/></svg>';
+    // Categorised places show their emoji glyph; uncategorised keep the star.
+    if(cat && PLACE_CAT_EMOJI[cat]){
+        el.classList.add('poi-marker-cat');
+        el.innerHTML = `<span class="poi-marker-emoji">${PLACE_CAT_EMOJI[cat]}</span>`;
+    } else {
+        el.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15 9 22 9.3 16.5 14 18.5 21 12 17 5.5 21 7.5 14 2 9.3 9 9"/></svg>';
+    }
     return el;
 }
 
@@ -1676,7 +1718,7 @@ function renderPOIMarkers(){
     poiMarkers = [];
     if(!editMap) return;
     blurbs.filter(b => b.latitude && b.longitude).forEach(b => {
-        const el = poiMarkerEl();
+        const el = poiMarkerEl(b.category);
         el.style.display = showPOIs ? '' : 'none';
         el.addEventListener('click', ev => { ev.stopPropagation(); openPOIPopup(b); });
         const m = new maplibregl.Marker({element: el, anchor: 'center'})
@@ -1717,12 +1759,44 @@ async function reloadBlurbs(){
 }
 
 // ── POI create / edit modal ─────────────────────────────────────────────────
+let poiRatingVal = 0;
+function buildCategorySelect(){
+    const sel = document.getElementById('poi-category-in');
+    if(sel.dataset.built) return;
+    const cats = (tripData.categories && tripData.categories.length)
+        ? tripData.categories
+        : Object.keys(PLACE_CAT_LABEL).map(s => ({slug:s, label:PLACE_CAT_LABEL[s]}));
+    sel.innerHTML = '<option value="">— none —</option>' +
+        cats.map(c => `<option value="${c.slug}">${PLACE_CAT_EMOJI[c.slug]||''} ${c.label}</option>`).join('');
+    sel.dataset.built = '1';
+}
+function renderRatingPicker(){
+    const host = document.getElementById('poi-rating-in');
+    host.innerHTML = '';
+    for(let i=1;i<=5;i++){
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'poi-star-btn' + (i<=poiRatingVal ? ' on' : '');
+        b.textContent = i<=poiRatingVal ? '★' : '☆';
+        b.title = i + ' star' + (i>1?'s':'');
+        b.addEventListener('click', () => { poiRatingVal = (poiRatingVal===i ? 0 : i); renderRatingPicker(); });
+        host.appendChild(b);
+    }
+    const clr = document.createElement('span');
+    clr.className = 'poi-star-clear';
+    clr.textContent = poiRatingVal ? 'clear' : '';
+    clr.addEventListener('click', () => { poiRatingVal = 0; renderRatingPicker(); });
+    host.appendChild(clr);
+}
 function openPOIModal(id){
     poiEditId = id;
     const b = id ? blurbs.find(x => x.id === id) : null;
     document.getElementById('poi-modal-title').textContent = id ? 'edit POI' : 'add POI';
     document.getElementById('poi-title-in').value = b ? (b.title || '') : '';
     document.getElementById('poi-notes-in').value = b ? (b.text || '') : '';
+    buildCategorySelect();
+    document.getElementById('poi-category-in').value = b ? (b.category || '') : '';
+    poiRatingVal = b ? (parseInt(b.rating)||0) : 0;
+    renderRatingPicker();
     document.getElementById('poi-modal').classList.add('open');
     setTimeout(() => document.getElementById('poi-title-in').focus(), 30);
 }
@@ -1731,18 +1805,20 @@ document.getElementById('poi-modal-ok').addEventListener('click', savePOI);
 async function savePOI(){
     const title = document.getElementById('poi-title-in').value.trim();
     const notes = document.getElementById('poi-notes-in').value.trim();
+    const category = document.getElementById('poi-category-in').value;
+    const rating = poiRatingVal || null;
     if(!title && !notes){ alert('add a title or some notes'); return; }
     let r;
     if(poiEditId){
         r = await fetch(`/api/trips/${TRIP_ID}/places/${poiEditId}/update/`, {
             method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
-            body: JSON.stringify({name: title, notes})
+            body: JSON.stringify({name: title, notes, rating, category})
         });
     } else {
         if(!poiDropCoords) return;
         r = await fetch(`/api/trips/${TRIP_ID}/places/create/`, {
             method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
-            body: JSON.stringify({name: title, notes, latitude: poiDropCoords.lat, longitude: poiDropCoords.lng})
+            body: JSON.stringify({name: title, notes, rating, category, latitude: poiDropCoords.lat, longitude: poiDropCoords.lng})
         });
     }
     if(r && r.ok){
@@ -1752,18 +1828,18 @@ async function savePOI(){
         if(poiEditId){
             [blurbs, allNotes].forEach(arr => {
                 const b = arr.find(x => x.id === poiEditId);
-                if(b){ b.title = p.name || ''; b.text = p.notes || ''; }
+                if(b){ b.title = p.name || ''; b.text = p.notes || ''; b.rating = p.rating; b.category = p.category || ''; }
             });
             const pl = places.find(x => x.id === poiEditId);
-            if(pl){ pl.name = p.name || ''; pl.notes = p.notes || ''; }
+            if(pl){ pl.name = p.name || ''; pl.notes = p.notes || ''; pl.rating = p.rating; pl.category = p.category || ''; }
         } else {
             const nb = {
                 id: p.id, title: p.name || '', text: p.notes || '',
-                latitude: p.latitude, longitude: p.longitude,
+                latitude: p.latitude, longitude: p.longitude, rating: p.rating, category: p.category || '',
                 author: CURRENT_USERNAME, photos: [], location_name: '',
             };
             blurbs.push(nb); allNotes.push(nb);
-            places.push({id: p.id, name: p.name || '', latitude: p.latitude, longitude: p.longitude, notes: p.notes || ''});
+            places.push({id: p.id, name: p.name || '', latitude: p.latitude, longitude: p.longitude, notes: p.notes || '', rating: p.rating, category: p.category || ''});
         }
         document.getElementById('poi-modal').classList.remove('open');
         poiEditId = null; poiDropCoords = null;
@@ -1776,6 +1852,13 @@ async function savePOI(){
 function openPOIPopup(b){
     document.getElementById('poi-popup-author').textContent = b.author ? ('added by ' + b.author) : '';
     document.getElementById('poi-popup-title').textContent = b.title || '(untitled POI)';
+    const meta = document.getElementById('poi-popup-meta');
+    if(meta){
+        const bits = [];
+        if(b.category) bits.push(`<span class="poi-cat-badge">${PLACE_CAT_EMOJI[b.category]||''} ${PLACE_CAT_LABEL[b.category]||b.category}</span>`);
+        if(b.rating) bits.push(`<span class="poi-rating-stars">${starString(b.rating)}</span>`);
+        meta.innerHTML = bits.join('');
+    }
     document.getElementById('poi-popup-notes').textContent = b.text || '';
     document.getElementById('poi-popup-actions').innerHTML =
         `<button onclick="openPOIPopupEdit(${b.id})">edit</button>` +
@@ -1848,7 +1931,7 @@ async function loadTrip(){
     const r = await fetch(`/api/trips/${TRIP_ID}/`);
     tripData = await r.json();
     blocks = (tripData.body||[]).map(b=>({...b, _id:uid()}));
-    places = (tripData.places||[]).map(p=>({id:p.id,name:p.name,latitude:p.latitude,longitude:p.longitude,notes:p.notes||''}));
+    places = (tripData.places||[]).map(p=>({id:p.id,name:p.name,latitude:p.latitude,longitude:p.longitude,notes:p.notes||'',rating:p.rating,category:p.category||''}));
     // blurbs are loaded from timeline API in init(), not here
 
     if(tripData.cover_image){
