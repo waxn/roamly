@@ -248,6 +248,25 @@
 .poi-marker { color: var(--clay-coral); cursor: pointer; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); transition: transform 0.12s; }
 .poi-marker svg { width: 28px; height: 28px; display: block; stroke: #fff; stroke-width: 1; }
 .poi-marker:hover { transform: scale(1.18); }
+.poi-marker-cat { width: 30px; height: 30px; border-radius: 50%; background: var(--clay-coral); border: 2px solid #fff; display: flex; align-items: center; justify-content: center; }
+.poi-marker-emoji { font-size: 16px; line-height: 1; }
+/* Place rating + category badges (shared by blurbs, location cards, popups) */
+.pub-place-meta, .poi-popup-meta { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin: 0.2rem 0 0.35rem; }
+.poi-popup-meta { justify-content: center; }
+.pub-cat-badge { font-size: 0.68rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--bg-elevated, rgba(255,255,255,0.05)); border: 1px solid var(--border); color: var(--text-muted); }
+.pub-rating-stars { color: var(--clay-amber, #cf9a44); font-size: 0.9rem; letter-spacing: 1px; }
+/* Day Log (read-only) */
+.pub-daylog-section { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 1.5rem; }
+.pub-day { margin-bottom: 1.75rem; }
+.pub-day-date { font-family: var(--font-display); font-weight: 700; font-size: 0.95rem; margin-bottom: 0.6rem; padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+.pub-dn-entry { margin: 0 0 1rem 0.25rem; padding-left: 0.75rem; border-left: 2px solid var(--border); }
+.pub-dn-author { display: flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.25rem; }
+.pub-dn-ava { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
+.pub-dn-ava-txt { width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.6rem; color: #fff; }
+.pub-dn-title { font-weight: 700; font-size: 0.9rem; margin-bottom: 0.15rem; }
+.pub-dn-body { font-size: 0.875rem; color: var(--text-muted); line-height: 1.6; white-space: pre-wrap; }
+.pub-dn-photos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 0.5rem; }
+.pub-dn-photos img { width: 90px; height: 90px; object-fit: cover; border-radius: 5px; cursor: pointer; }
 .plan-marker { width: 26px; height: 26px; border-radius: 50%; background: #5a8fb0; color: #fff;
     display: flex; align-items: center; justify-content: center; font-family: var(--font-mono, monospace);
     font-size: 0.8125rem; font-weight: 700; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.45); }
@@ -332,6 +351,7 @@
         <div class="poi-popup-author" id="poi-popup-author"></div>
         <div class="poi-popup-star"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15 9 22 9.3 16.5 14 18.5 21 12 17 5.5 21 7.5 14 2 9.3 9 9"/></svg></div>
         <div class="pin-popup-name" id="poi-popup-title"></div>
+        <div class="poi-popup-meta" id="poi-popup-meta"></div>
         <div class="pin-popup-notes" id="poi-popup-notes"></div>
         <div class="poi-popup-photos" id="poi-popup-photos"></div>
     </div>
@@ -367,6 +387,9 @@
     <!-- Document body -->
     <div id="pub-body-blocks"></div>
 
+    <!-- Day Log (per-member, per-day notes) -->
+    <div id="pub-daylog"></div>
+
     <!-- Blurbs section (map pins / notes) -->
     <div id="pub-blurbs-section"></div>
 </div>
@@ -383,6 +406,17 @@ const mapStyles = {
     'Dark':    { version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf', sources:{carto:{type:'raster',tiles:['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'],tileSize:256}}, layers:[{id:'carto',type:'raster',source:'carto'}] },
     'Streets': { version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf', sources:{osm:{type:'raster',tiles:['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'],tileSize:256}}, layers:[{id:'osm',type:'raster',source:'osm'}] },
 };
+
+// Place categories — emoji glyph + label, matching the editor.
+const PLACE_CAT_EMOJI = {restaurant:'🍴',cafe:'☕',bar:'🍸',hotel:'🛏️',store:'🛍️',attraction:'📸',nature:'🌲',transport:'🚆',town:'🏙️',other:'📍'};
+const PLACE_CAT_LABEL = {restaurant:'Restaurant',cafe:'Café',bar:'Bar / Nightlife',hotel:'Hotel / Lodging',store:'Store / Shopping',attraction:'Attraction / Sight',nature:'Nature / Park',transport:'Transport',town:'Town / City',other:'Other'};
+function starString(rating){ const n=Math.max(0,Math.min(5,parseInt(rating)||0)); return n ? '★★★★★'.slice(0,n)+'☆☆☆☆☆'.slice(0,5-n) : ''; }
+function placeMetaHtml(p){
+    const bits=[];
+    if(p && p.category) bits.push(`<span class="pub-cat-badge">${PLACE_CAT_EMOJI[p.category]||''} ${PLACE_CAT_LABEL[p.category]||p.category}</span>`);
+    if(p && p.rating) bits.push(`<span class="pub-rating-stars">${starString(p.rating)}</span>`);
+    return bits.length ? `<div class="pub-place-meta">${bits.join('')}</div>` : '';
+}
 
 let tripData = {};
 let placesMap = {};
@@ -441,6 +475,7 @@ document.getElementById('pin-popup-close').addEventListener('click', () => {
 function openPOIPopup(poi){
     document.getElementById('poi-popup-author').textContent = poi.author ? ('added by ' + poi.author) : '';
     document.getElementById('poi-popup-title').textContent = poi.title || '(untitled POI)';
+    document.getElementById('poi-popup-meta').innerHTML = placeMetaHtml(poi);
     document.getElementById('poi-popup-notes').textContent = poi.text || '';
     const ph = document.getElementById('poi-popup-photos');
     const photos = (poi.photos || []);
@@ -524,8 +559,8 @@ function renderBlock(block, allPhotos){
         const place = placesMap[c.place_id];
         if(!place) return '';
         return `<div class="pub-block pub-location-card" data-place-id="${c.place_id}">
-            <span class="pub-lc-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
-            <div><div class="pub-lc-name">${esc(place.name)}</div>${place.notes?`<div class="pub-lc-notes">${esc(place.notes)}</div>`:''}</div>
+            <span class="pub-lc-icon">${place.category && PLACE_CAT_EMOJI[place.category] ? `<span style="font-size:20px">${PLACE_CAT_EMOJI[place.category]}</span>` : '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>'}</span>
+            <div><div class="pub-lc-name">${esc(place.name)}</div>${placeMetaHtml(place)}${place.notes?`<div class="pub-lc-notes">${esc(place.notes)}</div>`:''}</div>
         </div>`;
     }
     if(block.type === 'timeline'){
@@ -563,6 +598,7 @@ function renderBlurb(b){
             <span class="pub-blurb-time">${timeStr}</span>
         </div>
         ${b.title ? `<div class="pub-blurb-title">${esc(b.title)}</div>` : ''}
+        ${placeMetaHtml(b)}
         ${b.location_name ? `<div class="pub-blurb-loc"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;vertical-align:-1px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg> ${esc(b.location_name)}</div>` : ''}
         ${b.text ? `<div class="pub-blurb-text">${esc(b.text)}</div>` : ''}
         ${photoHtml}
@@ -624,22 +660,38 @@ function activateMapEmbed(wrapEl, locs, pois, plan){
     }
     m.on('load', () => {
         m.resize();
-        if(config.show_track !== false && locs.length){
-            const coords = locs.map(l=>[l.lng,l.lat]);
-            m.addSource(mapId+'-track',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:coords}}});
-            m.addLayer({id:mapId+'-line',type:'line',source:mapId+'-track',paint:{'line-color':'#e8763d','line-width':2,'line-opacity':0.8}});
-            if(!config.center_lat){
-                const lngs=locs.map(l=>l.lng),lats=locs.map(l=>l.lat);
-                m.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]],{padding:40,maxZoom:14});
+        // Per-member track colours (owner first). Keeps each traveller distinct.
+        const MEMBER_COLORS = ['#e8763d','#7ba3b8','#7f9b6d','#cf9a44','#a888a0','#6b7fa3'];
+        const allLats = [], allLngs = [];
+        function drawTrack(coordsArr, color, key){
+            if(!coordsArr.length) return;
+            m.addSource(mapId+'-track-'+key,{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:coordsArr}}});
+            m.addLayer({id:mapId+'-line-'+key,type:'line',source:mapId+'-track-'+key,paint:{'line-color':color,'line-width':2,'line-opacity':0.8}});
+            coordsArr.forEach(c => { allLngs.push(c[0]); allLats.push(c[1]); });
+        }
+        if(config.show_track !== false){
+            if(locs.length) drawTrack(locs.map(l=>[l.lng,l.lat]), MEMBER_COLORS[0], 'owner');
+            let ci = 1;
+            Object.entries(tripData.member_locations || {}).forEach(([name, mlocs]) => {
+                drawTrack((mlocs||[]).map(l=>[l.lng,l.lat]), MEMBER_COLORS[ci % MEMBER_COLORS.length], 'm'+ci);
+                ci++;
+            });
+            if(!config.center_lat && allLngs.length){
+                m.fitBounds([[Math.min(...allLngs),Math.min(...allLats)],[Math.max(...allLngs),Math.max(...allLats)]],{padding:40,maxZoom:14});
             }
         }
-        // POI star markers on every map embed
+        // POI markers on every map embed — category emoji, else a star
         if(config.show_places !== false){
             pois.forEach(poi => {
                 if(!(poi.latitude && poi.longitude)) return;
                 const el = document.createElement('div');
-                el.className = 'poi-marker';
-                el.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15 9 22 9.3 16.5 14 18.5 21 12 17 5.5 21 7.5 14 2 9.3 9 9"/></svg>';
+                if(poi.category && PLACE_CAT_EMOJI[poi.category]){
+                    el.className = 'poi-marker poi-marker-cat';
+                    el.innerHTML = `<span class="poi-marker-emoji">${PLACE_CAT_EMOJI[poi.category]}</span>`;
+                } else {
+                    el.className = 'poi-marker';
+                    el.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15 9 22 9.3 16.5 14 18.5 21 12 17 5.5 21 7.5 14 2 9.3 9 9"/></svg>';
+                }
                 el.addEventListener('click', ev => { ev.stopPropagation(); openPOIPopup(poi); });
                 new maplibregl.Marker({element: el, anchor: 'center'})
                     .setLngLat([poi.longitude, poi.latitude]).addTo(m);
@@ -691,6 +743,37 @@ function renderItinerary(plan){
     host.innerHTML = `<div class="pub-itinerary"><div class="pub-itinerary-title">Itinerary</div><div class="pub-itin-track">${items}</div></div>`;
 }
 
+// ── Day Log (read-only) ────────────────────────────────────────────────────────
+function pubAvatarHtml(av){
+    if(av && av.type === 'image') return `<img class="pub-dn-ava" src="${av.url}" alt="">`;
+    if(av) return `<span class="pub-dn-ava-txt" style="background:${av.color||'#888'}">${(av.initials||'').slice(0,2)}</span>`;
+    return '';
+}
+function renderPublicDayLog(notes){
+    const host = document.getElementById('pub-daylog');
+    if(!host) return;
+    if(!notes || !notes.length){ host.innerHTML = ''; return; }
+    const byDate = {};
+    notes.forEach(n => { (byDate[n.date] = byDate[n.date] || []).push(n); });
+    const dates = Object.keys(byDate).sort();
+    const fmt = ds => { const [y,m,d] = ds.split('-').map(Number); return new Date(y,m-1,d).toLocaleDateString([], {weekday:'short',month:'short',day:'numeric',year:'numeric'}); };
+    const daysHtml = dates.map(ds => {
+        const entries = byDate[ds].map(n => `
+            <div class="pub-dn-entry">
+                <div class="pub-dn-author">${pubAvatarHtml(n.avatar)}${esc(n.author)}</div>
+                ${n.title ? `<div class="pub-dn-title">${esc(n.title)}</div>` : ''}
+                <div class="pub-dn-body">${esc(n.body||'')}</div>
+                ${(n.photos||[]).length ? `<div class="pub-dn-photos">${n.photos.map(p=>`<img src="${esc(p.thumb||p.url)}" data-full="${esc(p.url)}" loading="lazy" alt="">`).join('')}</div>` : ''}
+            </div>`).join('');
+        return `<div class="pub-day"><div class="pub-day-date">${fmt(ds)}</div>${entries}</div>`;
+    }).join('');
+    host.innerHTML = `<div class="pub-daylog-section"><div class="pub-blurbs-title">Day Log</div>${daysHtml}</div>`;
+    // Photo lightbox for day-note photos
+    host.querySelectorAll('.pub-dn-photos img').forEach(img => {
+        img.addEventListener('click', () => openLightbox([img.dataset.full || img.src], 0));
+    });
+}
+
 // ── Load and render ────────────────────────────────────────────────────────────
 async function loadAndRender(){
     const r = await fetch(`/api/trip/${SLUG}/detail/`);
@@ -706,6 +789,9 @@ async function loadAndRender(){
     // Planned itinerary stops (already ordered by the API)
     const plan = tripData.planned_stops || [];
     renderItinerary(plan);
+
+    // Day Log (per-member per-day notes)
+    renderPublicDayLog(tripData.day_notes || []);
 
     // Build photo lookup from blurbs (blurb photos are the photo store for now)
     const allPhotos = {};
