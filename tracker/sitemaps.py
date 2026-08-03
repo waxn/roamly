@@ -1,6 +1,6 @@
 from django.contrib.sitemaps import Sitemap
 from django.urls import reverse
-from .models import Adventure, Pal
+from .models import Adventure
 
 
 class StaticViewSitemap(Sitemap):
@@ -14,7 +14,7 @@ class StaticViewSitemap(Sitemap):
         return reverse(item)
 
 
-class TripSitemap(Sitemap):
+class AdventureSitemap(Sitemap):
     changefreq = 'weekly'
     priority = 0.6
 
@@ -26,14 +26,3 @@ class TripSitemap(Sitemap):
 
     def lastmod(self, obj):
         return obj.end_time
-
-
-class PalSitemap(Sitemap):
-    changefreq = 'weekly'
-    priority = 0.6
-
-    def items(self):
-        return Pal.objects.filter(public_slug__isnull=False).exclude(public_slug='')
-
-    def location(self, obj):
-        return reverse('tracker:pal_public', kwargs={'slug': obj.public_slug})

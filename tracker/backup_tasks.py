@@ -25,75 +25,6 @@ INTERVAL_DELTAS = {
 }
 
 
-def _build_pals_data(user):
-    """Build serializable pals data for a user's backup (pals they created)."""
-    from .models import Pal
-
-    pals = (
-        Pal.objects.filter(creator=user)
-        .prefetch_related(
-            'members__user',
-            'blurbs__author',
-            'blurbs__photos',
-            'blurbs__comments__author',
-            'milestones__author',
-        )
-    )
-
-    result = []
-    for pal in pals:
-        blurbs = []
-        for b in pal.blurbs.all():
-            blurbs.append({
-                'author_username': b.author.username,
-                'text': b.text,
-                'latitude': b.latitude,
-                'longitude': b.longitude,
-                'location_name': b.location_name,
-                'created_at': b.created_at,
-                'photos': [
-                    {'image': p.image.name, 'thumbnail': p.thumbnail.name if p.thumbnail else '', 'order': p.order}
-                    for p in b.photos.all()
-                ],
-                'comments': [
-                    {
-                        'author_username': c.author.username if c.author else None,
-                        'guest_name': c.guest_name,
-                        'text': c.text,
-                        'created_at': c.created_at,
-                    }
-                    for c in b.comments.all()
-                ],
-            })
-
-        result.append({
-            'name': pal.name,
-            'description': pal.description,
-            'start_date': pal.start_date,
-            'end_date': pal.end_date,
-            'public_slug': pal.public_slug,
-            'created_at': pal.created_at,
-            'members': [
-                {'username': m.user.username, 'role': m.role}
-                for m in pal.members.all()
-            ],
-            'blurbs': blurbs,
-            'milestones': [
-                {
-                    'author_username': m.author.username,
-                    'title': m.title,
-                    'description': m.description,
-                    'emoji': m.emoji,
-                    'date': m.date,
-                    'created_at': m.created_at,
-                }
-                for m in pal.milestones.all()
-            ],
-        })
-
-    return result
-
-
 def _build_adventures_data(user):
     """Build serializable adventures data including all social content."""
     from .models import Adventure
@@ -252,7 +183,7 @@ def _build_backup_json(user):
 
     data = {
         'meta': {
-            'version': 7,
+            'version': 8,
             'exported_at': timezone.now().isoformat(),
             'username': user.username,
         },
@@ -288,7 +219,6 @@ def _build_backup_json(user):
             }
             for k in api_keys
         ],
-        'pals': _build_pals_data(user),
         'journals': _build_journals_data(user),
         'custom_places': _build_custom_places_data(user),
     }
@@ -542,7 +472,7 @@ def _get_image_s3_client(config):
 def _get_user_media_files(user):
     """Collect all media file paths (relative to MEDIA_ROOT) belonging to a user."""
     from .models import (
-        UserProfile, AdventureBlurbPhoto, PalBlurbPhoto, Adventure, JournalPhoto,
+        UserProfile, AdventureBlurbPhoto, Adventure, JournalPhoto,
     )
 
     files = []
@@ -563,12 +493,6 @@ def _get_user_media_files(user):
             files.append(adv.cover_image_thumbnail.name)
 
     for photo in AdventureBlurbPhoto.objects.filter(blurb__adventure__device__user=user):
-        if photo.image:
-            files.append(photo.image.name)
-        if photo.thumbnail:
-            files.append(photo.thumbnail.name)
-
-    for photo in PalBlurbPhoto.objects.filter(blurb__pal__creator=user):
         if photo.image:
             files.append(photo.image.name)
         if photo.thumbnail:

@@ -231,37 +231,6 @@ urlpatterns = [
     path('api/profile/picture/', views.upload_profile_picture, name='upload_profile_picture'),
     path('api/profile/picture/delete/', views.delete_profile_picture, name='delete_profile_picture'),
 
-    # PAL Pages
-    path('pals/', views.pals_view, name='pals'),
-    path('pals/<int:pal_id>/', views.pal_detail_view, name='pal_detail'),
-    path('pal/<slug:slug>/', views.pal_public_view, name='pal_public'),
-
-    # PAL API
-    path('api/pals/', views.pals_api, name='pals_api'),
-    path('api/pals/<int:pal_id>/', views.pal_detail_api, name='pal_detail_api'),
-    path('api/pals/<int:pal_id>/update/', views.pal_update, name='pal_update'),
-    path('api/pals/<int:pal_id>/delete/', views.pal_delete, name='pal_delete'),
-    path('api/pals/<int:pal_id>/toggle-public/', views.pal_toggle_public, name='pal_toggle_public'),
-    path('api/pals/<int:pal_id>/members/add/', views.pal_add_member, name='pal_add_member'),
-    path('api/pals/<int:pal_id>/members/<int:user_id>/remove/', views.pal_remove_member, name='pal_remove_member'),
-    path('api/pals/<int:pal_id>/locations/', views.pal_locations_api, name='pal_locations_api'),
-    path('api/pals/<int:pal_id>/timeline/', views.pal_timeline_api, name='pal_timeline_api'),
-    path('api/pals/<int:pal_id>/blurbs/create/', views.pal_create_blurb, name='pal_create_blurb'),
-    path('api/pals/<int:pal_id>/blurbs/<int:blurb_id>/update/', views.pal_update_blurb, name='pal_update_blurb'),
-    path('api/pals/<int:pal_id>/blurbs/<int:blurb_id>/delete/', views.pal_delete_blurb, name='pal_delete_blurb'),
-    path('api/pals/<int:pal_id>/blurbs/<int:blurb_id>/comments/', views.pal_blurb_comments, name='pal_blurb_comments'),
-    path('api/pals/<int:pal_id>/blurbs/<int:blurb_id>/comments/create/', views.pal_create_comment, name='pal_create_comment'),
-    path('api/pals/<int:pal_id>/comments/<int:comment_id>/delete/', views.pal_delete_comment, name='pal_delete_comment'),
-    path('api/pals/<int:pal_id>/milestones/create/', views.pal_create_milestone, name='pal_create_milestone'),
-    path('api/pals/<int:pal_id>/milestones/<int:milestone_id>/delete/', views.pal_delete_milestone, name='pal_delete_milestone'),
-
-    # Public PAL API
-    path('api/pal/<slug:slug>/detail/', views.pal_public_detail_api, name='pal_public_detail_api'),
-    path('api/pal/<slug:slug>/timeline/', views.pal_public_timeline_api, name='pal_public_timeline_api'),
-    path('api/pal/<slug:slug>/locations/', views.pal_public_locations_api, name='pal_public_locations_api'),
-    path('api/pal/<slug:slug>/blurbs/<int:blurb_id>/comments/', views.pal_public_comments_api, name='pal_public_comments_api'),
-    path('api/pal/<slug:slug>/blurbs/<int:blurb_id>/comments/create/', views.pal_public_create_comment, name='pal_public_create_comment'),
-
     # Admin panel
     path('admin-panel/', views.admin_panel_view, name='admin_panel'),
     path('api/admin/users/', views.admin_users_api, name='admin_users_api'),

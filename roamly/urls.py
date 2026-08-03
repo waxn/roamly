@@ -3,12 +3,11 @@ from django.urls import path, include, re_path
 from django.conf import settings
 from django.views.static import serve
 from django.contrib.sitemaps.views import sitemap
-from tracker.sitemaps import StaticViewSitemap, TripSitemap, PalSitemap
+from tracker.sitemaps import StaticViewSitemap, AdventureSitemap
 
 sitemaps = {
     'static': StaticViewSitemap,
-    'trips': TripSitemap,
-    'pals': PalSitemap,
+    'adventures': AdventureSitemap,
 }
 
 urlpatterns = [
