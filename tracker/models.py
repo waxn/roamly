@@ -692,6 +692,22 @@ class AdventureMember(models.Model):
         return f"{self.user.username} in {self.adventure.name}"
 
 
+# Place categories for located AdventureBlurbs — drive a matching map marker
+# icon and let the UI filter places by kind. Blank = uncategorised.
+ADVENTURE_PLACE_CATEGORIES = [
+    ('restaurant', 'Restaurant'),
+    ('cafe', 'Café'),
+    ('bar', 'Bar / Nightlife'),
+    ('hotel', 'Hotel / Lodging'),
+    ('store', 'Store / Shopping'),
+    ('attraction', 'Attraction / Sight'),
+    ('nature', 'Nature / Park'),
+    ('transport', 'Transport'),
+    ('town', 'Town / City'),
+    ('other', 'Other'),
+]
+
+
 class AdventureBlurb(models.Model):
     """A point of interest (POI) on an adventure: title + notes + optional map
     location, with photos and comments. Unifies the former AdventurePlace and
@@ -703,6 +719,10 @@ class AdventureBlurb(models.Model):
     latitude = models.FloatField(null=True, blank=True)
     longitude = models.FloatField(null=True, blank=True)
     location_name = models.CharField(max_length=300, blank=True)
+    # A located blurb is a "place" you can rate + categorise (restaurant, hotel,
+    # store, …). rating is 1–5, null = unrated; category ∈ ADVENTURE_PLACE_CATEGORIES.
+    rating = models.PositiveSmallIntegerField(null=True, blank=True)
+    category = models.CharField(max_length=20, blank=True, choices=ADVENTURE_PLACE_CATEGORIES)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
@@ -786,6 +806,47 @@ class PlannedStop(models.Model):
 
     def __str__(self):
         return f"Planned: {self.name}"
+
+
+class AdventureDayNote(models.Model):
+    """One member's log entry for a single calendar day of an adventure.
+
+    Per-member, per-day: the "Day Log" tab shows every member's note for a date
+    side by side, each editable only by its author (unlike the shared freeform
+    story body). The day's map track is derived on the fly from that member's
+    Location points for the date, so no track data is stored here. Distinct from
+    the personal JournalEntry model — that is private and single-author; a day
+    note is adventure-scoped and visible to co-members and the public page.
+    """
+    adventure = models.ForeignKey(Adventure, on_delete=models.CASCADE, related_name='day_notes')
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='adventure_day_notes')
+    date = models.DateField()
+    title = models.CharField(max_length=200, blank=True, default='')
+    body = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ['adventure', 'author', 'date']
+        ordering = ['date']
+
+    def __str__(self):
+        return f"Day note {self.date} by {self.author.username} on {self.adventure.name}"
+
+
+class AdventureDayPhoto(models.Model):
+    """Photo attached to an adventure day note. Max 10 per note."""
+    day_note = models.ForeignKey(AdventureDayNote, on_delete=models.CASCADE, related_name='photos')
+    image = models.ImageField(upload_to='adventures/days/')
+    thumbnail = models.ImageField(upload_to='adventures/days/thumbs/', null=True, blank=True)
+    order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['order']
+
+    def __str__(self):
+        return f"Photo {self.order} on day note {self.day_note_id}"
 
 
 class UserProfile(models.Model):
