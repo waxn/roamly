@@ -700,7 +700,7 @@ body.editor-resizing { cursor: col-resize; user-select: none; }
                 <a class="editor-tool-btn" href="/adventures/{{ trip_id }}/plan/" title="trip plan & people">
                     <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3.5" cy="6" r="1.2"/><circle cx="3.5" cy="12" r="1.2"/><circle cx="3.5" cy="18" r="1.2"/></svg>
                 </a>
-                <a class="editor-tool-btn" id="view-public-btn" target="_blank" rel="noopener" title="view public page" style="display:none">
+                <a class="editor-tool-btn" id="view-public-btn" href="/adventures/{{ trip_id }}/preview/" target="_blank" rel="noopener" title="preview public page">
                     <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
                 </a>
                 <button class="editor-tool-btn" id="settings-btn" title="adventure settings">
@@ -2060,14 +2060,10 @@ async function loadTrip(){
 }
 
 function updateViewPublicBtn(){
+    // The eyeball always previews the public page (the /preview/ route works
+    // whether or not the adventure is published), so nothing to toggle here.
     const btn = document.getElementById('view-public-btn');
-    if(!btn) return;
-    if(tripData && tripData.public_slug){
-        btn.href = `/adventure/${tripData.public_slug}/`;
-        btn.style.display = '';
-    } else {
-        btn.style.display = 'none';
-    }
+    if(btn) btn.style.display = '';
 }
 
 // ── Settings panel ─────────────────────────────────────────────────────────

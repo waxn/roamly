@@ -4772,10 +4772,9 @@ def trip_verify_pin(request, slug):
     return JsonResponse({"error": "Incorrect PIN"}, status=403)
 
 
-def trip_public_detail_api(request, slug):
-    trip = get_object_or_404(Adventure, public_slug=slug)
-    if not _check_public_pin(request, trip):
-        return JsonResponse({"error": "PIN required"}, status=403)
+def _adventure_public_payload(trip, request_user=None):
+    """The read-only public-page payload for an adventure (shared by the public
+    slug endpoint and the members-only preview endpoint)."""
     locations = list(trip.locations)
     locs = [{
         "lat": _jf(l.latitude), "lng": _jf(l.longitude),
@@ -4823,7 +4822,7 @@ def trip_public_detail_api(request, slug):
         # POIs (located blurbs) resolve inline pin refs / location_card blocks.
         if b.latitude is not None and b.longitude is not None:
             places.append(_poi_payload(b))
-    return JsonResponse({
+    return {
         "id": trip.id,
         "name": trip.name,
         "description": trip.description,
@@ -4839,8 +4838,22 @@ def trip_public_detail_api(request, slug):
         "places": places,
         "planned_stops": [_planned_stop_payload(s) for s in trip.planned_stops.all()],
         "blurbs": blurbs,
-        "day_notes": _adventure_day_notes(trip, request.user),
-    })
+        "day_notes": _adventure_day_notes(trip, request_user),
+    }
+
+
+@login_required
+def trip_public_preview_api(request, trip_id):
+    """The public payload for a members-only preview (no publish / PIN needed)."""
+    trip = _get_trip_for_user(trip_id, request.user)
+    return JsonResponse(_adventure_public_payload(trip, request.user))
+
+
+def trip_public_detail_api(request, slug):
+    trip = get_object_or_404(Adventure, public_slug=slug)
+    if not _check_public_pin(request, trip):
+        return JsonResponse({"error": "PIN required"}, status=403)
+    return JsonResponse(_adventure_public_payload(trip, request.user))
 
 
 def trip_public_timeline_api(request, slug):
@@ -4939,6 +4952,23 @@ def trip_public_view(request, slug):
     })
 
 adventure_public_view = trip_public_view
+
+
+@login_required
+def adventure_preview_view(request, trip_id):
+    """Members-only preview of the public page (renders the same template with
+    no publish/PIN needed), so an author can see the public style before sharing."""
+    trip = _get_trip_for_user(trip_id, request.user)
+    description = trip.subtitle or trip.description or ''
+    return render(request, 'tracker/adventure_public.html', {
+        'trip': trip,
+        'slug': trip.public_slug or '',
+        'seo_description': description,
+        'requires_pin': False,
+        'standalone': True,
+        'preview': True,
+        'preview_trip_id': trip.id,
+    })
 
 
 # ---------------------------------------------------------------------------

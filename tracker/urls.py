@@ -99,6 +99,7 @@ urlpatterns = [
     path('adventure/join/<str:token>/', views.trip_join_view, name='trip_join'),
     path('adventure/<slug:slug>/', views.adventure_public_view, name='adventure_public'),
     path('adventures/<int:trip_id>/edit/', views.adventure_edit_view, name='adventure_edit'),
+    path('adventures/<int:trip_id>/preview/', views.adventure_preview_view, name='adventure_preview'),
     path('adventures/<int:trip_id>/plan/', views.adventure_plan_view, name='adventure_plan'),
 
     # Adventures API
@@ -138,6 +139,7 @@ urlpatterns = [
     path('api/trips/<int:trip_id>/milestones/create/', views.trip_create_milestone, name='trip_create_milestone'),
     path('api/trips/<int:trip_id>/milestones/<int:milestone_id>/delete/', views.trip_delete_milestone, name='trip_delete_milestone'),
     path('api/trips/<int:trip_id>/visits/', views.trip_visits_api, name='trip_visits_api'),
+    path('api/trips/<int:trip_id>/preview-detail/', views.trip_public_preview_api, name='trip_public_preview_api'),
     # Public trip API
     path('api/trip/<slug:slug>/verify-pin/', views.trip_verify_pin, name='trip_verify_pin'),
     path('api/trip/<slug:slug>/detail/', views.trip_public_detail_api, name='trip_public_detail_api'),

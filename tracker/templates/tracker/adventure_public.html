@@ -8,6 +8,10 @@
 {% block robots_meta %}index, follow{% endblock %}
 
 {% block extra_css %}
+/* Preview banner (members-only preview of the public page) */
+.pub-preview-bar { position: sticky; top: 0; z-index: 100; display: flex; align-items: center; justify-content: center; gap: 1rem; flex-wrap: wrap; background: var(--primary); color: #fff; font-size: 0.8rem; font-weight: 700; padding: 0.5rem 1rem; }
+.pub-preview-bar a { color: #fff; text-decoration: underline; }
+
 /* ── Article layout ── */
 .pub-article-wrap {
     /* Match the widest normal page (Settings) so the article isn't cramped. */
@@ -301,6 +305,12 @@
 {% endblock %}
 
 {% block content %}
+{% if preview %}
+<div class="pub-preview-bar">
+    <span>Preview — this is how your public page looks{% if not trip.public_slug %} (not published yet){% endif %}.</span>
+    <a href="/adventures/{{ preview_trip_id }}/edit/">← back to editor</a>
+</div>
+{% endif %}
 {% if requires_pin %}
 <div class="name-gate" id="pin-gate">
     <div class="name-gate-card">
@@ -400,6 +410,10 @@
 <script>
 const SLUG = '{{ slug }}';
 const CSRF = '{{ csrf_token }}';
+// Members-only preview mode: fetch the payload by trip id (no publish/PIN) and
+// disable the guest-comment flow (there is no public slug to post against).
+const PREVIEW = {% if preview %}true{% else %}false{% endif %};
+const PREVIEW_TRIP_ID = {{ preview_trip_id|default:0 }};
 // Photos for photo_grid blocks live on a hidden "container" blurb; this marks
 // them so they don't show as notes/pins (their photos are still gathered).
 const PHOTO_CONTAINER_SENTINEL = '(photo grid upload)';
@@ -616,6 +630,7 @@ function renderBlurb(b){
 }
 
 async function loadComments(blurbId){
+    if(PREVIEW) return;   // no public slug to read comments against
     const r = await fetch(`/api/trip/${SLUG}/blurbs/${blurbId}/comments/`);
     if(!r.ok) return;
     const d = await r.json();
@@ -627,6 +642,7 @@ async function loadComments(blurbId){
 }
 
 async function postComment(blurbId){
+    if(PREVIEW){ alert('This is a preview — comments are disabled. Publish to let visitors comment.'); return; }
     const input = document.getElementById(`comment-input-${blurbId}`);
     const text = input.value.trim();
     if(!text) return;
@@ -784,7 +800,7 @@ function renderPublicDayLog(notes){
 
 // ── Load and render ────────────────────────────────────────────────────────────
 async function loadAndRender(){
-    const r = await fetch(`/api/trip/${SLUG}/detail/`);
+    const r = await fetch(PREVIEW ? `/api/trips/${PREVIEW_TRIP_ID}/preview-detail/` : `/api/trip/${SLUG}/detail/`);
     if(!r.ok) return;
     tripData = await r.json();
 
