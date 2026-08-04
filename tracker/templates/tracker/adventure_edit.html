@@ -216,10 +216,16 @@ body.editor-resizing { cursor: col-resize; user-select: none; }
 .dl-cal-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--clay-sky); }
 .dl-cal-mine-dot { background: var(--primary); }
 .dl-cal-selday { margin-top: 1rem; }
-/* Image lightbox */
+/* Media lightbox (photo or video) */
 .lightbox-overlay { display: none; position: fixed; inset: 0; z-index: 3000; background: rgba(0,0,0,0.9); align-items: center; justify-content: center; }
 .lightbox-overlay.open { display: flex; }
-.lightbox-overlay img { max-width: 90vw; max-height: 88vh; object-fit: contain; }
+.lightbox-media { display: flex; align-items: center; justify-content: center; }
+.lightbox-media img, .lightbox-media video { max-width: 90vw; max-height: 88vh; object-fit: contain; }
+/* Video cells in day-log / story grids */
+.dn-photo video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dn-photo-vid { cursor: pointer; }
+.dn-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1.3rem; pointer-events: none; text-shadow: 0 1px 5px rgba(0,0,0,0.7); }
+video.grid-thumb { width: 90px; height: 90px; object-fit: cover; }
 .lightbox-close, .lightbox-prev, .lightbox-next { position: absolute; background: rgba(0,0,0,0.4); color: #fff; border: none; cursor: pointer; opacity: 0.75; line-height: 1; }
 .lightbox-close { top: 1rem; right: 1rem; font-size: 1.8rem; width: 40px; height: 40px; }
 .lightbox-prev, .lightbox-next { top: 50%; transform: translateY(-50%); font-size: 2.5rem; width: 48px; height: 64px; }
@@ -655,7 +661,7 @@ body.editor-resizing { cursor: col-resize; user-select: none; }
 
 {% block content %}
 <input type="file" id="cover-file-input" accept="image/*" style="display:none">
-<input type="file" id="photo-file-input" accept="image/*" multiple style="display:none">
+<input type="file" id="photo-file-input" accept="image/*,video/*" multiple style="display:none">
 
 <div class="editor-shell">
     <!-- ── LEFT: Document editor ── -->
@@ -1037,11 +1043,11 @@ body.editor-resizing { cursor: col-resize; user-select: none; }
     </div>
 </div>
 
-<!-- Image lightbox -->
+<!-- Media lightbox (photo or video) -->
 <div class="lightbox-overlay" id="lightbox">
     <button class="lightbox-close" onclick="closeLightbox()" title="close">×</button>
     <button class="lightbox-prev" onclick="lightboxStep(-1)" title="previous">‹</button>
-    <img id="lightbox-img" src="" alt="">
+    <div id="lightbox-media" class="lightbox-media"></div>
     <button class="lightbox-next" onclick="lightboxStep(1)" title="next">›</button>
 </div>
 
@@ -1182,8 +1188,11 @@ function buildBlockEl(block, index){
         const thumbs = ids.map(pid => {
             const ph = (tripData.photos||{})[pid];
             if(!ph) return '';
+            const media = ph.type === 'video'
+                ? `<video class="grid-thumb" src="${esc(ph.video||ph.url)}" controls preload="metadata"></video>`
+                : `<img class="grid-thumb" src="${esc(ph.thumb||ph.url)}" title="${esc(ph.name||'')}" loading="lazy">`;
             return `<span class="grid-thumb-wrap">
-                <img class="grid-thumb" src="${esc(ph.thumb||ph.url)}" title="${esc(ph.name||'')}" loading="lazy">
+                ${media}
                 <button class="grid-thumb-remove" data-block-id="${block._id}" data-photo-id="${pid}" title="remove photo">&times;</button>
             </span>`;
         }).join('');
@@ -2274,10 +2283,19 @@ function placeOptionsHtml(selectedId){
     }).join('');
 }
 
+// One media cell (photo or video) for a day-log grid.
+function mediaCellHtml(m, delId){
+    const full = (m.type === 'video') ? (m.video || m.url) : m.url;
+    const inner = (m.type === 'video')
+        ? `<video src="${esc(full)}" muted preload="metadata"></video><span class="dn-play">▶</span>`
+        : `<img src="${esc(m.thumb || m.url)}" alt="">`;
+    const del = delId ? `<button class="dn-photo-del" title="remove" onclick="deleteDayPhoto(${delId})">×</button>` : '';
+    return `<div class="dn-photo${m.type==='video'?' dn-photo-vid':''}" data-type="${m.type||'image'}" data-full="${esc(full)}">${inner}${del}</div>`;
+}
+
 // One editable entry (the current user's own).
 function dayEntryEditHtml(n){
-    const photos = (n.photos||[]).map(p =>
-        `<div class="dn-photo"><img src="${p.thumb}" data-full="${esc(p.url)}" alt=""><button class="dn-photo-del" title="remove" onclick="deleteDayPhoto(${p.id})">×</button></div>`).join('');
+    const photos = (n.photos||[]).map(p => mediaCellHtml(p, p.id)).join('');
     return `<div class="dn-entry dn-mine" data-note="${n.id}">
         <div class="dn-entry-head">
             <span class="dn-mine-label">your entry <span class="dn-status" id="dn-status-${n.id}"></span></span>
@@ -2286,7 +2304,7 @@ function dayEntryEditHtml(n){
         <input class="dn-title" placeholder="title (e.g. morning hike)…" value="${esc(n.title||'')}" oninput="queueDaySave(${n.id})" id="dn-title-${n.id}">
         <textarea class="dn-body" placeholder="what happened…" oninput="queueDaySave(${n.id})" id="dn-body-${n.id}">${esc(n.body||'')}</textarea>
         <select class="dn-place" id="dn-place-${n.id}" onchange="saveDayPlace(${n.id})">${placeOptionsHtml(n.place_id)}</select>
-        <div class="dn-photos">${photos}<label class="dn-add-photo">+ photo<input type="file" accept="image/*" multiple style="display:none" onchange="uploadDayPhotos(${n.id}, this)"></label></div>
+        <div class="dn-photos">${photos}<label class="dn-add-photo">+ media<input type="file" accept="image/*,video/*" multiple style="display:none" onchange="uploadDayPhotos(${n.id}, this)"></label></div>
     </div>`;
 }
 
@@ -2298,7 +2316,7 @@ function dayEntryReadHtml(n){
         ${n.title ? `<div class="dn-title-ro">${esc(n.title)}</div>` : ''}
         ${placeChip}
         <div class="dn-body-ro">${esc(n.body||'')}</div>
-        ${(n.photos||[]).length ? `<div class="dn-photos">${n.photos.map(p=>`<div class="dn-photo"><img src="${p.thumb}" data-full="${esc(p.url)}" alt=""></div>`).join('')}</div>` : ''}
+        ${(n.photos||[]).length ? `<div class="dn-photos">${n.photos.map(p=>mediaCellHtml(p, null)).join('')}</div>` : ''}
     </div>`;
 }
 
@@ -2481,20 +2499,36 @@ window.focusDayOnMap = function(ds){
         {padding: 60, maxZoom: 15, duration: 700});
 };
 
-// ── Image lightbox (click a photo to expand; arrows / ←→ keys to cycle) ──────
-let lbImages = [], lbIdx = 0;
-window.openLightbox = function(images, idx){
-    if(!images || !images.length) return;
-    lbImages = images; lbIdx = idx || 0;
-    document.getElementById('lightbox-img').src = lbImages[lbIdx];
+// ── Media lightbox (click a photo/video to expand; arrows / ←→ keys cycle) ───
+let lbItems = [], lbIdx = 0;
+function lbRender(){
+    const host = document.getElementById('lightbox-media');
+    const m = lbItems[lbIdx] || {};
+    host.innerHTML = m.type === 'video'
+        ? `<video src="${esc(m.url)}" controls autoplay playsinline></video>`
+        : `<img src="${esc(m.url)}" alt="">`;
+}
+window.openLightbox = function(items, idx){
+    if(!items || !items.length) return;
+    // Accept a plain array of URL strings too (legacy callers).
+    lbItems = items.map(x => typeof x === 'string' ? {type:'image', url:x} : x);
+    lbIdx = idx || 0;
+    lbRender();
     document.getElementById('lightbox').classList.add('open');
 };
-window.closeLightbox = function(){ document.getElementById('lightbox').classList.remove('open'); };
-window.lightboxStep = function(d){
-    if(!lbImages.length) return;
-    lbIdx = (lbIdx + d + lbImages.length) % lbImages.length;
-    document.getElementById('lightbox-img').src = lbImages[lbIdx];
+window.closeLightbox = function(){
+    document.getElementById('lightbox').classList.remove('open');
+    document.getElementById('lightbox-media').innerHTML = '';   // stop any video
 };
+window.lightboxStep = function(d){
+    if(!lbItems.length) return;
+    lbIdx = (lbIdx + d + lbItems.length) % lbItems.length;
+    lbRender();
+};
+// Read the media items in a photo/media row for the lightbox.
+function rowMedia(row){
+    return [...row.querySelectorAll('.dn-photo')].map(c => ({type: c.dataset.type || 'image', url: c.dataset.full || ''}));
+}
 (function(){
     const lb = document.getElementById('lightbox');
     lb.addEventListener('click', e => { if(e.target === e.currentTarget) closeLightbox(); });
@@ -2504,14 +2538,15 @@ window.lightboxStep = function(d){
         else if(e.key === 'ArrowLeft') lightboxStep(-1);
         else if(e.key === 'ArrowRight') lightboxStep(1);
     });
-    // Delegated so it survives Day Log re-renders: a photo opens its entry's set.
+    // Delegated so it survives Day Log re-renders: a cell opens its row's set.
     document.getElementById('daylog-area').addEventListener('click', e => {
-        const img = e.target.closest('.dn-photo img');
-        if(!img) return;
-        const row = img.closest('.dn-photos');
+        if(e.target.closest('.dn-photo-del')) return;   // let delete handle its own click
+        const cell = e.target.closest('.dn-photo');
+        if(!cell) return;
+        const row = cell.closest('.dn-photos');
         if(!row) return;
-        const imgs = [...row.querySelectorAll('.dn-photo img')];
-        openLightbox(imgs.map(im => im.dataset.full || im.src), imgs.indexOf(img));
+        const cells = [...row.querySelectorAll('.dn-photo')];
+        openLightbox(rowMedia(row), cells.indexOf(cell));
     });
 })();
 
