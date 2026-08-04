@@ -264,6 +264,7 @@
 .pub-dn-ava { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
 .pub-dn-ava-txt { width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.6rem; color: #fff; }
 .pub-dn-title { font-weight: 700; font-size: 0.9rem; margin-bottom: 0.15rem; }
+.pub-dn-place { display: inline-block; font-size: 0.78rem; font-weight: 700; color: var(--clay-amber, #cf9a44); background: var(--bg-elevated, rgba(255,255,255,0.05)); border: 1px solid var(--border); padding: 1px 8px; margin-bottom: 0.35rem; }
 .pub-dn-body { font-size: 0.875rem; color: var(--text-muted); line-height: 1.6; white-space: pre-wrap; }
 .pub-dn-photos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 0.5rem; }
 .pub-dn-photos img { width: 90px; height: 90px; object-fit: cover; border-radius: 5px; cursor: pointer; }
@@ -758,13 +759,17 @@ function renderPublicDayLog(notes){
     const dates = Object.keys(byDate).sort();
     const fmt = ds => { const [y,m,d] = ds.split('-').map(Number); return new Date(y,m-1,d).toLocaleDateString([], {weekday:'short',month:'short',day:'numeric',year:'numeric'}); };
     const daysHtml = dates.map(ds => {
-        const entries = byDate[ds].map(n => `
+        const entries = byDate[ds].map(n => {
+            const placeChip = n.place ? `<div class="pub-dn-place">${PLACE_CAT_EMOJI[n.place.category]||'📍'} ${esc(n.place.name||'place')}${n.place.rating?' <span class="pub-rating-stars">'+starString(n.place.rating)+'</span>':''}</div>` : '';
+            return `
             <div class="pub-dn-entry">
                 <div class="pub-dn-author">${pubAvatarHtml(n.avatar)}${esc(n.author)}</div>
                 ${n.title ? `<div class="pub-dn-title">${esc(n.title)}</div>` : ''}
+                ${placeChip}
                 <div class="pub-dn-body">${esc(n.body||'')}</div>
                 ${(n.photos||[]).length ? `<div class="pub-dn-photos">${n.photos.map(p=>`<img src="${esc(p.thumb||p.url)}" data-full="${esc(p.url)}" loading="lazy" alt="">`).join('')}</div>` : ''}
-            </div>`).join('');
+            </div>`;
+        }).join('');
         return `<div class="pub-day"><div class="pub-day-date">${fmt(ds)}</div>${entries}</div>`;
     }).join('');
     host.innerHTML = `<div class="pub-daylog-section"><div class="pub-blurbs-title">Day Log</div>${daysHtml}</div>`;
