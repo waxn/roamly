@@ -193,7 +193,8 @@ body.editor-resizing { cursor: col-resize; user-select: none; }
 .dl-cal-nav:disabled { opacity: 0.3; cursor: default; }
 .dl-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
 .dl-cal-dow { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); text-align: center; padding: 0.4rem 0; border-bottom: 1px solid var(--border); }
-.dl-cal-cell { min-height: 62px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 0.25rem 0.35rem; font-size: 0.7rem; position: relative; }
+.dl-cal-cell { min-height: 74px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 0.25rem 0.35rem; font-size: 0.7rem; position: relative; overflow: hidden; }
+.dl-cal-title-chip { font-size: 0.62rem; line-height: 1.25; color: var(--text); background: var(--bg-elevated); border-left: 2px solid var(--primary); padding: 1px 4px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dl-cal-cell:nth-child(7n) { border-right: none; }
 .dl-cal-cell.out { background: var(--bg); color: var(--text-dim); }
 .dl-cal-cell.inrange { cursor: pointer; }
@@ -2317,9 +2318,17 @@ function renderDayLogCalendar(byDate){
         if(!inRange) cls.push('out'); else cls.push('inrange');
         if(notes.length) cls.push('has-note');
         if(calSelected === ds) cls.push('selected');
+        // Titles of the day's notes (own first), so the calendar shows what
+        // happened at a glance — not just a dot.
+        const titled = [...notes].sort((a,b) => (b.is_mine?1:0) - (a.is_mine?1:0))
+            .map(n => (n.title||'').trim()).filter(Boolean);
+        const titleChips = titled.slice(0,3).map(t =>
+            `<div class="dl-cal-title-chip" title="${esc(t)}">${esc(t)}</div>`).join('');
+        const extraDots = titled.length ? '' : dots;   // show dots only for untitled notes
         cells += `<div class="${cls.join(' ')}" ${inRange?`onclick="selectCalDay('${ds}')"`:''}>
             <span class="dl-cal-daynum">${d}</span>
-            ${dots?`<div class="dl-cal-dots">${dots}</div>`:''}
+            ${titleChips}
+            ${extraDots?`<div class="dl-cal-dots">${extraDots}</div>`:''}
         </div>`;
     }
     host.innerHTML = `
