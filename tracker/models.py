@@ -809,26 +809,30 @@ class PlannedStop(models.Model):
 
 
 class AdventureDayNote(models.Model):
-    """One member's log entry for a single calendar day of an adventure.
+    """One log entry on a single calendar day of an adventure.
 
-    Per-member, per-day: the "Day Log" tab shows every member's note for a date
-    side by side, each editable only by its author (unlike the shared freeform
-    story body). The day's map track is derived on the fly from that member's
-    Location points for the date, so no track data is stored here. Distinct from
-    the personal JournalEntry model — that is private and single-author; a day
-    note is adventure-scoped and visible to co-members and the public page.
+    A member may write **several** entries per day (e.g. "morning hike",
+    "dinner in town") — the "Day Log" tab groups every member's entries under
+    each date, each editable only by its author (unlike the shared freeform
+    story body). An entry may link a `place` (one of the adventure's located
+    blurbs / rated POIs). The day's map track is derived on the fly from that
+    member's Location points for the date, so no track data is stored here.
+    Distinct from the personal JournalEntry model — that is private and
+    single-author; a day note is adventure-scoped and visible to co-members
+    and the public page.
     """
     adventure = models.ForeignKey(Adventure, on_delete=models.CASCADE, related_name='day_notes')
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='adventure_day_notes')
     date = models.DateField()
     title = models.CharField(max_length=200, blank=True, default='')
     body = models.TextField(blank=True)
+    # Optional link to one of the adventure's places (a located AdventureBlurb).
+    place = models.ForeignKey(AdventureBlurb, on_delete=models.SET_NULL, null=True, blank=True, related_name='day_notes')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ['adventure', 'author', 'date']
-        ordering = ['date']
+        ordering = ['date', 'created_at', 'id']
 
     def __str__(self):
         return f"Day note {self.date} by {self.author.username} on {self.adventure.name}"

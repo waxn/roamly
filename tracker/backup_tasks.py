@@ -123,6 +123,10 @@ def _build_adventures_data(user):
                     'title': n.title,
                     'body': n.body,
                     'created_at': n.created_at,
+                    # Place link serialized by natural key (title + coords) so a
+                    # restore can re-link to the recreated blurb.
+                    'place_ref': ({'title': n.place.title, 'latitude': n.place.latitude,
+                                   'longitude': n.place.longitude} if n.place_id and n.place else None),
                     'photos': [
                         {'image': p.image.name, 'thumbnail': p.thumbnail.name if p.thumbnail else '', 'order': p.order}
                         for p in n.photos.all()

@@ -3963,7 +3963,12 @@ def _clean_category(val):
 
 
 def _day_note_payload(note, request_user=None):
-    """Serialize an AdventureDayNote (Day Log entry) with author + photos."""
+    """Serialize an AdventureDayNote (Day Log entry) with author + photos + place."""
+    place = None
+    if note.place_id and note.place:
+        b = note.place
+        place = {"id": b.id, "name": b.title or "", "rating": b.rating,
+                 "category": b.category, "latitude": b.latitude, "longitude": b.longitude}
     return {
         "id": note.id,
         "date": note.date.isoformat(),
@@ -3972,6 +3977,8 @@ def _day_note_payload(note, request_user=None):
         "avatar": _get_user_avatar(note.author),
         "title": note.title,
         "body": note.body,
+        "place_id": note.place_id,
+        "place": place,
         "is_mine": bool(request_user and request_user.is_authenticated and note.author_id == request_user.id),
         "photos": [
             {"id": p.id, "url": p.image.url,
@@ -3983,11 +3990,11 @@ def _day_note_payload(note, request_user=None):
 
 
 def _adventure_day_notes(trip, request_user=None):
-    """All members' day notes for an adventure, ordered by date then author."""
+    """All members' day-log entries for an adventure, ordered by date then time."""
     notes = (trip.day_notes
-             .select_related('author')
+             .select_related('author', 'place')
              .prefetch_related('photos')
-             .order_by('date', 'author__username'))
+             .order_by('date', 'created_at', 'id'))
     return [_day_note_payload(n, request_user) for n in notes]
 
 
@@ -4399,29 +4406,54 @@ def trip_day_notes_list(request, trip_id):
     return JsonResponse({"day_notes": _adventure_day_notes(trip, request.user)})
 
 
+def _resolve_day_place(trip, place_id):
+    """A located blurb on this adventure for `place_id`, or None."""
+    if not place_id:
+        return None
+    return AdventureBlurb.objects.filter(
+        id=place_id, adventure=trip, latitude__isnull=False, longitude__isnull=False
+    ).first()
+
+
+def _own_day_note(trip, user, note_id):
+    """Fetch a day note that belongs to `user` on `trip`, else 404."""
+    return get_object_or_404(AdventureDayNote, id=note_id, adventure=trip, author=user)
+
+
 @login_required
 @csrf_exempt
 @require_http_methods(["POST"])
-def trip_day_note_save(request, trip_id, date_str):
-    """Create or update the requesting member's own note for one date.
+def trip_day_note_create(request, trip_id, date_str):
+    """Create a new (empty) day-log entry for the requesting member on a date.
 
-    Author-scoped: each member edits only their own note (get_or_create on
-    adventure+author+date), so co-members' notes are never overwritten.
+    A member may hold several entries per day, so this always makes a new row
+    rather than upserting; the editor then edits it by id.
     """
     trip = _get_trip_for_user(trip_id, request.user)
     d = _parse_iso_date(date_str)
     if not d:
         return JsonResponse({"error": "Invalid date"}, status=400)
+    note = AdventureDayNote.objects.create(adventure=trip, author=request.user, date=d)
+    return JsonResponse({"status": "ok", "day_note": _day_note_payload(note, request.user)})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def trip_day_note_save(request, trip_id, note_id):
+    """Update one of the requesting member's own day-log entries (author-scoped)."""
+    trip = _get_trip_for_user(trip_id, request.user)
+    note = _own_day_note(trip, request.user, note_id)
     try:
         data = json.loads(request.body or '{}')
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
-    note, _created = AdventureDayNote.objects.get_or_create(
-        adventure=trip, author=request.user, date=d)
     if 'title' in data:
         note.title = (data.get('title') or '')[:200]
     if 'body' in data:
         note.body = data.get('body') or ''
+    if 'place_id' in data:
+        note.place = _resolve_day_place(trip, data.get('place_id'))
     note.save()
     return JsonResponse({"status": "ok", "day_note": _day_note_payload(note, request.user)})
 
@@ -4429,18 +4461,10 @@ def trip_day_note_save(request, trip_id, date_str):
 @login_required
 @csrf_exempt
 @require_http_methods(["POST"])
-def trip_day_note_photos(request, trip_id, date_str):
-    """Attach photos (multipart) to the requesting member's note for a date.
-
-    Creates the note if it doesn't exist yet, so a member can add a photo to a
-    day before writing anything. Max 10 photos per note.
-    """
+def trip_day_note_photos(request, trip_id, note_id):
+    """Attach photos (multipart) to one of the member's own entries. Max 10."""
     trip = _get_trip_for_user(trip_id, request.user)
-    d = _parse_iso_date(date_str)
-    if not d:
-        return JsonResponse({"error": "Invalid date"}, status=400)
-    note, _created = AdventureDayNote.objects.get_or_create(
-        adventure=trip, author=request.user, date=d)
+    note = _own_day_note(trip, request.user, note_id)
     existing = note.photos.count()
     room = max(0, 10 - existing)
     photos = request.FILES.getlist('photos')[:room]
@@ -4469,13 +4493,11 @@ def trip_day_note_photo_delete(request, trip_id, photo_id):
 @login_required
 @csrf_exempt
 @require_http_methods(["POST", "DELETE"])
-def trip_day_note_delete(request, trip_id, date_str):
-    """Delete the requesting member's own note for a date."""
+def trip_day_note_delete(request, trip_id, note_id):
+    """Delete one of the requesting member's own day-log entries."""
     trip = _get_trip_for_user(trip_id, request.user)
-    d = _parse_iso_date(date_str)
-    if not d:
-        return JsonResponse({"error": "Invalid date"}, status=400)
-    AdventureDayNote.objects.filter(adventure=trip, author=request.user, date=d).delete()
+    note = _own_day_note(trip, request.user, note_id)
+    note.delete()
     return JsonResponse({"status": "ok"})
 
 
@@ -5447,6 +5469,7 @@ def restore_backup(request):
 
                     # Blurbs + milestones only on freshly-created adventures (avoid dupes)
                     if adv_created:
+                        blurb_by_key = {}   # (title, lat, lng) → blurb, for day-note place relinking
                         for b in a.get('blurbs', []):
                             try:
                                 blurb_author = AuthUser.objects.filter(username=b.get('author_username')).first() or user
@@ -5459,6 +5482,7 @@ def restore_backup(request):
                                     rating=_clean_rating(b.get('rating')),
                                     category=_clean_category(b.get('category')),
                                 )
+                                blurb_by_key[(blurb.title, blurb.latitude, blurb.longitude)] = blurb
                                 for ph in b.get('photos', []):
                                     if ph.get('image'):
                                         AdventureBlurbPhoto.objects.create(
@@ -5508,19 +5532,25 @@ def restore_backup(request):
                             except Exception as e:
                                 errors += 1
                                 logger.warning(f"Backup restore planned stop error: {e}")
-                        # Day notes (v8+ Day Log): per-member per-day entries
+                        # Day notes (v8+ Day Log): each member may have several
+                        # entries per day, so create each rather than upserting.
                         for n in a.get('day_notes', []):
                             try:
                                 note_date = _parse_date_only(n.get('date'))
                                 if not note_date:
                                     continue
                                 note_author = AuthUser.objects.filter(username=n.get('author_username')).first() or user
-                                note, _nc = AdventureDayNote.objects.get_or_create(
+                                place = None
+                                pref = n.get('place_ref')
+                                if pref:
+                                    place = blurb_by_key.get((
+                                        (pref.get('title') or '')[:200],
+                                        pref.get('latitude'), pref.get('longitude')))
+                                note = AdventureDayNote.objects.create(
                                     adventure=adv, author=note_author, date=note_date,
-                                    defaults={
-                                        'title': (n.get('title') or '')[:200],
-                                        'body': n.get('body', ''),
-                                    }
+                                    title=(n.get('title') or '')[:200],
+                                    body=n.get('body', ''),
+                                    place=place,
                                 )
                                 for ph in n.get('photos', []):
                                     if ph.get('image'):
