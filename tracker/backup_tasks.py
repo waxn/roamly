@@ -57,7 +57,8 @@ def _build_adventures_data(user):
                 'category': b.category,
                 'created_at': b.created_at,
                 'photos': [
-                    {'image': p.image.name, 'thumbnail': p.thumbnail.name if p.thumbnail else '', 'order': p.order}
+                    {'image': p.image.name, 'thumbnail': p.thumbnail.name if p.thumbnail else '', 'order': p.order,
+                     'media_type': p.media_type, 'video': p.video.name if p.video else ''}
                     for p in b.photos.all()
                 ],
                 'comments': [
@@ -128,7 +129,8 @@ def _build_adventures_data(user):
                     'place_ref': ({'title': n.place.title, 'latitude': n.place.latitude,
                                    'longitude': n.place.longitude} if n.place_id and n.place else None),
                     'photos': [
-                        {'image': p.image.name, 'thumbnail': p.thumbnail.name if p.thumbnail else '', 'order': p.order}
+                        {'image': p.image.name, 'thumbnail': p.thumbnail.name if p.thumbnail else '', 'order': p.order,
+                         'media_type': p.media_type, 'video': p.video.name if p.video else ''}
                         for p in n.photos.all()
                     ],
                 }
@@ -519,12 +521,16 @@ def _get_user_media_files(user):
             files.append(photo.image.name)
         if photo.thumbnail:
             files.append(photo.thumbnail.name)
+        if photo.video:
+            files.append(photo.video.name)
 
     for photo in AdventureDayPhoto.objects.filter(day_note__adventure__device__user=user):
         if photo.image:
             files.append(photo.image.name)
         if photo.thumbnail:
             files.append(photo.thumbnail.name)
+        if photo.video:
+            files.append(photo.video.name)
 
     for photo in JournalPhoto.objects.filter(entry__user=user):
         if photo.image:

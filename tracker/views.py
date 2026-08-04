@@ -3805,10 +3805,7 @@ def _trip_detail_inner(request, trip_id):
     photos_map = {}
     for b in trip.blurbs.prefetch_related('photos'):
         for p in b.photos.all():
-            photos_map[p.id] = {
-                "url": p.image.url,
-                "thumb": p.thumbnail.url if p.thumbnail else p.image.url,
-            }
+            photos_map[p.id] = _media_payload(p)
 
     # Planned stops (forward-looking itinerary) — ordered.
     planned_stops = [_planned_stop_payload(s) for s in trip.planned_stops.all()]
@@ -3962,6 +3959,41 @@ def _clean_category(val):
     return v if v in _PLACE_CATEGORY_SLUGS else ''
 
 
+# ── Media (photo / video) helpers ──────────────────────────────────────────
+_VIDEO_EXTS = ('.mp4', '.webm', '.mov', '.m4v', '.ogv', '.ogg')
+_VIDEO_MAX_BYTES = 200 * 1024 * 1024   # videos are big; allow more than photos
+_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+
+
+def _is_video_upload(f):
+    ct = (getattr(f, 'content_type', '') or '').lower()
+    name = (getattr(f, 'name', '') or '').lower()
+    return ct.startswith('video/') or name.endswith(_VIDEO_EXTS)
+
+
+def _media_payload(p):
+    """Serialize a photo/video row uniformly for the client (type + urls)."""
+    if getattr(p, 'media_type', 'image') == 'video' and getattr(p, 'video', None):
+        return {"id": p.id, "type": "video", "url": p.video.url, "video": p.video.url,
+                "thumb": (p.thumbnail.url if p.thumbnail else None)}
+    return {"id": p.id, "type": "image", "url": p.image.url, "video": None,
+            "thumb": (p.thumbnail.url if p.thumbnail else p.image.url)}
+
+
+def _make_media_row(model, order, upload, **fk):
+    """Create an image (resized + thumb) or video row from an upload.
+
+    Returns the row, or None if the file is over its size cap."""
+    if _is_video_upload(upload):
+        if upload.size > _VIDEO_MAX_BYTES:
+            return None
+        return model.objects.create(media_type='video', video=upload, order=order, **fk)
+    if upload.size > _IMAGE_MAX_BYTES:
+        return None
+    full_file, thumb_file = resize_photo(upload)
+    return model.objects.create(media_type='image', image=full_file, thumbnail=thumb_file, order=order, **fk)
+
+
 def _day_note_payload(note, request_user=None):
     """Serialize an AdventureDayNote (Day Log entry) with author + photos + place."""
     place = None
@@ -3980,11 +4012,7 @@ def _day_note_payload(note, request_user=None):
         "place_id": note.place_id,
         "place": place,
         "is_mine": bool(request_user and request_user.is_authenticated and note.author_id == request_user.id),
-        "photos": [
-            {"id": p.id, "url": p.image.url,
-             "thumb": p.thumbnail.url if p.thumbnail else p.image.url}
-            for p in note.photos.all()
-        ],
+        "photos": [_media_payload(p) for p in note.photos.all()],
         "updated_at": note.updated_at.isoformat(),
     }
 
@@ -4320,7 +4348,7 @@ def trip_timeline_api(request, trip_id):
             'location_name': b.location_name,
             'rating': b.rating,
             'category': b.category,
-            'photos': [{'id': p.id, 'url': p.image.url, 'thumb': p.thumbnail.url if p.thumbnail else p.image.url} for p in b.photos.all()],
+            'photos': [_media_payload(p) for p in b.photos.all()],
             'comment_count': b.comments.count(),
             'created_at': b.created_at.isoformat(),
             'sort_key': b.created_at.isoformat(),
@@ -4367,11 +4395,9 @@ def trip_create_blurb(request, trip_id):
     photos = request.FILES.getlist('photos')
     photo_ids = []
     for i, photo_file in enumerate(photos[:5]):
-        if photo_file.size > 10 * 1024 * 1024:
-            continue
-        full_file, thumb_file = resize_photo(photo_file)
-        p = AdventureBlurbPhoto.objects.create(blurb=blurb, image=full_file, thumbnail=thumb_file, order=i)
-        photo_ids.append(p.id)
+        p = _make_media_row(AdventureBlurbPhoto, i, photo_file, blurb=blurb)
+        if p:
+            photo_ids.append(p.id)
     return JsonResponse({"status": "ok", "blurb_id": blurb.id, "photo_ids": photo_ids})
 
 
@@ -4462,18 +4488,14 @@ def trip_day_note_save(request, trip_id, note_id):
 @csrf_exempt
 @require_http_methods(["POST"])
 def trip_day_note_photos(request, trip_id, note_id):
-    """Attach photos (multipart) to one of the member's own entries. Max 10."""
+    """Attach photos or videos (multipart) to one of the member's own entries. Max 10."""
     trip = _get_trip_for_user(trip_id, request.user)
     note = _own_day_note(trip, request.user, note_id)
     existing = note.photos.count()
     room = max(0, 10 - existing)
     photos = request.FILES.getlist('photos')[:room]
     for i, photo_file in enumerate(photos):
-        if photo_file.size > 10 * 1024 * 1024:
-            continue
-        full_file, thumb_file = resize_photo(photo_file)
-        AdventureDayPhoto.objects.create(
-            day_note=note, image=full_file, thumbnail=thumb_file, order=existing + i)
+        _make_media_row(AdventureDayPhoto, existing + i, photo_file, day_note=note)
     return JsonResponse({"status": "ok", "day_note": _day_note_payload(note, request.user)})
 
 
@@ -4815,8 +4837,7 @@ def _adventure_public_payload(trip, request_user=None):
             "location_name": b.location_name,
             "rating": b.rating,
             "category": b.category,
-            "photos": [{"id": p.id, "url": p.image.url, "thumb": p.thumbnail.url if p.thumbnail else p.image.url}
-                       for p in b.photos.all()],
+            "photos": [_media_payload(p) for p in b.photos.all()],
             "created_at": b.created_at.isoformat(),
         })
         # POIs (located blurbs) resolve inline pin refs / location_card blocks.
@@ -4873,7 +4894,7 @@ def trip_public_timeline_api(request, slug):
             'location_name': b.location_name,
             'rating': b.rating,
             'category': b.category,
-            'photos': [{'id': p.id, 'url': p.image.url, 'thumb': p.thumbnail.url if p.thumbnail else p.image.url} for p in b.photos.all()],
+            'photos': [_media_payload(p) for p in b.photos.all()],
             'comment_count': b.comments.count(),
             'created_at': b.created_at.isoformat(),
             'sort_key': b.created_at.isoformat(),
@@ -5514,10 +5535,13 @@ def restore_backup(request):
                                 )
                                 blurb_by_key[(blurb.title, blurb.latitude, blurb.longitude)] = blurb
                                 for ph in b.get('photos', []):
-                                    if ph.get('image'):
+                                    if ph.get('image') or ph.get('video'):
                                         AdventureBlurbPhoto.objects.create(
-                                            blurb=blurb, image=ph['image'],
+                                            blurb=blurb,
+                                            media_type=ph.get('media_type', 'image'),
+                                            image=ph.get('image') or '',
                                             thumbnail=ph.get('thumbnail') or '',
+                                            video=ph.get('video') or '',
                                             order=ph.get('order', 0),
                                         )
                                 for c in b.get('comments', []):
@@ -5583,10 +5607,13 @@ def restore_backup(request):
                                     place=place,
                                 )
                                 for ph in n.get('photos', []):
-                                    if ph.get('image'):
+                                    if ph.get('image') or ph.get('video'):
                                         AdventureDayPhoto.objects.create(
-                                            day_note=note, image=ph['image'],
+                                            day_note=note,
+                                            media_type=ph.get('media_type', 'image'),
+                                            image=ph.get('image') or '',
                                             thumbnail=ph.get('thumbnail') or '',
+                                            video=ph.get('video') or '',
                                             order=ph.get('order', 0),
                                         )
                             except Exception as e:

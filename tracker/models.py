@@ -733,10 +733,15 @@ class AdventureBlurb(models.Model):
 
 
 class AdventureBlurbPhoto(models.Model):
-    """Photo attached to an adventure blurb. Max 5 per blurb."""
+    """Photo or video attached to an adventure blurb. Max 5 per blurb.
+
+    Named *Photo for history; a row is an image (image + thumbnail) or a video
+    (video file, no thumbnail) per `media_type`."""
     blurb = models.ForeignKey(AdventureBlurb, on_delete=models.CASCADE, related_name='photos')
-    image = models.ImageField(upload_to='adventures/blurbs/')
+    media_type = models.CharField(max_length=10, default='image')  # 'image' | 'video'
+    image = models.ImageField(upload_to='adventures/blurbs/', blank=True)
     thumbnail = models.ImageField(upload_to='adventures/blurbs/thumbs/', null=True, blank=True)
+    video = models.FileField(upload_to='adventures/blurbs/videos/', null=True, blank=True)
     order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -744,7 +749,7 @@ class AdventureBlurbPhoto(models.Model):
         ordering = ['order']
 
     def __str__(self):
-        return f"Photo {self.order} on blurb {self.blurb_id}"
+        return f"{self.media_type} {self.order} on blurb {self.blurb_id}"
 
 
 class AdventureMilestone(models.Model):
@@ -839,10 +844,15 @@ class AdventureDayNote(models.Model):
 
 
 class AdventureDayPhoto(models.Model):
-    """Photo attached to an adventure day note. Max 10 per note."""
+    """Photo or video on an adventure day note. Max 10 per note.
+
+    Named *Photo for history; a row is an image (image + thumbnail) or a video
+    (video file, no thumbnail) per `media_type`."""
     day_note = models.ForeignKey(AdventureDayNote, on_delete=models.CASCADE, related_name='photos')
-    image = models.ImageField(upload_to='adventures/days/')
+    media_type = models.CharField(max_length=10, default='image')  # 'image' | 'video'
+    image = models.ImageField(upload_to='adventures/days/', blank=True)
     thumbnail = models.ImageField(upload_to='adventures/days/thumbs/', null=True, blank=True)
+    video = models.FileField(upload_to='adventures/days/videos/', null=True, blank=True)
     order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -850,7 +860,7 @@ class AdventureDayPhoto(models.Model):
         ordering = ['order']
 
     def __str__(self):
-        return f"Photo {self.order} on day note {self.day_note_id}"
+        return f"{self.media_type} {self.order} on day note {self.day_note_id}"
 
 
 class UserProfile(models.Model):
