@@ -6,11 +6,25 @@
 .editor-shell { display: flex; height: calc(100vh - var(--nav-h)); overflow: hidden; }
 
 .editor-doc {
-    flex: 0 0 54%; min-width: 340px; max-width: 760px;
+    flex: 0 0 var(--doc-w, 54%); min-width: 340px;
     display: flex; flex-direction: column;
     overflow-y: auto; overflow-x: hidden;
     background: var(--bg); border-right: 1px solid var(--border);
 }
+
+/* Draggable splitter between the document and the map */
+.editor-resizer {
+    flex: 0 0 6px; align-self: stretch; cursor: col-resize;
+    background: var(--border); position: relative; z-index: 5;
+    transition: background 0.12s;
+}
+.editor-resizer::before {
+    content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 2px; height: 28px; background: var(--text-dim); border-radius: 1px; opacity: 0.6;
+}
+.editor-resizer:hover, .editor-resizer.dragging { background: var(--primary); }
+.editor-resizer:hover::before, .editor-resizer.dragging::before { background: #fff; opacity: 0.9; }
+body.editor-resizing { cursor: col-resize; user-select: none; }
 
 .editor-map-pane { flex: 1; position: relative; min-width: 0; background: var(--bg-card); }
 #edit-map { width: 100%; height: 100%; }
@@ -138,31 +152,60 @@
 .doc-tab { background: none; border: none; border-bottom: 2px solid transparent; padding: 0.4rem 0.6rem; font: inherit; font-size: 0.8rem; font-weight: 700; color: var(--text-muted); cursor: pointer; }
 .doc-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
 
-/* ── Day Log ── */
+/* ── Day Log (square-cornered, matches the Field Journal design system) ── */
 .daylog-area { flex: 1; padding: 0.75rem 1.5rem 4rem 3rem; overflow-y: auto; }
 .daylog-empty { color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0; }
-.day-card { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 1rem; overflow: hidden; }
-.day-head { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.85rem; background: var(--bg-elevated); border-bottom: 1px solid var(--border); }
-.day-date { font-weight: 700; font-size: 0.85rem; }
-.day-focus-btn { font-size: 0.68rem; font-weight: 700; color: var(--clay-sky); background: none; border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; cursor: pointer; }
-.day-focus-btn:hover { border-color: var(--clay-sky); }
-.day-body { padding: 0.6rem 0.85rem; display: flex; flex-direction: column; gap: 0.75rem; }
-.dn-mine { border: 1px dashed var(--border); border-radius: 6px; padding: 0.5rem; }
-.dn-mine input.dn-title { width: 100%; background: none; border: none; font: inherit; font-weight: 700; font-size: 0.85rem; color: var(--text); padding: 2px 0; }
-.dn-mine textarea.dn-body { width: 100%; background: var(--bg-input); border: 1px solid var(--border); border-radius: 5px; font: inherit; font-size: 0.82rem; color: var(--text); padding: 0.4rem; resize: vertical; min-height: 3.5rem; }
-.dn-mine-label { font-size: 0.65rem; color: var(--text-dim); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.25rem; }
-.dn-other { border-left: 2px solid var(--border); padding-left: 0.6rem; }
-.dn-author { display: flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.15rem; }
+/* View toggle (list / calendar) */
+.daylog-toolbar { display: flex; gap: 0.4rem; margin-bottom: 1rem; }
+.dl-view-btn { background: var(--bg-input); border: 1px solid var(--border); border-radius: 0; color: var(--text-muted); font: inherit; font-size: 0.72rem; font-weight: 700; padding: 0.3rem 0.7rem; cursor: pointer; }
+.dl-view-btn.active { color: var(--primary); border-color: var(--primary); }
+.day-card { border: 1px solid var(--border); border-radius: 0; margin-bottom: 1rem; overflow: hidden; background: var(--bg-card); }
+.day-head { display: flex; align-items: center; justify-content: space-between; padding: 0.55rem 0.85rem; background: var(--bg-elevated); border-bottom: 1px solid var(--border); }
+.day-date { font-weight: 700; font-size: 0.82rem; }
+.day-focus-btn { font-size: 0.66rem; font-weight: 700; color: var(--clay-sky); background: none; border: 1px solid var(--border); border-radius: 0; padding: 3px 9px; cursor: pointer; }
+.day-focus-btn:hover { border-color: var(--clay-sky); color: var(--clay-sky); }
+.day-body { padding: 0.85rem; display: flex; flex-direction: column; gap: 1rem; }
+.dn-mine { display: flex; flex-direction: column; }
+.dn-mine-label { font-size: 0.66rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 0.4rem; }
+.dn-mine input.dn-title { width: 100%; background: var(--bg-input); border: 1px solid var(--border); border-radius: 0; font-family: var(--font-body); font-weight: 700; font-size: 0.875rem; color: var(--text); padding: 0.45rem 0.75rem; outline: none; margin-bottom: 0.4rem; }
+.dn-mine textarea.dn-body { width: 100%; background: var(--bg-input); border: 1px solid var(--border); border-radius: 0; font-family: var(--font-body); font-size: 0.875rem; line-height: 1.55; color: var(--text); padding: 0.5rem 0.75rem; resize: vertical; min-height: 4.5rem; outline: none; }
+.dn-mine input.dn-title:focus, .dn-mine textarea.dn-body:focus { border-color: var(--primary); }
+.dn-mine input.dn-title::placeholder, .dn-mine textarea.dn-body::placeholder { color: var(--text-dim); }
+.dn-other { border-left: 2px solid var(--border); padding-left: 0.75rem; }
+.dn-author { display: flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.2rem; }
 .dn-author .dn-ava { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; }
 .dn-author .dn-ava-txt { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.55rem; color: #fff; }
-.dn-title-ro { font-weight: 700; font-size: 0.82rem; }
-.dn-body-ro { font-size: 0.82rem; color: var(--text-muted); white-space: pre-wrap; line-height: 1.5; }
-.dn-photos { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.4rem; }
-.dn-photo { position: relative; width: 64px; height: 64px; border-radius: 5px; overflow: hidden; }
+.dn-title-ro { font-weight: 700; font-size: 0.875rem; }
+.dn-body-ro { font-size: 0.875rem; color: var(--text-muted); white-space: pre-wrap; line-height: 1.55; }
+.dn-photos { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.55rem; }
+.dn-photo { position: relative; width: 64px; height: 64px; border: 1px solid var(--border); overflow: hidden; }
 .dn-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.dn-photo-del { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.6); color: #fff; border: none; border-radius: 50%; width: 16px; height: 16px; font-size: 10px; line-height: 1; cursor: pointer; }
-.dn-add-photo { font-size: 0.68rem; color: var(--clay-sky); cursor: pointer; }
-.dn-status { font-size: 0.62rem; color: var(--text-dim); margin-left: 0.4rem; }
+.dn-photo-del { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.6); color: #fff; border: none; border-radius: 0; width: 16px; height: 16px; font-size: 11px; line-height: 1; cursor: pointer; }
+.dn-add-photo { display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 64px; border: 1px dashed var(--border); font-size: 0.66rem; font-weight: 700; color: var(--text-muted); cursor: pointer; }
+.dn-add-photo:hover { border-color: var(--clay-sky); color: var(--clay-sky); }
+.dn-status { font-size: 0.62rem; color: var(--text-dim); margin-left: 0.4rem; text-transform: none; letter-spacing: 0; font-weight: 400; }
+/* Calendar view */
+.dl-cal { border: 1px solid var(--border); background: var(--bg-card); }
+.dl-cal-head { display: flex; align-items: center; justify-content: space-between; padding: 0.55rem 0.85rem; background: var(--bg-elevated); border-bottom: 1px solid var(--border); }
+.dl-cal-title { font-weight: 700; font-size: 0.85rem; }
+.dl-cal-nav { background: none; border: 1px solid var(--border); border-radius: 0; color: var(--text-muted); cursor: pointer; width: 24px; height: 24px; font-size: 0.9rem; line-height: 1; }
+.dl-cal-nav:hover { border-color: var(--primary); color: var(--primary); }
+.dl-cal-nav:disabled { opacity: 0.3; cursor: default; }
+.dl-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+.dl-cal-dow { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); text-align: center; padding: 0.4rem 0; border-bottom: 1px solid var(--border); }
+.dl-cal-cell { min-height: 62px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 0.25rem 0.35rem; font-size: 0.7rem; position: relative; }
+.dl-cal-cell:nth-child(7n) { border-right: none; }
+.dl-cal-cell.out { background: var(--bg); color: var(--text-dim); }
+.dl-cal-cell.inrange { cursor: pointer; }
+.dl-cal-cell.inrange:hover { background: var(--bg-elevated); }
+.dl-cal-cell.has-note { box-shadow: inset 0 -3px 0 var(--primary); }
+.dl-cal-cell.selected { outline: 2px solid var(--primary); outline-offset: -2px; }
+.dl-cal-daynum { font-weight: 700; color: var(--text); }
+.dl-cal-cell.out .dl-cal-daynum { color: var(--text-dim); font-weight: 400; }
+.dl-cal-dots { display: flex; gap: 2px; flex-wrap: wrap; margin-top: 2px; }
+.dl-cal-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--clay-sky); }
+.dl-cal-mine-dot { background: var(--primary); }
+.dl-cal-selday { margin-top: 1rem; }
 
 /* Loading skeletons (shown until trip data + map are ready) */
 @keyframes rly-shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
@@ -583,6 +626,7 @@
 @media (max-width: 820px) {
     .editor-shell { flex-direction: column; }
     .editor-doc { flex: 0 0 55vh; max-width: none; border-right: none; border-bottom: 1px solid var(--border); }
+    .editor-resizer { display: none; }
     .editor-map-pane { flex: 1; min-height: 240px; }
     .settings-panel { width: 100%; border-left: none; border-top: 1px solid var(--border); }
 }
@@ -674,6 +718,9 @@
             <div class="daylog-empty" id="daylog-loading">loading day log…</div>
         </div>
     </div>
+
+    <!-- Draggable splitter -->
+    <div class="editor-resizer" id="editor-resizer" title="drag to resize"></div>
 
     <!-- ── RIGHT: Map ── -->
     <div class="editor-map-pane">
@@ -2171,38 +2218,136 @@ async function loadDayLog(){
     renderDayLog();
 }
 
+let dayLogView = localStorage.getItem('roamly_adv_daylog_view') || 'list';
+let calYM = null;         // {y, m} currently shown month in calendar view
+let calSelected = null;   // selected date string in calendar view
+
+// One day's card (editable own note + read-only co-member notes). Reused by
+// both the list view and the calendar's selected-day panel.
+function dayCardHtml(ds, byDate){
+    const notes = byDate[ds] || [];
+    const mine = notes.find(n => n.is_mine);
+    const others = notes.filter(n => !n.is_mine);
+    const minePhotos = mine ? (mine.photos||[]).map(p =>
+        `<div class="dn-photo"><img src="${p.thumb}" alt=""><button class="dn-photo-del" title="remove" onclick="deleteDayPhoto(${p.id},'${ds}')">×</button></div>`).join('') : '';
+    const mineBlock = `
+        <div class="dn-mine">
+            <div class="dn-mine-label">your note <span class="dn-status" id="dn-status-${ds}"></span></div>
+            <input class="dn-title" placeholder="title…" value="${mine ? esc(mine.title||'') : ''}" oninput="queueDaySave('${ds}')" id="dn-title-${ds}">
+            <textarea class="dn-body" placeholder="what happened on this day…" oninput="queueDaySave('${ds}')" id="dn-body-${ds}">${mine ? esc(mine.body||'') : ''}</textarea>
+            <div class="dn-photos">${minePhotos}<label class="dn-add-photo">+ photo<input type="file" accept="image/*" multiple style="display:none" onchange="uploadDayPhotos('${ds}', this)"></label></div>
+        </div>`;
+    const othersBlock = others.map(n => `
+        <div class="dn-other">
+            <div class="dn-author">${avatarHtml(n.avatar)}${esc(n.author)}</div>
+            ${n.title ? `<div class="dn-title-ro">${esc(n.title)}</div>` : ''}
+            <div class="dn-body-ro">${esc(n.body||'')}</div>
+            ${(n.photos||[]).length ? `<div class="dn-photos">${n.photos.map(p=>`<div class="dn-photo"><img src="${p.thumb}" alt=""></div>`).join('')}</div>` : ''}
+        </div>`).join('');
+    return `<div class="day-card">
+        <div class="day-head"><span class="day-date">${fmtDayLabel(ds)}</span><button class="day-focus-btn" onclick="focusDayOnMap('${ds}')">show on map</button></div>
+        <div class="day-body">${mineBlock}${othersBlock}</div>
+    </div>`;
+}
+
+// Inclusive [start, min(end, today)] bounds for the calendar, as {y,m,d} parts.
+function dayLogBounds(){
+    const start = tripData.start_time ? localDateStr(tripData.start_time) : null;
+    const todayStr = localDateStr(new Date().toISOString());
+    let end = tripData.end_time ? localDateStr(tripData.end_time) : null;
+    if(!end || end > todayStr) end = todayStr;
+    return {start: start || todayStr, end};
+}
+
 function renderDayLog(){
     const host = document.getElementById('daylog-area');
     const dates = dayLogDates();
-    if(!dates.length){ host.innerHTML = '<div class="daylog-empty">No days with tracked points yet. Notes appear here once this adventure has location data.</div>'; return; }
     const byDate = {};
     (dayNotes||[]).forEach(n => { (byDate[n.date] = byDate[n.date] || []).push(n); });
-    host.innerHTML = dates.map(ds => {
-        const notes = byDate[ds] || [];
-        const mine = notes.find(n => n.is_mine);
-        const others = notes.filter(n => !n.is_mine);
-        const minePhotos = mine ? (mine.photos||[]).map(p =>
-            `<div class="dn-photo"><img src="${p.thumb}" alt=""><button class="dn-photo-del" title="remove" onclick="deleteDayPhoto(${p.id},'${ds}')">×</button></div>`).join('') : '';
-        const mineBlock = `
-            <div class="dn-mine">
-                <div class="dn-mine-label">your note <span class="dn-status" id="dn-status-${ds}"></span></div>
-                <input class="dn-title" placeholder="title…" value="${mine ? esc(mine.title||'') : ''}" oninput="queueDaySave('${ds}')" id="dn-title-${ds}">
-                <textarea class="dn-body" placeholder="what happened on this day…" oninput="queueDaySave('${ds}')" id="dn-body-${ds}">${mine ? esc(mine.body||'') : ''}</textarea>
-                <div class="dn-photos">${minePhotos}<label class="dn-add-photo">+ photo<input type="file" accept="image/*" multiple style="display:none" onchange="uploadDayPhotos('${ds}', this)"></label></div>
-            </div>`;
-        const othersBlock = others.map(n => `
-            <div class="dn-other">
-                <div class="dn-author">${avatarHtml(n.avatar)}${esc(n.author)}</div>
-                ${n.title ? `<div class="dn-title-ro">${esc(n.title)}</div>` : ''}
-                <div class="dn-body-ro">${esc(n.body||'')}</div>
-                ${(n.photos||[]).length ? `<div class="dn-photos">${n.photos.map(p=>`<div class="dn-photo"><img src="${p.thumb}" alt=""></div>`).join('')}</div>` : ''}
-            </div>`).join('');
-        return `<div class="day-card">
-            <div class="day-head"><span class="day-date">${fmtDayLabel(ds)}</span><button class="day-focus-btn" onclick="focusDayOnMap('${ds}')">show on map</button></div>
-            <div class="day-body">${mineBlock}${othersBlock}</div>
-        </div>`;
-    }).join('');
+    const toolbar = `<div class="daylog-toolbar">
+        <button class="dl-view-btn ${dayLogView==='list'?'active':''}" onclick="setDayLogView('list')">list</button>
+        <button class="dl-view-btn ${dayLogView==='calendar'?'active':''}" onclick="setDayLogView('calendar')">calendar</button>
+    </div>`;
+    if(dayLogView === 'calendar'){
+        host.innerHTML = toolbar + '<div id="dl-cal-host"></div>';
+        renderDayLogCalendar(byDate);
+        return;
+    }
+    if(!dates.length){ host.innerHTML = toolbar + '<div class="daylog-empty">No days with tracked points yet. Notes appear here once this adventure has location data. Switch to calendar to add a note to any day.</div>'; return; }
+    host.innerHTML = toolbar + dates.map(ds => dayCardHtml(ds, byDate)).join('');
 }
+
+window.setDayLogView = function(v){
+    dayLogView = v;
+    localStorage.setItem('roamly_adv_daylog_view', v);
+    renderDayLog();
+};
+
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+function ymKey(y, m){ return y + '-' + String(m+1).padStart(2,'0'); }
+
+function renderDayLogCalendar(byDate){
+    const b = dayLogBounds();
+    const [sy, sm] = b.start.split('-').map(Number);
+    const [ey, em] = b.end.split('-').map(Number);
+    const minYM = sy*12 + (sm-1), maxYM = ey*12 + (em-1);
+    if(!calYM){
+        // Default to the month of the latest selected/last dated day, clamped.
+        let cur = maxYM;
+        if(calSelected){ const [cy,cm] = calSelected.split('-').map(Number); cur = cy*12 + (cm-1); }
+        cur = Math.min(maxYM, Math.max(minYM, cur));
+        calYM = {y: Math.floor(cur/12), m: cur%12};
+    }
+    const cur = calYM.y*12 + calYM.m;
+    const host = document.getElementById('dl-cal-host');
+    if(!host) return;
+    // Monday-first weekday index for the 1st of the month.
+    const first = new Date(calYM.y, calYM.m, 1);
+    const lead = (first.getDay() + 6) % 7;
+    const daysInMonth = new Date(calYM.y, calYM.m+1, 0).getDate();
+    const dow = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => `<div class="dl-cal-dow">${d}</div>`).join('');
+    let cells = '';
+    for(let i=0;i<lead;i++) cells += `<div class="dl-cal-cell out"></div>`;
+    for(let d=1; d<=daysInMonth; d++){
+        const ds = ymKey(calYM.y, calYM.m) + '-' + String(d).padStart(2,'0');
+        const inRange = ds >= b.start && ds <= b.end;
+        const notes = byDate[ds] || [];
+        const dots = notes.slice(0,4).map(n => `<span class="dl-cal-dot ${n.is_mine?'dl-cal-mine-dot':''}"></span>`).join('');
+        const cls = ['dl-cal-cell'];
+        if(!inRange) cls.push('out'); else cls.push('inrange');
+        if(notes.length) cls.push('has-note');
+        if(calSelected === ds) cls.push('selected');
+        cells += `<div class="${cls.join(' ')}" ${inRange?`onclick="selectCalDay('${ds}')"`:''}>
+            <span class="dl-cal-daynum">${d}</span>
+            ${dots?`<div class="dl-cal-dots">${dots}</div>`:''}
+        </div>`;
+    }
+    host.innerHTML = `
+        <div class="dl-cal">
+            <div class="dl-cal-head">
+                <button class="dl-cal-nav" onclick="calStep(-1)" ${cur<=minYM?'disabled':''}>‹</button>
+                <span class="dl-cal-title">${MONTH_NAMES[calYM.m]} ${calYM.y}</span>
+                <button class="dl-cal-nav" onclick="calStep(1)" ${cur>=maxYM?'disabled':''}>›</button>
+            </div>
+            <div class="dl-cal-grid">${dow}${cells}</div>
+        </div>
+        <div class="dl-cal-selday" id="dl-cal-selday"></div>`;
+    const sel = document.getElementById('dl-cal-selday');
+    if(calSelected && calSelected >= b.start && calSelected <= b.end){
+        sel.innerHTML = dayCardHtml(calSelected, byDate);
+    }
+}
+window.calStep = function(delta){
+    const cur = calYM.y*12 + calYM.m + delta;
+    calYM = {y: Math.floor(cur/12), m: ((cur%12)+12)%12};
+    renderDayLog();
+};
+window.selectCalDay = function(ds){
+    calSelected = ds;
+    renderDayLog();
+    const el = document.getElementById('dl-cal-selday');
+    if(el) el.scrollIntoView({behavior:'smooth', block:'nearest'});
+};
 
 function queueDaySave(ds){
     const st = document.getElementById('dn-status-' + ds);
@@ -2253,6 +2398,56 @@ window.focusDayOnMap = function(ds){
         {padding: 60, maxZoom: 15, duration: 700});
 };
 
+function setupResizer(){
+    const shell = document.querySelector('.editor-shell');
+    const handle = document.getElementById('editor-resizer');
+    if(!shell || !handle) return;
+    const KEY = 'roamly_adv_doc_w';
+    const clampW = px => {
+        const min = 340, max = Math.max(min, shell.clientWidth - 360);
+        return Math.min(max, Math.max(min, px));
+    };
+    const saved = parseInt(localStorage.getItem(KEY) || '', 10);
+    if(saved && window.innerWidth > 820) shell.style.setProperty('--doc-w', clampW(saved) + 'px');
+
+    let dragging = false, raf = null;
+    const onMove = e => {
+        if(!dragging) return;
+        const x = (e.touches ? e.touches[0].clientX : e.clientX) - shell.getBoundingClientRect().left;
+        const w = clampW(x);
+        shell.style.setProperty('--doc-w', w + 'px');
+        if(!raf) raf = requestAnimationFrame(() => { raf = null; if(editMap) editMap.resize(); });
+    };
+    const stop = () => {
+        if(!dragging) return;
+        dragging = false;
+        handle.classList.remove('dragging');
+        document.body.classList.remove('editor-resizing');
+        const cur = shell.style.getPropertyValue('--doc-w');
+        if(cur.endsWith('px')) localStorage.setItem(KEY, parseInt(cur, 10));
+        if(editMap) editMap.resize();
+    };
+    const start = e => {
+        if(window.innerWidth <= 820) return;
+        dragging = true;
+        handle.classList.add('dragging');
+        document.body.classList.add('editor-resizing');
+        e.preventDefault();
+    };
+    handle.addEventListener('mousedown', start);
+    handle.addEventListener('touchstart', start, {passive:false});
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('touchmove', onMove, {passive:false});
+    window.addEventListener('mouseup', stop);
+    window.addEventListener('touchend', stop);
+    // Double-click resets to the default split.
+    handle.addEventListener('dblclick', () => {
+        shell.style.removeProperty('--doc-w');
+        localStorage.removeItem(KEY);
+        if(editMap) editMap.resize();
+    });
+}
+
 function setupDocTabs(){
     document.querySelectorAll('.doc-tab').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -2270,6 +2465,7 @@ async function init(){
     const watchdog = setTimeout(hideMapLoading, 12000);
 
     setupDocTabs();
+    setupResizer();
     try { await loadTrip(); } catch(e){ console.error('loadTrip failed', e); }
 
     // Start the map as soon as we have locations so a later failure (timeline,
