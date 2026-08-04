@@ -10,7 +10,8 @@
 {% block extra_css %}
 /* ── Article layout ── */
 .pub-article-wrap {
-    max-width: 1150px; margin: 0 auto;
+    /* Match the widest normal page (Settings) so the article isn't cramped. */
+    max-width: calc(1150px + 190px + 1.5rem); margin: 0 auto;
     padding: 0 1.5rem 6rem;
 }
 
@@ -773,9 +774,11 @@ function renderPublicDayLog(notes){
         return `<div class="pub-day"><div class="pub-day-date">${fmt(ds)}</div>${entries}</div>`;
     }).join('');
     host.innerHTML = `<div class="pub-daylog-section"><div class="pub-blurbs-title">Day Log</div>${daysHtml}</div>`;
-    // Photo lightbox for day-note photos
-    host.querySelectorAll('.pub-dn-photos img').forEach(img => {
-        img.addEventListener('click', () => openLightbox([img.dataset.full || img.src], 0));
+    // Photo lightbox — each entry's photos cycle together with arrows.
+    host.querySelectorAll('.pub-dn-photos').forEach(row => {
+        const imgs = [...row.querySelectorAll('img')];
+        const urls = imgs.map(im => im.dataset.full || im.src);
+        imgs.forEach((im, i) => im.addEventListener('click', () => openLightbox(urls, i)));
     });
 }
 
