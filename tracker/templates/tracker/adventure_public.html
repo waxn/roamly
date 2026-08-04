@@ -14,8 +14,10 @@
 
 /* ── Article layout ── */
 .pub-article-wrap {
-    /* Match the widest normal page (Settings) so the article isn't cramped. */
-    max-width: calc(1150px + 190px + 1.5rem); margin: 0 auto;
+    /* Same width as every normal page's .container. width:100% is required —
+       without it, this flex-item (body is display:flex) with auto side margins
+       shrinks to its content width instead of filling to max-width. */
+    width: 100%; max-width: 1150px; margin: 0 auto;
     padding: 0 1.5rem 6rem;
 }
 
@@ -325,8 +327,9 @@
 </div>
 {% endif %}
 
-<!-- Name gate for comments -->
-<div class="name-gate" id="name-gate" {% if requires_pin %}style="display:none;"{% endif %}>
+<!-- Name gate for comments — hidden until a visitor actually posts a comment
+     without a stored name (their name persists in localStorage thereafter). -->
+<div class="name-gate" id="name-gate" style="display:none;">
     <div class="name-gate-card">
         <h3>leave a comment?</h3>
         <p>enter your name to post comments. it's saved locally.</p>
