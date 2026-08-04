@@ -165,8 +165,17 @@ body.editor-resizing { cursor: col-resize; user-select: none; }
 .day-focus-btn { font-size: 0.66rem; font-weight: 700; color: var(--clay-sky); background: none; border: 1px solid var(--border); border-radius: 0; padding: 3px 9px; cursor: pointer; }
 .day-focus-btn:hover { border-color: var(--clay-sky); color: var(--clay-sky); }
 .day-body { padding: 0.85rem; display: flex; flex-direction: column; gap: 1rem; }
-.dn-mine { display: flex; flex-direction: column; }
-.dn-mine-label { font-size: 0.66rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 0.4rem; }
+.dn-entry { display: flex; flex-direction: column; }
+.dn-entry.dn-mine { border-left: 2px solid var(--primary); padding-left: 0.7rem; }
+.dn-entry-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem; }
+.dn-entry-del { background: none; border: none; color: var(--text-dim); font-size: 1.1rem; line-height: 1; cursor: pointer; padding: 0 2px; }
+.dn-entry-del:hover { color: var(--danger); }
+.dn-add-entry { align-self: flex-start; background: var(--bg-input); border: 1px dashed var(--border); border-radius: 0; color: var(--text-muted); font: inherit; font-size: 0.72rem; font-weight: 700; padding: 0.35rem 0.75rem; cursor: pointer; }
+.dn-add-entry:hover { border-color: var(--primary); color: var(--primary); }
+.dn-place { width: 100%; background: var(--bg-input); border: 1px solid var(--border); border-radius: 0; color: var(--text); font-family: var(--font-body); font-size: 0.82rem; padding: 0.4rem 0.6rem; outline: none; margin-bottom: 0.4rem; }
+.dn-place:focus { border-color: var(--primary); }
+.dn-place-chip { display: inline-block; font-size: 0.72rem; font-weight: 700; color: var(--clay-amber); background: var(--bg-elevated); border: 1px solid var(--border); padding: 1px 8px; margin: 0.1rem 0 0.3rem; }
+.dn-mine-label { font-size: 0.66rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; }
 .dn-mine input.dn-title { width: 100%; background: var(--bg-input); border: 1px solid var(--border); border-radius: 0; font-family: var(--font-body); font-weight: 700; font-size: 0.875rem; color: var(--text); padding: 0.45rem 0.75rem; outline: none; margin-bottom: 0.4rem; }
 .dn-mine textarea.dn-body { width: 100%; background: var(--bg-input); border: 1px solid var(--border); border-radius: 0; font-family: var(--font-body); font-size: 0.875rem; line-height: 1.55; color: var(--text); padding: 0.5rem 0.75rem; resize: vertical; min-height: 4.5rem; outline: none; }
 .dn-mine input.dn-title:focus, .dn-mine textarea.dn-body:focus { border-color: var(--primary); }
@@ -2227,27 +2236,54 @@ let calSelected = null;   // selected date string in calendar view
 // both the list view and the calendar's selected-day panel.
 function dayCardHtml(ds, byDate){
     const notes = byDate[ds] || [];
-    const mine = notes.find(n => n.is_mine);
+    const mine = notes.filter(n => n.is_mine);
     const others = notes.filter(n => !n.is_mine);
-    const minePhotos = mine ? (mine.photos||[]).map(p =>
-        `<div class="dn-photo"><img src="${p.thumb}" alt=""><button class="dn-photo-del" title="remove" onclick="deleteDayPhoto(${p.id},'${ds}')">×</button></div>`).join('') : '';
-    const mineBlock = `
-        <div class="dn-mine">
-            <div class="dn-mine-label">your note <span class="dn-status" id="dn-status-${ds}"></span></div>
-            <input class="dn-title" placeholder="title…" value="${mine ? esc(mine.title||'') : ''}" oninput="queueDaySave('${ds}')" id="dn-title-${ds}">
-            <textarea class="dn-body" placeholder="what happened on this day…" oninput="queueDaySave('${ds}')" id="dn-body-${ds}">${mine ? esc(mine.body||'') : ''}</textarea>
-            <div class="dn-photos">${minePhotos}<label class="dn-add-photo">+ photo<input type="file" accept="image/*" multiple style="display:none" onchange="uploadDayPhotos('${ds}', this)"></label></div>
-        </div>`;
-    const othersBlock = others.map(n => `
-        <div class="dn-other">
-            <div class="dn-author">${avatarHtml(n.avatar)}${esc(n.author)}</div>
-            ${n.title ? `<div class="dn-title-ro">${esc(n.title)}</div>` : ''}
-            <div class="dn-body-ro">${esc(n.body||'')}</div>
-            ${(n.photos||[]).length ? `<div class="dn-photos">${n.photos.map(p=>`<div class="dn-photo"><img src="${p.thumb}" alt=""></div>`).join('')}</div>` : ''}
-        </div>`).join('');
+    const mineBlocks = mine.map(dayEntryEditHtml).join('');
+    const othersBlock = others.map(dayEntryReadHtml).join('');
     return `<div class="day-card">
         <div class="day-head"><span class="day-date">${fmtDayLabel(ds)}</span><button class="day-focus-btn" onclick="focusDayOnMap('${ds}')">show on map</button></div>
-        <div class="day-body">${mineBlock}${othersBlock}</div>
+        <div class="day-body">
+            ${mineBlocks}
+            <button class="dn-add-entry" onclick="addDayEntry('${ds}')">+ add entry</button>
+            ${othersBlock}
+        </div>
+    </div>`;
+}
+
+// Options for the "link a place" select — the adventure's located places.
+function placeOptionsHtml(selectedId){
+    const located = (places || []).filter(p => p.latitude != null && p.longitude != null);
+    return '<option value="">— link a place —</option>' + located.map(p => {
+        const label = (PLACE_CAT_EMOJI[p.category] ? PLACE_CAT_EMOJI[p.category] + ' ' : '') + (p.name || 'untitled place') + (p.rating ? '  ' + starString(p.rating) : '');
+        return `<option value="${p.id}" ${p.id === selectedId ? 'selected' : ''}>${esc(label)}</option>`;
+    }).join('');
+}
+
+// One editable entry (the current user's own).
+function dayEntryEditHtml(n){
+    const photos = (n.photos||[]).map(p =>
+        `<div class="dn-photo"><img src="${p.thumb}" alt=""><button class="dn-photo-del" title="remove" onclick="deleteDayPhoto(${p.id})">×</button></div>`).join('');
+    return `<div class="dn-entry dn-mine" data-note="${n.id}">
+        <div class="dn-entry-head">
+            <span class="dn-mine-label">your entry <span class="dn-status" id="dn-status-${n.id}"></span></span>
+            <button class="dn-entry-del" title="delete entry" onclick="deleteDayEntry(${n.id})">×</button>
+        </div>
+        <input class="dn-title" placeholder="title (e.g. morning hike)…" value="${esc(n.title||'')}" oninput="queueDaySave(${n.id})" id="dn-title-${n.id}">
+        <textarea class="dn-body" placeholder="what happened…" oninput="queueDaySave(${n.id})" id="dn-body-${n.id}">${esc(n.body||'')}</textarea>
+        <select class="dn-place" id="dn-place-${n.id}" onchange="saveDayPlace(${n.id})">${placeOptionsHtml(n.place_id)}</select>
+        <div class="dn-photos">${photos}<label class="dn-add-photo">+ photo<input type="file" accept="image/*" multiple style="display:none" onchange="uploadDayPhotos(${n.id}, this)"></label></div>
+    </div>`;
+}
+
+// One read-only entry (a co-member's).
+function dayEntryReadHtml(n){
+    const placeChip = n.place ? `<div class="dn-place-chip">${PLACE_CAT_EMOJI[n.place.category]||'📍'} ${esc(n.place.name||'place')}${n.place.rating?' '+starString(n.place.rating):''}</div>` : '';
+    return `<div class="dn-entry dn-other">
+        <div class="dn-author">${avatarHtml(n.avatar)}${esc(n.author)}</div>
+        ${n.title ? `<div class="dn-title-ro">${esc(n.title)}</div>` : ''}
+        ${placeChip}
+        <div class="dn-body-ro">${esc(n.body||'')}</div>
+        ${(n.photos||[]).length ? `<div class="dn-photos">${n.photos.map(p=>`<div class="dn-photo"><img src="${p.thumb}" alt=""></div>`).join('')}</div>` : ''}
     </div>`;
 }
 
@@ -2358,40 +2394,63 @@ window.selectCalDay = function(ds){
     if(el) el.scrollIntoView({behavior:'smooth', block:'nearest'});
 };
 
-function queueDaySave(ds){
-    const st = document.getElementById('dn-status-' + ds);
+// Saves are keyed by note id (a day may hold several entries). Title/body
+// autosave debounced without re-rendering (keeps typing focus); place changes
+// and structural edits re-render.
+window.queueDaySave = function(id){
+    const st = document.getElementById('dn-status-' + id);
     if(st) st.textContent = 'saving…';
-    clearTimeout(daySaveTimers[ds]);
-    daySaveTimers[ds] = setTimeout(() => saveDayNote(ds), 700);
-}
-async function saveDayNote(ds){
-    const title = (document.getElementById('dn-title-' + ds)||{}).value || '';
-    const body = (document.getElementById('dn-body-' + ds)||{}).value || '';
+    clearTimeout(daySaveTimers[id]);
+    daySaveTimers[id] = setTimeout(() => saveDayNote(id), 700);
+};
+async function saveDayNote(id, extra){
+    const title = (document.getElementById('dn-title-' + id)||{}).value || '';
+    const body = (document.getElementById('dn-body-' + id)||{}).value || '';
     try {
-        const r = await fetch(`/api/trips/${TRIP_ID}/days/${ds}/`, {
+        const r = await fetch(`/api/trips/${TRIP_ID}/days/note/${id}/`, {
             method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
-            body: JSON.stringify({title, body})
+            body: JSON.stringify(Object.assign({title, body}, extra||{}))
         });
         if(r.ok){
             const d = await r.json();
             upsertDayNote(d.day_note);
-            const st = document.getElementById('dn-status-' + ds); if(st) st.textContent = 'saved';
+            const st = document.getElementById('dn-status-' + id); if(st) st.textContent = 'saved';
+            return d.day_note;
         }
-    } catch(e){ const st = document.getElementById('dn-status-' + ds); if(st) st.textContent = 'error'; }
+    } catch(e){ const st = document.getElementById('dn-status-' + id); if(st) st.textContent = 'error'; }
 }
+window.saveDayPlace = async function(id){
+    const sel = document.getElementById('dn-place-' + id);
+    await saveDayNote(id, {place_id: sel ? (sel.value || null) : null});
+    renderDayLog();
+};
 function upsertDayNote(note){
     if(!note) return;
     const i = dayNotes.findIndex(n => n.id === note.id);
     if(i >= 0) dayNotes[i] = note; else dayNotes.push(note);
 }
-window.uploadDayPhotos = async function(ds, input){
+window.addDayEntry = async function(ds){
+    const r = await fetch(`/api/trips/${TRIP_ID}/days/${ds}/create/`, {method:'POST', headers:{'X-CSRFToken':CSRF}});
+    if(r.ok){
+        const note = (await r.json()).day_note;
+        upsertDayNote(note);
+        renderDayLog();
+        setTimeout(() => { const el = document.getElementById('dn-title-' + note.id); if(el) el.focus(); }, 30);
+    }
+};
+window.deleteDayEntry = async function(id){
+    if(!confirm('delete this entry?')) return;
+    const r = await fetch(`/api/trips/${TRIP_ID}/days/note/${id}/delete/`, {method:'POST', headers:{'X-CSRFToken':CSRF}});
+    if(r.ok){ dayNotes = dayNotes.filter(n => n.id !== id); renderDayLog(); }
+};
+window.uploadDayPhotos = async function(id, input){
     if(!input.files || !input.files.length) return;
     const fd = new FormData();
     [...input.files].forEach(f => fd.append('photos', f));
-    const r = await fetch(`/api/trips/${TRIP_ID}/days/${ds}/photos/`, {method:'POST', headers:{'X-CSRFToken':CSRF}, body:fd});
+    const r = await fetch(`/api/trips/${TRIP_ID}/days/note/${id}/photos/`, {method:'POST', headers:{'X-CSRFToken':CSRF}, body:fd});
     if(r.ok){ upsertDayNote((await r.json()).day_note); renderDayLog(); }
 };
-window.deleteDayPhoto = async function(photoId, ds){
+window.deleteDayPhoto = async function(photoId){
     const r = await fetch(`/api/trips/${TRIP_ID}/days/photos/${photoId}/delete/`, {method:'POST', headers:{'X-CSRFToken':CSRF}});
     if(r.ok){ await loadDayLog(); }
 };
