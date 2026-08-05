@@ -520,16 +520,16 @@
             <div class="settings-subsection">
                 <h4>Full Backup</h4>
                 <p>
-                    Download or restore a complete backup of all your data — locations, devices, adventures (including
-                    day notes, blurbs, milestones &amp; places), journal entries, and API keys.
-                    Photos themselves are backed up separately via S3 image backup; cached POIs are not included, as they
-                    can be redownloaded at any time.
+                    Download or restore a complete backup of all your data in one zip — locations, devices, adventures
+                    (including day notes, blurbs, milestones &amp; places), journal entries, API keys, and every photo
+                    &amp; video. For automatic, scheduled copies instead, set up S3 backup below. Cached POIs are not
+                    included, as they can be redownloaded at any time.
                 </p>
                 <div class="settings-actions">
                     <button id="download-backup-btn" class="btn btn-primary btn-sm" onclick="startBackupDownload()">Download Backup</button>
                     <label class="btn btn-outline btn-sm" style="cursor: pointer;">
                         Restore Backup
-                        <input type="file" accept=".json" style="display: none;" onchange="restoreBackup(this)">
+                        <input type="file" accept=".zip,.json,.gz" style="display: none;" onchange="restoreBackup(this)">
                     </label>
                 </div>
                 <div id="backup-progress" class="bk-progress" hidden>
@@ -2345,19 +2345,17 @@ async function startBackupDownload() {
                 stageEl.textContent = s.stage || 'Working';
                 etaEl.textContent = formatEta(s.eta);
                 fillEl.style.width = `${s.pct || 0}%`;
+                const unit = s.stage === 'Zipping media' ? 'files' : 'locations';
                 detailEl.textContent = s.total
-                    ? `${(s.done || 0).toLocaleString()} / ${s.total.toLocaleString()} locations · ${Math.round(s.pct || 0)}%`
+                    ? `${(s.done || 0).toLocaleString()} / ${s.total.toLocaleString()} ${unit} · ${Math.round(s.pct || 0)}%`
                     : `${Math.round(s.pct || 0)}%`;
             } else if (s.status === 'ready') {
                 clearInterval(poll);
                 stageEl.textContent = 'Downloading';
                 etaEl.textContent = '';
                 fillEl.style.width = '100%';
-                // Transferred gzipped, so the browser's download total is the
-                // compressed size; show both so the numbers aren't confusing.
-                detailEl.textContent = s.raw_size
-                    ? `${formatBytes(s.raw_size)} backup · ${formatBytes(s.size)} compressed transfer`
-                    : formatBytes(s.size || 0);
+                detailEl.textContent = formatBytes(s.size || 0)
+                    + (s.file_count ? ` · ${s.file_count.toLocaleString()} media files` : '');
                 window.location.href = `/api/export/backup/download/${job_id}/`;
                 reset();
                 setTimeout(() => { box.hidden = true; }, 10000);
@@ -2417,7 +2415,9 @@ async function restoreBackup(input) {
         if (r.adventures) parts.push(`${r.adventures} adventure(s)`);
         if (r.trip_places) parts.push(`${r.trip_places} place(s)`);
         if (r.journals) parts.push(`${r.journals} journal(s)`);
+        if (r.custom_places) parts.push(`${r.custom_places} place(s)`);
         if (r.api_keys) parts.push(`${r.api_keys} API key(s)`);
+        if (r.media_files) parts.push(`${r.media_files} media file(s)`);
         statusEl.style.color = 'var(--success)';
         statusEl.textContent = parts.length
             ? `Restored ${parts.join(', ')}${data.errors ? ` (${data.errors} errors)` : ''}`

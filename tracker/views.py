@@ -7,10 +7,12 @@ import logging
 import math
 import os
 import re
+import shutil
 import tempfile
 import threading
 import time
 import uuid
+import zipfile
 import urllib.parse
 import urllib.request
 from collections import defaultdict, Counter
@@ -51,7 +53,7 @@ from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status
 from .poi_tasks import start_poi_download, get_poi_status, stop_poi_download
 from .backup_tasks import (
     test_s3_connection, run_backup_now, get_backup_status, stop_backup_now,
-    run_image_backup_now, get_image_backup_status,
+    run_image_backup_now, get_image_backup_status, _get_user_media_files,
     _build_adventures_data, _build_journals_data, _build_custom_places_data,
 )
 
@@ -5154,25 +5156,40 @@ def _write_backup_json(user, f, progress=None):
 
 
 # Share of the progress bar given to the small sections before the locations
-# scan; the scan itself fills the rest.
-_BACKUP_PREP_PCT = 12
+# scan. The data (JSON) phase fills up to _DATA_PHASE_PCT; the media-zipping
+# phase fills the rest, so one bar covers both halves of a single download.
+_BACKUP_PREP_PCT = 8
+_DATA_PHASE_PCT = 55
 _BACKUP_STAGES = ['Counting locations', 'Collecting devices', 'Collecting adventures',
                   'Collecting journals', 'Collecting places',
                   'Writing locations']
 
 
 def _backup_tmp_path(job_id):
-    # Written gzipped so the download can carry a real Content-Length (see
-    # export_backup_download) and the temp file stays small.
-    return os.path.join(tempfile.gettempdir(), f'roamly_backup_{job_id}.json.gz')
+    return os.path.join(tempfile.gettempdir(), f'roamly_backup_{job_id}.zip')
+
+
+def _backup_json_tmp_path(job_id):
+    # Intermediate plain-JSON file, zipped into the final archive and then
+    # discarded — the zip's own deflate handles compression.
+    return os.path.join(tempfile.gettempdir(), f'roamly_backup_{job_id}.json')
 
 
 @login_required
 @require_POST
 def export_backup_start(request):
-    """Start async backup generation, return a job ID to poll."""
+    """Start async backup generation, return a job ID to poll.
+
+    Produces a single .zip containing backup.json (all data) plus every media
+    file under media/ (adventure covers, blurb/day-note photos & videos,
+    journal photos, profile picture) — restore_backup reads both back out of
+    it. This is the manual/on-demand download; the separate S3 auto-backup
+    (BackupConfig) is unrelated and unchanged, still JSON-only with its own
+    optional image backup.
+    """
     job_id = str(uuid.uuid4())
     tmp_path = _backup_tmp_path(job_id)
+    json_tmp_path = _backup_json_tmp_path(job_id)
     key = f'backup_job:{request.user.id}:{job_id}'
     started = time.time()
 
@@ -5193,22 +5210,47 @@ def export_backup_start(request):
                 except ValueError:
                     idx = 0
                 if total:
-                    pct = _BACKUP_PREP_PCT + (100 - _BACKUP_PREP_PCT) * done / total
+                    pct = _BACKUP_PREP_PCT + (_DATA_PHASE_PCT - _BACKUP_PREP_PCT) * done / total
                 else:
                     pct = _BACKUP_PREP_PCT * idx / len(_BACKUP_STAGES)
                 put({'status': 'running', 'stage': stage, 'pct': round(pct, 1),
                      'done': done, 'total': total, 'started': started})
 
-            # Level 5: the JSON compresses ~10x either way, and this is on the
-            # user's clock while they wait for the bar to fill.
-            with gzip.open(tmp_path, 'wb', compresslevel=5) as f:
+            with open(json_tmp_path, 'wb') as f:
                 _write_backup_json(user, f, progress=progress)
-                raw_size = f.tell()
+
+            put({'status': 'running', 'stage': 'Collecting media', 'pct': _DATA_PHASE_PCT,
+                 'started': started})
+            media_files = _get_user_media_files(user)
+            media_total = len(media_files)
+
+            # ZIP_STORED for media: jpg/mp4 are already compressed, so deflating
+            # them again just burns CPU. backup.json (text) still deflates well.
+            with zipfile.ZipFile(tmp_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                zf.write(json_tmp_path, arcname='backup.json')
+                written = 0
+                for relative_path in media_files:
+                    abs_path = os.path.join(settings.MEDIA_ROOT, relative_path)
+                    if os.path.exists(abs_path):
+                        zf.write(abs_path, arcname=f'media/{relative_path}',
+                                 compress_type=zipfile.ZIP_STORED)
+                    written += 1
+                    if written % 20 == 0 or written == media_total:
+                        pct = (_DATA_PHASE_PCT + (100 - _DATA_PHASE_PCT) * written / media_total
+                               if media_total else 100)
+                        put({'status': 'running', 'stage': 'Zipping media', 'pct': round(pct, 1),
+                             'done': written, 'total': media_total, 'started': started})
+
             put({'status': 'ready', 'stage': 'Ready', 'pct': 100, 'started': started,
-                 'size': os.path.getsize(tmp_path), 'raw_size': raw_size})
+                 'size': os.path.getsize(tmp_path), 'file_count': media_total})
         except Exception as e:
             logger.error(f'Backup generation failed: {e}')
             put({'status': 'error', 'message': str(e)})
+        finally:
+            try:
+                os.unlink(json_tmp_path)
+            except OSError:
+                pass
 
     threading.Thread(target=generate, daemon=True).start()
     return JsonResponse({'job_id': job_id})
@@ -5233,7 +5275,7 @@ def export_backup_status(request, job_id):
 
 @login_required
 def export_backup_download(request, job_id):
-    """Download a completed backup file."""
+    """Download a completed backup zip (backup.json + media/)."""
     job = cache.get(f'backup_job:{request.user.id}:{job_id}')
     status = job.get('status') if isinstance(job, dict) else job
     if status != 'ready':
@@ -5241,38 +5283,16 @@ def export_backup_download(request, job_id):
     tmp_path = _backup_tmp_path(job_id)
     if not os.path.exists(tmp_path):
         return HttpResponse('Backup file not found', status=404)
-    filename = f'roamly_backup_{timezone.now().strftime("%Y-%m-%d")}.json'
+    filename = f'roamly_backup_{timezone.now().strftime("%Y-%m-%d")}.zip'
     cache.delete(f'backup_job:{request.user.id}:{job_id}')
 
-    # The file is stored gzipped. Handing the browser the compressed bytes with
-    # Content-Encoding: gzip both sets a real Content-Length (so the download
-    # shows a total and a progress bar rather than a bare rising byte count)
-    # and keeps GZipMiddleware off it — it skips responses that already carry a
-    # Content-Encoding, and for a streaming response it otherwise *deletes*
-    # Content-Length, which is what made the size unknown. The browser
-    # transparently inflates it, so the saved file is still plain JSON.
-    if 'gzip' in request.META.get('HTTP_ACCEPT_ENCODING', ''):
-        # FileResponse sets Content-Length from the file size, which is exactly
-        # the number of bytes on the wire here.
-        response = FileResponse(open(tmp_path, 'rb'), content_type='application/json',
-                                as_attachment=True, filename=filename)
-        response['Content-Encoding'] = 'gzip'
-    else:
-        # Non-browser client (curl without --compressed). Inflate as we stream;
-        # hand-rolled rather than FileResponse because seeking a GzipFile to
-        # find its length would decompress the whole thing up front.
-        raw_size = job.get('raw_size') if isinstance(job, dict) else None
-
-        def _inflate():
-            with gzip.open(tmp_path, 'rb') as gz:
-                for chunk in iter(lambda: gz.read(64 * 1024), b''):
-                    yield chunk
-
-        response = StreamingHttpResponse(_inflate(), content_type='application/json')
-        response['Content-Disposition'] = f'attachment; filename="{filename}"'
-        if raw_size:
-            response['Content-Encoding'] = 'identity'  # keep GZipMiddleware off Content-Length
-            response['Content-Length'] = str(raw_size)
+    # A zip is already a real file on disk, so FileResponse gets a correct
+    # Content-Length for free — none of the old gzip-streaming trickery needed.
+    response = FileResponse(open(tmp_path, 'rb'), content_type='application/zip',
+                             as_attachment=True, filename=filename)
+    # Media inside is already compressed and the JSON is already deflated by
+    # the zip itself; keep GZipMiddleware from wasting effort re-compressing it.
+    response['Content-Encoding'] = 'identity'
 
     def _cleanup():
         time.sleep(60)
@@ -5336,20 +5356,33 @@ def _remap_story_body_ids(body, blurb_id_map, photo_id_map):
 @csrf_exempt
 @require_http_methods(["POST"])
 def restore_backup(request):
-    """Restore user data from a JSON backup file."""
+    """Restore user data from a backup file — either the current .zip format
+    (backup.json + media/, see export_backup_start) or a legacy plain/gzipped
+    .json file from before media was included."""
     f = request.FILES.get('file')
     if not f:
         return JsonResponse({'error': 'No file uploaded'}, status=400)
 
+    zf = None
+    media_entries = []
     try:
-        raw = f.read()
-        # Backups are served gzipped over the wire; a client that saved the
-        # compressed bytes without inflating them should still restore.
-        if raw[:2] == b'\x1f\x8b':
-            raw = gzip.decompress(raw)
+        header = f.read(4)
+        f.seek(0)
+        if header in (b'PK\x03\x04', b'PK\x05\x06'):  # zip (incl. empty-archive magic)
+            zf = zipfile.ZipFile(f)
+            with zf.open('backup.json') as jf:
+                raw = jf.read()
+            media_entries = [n for n in zf.namelist() if n.startswith('media/') and not n.endswith('/')]
+        else:
+            raw = f.read()
+            # Old downloads were served gzipped over the wire; a client that
+            # saved the compressed bytes without inflating them still restores.
+            if raw[:2] == b'\x1f\x8b':
+                raw = gzip.decompress(raw)
         data = json.loads(raw.decode('utf-8-sig'))
-    except (json.JSONDecodeError, UnicodeDecodeError, OSError, EOFError) as e:
-        return JsonResponse({'error': f'Invalid JSON file: {e}'}, status=400)
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError, EOFError,
+            zipfile.BadZipFile, KeyError) as e:
+        return JsonResponse({'error': f'Invalid backup file: {e}'}, status=400)
 
     meta = data.get('meta', {})
     if 'version' not in meta:
@@ -5358,7 +5391,7 @@ def restore_backup(request):
     user = request.user
     counts = {'devices': 0, 'locations': 0, 'trips': 0, 'trip_places': 0,
               'adventures': 0, 'api_keys': 0, 'journals': 0,
-              'custom_places': 0}
+              'custom_places': 0, 'media_files': 0}
     errors = 0
 
     try:
@@ -5743,6 +5776,32 @@ def restore_backup(request):
     except Exception as e:
         logger.error(f"Backup restore failed: {e}")
         return JsonResponse({'error': f'Restore failed: {e}'}, status=500)
+
+    # Media files (only present in the current .zip format). Extracted after
+    # the DB transaction commits, at the same relative paths the just-restored
+    # rows reference (Adventure.cover_image.name etc.), so the ImageField/
+    # FileField values already written above resolve on disk without any
+    # further linking. Guards against zip-slip: an entry whose normalized path
+    # would land outside MEDIA_ROOT is skipped rather than followed.
+    if zf and media_entries:
+        try:
+            for name in media_entries:
+                rel_path = name[len('media/'):]
+                norm = os.path.normpath(rel_path)
+                if norm.startswith('..') or os.path.isabs(norm):
+                    errors += 1
+                    continue
+                dest = os.path.join(settings.MEDIA_ROOT, norm)
+                try:
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    with zf.open(name) as src, open(dest, 'wb') as out:
+                        shutil.copyfileobj(src, out)
+                    counts['media_files'] += 1
+                except OSError as e:
+                    errors += 1
+                    logger.warning(f"Backup restore media file error: {e}")
+        finally:
+            zf.close()
 
     # Refresh the Places snapshot so restored custom places show immediately
     # rather than waiting for the nightly recompute.
