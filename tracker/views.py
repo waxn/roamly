@@ -6,6 +6,7 @@ import secrets
 import logging
 import math
 import os
+import re
 import tempfile
 import threading
 import time
@@ -5102,7 +5103,7 @@ def _write_backup_json(user, f, progress=None):
     loc_total = Location.objects.filter(device__user=user).count()
 
     report('Collecting devices')
-    meta = {'version': 8, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 9, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # Same complete, nested schema as the S3 backup (_build_backup_json) so the
@@ -5281,6 +5282,54 @@ def export_backup_download(request, job_id):
             pass
     threading.Thread(target=_cleanup, daemon=True).start()
     return response
+
+
+_PIN_REF_RE = re.compile(r'\[\^pin:(\d+)\]')
+
+
+def _remap_story_body_ids(body, blurb_id_map, photo_id_map):
+    """Rewrite a restored Story body's blurb/photo id references (inline
+    [^pin:ID] footnotes, location_card.place_id, photo_grid.photo_ids) from
+    the backup's original ids to the newly-created rows.
+
+    Without this, restoring into a fresh database recreates every blurb and
+    photo with new auto-increment ids while the body JSON still carries the
+    old ones verbatim — every pin footnote, location card and photo grid then
+    points at a row that no longer exists. blurb_id_map/photo_id_map only
+    have entries for backups new enough to carry an 'id' per blurb/photo
+    (v9+); ids missing from the map are left untouched, same as before.
+    """
+    if not body:
+        return body
+
+    def sub_pin_refs(text):
+        return _PIN_REF_RE.sub(
+            lambda m: (f'[^pin:{blurb_id_map[int(m.group(1))].id}]'
+                       if int(m.group(1)) in blurb_id_map else m.group(0)),
+            text,
+        )
+
+    for block in body:
+        if not isinstance(block, dict):
+            continue
+        content = block.get('content')
+        if not isinstance(content, dict):
+            continue
+        btype = block.get('type')
+        if btype in ('heading', 'paragraph', 'callout') and isinstance(content.get('text'), str):
+            content['text'] = sub_pin_refs(content['text'])
+        elif btype == 'location_card':
+            old_id = content.get('place_id')
+            if isinstance(old_id, int) and old_id in blurb_id_map:
+                content['place_id'] = blurb_id_map[old_id].id
+        elif btype == 'photo_grid':
+            photo_ids = content.get('photo_ids')
+            if isinstance(photo_ids, list):
+                content['photo_ids'] = [
+                    photo_id_map[pid].id if isinstance(pid, int) and pid in photo_id_map else pid
+                    for pid in photo_ids
+                ]
+    return body
 
 
 @login_required
@@ -5521,6 +5570,11 @@ def restore_backup(request):
                     # Blurbs + milestones only on freshly-created adventures (avoid dupes)
                     if adv_created:
                         blurb_by_key = {}   # (title, lat, lng) → blurb, for day-note place relinking
+                        # Original id → newly-created row, for remapping the Story
+                        # body's [^pin:ID] / location_card / photo_grid references
+                        # below (only populated for v9+ backups that carry ids).
+                        blurb_id_map = {}
+                        photo_id_map = {}
                         for b in a.get('blurbs', []):
                             try:
                                 blurb_author = AuthUser.objects.filter(username=b.get('author_username')).first() or user
@@ -5534,9 +5588,11 @@ def restore_backup(request):
                                     category=_clean_category(b.get('category')),
                                 )
                                 blurb_by_key[(blurb.title, blurb.latitude, blurb.longitude)] = blurb
+                                if isinstance(b.get('id'), int):
+                                    blurb_id_map[b['id']] = blurb
                                 for ph in b.get('photos', []):
                                     if ph.get('image') or ph.get('video'):
-                                        AdventureBlurbPhoto.objects.create(
+                                        photo_obj = AdventureBlurbPhoto.objects.create(
                                             blurb=blurb,
                                             media_type=ph.get('media_type', 'image'),
                                             image=ph.get('image') or '',
@@ -5544,6 +5600,8 @@ def restore_backup(request):
                                             video=ph.get('video') or '',
                                             order=ph.get('order', 0),
                                         )
+                                        if isinstance(ph.get('id'), int):
+                                            photo_id_map[ph['id']] = photo_obj
                                 for c in b.get('comments', []):
                                     comment_author = None
                                     if c.get('author_username'):
@@ -5619,6 +5677,15 @@ def restore_backup(request):
                             except Exception as e:
                                 errors += 1
                                 logger.warning(f"Backup restore day note error: {e}")
+
+                        # Now that every blurb/photo has its new id, rewrite the
+                        # Story body's references to match (see
+                        # _remap_story_body_ids) and persist the corrected copy —
+                        # it was saved verbatim (old ids) in the get_or_create above.
+                        if adv.body and (blurb_id_map or photo_id_map):
+                            # Mutates adv.body's blocks in place.
+                            _remap_story_body_ids(adv.body, blurb_id_map, photo_id_map)
+                            adv.save(update_fields=['body'])
                 except Exception as e:
                     errors += 1
                     logger.warning(f"Backup restore adventure error: {e}")

@@ -47,6 +47,11 @@ def _build_adventures_data(user):
         blurbs = []
         for b in adv.blurbs.all():
             blurbs.append({
+                # Original ids, so a restore can rewrite the Story body's
+                # [^pin:ID] / location_card.place_id / photo_grid.photo_ids
+                # references to point at the newly-created rows instead of
+                # ids that no longer exist.
+                'id': b.id,
                 'author_username': b.author.username,
                 'title': b.title,
                 'text': b.text,
@@ -57,7 +62,7 @@ def _build_adventures_data(user):
                 'category': b.category,
                 'created_at': b.created_at,
                 'photos': [
-                    {'image': p.image.name, 'thumbnail': p.thumbnail.name if p.thumbnail else '', 'order': p.order,
+                    {'id': p.id, 'image': p.image.name, 'thumbnail': p.thumbnail.name if p.thumbnail else '', 'order': p.order,
                      'media_type': p.media_type, 'video': p.video.name if p.video else ''}
                     for p in b.photos.all()
                 ],
@@ -207,7 +212,7 @@ def _build_backup_json(user):
 
     data = {
         'meta': {
-            'version': 8,
+            'version': 9,
             'exported_at': timezone.now().isoformat(),
             'username': user.username,
         },
