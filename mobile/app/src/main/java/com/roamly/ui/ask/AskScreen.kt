@@ -43,10 +43,16 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.hilt.navigation.compose.hiltViewModel
 
+/**
+ * The AI chat half of the Search tab. [showHeader] is off when hosted there —
+ * the tab's Ask/Search toggle is the header — and the host also supplies the
+ * status-bar padding.
+ */
 @Composable
 fun AskScreen(
     viewModel: AskViewModel = hiltViewModel(),
     onOpenMapDate: (String) -> Unit = {},
+    showHeader: Boolean = true,
 ) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
@@ -55,24 +61,23 @@ fun AskScreen(
         if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Text(
-                "Ask",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(start = 10.dp),
-            )
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (showHeader) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Text(
+                    "Ask",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(start = 10.dp),
+                )
+            }
         }
 
         if (state.messages.isEmpty()) {

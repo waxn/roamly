@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -47,21 +46,25 @@ import com.roamly.data.api.SearchDay
 import com.roamly.data.api.SearchPlace
 
 /**
- * Full-screen search overlay. Mirrors the web search page: text search returns
- * the days you visited a matching city/state/place plus named POI matches with
- * coordinates. Tapping a place focuses the map on it.
+ * Search over the user's history. Mirrors the web search page: text search
+ * returns the days you visited a matching city/state/place plus named POI
+ * matches with coordinates. Tapping a place focuses the map on it.
+ *
+ * Lives inside the Search tab (alongside Ask), so it draws no status-bar padding
+ * of its own — the host supplies it. [onClose] is optional: when null the close
+ * button is hidden, which is what the tab wants.
  */
 @Composable
 fun SearchScreen(
-    onClose: () -> Unit,
     onPlaceClick: (lat: Double, lng: Double) -> Unit,
+    onClose: (() -> Unit)? = null,
     onDayClick: ((com.roamly.data.api.SearchDay) -> Unit)? = null,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+        Column(modifier = Modifier.fillMaxSize()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -75,8 +78,10 @@ fun SearchScreen(
                     leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                     placeholder = { Text("City, place, or date") },
                 )
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Rounded.Close, contentDescription = "close")
+                if (onClose != null) {
+                    IconButton(onClick = onClose) {
+                        Icon(Icons.Rounded.Close, contentDescription = "close")
+                    }
                 }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
