@@ -14,12 +14,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -34,31 +37,33 @@ import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.DateRange
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MyLocation
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Remove
-import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DateRangePicker
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDateRangePickerState
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -66,13 +71,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.platform.LocalContext
-import com.roamly.ui.search.SearchScreen
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -80,6 +85,7 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.android.gms.location.LocationServices
 import com.roamly.data.api.LocationPoint
+import kotlinx.coroutines.launch
 import org.osmdroid.config.Configuration
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
@@ -108,8 +114,7 @@ fun MapScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
-    var showTimeMenu by remember { mutableStateOf(false) }
-    var showBasemapMenu by remember { mutableStateOf(false) }
+    var showOptions by remember { mutableStateOf(false) }
 
     val holder = remember(viewModel) {
         viewModel.mapHolder ?: run {
@@ -171,7 +176,6 @@ fun MapScreen(
 
     var nearHereResult by remember { mutableStateOf<NearHereResult?>(null) }
     var showAllDays by remember { mutableStateOf(false) }
-    var showSearch by remember { mutableStateOf(false) }
     var checkingHere by remember { mutableStateOf(false) }
     var nearHereError by remember { mutableStateOf<String?>(null) }
     var tappedPoint by remember { mutableStateOf<LocationPoint?>(null) }
@@ -243,16 +247,23 @@ fun MapScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Top-left time period chip
-        Box(
+        // Top-left: the active time range. Tapping it opens the same map-options
+        // sheet as the tune button — the label is the only thing that has to be
+        // visible without opening anything.
+        Surface(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
                 .padding(start = 12.dp, top = 12.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
+                .clickable { showOptions = true },
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+            shape = RoundedCornerShape(14.dp),
+            tonalElevation = 3.dp,
         ) {
-            TextButton(onClick = { showTimeMenu = true }) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Icon(
                     if (state.timePeriod == TimePeriod.CUSTOM) Icons.Rounded.DateRange else Icons.Rounded.CalendarMonth,
                     contentDescription = null,
@@ -260,80 +271,36 @@ fun MapScreen(
                     tint = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(Modifier.width(6.dp))
-                Text(state.periodLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onBackground)
-                Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            DropdownMenu(
-                expanded = showTimeMenu,
-                onDismissRequest = { showTimeMenu = false },
-                shape = RoundedCornerShape(16.dp),
-                offset = androidx.compose.ui.unit.DpOffset(0.dp, 4.dp),
-            ) {
-                TimePeriod.entries.forEach { period ->
-                    DropdownMenuItem(
-                        text = { Text(if (period == TimePeriod.CUSTOM) "Custom range…" else period.label) },
-                        leadingIcon = if (period == TimePeriod.CUSTOM) {
-                            { Icon(Icons.Rounded.DateRange, null, modifier = Modifier.size(18.dp)) }
-                        } else null,
-                        onClick = {
-                            showTimeMenu = false
-                            viewModel.setTimePeriod(period)
-                        }
-                    )
-                }
+                Text(state.periodLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+                Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
 
-        // Top-right basemap (layers) picker, sitting left of the search button.
-        Box(
+        // Top-right: refresh + map options, in one grouped plate.
+        Surface(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
-                .padding(top = 12.dp, end = 60.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
+                .padding(top = 12.dp, end = 12.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+            shape = RoundedCornerShape(14.dp),
+            tonalElevation = 3.dp,
         ) {
-            IconButton(onClick = { showBasemapMenu = true }) {
-                Icon(Icons.Rounded.Layers, contentDescription = "basemap", tint = MaterialTheme.colorScheme.primary)
-            }
-            val basemaps = buildList {
-                add("Streets"); add("Satellite"); add("Dark")
-                if (state.mapboxToken.isNotBlank()) {
-                    add("Mapbox Streets"); add("Mapbox Outdoors"); add("Mapbox Satellite")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = viewModel::refresh,
+                    enabled = !state.isRefreshing,
+                    modifier = Modifier.size(40.dp),
+                ) {
+                    if (state.isRefreshing) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+                    } else {
+                        Icon(Icons.Rounded.Refresh, contentDescription = "Refresh map", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    }
                 }
-            }
-            DropdownMenu(
-                expanded = showBasemapMenu,
-                onDismissRequest = { showBasemapMenu = false },
-                shape = RoundedCornerShape(16.dp),
-                offset = androidx.compose.ui.unit.DpOffset(0.dp, 4.dp),
-            ) {
-                basemaps.forEach { name ->
-                    DropdownMenuItem(
-                        text = { Text(name) },
-                        trailingIcon = if (name == state.basemap) {
-                            { Icon(Icons.Rounded.Check, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary) }
-                        } else null,
-                        onClick = {
-                            showBasemapMenu = false
-                            viewModel.setBasemap(name)
-                        }
-                    )
+                IconButton(onClick = { showOptions = true }, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Rounded.Tune, contentDescription = "Map options", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                 }
-            }
-        }
-
-        // Top-right search button
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(top = 12.dp, end = 12.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
-        ) {
-            IconButton(onClick = { showSearch = true }) {
-                Icon(Icons.Rounded.Search, contentDescription = "search", tint = MaterialTheme.colorScheme.primary)
             }
         }
 
@@ -363,23 +330,28 @@ fun MapScreen(
             ZoomFab(icon = Icons.Rounded.Remove, desc = "Zoom out") { mapView.controller.zoomOut() }
         }
 
-        // "Have I been here?" chip
-        Box(
+        // "Have I been here?" — a Material 3 rounded-rectangle surface rather than
+        // a pill, matching the rest of the app's plates.
+        Surface(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 16.dp, bottom = if (state.stats != null) 108.dp else 16.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.primaryContainer)
                 .clickable {
                     val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
                     val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
                     if (hasFine || hasCoarse) startNearHere()
                     else locationPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-                }
-                .padding(horizontal = 14.dp, vertical = 9.dp),
+                },
+            color = MaterialTheme.colorScheme.primaryContainer,
+            shape = RoundedCornerShape(16.dp),
+            tonalElevation = 3.dp,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(Icons.Rounded.MyLocation, contentDescription = null, modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(Icons.Rounded.MyLocation, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
                 Text("Have I been here?", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
         }
@@ -450,17 +422,12 @@ fun MapScreen(
         }
     }
 
-    if (showSearch) {
-        SearchScreen(
-            onClose = { showSearch = false },
-            onPlaceClick = { lat, lng ->
-                viewModel.focusOn(lat, lng, zoom = 16.0)
-                showSearch = false
-            },
-            onDayClick = { day ->
-                viewModel.navigateToDate(day.date)
-                showSearch = false
-            },
+    if (showOptions) {
+        MapOptionsSheet(
+            state = state,
+            onDismiss = { showOptions = false },
+            onPeriod = viewModel::setTimePeriod,
+            onBasemap = viewModel::setBasemap,
         )
     }
 
@@ -531,6 +498,97 @@ fun MapScreen(
                 }
             },
         )
+    }
+}
+
+/**
+ * Map options — time range and basemap in one place, replacing the separate
+ * top-bar dropdowns. Any selection closes the sheet, since the map it changes
+ * is behind the scrim.
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun MapOptionsSheet(
+    state: MapUiState,
+    onDismiss: () -> Unit,
+    onPeriod: (TimePeriod) -> Unit,
+    onBasemap: (String) -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState()
+    val scope = rememberCoroutineScope()
+    // Animate the sheet out, then act — dropping it from composition outright
+    // would make it disappear without the exit transition.
+    val closeThen: (() -> Unit) -> Unit = { action ->
+        scope.launch { sheetState.hide() }.invokeOnCompletion {
+            onDismiss()
+            action()
+        }
+    }
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .navigationBarsPadding()
+                .padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            OptionsSectionLabel("Time range")
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                TimePeriod.entries.forEach { period ->
+                    val isCustom = period == TimePeriod.CUSTOM
+                    val label = when {
+                        !isCustom -> period.label
+                        state.timePeriod == TimePeriod.CUSTOM && state.customDateRange != null -> state.customDateRange.label
+                        else -> "Custom…"
+                    }
+                    FilterChip(
+                        selected = state.timePeriod == period,
+                        onClick = { closeThen { onPeriod(period) } },
+                        label = { Text(label) },
+                        leadingIcon = if (isCustom) {
+                            { Icon(Icons.Rounded.DateRange, null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
+                        } else null,
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(4.dp))
+            OptionsSectionLabel("Basemap")
+            val basemaps = buildList {
+                add("Streets"); add("Satellite"); add("Dark")
+                if (state.mapboxToken.isNotBlank()) {
+                    add("Mapbox Streets"); add("Mapbox Outdoors"); add("Mapbox Satellite")
+                }
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                basemaps.forEach { name ->
+                    FilterChip(
+                        selected = name == state.basemap,
+                        onClick = { closeThen { onBasemap(name) } },
+                        label = { Text(name) },
+                        leadingIcon = if (name == state.basemap) {
+                            { Icon(Icons.Rounded.Check, null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
+                        } else null,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OptionsSectionLabel(text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            if (text == "Basemap") Icons.Rounded.Layers else Icons.Rounded.CalendarMonth,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(text, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
     }
 }
 

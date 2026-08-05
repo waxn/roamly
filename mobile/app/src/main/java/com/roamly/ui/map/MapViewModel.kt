@@ -24,7 +24,7 @@ import java.time.ZoneId
 import javax.inject.Inject
 
 enum class TimePeriod(val label: String) {
-    H24("24h"), D7("7d"), D30("30d"), D90("90d"), ALL("All"), CUSTOM("Custom")
+    H6("6h"), H24("24h"), D7("7d"), D30("30d"), D90("90d"), ALL("All"), CUSTOM("Custom")
 }
 
 data class DateRange(val start: LocalDate, val end: LocalDate) {
@@ -52,6 +52,8 @@ data class MapUiState(
     val stats: StatsResponse? = null,
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
+    /** A user-triggered refresh (map options → refresh) is in flight. */
+    val isRefreshing: Boolean = false,
     val error: String? = null,
     val timePeriod: TimePeriod = TimePeriod.H24,
     val customDateRange: DateRange? = null,
@@ -181,6 +183,24 @@ class MapViewModel @Inject constructor(
         loadData(showSpinnerIfEmpty = true)
     }
 
+    /**
+     * User-triggered refresh: pull whatever the server has that we don't (a
+     * forced sync, not the throttled one), then repaint the current period and
+     * its stats. Any detail dots accumulated from panning are dropped so the
+     * refreshed data is what's on screen.
+     */
+    fun refresh() {
+        if (_uiState.value.isRefreshing) return
+        _uiState.update { it.copy(isRefreshing = true, error = null) }
+        viewModelScope.launch {
+            store.sync()
+            accumulator.clear()
+            loadDataNow(showSpinnerIfEmpty = false)
+            loadStats()
+            _uiState.update { it.copy(isRefreshing = false) }
+        }
+    }
+
     fun dismissDateRangePicker() {
         _uiState.update { it.copy(showDateRangePicker = false) }
     }
@@ -287,26 +307,30 @@ class MapViewModel @Inject constructor(
      * the server so points appear right away while the full sync runs.
      */
     fun loadData(showSpinnerIfEmpty: Boolean) {
+        viewModelScope.launch { loadDataNow(showSpinnerIfEmpty) }
+    }
+
+    /** The body of [loadData], awaitable so [refresh] can hold its spinner until
+     *  the repaint has actually landed. */
+    private suspend fun loadDataNow(showSpinnerIfEmpty: Boolean) {
         val state = _uiState.value
-        viewModelScope.launch {
-            val local = loadPeriodFromStore(state)
-            if (local.isNotEmpty()) {
-                setLocations(local)
-                return@launch
-            }
-            if (showSpinnerIfEmpty && accumulator.isEmpty()) {
-                _uiState.update { it.copy(isLoading = true, error = null) }
-            }
-            // Custom date range: no server fallback (store should have the data)
-            if (state.timePeriod == TimePeriod.CUSTOM) {
-                _uiState.update { it.copy(isLoading = false) }
-                return@launch
-            }
-            when (val r = locationRepository.getLocations(hours = state.timePeriod.hours, limit = PERIOD_LOAD_LIMIT)) {
-                is Result.Success -> setLocations(flatten(r.data))
-                is Result.Error -> _uiState.update {
-                    it.copy(isLoading = false, error = if (accumulator.isEmpty()) r.message else null)
-                }
+        val local = loadPeriodFromStore(state)
+        if (local.isNotEmpty()) {
+            setLocations(local)
+            return
+        }
+        if (showSpinnerIfEmpty && accumulator.isEmpty()) {
+            _uiState.update { it.copy(isLoading = true, error = null) }
+        }
+        // Custom date range: no server fallback (store should have the data)
+        if (state.timePeriod == TimePeriod.CUSTOM) {
+            _uiState.update { it.copy(isLoading = false) }
+            return
+        }
+        when (val r = locationRepository.getLocations(hours = state.timePeriod.hours, limit = PERIOD_LOAD_LIMIT)) {
+            is Result.Success -> setLocations(flatten(r.data))
+            is Result.Error -> _uiState.update {
+                it.copy(isLoading = false, error = if (accumulator.isEmpty()) r.message else null)
             }
         }
     }
@@ -346,6 +370,7 @@ class MapViewModel @Inject constructor(
 
 internal val TimePeriod.hours: Int?
     get() = when (this) {
+        TimePeriod.H6 -> 6
         TimePeriod.H24 -> 24
         TimePeriod.D7 -> 24 * 7
         TimePeriod.D30 -> 24 * 30
