@@ -26,6 +26,7 @@
         <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('users',this)">Users</button>
         <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('custom-js',this)">Custom JS</button>
         <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('contact',this)">Contact</button>
+        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('captcha',this)">CAPTCHA</button>
     </div>
 
     <!-- ── Monitoring tab ── -->
@@ -293,6 +294,37 @@
             </div>
         </div>
     </div>
+
+    <!-- ── CAPTCHA tab ── -->
+    <div id="tab-captcha" style="display:none;">
+        <div class="card" style="transition:none;">
+            <div class="card-header">Cloudflare Turnstile CAPTCHA</div>
+            <p class="settings-section-desc">
+                Optional bot-protection widget on the <strong>login</strong> and <strong>signup</strong> pages, on top of the existing per-IP rate limiting. Get a site key + secret key from the <a href="https://dash.cloudflare.com/?to=/:account/turnstile" target="_blank" rel="noopener">Cloudflare Turnstile dashboard</a> (free). The mobile app never renders the widget, so it stays exempt regardless of this setting.
+            </p>
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;cursor:pointer;margin-bottom:0.85rem;">
+                <input type="checkbox" id="turnstile-enabled" {% if site_turnstile_enabled %}checked{% endif %}>
+                Require CAPTCHA on login &amp; signup
+            </label>
+            <div class="form-group">
+                <label for="turnstile-site-key">Site key</label>
+                <input type="text" id="turnstile-site-key" class="form-control" maxlength="255"
+                    placeholder="0x4AAAAAAA..." value="{{ site_turnstile_site_key }}"
+                    style="max-width:420px;font-family:var(--font-mono);font-size:0.8125rem;">
+            </div>
+            <div class="form-group">
+                <label for="turnstile-secret-key">Secret key</label>
+                <input type="password" id="turnstile-secret-key" class="form-control" maxlength="255"
+                    placeholder="{% if site_turnstile_secret_set %}••••••••{% else %}unset{% endif %}"
+                    value="{% if site_turnstile_secret_set %}••••••••{% endif %}"
+                    style="max-width:420px;font-family:var(--font-mono);font-size:0.8125rem;">
+            </div>
+            <div class="settings-actions" style="margin-top:0.75rem;">
+                <button class="btn btn-primary btn-sm" onclick="saveTurnstileConfig()">Save</button>
+                <span id="turnstile-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -350,7 +382,7 @@
 {% block extra_js %}
 <script>
 // ── Tab switching ──────────────────────────────────────────────────────────
-const TABS = ['monitoring','access-log','events','retention','users','custom-js','contact'];
+const TABS = ['monitoring','access-log','events','retention','users','custom-js','contact','captcha'];
 const _loaded = {};
 function showTab(name, btn) {
     TABS.forEach(t => {
@@ -854,6 +886,24 @@ async function saveContactEmail() {
     const r = await fetch('/api/site/contact-email/', {
         method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
         body: JSON.stringify({contact_email: val}),
+    });
+    let d = {}; try { d = await r.json(); } catch(e) {}
+    st.textContent = r.ok ? 'Saved.' : (d.error || 'Error saving.');
+    st.style.color = r.ok ? 'var(--success)' : 'var(--danger)';
+    setTimeout(()=>{ st.textContent=''; }, 3000);
+}
+
+// ── Turnstile CAPTCHA ───────────────────────────────────────────────────────
+async function saveTurnstileConfig() {
+    const st = document.getElementById('turnstile-status');
+    st.textContent = 'Saving…'; st.style.color = 'var(--text-muted)';
+    const r = await fetch('/api/site/turnstile/', {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
+        body: JSON.stringify({
+            turnstile_enabled: document.getElementById('turnstile-enabled').checked,
+            turnstile_site_key: document.getElementById('turnstile-site-key').value.trim(),
+            turnstile_secret_key: document.getElementById('turnstile-secret-key').value.trim(),
+        }),
     });
     let d = {}; try { d = await r.json(); } catch(e) {}
     st.textContent = r.ok ? 'Saved.' : (d.error || 'Error saving.');

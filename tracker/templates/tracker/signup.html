@@ -263,6 +263,7 @@
         .admin-toggle[open] summary::before { content: '−'; }
         .admin-toggle[open] { padding-bottom: 0.95rem; }
     </style>
+    {% if TURNSTILE_ENABLED %}<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>{% endif %}
 </head>
 <body>
 
@@ -280,6 +281,9 @@
 
         {% if rate_limited %}
         <div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#fca5a5;padding:.75rem 1rem;font-size:.85rem;font-weight:600;margin-bottom:1.25rem;line-height:1.5;">Too many sign-up attempts. Please wait a few minutes and try again.</div>
+        {% endif %}
+        {% if form.non_field_errors %}
+        <div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#fca5a5;padding:.75rem 1rem;font-size:.85rem;font-weight:600;margin-bottom:1.25rem;line-height:1.5;">{{ form.non_field_errors.0 }}</div>
         {% endif %}
 
         <form method="post">
@@ -323,6 +327,9 @@
             </details>
             {% endif %}
 
+            {% if TURNSTILE_ENABLED %}
+            <div class="cf-turnstile" data-sitekey="{{ TURNSTILE_SITE_KEY }}" data-theme="dark" data-size="flexible" style="margin-bottom:1rem;"></div>
+            {% endif %}
             <button type="submit" class="btn-submit">create account →</button>
         </form>
 

@@ -3,6 +3,8 @@ from django.core.cache import cache
 
 CUSTOM_JS_CACHE_KEY = 'site_custom_js'
 CONTACT_EMAIL_CACHE_KEY = 'site_contact_email'
+TURNSTILE_ENABLED_CACHE_KEY = 'site_turnstile_enabled'
+TURNSTILE_SITE_KEY_CACHE_KEY = 'site_turnstile_site_key'
 
 
 def get_custom_js():
@@ -34,6 +36,35 @@ def get_contact_email():
             email = ''
         cache.set(CONTACT_EMAIL_CACHE_KEY, email, 3600)
     return email
+
+
+def get_turnstile_enabled():
+    """Whether the admin has switched on the Turnstile CAPTCHA, cached like the
+    other admin-editable SiteConfig flags."""
+    enabled = cache.get(TURNSTILE_ENABLED_CACHE_KEY)
+    if enabled is None:
+        from .models import SiteConfig
+        try:
+            enabled = SiteConfig.load().turnstile_enabled
+        except Exception:
+            enabled = False
+        cache.set(TURNSTILE_ENABLED_CACHE_KEY, enabled, 3600)
+    return bool(enabled)
+
+
+def get_turnstile_site_key():
+    """Turnstile public site key — safe to expose to templates. The secret key
+    is never cached or exposed here; it's only read server-side at verification
+    time via SiteConfig.load()."""
+    key = cache.get(TURNSTILE_SITE_KEY_CACHE_KEY)
+    if key is None:
+        from .models import SiteConfig
+        try:
+            key = SiteConfig.load().turnstile_site_key or ''
+        except Exception:
+            key = ''
+        cache.set(TURNSTILE_SITE_KEY_CACHE_KEY, key, 3600)
+    return key
 
 
 def custom_js_snippet(request):
@@ -70,4 +101,6 @@ def custom_js_snippet(request):
         # when SMTP is configured; otherwise the link falls back to a mailto:.
         'CONTACT_EMAIL': get_contact_email(),
         'EMAIL_ENABLED': bool(getattr(settings, 'EMAIL_ENABLED', False)),
+        'TURNSTILE_ENABLED': get_turnstile_enabled(),
+        'TURNSTILE_SITE_KEY': get_turnstile_site_key(),
     }

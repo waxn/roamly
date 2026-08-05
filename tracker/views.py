@@ -15,6 +15,8 @@ import uuid
 import zipfile
 import urllib.parse
 import urllib.request
+
+import requests
 from collections import defaultdict, Counter
 from datetime import datetime, date, time as dt_time, timedelta, timezone as dt_timezone
 from itertools import groupby
@@ -431,6 +433,44 @@ def _rate_limited(request, scope, limit, window_s):
     return count > limit
 
 
+_TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
+_TURNSTILE_TIMEOUT = 10
+
+
+def _verify_turnstile(request):
+    """Check the Cloudflare Turnstile CAPTCHA on a login/signup POST, when the
+    admin has one configured. Returns True when the request may proceed.
+
+    Mobile app clients never render the widget, so they're exempt regardless
+    of the enabled flag — otherwise turning Turnstile on would lock the app
+    out entirely. Fails **closed** (unlike _rate_limited's fail-open cache
+    handling): unlike a rate-limit counter, a captcha whose verifier can't be
+    reached isn't proof of anything, and the admin's escape hatch is the
+    enabled toggle itself, not a silent bypass."""
+    if _is_app_client(request):
+        return True
+    from .context_processors import get_turnstile_enabled
+    if not get_turnstile_enabled():
+        return True
+    token = request.POST.get('cf-turnstile-response', '')
+    if not token:
+        return False
+    config = SiteConfig.load()
+    try:
+        resp = requests.post(
+            _TURNSTILE_VERIFY_URL,
+            data={
+                'secret': config.turnstile_secret_key,
+                'response': token,
+                'remoteip': _client_ip(request),
+            },
+            timeout=_TURNSTILE_TIMEOUT,
+        )
+        return bool(resp.json().get('success'))
+    except (requests.exceptions.RequestException, ValueError):
+        return False  # Cloudflare unreachable/bad response — not proof of humanity
+
+
 def login_view(request):
     is_app = _is_app_client(request)
     if request.user.is_authenticated and not is_app:
@@ -442,6 +482,11 @@ def login_view(request):
                 return JsonResponse({'status': 'error', 'message': msg}, status=429)
             messages.error(request, msg)
             return render(request, 'tracker/login.html', {'email_enabled': email_enabled()}, status=429)
+        if not _verify_turnstile(request):
+            # Mobile app clients are exempt inside _verify_turnstile itself, so
+            # reaching here always means a web submission with no/bad token.
+            messages.error(request, 'Please complete the CAPTCHA challenge.')
+            return render(request, 'tracker/login.html', {'email_enabled': email_enabled()})
         username = request.POST.get('username')
         password = request.POST.get('password')
         user = authenticate(request, username=username, password=password)
@@ -578,6 +623,10 @@ def signup_view(request):
         form = SignUpForm(request.POST)
         if email_required and not request.POST.get('email', '').strip():
             form.add_error('email', 'An email address is required.')
+        if not _verify_turnstile(request):
+            # Mobile app clients are exempt inside _verify_turnstile itself, so
+            # reaching here always means a web submission with no/bad token.
+            form.add_error(None, 'Please complete the CAPTCHA challenge.')
         if form.is_valid():
             user = form.save()
             # A valid admin key (validated in the form) makes this an admin account.
@@ -953,6 +1002,40 @@ def site_contact_email_api(request):
     config.save(update_fields=['contact_email', 'updated_at'])
     cache.delete(CONTACT_EMAIL_CACHE_KEY)
     return JsonResponse({'ok': True, 'contact_email': contact_email})
+
+
+@login_required
+@require_POST
+def site_turnstile_api(request):
+    """Save the instance's Cloudflare Turnstile CAPTCHA config (login/signup).
+    Admins only. The secret key is masked on GET/render and only overwritten
+    here when the submitted value is non-empty and not the mask — same
+    pattern as UserProfile.ai_api_key (see _AI_KEY_MASK)."""
+    from .context_processors import TURNSTILE_ENABLED_CACHE_KEY, TURNSTILE_SITE_KEY_CACHE_KEY
+
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if not profile.is_admin:
+        return JsonResponse({'error': 'Admin access required.'}, status=403)
+
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+
+    config = SiteConfig.load()
+    config.turnstile_enabled = bool(data.get('turnstile_enabled'))
+    config.turnstile_site_key = (data.get('turnstile_site_key') or '').strip()[:255]
+
+    new_secret = (data.get('turnstile_secret_key') or '').strip()
+    if new_secret and new_secret != _AI_KEY_MASK:
+        config.turnstile_secret_key = new_secret[:255]
+
+    config.save(update_fields=[
+        'turnstile_enabled', 'turnstile_site_key', 'turnstile_secret_key', 'updated_at',
+    ])
+    cache.delete(TURNSTILE_ENABLED_CACHE_KEY)
+    cache.delete(TURNSTILE_SITE_KEY_CACHE_KEY)
+    return JsonResponse({'ok': True})
 
 
 @csrf_exempt
@@ -8397,6 +8480,9 @@ def admin_panel_view(request):
     return render(request, 'tracker/admin_panel.html', {
         'site_custom_js': site_config.custom_js,
         'site_contact_email': site_config.contact_email,
+        'site_turnstile_enabled': site_config.turnstile_enabled,
+        'site_turnstile_site_key': site_config.turnstile_site_key,
+        'site_turnstile_secret_set': bool(site_config.turnstile_secret_key),
     })
 
 

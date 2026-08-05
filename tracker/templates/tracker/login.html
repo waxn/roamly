@@ -230,6 +230,7 @@
             color: var(--text-dim);
         }
     </style>
+    {% if TURNSTILE_ENABLED %}<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>{% endif %}
 </head>
 <body>
 
@@ -262,6 +263,9 @@
                 <label for="password">password</label>
                 <input type="password" name="password" id="password" class="form-control" placeholder="••••••••" required>
             </div>
+            {% if TURNSTILE_ENABLED %}
+            <div class="cf-turnstile" data-sitekey="{{ TURNSTILE_SITE_KEY }}" data-theme="dark" data-size="flexible" style="margin-bottom:1rem;"></div>
+            {% endif %}
             <button type="submit" class="btn-submit">sign in →</button>
         </form>
 

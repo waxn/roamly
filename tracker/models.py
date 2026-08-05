@@ -1028,6 +1028,12 @@ class SiteConfig(models.Model):
     # actions) is kept long-term. 0 = keep forever. DailyLogRollup is never pruned.
     access_log_retention_days = models.PositiveIntegerField(default=30)
     event_log_retention_days = models.PositiveIntegerField(default=0)
+    # Optional Cloudflare Turnstile CAPTCHA on login/signup. Site key is safe to
+    # expose to templates; the secret key is server-only (used to call
+    # Cloudflare's siteverify endpoint) and must never reach a template context.
+    turnstile_enabled = models.BooleanField(default=False)
+    turnstile_site_key = models.CharField(max_length=255, blank=True, default='')
+    turnstile_secret_key = models.CharField(max_length=255, blank=True, default='')
     updated_at = models.DateTimeField(auto_now=True)
 
     @classmethod
