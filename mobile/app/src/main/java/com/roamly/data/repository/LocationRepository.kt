@@ -24,6 +24,18 @@ class LocationRepository @Inject constructor(private val api: RoamlyApi) {
         null
     }
 
+    /** device_id → display name, for labelling a point with the phone that
+     *  recorded it. Returns an empty map on any failure — the caller falls back
+     *  to showing the raw device id. */
+    suspend fun getDeviceNames(): Map<String, String> = try {
+        val resp = api.getDevices()
+        if (resp.isSuccessful) {
+            resp.body()?.devices.orEmpty().associate { it.deviceId to (it.name?.takeIf { n -> n.isNotBlank() } ?: it.deviceId) }
+        } else emptyMap()
+    } catch (e: Exception) {
+        emptyMap()
+    }
+
     suspend fun getLocations(hours: Int? = null, startDate: String? = null, endDate: String? = null, limit: Int? = null): Result<LocationsResponse> =
         safeApiCall {
             if (hours != null)

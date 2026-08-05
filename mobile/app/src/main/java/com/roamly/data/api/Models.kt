@@ -17,6 +17,10 @@ data class LocationPoint(
     val state: String? = null,
     val country: String? = null,
     @SerializedName("country_code") val countryCode: String? = null,
+    /** Which device recorded this point. The API nests locations under their
+     *  device rather than repeating it per point, so this is filled in by the
+     *  caller (LocationStore / MapViewModel), never by Gson. */
+    val deviceId: String? = null,
 )
 
 data class DeviceLocations(
@@ -24,6 +28,14 @@ data class DeviceLocations(
     val name: String,
     val locations: List<LocationPoint>,
 )
+
+data class DeviceInfo(
+    val id: Int = 0,
+    @SerializedName("device_id") val deviceId: String,
+    val name: String? = null,
+)
+
+data class DevicesResponse(val devices: List<DeviceInfo> = emptyList())
 
 data class LocationsResponse(
     val devices: List<DeviceLocations>,

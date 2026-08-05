@@ -61,6 +61,8 @@ data class MapUiState(
     val mapboxToken: String = "",
     // Selected basemap label (e.g. "Streets", "Satellite", "Mapbox Streets").
     val basemap: String = "Streets",
+    // device_id → display name, so a tapped point can name the phone that recorded it.
+    val deviceNames: Map<String, String> = emptyMap(),
 ) {
     val periodLabel: String get() = if (timePeriod == TimePeriod.CUSTOM && customDateRange != null)
         customDateRange.label else timePeriod.label
@@ -133,6 +135,13 @@ class MapViewModel @Inject constructor(
             userPreferences.mapBasemap.collect { name ->
                 _uiState.update { it.copy(basemap = name) }
             }
+        }
+
+        // Device names, so the point-detail dialog can say which phone logged it.
+        viewModelScope.launch {
+            userPreferences.serverUrl.first { !it.isNullOrBlank() }
+            val names = locationRepository.getDeviceNames()
+            if (names.isNotEmpty()) _uiState.update { it.copy(deviceNames = names) }
         }
 
         // Re-paint automatically whenever a background sync completes (e.g. from
@@ -320,8 +329,10 @@ class MapViewModel @Inject constructor(
         _uiState.update { it.copy(locations = accumulator.values.toList(), isLoading = false, error = null) }
     }
 
+    // The API groups points under their device; carry that down onto each point
+    // so the map can name the device without a second lookup per point.
     private fun flatten(resp: LocationsResponse): List<LocationPoint> =
-        resp.devices.flatMap { it.locations }
+        resp.devices.flatMap { dev -> dev.locations.map { it.copy(deviceId = dev.deviceId) } }
 
     /** Stats come from the server endpoint (cheap, cached server-side). */
     private suspend fun loadStats() {

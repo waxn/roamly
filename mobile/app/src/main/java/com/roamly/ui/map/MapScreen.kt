@@ -517,6 +517,7 @@ fun MapScreen(
     tappedPoint?.let { pt ->
         PointDetailDialog(
             pt = pt,
+            deviceName = pt.deviceId?.let { state.deviceNames[it] ?: it },
             onDismiss = { tappedPoint = null },
             onDelete = {
                 val id = pt.id
@@ -534,7 +535,7 @@ fun MapScreen(
 }
 
 @Composable
-private fun PointDetailDialog(pt: LocationPoint, onDismiss: () -> Unit, onDelete: () -> Unit) {
+private fun PointDetailDialog(pt: LocationPoint, deviceName: String?, onDismiss: () -> Unit, onDelete: () -> Unit) {
     val fmt = remember { java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d, yyyy · HH:mm:ss") }
     val timeStr = remember(pt.timestamp) {
         runCatching {
@@ -551,6 +552,7 @@ private fun PointDetailDialog(pt: LocationPoint, onDismiss: () -> Unit, onDelete
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(timeStr, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 HorizontalDivider()
+                deviceName?.takeIf { it.isNotBlank() }?.let { InfoLine("Device", it) }
                 val location = listOfNotNull(pt.city, pt.state, pt.country).joinToString(", ")
                 if (location.isNotBlank()) InfoLine("Location", location)
                 InfoLine("Coordinates", "${"%.5f".format(pt.lat)}, ${"%.5f".format(pt.lng)}")

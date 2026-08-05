@@ -327,5 +327,5 @@ interface RoamlyApi {
     // --- Devices ---
 
     @GET("api/devices/")
-    suspend fun getDevices(): Response<ResponseBody>
+    suspend fun getDevices(): Response<DevicesResponse>
 }
