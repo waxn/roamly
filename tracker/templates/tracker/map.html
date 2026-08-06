@@ -1611,18 +1611,18 @@ ctxDeletePointBtn.addEventListener('click', async () => {
     if (ctxPointId == null) return;
     const id = ctxPointId;
     closeCtxMenu();
-    if (!confirm('Delete this GPS point? This cannot be undone.')) return;
+    if (!await roamlyConfirm('Delete this GPS point? This cannot be undone.', {danger:true})) return;
     try {
         const res = await fetch(`/api/locations/${id}/delete/`, { method: 'DELETE', headers: { 'X-CSRFToken': csrfToken } });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
-            alert(err.error || 'Failed to delete point.');
+            await roamlyAlert(err.error || 'Failed to delete point.');
             return;
         }
         removeAccPointById(id);
         loadTrack(false);
     } catch (_) {
-        alert('Failed to delete point.');
+        await roamlyAlert('Failed to delete point.');
     }
 });
 
@@ -1703,7 +1703,7 @@ addplaceSaveBtn.addEventListener('click', async () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, lat: ll.lat, lng: ll.lng, radius_m: addplaceRadius })
         });
-        if (!res.ok) { const err = await res.json().catch(() => ({})); alert(err.error || 'save failed'); return; }
+        if (!res.ok) { const err = await res.json().catch(() => ({})); await roamlyAlert(err.error || 'save failed'); return; }
         closeAddPlace();
         // Refresh the places layer if it's currently shown
         myPlaces = null;

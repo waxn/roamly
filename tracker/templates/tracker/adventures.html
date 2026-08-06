@@ -993,14 +993,14 @@ function localDateToUTC(dateStr, endOfDay) {
     return (endOfDay ? new Date(y,m-1,d,23,59,59) : new Date(y,m-1,d,0,0,0)).toISOString();
 }
 
-function createAdventure() {
+async function createAdventure() {
     const startVal = document.getElementById('trip-start').value;
-    if (!startVal) { alert('Please choose a start date.'); return; }
+    if (!startVal) { await roamlyAlert('Please choose a start date.'); return; }
     const endVal = document.getElementById('trip-end').value;
     fetch('/api/trips/create/', {
         method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},
         body:JSON.stringify({ name:document.getElementById('trip-name').value||'Untitled Adventure', device_id:document.getElementById('trip-device').value, start_time:localDateToUTC(startVal,false), end_time:endVal?localDateToUTC(endVal,true):'', description:document.getElementById('trip-description').value })
-    }).then(r=>r.json()).then(data => { if(data.status==='ok'){closeCreateModal();loadAdventures();}else alert(data.error||'Error creating trip'); });
+    }).then(r=>r.json()).then(data => { if(data.status==='ok'){closeCreateModal();loadAdventures();}else roamlyAlert(data.error||'Error creating trip'); });
 }
 
 // ─── Full-screen Trip View ────────────────────────────────────
@@ -1187,17 +1187,17 @@ function settingsTogglePublic(){
     });
 }
 
-function saveAllSettings(){
+async function saveAllSettings(){
     const name=document.getElementById('settings-name').value.trim();
     const startVal=document.getElementById('settings-start').value;
-    if(!name||!startVal){alert('Name and start date are required.');return;}
+    if(!name||!startVal){await roamlyAlert('Name and start date are required.');return;}
     const endVal=document.getElementById('settings-end').value;
     const body={name,device_id:document.getElementById('settings-device').value,start_time:localDateToUTC(startVal,false),end_time:endVal?localDateToUTC(endVal,true):'',description:document.getElementById('settings-notes').value};
     const slug=document.getElementById('settings-slug-input').value.trim();
     if(slug)body.public_slug=slug;
     body.access_pin=document.getElementById('settings-pin-input').value.trim();
     fetch(`/api/trips/${currentTripId}/update/`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},body:JSON.stringify(body)})
-    .then(r=>r.json()).then(data=>{if(data.error){alert(data.error);return;}closeSettings();loadTripDetail(currentTripId);});
+    .then(r=>r.json()).then(data=>{if(data.error){roamlyAlert(data.error);return;}closeSettings();loadTripDetail(currentTripId);});
 }
 
 function copyShareLinkSettings(){
@@ -1244,11 +1244,11 @@ function cancelPlaceForm(){
 function savePlace(lat,lng){
     const name=document.getElementById('pf-name').value.trim()||'Pin';
     fetch(`/api/trips/${currentTripId}/places/create/`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},body:JSON.stringify({name,latitude:lat,longitude:lng,radius:100,notes:''})})
-    .then(r=>r.json()).then(data=>{if(data.status==='ok'){cancelPlaceForm();loadTripDetail(currentTripId);}else alert(data.error||'Error creating place');});
+    .then(r=>r.json()).then(data=>{if(data.status==='ok'){cancelPlaceForm();loadTripDetail(currentTripId);}else roamlyAlert(data.error||'Error creating place');});
 }
 
-function deletePlace(placeId){
-    if(!confirm('Delete this place?'))return;
+async function deletePlace(placeId){
+    if(!await roamlyConfirm('Delete this place?', {danger:true}))return;
     fetch(`/api/trips/${currentTripId}/places/${placeId}/delete/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>loadTripDetail(currentTripId));
 }
 
@@ -1302,12 +1302,12 @@ function renderPostCard(ev){
     </div>`;
 }
 
-function deleteBlurb(blurbId){
-    if(!confirm('Delete this post?'))return;
+async function deleteBlurb(blurbId){
+    if(!await roamlyConfirm('Delete this post?', {danger:true}))return;
     closePost();
     fetch(`/api/trips/${currentTripId}/blurbs/${blurbId}/delete/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>{timelinePage=1;loadTimeline(currentTripId,1);});
 }
-function deleteMilestone(msId){if(!confirm('Delete this milestone?'))return;fetch(`/api/trips/${currentTripId}/milestones/${msId}/delete/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>{timelinePage=1;loadTimeline(currentTripId,1);});}
+async function deleteMilestone(msId){if(!await roamlyConfirm('Delete this milestone?', {danger:true}))return;fetch(`/api/trips/${currentTripId}/milestones/${msId}/delete/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>{timelinePage=1;loadTimeline(currentTripId,1);});}
 
 // ─── Post view modal ──────────────────────────────────────────
 
@@ -1364,8 +1364,8 @@ function submitPostComment(blurbId){
     });
 }
 
-function deletePostComment(commentId){
-    if(!confirm('Delete comment?'))return;
+async function deletePostComment(commentId){
+    if(!await roamlyConfirm('Delete comment?', {danger:true}))return;
     fetch(`/api/trips/${currentTripId}/comments/${commentId}/delete/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>{if(currentPostId)loadPostComments(currentPostId);});
 }
 
@@ -1432,8 +1432,8 @@ function insertHeading(){
 
 function toggleMilestoneForm(){const f=document.getElementById('milestone-form');f.style.display=f.style.display==='none'?'block':'none';if(f.style.display==='block'){const now=new Date();document.getElementById('ms-date').value=new Date(now-now.getTimezoneOffset()*60000).toISOString().slice(0,16);}}
 
-function saveMilestone(){
-    const title=document.getElementById('ms-title').value.trim();if(!title){alert('Title required');return;}
+async function saveMilestone(){
+    const title=document.getElementById('ms-title').value.trim();if(!title){await roamlyAlert('Title required');return;}
     fetch(`/api/trips/${currentTripId}/milestones/create/`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},body:JSON.stringify({title,emoji:document.getElementById('ms-emoji').value||'🏁',description:document.getElementById('ms-desc').value,date:document.getElementById('ms-date').value})})
     .then(r=>r.json()).then(data=>{if(data.status==='ok'){toggleMilestoneForm();document.getElementById('ms-title').value='';document.getElementById('ms-desc').value='';timelinePage=1;loadTimeline(currentTripId,1);}});
 }
@@ -1529,7 +1529,7 @@ function submitBlurb(){
             closePost();
             clearComposeLocation();
             timelinePage=1;loadTimeline(currentTripId,1);
-        }else alert(data.error||'Error posting');
+        }else roamlyAlert(data.error||'Error posting');
     });
 }
 
@@ -1547,7 +1547,7 @@ function renderMembers(members){
 }
 
 function addMember(){const input=document.getElementById('add-member-input'),username=input.value.trim();if(!username)return;const e=document.getElementById('add-member-error');e.textContent='';fetch(`/api/trips/${currentTripId}/members/add/`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},body:JSON.stringify({username})}).then(r=>r.json()).then(data=>{if(data.status==='ok'){input.value='';loadTripDetail(currentTripId);}else e.textContent=data.error||'Error';});}
-function removeMember(userId){if(!confirm('Remove this member?'))return;fetch(`/api/trips/${currentTripId}/members/${userId}/remove/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>loadTripDetail(currentTripId));}
+async function removeMember(userId){if(!await roamlyConfirm('Remove this member?', {danger:true}))return;fetch(`/api/trips/${currentTripId}/members/${userId}/remove/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>loadTripDetail(currentTripId));}
 
 async function uploadAdventurePhotos(input){const files=Array.from(input.files).slice(0,10);if(!files.length)return;document.getElementById('adv-photos-grid').innerHTML='<span class="adv-no-photos">uploading...</span>';const fd=new FormData();fd.append('text','📷');files.forEach(f=>fd.append('photos',f));await fetch(`/api/trips/${currentTripId}/blurbs/create/`,{method:'POST',headers:{'X-CSRFToken':csrfToken},body:fd});input.value='';timelinePage=1;loadTimeline(currentTripId,1);}
 
@@ -1562,7 +1562,7 @@ function renderSharingOptions(data){
 function togglePublic(){fetch(`/api/trips/${currentTripId}/toggle-public/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(r=>r.json()).then(data=>{currentTripData=Object.assign(currentTripData||{},{is_public:data.is_public,public_slug:data.public_slug});renderSharingOptions(currentTripData);});}
 
 let slugSaveTimeout=null;
-function saveSlug(value){clearTimeout(slugSaveTimeout);const slug=value.trim();if(!slug||slug===(currentTripData&&currentTripData.public_slug))return;slugSaveTimeout=setTimeout(()=>{fetch(`/api/trips/${currentTripId}/update/`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},body:JSON.stringify({public_slug:slug})}).then(r=>r.json()).then(data=>{if(data.error){alert(data.error);document.getElementById('share-slug-input').value=currentTripData.public_slug||'';}else{currentTripData.public_slug=data.public_slug;flashShareSaved();}});},600);}
+function saveSlug(value){clearTimeout(slugSaveTimeout);const slug=value.trim();if(!slug||slug===(currentTripData&&currentTripData.public_slug))return;slugSaveTimeout=setTimeout(()=>{fetch(`/api/trips/${currentTripId}/update/`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},body:JSON.stringify({public_slug:slug})}).then(r=>r.json()).then(data=>{if(data.error){roamlyAlert(data.error);document.getElementById('share-slug-input').value=currentTripData.public_slug||'';}else{currentTripData.public_slug=data.public_slug;flashShareSaved();}});},600);}
 
 let pinSaveTimeout=null;
 function savePin(value){clearTimeout(pinSaveTimeout);const pin=value.trim();if(pin===(currentTripData&&currentTripData.access_pin))return;pinSaveTimeout=setTimeout(()=>{fetch(`/api/trips/${currentTripId}/update/`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},body:JSON.stringify({access_pin:pin})}).then(r=>r.json()).then(()=>{if(currentTripData)currentTripData.access_pin=pin;flashShareSaved();});},600);}
@@ -1594,7 +1594,7 @@ function setMapStyle(btn){
 
 // ─── Delete & tabs ────────────────────────────────────────────
 
-function deleteTripFromDetail(){if(!confirm('Delete this adventure? This cannot be undone.'))return;closeSettings();fetch(`/api/trips/${currentTripId}/delete/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>closeTrip());}
+async function deleteTripFromDetail(){if(!await roamlyConfirm('Delete this adventure? This cannot be undone.', {danger:true}))return;closeSettings();fetch(`/api/trips/${currentTripId}/delete/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>closeTrip());}
 
 function switchAdvTab(tab,btn){
     document.querySelectorAll('.adv-tab').forEach(b=>b.classList.remove('active'));btn.classList.add('active');

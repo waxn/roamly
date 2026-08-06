@@ -1934,7 +1934,7 @@ async function savePOI(){
     const notes = document.getElementById('poi-notes-in').value.trim();
     const category = document.getElementById('poi-category-in').value;
     const rating = poiRatingVal || null;
-    if(!title && !notes){ alert('add a title or some notes'); return; }
+    if(!title && !notes){ await roamlyAlert('add a title or some notes'); return; }
     let r;
     if(poiEditId){
         r = await fetch(`/api/trips/${TRIP_ID}/places/${poiEditId}/update/`, {
@@ -1997,7 +1997,7 @@ window.openPOIPopupEdit = function(id){
     openPOIModal(id);
 };
 window.deletePOI = async function(id){
-    if(!confirm('delete this POI?')) return;
+    if(!await roamlyConfirm('delete this POI?', {danger:true})) return;
     const r = await fetch(`/api/trips/${TRIP_ID}/places/${id}/delete/`, {method:'POST',headers:{'X-CSRFToken':CSRF}});
     if(r.ok){
         document.getElementById('poi-popup-overlay').classList.remove('open');
@@ -2193,13 +2193,13 @@ document.getElementById('st-add-member-btn').addEventListener('click', async fun
 });
 
 async function removeMember(userId){
-    if(!confirm('remove this member?')) return;
+    if(!await roamlyConfirm('remove this member?', {danger:true})) return;
     const r = await fetch(`/api/trips/${TRIP_ID}/members/${userId}/remove/`, {method:'POST',headers:{'X-CSRFToken':CSRF}});
     if(r.ok){ await loadTrip(); renderSettingsMembers(); }
 }
 
 document.getElementById('st-delete-btn').addEventListener('click', async function(){
-    if(!confirm('permanently delete this adventure? this cannot be undone.')) return;
+    if(!await roamlyConfirm('permanently delete this adventure? this cannot be undone.', {danger:true})) return;
     const r = await fetch(`/api/trips/${TRIP_ID}/delete/`, {method:'POST',headers:{'X-CSRFToken':CSRF}});
     if(r.ok) location.href = '/adventures/';
 });
@@ -2472,7 +2472,7 @@ window.addDayEntry = async function(ds){
     }
 };
 window.deleteDayEntry = async function(id){
-    if(!confirm('delete this entry?')) return;
+    if(!await roamlyConfirm('delete this entry?', {danger:true})) return;
     const r = await fetch(`/api/trips/${TRIP_ID}/days/note/${id}/delete/`, {method:'POST', headers:{'X-CSRFToken':CSRF}});
     if(r.ok){ dayNotes = dayNotes.filter(n => n.id !== id); renderDayLog(); }
 };

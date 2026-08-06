@@ -1034,6 +1034,42 @@
         .rly-cal-month.disabled { opacity: 0.28; cursor: not-allowed; }
         .rly-cal-month.disabled:hover { background: var(--bg-input); }
 
+        /* ── RoamlyDialog: alert()/confirm() replacement ──
+           Same flat-plate, square-corner language as the rest of the design
+           system, themed via CSS vars so it matches dark/light automatically. */
+        .rly-dialog-overlay {
+            position: fixed; inset: 0; z-index: 10000;
+            display: none; align-items: center; justify-content: center;
+            padding: 1.25rem; background: rgba(0, 0, 0, 0.6);
+        }
+        .rly-dialog-overlay.open { display: flex; }
+        .rly-dialog {
+            width: 100%; max-width: 400px; background: var(--bg-card);
+            border: 1px solid var(--border); padding: 1.5rem;
+            font-family: var(--font-body); box-shadow: var(--clay-shadow-hover);
+        }
+        .rly-dialog-title {
+            margin: 0 0 0.5rem; font-family: var(--font-display);
+            font-size: 1.15rem; font-weight: 700; color: var(--text);
+        }
+        .rly-dialog-msg {
+            margin: 0; font-size: 0.9rem; line-height: 1.55;
+            color: var(--text-muted); white-space: pre-wrap;
+        }
+        .rly-dialog-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 1.4rem; }
+        .rly-dialog-btn {
+            font-family: var(--font-body); font-size: 0.85rem; font-weight: 600;
+            padding: 0.55rem 1rem; border-radius: 0; cursor: pointer;
+            border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text);
+        }
+        .rly-dialog-btn:hover { border-color: var(--text-dim); }
+        .rly-dialog-btn:focus-visible { outline: 2px solid var(--border-bright); outline-offset: 1px; }
+        .rly-dialog-btn-secondary { background: transparent; }
+        .rly-dialog-btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+        .rly-dialog-btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+        .rly-dialog-btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+        .rly-dialog-btn-danger:hover { filter: brightness(1.12); }
+
         {% block extra_css %}{% endblock %}
     </style>
 </head>
@@ -1514,6 +1550,93 @@
                     }
                 }
             }).observe(document.body, { childList: true, subtree: true });
+        })();
+    </script>
+    <script>
+        // RoamlyDialog — alert()/confirm() replacement, styled to match the app.
+        // window.roamlyAlert(message, {title}) -> Promise<void>
+        // window.roamlyConfirm(message, {title, danger, confirmText, cancelText}) -> Promise<boolean>
+        (function() {
+            if (window.RoamlyDialog) return;
+            let overlay, titleEl, msgEl, actionsEl;
+
+            function ensureDom() {
+                if (overlay) return;
+                overlay = document.createElement('div');
+                overlay.className = 'rly-dialog-overlay';
+                overlay.innerHTML =
+                    '<div class="rly-dialog" role="alertdialog" aria-modal="true" aria-labelledby="rlyDialogTitle" aria-describedby="rlyDialogMsg">' +
+                        '<h3 class="rly-dialog-title" id="rlyDialogTitle"></h3>' +
+                        '<p class="rly-dialog-msg" id="rlyDialogMsg"></p>' +
+                        '<div class="rly-dialog-actions"></div>' +
+                    '</div>';
+                document.body.appendChild(overlay);
+                titleEl = overlay.querySelector('.rly-dialog-title');
+                msgEl = overlay.querySelector('.rly-dialog-msg');
+                actionsEl = overlay.querySelector('.rly-dialog-actions');
+            }
+
+            let active = null; // { close(result) }
+
+            function show(isConfirm, message, opts) {
+                opts = opts || {};
+                ensureDom();
+                if (active) active.close(isConfirm ? false : undefined);
+                return new Promise(function(resolve) {
+                    titleEl.textContent = opts.title || '';
+                    titleEl.style.display = opts.title ? '' : 'none';
+                    msgEl.textContent = message == null ? '' : String(message);
+                    actionsEl.innerHTML = '';
+
+                    function close(result) {
+                        overlay.classList.remove('open');
+                        document.removeEventListener('keydown', onKey);
+                        active = null;
+                        resolve(result);
+                    }
+                    active = { close };
+
+                    function onKey(ev) {
+                        if (ev.key === 'Escape') { ev.preventDefault(); close(isConfirm ? false : undefined); }
+                        else if (ev.key === 'Enter') { ev.preventDefault(); close(isConfirm ? true : undefined); }
+                    }
+
+                    if (isConfirm) {
+                        const cancelBtn = document.createElement('button');
+                        cancelBtn.type = 'button';
+                        cancelBtn.className = 'rly-dialog-btn rly-dialog-btn-secondary';
+                        cancelBtn.textContent = opts.cancelText || 'Cancel';
+                        cancelBtn.onclick = function() { close(false); };
+                        const okBtn = document.createElement('button');
+                        okBtn.type = 'button';
+                        okBtn.className = 'rly-dialog-btn ' + (opts.danger ? 'rly-dialog-btn-danger' : 'rly-dialog-btn-primary');
+                        okBtn.textContent = opts.confirmText || 'OK';
+                        okBtn.onclick = function() { close(true); };
+                        actionsEl.appendChild(cancelBtn);
+                        actionsEl.appendChild(okBtn);
+                        overlay.onclick = function(ev) { if (ev.target === overlay) close(false); };
+                        setTimeout(function() { okBtn.focus(); }, 30);
+                    } else {
+                        const okBtn = document.createElement('button');
+                        okBtn.type = 'button';
+                        okBtn.className = 'rly-dialog-btn rly-dialog-btn-primary';
+                        okBtn.textContent = opts.confirmText || 'OK';
+                        okBtn.onclick = function() { close(undefined); };
+                        actionsEl.appendChild(okBtn);
+                        overlay.onclick = function(ev) { if (ev.target === overlay) close(undefined); };
+                        setTimeout(function() { okBtn.focus(); }, 30);
+                    }
+                    document.addEventListener('keydown', onKey);
+                    overlay.classList.add('open');
+                });
+            }
+
+            window.RoamlyDialog = {
+                alert: function(message, opts) { return show(false, message, opts); },
+                confirm: function(message, opts) { return show(true, message, opts); }
+            };
+            window.roamlyAlert = window.RoamlyDialog.alert;
+            window.roamlyConfirm = window.RoamlyDialog.confirm;
         })();
     </script>
     <script>

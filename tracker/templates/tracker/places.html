@@ -707,7 +707,7 @@ document.getElementById('edit-radius').addEventListener('input', (e) => {
 async function savePlace() {
     const name = document.getElementById('edit-name').value.trim();
     if (!name) { document.getElementById('edit-name').focus(); return; }
-    if (!editCenter) { alert('click the map to set the center first'); return; }
+    if (!editCenter) { await roamlyAlert('click the map to set the center first'); return; }
     const btn = document.getElementById('edit-save');
     btn.disabled = true;
     btn.textContent = 'saving…';
@@ -715,7 +715,7 @@ async function savePlace() {
     const url = editId ? `/api/places/${editId}/update/` : '/api/places/';
     try {
         const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-        if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.error || 'save failed'); return; }
+        if (!res.ok) { const e = await res.json().catch(() => ({})); await roamlyAlert(e.error || 'save failed'); return; }
         closeEdit();
         // The saved place may cover a suggested cluster, which is what retires
         // the suggestion — so refresh both lists.
@@ -938,7 +938,7 @@ async function streamDetailPoints(id, token) {
 }
 
 async function deletePlace(id, name) {
-    if (!confirm(`delete "${name}"? this only removes the place, not your location data.`)) return;
+    if (!await roamlyConfirm(`delete "${name}"? this only removes the place, not your location data.`, {danger:true})) return;
     const res = await fetch(`/api/places/${id}/delete/`, { method: 'POST' });
     // Deleting a place can re-expose the cluster it was covering as a suggestion.
     if (res.ok) { closeDetail(); await Promise.all([loadPlaces(), loadSuggestions()]); }

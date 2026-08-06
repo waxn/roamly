@@ -842,21 +842,21 @@ async function loadUsers() {
 async function deleteUser(userId) {
     const row = document.getElementById(`user-row-${userId}`);
     const username = row ? row.dataset.username : `#${userId}`;
-    if (!confirm(`Permanently delete "${username}" and ALL of their data (devices, locations, adventures, journals…)?\n\nThis cannot be undone.`)) return;
+    if (!await roamlyConfirm(`Permanently delete "${username}" and ALL of their data (devices, locations, adventures, journals…)?\n\nThis cannot be undone.`, {danger:true})) return;
     const r = await fetch(`/api/admin/users/${userId}/delete/`, {method:'POST', headers:{'X-CSRFToken':getCookie('csrftoken')}});
     if (!r.ok) {
         let msg = 'Failed to delete user.';
         try { const e = await r.json(); if (e.error) msg = e.error; } catch (_) {}
-        alert(msg);
+        await roamlyAlert(msg);
         return;
     }
     if (row) row.remove();
 }
 
 async function toggleAdmin(userId, btn) {
-    if (!confirm('Toggle admin status for this user?')) return;
+    if (!await roamlyConfirm('Toggle admin status for this user?')) return;
     const r = await fetch(`/api/admin/users/${userId}/toggle-admin/`, {method:'POST', headers:{'X-CSRFToken':getCookie('csrftoken')}});
-    if (!r.ok) { alert('Failed'); return; }
+    if (!r.ok) { await roamlyAlert('Failed'); return; }
     const d = await r.json();
     btn.textContent = d.is_admin ? 'Admin' : 'User';
     btn.className = `btn btn-sm ${d.is_admin ? 'btn-primary' : 'btn-outline'}`;

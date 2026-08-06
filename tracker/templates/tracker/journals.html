@@ -801,8 +801,8 @@ function deletePhoto(id) {
         .then(()=>fetch(`/api/journals/${currentDate}/`).then(r=>r.json()).then(data=>renderPhotos(data.entry.photos||[])));
 }
 
-function deleteEntry() {
-    if (!confirm('Delete this journal entry? This cannot be undone.')) return;
+async function deleteEntry() {
+    if (!await roamlyConfirm('Delete this journal entry? This cannot be undone.', {danger:true})) return;
     fetch(`/api/journals/${currentDate}/delete/`, {method:'POST', headers:{'X-CSRFToken':csrfToken}})
         .then(()=>{ document.getElementById('j-modal-overlay').classList.remove('open'); document.body.style.overflow=''; loadMonth(); loadRecent(); loadStats(); });
 }

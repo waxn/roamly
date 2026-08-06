@@ -1182,7 +1182,7 @@ function uploadProfilePicture(input) {
             document.getElementById('profile-pic-preview').innerHTML =
                 `<img src="${data.picture_url}" style="width:100%;height:100%;object-fit:cover;">`;
         } else {
-            alert(data.error || 'Upload failed');
+            roamlyAlert(data.error || 'Upload failed');
         }
     });
 }
@@ -1249,8 +1249,8 @@ function createApiKey() {
     });
 }
 
-function deleteApiKey(id) {
-    if (!confirm('Delete this API key?')) return;
+async function deleteApiKey(id) {
+    if (!await roamlyConfirm('Delete this API key?', {danger:true})) return;
     fetch(`/api/keys/${id}/delete/`, {
         method: 'POST',
         headers: { 'X-CSRFToken': '{{ csrf_token }}' }
@@ -1750,14 +1750,14 @@ function pollRoadsStatus() {
     }, 2000);
 }
 
-function deleteRoadData() {
+async function deleteRoadData() {
     const statusEl = document.getElementById('roads-status');
     const btn = document.getElementById('roads-delete-btn');
     // Instance-wide reference data with no user FK, same as POIs — say so, since
     // on a shared instance this affects everyone.
-    if (!confirm('Delete all downloaded road data for this instance?\n\n'
+    if (!await roamlyConfirm('Delete all downloaded road data for this instance?\n\n'
         + 'Snapping and the editor\'s road routing will fall back to Mapbox or OSRM '
-        + 'until you download it again. Points the editor already created are kept.')) return;
+        + 'until you download it again. Points the editor already created are kept.', {danger:true})) return;
 
     btn.disabled = true;
     document.getElementById('roads-progress-wrap').style.display = 'block';
@@ -2237,10 +2237,10 @@ function loadExistingDevices() {
         });
 }
 
-function importWithNewDevice() {
+async function importWithNewDevice() {
     const deviceName = document.getElementById('new-device-name').value.trim();
     if (!deviceName) {
-        alert('Please enter a device name');
+        await roamlyAlert('Please enter a device name');
         return;
     }
     // Save files before closing modal
@@ -2380,7 +2380,7 @@ async function restoreBackup(input) {
     if (!file) return;
     input.value = '';
 
-    if (!confirm('Restore from backup? Existing data will not be deleted — only missing items will be added.')) return;
+    if (!await roamlyConfirm('Restore from backup? Existing data will not be deleted — only missing items will be added.')) return;
 
     const statusEl = document.getElementById('restore-status');
     statusEl.innerHTML = '<span class="spinner"></span> Restoring backup...';
@@ -2428,10 +2428,10 @@ async function restoreBackup(input) {
     }
 }
 
-function deleteLocationData() {
+async function deleteLocationData() {
     const range = document.getElementById('delete-range').value;
     const label = document.getElementById('delete-range').selectedOptions[0].text;
-    if (!confirm(`Delete all location data for "${label}"? This cannot be undone.`)) return;
+    if (!await roamlyConfirm(`Delete all location data for "${label}"? This cannot be undone.`, {danger:true})) return;
 
     const statusEl = document.getElementById('delete-data-status');
     statusEl.innerHTML = '<span class="spinner"></span> Deleting...';
@@ -2714,9 +2714,9 @@ fetch('/api/backup/image/status/')
     })
     .catch(() => {});
 
-function deleteAccount() {
-    if (!confirm('Are you sure you want to delete your account? All your data will be permanently removed. This cannot be undone.')) return;
-    if (!confirm('This is your last chance. Delete your account?')) return;
+async function deleteAccount() {
+    if (!await roamlyConfirm('Are you sure you want to delete your account? All your data will be permanently removed. This cannot be undone.', {danger:true})) return;
+    if (!await roamlyConfirm('This is your last chance. Delete your account?', {danger:true, confirmText:'Delete account'})) return;
 
     fetch('/api/account/delete/', {
         method: 'POST',
@@ -2732,7 +2732,7 @@ function deleteAccount() {
         }
     })
     .catch(() => {
-        alert('Something went wrong. Please try again.');
+        roamlyAlert('Something went wrong. Please try again.');
     });
 }
 

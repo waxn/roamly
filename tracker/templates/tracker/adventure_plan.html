@@ -390,7 +390,7 @@ function closeStopModal(){ document.getElementById('stop-modal').classList.remov
 
 async function saveStop(){
     const name = document.getElementById('stop-name-in').value.trim();
-    if(!name){ alert('give the stop a name'); return; }
+    if(!name){ await roamlyAlert('give the stop a name'); return; }
     const payload = {
         name,
         arrival_date: document.getElementById('stop-date-in').value || null,
@@ -409,12 +409,12 @@ async function saveStop(){
         closeStopModal(); refreshPlan();
     } else {
         const d = await r.json().catch(()=>({}));
-        alert(d.error || 'could not save stop');
+        await roamlyAlert(d.error || 'could not save stop');
     }
 }
 
 async function deleteStop(id){
-    if(!confirm('delete this stop?')) return;
+    if(!await roamlyConfirm('delete this stop?', {danger:true})) return;
     const r = await fetch(`/api/trips/${TRIP_ID}/plan/${id}/delete/`, {method:'POST', headers:{'X-CSRFToken':CSRF}});
     if(r.ok){ plannedStops = plannedStops.filter(x=>x.id!==id); refreshPlan(); }
 }
@@ -470,7 +470,7 @@ async function addMember(){
 }
 
 async function removeMember(userId, username){
-    if(!confirm(`remove ${username} from this trip?`)) return;
+    if(!await roamlyConfirm(`remove ${username} from this trip?`, {danger:true})) return;
     const r = await fetch(`/api/trips/${TRIP_ID}/members/${userId}/remove/`, {method:'POST', headers:{'X-CSRFToken':CSRF}});
     if(r.ok) await load();
 }
@@ -501,7 +501,7 @@ async function emailInvite(){
     else { msg.textContent = d.error || 'could not send'; msg.style.color='var(--clay-coral,#c96a5e)'; }
 }
 document.getElementById('invite-create-btn').addEventListener('click', ()=>createInvite(false));
-document.getElementById('invite-rotate-btn').addEventListener('click', ()=>{ if(confirm('reset the link? the old one stops working.')) createInvite(true); });
+document.getElementById('invite-rotate-btn').addEventListener('click', async ()=>{ if(await roamlyConfirm('reset the link? the old one stops working.')) createInvite(true); });
 document.getElementById('invite-copy-btn').addEventListener('click', () => {
     const el = document.getElementById('invite-url');
     el.select(); navigator.clipboard.writeText(el.value);
@@ -541,7 +541,7 @@ function openTripModal(){
 function closeTripModal(){ document.getElementById('trip-modal').classList.remove('open'); }
 async function saveTrip(){
     const name = document.getElementById('trip-name-in').value.trim();
-    if(!name){ alert('the trip needs a name'); return; }
+    if(!name){ await roamlyAlert('the trip needs a name'); return; }
     const start = document.getElementById('trip-start-in').value;
     const end = document.getElementById('trip-end-in').value;
     const payload = {
@@ -560,7 +560,7 @@ async function saveTrip(){
         await load();
     } else {
         const d = await r.json().catch(()=>({}));
-        alert(d.error || 'could not save');
+        await roamlyAlert(d.error || 'could not save');
     }
 }
 document.getElementById('edit-trip-btn').addEventListener('click', openTripModal);

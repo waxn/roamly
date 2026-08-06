@@ -507,13 +507,13 @@ function refreshAll() {
 }
 
 // ── Tools ───────────────────────────────────────────────────────────────────
-document.getElementById('btn-delete').addEventListener('click', () => {
+document.getElementById('btn-delete').addEventListener('click', async () => {
     const ids = [], inferredIds = [];
     selected.forEach(p => (p.inferred ? inferredIds : ids).push(p.id));
     const msg = ids.length
         ? `Delete ${ids.length} recorded point(s)? They go to the trash and can be restored.`
         : `Delete ${inferredIds.length} generated point(s)?`;
-    if (!confirm(msg)) return;
+    if (!await roamlyConfirm(msg, {danger:true})) return;
     post('/api/editor/delete/', { ids, inferred_ids: inferredIds }).then(({ ok, d }) => {
         if (!ok) return say(d.error || 'Delete failed.', 'error');
         say(`Deleted — ${d.trashed} to trash, ${d.removed} generated point(s) removed.`);
@@ -693,9 +693,9 @@ document.getElementById('btn-copy-check').addEventListener('click', () => {
 });
 document.getElementById('btn-copy-paste').addEventListener('click', () => {
     const body = copyBody();
-    post('/api/editor/copy/', body).then(({ ok, d }) => {
+    post('/api/editor/copy/', body).then(async ({ ok, d }) => {
         if (!ok && d.conflicts) {
-            if (!confirm(`${d.conflicts} point(s) already exist there. Move them to the trash and paste over?`)) return;
+            if (!await roamlyConfirm(`${d.conflicts} point(s) already exist there. Move them to the trash and paste over?`, {danger:true})) return;
             body.replace = true;
             return post('/api/editor/copy/', body).then(({ ok: ok2, d: d2 }) => {
                 if (!ok2) return say(d2.error || 'Paste failed.', 'error');

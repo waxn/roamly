@@ -425,8 +425,8 @@ async function loadAll() {
     }
 }
 
-function deleteLocation(id) {
-    if (!confirm('Delete this location point?')) return;
+async function deleteLocation(id) {
+    if (!await roamlyConfirm('Delete this location point?', {danger:true})) return;
     fetch(`/api/locations/${id}/delete/`, {
         method: 'DELETE',
         headers: {'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]')?.value || '{{ csrf_token }}'}
