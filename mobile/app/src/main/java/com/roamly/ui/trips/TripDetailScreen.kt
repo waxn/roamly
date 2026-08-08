@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.EmojiEvents
+import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Public
@@ -159,38 +160,32 @@ fun TripDetailScreen(
                             }
                         }
 
-                        // Map preview — non-scrollable, tap to fullscreen. Shown
-                        // when there's a track, member tracks, or a located itinerary.
+                        // Map preview card — a lightweight, stable placeholder that
+                        // opens the full interactive map. A live osmdroid MapView must
+                        // not live inside this scrolling LazyColumn: it gets disposed
+                        // and recreated on every scroll (crashing on heavy tracks) and
+                        // steals the tap that should open the full map.
                         val hasMapContent = trip.locations.isNotEmpty() ||
                             trip.memberLocations.values.any { it.isNotEmpty() } ||
                             trip.plannedStops.any { it.latitude != null && it.longitude != null }
                         if (hasMapContent) {
                             item {
-                                Box(
+                                Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(200.dp)
                                         .clip(RoundedCornerShape(16.dp))
-                                        .clickable { showFullMap = true },
+                                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+                                        .clickable { showFullMap = true }
+                                        .padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    AdventureMap(
-                                        points = trip.locations,
-                                        scrollable = false,
-                                        plannedStops = trip.plannedStops,
-                                        memberTracks = trip.memberLocations,
-                                        modifier = Modifier.fillMaxSize(),
-                                    )
-                                    // "Tap to expand" hint
-                                    Box(
-                                        modifier = Modifier
-                                            .align(Alignment.BottomEnd)
-                                            .padding(8.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
-                                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                                    ) {
-                                        Text("Expand map ↗", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                    Icon(Icons.Rounded.Map, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text("View map", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold)
+                                        Text("${trip.pointCount} points", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
+                                    Text("Open ↗", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                                 }
                             }
                             if (trip.memberLocations.values.any { it.isNotEmpty() }) {
@@ -399,62 +394,6 @@ fun TripDetailScreen(
             onClose = viewModel::closeInvite,
         )
     }
-}
-
-/** A small osmdroid map drawing the adventure's track as a coral polyline,
- *  auto-fit to the route — the mobile equivalent of the website's trip map.
- *  Optionally overlays a dashed, numbered planned-stop itinerary. */
-@Composable
-private fun AdventureMap(
-    points: List<TripLatLng>,
-    modifier: Modifier = Modifier,
-    scrollable: Boolean = true,
-    plannedStops: List<com.roamly.data.api.PlannedStop> = emptyList(),
-    memberTracks: Map<String, List<TripLatLng>> = emptyMap(),
-) {
-    val context = LocalContext.current
-    val mapView = remember(scrollable) {
-        Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
-        Configuration.getInstance().userAgentValue = "Roamly/1.0"
-        Configuration.getInstance().osmdroidBasePath = context.cacheDir
-        Configuration.getInstance().osmdroidTileCache = java.io.File(context.cacheDir, "osmdroid_tiles").apply { mkdirs() }
-        MapView(context).apply {
-            setTileSource(TileSourceFactory.MAPNIK)
-            setMultiTouchControls(scrollable)
-            isClickable = scrollable
-            controller.setZoom(12.0)
-        }
-    }
-
-    LaunchedEffect(points, plannedStops, memberTracks) {
-        mapView.overlays.clear()
-        val geo = points.map { GeoPoint(it.lat, it.lng) }
-        val memberGeo = drawMemberTracks(mapView, points, memberTracks)
-        if (points.isNotEmpty()) {
-            mapView.overlays.add(0, trackPolyline(mapView, geo, MEMBER_TRACK_COLORS[0]))
-        }
-        val stopGeo = addItineraryOverlays(mapView, plannedStops)
-        val allGeo = geo + memberGeo + stopGeo
-        if (allGeo.isNotEmpty()) {
-            mapView.post {
-                if (allGeo.size == 1) {
-                    mapView.controller.setZoom(14.0)
-                    mapView.controller.setCenter(allGeo.first())
-                } else {
-                    runCatching { mapView.zoomToBoundingBox(BoundingBox.fromGeoPoints(allGeo), false, 64) }
-                }
-                mapView.invalidate()
-            }
-        }
-        mapView.invalidate()
-    }
-
-    DisposableEffect(mapView) {
-        mapView.onResume()
-        onDispose { mapView.onPause() }
-    }
-
-    AndroidView(factory = { mapView }, modifier = modifier)
 }
 
 /** Per-member track colors — mirrors adventure_public.html's MEMBER_COLORS
@@ -730,6 +669,9 @@ private fun TripFullMapScreen(trip: TripResponse, onBack: () -> Unit) {
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)
+            // Hide osmdroid's built-in (white-square) zoom buttons — the Material
+            // FABs below are the only zoom controls, matching MapScreen.
+            zoomController.setVisibility(org.osmdroid.views.CustomZoomButtonsController.Visibility.NEVER)
             controller.setZoom(12.0)
         }
     }
