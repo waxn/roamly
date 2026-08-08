@@ -6,6 +6,7 @@
     <div class="diag-tabs">
         <button class="diag-tab active" id="tab-stats" onclick="switchTab('stats')">Coverage &amp; Stats</button>
         <button class="diag-tab" id="tab-review" onclick="switchTab('review')">Quality Review</button>
+        <button class="diag-tab" id="tab-subway" onclick="switchTab('subway')">Subway Gaps</button>
         <button class="diag-tab" id="tab-trash" onclick="switchTab('trash')">Trash</button>
     </div>
 
@@ -90,6 +91,35 @@
                         Hit <strong>Scan for issues</strong> to detect suspicious points.
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Subway Gaps pane ──────────────────────────────────────────────── -->
+    <div id="pane-subway" style="display:none;">
+        <div class="page-toolbar" style="margin-bottom:1rem;">
+            <div>
+                <h1>subway gaps</h1>
+                <p class="page-lead" style="margin-bottom:0;">
+                    underground rides GPS never recorded. Pick the line you rode and fill the
+                    gap along the real track — the ride's distance then counts toward your stats.
+                </p>
+            </div>
+            <div class="toolbar-actions" style="flex-wrap:wrap;">
+                <a href="{% url 'tracker:settings' %}" class="btn btn-outline btn-sm">Download subway data</a>
+                <button class="btn btn-primary btn-sm" id="subway-refresh-btn" onclick="loadSubwayGaps(true)">Refresh</button>
+                <span id="subway-status" style="font-size:0.82rem;color:var(--text-muted);"></span>
+            </div>
+        </div>
+        <div class="review-layout">
+            <div id="subway-map-el" class="review-map"></div>
+            <div class="review-panel">
+                <div class="review-count" id="subway-count">Loading…</div>
+                <div id="subway-gaps-list" class="review-list"></div>
+                <div class="review-group-bar" style="border-top:1px solid var(--border);">
+                    <span style="font-weight:600;font-size:0.82rem;">Filled routes</span>
+                </div>
+                <div id="subway-fills-list" class="review-list" style="flex:0 0 auto;max-height:38%;"></div>
             </div>
         </div>
     </div>
@@ -246,6 +276,23 @@
 .review-actions .btn { font-size: 0.75rem; padding: 0.25rem 0.6rem; }
 .review-empty { padding: 2rem; text-align:center; color:var(--text-muted); font-size:0.85rem; }
 
+/* ── subway gaps ───────────────────────────────────────────────────────── */
+.sg-item-meta { font-size:0.78rem; color:var(--text-muted); margin-bottom:0.35rem; font-variant-numeric:tabular-nums; }
+.sg-detail { margin-top:0.5rem; }
+.sg-routes { display:flex; flex-wrap:wrap; gap:0.35rem; margin-bottom:0.5rem; }
+.sg-route-btn {
+    font-size:0.72rem; font-weight:700; padding:0.2rem 0.55rem; cursor:pointer;
+    background:var(--bg-card); border:1px solid var(--border-strong); color:var(--text);
+    border-radius:0;
+}
+.sg-route-btn.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+.sg-actions { display:flex; gap:0.4rem; }
+.sg-actions .btn { font-size:0.75rem; padding:0.25rem 0.7rem; }
+.sg-fill-row { display:flex; align-items:center; justify-content:space-between; gap:0.5rem;
+    padding:0.55rem 0.75rem; border-bottom:1px solid var(--border); }
+.sg-fill-note { font-size:0.8rem; }
+.sg-fill-sub { font-size:0.72rem; color:var(--text-muted); }
+
 </style>
 {% endblock %}
 
@@ -317,11 +364,14 @@ function gapPill(maxS) {
 function switchTab(tab) {
     document.getElementById('pane-stats').style.display = tab === 'stats' ? '' : 'none';
     document.getElementById('pane-review').style.display = tab === 'review' ? '' : 'none';
+    document.getElementById('pane-subway').style.display = tab === 'subway' ? '' : 'none';
     document.getElementById('pane-trash').style.display = tab === 'trash' ? '' : 'none';
     document.getElementById('tab-stats').classList.toggle('active', tab === 'stats');
     document.getElementById('tab-review').classList.toggle('active', tab === 'review');
+    document.getElementById('tab-subway').classList.toggle('active', tab === 'subway');
     document.getElementById('tab-trash').classList.toggle('active', tab === 'trash');
     if (tab === 'review') initReviewMap();
+    if (tab === 'subway') initSubway();
     if (tab === 'trash') initTrash();
 }
 
@@ -1024,9 +1074,237 @@ async function emptyTrash() {
         });
 }
 
+// ── Subway Gaps ───────────────────────────────────────────────────────────────
+let subwayMap = null, subwayReady = false, subwayLoadedOnce = false;
+let subwayGaps = [], selGapKey = null;
+const selRouteIdx = {};
+let pendingGapDraw = false;
+const SG_COLORS = ['#e8763d', '#5aa9e6', '#7cc36b'];   // route accents (primary first)
+const SG_MUTED = 'rgba(150,160,180,0.7)';
+
+function emptyFC() { return { type: 'FeatureCollection', features: [] }; }
+function gapKey(g) { return g.start_id + ':' + g.end_id; }
+
+function initSubway() {
+    if (!subwayMap) {
+        subwayMap = new maplibregl.Map({
+            container: 'subway-map-el', style: reviewMapStyle(), center: [0, 20], zoom: 1,
+        });
+        subwayMap.on('load', () => {
+            subwayMap.addSource('sg-routes', { type: 'geojson', data: emptyFC() });
+            subwayMap.addLayer({
+                id: 'sg-routes-line', type: 'line', source: 'sg-routes',
+                layout: { 'line-cap': 'round', 'line-join': 'round' },
+                paint: {
+                    'line-color': ['get', 'color'],
+                    'line-width': ['case', ['get', 'sel'], 5, 3],
+                    'line-opacity': ['case', ['get', 'sel'], 0.95, 0.35],
+                },
+            });
+            subwayMap.addSource('sg-anchors', { type: 'geojson', data: emptyFC() });
+            subwayMap.addLayer({
+                id: 'sg-anchors-layer', type: 'circle', source: 'sg-anchors',
+                paint: {
+                    'circle-radius': 6, 'circle-color': ['get', 'color'],
+                    'circle-stroke-width': 2, 'circle-stroke-color': '#fff',
+                },
+            });
+            subwayReady = true;
+            if (pendingGapDraw) drawSelectedGap();
+        });
+    }
+    if (!subwayLoadedOnce) {
+        subwayLoadedOnce = true;
+        loadSubwayGaps(false);
+        loadSubwayFills();
+    }
+}
+
+function loadSubwayGaps(force) {
+    const status = document.getElementById('subway-status');
+    const count = document.getElementById('subway-count');
+    const list = document.getElementById('subway-gaps-list');
+    status.textContent = '';
+    count.textContent = 'Loading…';
+    list.innerHTML = '';
+    if (force) { count.innerHTML = '<span class="spinner"></span> scanning your history…'; }
+
+    fetch('/api/subway/gaps/' + (force ? '?refresh=1' : ''))
+        .then(r => r.json())
+        .then(d => {
+            if (!d.available) {
+                count.textContent = '';
+                list.innerHTML = '<div class="review-empty">No subway data downloaded yet. '
+                    + 'Head to <strong>Settings → Download Subway Data</strong>, then come back.</div>';
+                return;
+            }
+            subwayGaps = d.gaps || [];
+            renderSubwayGaps();
+        })
+        .catch(() => { count.textContent = ''; list.innerHTML = '<div class="review-empty">Could not load gaps.</div>'; });
+}
+
+function renderSubwayGaps() {
+    const count = document.getElementById('subway-count');
+    const list = document.getElementById('subway-gaps-list');
+    count.textContent = subwayGaps.length + ' detected';
+    if (!subwayGaps.length) {
+        list.innerHTML = '<div class="review-empty">No subway gaps found. '
+            + 'Every underground ride between two mapped stations is already continuous, '
+            + 'or the network here isn\'t downloaded.</div>';
+        clearSubwayMap();
+        return;
+    }
+    list.innerHTML = subwayGaps.map(g => {
+        const k = gapKey(g);
+        const routes = g.routes.map((r, i) =>
+            `<button class="sg-route-btn${i === 0 ? ' active' : ''}" data-key="${k}" data-idx="${i}" `
+            + `onclick="event.stopPropagation();pickSubwayRoute('${k}',${i})">Route ${i + 1} · ${esc(fmtDist(r.length_m / 1000))}</button>`
+        ).join('');
+        return `<div class="review-item" data-key="${k}" onclick="selectSubwayGap('${k}')">
+            <div class="review-item-loc">🚇 ${esc(g.device_name)} · ${esc(fmtDist(g.length_m / 1000))}</div>
+            <div class="sg-item-meta">${fmtTime(g.start_ts)} · gap ${fmtDur(g.dt_s)} · ${g.routes.length} route${g.routes.length === 1 ? '' : 's'}</div>
+            <div class="sg-detail" id="sg-detail-${k}" style="display:none;">
+                ${g.routes.length > 1 ? `<div class="sg-routes">${routes}</div>` : ''}
+                <div class="sg-actions">
+                    <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();confirmSubwayGap('${k}')">Fill this ride</button>
+                    <button class="btn btn-outline btn-sm" onclick="event.stopPropagation();dismissSubwayGap('${k}')">Not a subway ride</button>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function selectSubwayGap(k) {
+    selGapKey = k;
+    if (selRouteIdx[k] === undefined) selRouteIdx[k] = 0;
+    document.querySelectorAll('#subway-gaps-list .review-item').forEach(el => {
+        const on = el.dataset.key === k;
+        el.classList.toggle('active', on);
+        const d = el.querySelector('.sg-detail');
+        if (d) d.style.display = on ? 'block' : 'none';
+    });
+    drawSelectedGap();
+}
+
+function pickSubwayRoute(k, i) {
+    selRouteIdx[k] = i;
+    document.querySelectorAll(`.sg-route-btn[data-key="${k}"]`).forEach(b =>
+        b.classList.toggle('active', parseInt(b.dataset.idx, 10) === i));
+    if (selGapKey === k) drawSelectedGap();
+}
+
+function clearSubwayMap() {
+    if (subwayReady) {
+        subwayMap.getSource('sg-routes').setData(emptyFC());
+        subwayMap.getSource('sg-anchors').setData(emptyFC());
+    }
+}
+
+function drawSelectedGap() {
+    const g = subwayGaps.find(x => gapKey(x) === selGapKey);
+    if (!g) { clearSubwayMap(); return; }
+    if (!subwayReady) { pendingGapDraw = true; return; }
+    pendingGapDraw = false;
+    const sel = selRouteIdx[selGapKey] || 0;
+
+    // Non-selected routes first, selected last so it draws on top.
+    const feats = [];
+    g.routes.forEach((r, i) => {
+        if (i === sel) return;
+        feats.push({ type: 'Feature', properties: { color: SG_MUTED, sel: false },
+            geometry: { type: 'LineString', coordinates: r.coords } });
+    });
+    const chosen = g.routes[sel];
+    feats.push({ type: 'Feature', properties: { color: SG_COLORS[sel % SG_COLORS.length], sel: true },
+        geometry: { type: 'LineString', coordinates: chosen.coords } });
+    subwayMap.getSource('sg-routes').setData({ type: 'FeatureCollection', features: feats });
+
+    subwayMap.getSource('sg-anchors').setData({ type: 'FeatureCollection', features: [
+        { type: 'Feature', properties: { color: '#3fae6a' }, geometry: { type: 'Point', coordinates: [g.start.lng, g.start.lat] } },
+        { type: 'Feature', properties: { color: '#d4553f' }, geometry: { type: 'Point', coordinates: [g.end.lng, g.end.lat] } },
+    ] });
+
+    let minLng = g.start.lng, maxLng = g.start.lng, minLat = g.start.lat, maxLat = g.start.lat;
+    const bump = (lng, lat) => { minLng = Math.min(minLng, lng); maxLng = Math.max(maxLng, lng); minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat); };
+    bump(g.end.lng, g.end.lat);
+    chosen.coords.forEach(c => bump(c[0], c[1]));
+    subwayMap.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 60, maxZoom: 16, duration: 500 });
+}
+
+function confirmSubwayGap(k) {
+    const g = subwayGaps.find(x => gapKey(x) === k);
+    if (!g) return;
+    const status = document.getElementById('subway-status');
+    status.style.color = 'var(--text-muted)';
+    status.innerHTML = '<span class="spinner"></span> filling…';
+    fetch('/api/subway/gaps/fill/', {
+        method: 'POST', headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ start_id: g.start_id, end_id: g.end_id, route: selRouteIdx[k] || 0 }),
+    }).then(r => r.json()).then(d => {
+        if (d.status === 'ok') {
+            status.style.color = 'var(--success)';
+            status.textContent = `filled ${d.points} point(s) along the line.`;
+            subwayGaps = subwayGaps.filter(x => gapKey(x) !== k);
+            if (selGapKey === k) { selGapKey = null; clearSubwayMap(); }
+            renderSubwayGaps();
+            loadSubwayFills();
+        } else {
+            status.textContent = '';
+            roamlyAlert(d.error || 'Could not fill that gap.');
+        }
+    }).catch(() => { status.textContent = ''; roamlyAlert('Could not fill that gap.'); });
+}
+
+function dismissSubwayGap(k) {
+    const g = subwayGaps.find(x => gapKey(x) === k);
+    if (!g) return;
+    fetch('/api/subway/gaps/dismiss/', {
+        method: 'POST', headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ start_id: g.start_id, end_id: g.end_id }),
+    }).then(r => r.json()).then(() => {
+        subwayGaps = subwayGaps.filter(x => gapKey(x) !== k);
+        if (selGapKey === k) { selGapKey = null; clearSubwayMap(); }
+        renderSubwayGaps();
+    });
+}
+
+function loadSubwayFills() {
+    const list = document.getElementById('subway-fills-list');
+    fetch('/api/subway/fills/').then(r => r.json()).then(d => {
+        const fills = d.fills || [];
+        if (!fills.length) {
+            list.innerHTML = '<div class="review-empty" style="padding:1rem;">No filled routes yet.</div>';
+            return;
+        }
+        list.innerHTML = fills.map(f => `<div class="sg-fill-row">
+            <div>
+                <div class="sg-fill-note">🚇 ${esc(f.note)}</div>
+                <div class="sg-fill-sub">${esc(f.device)} · ${f.points} pts · filled ${fmtTime(f.created_at)}</div>
+            </div>
+            <button class="btn btn-outline btn-sm" style="color:var(--danger);border-color:var(--danger);"
+                    onclick="deleteSubwayFill(${f.id})">Delete</button>
+        </div>`).join('');
+    }).catch(() => { list.innerHTML = '<div class="review-empty" style="padding:1rem;">Could not load filled routes.</div>'; });
+}
+
+async function deleteSubwayFill(id) {
+    if (!await roamlyConfirm('Delete this filled subway route?\n\nIts points are removed from your '
+        + 'track (recoverable from Trash). The gap will reappear in the list.', { danger: true })) return;
+    fetch(`/api/subway/fills/${id}/delete/`, { method: 'POST', headers: { 'X-CSRFToken': CSRF } })
+        .then(r => r.json()).then(d => {
+            if (d.status === 'ok') {
+                loadSubwayFills();
+                loadSubwayGaps(false);   // the removed points let the gap resurface
+            } else {
+                roamlyAlert(d.error || 'Could not delete that fill.');
+            }
+        }).catch(() => roamlyAlert('Could not delete that fill.'));
+}
+
 (function () {
     const tab = new URLSearchParams(location.search).get('tab');
-    if (tab === 'review' || tab === 'trash') switchTab(tab);
+    if (tab === 'review' || tab === 'trash' || tab === 'subway') switchTab(tab);
 })();
 </script>
 {% endblock %}
