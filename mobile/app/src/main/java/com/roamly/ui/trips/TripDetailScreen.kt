@@ -206,11 +206,25 @@ fun TripDetailScreen(
                         }
 
                         // Itinerary — forward-looking planned stops.
-                        if (trip.plannedStops.isNotEmpty()) {
-                            item { SectionHeader("Itinerary") }
-                            itemsIndexed(trip.plannedStops) { i, stop ->
-                                ItineraryStopCard(index = i + 1, stop = stop)
+                        item {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                SectionHeader("Itinerary")
+                                Spacer(Modifier.weight(1f))
+                                TextButton(onClick = { viewModel.newStop() }) {
+                                    Icon(Icons.Rounded.Add, null, Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Add stop")
+                                }
                             }
+                        }
+                        itemsIndexed(trip.plannedStops, key = { _, s -> "stop-${s.id}" }) { i, stop ->
+                            ItineraryStopCard(
+                                index = i + 1,
+                                stop = stop,
+                                onEdit = { viewModel.editStop(stop) },
+                                onMoveUp = if (i > 0) ({ viewModel.moveStop(stop.id, up = true) }) else null,
+                                onMoveDown = if (i < trip.plannedStops.size - 1) ({ viewModel.moveStop(stop.id, up = false) }) else null,
+                            )
                         }
 
                         // Day Log — per-member per-day entries, grouped by date.
@@ -364,6 +378,15 @@ fun TripDetailScreen(
             onSave = viewModel::saveDayNote,
             onDelete = viewModel::deleteDayNote,
             onClose = viewModel::closeDayEditor,
+        )
+    }
+
+    state.stopEditor?.let { stop ->
+        StopEditorDialog(
+            stop = stop,
+            onSave = viewModel::saveStop,
+            onDelete = if (stop.id != 0) ({ viewModel.deleteStop(stop.id) }) else null,
+            onClose = viewModel::closeStopEditor,
         )
     }
 }

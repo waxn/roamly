@@ -6,6 +6,8 @@ import com.roamly.data.api.CreateCommentRequest
 import com.roamly.data.api.CreateMilestoneRequest
 import com.roamly.data.api.CreateTripRequest
 import com.roamly.data.api.DayNoteResponse
+import com.roamly.data.api.PlannedStopRequest
+import com.roamly.data.api.PlannedStopResponse
 import com.roamly.data.api.RoamlyApi
 import com.roamly.data.api.SaveDayNoteRequest
 import com.roamly.data.api.TimelineEvent
@@ -87,6 +89,15 @@ class TripRepository @Inject constructor(
     suspend fun deleteDayNotePhoto(tripId: Int, photoId: Int) = safeApiCall { api.deleteDayNotePhoto(tripId, photoId) }
 
     suspend fun deleteDayNote(tripId: Int, noteId: Int) = safeApiCall { api.deleteDayNote(tripId, noteId) }
+
+    // --- Itinerary ---
+    suspend fun createPlannedStop(tripId: Int, request: PlannedStopRequest): Result<PlannedStopResponse> =
+        safeApiCall { api.createPlannedStop(tripId, request) }
+
+    suspend fun updatePlannedStop(tripId: Int, stopId: Int, request: PlannedStopRequest): Result<PlannedStopResponse> =
+        safeApiCall { api.updatePlannedStop(tripId, stopId, request) }
+
+    suspend fun deletePlannedStop(tripId: Int, stopId: Int) = safeApiCall { api.deletePlannedStop(tripId, stopId) }
 
     /** Configured server origin (no trailing slash), for building absolute media URLs. */
     suspend fun serverUrl(): String = prefs.serverUrl.first()?.trimEnd('/') ?: ""

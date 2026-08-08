@@ -263,6 +263,27 @@ interface RoamlyApi {
         @Path("noteId") noteId: Int,
     ): Response<ResponseBody>
 
+    // --- Adventure Itinerary (planned stops) ---
+
+    @POST("api/trips/{id}/plan/create/")
+    suspend fun createPlannedStop(
+        @Path("id") tripId: Int,
+        @Body request: PlannedStopRequest,
+    ): Response<PlannedStopResponse>
+
+    @POST("api/trips/{id}/plan/{stopId}/update/")
+    suspend fun updatePlannedStop(
+        @Path("id") tripId: Int,
+        @Path("stopId") stopId: Int,
+        @Body request: PlannedStopRequest,
+    ): Response<PlannedStopResponse>
+
+    @POST("api/trips/{id}/plan/{stopId}/delete/")
+    suspend fun deletePlannedStop(
+        @Path("id") tripId: Int,
+        @Path("stopId") stopId: Int,
+    ): Response<ResponseBody>
+
     // --- Journals ---
 
     @GET("api/journals/")

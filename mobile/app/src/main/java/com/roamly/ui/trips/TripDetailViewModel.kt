@@ -8,6 +8,8 @@ import com.roamly.data.api.Comment
 import com.roamly.data.api.CreateMilestoneRequest
 import com.roamly.data.api.DayNote
 import com.roamly.data.api.MediaItem
+import com.roamly.data.api.PlannedStop
+import com.roamly.data.api.PlannedStopRequest
 import com.roamly.data.api.TimelineEvent
 import com.roamly.data.api.TripResponse
 import com.roamly.data.repository.Result
@@ -45,6 +47,8 @@ data class TripDetailUiState(
     val showBlurbDialog: Boolean = false,
     val showMilestoneDialog: Boolean = false,
     val dayEditor: DayNoteEditorState? = null,
+    // The planned stop being created (id 0) or edited; null when the editor is closed.
+    val stopEditor: PlannedStop? = null,
 )
 
 @HiltViewModel
@@ -218,6 +222,66 @@ class TripDetailViewModel @Inject constructor(
     }
 
     fun closeDayEditor() = _uiState.update { it.copy(dayEditor = null) }
+
+    // --- Itinerary (planned stops) ---
+    private fun upsertStop(stop: PlannedStop) = _uiState.update { st ->
+        val trip = st.trip ?: return@update st
+        val others = trip.plannedStops.filterNot { it.id == stop.id }
+        val merged = (others + stop).sortedWith(compareBy({ it.order }, { it.id }))
+        st.copy(trip = trip.copy(plannedStops = merged))
+    }
+
+    fun newStop() = _uiState.update { it.copy(stopEditor = PlannedStop(id = 0)) }
+    fun editStop(stop: PlannedStop) = _uiState.update { it.copy(stopEditor = stop) }
+    fun closeStopEditor() = _uiState.update { it.copy(stopEditor = null) }
+
+    /** Create (id 0) or update a planned stop from the editor form. */
+    fun saveStop(stop: PlannedStop) {
+        if (stop.name.isBlank()) { _uiState.update { it.copy(error = "Stop name required") }; return }
+        val req = PlannedStopRequest(
+            name = stop.name, locationName = stop.locationName,
+            latitude = stop.latitude, longitude = stop.longitude,
+            arrivalDate = stop.arrivalDate?.ifBlank { null }, nights = stop.nights ?: 0,
+            transport = stop.transport ?: "", notes = stop.notes ?: "",
+            accommodation = stop.accommodation ?: "",
+        )
+        viewModelScope.launch {
+            val r = if (stop.id == 0) repository.createPlannedStop(tripId, req)
+                    else repository.updatePlannedStop(tripId, stop.id, req)
+            when (r) {
+                is Result.Success -> r.data.stop?.let { upsertStop(it); _uiState.update { s -> s.copy(stopEditor = null) } }
+                is Result.Error -> _uiState.update { it.copy(error = r.message) }
+            }
+        }
+    }
+
+    fun deleteStop(stopId: Int) {
+        viewModelScope.launch {
+            repository.deletePlannedStop(tripId, stopId)
+            _uiState.update { st ->
+                val trip = st.trip
+                st.copy(stopEditor = null, trip = trip?.copy(plannedStops = trip.plannedStops.filterNot { it.id == stopId }))
+            }
+        }
+    }
+
+    /** Swap this stop's `order` with its neighbour (up = earlier). */
+    fun moveStop(stopId: Int, up: Boolean) {
+        val trip = _uiState.value.trip ?: return
+        val stops = trip.plannedStops.sortedWith(compareBy({ it.order }, { it.id }))
+        val idx = stops.indexOfFirst { it.id == stopId }
+        if (idx < 0) return
+        val target = if (up) idx - 1 else idx + 1
+        if (target < 0 || target >= stops.size) return
+        val a = stops[idx]; val b = stops[target]
+        // Optimistic local swap so the UI reorders immediately.
+        upsertStop(a.copy(order = b.order))
+        upsertStop(b.copy(order = a.order))
+        viewModelScope.launch {
+            repository.updatePlannedStop(tripId, a.id, PlannedStopRequest(order = b.order))
+            repository.updatePlannedStop(tripId, b.id, PlannedStopRequest(order = a.order))
+        }
+    }
 
     private fun mediaExt(mime: String): String = when {
         mime.contains("png") -> "png"

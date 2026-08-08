@@ -298,6 +298,28 @@ data class SaveDayNoteRequest(
     @SerializedName("place_id") val placeId: Int? = null,
 )
 
+// --- Itinerary (PlannedStop) write ---
+// All fields nullable so a reorder can send only `order` (Gson omits nulls, and
+// the server only touches keys present in the request).
+
+data class PlannedStopRequest(
+    val name: String? = null,
+    @SerializedName("location_name") val locationName: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    @SerializedName("arrival_date") val arrivalDate: String? = null,
+    val nights: Int? = null,
+    val transport: String? = null,
+    val notes: String? = null,
+    val accommodation: String? = null,
+    val order: Int? = null,
+)
+
+data class PlannedStopResponse(
+    val status: String = "",
+    val stop: PlannedStop? = null,
+)
+
 data class TripsListResponse(val trips: List<TripResponse>)
 
 data class CreateTripRequest(

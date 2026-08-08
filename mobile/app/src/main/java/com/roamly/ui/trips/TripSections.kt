@@ -23,6 +23,8 @@ import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Hotel
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.NightsStay
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material3.Icon
@@ -118,7 +120,13 @@ private fun DayAuthorAvatar(name: String, avatarUrl: String?) {
 }
 
 @Composable
-fun ItineraryStopCard(index: Int, stop: PlannedStop) {
+fun ItineraryStopCard(
+    index: Int,
+    stop: PlannedStop,
+    onEdit: (() -> Unit)? = null,
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -156,6 +164,94 @@ fun ItineraryStopCard(index: Int, stop: PlannedStop) {
             stop.notes?.takeIf { it.isNotBlank() }?.let {
                 Spacer(Modifier.height(4.dp))
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (onEdit != null) {
+            Column {
+                IconButton(onClick = onEdit, modifier = Modifier.size(30.dp)) {
+                    Icon(Icons.Rounded.Edit, "Edit", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (onMoveUp != null) IconButton(onClick = onMoveUp, modifier = Modifier.size(30.dp)) {
+                    Icon(Icons.Rounded.KeyboardArrowUp, "Move up", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (onMoveDown != null) IconButton(onClick = onMoveDown, modifier = Modifier.size(30.dp)) {
+                    Icon(Icons.Rounded.KeyboardArrowDown, "Move down", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+private val TRANSPORT_OPTIONS = listOf(
+    "" to "—", "plane" to "✈️ Plane", "car" to "🚗 Car", "train" to "🚆 Train",
+    "bus" to "🚌 Bus", "boat" to "⛴️ Boat", "cycle" to "🚲 Cycle", "walk" to "🚶 Walk", "other" to "• Other",
+)
+
+/** Create/edit dialog for one planned itinerary stop. */
+@Composable
+fun StopEditorDialog(
+    stop: PlannedStop,
+    onSave: (PlannedStop) -> Unit,
+    onDelete: (() -> Unit)?,
+    onClose: () -> Unit,
+) {
+    var name by remember { mutableStateOf(stop.name) }
+    var locationName by remember { mutableStateOf(stop.locationName ?: "") }
+    var arrivalDate by remember { mutableStateOf(stop.arrivalDate ?: "") }
+    var nights by remember { mutableStateOf((stop.nights ?: 0).toString()) }
+    var transport by remember { mutableStateOf(stop.transport ?: "") }
+    var accommodation by remember { mutableStateOf(stop.accommodation ?: "") }
+    var notes by remember { mutableStateOf(stop.notes ?: "") }
+    var transportOpen by remember { mutableStateOf(false) }
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth().padding(16.dp)
+                .clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.background).padding(18.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(if (stop.id == 0) "New stop" else "Edit stop", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
+            androidx.compose.material3.OutlinedTextField(name, { name = it }, label = { Text("Name *") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            androidx.compose.material3.OutlinedTextField(locationName, { locationName = it }, label = { Text("Location") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.OutlinedTextField(arrivalDate, { arrivalDate = it }, label = { Text("Arrival (YYYY-MM-DD)") }, singleLine = true, modifier = Modifier.weight(1f), placeholder = { Text("2025-06-01") })
+                androidx.compose.material3.OutlinedTextField(nights, { nights = it.filter { c -> c.isDigit() } }, label = { Text("Nights") }, singleLine = true, modifier = Modifier.width(90.dp))
+            }
+            // Transport dropdown
+            Box {
+                Row(
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .clickable { transportOpen = true }.padding(horizontal = 12.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Getting there:  ${TRANSPORT_OPTIONS.firstOrNull { it.first == transport }?.second ?: "—"}",
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                }
+                androidx.compose.material3.DropdownMenu(expanded = transportOpen, onDismissRequest = { transportOpen = false }) {
+                    TRANSPORT_OPTIONS.forEach { (v, label) ->
+                        androidx.compose.material3.DropdownMenuItem(text = { Text(label) }, onClick = { transport = v; transportOpen = false })
+                    }
+                }
+            }
+            androidx.compose.material3.OutlinedTextField(accommodation, { accommodation = it }, label = { Text("Accommodation") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            androidx.compose.material3.OutlinedTextField(notes, { notes = it }, label = { Text("Notes") }, minLines = 2, modifier = Modifier.fillMaxWidth())
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (onDelete != null) {
+                    androidx.compose.material3.TextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                }
+                Spacer(Modifier.weight(1f))
+                androidx.compose.material3.TextButton(onClick = onClose) { Text("Cancel") }
+                androidx.compose.material3.Button(onClick = {
+                    onSave(stop.copy(
+                        name = name, locationName = locationName, arrivalDate = arrivalDate,
+                        nights = nights.toIntOrNull() ?: 0, transport = transport,
+                        accommodation = accommodation, notes = notes,
+                    ))
+                }) { Text("Save") }
             }
         }
     }
