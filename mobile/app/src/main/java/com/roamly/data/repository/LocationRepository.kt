@@ -1,6 +1,7 @@
 package com.roamly.data.repository
 
 import com.roamly.data.api.DiagnosticsResponse
+import com.roamly.data.api.LocationTableResponse
 import com.roamly.data.api.LocationsResponse
 import com.roamly.data.api.RoamlyApi
 import com.roamly.data.api.SearchResponse
@@ -75,6 +76,34 @@ class LocationRepository @Inject constructor(private val api: RoamlyApi) {
             else
                 api.getStats(all = 1)
         }
+
+    /** One page of the raw Location Data table. `range` is either "all" or an
+     *  hours count ("24"/"72"/…); the cursor (beforeValue/beforeId) is used for
+     *  append pages, offset for the first page — mirroring the web /data/ page. */
+    suspend fun getLocationsTable(
+        range: String,
+        deviceId: String? = null,
+        sortKey: String = "timestamp",
+        sortDir: String = "desc",
+        limit: Int = 1000,
+        beforeValue: String? = null,
+        beforeId: Int? = null,
+        offset: Int? = null,
+    ): Result<LocationTableResponse> = safeApiCall {
+        val all = if (range == "all") 1 else null
+        val hours = if (range == "all") null else range.toIntOrNull()
+        api.getLocationsTable(
+            hours = hours,
+            all = all,
+            deviceId = deviceId?.ifBlank { null },
+            limit = limit,
+            offset = if (beforeValue == null) offset else null,
+            sortKey = sortKey,
+            sortDir = sortDir,
+            beforeValue = beforeValue,
+            beforeId = beforeId,
+        )
+    }
 
     suspend fun deleteLocation(id: Int): Result<ResponseBody> = safeApiCall { api.deleteLocation(id) }
 

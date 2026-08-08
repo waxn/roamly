@@ -46,6 +46,39 @@ data class LocationsResponse(
     @SerializedName("next_before_id")    val nextBeforeId: Int? = null,
 )
 
+// Flat, one-row-per-point shape backing the raw Location Data table (mirrors the
+// web /data/ page). The same /api/locations/ payload also carries a grouped
+// `devices` list for map sync — that's LocationsResponse; this reads the flat
+// `locations` array instead.
+data class LocationTableRow(
+    val id: Int,
+    val device: String = "",
+    val lat: Double? = null,
+    val lng: Double? = null,
+    val city: String? = null,
+    val state: String? = null,
+    val country: String? = null,
+    @SerializedName("country_code") val countryCode: String? = null,
+    @SerializedName("place_name")   val placeName: String? = null,
+    @SerializedName("poi_name")     val poiName: String? = null,
+    @SerializedName("custom_place") val customPlace: String? = null,
+    val altitude: Double? = null,
+    val accuracy: Double? = null,
+    val speed: Double? = null,
+    val battery: Double? = null,
+    val timestamp: String = "",
+    val flag: String? = null,
+)
+
+data class LocationTableResponse(
+    val locations: List<LocationTableRow> = emptyList(),
+    @SerializedName("sort_key") val sortKey: String = "timestamp",
+    @SerializedName("sort_dir") val sortDir: String = "desc",
+    @SerializedName("has_more") val hasMore: Boolean = false,
+    @SerializedName("next_before_value") val nextBeforeValue: String? = null,
+    @SerializedName("next_before_id")    val nextBeforeId: Int? = null,
+)
+
 data class TrackPoint(
     @SerializedName("c") val coordinates: List<Double>,
     val ts: Long? = null,

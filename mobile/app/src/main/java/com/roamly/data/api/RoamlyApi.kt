@@ -87,6 +87,22 @@ interface RoamlyApi {
         @Query("before_id") beforeId: Int? = null,
     ): Response<LocationsResponse>
 
+    /** Same /api/locations/ endpoint as [getLocations], read as the flat
+     *  one-row-per-point `locations` array for the raw Location Data table.
+     *  Sort/filter/cursor params mirror the web /data/ page exactly. */
+    @GET("api/locations/")
+    suspend fun getLocationsTable(
+        @Query("hours") hours: Int? = null,
+        @Query("all") all: Int? = null,
+        @Query("device_id") deviceId: String? = null,
+        @Query("limit") limit: Int = 1000,
+        @Query("offset") offset: Int? = null,
+        @Query("sort_key") sortKey: String? = null,
+        @Query("sort_dir") sortDir: String? = null,
+        @Query("before_value") beforeValue: String? = null,
+        @Query("before_id") beforeId: Int? = null,
+    ): Response<LocationTableResponse>
+
     /** Delete a single GPS point (ownership-scoped server-side). HTTP DELETE +
      *  csrf-exempt, so the session cookie alone authorises it. */
     @DELETE("api/locations/{id}/delete/")

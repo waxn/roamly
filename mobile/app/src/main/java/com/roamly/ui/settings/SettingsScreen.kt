@@ -62,6 +62,11 @@ fun SettingsScreen(
         DiagnosticsScreen(viewModel = viewModel, onBack = { showDiagnostics = false })
         return
     }
+    var showDataTable by remember { mutableStateOf(false) }
+    if (showDataTable) {
+        LocationTableScreen(onBack = { showDataTable = false })
+        return
+    }
     val state by viewModel.uiState.collectAsState()
     val updateState by updateViewModel.state.collectAsState()
     val context = LocalContext.current
@@ -644,6 +649,18 @@ fun SettingsScreen(
                 Icon(Icons.Rounded.BugReport, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Diagnostics", fontWeight = FontWeight.Bold)
+            }
+
+            Spacer(Modifier.height(10.dp))
+            ClayButton(
+                onClick = { showDataTable = true },
+                gradient = clay.secondaryGradient,
+                contentColor = Color(0xFF052B26),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Rounded.Storage, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Location Data", fontWeight = FontWeight.Bold)
             }
         }
 
