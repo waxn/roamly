@@ -47,7 +47,6 @@ import com.roamly.ui.groups.GroupsScreen
 import com.roamly.ui.journals.JournalsScreen
 import com.roamly.ui.map.MapScreen
 import com.roamly.ui.map.MapViewModel
-import com.roamly.ui.pals.PalDetailScreen
 import com.roamly.ui.settings.SettingsScreen
 import com.roamly.ui.search.SearchTabScreen
 import com.roamly.ui.stats.StatsScreen
@@ -64,7 +63,6 @@ sealed class Screen(val route: String, val label: String) {
     object Settings   : Screen("settings",    "Settings")
     object Login      : Screen("login",       "Login")
     object TripDetail : Screen("trips/{tripId}", "Trip")
-    object PalDetail  : Screen("pals/{palId}",  "Pal")
 }
 
 // Search sits in the middle slot always — it hosts history search, plus the AI
@@ -119,8 +117,7 @@ fun RoamlyNavHost() {
     }
 
     val showBottomBar = currentDestination?.route != Screen.Login.route &&
-            currentDestination?.route != Screen.TripDetail.route &&
-            currentDestination?.route != Screen.PalDetail.route
+            currentDestination?.route != Screen.TripDetail.route
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -182,7 +179,6 @@ fun RoamlyNavHost() {
             composable(Screen.Adventures.route) {
                 GroupsScreen(
                     onTripClick = { id -> navController.navigate("trips/$id") },
-                    onPalClick  = { id -> navController.navigate("pals/$id") }
                 )
             }
             composable(
@@ -190,12 +186,6 @@ fun RoamlyNavHost() {
                 arguments = listOf(navArgument("tripId") { type = NavType.IntType })
             ) { back ->
                 TripDetailScreen(tripId = back.arguments!!.getInt("tripId"), onBack = { navController.popBackStack() })
-            }
-            composable(
-                route = Screen.PalDetail.route,
-                arguments = listOf(navArgument("palId") { type = NavType.IntType })
-            ) { back ->
-                PalDetailScreen(palId = back.arguments!!.getInt("palId"), onBack = { navController.popBackStack() })
             }
             composable(Screen.Search.route) {
                 val toMap = {

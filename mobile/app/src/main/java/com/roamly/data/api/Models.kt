@@ -181,7 +181,7 @@ data class CreateTripRequest(
     @SerializedName("end_time") val endTime: String = "",
 )
 
-// --- Pals ---
+// --- Trip members ---
 
 data class PalMember(
     @SerializedName("user_id")  val userId: Int,
@@ -190,21 +190,6 @@ data class PalMember(
     @SerializedName("joined_at") val joinedAt: String? = null,
     @SerializedName("can_remove") val canRemove: Boolean = false,
 )
-
-data class PalResponse(
-    val id: Int,
-    val name: String,
-    val description: String? = null,
-    @SerializedName("start_date")   val startDate: String,
-    @SerializedName("end_date")     val endDate: String,
-    val creator: String? = null,
-    @SerializedName("is_public")    val isPublic: Boolean = false,
-    @SerializedName("member_count") val memberCount: Int = 0,
-    val role: String? = null,
-    val members: List<PalMember>? = null,
-)
-
-data class PalsListResponse(val pals: List<PalResponse>)
 
 // --- Timeline ---
 
@@ -262,18 +247,6 @@ data class CreateMilestoneRequest(
     val description: String = "",
     val emoji: String = "🏁",
     val date: String,
-)
-
-data class CreatePalRequest(
-    val name: String,
-    val description: String = "",
-    @SerializedName("start_date") val startDate: String,
-    @SerializedName("end_date")   val endDate: String,
-)
-
-data class UpdatePalRequest(
-    val name: String,
-    val description: String = "",
 )
 
 // --- Auth / API key ---

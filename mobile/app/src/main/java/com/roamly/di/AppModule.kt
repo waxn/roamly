@@ -171,11 +171,6 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun providePalRepository(api: RoamlyApi): com.roamly.data.repository.PalRepository =
-        com.roamly.data.repository.PalRepository(api)
-
-    @Provides
-    @Singleton
     fun provideJournalRepository(api: RoamlyApi): com.roamly.data.repository.JournalRepository =
         com.roamly.data.repository.JournalRepository(api)
 
