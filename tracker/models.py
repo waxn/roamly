@@ -459,6 +459,87 @@ else:
             return f"{self.name or self.highway} ({self.way_id})"
 
 
+# ---------------------------------------------------------------------------
+# Subway/metro geometry — a second, much smaller reference table modelled on
+# RoadSegment. Downloaded by rail_download_tasks and routed over by rails.py to
+# reconstruct the underground stretches GPS never recorded. Subway only
+# (railway=subway); RailStation carries the interchange nodes the router stitches
+# lines together at, so a ride crossing a transfer still routes end to end.
+# ---------------------------------------------------------------------------
+if HAS_POSTGIS and gis_models:
+    class RailSegment(gis_models.Model):
+        # OSM way id, unique so overlapping downloads dedupe via
+        # bulk_create(ignore_conflicts=True), exactly like RoadSegment.
+        way_id = gis_models.BigIntegerField(unique=True)
+        name = gis_models.CharField(max_length=200, blank=True)
+        # railway=subway today; kept as a column so the family could widen later
+        # without a migration.
+        railway = gis_models.CharField(max_length=32, db_index=True)
+        geom = gis_models.LineStringField(srid=4326)
+
+        class Meta:
+            indexes = [
+                GistIndex(fields=['geom'], name='tracker_rail_geom_gist'),
+            ]
+
+        def __str__(self):
+            return f"{self.name or self.railway} ({self.way_id})"
+
+    class RailStation(gis_models.Model):
+        # OSM node id (a station/stop node). Unique so downloads dedupe.
+        node_id = gis_models.BigIntegerField(unique=True)
+        name = gis_models.CharField(max_length=200, blank=True)
+        geom = gis_models.PointField(srid=4326)
+
+        class Meta:
+            indexes = [
+                GistIndex(fields=['geom'], name='tracker_railstn_geom_gist'),
+            ]
+
+        def __str__(self):
+            return f"{self.name or 'station'} ({self.node_id})"
+else:
+    class RailSegment(models.Model):
+        """SQLite fallback — no geometry, so subway routing is unavailable."""
+        way_id = models.BigIntegerField(unique=True)
+        name = models.CharField(max_length=200, blank=True)
+        railway = models.CharField(max_length=32, db_index=True)
+
+        def __str__(self):
+            return f"{self.name or self.railway} ({self.way_id})"
+
+    class RailStation(models.Model):
+        """SQLite fallback — no geometry."""
+        node_id = models.BigIntegerField(unique=True)
+        name = models.CharField(max_length=200, blank=True)
+
+        def __str__(self):
+            return f"{self.name or 'station'} ({self.node_id})"
+
+
+SUBWAY_AVAILABLE_CACHE_KEY = 'subway_available'
+
+
+def _subway_data_available():
+    """Whether subway routing can be used at all: PostGIS + at least one way.
+
+    Cached like _local_roads_available — the diagnostics gap endpoint and the
+    settings page both consult it, and an EXISTS per request is avoidable. The
+    rail importer and the delete endpoint bust this key.
+    """
+    if not HAS_POSTGIS:
+        return False
+    from django.core.cache import cache
+    available = cache.get(SUBWAY_AVAILABLE_CACHE_KEY)
+    if available is None:
+        try:
+            available = RailSegment.objects.exists()
+        except Exception:
+            available = False
+        cache.set(SUBWAY_AVAILABLE_CACHE_KEY, available, 300)
+    return bool(available)
+
+
 ROADS_AVAILABLE_CACHE_KEY = 'roads_available'
 
 
@@ -513,6 +594,33 @@ class RoadDownloadJob(models.Model):
         return f"Road Download {self.user.username}: {self.processed}/{self.total}"
 
 
+class RailDownloadJob(models.Model):
+    """Persistent state for the background OSM subway download task.
+
+    A clone of RoadDownloadJob — same worker-token ownership, same progress
+    columns — with one extra counter for stations (RailStation rows added this
+    run), since the subway download stores both track ways and station nodes.
+    """
+    STATUS_CHOICES = [
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('stopped', 'Stopped'),
+    ]
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='rail_download_job')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='running')
+    processed = models.IntegerField(default=0)   # areas downloaded
+    total = models.IntegerField(default=0)       # areas queued
+    ways = models.IntegerField(default=0)        # rail segments stored this run
+    stations = models.IntegerField(default=0)    # rail stations stored this run
+    failed = models.IntegerField(default=0)
+    worker_token = models.CharField(max_length=32, blank=True, default='')
+    started_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Subway Download {self.user.username}: {self.processed}/{self.total}"
+
+
 class EditBatch(models.Model):
     """One action taken in the map editor, so it can be undone as a unit.
 
@@ -532,6 +640,7 @@ class EditBatch(models.Model):
         ('run', 'Point run'),          # a sequence laid down from an anchor
         ('copy', 'Copied range'),      # a stretch pasted from another time
         ('delete', 'Deleted points'),  # real points moved to the trash
+        ('subway', 'Subway route'),    # a GPS gap filled along subway track
     ]
     TARGET_CHOICES = [
         ('inferred', 'Inferred'),      # InferredLocation — invisible to aggregates
@@ -1145,6 +1254,31 @@ class DismissedSuggestion(models.Model):
 
     def __str__(self):
         return f"Dismissed suggestion at {self.latitude:.4f},{self.longitude:.4f} ({self.user.username})"
+
+
+class DismissedSubwayGap(models.Model):
+    """A detected subway gap the user rejected, so it stops resurfacing.
+
+    Gaps are recomputed on the fly from the track (subway_gap_tasks), never
+    stored — filling one just creates real Location rows that close the gap, so
+    it drops out of detection on its own. The only state worth persisting is a
+    rejection, keyed on the two anchor coordinates (rounded when matched), the
+    same trust model as DismissedSuggestion. User intent ⇒ excluded from backups.
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='dismissed_subway_gaps')
+    start_latitude = models.FloatField()
+    start_longitude = models.FloatField()
+    end_latitude = models.FloatField()
+    end_longitude = models.FloatField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['user'], name='tracker_dismsub_user_idx')]
+
+    def __str__(self):
+        return (f"Dismissed subway gap "
+                f"({self.start_latitude:.4f},{self.start_longitude:.4f})→"
+                f"({self.end_latitude:.4f},{self.end_longitude:.4f}) ({self.user.username})")
 
 
 class StatsSnapshot(models.Model):
