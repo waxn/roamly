@@ -1,19 +1,37 @@
 package com.roamly.ui.trips
 
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.roamly.data.api.Comment
 import com.roamly.data.api.CreateMilestoneRequest
+import com.roamly.data.api.DayNote
+import com.roamly.data.api.MediaItem
 import com.roamly.data.api.TimelineEvent
 import com.roamly.data.api.TripResponse
 import com.roamly.data.repository.Result
 import com.roamly.data.repository.TripRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import javax.inject.Inject
+
+data class DayNoteEditorState(
+    val note: DayNote,
+    val title: String,
+    val body: String,
+    val placeId: Int?,
+    val photos: List<MediaItem>,
+    val saving: Boolean = false,
+    val uploading: Boolean = false,
+)
 
 data class TripDetailUiState(
     val trip: TripResponse? = null,
@@ -26,11 +44,13 @@ data class TripDetailUiState(
     val showAddTypeDialog: Boolean = false,
     val showBlurbDialog: Boolean = false,
     val showMilestoneDialog: Boolean = false,
+    val dayEditor: DayNoteEditorState? = null,
 )
 
 @HiltViewModel
 class TripDetailViewModel @Inject constructor(
-    private val repository: TripRepository
+    private val repository: TripRepository,
+    @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TripDetailUiState())
@@ -101,6 +121,108 @@ class TripDetailViewModel @Inject constructor(
 
     fun togglePublic() {
         viewModelScope.launch { repository.togglePublic(tripId) }
+    }
+
+    // --- Day Log ---
+    private fun upsertDayNote(note: DayNote) = _uiState.update { st ->
+        val trip = st.trip ?: return@update st
+        val others = trip.dayNotes.filterNot { it.id == note.id }
+        val merged = (others + note).sortedWith(compareBy({ it.date }, { it.id }))
+        st.copy(trip = trip.copy(dayNotes = merged))
+    }
+
+    fun startNewDayNote(date: String) {
+        viewModelScope.launch {
+            when (val r = repository.createDayNote(tripId, date)) {
+                is Result.Success -> r.data.dayNote?.let { note ->
+                    upsertDayNote(note)
+                    _uiState.update { it.copy(dayEditor = DayNoteEditorState(note, note.title, note.body, note.placeId, note.photos)) }
+                }
+                is Result.Error -> _uiState.update { it.copy(error = r.message) }
+            }
+        }
+    }
+
+    fun openDayNote(note: DayNote) {
+        _uiState.update { it.copy(dayEditor = DayNoteEditorState(note, note.title, note.body, note.placeId, note.photos)) }
+    }
+
+    fun editDayTitle(v: String) = _uiState.update { it.copy(dayEditor = it.dayEditor?.copy(title = v)) }
+    fun editDayBody(v: String) = _uiState.update { it.copy(dayEditor = it.dayEditor?.copy(body = v)) }
+    fun editDayPlace(placeId: Int?) = _uiState.update { it.copy(dayEditor = it.dayEditor?.copy(placeId = placeId)) }
+
+    fun saveDayNote() {
+        val ed = _uiState.value.dayEditor ?: return
+        _uiState.update { it.copy(dayEditor = it.dayEditor?.copy(saving = true)) }
+        viewModelScope.launch {
+            when (val r = repository.saveDayNote(tripId, ed.note.id, ed.title, ed.body, ed.placeId)) {
+                is Result.Success -> r.data.dayNote?.let { note ->
+                    upsertDayNote(note)
+                    _uiState.update { it.copy(dayEditor = it.dayEditor?.copy(saving = false, note = note, photos = note.photos)) }
+                }
+                is Result.Error -> _uiState.update { it.copy(error = r.message, dayEditor = it.dayEditor?.copy(saving = false)) }
+            }
+        }
+    }
+
+    fun addDayNotePhotos(uris: List<Uri>) {
+        val ed = _uiState.value.dayEditor ?: return
+        if (uris.isEmpty()) return
+        _uiState.update { it.copy(dayEditor = it.dayEditor?.copy(uploading = true)) }
+        viewModelScope.launch {
+            val resolver = context.contentResolver
+            val parts = uris.mapIndexedNotNull { i, uri ->
+                val bytes = runCatching { resolver.openInputStream(uri)?.use { s -> s.readBytes() } }.getOrNull()
+                    ?: return@mapIndexedNotNull null
+                val type = resolver.getType(uri) ?: "image/jpeg"
+                val ext = mediaExt(type)
+                val body = bytes.toRequestBody(type.toMediaTypeOrNull())
+                MultipartBody.Part.createFormData("photos", "media_$i.$ext", body)
+            }
+            if (parts.isNotEmpty()) {
+                when (val r = repository.uploadDayNotePhotos(tripId, ed.note.id, parts)) {
+                    is Result.Success -> r.data.dayNote?.let { note ->
+                        upsertDayNote(note)
+                        _uiState.update { it.copy(dayEditor = it.dayEditor?.copy(photos = note.photos)) }
+                    }
+                    is Result.Error -> _uiState.update { it.copy(error = r.message) }
+                }
+            }
+            _uiState.update { it.copy(dayEditor = it.dayEditor?.copy(uploading = false)) }
+        }
+    }
+
+    fun deleteDayNotePhoto(photoId: Int) {
+        viewModelScope.launch {
+            when (repository.deleteDayNotePhoto(tripId, photoId)) {
+                is Result.Success -> _uiState.update {
+                    it.copy(dayEditor = it.dayEditor?.let { ed -> ed.copy(photos = ed.photos.filterNot { p -> p.id == photoId }) })
+                }
+                is Result.Error -> {}
+            }
+        }
+    }
+
+    fun deleteDayNote() {
+        val ed = _uiState.value.dayEditor ?: return
+        viewModelScope.launch {
+            repository.deleteDayNote(tripId, ed.note.id)
+            _uiState.update { st ->
+                val trip = st.trip
+                st.copy(
+                    dayEditor = null,
+                    trip = trip?.copy(dayNotes = trip.dayNotes.filterNot { it.id == ed.note.id }),
+                )
+            }
+        }
+    }
+
+    fun closeDayEditor() = _uiState.update { it.copy(dayEditor = null) }
+
+    private fun mediaExt(mime: String): String = when {
+        mime.contains("png") -> "png"
+        mime.startsWith("video/") -> mime.substringAfter('/').substringBefore(';').ifBlank { "mp4" }
+        else -> "jpg"
     }
 
     // --- Comments ---

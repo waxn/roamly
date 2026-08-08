@@ -285,6 +285,19 @@ data class DayNote(
 
 data class TripCategory(val slug: String = "", val label: String = "")
 
+// --- Day Log write ---
+
+data class DayNoteResponse(
+    val status: String = "",
+    @SerializedName("day_note") val dayNote: DayNote? = null,
+)
+
+data class SaveDayNoteRequest(
+    val title: String,
+    val body: String,
+    @SerializedName("place_id") val placeId: Int? = null,
+)
+
 data class TripsListResponse(val trips: List<TripResponse>)
 
 data class CreateTripRequest(

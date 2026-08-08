@@ -5,7 +5,9 @@ import com.roamly.data.api.CommentsResponse
 import com.roamly.data.api.CreateCommentRequest
 import com.roamly.data.api.CreateMilestoneRequest
 import com.roamly.data.api.CreateTripRequest
+import com.roamly.data.api.DayNoteResponse
 import com.roamly.data.api.RoamlyApi
+import com.roamly.data.api.SaveDayNoteRequest
 import com.roamly.data.api.TimelineEvent
 import com.roamly.data.api.TimelineResponse
 import com.roamly.data.api.TripResponse
@@ -71,6 +73,20 @@ class TripRepository @Inject constructor(
         val r = api.createTripMilestone(tripId, request)
         if (r.isSuccessful) Result.Success(Unit) else Result.Error("Failed (${r.code()})")
     } catch (e: Exception) { Result.Error(e.message ?: "Unknown error") }
+
+    // --- Day Log ---
+    suspend fun createDayNote(tripId: Int, date: String): Result<DayNoteResponse> =
+        safeApiCall { api.createDayNote(tripId, date) }
+
+    suspend fun saveDayNote(tripId: Int, noteId: Int, title: String, body: String, placeId: Int?): Result<DayNoteResponse> =
+        safeApiCall { api.saveDayNote(tripId, noteId, SaveDayNoteRequest(title, body, placeId)) }
+
+    suspend fun uploadDayNotePhotos(tripId: Int, noteId: Int, parts: List<okhttp3.MultipartBody.Part>): Result<DayNoteResponse> =
+        safeApiCall { api.uploadDayNotePhotos(tripId, noteId, parts) }
+
+    suspend fun deleteDayNotePhoto(tripId: Int, photoId: Int) = safeApiCall { api.deleteDayNotePhoto(tripId, photoId) }
+
+    suspend fun deleteDayNote(tripId: Int, noteId: Int) = safeApiCall { api.deleteDayNote(tripId, noteId) }
 
     /** Configured server origin (no trailing slash), for building absolute media URLs. */
     suspend fun serverUrl(): String = prefs.serverUrl.first()?.trimEnd('/') ?: ""

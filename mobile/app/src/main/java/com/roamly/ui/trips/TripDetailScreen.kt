@@ -81,6 +81,7 @@ fun TripDetailScreen(
     val state by viewModel.uiState.collectAsState()
     val clay = Clay.colors
     var showFullMap by remember { mutableStateOf(false) }
+    var showAddDay by remember { mutableStateOf(false) }
     LaunchedEffect(tripId) { viewModel.load(tripId) }
 
     if (showFullMap && state.trip != null) {
@@ -213,21 +214,33 @@ fun TripDetailScreen(
                         }
 
                         // Day Log — per-member per-day entries, grouped by date.
-                        if (trip.dayNotes.isNotEmpty()) {
-                            item { SectionHeader("Day Log") }
-                            val grouped = trip.dayNotes.groupBy { it.date }
-                            grouped.forEach { (date, notes) ->
-                                item(key = "daylog-$date") {
-                                    Text(
-                                        formatDayHeader(date),
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(top = 4.dp),
-                                    )
+                        item {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                SectionHeader("Day Log")
+                                Spacer(Modifier.weight(1f))
+                                TextButton(onClick = { showAddDay = true }) {
+                                    Icon(Icons.Rounded.Add, null, Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Add entry")
                                 }
-                                items(notes, key = { "daynote-${it.id}" }) { note ->
-                                    DayLogEntryCard(note = note, serverUrl = state.serverUrl)
-                                }
+                            }
+                        }
+                        val grouped = trip.dayNotes.groupBy { it.date }
+                        grouped.forEach { (date, notes) ->
+                            item(key = "daylog-$date") {
+                                Text(
+                                    formatDayHeader(date),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                            items(notes, key = { "daynote-${it.id}" }) { note ->
+                                DayLogEntryCard(
+                                    note = note,
+                                    serverUrl = state.serverUrl,
+                                    onEdit = if (note.isMine) ({ viewModel.openDayNote(note) }) else null,
+                                )
                             }
                         }
                     }
@@ -322,6 +335,35 @@ fun TripDetailScreen(
         MilestoneCreateDialog(
             onDismiss = viewModel::hideMilestoneDialog,
             onConfirm = { emoji, title, desc, date -> viewModel.createMilestone(emoji, title, desc, date) }
+        )
+    }
+
+    if (showAddDay) {
+        var date by remember { mutableStateOf(java.time.LocalDate.now().toString()) }
+        AlertDialog(
+            onDismissRequest = { showAddDay = false },
+            title = { Text("New day-log entry") },
+            text = {
+                OutlinedTextField(value = date, onValueChange = { date = it }, label = { Text("Date (YYYY-MM-DD)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            },
+            confirmButton = { TextButton(onClick = { viewModel.startNewDayNote(date); showAddDay = false }) { Text("Create") } },
+            dismissButton = { TextButton(onClick = { showAddDay = false }) { Text("Cancel") } }
+        )
+    }
+
+    state.dayEditor?.let { editor ->
+        DayNoteEditorDialog(
+            editor = editor,
+            places = state.trip?.places ?: emptyList(),
+            serverUrl = state.serverUrl,
+            onTitle = viewModel::editDayTitle,
+            onBody = viewModel::editDayBody,
+            onPlace = viewModel::editDayPlace,
+            onAddPhotos = viewModel::addDayNotePhotos,
+            onDeletePhoto = viewModel::deleteDayNotePhoto,
+            onSave = viewModel::saveDayNote,
+            onDelete = viewModel::deleteDayNote,
+            onClose = viewModel::closeDayEditor,
         )
     }
 }

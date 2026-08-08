@@ -228,6 +228,41 @@ interface RoamlyApi {
         @Path("userId") userId: Int,
     ): Response<ResponseBody>
 
+    // --- Adventure Day Log ---
+
+    @POST("api/trips/{id}/days/{date}/create/")
+    suspend fun createDayNote(
+        @Path("id") tripId: Int,
+        @Path("date") date: String,
+    ): Response<DayNoteResponse>
+
+    @POST("api/trips/{id}/days/note/{noteId}/")
+    suspend fun saveDayNote(
+        @Path("id") tripId: Int,
+        @Path("noteId") noteId: Int,
+        @Body request: SaveDayNoteRequest,
+    ): Response<DayNoteResponse>
+
+    @Multipart
+    @POST("api/trips/{id}/days/note/{noteId}/photos/")
+    suspend fun uploadDayNotePhotos(
+        @Path("id") tripId: Int,
+        @Path("noteId") noteId: Int,
+        @Part photos: List<okhttp3.MultipartBody.Part>,
+    ): Response<DayNoteResponse>
+
+    @POST("api/trips/{id}/days/photos/{photoId}/delete/")
+    suspend fun deleteDayNotePhoto(
+        @Path("id") tripId: Int,
+        @Path("photoId") photoId: Int,
+    ): Response<ResponseBody>
+
+    @POST("api/trips/{id}/days/note/{noteId}/delete/")
+    suspend fun deleteDayNote(
+        @Path("id") tripId: Int,
+        @Path("noteId") noteId: Int,
+    ): Response<ResponseBody>
+
     // --- Journals ---
 
     @GET("api/journals/")
