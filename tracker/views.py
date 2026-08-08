@@ -47,6 +47,7 @@ from .models import (
     SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig, StatsSnapshot,
     DismissedSuggestion, PlannedStop, KnownDevice, TOTPBackupCode,
     InferredLocation, EditBatch, TrashedLocation, RoadSegment, ROADS_AVAILABLE_CACHE_KEY,
+    RailSegment, RailStation, DismissedSubwayGap, SUBWAY_AVAILABLE_CACHE_KEY,
 )
 from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email, send_contact_email
 from .image_utils import resize_image, resize_photo
@@ -9362,6 +9363,200 @@ def road_data_delete_api(request):
     return JsonResponse({'status': 'ok', 'deleted': deleted})
 
 
+# ── Subway data + gap filling ───────────────────────────────────────────────
+#
+# Subways have no GPS, so a ride leaves a hole in the track. RailSegment/
+# RailStation hold subway geometry downloaded from OSM (rail_download_tasks);
+# rails.py routes over it (transfer-aware); subway_gap_tasks detects the gaps.
+# A confirmed fill lays *real* Location rows along the tunnel so the ride's
+# distance counts, recorded as an EditBatch (kind='subway') for undo.
+
+@login_required
+@require_http_methods(["POST"])
+def subway_download_api(request):
+    """Start downloading OSM subway geometry for the areas the user has visited."""
+    from .rail_download_tasks import start_subway_download
+    job = start_subway_download(request.user.id)
+    return JsonResponse({'status': job.status, 'total': job.total})
+
+
+@login_required
+def subway_download_status_api(request):
+    """Check subway-download progress."""
+    from .rail_download_tasks import get_subway_download_status
+    return JsonResponse(get_subway_download_status(request.user.id))
+
+
+@login_required
+@require_http_methods(["POST"])
+def subway_download_stop_api(request):
+    """Stop a running subway download."""
+    from .rail_download_tasks import stop_subway_download
+    return JsonResponse({'stopped': stop_subway_download(request.user.id)})
+
+
+@login_required
+@require_http_methods(["POST"])
+def subway_data_delete_api(request):
+    """Delete all downloaded subway geometry (instance-wide, like road data)."""
+    from .rail_download_tasks import stop_subway_download
+
+    stop_subway_download(request.user.id)
+    ways = RailSegment.objects.count()
+    stations = RailStation.objects.count()
+    if ways or stations:
+        from django.db import connection
+        if connection.vendor == 'postgresql':
+            with connection.cursor() as cur:
+                cur.execute(f'TRUNCATE TABLE {RailSegment._meta.db_table}')
+                cur.execute(f'TRUNCATE TABLE {RailStation._meta.db_table}')
+        else:
+            RailSegment.objects.all().delete()
+            RailStation.objects.all().delete()
+    cache.delete(SUBWAY_AVAILABLE_CACHE_KEY)
+    return JsonResponse({'status': 'ok', 'deleted': ways, 'stations': stations})
+
+
+def _subway_gaps_cached(user):
+    """Detected gaps for `user`, from the 30-min cache or recomputed.
+
+    Also the source of truth a fill commits against: the cached gap carries the
+    candidate route coords, so a fill picks one by index and the client can never
+    inject geometry that was not offered — the same guard the editor route uses.
+    """
+    from . import subway_gap_tasks
+    key = subway_gap_tasks.cache_key(user.id)
+    gaps = cache.get(key)
+    if gaps is None:
+        gaps = subway_gap_tasks.detect_gaps(user)
+        cache.set(key, gaps, subway_gap_tasks.CACHE_TTL)
+    return gaps
+
+
+@login_required
+def subway_gaps_api(request):
+    """Detected subway gaps with their candidate routes (for the Diagnostics tab).
+
+    `?refresh=1` recomputes from scratch (a full history scan) and re-caches —
+    what the tab's Refresh button uses after a download, since the cache would
+    otherwise mask newly-downloaded track for up to 30 minutes.
+    """
+    from .models import _subway_data_available
+    from . import subway_gap_tasks
+    if not _subway_data_available():
+        return JsonResponse({'available': False, 'gaps': []})
+    if request.GET.get('refresh'):
+        gaps = subway_gap_tasks.detect_gaps(request.user)
+        cache.set(subway_gap_tasks.cache_key(request.user.id), gaps, subway_gap_tasks.CACHE_TTL)
+        return JsonResponse({'available': True, 'gaps': gaps})
+    return JsonResponse({'available': True, 'gaps': _subway_gaps_cached(request.user)})
+
+
+@login_required
+@require_http_methods(["POST"])
+def subway_gap_fill_api(request):
+    """Fill a detected subway gap with real points along the chosen route."""
+    from . import editor_tasks, subway_gap_tasks
+
+    try:
+        data = json.loads(request.body or '{}')
+        start_id = int(data['start_id'])
+        end_id = int(data['end_id'])
+    except (json.JSONDecodeError, ValueError, TypeError, KeyError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+    try:
+        idx = int(data.get('route', 0))
+    except (TypeError, ValueError):
+        idx = 0
+
+    rows, err = _route_anchor_rows(request, [start_id, end_id])
+    if err:
+        return JsonResponse({'error': err}, status=400)
+
+    gap = next((g for g in _subway_gaps_cached(request.user)
+                if g['start_id'] == start_id and g['end_id'] == end_id), None)
+    if not gap:
+        return JsonResponse({'error': 'That subway gap is no longer available. '
+                                      'Refresh the list and try again.'}, status=400)
+    if not (0 <= idx < len(gap['routes'])):
+        return JsonResponse({'error': 'Unknown route.'}, status=400)
+
+    coords = gap['routes'][idx]['coords']
+    t0, t1 = rows[0]['timestamp'], rows[1]['timestamp']
+    # Even spacing by time — the surface anchors are at walking speed, so a speed
+    # ramp between them (points_along's default) would model the wrong thing.
+    pts, route_len = editor_tasks.points_along(coords, t0, t1)
+    if not pts:
+        return JsonResponse({'error': 'That gap is too short to place any points in.'}, status=400)
+
+    device = Device.objects.get(id=rows[0]['device_id'])
+    ride_date = (timezone.localtime(t0) if timezone.is_aware(t0) else t0).date().isoformat()
+    batch = editor_tasks.create_batch(
+        request.user, device, 'subway', pts, target='location',
+        note=f'{route_len / 1000:.1f} km · {ride_date}')
+    cache.delete(subway_gap_tasks.cache_key(request.user.id))
+    _bust_user_cache(request.user.id)
+    return JsonResponse({'status': 'ok', 'batch_id': batch.id,
+                         'points': batch.point_count, 'route_m': _jf(route_len)})
+
+
+@login_required
+@require_http_methods(["POST"])
+def subway_gap_dismiss_api(request):
+    """Reject a detected gap so it stops resurfacing (keyed on its anchor coords)."""
+    from . import subway_gap_tasks
+
+    try:
+        data = json.loads(request.body or '{}')
+        start_id = int(data['start_id'])
+        end_id = int(data['end_id'])
+    except (json.JSONDecodeError, ValueError, TypeError, KeyError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+
+    rows = {r['id']: r for r in Location.objects.filter(
+        id__in=[start_id, end_id], device__user=request.user)
+        .values('id', 'latitude', 'longitude')}
+    s, e = rows.get(start_id), rows.get(end_id)
+    if not s or not e:
+        return JsonResponse({'error': 'Points not found.'}, status=400)
+
+    DismissedSubwayGap.objects.create(
+        user=request.user,
+        start_latitude=s['latitude'], start_longitude=s['longitude'],
+        end_latitude=e['latitude'], end_longitude=e['longitude'])
+    cache.delete(subway_gap_tasks.cache_key(request.user.id))
+    return JsonResponse({'dismissed': True})
+
+
+@login_required
+def subway_fills_api(request):
+    """History of approved subway fills, so they can be reviewed and removed."""
+    fills = (EditBatch.objects.filter(user=request.user, kind='subway', undone=False)
+             .select_related('device').order_by('-created_at')[:200])
+    return JsonResponse({'fills': [{
+        'id': b.id,
+        'note': b.note,
+        'points': b.point_count,
+        'device': b.device.name or b.device.device_id,
+        'created_at': b.created_at.isoformat(),
+    } for b in fills]})
+
+
+@login_required
+@require_http_methods(["POST"])
+def subway_fill_delete_api(request, batch_id):
+    """Delete an approved fill — its real points go to the trash, undoable."""
+    from . import editor_tasks, subway_gap_tasks
+
+    batch = EditBatch.objects.filter(
+        id=batch_id, user=request.user, kind='subway', undone=False).first()
+    if not batch:
+        return JsonResponse({'error': 'That fill is no longer available.'}, status=400)
+
+    removed = editor_tasks.undo_batch(request.user, batch)
+    cache.delete(subway_gap_tasks.cache_key(request.user.id))
+    _bust_user_cache(request.user.id)
+    return JsonResponse({'status': 'ok', 'removed': removed})
 
 
 # ---------------------------------------------------------------------------

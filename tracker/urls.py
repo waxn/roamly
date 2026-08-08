@@ -188,6 +188,17 @@ urlpatterns = [
     path('api/roads/delete/', views.road_data_delete_api, name='road_data_delete'),
     path('api/inferred/', views.inferred_locations_api, name='inferred_locations'),
 
+    # Subway data + gap filling API
+    path('api/subway/download/', views.subway_download_api, name='subway_download'),
+    path('api/subway/download/status/', views.subway_download_status_api, name='subway_download_status'),
+    path('api/subway/download/stop/', views.subway_download_stop_api, name='subway_download_stop'),
+    path('api/subway/delete/', views.subway_data_delete_api, name='subway_data_delete'),
+    path('api/subway/gaps/', views.subway_gaps_api, name='subway_gaps'),
+    path('api/subway/gaps/fill/', views.subway_gap_fill_api, name='subway_gap_fill'),
+    path('api/subway/gaps/dismiss/', views.subway_gap_dismiss_api, name='subway_gap_dismiss'),
+    path('api/subway/fills/', views.subway_fills_api, name='subway_fills'),
+    path('api/subway/fills/<int:batch_id>/delete/', views.subway_fill_delete_api, name='subway_fill_delete'),
+
     # Map Editor API
     path('api/editor/delete/', views.editor_delete_api, name='editor_delete'),
     path('api/editor/route/', views.editor_route_api, name='editor_route'),
