@@ -2,20 +2,24 @@ package com.roamly.data.repository
 
 import com.roamly.data.api.Comment
 import com.roamly.data.api.CommentsResponse
+import com.roamly.data.api.CreateBlurbResponse
 import com.roamly.data.api.CreateCommentRequest
 import com.roamly.data.api.CreateMilestoneRequest
 import com.roamly.data.api.CreateTripRequest
 import com.roamly.data.api.DayNoteResponse
+import com.roamly.data.api.InviteRequest
+import com.roamly.data.api.InviteResponse
 import com.roamly.data.api.PlannedStopRequest
 import com.roamly.data.api.PlannedStopResponse
 import com.roamly.data.api.RoamlyApi
 import com.roamly.data.api.SaveDayNoteRequest
-import com.roamly.data.api.TimelineEvent
 import com.roamly.data.api.TimelineResponse
 import com.roamly.data.api.TripResponse
 import com.roamly.data.api.TripsListResponse
 import com.roamly.data.prefs.UserPreferences
 import kotlinx.coroutines.flow.first
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -49,11 +53,24 @@ class TripRepository @Inject constructor(
 
     suspend fun getTimeline(id: Int): Result<TimelineResponse> = safeApiCall { api.getTripTimeline(id) }
 
-    suspend fun createBlurb(tripId: Int, text: String): Result<TimelineEvent> = try {
-        val r = api.createTripBlurb(tripId, text)
-        if (r.isSuccessful) Result.Success(TimelineEvent(type = "blurb", id = 0, text = text))
-        else Result.Error("Failed (${r.code()})")
-    } catch (e: Exception) { Result.Error(e.message ?: "Unknown error") }
+    suspend fun createBlurb(
+        tripId: Int, text: String, title: String, rating: Int?, category: String?,
+        locationName: String?, photos: List<okhttp3.MultipartBody.Part>,
+    ): Result<CreateBlurbResponse> = safeApiCall {
+        fun part(s: String) = s.toRequestBody("text/plain".toMediaTypeOrNull())
+        api.createTripBlurb(
+            tripId,
+            text = part(text), title = part(title),
+            rating = part(rating?.toString() ?: ""), category = part(category ?: ""),
+            locationName = part(locationName ?: ""),
+            photos = photos,
+        )
+    }
+
+    suspend fun generateInviteLink(tripId: Int, rotate: Boolean = false): Result<InviteResponse> =
+        safeApiCall { api.tripInvite(tripId, InviteRequest(rotate)) }
+
+    suspend fun removeMember(tripId: Int, userId: Int) = safeApiCall { api.removeTripMember(tripId, userId) }
 
     suspend fun deleteBlurb(tripId: Int, blurbId: Int) = safeApiCall { api.deleteTripBlurb(tripId, blurbId) }
 

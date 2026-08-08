@@ -172,12 +172,17 @@ interface RoamlyApi {
     @GET("api/trips/{id}/timeline/")
     suspend fun getTripTimeline(@Path("id") id: Int): Response<TimelineResponse>
 
-    @FormUrlEncoded
+    @Multipart
     @POST("api/trips/{id}/blurbs/create/")
     suspend fun createTripBlurb(
         @Path("id") tripId: Int,
-        @Field("text") text: String,
-    ): Response<ResponseBody>
+        @Part("text") text: okhttp3.RequestBody,
+        @Part("title") title: okhttp3.RequestBody,
+        @Part("rating") rating: okhttp3.RequestBody,
+        @Part("category") category: okhttp3.RequestBody,
+        @Part("location_name") locationName: okhttp3.RequestBody,
+        @Part photos: List<okhttp3.MultipartBody.Part>,
+    ): Response<CreateBlurbResponse>
 
     @POST("api/trips/{tripId}/blurbs/{blurbId}/delete/")
     suspend fun deleteTripBlurb(
@@ -227,6 +232,12 @@ interface RoamlyApi {
         @Path("id") tripId: Int,
         @Path("userId") userId: Int,
     ): Response<ResponseBody>
+
+    @POST("api/trips/{id}/invite/")
+    suspend fun tripInvite(
+        @Path("id") tripId: Int,
+        @Body request: InviteRequest,
+    ): Response<InviteResponse>
 
     // --- Adventure Day Log ---
 

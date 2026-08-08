@@ -49,6 +49,8 @@ data class TripDetailUiState(
     val dayEditor: DayNoteEditorState? = null,
     // The planned stop being created (id 0) or edited; null when the editor is closed.
     val stopEditor: PlannedStop? = null,
+    val showInviteSheet: Boolean = false,
+    val inviteUrl: String? = null,
 )
 
 @HiltViewModel
@@ -89,15 +91,35 @@ class TripDetailViewModel @Inject constructor(
     fun hideMilestoneDialog() = _uiState.update { it.copy(showMilestoneDialog = false) }
 
     // --- Blurbs ---
-    fun createBlurb(text: String) {
-        if (text.isBlank()) return
+    fun createBlurb(text: String, title: String, rating: Int?, category: String?, uris: List<Uri>) {
+        if (text.isBlank() && title.isBlank() && uris.isEmpty()) return
         viewModelScope.launch {
-            when (val r = repository.createBlurb(tripId, text)) {
-                is Result.Success -> _uiState.update { state ->
-                    state.copy(events = listOf(r.data) + state.events, showBlurbDialog = false)
+            val parts = buildPhotoParts(uris)
+            when (repository.createBlurb(tripId, text, title, rating, category?.ifBlank { null }, null, parts)) {
+                is Result.Success -> {
+                    _uiState.update { it.copy(showBlurbDialog = false) }
+                    reloadTimeline()  // refetch so photos/rating/category render
                 }
-                is Result.Error -> _uiState.update { it.copy(error = r.message) }
+                is Result.Error -> _uiState.update { it.copy(error = "Failed to post update") }
             }
+        }
+    }
+
+    private suspend fun reloadTimeline() {
+        when (val r = repository.getTimeline(tripId)) {
+            is Result.Success -> _uiState.update { it.copy(events = r.data.events) }
+            is Result.Error -> {}
+        }
+    }
+
+    private fun buildPhotoParts(uris: List<Uri>): List<MultipartBody.Part> {
+        val resolver = context.contentResolver
+        return uris.mapIndexedNotNull { i, uri ->
+            val bytes = runCatching { resolver.openInputStream(uri)?.use { s -> s.readBytes() } }.getOrNull()
+                ?: return@mapIndexedNotNull null
+            val type = resolver.getType(uri) ?: "image/jpeg"
+            val body = bytes.toRequestBody(type.toMediaTypeOrNull())
+            MultipartBody.Part.createFormData("photos", "media_$i.${mediaExt(type)}", body)
         }
     }
 
@@ -174,15 +196,7 @@ class TripDetailViewModel @Inject constructor(
         if (uris.isEmpty()) return
         _uiState.update { it.copy(dayEditor = it.dayEditor?.copy(uploading = true)) }
         viewModelScope.launch {
-            val resolver = context.contentResolver
-            val parts = uris.mapIndexedNotNull { i, uri ->
-                val bytes = runCatching { resolver.openInputStream(uri)?.use { s -> s.readBytes() } }.getOrNull()
-                    ?: return@mapIndexedNotNull null
-                val type = resolver.getType(uri) ?: "image/jpeg"
-                val ext = mediaExt(type)
-                val body = bytes.toRequestBody(type.toMediaTypeOrNull())
-                MultipartBody.Part.createFormData("photos", "media_$i.$ext", body)
-            }
+            val parts = buildPhotoParts(uris)
             if (parts.isNotEmpty()) {
                 when (val r = repository.uploadDayNotePhotos(tripId, ed.note.id, parts)) {
                     is Result.Success -> r.data.dayNote?.let { note ->
@@ -280,6 +294,38 @@ class TripDetailViewModel @Inject constructor(
         viewModelScope.launch {
             repository.updatePlannedStop(tripId, a.id, PlannedStopRequest(order = b.order))
             repository.updatePlannedStop(tripId, b.id, PlannedStopRequest(order = a.order))
+        }
+    }
+
+    // --- Invite / members ---
+    fun openInvite() {
+        _uiState.update { it.copy(showInviteSheet = true, inviteUrl = it.trip?.inviteUrl) }
+        // Mint a token if the trip doesn't have one yet.
+        if (_uiState.value.trip?.inviteUrl.isNullOrBlank()) generateInvite(rotate = false)
+    }
+
+    fun closeInvite() = _uiState.update { it.copy(showInviteSheet = false) }
+
+    fun generateInvite(rotate: Boolean) {
+        viewModelScope.launch {
+            when (val r = repository.generateInviteLink(tripId, rotate)) {
+                is Result.Success -> _uiState.update { st ->
+                    st.copy(inviteUrl = r.data.inviteUrl, trip = st.trip?.copy(inviteUrl = r.data.inviteUrl, inviteToken = r.data.inviteToken))
+                }
+                is Result.Error -> _uiState.update { it.copy(error = r.message) }
+            }
+        }
+    }
+
+    fun removeMember(userId: Int) {
+        viewModelScope.launch {
+            when (repository.removeMember(tripId, userId)) {
+                is Result.Success -> _uiState.update { st ->
+                    val trip = st.trip
+                    st.copy(trip = trip?.copy(members = trip.members?.filterNot { it.userId == userId }))
+                }
+                is Result.Error -> {}
+            }
         }
     }
 

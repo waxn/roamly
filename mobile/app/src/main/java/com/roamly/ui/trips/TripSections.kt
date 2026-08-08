@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.NightsStay
 import androidx.compose.material.icons.rounded.Place
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -299,6 +300,142 @@ fun formatDayHeader(iso: String): String = try {
     val d = java.time.LocalDate.parse(iso.take(10))
     d.format(java.time.format.DateTimeFormatter.ofPattern("EEEE, MMM d, yyyy"))
 } catch (e: Exception) { iso }
+
+/** Create dialog for an "update" blurb: text + optional title, rating, category, photos. */
+@Composable
+fun BlurbCreateDialog(
+    onDismiss: () -> Unit,
+    onPost: (text: String, title: String, rating: Int?, category: String?, uris: List<android.net.Uri>) -> Unit,
+) {
+    var text by remember { mutableStateOf("") }
+    var title by remember { mutableStateOf("") }
+    var rating by remember { mutableStateOf(0) }
+    var category by remember { mutableStateOf("") }
+    var catOpen by remember { mutableStateOf(false) }
+    var picked by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
+
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia(5)
+    ) { uris -> if (uris.isNotEmpty()) picked = (picked + uris).distinct().take(5) }
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth().padding(16.dp)
+                .clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.background).padding(18.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Add update", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
+            androidx.compose.material3.OutlinedTextField(title, { title = it }, label = { Text("Title (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            androidx.compose.material3.OutlinedTextField(text, { text = it }, label = { Text("What's happening?") }, minLines = 3, modifier = Modifier.fillMaxWidth())
+
+            // Star rating (tap to set; tap the current value to clear).
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Rating", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(8.dp))
+                (1..5).forEach { n ->
+                    Text(
+                        if (n <= rating) "★" else "☆",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = if (n <= rating) Color(0xFFF7B731) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.clickable { rating = if (rating == n) 0 else n }.padding(horizontal = 2.dp),
+                    )
+                }
+            }
+
+            // Category dropdown
+            Box {
+                Row(
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .clickable { catOpen = true }.padding(horizontal = 12.dp, vertical = 14.dp),
+                ) {
+                    Text("Category:  " + (if (category.isBlank()) "None" else "${PLACE_CAT_EMOJI[category] ?: ""} ${PLACE_CAT_LABEL[category] ?: category}"),
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                }
+                androidx.compose.material3.DropdownMenu(expanded = catOpen, onDismissRequest = { catOpen = false }) {
+                    androidx.compose.material3.DropdownMenuItem(text = { Text("None") }, onClick = { category = ""; catOpen = false })
+                    PLACE_CAT_LABEL.forEach { (slug, label) ->
+                        androidx.compose.material3.DropdownMenuItem(text = { Text("${PLACE_CAT_EMOJI[slug] ?: ""} $label") }, onClick = { category = slug; catOpen = false })
+                    }
+                }
+            }
+
+            if (picked.isNotEmpty()) {
+                Text("${picked.size} attached", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            androidx.compose.material3.OutlinedButton(
+                onClick = { picker.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
+                enabled = picked.size < 5, modifier = Modifier.fillMaxWidth(),
+            ) { Text("Add photos / videos") }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                androidx.compose.material3.Button(onClick = { onPost(text, title, rating.takeIf { it > 0 }, category.ifBlank { null }, picked) }, modifier = Modifier.weight(1f)) { Text("Post") }
+            }
+        }
+    }
+}
+
+/** Invite-by-link sheet: shows the join URL with copy/share/reset + member list. */
+@Composable
+fun InviteSheet(
+    inviteUrl: String?,
+    members: List<com.roamly.data.api.PalMember>,
+    onRotate: () -> Unit,
+    onRemoveMember: (Int) -> Unit,
+    onClose: () -> Unit,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp)
+                .clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.background).padding(18.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Invite by link", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
+            Text("Anyone with this link can join and share their track.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            if (inviteUrl.isNullOrBlank()) {
+                androidx.compose.material3.CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+            } else {
+                Text(inviteUrl, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)).padding(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    androidx.compose.material3.OutlinedButton(onClick = {
+                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(inviteUrl))
+                    }, modifier = Modifier.weight(1f)) { Text("Copy") }
+                    androidx.compose.material3.OutlinedButton(onClick = {
+                        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "text/plain"; putExtra(android.content.Intent.EXTRA_TEXT, inviteUrl)
+                        }
+                        context.startActivity(android.content.Intent.createChooser(send, "Share invite"))
+                    }, modifier = Modifier.weight(1f)) { Text("Share") }
+                }
+                androidx.compose.material3.TextButton(onClick = onRotate) { Text("Reset link") }
+            }
+
+            if (members.isNotEmpty()) {
+                HorizontalDivider()
+                Text("Members", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                members.forEach { m ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(m.username, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                        if (m.role == "creator") {
+                            Text("owner", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        } else {
+                            androidx.compose.material3.TextButton(onClick = { onRemoveMember(m.userId) }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                        }
+                    }
+                }
+            }
+            androidx.compose.material3.TextButton(onClick = onClose, modifier = Modifier.align(Alignment.End)) { Text("Done") }
+        }
+    }
+}
 
 /** Full-screen editor for one of the member's own Day Log entries. */
 @Composable

@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.EmojiEvents
+import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Send
@@ -107,6 +108,11 @@ fun TripDetailScreen(
                     color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.weight(1f),
                 )
+                if (state.trip?.isCreator == true) {
+                    IconButton(onClick = viewModel::openInvite) {
+                        Icon(Icons.Rounded.PersonAdd, "Invite", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
                 IconButton(onClick = viewModel::togglePublic) {
                     Icon(
                         Icons.Rounded.Public,
@@ -333,15 +339,9 @@ fun TripDetailScreen(
     }
 
     if (state.showBlurbDialog) {
-        var text by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = viewModel::hideBlurbDialog,
-            title = { Text("Add update") },
-            text = {
-                OutlinedTextField(value = text, onValueChange = { text = it }, label = { Text("What's happening?") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
-            },
-            confirmButton = { TextButton(onClick = { viewModel.createBlurb(text) }) { Text("Post") } },
-            dismissButton = { TextButton(onClick = viewModel::hideBlurbDialog) { Text("Cancel") } }
+        BlurbCreateDialog(
+            onDismiss = viewModel::hideBlurbDialog,
+            onPost = { text, title, rating, category, uris -> viewModel.createBlurb(text, title, rating, category, uris) },
         )
     }
 
@@ -387,6 +387,16 @@ fun TripDetailScreen(
             onSave = viewModel::saveStop,
             onDelete = if (stop.id != 0) ({ viewModel.deleteStop(stop.id) }) else null,
             onClose = viewModel::closeStopEditor,
+        )
+    }
+
+    if (state.showInviteSheet) {
+        InviteSheet(
+            inviteUrl = state.inviteUrl,
+            members = state.trip?.members ?: emptyList(),
+            onRotate = { viewModel.generateInvite(rotate = true) },
+            onRemoveMember = viewModel::removeMember,
+            onClose = viewModel::closeInvite,
         )
     }
 }

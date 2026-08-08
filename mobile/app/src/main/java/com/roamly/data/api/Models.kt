@@ -320,6 +320,22 @@ data class PlannedStopResponse(
     val stop: PlannedStop? = null,
 )
 
+// --- Blurb create + invites ---
+
+data class CreateBlurbResponse(
+    val status: String = "",
+    @SerializedName("blurb_id") val blurbId: Int? = null,
+    @SerializedName("photo_ids") val photoIds: List<Int> = emptyList(),
+)
+
+data class InviteRequest(val rotate: Boolean = false)
+
+data class InviteResponse(
+    val status: String = "",
+    @SerializedName("invite_token") val inviteToken: String? = null,
+    @SerializedName("invite_url") val inviteUrl: String? = null,
+)
+
 data class TripsListResponse(val trips: List<TripResponse>)
 
 data class CreateTripRequest(
