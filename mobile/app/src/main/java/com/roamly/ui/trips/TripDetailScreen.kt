@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -151,8 +152,12 @@ fun TripDetailScreen(
                             }
                         }
 
-                        // Map preview — non-scrollable, tap to fullscreen
-                        if (trip.locations.isNotEmpty()) {
+                        // Map preview — non-scrollable, tap to fullscreen. Shown
+                        // when there's a track, member tracks, or a located itinerary.
+                        val hasMapContent = trip.locations.isNotEmpty() ||
+                            trip.memberLocations.values.any { it.isNotEmpty() } ||
+                            trip.plannedStops.any { it.latitude != null && it.longitude != null }
+                        if (hasMapContent) {
                             item {
                                 Box(
                                     modifier = Modifier
@@ -164,6 +169,8 @@ fun TripDetailScreen(
                                     AdventureMap(
                                         points = trip.locations,
                                         scrollable = false,
+                                        plannedStops = trip.plannedStops,
+                                        memberTracks = trip.memberLocations,
                                         modifier = Modifier.fillMaxSize(),
                                     )
                                     // "Tap to expand" hint
@@ -191,6 +198,33 @@ fun TripDetailScreen(
                                     serverUrl = state.serverUrl,
                                     onMapEmbedTap = { showFullMap = true },
                                 )
+                            }
+                        }
+
+                        // Itinerary — forward-looking planned stops.
+                        if (trip.plannedStops.isNotEmpty()) {
+                            item { SectionHeader("Itinerary") }
+                            itemsIndexed(trip.plannedStops) { i, stop ->
+                                ItineraryStopCard(index = i + 1, stop = stop)
+                            }
+                        }
+
+                        // Day Log — per-member per-day entries, grouped by date.
+                        if (trip.dayNotes.isNotEmpty()) {
+                            item { SectionHeader("Day Log") }
+                            val grouped = trip.dayNotes.groupBy { it.date }
+                            grouped.forEach { (date, notes) ->
+                                item(key = "daylog-$date") {
+                                    Text(
+                                        formatDayHeader(date),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(top = 4.dp),
+                                    )
+                                }
+                                items(notes, key = { "daynote-${it.id}" }) { note ->
+                                    DayLogEntryCard(note = note, serverUrl = state.serverUrl)
+                                }
                             }
                         }
                     }
@@ -289,12 +323,15 @@ fun TripDetailScreen(
 }
 
 /** A small osmdroid map drawing the adventure's track as a coral polyline,
- *  auto-fit to the route — the mobile equivalent of the website's trip map. */
+ *  auto-fit to the route — the mobile equivalent of the website's trip map.
+ *  Optionally overlays a dashed, numbered planned-stop itinerary. */
 @Composable
 private fun AdventureMap(
     points: List<TripLatLng>,
     modifier: Modifier = Modifier,
     scrollable: Boolean = true,
+    plannedStops: List<com.roamly.data.api.PlannedStop> = emptyList(),
+    memberTracks: Map<String, List<TripLatLng>> = emptyMap(),
 ) {
     val context = LocalContext.current
     val mapView = remember(scrollable) {
@@ -310,26 +347,22 @@ private fun AdventureMap(
         }
     }
 
-    LaunchedEffect(points) {
+    LaunchedEffect(points, plannedStops, memberTracks) {
         mapView.overlays.clear()
+        val geo = points.map { GeoPoint(it.lat, it.lng) }
+        val memberGeo = drawMemberTracks(mapView, points, memberTracks)
         if (points.isNotEmpty()) {
-            val geo = points.map { GeoPoint(it.lat, it.lng) }
-            val line = Polyline(mapView).apply {
-                setPoints(geo)
-                outlinePaint.color = android.graphics.Color.rgb(249, 115, 79)
-                outlinePaint.strokeWidth = 7f
-                outlinePaint.isAntiAlias = true
-                // Disable the default info window so tapping shows nothing
-                infoWindow = null
-                setOnClickListener { _, _, _ -> false }
-            }
-            mapView.overlays.add(line)
+            mapView.overlays.add(0, trackPolyline(mapView, geo, MEMBER_TRACK_COLORS[0]))
+        }
+        val stopGeo = addItineraryOverlays(mapView, plannedStops)
+        val allGeo = geo + memberGeo + stopGeo
+        if (allGeo.isNotEmpty()) {
             mapView.post {
-                if (geo.size == 1) {
+                if (allGeo.size == 1) {
                     mapView.controller.setZoom(14.0)
-                    mapView.controller.setCenter(geo.first())
+                    mapView.controller.setCenter(allGeo.first())
                 } else {
-                    runCatching { mapView.zoomToBoundingBox(BoundingBox.fromGeoPoints(geo), false, 64) }
+                    runCatching { mapView.zoomToBoundingBox(BoundingBox.fromGeoPoints(allGeo), false, 64) }
                 }
                 mapView.invalidate()
             }
@@ -343,6 +376,78 @@ private fun AdventureMap(
     }
 
     AndroidView(factory = { mapView }, modifier = modifier)
+}
+
+/** Per-member track colors — mirrors adventure_public.html's MEMBER_COLORS
+ *  (owner = index 0, other members cycle through the rest by join order). */
+val MEMBER_TRACK_COLORS = listOf(
+    android.graphics.Color.rgb(0xE8, 0x76, 0x3D),
+    android.graphics.Color.rgb(0x7B, 0xA3, 0xB8),
+    android.graphics.Color.rgb(0x7F, 0x9B, 0x6D),
+    android.graphics.Color.rgb(0xCF, 0x9A, 0x44),
+    android.graphics.Color.rgb(0xA8, 0x88, 0xA0),
+    android.graphics.Color.rgb(0x6B, 0x7F, 0xA3),
+)
+
+private fun trackPolyline(mapView: MapView, geo: List<GeoPoint>, color: Int): Polyline =
+    Polyline(mapView).apply {
+        setPoints(geo)
+        outlinePaint.color = color
+        outlinePaint.strokeWidth = 7f
+        outlinePaint.isAntiAlias = true
+        infoWindow = null
+        setOnClickListener { _, _, _ -> false }
+    }
+
+/** Draw each non-owner member's track in its own color; returns all their points
+ *  so the caller can include them in the auto-fit bounding box. */
+private fun drawMemberTracks(
+    mapView: MapView,
+    ownerPoints: List<TripLatLng>,
+    memberTracks: Map<String, List<TripLatLng>>,
+): List<GeoPoint> {
+    if (memberTracks.isEmpty()) return emptyList()
+    val out = mutableListOf<GeoPoint>()
+    var idx = 1
+    memberTracks.forEach { (_, pts) ->
+        if (pts.isNotEmpty()) {
+            val geo = pts.map { GeoPoint(it.lat, it.lng) }
+            mapView.overlays.add(trackPolyline(mapView, geo, MEMBER_TRACK_COLORS[idx % MEMBER_TRACK_COLORS.size]))
+            out += geo
+            idx++
+        }
+    }
+    return out
+}
+
+/** Numbered markers + a dashed connector line for the planned-stop itinerary.
+ *  Returns the located stops' geopoints for the auto-fit bounding box. */
+private fun addItineraryOverlays(mapView: MapView, stops: List<com.roamly.data.api.PlannedStop>): List<GeoPoint> {
+    val located = stops.filter { it.latitude != null && it.longitude != null }.sortedBy { it.order }
+    if (located.isEmpty()) return emptyList()
+    val geos = located.map { GeoPoint(it.latitude!!, it.longitude!!) }
+    if (geos.size >= 2) {
+        val dashed = Polyline(mapView).apply {
+            setPoints(geos)
+            outlinePaint.color = android.graphics.Color.rgb(0x9B, 0x8E, 0xF7)
+            outlinePaint.strokeWidth = 5f
+            outlinePaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(20f, 14f), 0f)
+            outlinePaint.isAntiAlias = true
+            infoWindow = null
+            setOnClickListener { _, _, _ -> false }
+        }
+        mapView.overlays.add(dashed)
+    }
+    located.forEachIndexed { i, stop ->
+        val marker = org.osmdroid.views.overlay.Marker(mapView).apply {
+            position = geos[i]
+            setAnchor(org.osmdroid.views.overlay.Marker.ANCHOR_CENTER, org.osmdroid.views.overlay.Marker.ANCHOR_BOTTOM)
+            setTextIcon("${i + 1}")
+            title = stop.name
+        }
+        mapView.overlays.add(marker)
+    }
+    return geos
 }
 
 @Composable
@@ -539,21 +644,18 @@ private fun TripFullMapScreen(trip: TripResponse, onBack: () -> Unit) {
 
     LaunchedEffect(trip.locations) {
         mapView.overlays.clear()
+        val geo = trip.locations.map { GeoPoint(it.lat, it.lng) }
+        val memberGeo = drawMemberTracks(mapView, trip.locations, trip.memberLocations)
         if (trip.locations.isNotEmpty()) {
-            val geo = trip.locations.map { GeoPoint(it.lat, it.lng) }
-            val line = Polyline(mapView).apply {
-                setPoints(geo)
-                outlinePaint.color = android.graphics.Color.rgb(249, 115, 79)
-                outlinePaint.strokeWidth = 7f
-                outlinePaint.isAntiAlias = true
-                infoWindow = null
-                setOnClickListener { _, _, _ -> false }
-            }
-            mapView.overlays.add(line)
+            mapView.overlays.add(0, trackPolyline(mapView, geo, MEMBER_TRACK_COLORS[0]))
+        }
+        val stopGeo = addItineraryOverlays(mapView, trip.plannedStops)
+        val allGeo = geo + memberGeo + stopGeo
+        if (allGeo.isNotEmpty()) {
             mapView.post {
                 runCatching {
-                    if (geo.size == 1) { mapView.controller.setZoom(14.0); mapView.controller.setCenter(geo.first()) }
-                    else mapView.zoomToBoundingBox(BoundingBox.fromGeoPoints(geo), false, 80)
+                    if (allGeo.size == 1) { mapView.controller.setZoom(14.0); mapView.controller.setCenter(allGeo.first()) }
+                    else mapView.zoomToBoundingBox(BoundingBox.fromGeoPoints(allGeo), false, 80)
                 }
                 mapView.invalidate()
             }
