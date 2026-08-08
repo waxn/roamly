@@ -662,6 +662,26 @@
 
                 <div style="border-top:1px solid var(--border);"></div>
 
+                <!-- Download subway data -->
+                <div>
+                    <div style="font-size:0.875rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">Download Subway Data</div>
+                    <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;">Fetch OpenStreetMap subway tracks and stations for the areas you've been, so <strong>Diagnostics → Subway Gaps</strong> can find underground rides GPS never recorded and fill them along the real line. Subway data is far smaller than road data. Re-run after riding the metro somewhere new.</div>
+                    <div class="settings-actions">
+                        <button class="btn btn-primary btn-sm" id="subway-btn" onclick="startSubway()">Download Subway</button>
+                        <button class="btn btn-outline btn-sm" id="subway-stop-btn" onclick="stopSubway()" style="display:none;">Stop</button>
+                        <button class="btn btn-outline btn-sm" id="subway-delete-btn" onclick="deleteSubwayData()"
+                                style="color:var(--danger);border-color:var(--danger);">Delete Subway Data</button>
+                    </div>
+                    <div id="subway-progress-wrap" style="margin-top:0.6rem;display:none;">
+                        <div style="background:var(--bg-input);border-radius:0;height:6px;overflow:hidden;margin-bottom:0.35rem;">
+                            <div id="subway-bar" style="height:100%;width:0%;background:var(--primary);border-radius:0;transition:width 0.4s ease;"></div>
+                        </div>
+                        <div id="subway-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
+                    </div>
+                </div>
+
+                <div style="border-top:1px solid var(--border);"></div>
+
                 <!-- Recalculate stats snapshot -->
                 <div>
                     <div style="font-size:0.875rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">Recalculate Stats</div>
@@ -1783,6 +1803,152 @@ fetch('/api/roads/download/status/')
             roadsStartTime = Date.now();
             updateRoadsUI(data, false);
             pollRoadsStatus();
+        }
+    })
+    .catch(() => {});
+
+// --- Subway data download (mirrors the road download above) ---
+let subwayStartTime = null;
+
+function setSubwayUI(running) {
+    const btn = document.getElementById('subway-btn');
+    const stopBtn = document.getElementById('subway-stop-btn');
+    btn.disabled = running;
+    btn.style.opacity = running ? '0.5' : '';
+    stopBtn.disabled = false;
+    stopBtn.style.display = running ? 'inline-block' : 'none';
+}
+
+function updateSubwayUI(data, finished) {
+    const bar = document.getElementById('subway-bar');
+    const statusEl = document.getElementById('subway-status');
+    document.getElementById('subway-progress-wrap').style.display = 'block';
+
+    const processed = data.processed || 0;
+    const total = data.total || 0;
+    const pct = total > 0 ? Math.round(processed / total * 100) : 0;
+    bar.style.width = pct + '%';
+    const ways = (data.total_ways || 0).toLocaleString();
+    const stns = (data.total_stations || 0).toLocaleString();
+
+    if (!finished && data.phase === 'scanning') {
+        bar.style.width = '8%';
+        bar.style.background = 'var(--primary)';
+        statusEl.style.color = 'var(--text-muted)';
+        statusEl.innerHTML = '<span class="spinner"></span> scanning your location history '
+            + 'to work out which areas to fetch…';
+        return;
+    }
+
+    if (finished) {
+        bar.style.background = data.status === 'completed' ? 'var(--success)' : 'var(--text-muted)';
+        if (data.status === 'completed' && data.total === 0) {
+            statusEl.textContent = 'no location points to cover yet.';
+        } else {
+            const label = data.status === 'completed' ? 'done' : 'stopped';
+            let msg = `${label} — ${ways} track segments, ${stns} stations stored`;
+            if (data.failed) {
+                msg += ` · ${data.failed.toLocaleString()} area${data.failed === 1 ? '' : 's'} failed — re-run to retry`;
+                statusEl.textContent = msg;
+                statusEl.style.color = 'var(--danger)';
+                return;
+            }
+            statusEl.style.color = 'var(--text-muted)';
+            statusEl.textContent = msg;
+        }
+    } else {
+        const eta = _etaFrom(processed, total, subwayStartTime);
+        bar.style.background = 'var(--primary)';
+        statusEl.style.color = 'var(--text-muted)';
+        statusEl.innerHTML = `<span class="spinner"></span> area ${processed.toLocaleString()}/${total.toLocaleString()}`
+            + `${total > 0 ? ' (' + pct + '%)' : ''}, ${(data.ways || 0).toLocaleString()} segments${eta ? ' — ' + eta : ''}`;
+    }
+}
+
+function startSubway() {
+    const statusEl = document.getElementById('subway-status');
+    document.getElementById('subway-progress-wrap').style.display = 'block';
+    statusEl.innerHTML = '<span class="spinner"></span> working out which areas to fetch...';
+    document.getElementById('subway-bar').style.width = '0%';
+    setSubwayUI(true);
+    subwayStartTime = Date.now();
+
+    fetch('/api/subway/download/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(() => pollSubwayStatus())
+        .catch(err => {
+            setSubwayUI(false);
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = 'could not start the download (' + err.message + '). Check the server logs.';
+        });
+}
+
+function stopSubway() {
+    document.getElementById('subway-stop-btn').disabled = true;
+    document.getElementById('subway-status').innerHTML = '<span class="spinner"></span> stopping...';
+    fetch('/api/subway/download/stop/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } });
+}
+
+function pollSubwayStatus() {
+    setSubwayUI(true);
+    const statusEl = document.getElementById('subway-status');
+    const interval = setInterval(() => {
+        fetch('/api/subway/download/status/')
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(data => {
+            if (data.status === 'running') {
+                updateSubwayUI(data, false);
+            } else if (data.status === 'completed' || data.status === 'stopped') {
+                updateSubwayUI(data, true);
+                clearInterval(interval);
+                setSubwayUI(false);
+            } else {
+                clearInterval(interval);
+                setSubwayUI(false);
+                statusEl.style.color = 'var(--danger)';
+                statusEl.textContent = 'the download did not start — no job was recorded. Check the server logs.';
+            }
+        })
+        .catch(err => {
+            clearInterval(interval);
+            setSubwayUI(false);
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = 'lost contact with the download (' + err.message + ').';
+        });
+    }, 2000);
+}
+
+async function deleteSubwayData() {
+    const statusEl = document.getElementById('subway-status');
+    const btn = document.getElementById('subway-delete-btn');
+    if (!await roamlyConfirm('Delete all downloaded subway data for this instance?\n\n'
+        + 'Diagnostics → Subway Gaps will stop finding rides until you download it again. '
+        + 'Points already filled are kept.', {danger:true})) return;
+
+    btn.disabled = true;
+    document.getElementById('subway-progress-wrap').style.display = 'block';
+    statusEl.innerHTML = '<span class="spinner"></span> deleting…';
+
+    fetch('/api/subway/delete/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
+        .then(r => r.json())
+        .then(d => {
+            document.getElementById('subway-bar').style.width = '0%';
+            statusEl.textContent = d.status === 'ok'
+                ? `deleted — ${(d.deleted || 0).toLocaleString()} segments, ${(d.stations || 0).toLocaleString()} stations removed.`
+                : 'delete failed.';
+        })
+        .catch(() => { statusEl.textContent = 'delete failed.'; })
+        .finally(() => { btn.disabled = false; });
+}
+
+// Resume the subway-download UI if it is already running on page load
+fetch('/api/subway/download/status/')
+    .then(r => { if (r.ok) return r.json(); })
+    .then(data => {
+        if (data && data.status === 'running') {
+            subwayStartTime = Date.now();
+            updateSubwayUI(data, false);
+            pollSubwayStatus();
         }
     })
     .catch(() => {});
