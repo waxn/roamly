@@ -321,6 +321,9 @@ data class TimelineEvent(
     @SerializedName("location_name") val locationName: String? = null,
     @SerializedName("created_at")    val createdAt: String? = null,
     val date: String? = null,
+    val rating: Int? = null,
+    val category: String? = null,
+    val photos: List<MediaItem> = emptyList(),
     @SerializedName("can_delete")    val canDelete: Boolean = false,
     @SerializedName("comment_count") val commentCount: Int = 0,
 )

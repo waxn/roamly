@@ -154,6 +154,34 @@ private fun StopMeta(icon: androidx.compose.ui.graphics.vector.ImageVector, text
     }
 }
 
+/** Color-swatch legend for the map's per-member tracks. Owner is color index 0
+ *  (matching MEMBER_TRACK_COLORS / adventure_public.html); other members follow
+ *  in the same order drawMemberTracks assigns them. */
+@Composable
+fun MemberTrackLegend(trip: com.roamly.data.api.TripResponse) {
+    val members = trip.memberLocations.keys.filter { trip.memberLocations[it]?.isNotEmpty() == true }
+    if (members.isEmpty()) return
+    val ownerName = trip.members?.firstOrNull { it.role == "creator" }?.username ?: "Owner"
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        LegendSwatch(MEMBER_TRACK_COLORS[0], ownerName)
+        members.forEachIndexed { i, name ->
+            LegendSwatch(MEMBER_TRACK_COLORS[(i + 1) % MEMBER_TRACK_COLORS.size], name)
+        }
+    }
+}
+
+@Composable
+private fun LegendSwatch(color: Int, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(12.dp).clip(CircleShape).background(Color(color)))
+        Spacer(Modifier.width(5.dp))
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
 /** Format an ISO date (yyyy-MM-dd) as a friendly day header. */
 fun formatDayHeader(iso: String): String = try {
     val d = java.time.LocalDate.parse(iso.take(10))

@@ -186,6 +186,9 @@ fun TripDetailScreen(
                                     }
                                 }
                             }
+                            if (trip.memberLocations.values.any { it.isNotEmpty() }) {
+                                item { MemberTrackLegend(trip) }
+                            }
                         }
 
                         // Story — the author-written block document, read-only.
@@ -246,6 +249,7 @@ fun TripDetailScreen(
                             if (event.type == "milestone") MilestoneCard(event)
                             else BlurbCard(
                                 event = event,
+                                serverUrl = state.serverUrl,
                                 comments = state.comments[event.id],
                                 isExpanded = state.expandedBlurbId == event.id,
                                 onDelete = { viewModel.deleteBlurb(event.id) },
@@ -475,6 +479,7 @@ private fun HeroStat(value: String, label: String) {
 @Composable
 private fun BlurbCard(
     event: TimelineEvent,
+    serverUrl: String,
     comments: List<Comment>?,
     isExpanded: Boolean,
     onDelete: () -> Unit,
@@ -496,6 +501,14 @@ private fun BlurbCard(
                 }
             }
         }
+        event.title?.takeIf { it.isNotBlank() }?.let {
+            Spacer(Modifier.height(6.dp))
+            Text(it, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+        }
+        if (event.rating != null || !event.category.isNullOrBlank()) {
+            Spacer(Modifier.height(4.dp))
+            PlaceMeta(event.rating, event.category)
+        }
         if (!event.text.isNullOrBlank()) {
             Spacer(Modifier.height(8.dp))
             Text(event.text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground)
@@ -507,6 +520,10 @@ private fun BlurbCard(
                 Spacer(Modifier.width(4.dp))
                 Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
+        if (event.photos.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            MediaThumbnailRow(media = event.photos, serverUrl = serverUrl, modifier = Modifier.fillMaxWidth())
         }
 
         Spacer(Modifier.height(6.dp))
