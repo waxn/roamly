@@ -4462,6 +4462,7 @@ def trip_timeline_api(request, trip_id):
 
 
 @login_required
+@csrf_exempt
 @require_http_methods(["POST"])
 def trip_create_blurb(request, trip_id):
     trip = _get_trip_for_user(trip_id, request.user)
@@ -4477,6 +4478,8 @@ def trip_create_blurb(request, trip_id):
         latitude=float(lat) if lat else None,
         longitude=float(lng) if lng else None,
         location_name=request.POST.get('location_name', ''),
+        rating=_clean_rating(request.POST.get('rating')),
+        category=_clean_category(request.POST.get('category')),
     )
     photos = request.FILES.getlist('photos')
     photo_ids = []
