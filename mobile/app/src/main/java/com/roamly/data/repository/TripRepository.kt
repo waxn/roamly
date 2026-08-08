@@ -72,5 +72,8 @@ class TripRepository @Inject constructor(
         if (r.isSuccessful) Result.Success(Unit) else Result.Error("Failed (${r.code()})")
     } catch (e: Exception) { Result.Error(e.message ?: "Unknown error") }
 
+    /** Configured server origin (no trailing slash), for building absolute media URLs. */
+    suspend fun serverUrl(): String = prefs.serverUrl.first()?.trimEnd('/') ?: ""
+
     private fun nowIso(): String = java.time.Instant.now().toString()
 }

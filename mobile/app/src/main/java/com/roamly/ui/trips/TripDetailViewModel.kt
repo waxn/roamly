@@ -22,6 +22,7 @@ data class TripDetailUiState(
     val expandedBlurbId: Int? = null,
     val isLoading: Boolean = false,
     val error: String? = null,
+    val serverUrl: String = "",
     val showAddTypeDialog: Boolean = false,
     val showBlurbDialog: Boolean = false,
     val showMilestoneDialog: Boolean = false,
@@ -41,6 +42,9 @@ class TripDetailViewModel @Inject constructor(
         tripId = id
         _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
+            if (_uiState.value.serverUrl.isBlank()) {
+                _uiState.update { it.copy(serverUrl = repository.serverUrl()) }
+            }
             when (val r = repository.getTrip(id)) {
                 is Result.Success -> _uiState.update { it.copy(trip = r.data, isLoading = false) }
                 is Result.Error -> _uiState.update { it.copy(error = r.message, isLoading = false) }

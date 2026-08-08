@@ -180,6 +180,19 @@ fun TripDetailScreen(
                                 }
                             }
                         }
+
+                        // Story — the author-written block document, read-only.
+                        if (trip.body.isNotEmpty()) {
+                            items(trip.body) { block ->
+                                StoryBlock(
+                                    block = block,
+                                    places = trip.places,
+                                    photos = trip.photos,
+                                    serverUrl = state.serverUrl,
+                                    onMapEmbedTap = { showFullMap = true },
+                                )
+                            }
+                        }
                     }
 
                     if (state.events.isEmpty()) {

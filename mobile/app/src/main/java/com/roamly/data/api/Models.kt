@@ -184,6 +184,7 @@ data class TripResponse(
     val id: Int,
     val name: String,
     val description: String? = null,
+    val subtitle: String? = null,
     val device: String? = null,
     @SerializedName("start_time")     val startTime: String,
     @SerializedName("end_time")       val endTime: String,
@@ -197,12 +198,92 @@ data class TripResponse(
     @SerializedName("is_public")      val isPublic: Boolean = false,
     @SerializedName("is_creator")     val isCreator: Boolean = false,
     @SerializedName("public_slug")    val publicSlug: String? = null,
+    // Detail-endpoint rich content (empty on the list endpoint).
+    @SerializedName("cover_image")     val coverImage: String? = null,
+    @SerializedName("cover_thumbnail") val coverThumbnail: String? = null,
+    val body: List<BodyBlock> = emptyList(),
+    val places: List<PlacePayload> = emptyList(),
+    @SerializedName("planned_stops")   val plannedStops: List<PlannedStop> = emptyList(),
+    @SerializedName("day_notes")       val dayNotes: List<DayNote> = emptyList(),
+    val categories: List<TripCategory> = emptyList(),
+    // photo id (as a string key) -> media. photo_grid blocks reference these ids.
+    val photos: Map<String, MediaItem> = emptyMap(),
+    @SerializedName("invite_token")    val inviteToken: String? = null,
+    @SerializedName("invite_url")      val inviteUrl: String? = null,
+    // username -> that member's own device track for the trip window.
+    @SerializedName("member_locations") val memberLocations: Map<String, List<TripLatLng>> = emptyMap(),
 ) {
     /** Best available point count regardless of which endpoint produced this. */
     val pointCount: Int get() = if (totalLocationCount > 0) totalLocationCount else maxOf(locationCount, locations.size)
     /** Best available member count regardless of endpoint. */
     val memberCountResolved: Int get() = members?.size ?: memberCount
 }
+
+// A single Story block. `content` is read loosely as raw JSON and its fields are
+// pulled out per block.type at render time (mirrors the web's untyped renderer);
+// the document format still evolves web-side, so avoid a rigid typed union here.
+data class BodyBlock(
+    val type: String = "",
+    val content: com.google.gson.JsonObject? = null,
+)
+
+data class PlacePayload(
+    val id: Int,
+    val name: String = "",
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val notes: String? = null,
+    val rating: Int? = null,
+    val category: String? = null,
+)
+
+data class MediaItem(
+    val id: Int = 0,
+    val type: String = "image",   // "image" | "video"
+    val url: String? = null,
+    val video: String? = null,
+    val thumb: String? = null,
+)
+
+data class PlannedStop(
+    val id: Int,
+    val name: String = "",
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    @SerializedName("location_name") val locationName: String? = null,
+    @SerializedName("arrival_date")  val arrivalDate: String? = null,
+    val nights: Int? = null,
+    val transport: String? = null,
+    val notes: String? = null,
+    val accommodation: String? = null,
+    val order: Int = 0,
+)
+
+data class DayNotePlace(
+    val id: Int,
+    val name: String = "",
+    val rating: Int? = null,
+    val category: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+)
+
+data class DayNote(
+    val id: Int,
+    val date: String = "",
+    @SerializedName("author_id") val authorId: Int? = null,
+    val author: String = "",
+    val avatar: String? = null,
+    val title: String = "",
+    val body: String = "",
+    @SerializedName("place_id") val placeId: Int? = null,
+    val place: DayNotePlace? = null,
+    @SerializedName("is_mine")   val isMine: Boolean = false,
+    val photos: List<MediaItem> = emptyList(),
+    @SerializedName("updated_at") val updatedAt: String? = null,
+)
+
+data class TripCategory(val slug: String = "", val label: String = "")
 
 data class TripsListResponse(val trips: List<TripResponse>)
 
