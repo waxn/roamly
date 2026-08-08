@@ -279,6 +279,57 @@ def robots_txt(request):
     return HttpResponse('\n'.join(lines), content_type='text/plain')
 
 
+def sitemap_xml(request):
+    """Public XML sitemap: the standalone marketing/legal pages plus every
+    published adventure page. Everything else is login-gated and stays out
+    (matching robots.txt's Disallow list)."""
+    from xml.sax.saxutils import escape
+    site_url = request.build_absolute_uri('/').rstrip('/')
+
+    # (path, changefreq, priority)
+    static_pages = [
+        ('/', 'weekly', '1.0'),
+        ('/docs/', 'monthly', '0.6'),
+        ('/privacy/', 'yearly', '0.3'),
+        ('/terms/', 'yearly', '0.3'),
+    ]
+
+    urls = []
+    for path, changefreq, priority in static_pages:
+        urls.append(
+            f'  <url>\n'
+            f'    <loc>{escape(site_url + path)}</loc>\n'
+            f'    <changefreq>{changefreq}</changefreq>\n'
+            f'    <priority>{priority}</priority>\n'
+            f'  </url>'
+        )
+
+    published = (Adventure.objects
+                 .filter(public_slug__isnull=False)
+                 .exclude(public_slug='')
+                 .values('public_slug', 'updated_at'))
+    for adv in published:
+        loc = f"{site_url}/adventure/{adv['public_slug']}/"
+        lastmod = ''
+        if adv['updated_at']:
+            lastmod = f"\n    <lastmod>{adv['updated_at'].date().isoformat()}</lastmod>"
+        urls.append(
+            f'  <url>\n'
+            f'    <loc>{escape(loc)}</loc>{lastmod}\n'
+            f'    <changefreq>monthly</changefreq>\n'
+            f'    <priority>0.5</priority>\n'
+            f'  </url>'
+        )
+
+    body = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        + '\n'.join(urls)
+        + '\n</urlset>\n'
+    )
+    return HttpResponse(body, content_type='application/xml')
+
+
 # ── Email verification helpers (only active when settings.EMAIL_ENABLED) ─────
 _CODE_TTL = 900  # 15 minutes
 _DEVICE_COOKIE = 'roamly_device'

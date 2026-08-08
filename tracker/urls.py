@@ -9,6 +9,7 @@ urlpatterns = [
 
     # SEO
     path('robots.txt', views.robots_txt, name='robots_txt'),
+    path('sitemap.xml', views.sitemap_xml, name='sitemap_xml'),
 
     # Pages
     path('', views.landing_view, name='landing'),
