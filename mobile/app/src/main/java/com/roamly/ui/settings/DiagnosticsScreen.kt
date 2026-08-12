@@ -35,7 +35,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ElevatedCard
+import com.roamly.ui.theme.ClayCard
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -141,7 +141,7 @@ fun DiagnosticsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 // Range selector
-                ElevatedCard {
+                ClayCard(contentPadding = 0.dp) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text("Time range", style = MaterialTheme.typography.titleSmall)
                         Spacer(Modifier.height(10.dp))
@@ -195,14 +195,14 @@ fun DiagnosticsScreen(
                 }
 
                 diagError?.let { err ->
-                    ElevatedCard {
+                    ClayCard(contentPadding = 0.dp) {
                         Text(err, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
                     }
                 }
 
                 diagResult?.let { d ->
                     if (d.error == "too_many_points") {
-                        ElevatedCard {
+                        ClayCard(contentPadding = 0.dp) {
                             Text(
                                 "Too many points (${d.count.toLocaleString()}) — pick a shorter range or use a specific device.",
                                 modifier = Modifier.padding(16.dp),
@@ -210,7 +210,7 @@ fun DiagnosticsScreen(
                         }
                     } else if (d.count > 0) {
                         // Hero stats
-                        ElevatedCard {
+                        ClayCard(contentPadding = 0.dp) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text("Overview", style = MaterialTheme.typography.titleSmall)
                                 Spacer(Modifier.height(10.dp))
@@ -237,7 +237,7 @@ fun DiagnosticsScreen(
 
                         // Coverage timeline
                         if (d.timeline.coverage.isNotEmpty()) {
-                            ElevatedCard {
+                            ClayCard(contentPadding = 0.dp) {
                                 Column(modifier = Modifier.padding(16.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text("Coverage timeline", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
@@ -256,7 +256,7 @@ fun DiagnosticsScreen(
                         }
 
                         // Gaps
-                        ElevatedCard {
+                        ClayCard(contentPadding = 0.dp) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 val gapHealth = when {
                                     (d.gaps.maxS ?: 0.0) <= 120 -> "healthy" to Clay.colors.success
@@ -286,7 +286,7 @@ fun DiagnosticsScreen(
 
                         // Accuracy
                         val acc = d.accuracy
-                        ElevatedCard {
+                        ClayCard(contentPadding = 0.dp) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text("Accuracy", style = MaterialTheme.typography.titleSmall)
                                 Spacer(Modifier.height(8.dp))
@@ -303,7 +303,7 @@ fun DiagnosticsScreen(
                         // Battery
                         val bat = d.battery
                         if (bat.min != null || bat.max != null) {
-                            ElevatedCard {
+                            ClayCard(contentPadding = 0.dp) {
                                 Column(modifier = Modifier.padding(16.dp)) {
                                     Text("Battery during session", style = MaterialTheme.typography.titleSmall)
                                     Spacer(Modifier.height(8.dp))
@@ -323,7 +323,7 @@ fun DiagnosticsScreen(
                 // points that were captured *and* uploaded — a hole there can't distinguish
                 // "GPS gave nothing" from "we captured it and threw it away". These counters
                 // are recorded at the decision points themselves and answer exactly that.
-                ElevatedCard {
+                ClayCard(contentPadding = 0.dp) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Capture health", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
@@ -357,7 +357,7 @@ fun DiagnosticsScreen(
                 }
 
                 // ── Static device info ─────────────────────────────────────────
-                ElevatedCard {
+                ClayCard(contentPadding = 0.dp) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text("Tracking settings", style = MaterialTheme.typography.titleSmall)
                         Spacer(Modifier.height(8.dp))
@@ -373,7 +373,7 @@ fun DiagnosticsScreen(
 
                 // ── CSV path (tap to share) ────────────────────────────────────
                 if (state.csvPath.isNotBlank()) {
-                    ElevatedCard {
+                    ClayCard(contentPadding = 0.dp) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("Local CSV log", style = MaterialTheme.typography.titleSmall)
                             Spacer(Modifier.height(6.dp))
@@ -417,7 +417,7 @@ fun DiagnosticsScreen(
                 }
 
                 // ── Device info ─────────────────────────────────────────────────
-                ElevatedCard {
+                ClayCard(contentPadding = 0.dp) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text("Device", style = MaterialTheme.typography.titleSmall)
                         Spacer(Modifier.height(8.dp))

@@ -34,7 +34,7 @@ import androidx.compose.material.icons.rounded.TrendingDown
 import androidx.compose.material.icons.rounded.TrendingFlat
 import androidx.compose.material.icons.rounded.TrendingUp
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ElevatedCard
+import com.roamly.ui.theme.ClayCard
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -126,7 +126,7 @@ fun StatsScreen(
 
 @Composable
 private fun SummaryCard(stats: StatsResponse) {
-    ElevatedCard {
+    ClayCard(contentPadding = 0.dp) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("Overview", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(12.dp))
@@ -165,7 +165,7 @@ private fun StatBlock(value: String, label: String, icon: ImageVector, container
 
 @Composable
 private fun YearlyOverview(yearly: YearlyOverviewResponse) {
-    ElevatedCard {
+    ClayCard(contentPadding = 0.dp) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("${yearly.year} overview", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(12.dp))
@@ -213,7 +213,7 @@ private fun MonthlyBars(
     val buckets = yearly.monthlyBreakdown
     if (buckets.isEmpty()) return
     val maxV = max(1, buckets.maxOf { it.points })
-    ElevatedCard {
+    ClayCard(contentPadding = 0.dp) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("${yearly.year} — monthly activity", style = MaterialTheme.typography.titleSmall)
             Text("tap a month for daily breakdown", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -263,7 +263,7 @@ private fun MonthDrilldown(
     onDayClick: (String) -> Unit,
 ) {
     val monthName = java.time.Month.of(month).getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.getDefault())
-    ElevatedCard {
+    ClayCard(contentPadding = 0.dp) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("$monthName $year — daily", style = MaterialTheme.typography.titleSmall)
             Text("tap a day to view it on the map", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -335,7 +335,7 @@ private fun SectionHeader(title: String, icon: ImageVector) {
 
 @Composable
 private fun CountryRow(country: CountryVisit) {
-    ElevatedCard {
+    ClayCard(contentPadding = 0.dp) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(14.dp)) {
             Box(
                 modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp))
@@ -354,7 +354,7 @@ private fun CountryRow(country: CountryVisit) {
 
 @Composable
 private fun CityRow(city: CityVisit) {
-    ElevatedCard {
+    ClayCard(contentPadding = 0.dp) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(14.dp)) {
             Box(
                 modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp))
