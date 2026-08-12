@@ -101,6 +101,43 @@ def service_worker(request):
 
 
 # ---------------------------------------------------------------------------
+# Error pages — registered as Django error handlers in roamly/urls.py.
+# Standalone templates (no nav chrome, no DB/session dependency) so 500 in
+# particular still renders when something is actually broken.
+# ---------------------------------------------------------------------------
+
+def _error_page(request, code, title, message):
+    try:
+        authed = request.user.is_authenticated
+    except Exception:
+        # A 500 can be caused by exactly the kind of DB/session trouble that
+        # would also break this check — fall back to the anonymous link.
+        authed = False
+    home_url = '/map/' if authed else '/'
+    home_label = 'back to the map' if authed else 'back home'
+    return render(request, 'tracker/_error.html', {
+        'code': code, 'title': title, 'message': message,
+        'home_url': home_url, 'home_label': home_label,
+    }, status=code)
+
+
+def error_400(request, exception=None):
+    return _error_page(request, 400, "that request doesn't look right", "The request couldn't be understood. If you followed a link to get here, it may be broken.")
+
+
+def error_403(request, exception=None):
+    return _error_page(request, 403, "you don't have access to this", "You're signed in, but this page belongs to someone else or requires a different permission.")
+
+
+def error_404(request, exception=None):
+    return _error_page(request, 404, "nothing here", "This page doesn't exist, or the thing you were looking for has been moved or deleted.")
+
+
+def error_500(request):
+    return _error_page(request, 500, "something broke on our end", "This one's on us — the error's been logged. Everything else in the app should still work fine.")
+
+
+# ---------------------------------------------------------------------------
 # Reverse Geocoding
 # ---------------------------------------------------------------------------
 
