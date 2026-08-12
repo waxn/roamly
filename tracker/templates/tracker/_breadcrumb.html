@@ -1,0 +1,10 @@
+<nav class="rly-breadcrumb" aria-label="Breadcrumb">
+    {% for crumb in crumbs %}
+        {% if not forloop.last %}
+            <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+            <span class="rly-breadcrumb-sep" aria-hidden="true">›</span>
+        {% else %}
+            <span class="rly-breadcrumb-current" aria-current="page">{{ crumb.label }}</span>
+        {% endif %}
+    {% endfor %}
+</nav>

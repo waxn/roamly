@@ -3,7 +3,8 @@
 
 {% block extra_css %}
 /* ── Editor shell ── */
-.editor-shell { display: flex; height: calc(100vh - var(--nav-h)); overflow: hidden; }
+.editor-breadcrumb-bar { padding: 0.6rem 1.25rem 0; }
+.editor-shell { display: flex; height: calc(100vh - var(--nav-h) - 2.35rem); overflow: hidden; }
 
 .editor-doc {
     flex: 0 0 var(--doc-w, 54%); min-width: 340px;
@@ -662,6 +663,8 @@ video.grid-thumb { width: 90px; height: 90px; object-fit: cover; }
 {% block content %}
 <input type="file" id="cover-file-input" accept="image/*" style="display:none">
 <input type="file" id="photo-file-input" accept="image/*,video/*" multiple style="display:none">
+
+<div class="editor-breadcrumb-bar">{% include "tracker/_breadcrumb.html" with crumbs=breadcrumbs %}</div>
 
 <div class="editor-shell">
     <!-- ── LEFT: Document editor ── -->

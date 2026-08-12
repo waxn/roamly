@@ -964,11 +964,17 @@ def adventure_edit_view(request, trip_id):
     trip = _get_trip_for_user(trip_id, request.user)
     devices = Device.objects.filter(user=request.user)
     is_creator = trip.device.user == request.user or trip.creator == request.user
+    breadcrumbs = [
+        {'label': 'Adventures', 'url': '/adventures/'},
+        {'label': trip.name, 'url': f'/adventures/{trip_id}/plan/'},
+        {'label': 'Edit'},
+    ]
     return render(request, 'tracker/adventure_edit.html', {
         'trip': trip,
         'trip_id': trip_id,
         'devices': devices,
         'is_creator': is_creator,
+        'breadcrumbs': breadcrumbs,
     })
 
 
