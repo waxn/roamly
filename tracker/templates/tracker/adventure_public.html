@@ -454,7 +454,7 @@ let pinMiniMap = null;
 let embeddedMaps = {};
 
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function copyLink(){ navigator.clipboard.writeText(location.href).then(()=>roamlyAlert('link copied!')); }
+function copyLink(){ navigator.clipboard.writeText(location.href).then(()=>window.roamlyToast('Link copied.', {type:'success'})); }
 
 // ── PIN gate ────────────────────────────────────────────────────────────────
 async function verifyPin(){
