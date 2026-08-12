@@ -29,6 +29,7 @@ from django.db.models import Count, Min, Max, Avg, Q, Case, When, Value, F, Inte
 from django.db.models.functions import Coalesce, Cast, Round
 from django.http import FileResponse, JsonResponse, HttpResponse, StreamingHttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods, require_POST
@@ -697,6 +698,14 @@ def password_reset_confirm(request, uidb64, token):
     return render(request, 'tracker/password_reset_confirm.html', {'valid': valid, 'done': done})
 
 
+def _append_flash(url, key):
+    """Append ?flash=<key> to a redirect target, preserving any existing query string."""
+    parts = urllib.parse.urlsplit(url)
+    query = urllib.parse.parse_qsl(parts.query)
+    query.append(('flash', key))
+    return urllib.parse.urlunsplit(parts._replace(query=urllib.parse.urlencode(query)))
+
+
 def signup_view(request):
     if request.user.is_authenticated:
         return redirect('tracker:map')
@@ -730,7 +739,7 @@ def signup_view(request):
                 return redirect('tracker:verify')
             login(request, user)
             _log_action(request, 'signup', user=user)
-            return redirect(next_url)
+            return redirect(_append_flash(next_url, 'welcome'))
     else:
         form = SignUpForm()
     return render(request, 'tracker/signup.html', {
@@ -777,7 +786,13 @@ def verify_view(request):
             login(request, user)
             _log_action(request, 'signup' if purpose == 'signup' else 'login', user=user)
             request.session.pop('pending_verify', None)
-            resp = JsonResponse({'status': 'ok'}) if is_app else redirect(pv.get('next') or 'tracker:map')
+            if is_app:
+                resp = JsonResponse({'status': 'ok'})
+            else:
+                target = pv.get('next') or reverse('tracker:map')
+                if purpose == 'signup':
+                    target = _append_flash(target, 'welcome')
+                resp = redirect(target)
             _trust_device(user, request, resp)  # trust the device that just verified
             return resp
         if is_app:
@@ -4444,10 +4459,13 @@ def trip_join_view(request, token):
     if not trip:
         return render(request, 'tracker/adventure_join.html', {'invalid': True}, status=404)
     if request.user.is_authenticated:
-        AdventureMember.objects.get_or_create(
+        _member, created = AdventureMember.objects.get_or_create(
             adventure=trip, user=request.user, defaults={'role': 'member'},
         )
-        return redirect('tracker:adventure_plan', trip_id=trip.id)
+        url = reverse('tracker:adventure_plan', kwargs={'trip_id': trip.id})
+        if created:
+            url += '?flash=joined'
+        return redirect(url)
     # Anonymous: show a small landing with login/signup carrying ?next back here.
     return render(request, 'tracker/adventure_join.html', {
         'trip': trip,
