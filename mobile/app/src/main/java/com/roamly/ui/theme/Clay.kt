@@ -1,9 +1,7 @@
 package com.roamly.ui.theme
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -17,19 +15,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ProvideTextStyle
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Button
 import androidx.compose.material3.Text
-import androidx.compose.material3.ripple
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,14 +34,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * Material 3 design kit wrappers.
- *
- * The clay shadow/gradient look has been replaced by flat M3 surfaces that
- * inherit their color from the system dynamic palette. The external API of each
- * composable is kept the same so call sites need minimal updates.
+ * Field Journal design kit — flat plates with hairline borders, no Material
+ * elevation/shadow. Mirrors the web app's card/button treatment so the mobile
+ * and web UI read as the same product.
  */
 
-/** No-op — shadows are gone in the flat M3 design. Kept for call-site compatibility. */
+/** No-op — shadows are gone in the flat design. Kept for call-site compatibility. */
 @Suppress("UNUSED_PARAMETER")
 fun Modifier.claySoftShadow(
     cornerRadius: Dp,
@@ -57,55 +50,67 @@ fun Modifier.claySoftShadow(
 ): Modifier = this  // intentionally a no-op
 
 /**
- * A container surface — now just an M3 [ElevatedCard] so it picks up
- * tonal elevation and system color automatically.
+ * A flat, hairline-bordered container surface — no tonal elevation, no shadow.
  */
 @Composable
 fun ClaySurface(
     modifier: Modifier = Modifier,
-    cornerRadius: Dp = 16.dp,
-    depth: Dp = 2.dp,
+    cornerRadius: Dp = 10.dp,
+    depth: Dp = 0.dp,
     gradient: List<Color>? = null,
     highlight: Boolean = true,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    ElevatedCard(
+    Surface(
         modifier = modifier,
         shape = RoundedCornerShape(cornerRadius),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = depth.coerceAtMost(4.dp)),
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
     ) {
         Box(content = content)
     }
 }
 
 /**
- * A card with standard padding. Clickable variant shows a ripple.
+ * A card with standard padding — flat plate, 1dp hairline border. Clickable
+ * variant shows a ripple.
  */
 @Composable
 fun ClayCard(
     modifier: Modifier = Modifier,
-    cornerRadius: Dp = 16.dp,
-    depth: Dp = 2.dp,
+    cornerRadius: Dp = 10.dp,
+    depth: Dp = 0.dp,
     contentPadding: Dp = 16.dp,
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val shape = RoundedCornerShape(cornerRadius)
+    val border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
     if (onClick != null) {
-        Card(
+        Surface(
             onClick = onClick,
             modifier = modifier,
-            shape = RoundedCornerShape(cornerRadius),
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = shape,
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            border = border,
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
         ) {
             Column(modifier = Modifier.padding(contentPadding), content = content)
         }
     } else {
-        ElevatedCard(
+        Surface(
             modifier = modifier,
-            shape = RoundedCornerShape(cornerRadius),
-            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp),
-            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = shape,
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            border = border,
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
         ) {
             Column(modifier = Modifier.padding(contentPadding), content = content)
         }
@@ -113,10 +118,10 @@ fun ClayCard(
 }
 
 /**
- * A button mapped to the appropriate M3 style based on the gradient hint:
- * - red/destructive gradient → error-colored Button
- * - any gradient → FilledTonalButton (inherits secondary container color)
- * - null → FilledTonalButton
+ * A filled button mapped by the gradient hint:
+ * - red/destructive gradient → error-colored
+ * - anything else → tonal (secondary container)
+ * Always flat — zero elevation, matching the web's borderless filled buttons.
  */
 @Composable
 fun ClayButton(
@@ -124,7 +129,7 @@ fun ClayButton(
     modifier: Modifier = Modifier,
     gradient: List<Color>? = null,
     enabled: Boolean = true,
-    cornerRadius: Dp = 16.dp,
+    cornerRadius: Dp = 10.dp,
     contentColor: Color = Color.Unspecified,
     content: @Composable RowScope.() -> Unit,
 ) {
@@ -135,24 +140,96 @@ fun ClayButton(
             contentColor = MaterialTheme.colorScheme.onError,
         )
     } else {
-        ButtonDefaults.filledTonalButtonColors()
+        ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = if (contentColor != Color.Unspecified) contentColor else MaterialTheme.colorScheme.onSecondaryContainer,
+        )
     }
-    FilledTonalButton(
+    Button(
         onClick = onClick,
         modifier = modifier,
         enabled = enabled,
         shape = RoundedCornerShape(cornerRadius),
         colors = colors,
+        elevation = ButtonDefaults.buttonElevation(
+            defaultElevation = 0.dp,
+            pressedElevation = 0.dp,
+            focusedElevation = 0.dp,
+            hoveredElevation = 0.dp,
+            disabledElevation = 0.dp,
+        ),
     ) {
         content()
     }
 }
 
+/** A hairline-bordered, transparent-fill button — the flat outline variant. */
+@Composable
+fun ClayOutlinedButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    cornerRadius: Dp = 10.dp,
+    contentColor: Color = Color.Unspecified,
+    content: @Composable RowScope.() -> Unit,
+) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        shape = RoundedCornerShape(cornerRadius),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        colors = ButtonDefaults.outlinedButtonColors(
+            contentColor = if (contentColor != Color.Unspecified) contentColor else MaterialTheme.colorScheme.onSurface,
+        ),
+        content = content,
+    )
+}
+
+/** A borderless text button, tinted with the primary trail-blaze orange. */
+@Composable
+fun ClayTextButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    contentColor: Color = Color.Unspecified,
+    content: @Composable RowScope.() -> Unit,
+) {
+    TextButton(
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        colors = ButtonDefaults.textButtonColors(
+            contentColor = if (contentColor != Color.Unspecified) contentColor else MaterialTheme.colorScheme.primary,
+        ),
+        content = content,
+    )
+}
+
+/** A flat icon button — no ripple halo color surprises, just the theme's on-surface tint. */
+@Composable
+fun ClayIconButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    contentColor: Color = Color.Unspecified,
+    content: @Composable () -> Unit,
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        colors = IconButtonDefaults.iconButtonColors(
+            contentColor = if (contentColor != Color.Unspecified) contentColor else MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
+        content = content,
+    )
+}
+
 /**
- * A small icon container — now uses M3 secondary/tertiary container colors
- * instead of a gradient. The gradient hint picks the container color:
- * primary-ish → primaryContainer, secondary-ish → secondaryContainer,
- * tertiary-ish → tertiaryContainer.
+ * A small icon container — flat container-color fill (no gradient).
+ * The gradient hint picks the container color: primary-ish → primaryContainer,
+ * secondary-ish → secondaryContainer, tertiary-ish → tertiaryContainer.
  */
 @Composable
 fun ClayIconBadge(
@@ -160,7 +237,7 @@ fun ClayIconBadge(
     modifier: Modifier = Modifier,
     gradient: List<Color>? = null,
     size: Dp = 44.dp,
-    cornerRadius: Dp = 12.dp,
+    cornerRadius: Dp = 10.dp,
     iconTint: Color = Color.Unspecified,
     contentDescription: String? = null,
 ) {
@@ -192,7 +269,7 @@ fun ClayIconBadge(
     }
 }
 
-/** Section header: icon badge + title, optional trailing slot. */
+/** Section header: icon badge + title, optional trailing slot. Title uses the Fraunces display type. */
 @Composable
 fun ClaySectionHeader(
     title: String,
@@ -205,7 +282,7 @@ fun ClaySectionHeader(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ClayIconBadge(icon = icon, gradient = gradient, size = 32.dp, cornerRadius = 10.dp)
+        ClayIconBadge(icon = icon, gradient = gradient, size = 32.dp, cornerRadius = 8.dp)
         Spacer(Modifier.width(10.dp))
         Text(
             title,
