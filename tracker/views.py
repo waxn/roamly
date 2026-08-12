@@ -728,8 +728,11 @@ def signup_view(request):
         if form.is_valid():
             user = form.save()
             # A valid admin key (validated in the form) makes this an admin account.
+            # intro_seen=False so the welcome tour auto-triggers once for this
+            # brand new profile (the field defaults True everywhere else, so
+            # existing accounts are never retroactively interrupted).
             UserProfile.objects.update_or_create(
-                user=user, defaults={'is_admin': form.is_admin_signup},
+                user=user, defaults={'is_admin': form.is_admin_signup, 'intro_seen': False},
             )
             next_url = _safe_next(request)
             if email_enabled() and user.email:
@@ -1363,6 +1366,21 @@ def profile_distance_unit_api(request):
             profile.save(update_fields=['distance_unit'])
         return JsonResponse({'ok': True, 'distance_unit': profile.distance_unit})
     return JsonResponse({'distance_unit': profile.distance_unit})
+
+
+@login_required
+def profile_intro_seen_api(request):
+    """Mark the requesting user's first-run welcome tour (RoamlyIntro) as seen,
+    so it never auto-triggers again. Called once, client-side, the moment the
+    tour actually starts (not on every page load) — a manual replay from
+    Settings runs the tour client-side without touching this flag."""
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if request.method == 'POST':
+        if not profile.intro_seen:
+            profile.intro_seen = True
+            profile.save(update_fields=['intro_seen'])
+        return JsonResponse({'ok': True})
+    return JsonResponse({'intro_seen': profile.intro_seen})
 
 
 @login_required

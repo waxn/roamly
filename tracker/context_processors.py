@@ -75,10 +75,14 @@ def custom_js_snippet(request):
     mapbox_token = ''
     road_snap = False
     road_provider = ''
+    intro_pending = False
     user = getattr(request, 'user', None)
     if user is not None and user.is_authenticated:
         profile = getattr(user, 'profile', None)
         is_admin = bool(profile and profile.is_admin)
+        # First-run welcome tour (RoamlyIntro) — only unseen for a brand new
+        # signup (see UserProfile.intro_seen); every other profile is True.
+        intro_pending = bool(profile and not profile.intro_seen)
         # Reuse the same profile object — the Ask tab shows only once the user
         # has enabled AI and supplied a base URL, key, and model.
         ai_ask_enabled = bool(profile and profile.ai_configured)
@@ -97,6 +101,7 @@ def custom_js_snippet(request):
         'MAPBOX_TOKEN': mapbox_token,
         'ROAD_SNAP_ENABLED': road_snap,
         'ROAD_PROVIDER': road_provider,
+        'INTRO_PENDING': intro_pending,
         # Footer contact link + form (landing + settings). The form only renders
         # when SMTP is configured; otherwise the link falls back to a mailto:.
         'CONTACT_EMAIL': get_contact_email(),

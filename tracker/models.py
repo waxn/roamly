@@ -1047,6 +1047,14 @@ class UserProfile(models.Model):
     totp_secret = models.CharField(max_length=32, blank=True, default='')
     totp_enabled = models.BooleanField(default=False)
 
+    # First-run welcome tour (see RoamlyIntro in base.html). Defaults True so
+    # existing accounts are never interrupted by a tour added after they
+    # signed up — signup_view explicitly sets this False for a brand new
+    # profile so the tour auto-triggers exactly once, on that user's first
+    # visit after signup. A manual "Replay intro" (Settings) re-runs the
+    # client-side tour without touching this flag.
+    intro_seen = models.BooleanField(default=True)
+
     @property
     def ai_configured(self):
         return bool(self.ai_ask_enabled and self.ai_base_url and self.ai_api_key and self.ai_model)
