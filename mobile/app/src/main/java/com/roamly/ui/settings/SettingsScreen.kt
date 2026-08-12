@@ -44,9 +44,6 @@ import com.roamly.ui.theme.ClayButton
 import com.roamly.ui.theme.ClayCard
 import com.roamly.ui.theme.ClayIconBadge
 import com.roamly.ui.theme.ClaySectionHeader
-import com.roamly.ui.theme.Coral
-import com.roamly.ui.theme.Sunshine
-import com.roamly.ui.theme.Teal
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -394,7 +391,7 @@ fun SettingsScreen(
             Spacer(Modifier.height(12.dp))
             val syncColor = when {
                 state.lastSyncTime == 0L -> MaterialTheme.colorScheme.onSurfaceVariant
-                state.lastSyncSuccess    -> Teal
+                state.lastSyncSuccess    -> clay.success
                 else                     -> MaterialTheme.colorScheme.error
             }
             val syncText = when {
@@ -419,7 +416,7 @@ fun SettingsScreen(
                     else -> "$cached points waiting to upload"
                 },
                 style = MaterialTheme.typography.bodySmall,
-                color = if (cached == 0) Teal else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (cached == 0) clay.success else MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             Spacer(Modifier.height(12.dp))
@@ -427,11 +424,11 @@ fun SettingsScreen(
                 onClick = viewModel::syncNow,
                 enabled = !state.isSyncing,
                 gradient = clay.secondaryGradient,
-                contentColor = Color(0xFF052B26),
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 if (state.isSyncing) {
-                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Color(0xFF052B26))
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onSecondaryContainer)
                     Spacer(Modifier.width(8.dp))
                     Text("Syncing…", fontWeight = FontWeight.Bold)
                 } else {
@@ -444,7 +441,7 @@ fun SettingsScreen(
 
         // ── Reliability ──────────────────────────────────────────────────
         ClayCard {
-            ClaySectionHeader("Reliability", Icons.Rounded.Bolt, gradient = listOf(Sunshine, Coral))
+            ClaySectionHeader("Reliability", Icons.Rounded.Bolt)
             Spacer(Modifier.height(12.dp))
             ToggleRow(
                 title = "Start tracking on boot",
@@ -457,13 +454,12 @@ fun SettingsScreen(
                 Icons.Rounded.BatteryFull,
                 "Battery optimization",
                 if (state.batteryOptimizationDisabled) "Disabled for Roamly ✓" else "Enabled (may pause tracking)",
-                valueColor = if (state.batteryOptimizationDisabled) Teal else MaterialTheme.colorScheme.error,
+                valueColor = if (state.batteryOptimizationDisabled) clay.success else MaterialTheme.colorScheme.error,
             )
             if (!state.batteryOptimizationDisabled) {
                 Spacer(Modifier.height(10.dp))
                 ClayButton(
                     onClick = { requestBatteryExemption() },
-                    gradient = listOf(Sunshine, Coral),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Icon(Icons.Rounded.Bolt, null, Modifier.size(18.dp))
@@ -486,7 +482,6 @@ fun SettingsScreen(
                 Spacer(Modifier.height(10.dp))
                 ClayButton(
                     onClick = { requestExactAlarms() },
-                    gradient = listOf(Sunshine, Coral),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Icon(Icons.Rounded.Alarm, null, Modifier.size(18.dp))
@@ -511,7 +506,6 @@ fun SettingsScreen(
                     val url = "https://dontkillmyapp.com/${if (mfr.isBlank()) "" else mfr}"
                     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
                 },
-                gradient = listOf(Coral, Sunshine),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(Icons.Rounded.OpenInNew, null, Modifier.size(18.dp))
@@ -591,12 +585,12 @@ fun SettingsScreen(
                     ClayButton(
                         onClick = { updateViewModel.downloadAndInstall() },
                         gradient = clay.secondaryGradient,
-                        contentColor = Color(0xFF052B26),
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !update.downloading,
                     ) {
                         if (update.downloading) {
-                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Color(0xFF052B26))
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onSecondaryContainer)
                             Spacer(Modifier.width(8.dp))
                             Text("Downloading ${update.progress}%", fontWeight = FontWeight.Bold)
                         } else {
@@ -610,12 +604,12 @@ fun SettingsScreen(
                     ClayButton(
                         onClick = { updateViewModel.checkNow() },
                         gradient = clay.secondaryGradient,
-                        contentColor = Color(0xFF052B26),
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !update.checking,
                     ) {
                         if (update.checking) {
-                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Color(0xFF052B26))
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onSecondaryContainer)
                             Spacer(Modifier.width(8.dp))
                             Text("Checking…", fontWeight = FontWeight.Bold)
                         } else {
@@ -643,7 +637,7 @@ fun SettingsScreen(
             ClayButton(
                 onClick = { showDiagnostics = true },
                 gradient = clay.secondaryGradient,
-                contentColor = Color(0xFF052B26),
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(Icons.Rounded.BugReport, null, Modifier.size(18.dp))
@@ -655,7 +649,7 @@ fun SettingsScreen(
             ClayButton(
                 onClick = { showDataTable = true },
                 gradient = clay.secondaryGradient,
-                contentColor = Color(0xFF052B26),
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(Icons.Rounded.Storage, null, Modifier.size(18.dp))
@@ -666,7 +660,7 @@ fun SettingsScreen(
 
         ClayButton(
             onClick = { viewModel.logout(onLoggedOut) },
-            gradient = listOf(Color(0xFFF4604D), Color(0xFFD23B57)),
+            gradient = listOf(MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.error),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Icon(Icons.Rounded.Logout, null, Modifier.size(18.dp))
@@ -708,8 +702,8 @@ private fun TrackingHero(isTracking: Boolean, onToggle: () -> Unit) {
         Spacer(Modifier.height(14.dp))
         ClayButton(
             onClick = onToggle,
-            gradient = if (isTracking) listOf(Color(0xFFF4604D), Color(0xFFD23B57)) else clay.secondaryGradient,
-            contentColor = if (isTracking) Color.White else Color(0xFF052B26),
+            gradient = if (isTracking) listOf(MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.error) else clay.secondaryGradient,
+            contentColor = if (isTracking) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSecondaryContainer,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Icon(if (isTracking) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, null, Modifier.size(20.dp))
@@ -747,7 +741,6 @@ private fun ExemptionWarningBanner(onFix: () -> Unit) {
         Spacer(Modifier.height(12.dp))
         ClayButton(
             onClick = onFix,
-            gradient = listOf(Sunshine, Coral),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Icon(Icons.Rounded.Bolt, null, Modifier.size(18.dp))
