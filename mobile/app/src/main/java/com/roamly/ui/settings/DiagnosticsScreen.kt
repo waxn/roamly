@@ -36,7 +36,7 @@ import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import com.roamly.ui.theme.ClayCard
-import androidx.compose.material3.FilledTonalButton
+import com.roamly.ui.theme.ClayButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -172,7 +172,7 @@ fun DiagnosticsScreen(
                             }
                         }
                         Spacer(Modifier.height(12.dp))
-                        FilledTonalButton(
+                        ClayButton(
                             onClick = ::runDiag,
                             modifier = Modifier.fillMaxWidth(),
                             enabled = !diagLoading,

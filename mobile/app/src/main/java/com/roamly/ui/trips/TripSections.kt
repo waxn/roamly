@@ -47,6 +47,8 @@ import coil.compose.AsyncImage
 import com.roamly.data.api.DayNote
 import com.roamly.data.api.PlannedStop
 import com.roamly.ui.theme.Clay
+import com.roamly.ui.theme.ClayButton
+import com.roamly.ui.theme.ClayTextButton
 
 /** A left-accented section heading used by the Day Log / Itinerary sections. */
 @Composable
@@ -243,11 +245,11 @@ fun StopEditorDialog(
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (onDelete != null) {
-                    androidx.compose.material3.TextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                    ClayTextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) }
                 }
                 Spacer(Modifier.weight(1f))
-                androidx.compose.material3.TextButton(onClick = onClose) { Text("Cancel") }
-                androidx.compose.material3.Button(onClick = {
+                ClayTextButton(onClick = onClose) { Text("Cancel") }
+                ClayButton(onClick = {
                     onSave(stop.copy(
                         name = name, locationName = locationName, arrivalDate = arrivalDate,
                         nights = nights.toIntOrNull() ?: 0, transport = transport,
@@ -372,8 +374,8 @@ fun BlurbCreateDialog(
             ) { Text("Add photos / videos") }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                androidx.compose.material3.TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
-                androidx.compose.material3.Button(onClick = { onPost(text, title, rating.takeIf { it > 0 }, category.ifBlank { null }, picked) }, modifier = Modifier.weight(1f)) { Text("Post") }
+                ClayTextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                ClayButton(onClick = { onPost(text, title, rating.takeIf { it > 0 }, category.ifBlank { null }, picked) }, modifier = Modifier.weight(1f)) { Text("Post") }
             }
         }
     }
@@ -416,7 +418,7 @@ fun InviteSheet(
                         context.startActivity(android.content.Intent.createChooser(send, "Share invite"))
                     }, modifier = Modifier.weight(1f)) { Text("Share") }
                 }
-                androidx.compose.material3.TextButton(onClick = onRotate) { Text("Reset link") }
+                ClayTextButton(onClick = onRotate) { Text("Reset link") }
             }
 
             if (members.isNotEmpty()) {
@@ -428,12 +430,12 @@ fun InviteSheet(
                         if (m.role == "creator") {
                             Text("owner", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                         } else {
-                            androidx.compose.material3.TextButton(onClick = { onRemoveMember(m.userId) }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                            ClayTextButton(onClick = { onRemoveMember(m.userId) }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
                         }
                     }
                 }
             }
-            androidx.compose.material3.TextButton(onClick = onClose, modifier = Modifier.align(Alignment.End)) { Text("Done") }
+            ClayTextButton(onClick = onClose, modifier = Modifier.align(Alignment.End)) { Text("Done") }
         }
     }
 }
@@ -517,8 +519,8 @@ fun DayNoteEditorDialog(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                androidx.compose.material3.TextButton(onClick = onClose, modifier = Modifier.weight(1f)) { Text("Close") }
-                androidx.compose.material3.Button(onClick = onSave, enabled = !editor.saving, modifier = Modifier.weight(1f)) {
+                ClayTextButton(onClick = onClose, modifier = Modifier.weight(1f)) { Text("Close") }
+                ClayButton(onClick = onSave, enabled = !editor.saving, modifier = Modifier.weight(1f)) {
                     Text(if (editor.saving) "Saving…" else "Save")
                 }
             }
