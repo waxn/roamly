@@ -138,16 +138,12 @@
             margin-bottom: 2rem;
         }
 
-        .alert-error {
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid rgba(239, 68, 68, 0.2);
+        .form-errors {
             color: #fca5a5;
-            border-radius: 0;
-            padding: 0.75rem 1rem;
-            font-size: 0.85rem;
+            font-size: 0.78rem;
             font-weight: 600;
-            margin-bottom: 1.25rem;
-            line-height: 1.5;
+            margin-top: 0.4rem;
+            line-height: 1.4;
         }
 
         .form-group {
@@ -179,6 +175,9 @@
             box-shadow: 0 0 0 3px var(--primary-soft);
         }
         .form-control::placeholder { color: var(--text-dim); }
+        .form-control.has-error {
+            border-color: rgba(239, 68, 68, 0.5);
+        }
 
         .btn-submit {
             width: 100%;
@@ -246,22 +245,21 @@
         </div>
         <p class="card-subtitle">sign in to your account</p>
 
-        {% if messages %}
-            {% for message in messages %}
-                <div class="alert-error">{{ message }}</div>
-            {% endfor %}
-        {% endif %}
-
         <form method="post">
             {% csrf_token %}
             <input type="hidden" name="next" value="{{ request.GET.next }}">
             <div class="form-group">
                 <label for="username">username or email</label>
-                <input type="text" name="username" id="username" class="form-control" placeholder="username or email" required autofocus>
+                <input type="text" name="username" id="username" class="form-control{% if messages %} has-error{% endif %}" placeholder="username or email" value="{{ request.POST.username|default:'' }}" required autofocus>
             </div>
             <div class="form-group">
                 <label for="password">password</label>
-                <input type="password" name="password" id="password" class="form-control" placeholder="••••••••" required>
+                <input type="password" name="password" id="password" class="form-control{% if messages %} has-error{% endif %}" placeholder="••••••••" required>
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="form-errors">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
             </div>
             {% if TURNSTILE_ENABLED %}
             <div class="cf-turnstile" data-sitekey="{{ TURNSTILE_SITE_KEY }}" data-theme="dark" data-size="flexible" style="margin-bottom:1rem;"></div>
