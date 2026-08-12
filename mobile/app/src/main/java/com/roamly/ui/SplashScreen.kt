@@ -14,6 +14,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,12 +34,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.roamly.R
-import com.roamly.ui.theme.Coral
-import com.roamly.ui.theme.CoralDeep
-import com.roamly.ui.theme.Sky
-import com.roamly.ui.theme.Sunshine
-import com.roamly.ui.theme.Teal
-import com.roamly.ui.theme.Violet
+import com.roamly.ui.theme.Clay
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.cos
@@ -46,21 +42,20 @@ import kotlin.math.min
 import kotlin.math.sin
 import kotlin.random.Random
 
-private val BG = Color(0xFF0F1117)
-private val ACCENTS = listOf(Teal, Coral, Sky, Violet, Sunshine, CoralDeep)
-
 private enum class SplashStyle { JOURNEY, CONSTELLATION, RADAR, GRIDZOOM }
 
 /**
  * Config generated fresh on every launch so the intro is never the same twice.
  * `points` are normalized (0..1) screen coords; `blips` reuse the pair as
- * (angleTurns, radiusFrac) for the radar style.
+ * (angleTurns, radiusFrac) for the radar style. `bg`/`highlight` are read
+ * from the active theme (Field Journal, dark or light) rather than hardcoded,
+ * so the splash matches whichever mode the rest of the app is in.
  */
-private class SplashConfig(seed: Long) {
+private class SplashConfig(seed: Long, accents: List<Color>, val bg: Color, val highlight: Color) {
     val rng = Random(seed)
     val style = SplashStyle.entries[rng.nextInt(SplashStyle.entries.size)]
-    val accent = ACCENTS[rng.nextInt(ACCENTS.size)]
-    val accent2 = ACCENTS.filter { it != accent }[rng.nextInt(ACCENTS.size - 1)]
+    val accent = accents[rng.nextInt(accents.size)]
+    val accent2 = accents.filter { it != accent }[rng.nextInt(accents.size - 1)]
 
     // A randomized route from a corner, wandering through waypoints to center.
     val points: List<Offset> = buildList {
@@ -100,7 +95,12 @@ private class SplashConfig(seed: Long) {
  */
 @Composable
 fun SplashScreen(onFinished: () -> Unit) {
-    val cfg = remember { SplashConfig(System.nanoTime()) }
+    val clay = Clay.colors
+    val bg = MaterialTheme.colorScheme.background
+    val cfg = remember {
+        val accents = listOf(clay.moss, clay.rust, clay.mapBlue, clay.mauve, clay.ochre)
+        SplashConfig(System.nanoTime(), accents, bg, clay.rust)
+    }
 
     val trackProgress = remember { Animatable(0f) }
     val markScale = remember { Animatable(0f) }
@@ -128,7 +128,7 @@ fun SplashScreen(onFinished: () -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .graphicsLayer { alpha = screenAlpha.value }
-            .background(BG),
+            .background(cfg.bg),
         contentAlignment = Alignment.Center,
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -171,7 +171,7 @@ private fun DrawScope.buildTrack(points: List<Offset>): Path {
     return path
 }
 
-private fun DrawScope.strokeTrack(path: Path, accent: Color, drawn: Float) {
+private fun DrawScope.strokeTrack(path: Path, accent: Color, cfg: SplashConfig, drawn: Float) {
     val measure = PathMeasure().apply { setPath(path, false) }
     val total = measure.length
     val trimmed = Path()
@@ -183,14 +183,14 @@ private fun DrawScope.strokeTrack(path: Path, accent: Color, drawn: Float) {
     drawCircle(accent.copy(alpha = 0.5f), 6.dp.toPx(), measure.getPosition(0f))
     if (drawn < 0.98f) {
         val tip = measure.getPosition(total * drawn)
-        drawCircle(Coral, 9.dp.toPx(), tip)
+        drawCircle(cfg.highlight, 9.dp.toPx(), tip)
         drawCircle(Color.White.copy(alpha = 0.85f), 4.dp.toPx(), tip)
     }
 }
 
 private fun DrawScope.drawJourney(cfg: SplashConfig, t: Float) {
     val path = buildTrack(cfg.points)
-    strokeTrack(path, cfg.accent, t)
+    strokeTrack(path, cfg.accent, cfg, t)
 
     // Waypoint pins light up as the line passes them.
     val w = size.width; val h = size.height
@@ -199,7 +199,7 @@ private fun DrawScope.drawJourney(cfg: SplashConfig, t: Float) {
         if (i > 0 && i < cfg.points.size - 1 && t >= frac) {
             val pos = Offset(np.x * w, np.y * h)
             drawCircle(cfg.accent2, 5.dp.toPx(), pos)
-            drawCircle(BG, 2.5.dp.toPx(), pos)
+            drawCircle(cfg.bg, 2.5.dp.toPx(), pos)
         }
     }
 }
@@ -222,8 +222,8 @@ private fun DrawScope.drawConstellation(cfg: SplashConfig, t: Float) {
     nodes.forEachIndexed { i, p ->
         if (reveal >= i - 0.5f) {
             drawCircle(cfg.accent.copy(alpha = 0.18f), 12.dp.toPx(), p)
-            drawCircle(if (i == n - 1) Coral else cfg.accent2, 6.dp.toPx(), p)
-            drawCircle(BG, 3.dp.toPx(), p)
+            drawCircle(if (i == n - 1) cfg.highlight else cfg.accent2, 6.dp.toPx(), p)
+            drawCircle(cfg.bg, 3.dp.toPx(), p)
         }
     }
 }
@@ -304,5 +304,5 @@ private fun DrawScope.drawGridZoom(cfg: SplashConfig, t: Float) {
 
     // Track drawn in fixed screen space so the camera appears to follow it.
     val path = buildTrack(cfg.points)
-    strokeTrack(path, cfg.accent2, t)
+    strokeTrack(path, cfg.accent2, cfg, t)
 }
