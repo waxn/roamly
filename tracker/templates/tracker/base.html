@@ -1070,6 +1070,53 @@
         .rly-dialog-btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
         .rly-dialog-btn-danger:hover { filter: brightness(1.12); }
 
+        /* ── RoamlyToast: non-blocking success/error confirmation ── */
+        .rly-toast-region {
+            position: fixed; right: 1.1rem; bottom: 1.1rem; z-index: 10050;
+            display: flex; flex-direction: column-reverse; gap: 0.55rem;
+            max-width: min(340px, calc(100vw - 2.2rem)); pointer-events: none;
+        }
+        .rly-toast {
+            pointer-events: auto; display: flex; align-items: flex-start; gap: 0.6rem;
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-left: 3px solid var(--primary); padding: 0.65rem 0.75rem;
+            font-family: var(--font-body); font-size: 0.85rem; font-weight: 600;
+            color: var(--text); box-shadow: var(--clay-shadow-hover);
+            opacity: 0; transform: translateY(6px);
+            transition: opacity 0.18s, transform 0.18s;
+        }
+        .rly-toast.show { opacity: 1; transform: translateY(0); }
+        .rly-toast-error { border-left-color: var(--danger); }
+        .rly-toast-msg { flex: 1; line-height: 1.4; }
+        .rly-toast-close {
+            background: none; border: none; color: var(--text-dim); cursor: pointer;
+            font-size: 1rem; line-height: 1; padding: 0;
+        }
+        .rly-toast-close:hover { color: var(--text); }
+
+        /* ── Breadcrumb trail (nested pages: Adventures › Trip Name › Edit) ── */
+        .rly-breadcrumb {
+            display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem;
+            font-family: var(--font-body); font-size: 0.8rem; font-weight: 600;
+            margin-bottom: 0.85rem;
+        }
+        .rly-breadcrumb a { color: var(--text-dim); text-decoration: none; }
+        .rly-breadcrumb a:hover { color: var(--primary); }
+        .rly-breadcrumb-sep { color: var(--text-dim); opacity: 0.6; }
+        .rly-breadcrumb-current { color: var(--text-muted); }
+
+        /* ── RoamlyBanner: persistent top bar (offline notice, etc.) ── */
+        .rly-banner {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 999;
+            display: none; align-items: center; justify-content: center; gap: 0.5rem;
+            background: var(--bg-elevated); border-bottom: 1px solid var(--border-strong);
+            color: var(--text-muted); font-family: var(--font-body);
+            font-size: 0.8rem; font-weight: 600; padding: 0.5rem 1rem; text-align: center;
+        }
+        /* Sits below the sticky navbar rather than over it, on pages that have one. */
+        body:has(.navbar) .rly-banner { top: var(--nav-h); }
+        .rly-banner.show { display: flex; }
+
         {% block extra_css %}{% endblock %}
     </style>
 </head>
@@ -1637,6 +1684,108 @@
             };
             window.roamlyAlert = window.RoamlyDialog.alert;
             window.roamlyConfirm = window.RoamlyDialog.confirm;
+        })();
+    </script>
+    <script>
+        // RoamlyToast — non-blocking success/error confirmation, styled to match RoamlyDialog.
+        // window.roamlyToast(message, {type: 'success'|'error', duration}) -> dismiss()
+        // duration: 0 disables auto-dismiss (caller must call the returned dismiss()).
+        (function() {
+            if (window.roamlyToast) return;
+            let region;
+            function ensureRegion() {
+                if (region) return region;
+                region = document.createElement('div');
+                region.className = 'rly-toast-region';
+                document.body.appendChild(region);
+                return region;
+            }
+            window.roamlyToast = function(message, opts) {
+                opts = opts || {};
+                const el = document.createElement('div');
+                el.className = 'rly-toast' + (opts.type === 'error' ? ' rly-toast-error' : '');
+                el.setAttribute('role', 'status');
+                el.setAttribute('aria-live', 'polite');
+                const msg = document.createElement('div');
+                msg.className = 'rly-toast-msg';
+                msg.textContent = message == null ? '' : String(message);
+                const close = document.createElement('button');
+                close.type = 'button';
+                close.className = 'rly-toast-close';
+                close.setAttribute('aria-label', 'Dismiss');
+                close.textContent = '×';
+                el.appendChild(msg);
+                el.appendChild(close);
+                ensureRegion().appendChild(el);
+                requestAnimationFrame(function() { el.classList.add('show'); });
+
+                let dismissed = false;
+                function dismiss() {
+                    if (dismissed) return;
+                    dismissed = true;
+                    el.classList.remove('show');
+                    setTimeout(function() { el.remove(); }, 200);
+                }
+                close.onclick = dismiss;
+                const duration = opts.duration == null ? (opts.type === 'error' ? 5000 : 3200) : opts.duration;
+                if (duration > 0) setTimeout(dismiss, duration);
+                return dismiss;
+            };
+        })();
+
+        // Flash-on-load convention: ?flash=<key> shows a canned toast once, then
+        // strips itself from the URL so a refresh doesn't re-show it.
+        (function() {
+            const params = new URLSearchParams(window.location.search);
+            const key = params.get('flash');
+            if (!key) return;
+            const FLASH_MESSAGES = {
+                joined: 'You joined the adventure.',
+                welcome: 'Welcome to Roamly! Your account is ready.',
+                unsubscribed: 'Email preferences updated.'
+            };
+            const message = FLASH_MESSAGES[key];
+            params.delete('flash');
+            const rest = params.toString();
+            const cleanUrl = window.location.pathname + (rest ? '?' + rest : '') + window.location.hash;
+            history.replaceState(null, '', cleanUrl);
+            if (message && window.roamlyToast) window.roamlyToast(message, { type: 'success' });
+        })();
+
+        // Global JS safety net — a page failure should never be silently invisible.
+        // Doesn't fix root causes; just makes sure the user sees *something* broke,
+        // capped to one toast per page load so a repeating error doesn't spam.
+        (function() {
+            let shown = false;
+            function notify(err) {
+                console.error('Unhandled error:', err);
+                if (shown) return;
+                shown = true;
+                if (window.roamlyToast) window.roamlyToast('Something went wrong on this page.', { type: 'error' });
+            }
+            window.addEventListener('error', function(e) { notify(e.error || e.message); });
+            window.addEventListener('unhandledrejection', function(e) { notify(e.reason); });
+        })();
+
+        // Offline banner — the service worker already falls back to cached
+        // responses while offline; this just tells the user why the data
+        // might be stale, so it isn't a silent mystery.
+        (function() {
+            let banner;
+            function ensureBanner() {
+                if (banner) return banner;
+                banner = document.createElement('div');
+                banner.className = 'rly-banner';
+                banner.textContent = "You're offline — showing cached data where available.";
+                document.body.appendChild(banner);
+                return banner;
+            }
+            function update() {
+                ensureBanner().classList.toggle('show', !navigator.onLine);
+            }
+            window.addEventListener('online', update);
+            window.addEventListener('offline', update);
+            if (!navigator.onLine) update();
         })();
     </script>
     <script>
