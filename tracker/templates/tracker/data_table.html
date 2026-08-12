@@ -121,7 +121,11 @@ function renderRows() {
     }).join('');
 
     document.getElementById('data-table-body').innerHTML = html ||
-        '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);">No data</td></tr>';
+        `<tr><td colspan="11" style="text-align:center;padding:2.5rem 1rem;">
+            <div style="font-size:1.6rem;line-height:1;margin-bottom:0.6rem;">📍</div>
+            <div style="font-weight:700;color:var(--text-muted);">no points found</div>
+            <div style="margin-top:0.35rem;color:var(--text-dim);font-size:0.85rem;">try a different device or a wider time range, or install the mobile app to start tracking.</div>
+        </td></tr>`;
 
     // attach click handlers to rows to open map focused on that point's day
     document.querySelectorAll('#data-table-body tr[id^="loc-"]').forEach(tr => {
