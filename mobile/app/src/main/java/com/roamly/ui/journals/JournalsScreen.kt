@@ -75,7 +75,7 @@ import com.roamly.data.api.JournalTrack
 import com.roamly.ui.theme.Clay
 import com.roamly.ui.theme.ClayCard
 import com.roamly.ui.theme.ClayIconBadge
-import com.roamly.ui.theme.Coral
+import androidx.compose.ui.graphics.toArgb
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -167,7 +167,7 @@ private fun StreakBlock(value: String, label: String, highlight: Boolean = false
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         if (highlight) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.LocalFireDepartment, null, tint = Coral, modifier = Modifier.size(18.dp))
+                Icon(Icons.Rounded.LocalFireDepartment, null, tint = Clay.colors.rust, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(2.dp))
                 Text(value, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
             }
@@ -302,7 +302,7 @@ private fun RecentRow(entry: JournalListItem, cover: String?, onClick: () -> Uni
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (entry.isFavorite) Icon(Icons.Rounded.Favorite, null, tint = Coral, modifier = Modifier.size(18.dp))
+            if (entry.isFavorite) Icon(Icons.Rounded.Favorite, null, tint = Clay.colors.rust, modifier = Modifier.size(18.dp))
         }
     }
 }
@@ -335,7 +335,7 @@ private fun EntryEditor(editor: JournalEditorState, viewModel: JournalsViewModel
                 IconButton(onClick = viewModel::onToggleFavorite) {
                     Icon(
                         if (editor.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                        "favorite", tint = if (editor.isFavorite) Coral else MaterialTheme.colorScheme.onSurfaceVariant,
+                        "favorite", tint = if (editor.isFavorite) Clay.colors.rust else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 if (editor.exists) {
@@ -452,10 +452,11 @@ private fun EmojiChip(emoji: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** Day track map — real osmdroid tiles + teal polyline, same as the adventure view. */
+/** Day track map — real osmdroid tiles + map-blue polyline, same as the adventure view. */
 @Composable
 private fun TrackCard(track: JournalTrack, onExpand: (() -> Unit)? = null) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val trackLineColor = Clay.colors.mapBlue.toArgb()
     val mapView = remember {
         Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
         Configuration.getInstance().userAgentValue = "Roamly/1.0"
@@ -476,7 +477,7 @@ private fun TrackCard(track: JournalTrack, onExpand: (() -> Unit)? = null) {
             val geo = track.points.map { p -> GeoPoint(p[1], p[0]) }
             val line = Polyline(mapView).apply {
                 setPoints(geo)
-                outlinePaint.color = android.graphics.Color.rgb(45, 212, 191) // Teal
+                outlinePaint.color = trackLineColor
                 outlinePaint.strokeWidth = 7f
                 outlinePaint.isAntiAlias = true
             }
@@ -527,7 +528,7 @@ private fun TrackCard(track: JournalTrack, onExpand: (() -> Unit)? = null) {
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Rounded.Place, null, tint = Coral, modifier = Modifier.size(12.dp))
+                    Icon(Icons.Rounded.Place, null, tint = Clay.colors.rust, modifier = Modifier.size(12.dp))
                     Spacer(Modifier.width(4.dp))
                     Text(track.cities.joinToString(" · "), style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)

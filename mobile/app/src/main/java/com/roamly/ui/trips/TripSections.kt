@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.roamly.data.api.DayNote
 import com.roamly.data.api.PlannedStop
+import com.roamly.ui.theme.Clay
 
 /** A left-accented section heading used by the Day Log / Itinerary sections. */
 @Composable
@@ -137,7 +138,7 @@ fun ItineraryStopCard(
     ) {
         // Numbered badge
         Box(
-            modifier = Modifier.size(28.dp).clip(CircleShape).background(Color(0xFF9B8EF7)),
+            modifier = Modifier.size(28.dp).clip(CircleShape).background(Clay.colors.mauve),
             contentAlignment = Alignment.Center,
         ) {
             Text("$index", style = MaterialTheme.typography.labelMedium, color = Color.White, fontWeight = FontWeight.Bold)
@@ -338,7 +339,7 @@ fun BlurbCreateDialog(
                     Text(
                         if (n <= rating) "★" else "☆",
                         style = MaterialTheme.typography.titleLarge,
-                        color = if (n <= rating) Color(0xFFF7B731) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (n <= rating) Clay.colors.ochre else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.clickable { rating = if (rating == n) 0 else n }.padding(horizontal = 2.dp),
                     )
                 }

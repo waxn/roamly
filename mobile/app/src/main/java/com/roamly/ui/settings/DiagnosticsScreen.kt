@@ -63,7 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.roamly.data.api.DiagnosticsResponse
 import com.roamly.tracking.CaptureStats
-import com.roamly.ui.theme.Teal
+import com.roamly.ui.theme.Clay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -243,8 +243,8 @@ fun DiagnosticsScreen(
                                         Text("Coverage timeline", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                                         // Legend
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            LegendDot(Color(0xFF2EA043), "tracked")
-                                            LegendDot(Color(0xFFD29922), "sparse")
+                                            LegendDot(Clay.colors.success, "tracked")
+                                            LegendDot(Clay.colors.warning, "sparse")
                                             LegendDot(MaterialTheme.colorScheme.error, "poor")
                                         }
                                     }
@@ -259,8 +259,8 @@ fun DiagnosticsScreen(
                         ElevatedCard {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 val gapHealth = when {
-                                    (d.gaps.maxS ?: 0.0) <= 120 -> "healthy" to Teal
-                                    (d.gaps.maxS ?: 0.0) <= 600 -> "minor gaps" to Color(0xFFD29922)
+                                    (d.gaps.maxS ?: 0.0) <= 120 -> "healthy" to Clay.colors.success
+                                    (d.gaps.maxS ?: 0.0) <= 600 -> "minor gaps" to Clay.colors.warning
                                     else -> "dropouts" to MaterialTheme.colorScheme.error
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -361,8 +361,8 @@ fun DiagnosticsScreen(
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text("Tracking settings", style = MaterialTheme.typography.titleSmall)
                         Spacer(Modifier.height(8.dp))
-                        DiagRow("Status", if (state.isTracking) "● Active" else "○ Stopped", valueColor = if (state.isTracking) Teal else MaterialTheme.colorScheme.error)
-                        DiagRow("Battery opt.", if (state.batteryOptimizationDisabled) "Exempt ✓" else "⚠ Not exempt", valueColor = if (state.batteryOptimizationDisabled) Teal else MaterialTheme.colorScheme.error)
+                        DiagRow("Status", if (state.isTracking) "● Active" else "○ Stopped", valueColor = if (state.isTracking) Clay.colors.success else MaterialTheme.colorScheme.error)
+                        DiagRow("Battery opt.", if (state.batteryOptimizationDisabled) "Exempt ✓" else "⚠ Not exempt", valueColor = if (state.batteryOptimizationDisabled) Clay.colors.success else MaterialTheme.colorScheme.error)
                         DiagRow("Interval", "${state.trackingIntervalSecs}s")
                         DiagRow("GPS priority", state.locationPriority)
                         DiagRow("Accuracy filter", "${state.maxAccuracyM} m")
@@ -437,7 +437,9 @@ fun DiagnosticsScreen(
 
 @Composable
 private fun CoverageChart(coverage: List<Double>) {
-    val errorColor = MaterialTheme.colorScheme.error
+    val goodColor = Clay.colors.success
+    val sparseColor = Clay.colors.warning
+    val poorColor = MaterialTheme.colorScheme.error
     Canvas(
         modifier = Modifier.fillMaxWidth().height(80.dp),
     ) {
@@ -446,12 +448,12 @@ private fun CoverageChart(coverage: List<Double>) {
         coverage.forEachIndexed { i, c ->
             val barH = (c.coerceIn(0.0, 1.0).toFloat() * size.height).coerceAtLeast(2f)
             val color = when {
-                c >= 0.9 -> android.graphics.Color.rgb(46, 160, 67)   // green
-                c >= 0.5 -> android.graphics.Color.rgb(210, 153, 34)  // amber
-                else     -> android.graphics.Color.rgb(220, 80, 80)   // red
+                c >= 0.9 -> goodColor
+                c >= 0.5 -> sparseColor
+                else     -> poorColor
             }
             drawRect(
-                color = Color(color),
+                color = color,
                 topLeft = androidx.compose.ui.geometry.Offset(i * barW + 1f, size.height - barH),
                 size = androidx.compose.ui.geometry.Size(barW - 2f, barH),
             )

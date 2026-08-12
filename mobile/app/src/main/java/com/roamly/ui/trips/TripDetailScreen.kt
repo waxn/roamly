@@ -606,7 +606,6 @@ private fun CommentRow(comment: Comment, onDelete: () -> Unit) {
 
 @Composable
 private fun MilestoneCard(event: TimelineEvent) {
-    val clay = Clay.colors
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -622,7 +621,7 @@ private fun MilestoneCard(event: TimelineEvent) {
                 event.description?.takeIf { it.isNotBlank() }?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f))
                 }
-                event.date?.let { Text(it.take(10), style = MaterialTheme.typography.labelSmall, color = Color(0xFF052B26).copy(alpha = 0.7f)) }
+                event.date?.let { Text(it.take(10), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)) }
             }
         }
     }

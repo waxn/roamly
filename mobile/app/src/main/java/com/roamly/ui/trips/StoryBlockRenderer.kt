@@ -36,6 +36,7 @@ import com.google.gson.JsonObject
 import com.roamly.data.api.BodyBlock
 import com.roamly.data.api.MediaItem
 import com.roamly.data.api.PlacePayload
+import com.roamly.ui.theme.Clay
 
 // ── JsonObject field helpers (block content is read loosely) ────────────────
 private fun JsonObject?.str(key: String): String? =
@@ -49,11 +50,15 @@ private fun JsonObject?.intList(key: String): List<Int> =
         this?.getAsJsonArray(key)?.mapNotNull { it.takeIf { e -> !e.isJsonNull }?.asInt } ?: emptyList()
     } catch (e: Exception) { emptyList() }
 
-// Callout accent colors, keyed like the web's data-color values.
-private val CALLOUT_COLORS = mapOf(
-    "mint" to Color(0xFF0DBFAC), "coral" to Color(0xFFFF6B6B), "amber" to Color(0xFFF7B731),
-    "lavender" to Color(0xFF9B8EF7), "sky" to Color(0xFF5BA4E5),
-)
+/** Callout accent colors, keyed like the web's data-color values (clay-mint/coral/amber/lavender/sky). */
+@Composable
+private fun calloutColors(): Map<String, Color> {
+    val clay = Clay.colors
+    return mapOf(
+        "mint" to clay.moss, "coral" to clay.rust, "amber" to clay.ochre,
+        "lavender" to clay.mauve, "sky" to clay.mapBlue,
+    )
+}
 
 /**
  * Renders one Story block. Unknown/future block types render nothing so a
@@ -88,7 +93,7 @@ fun StoryBlock(
 
         "paragraph" -> {
             Text(
-                inlineText(c.str("text").orEmpty(), places),
+                inlineText(c.str("text").orEmpty(), places, MaterialTheme.colorScheme.primary),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier.fillMaxWidth(),
@@ -98,7 +103,8 @@ fun StoryBlock(
         "divider" -> HorizontalDivider(Modifier.padding(vertical = 4.dp))
 
         "callout" -> {
-            val accent = CALLOUT_COLORS[c.str("color") ?: "mint"] ?: CALLOUT_COLORS["mint"]!!
+            val calloutColors = calloutColors()
+            val accent = calloutColors[c.str("color") ?: "mint"] ?: calloutColors.getValue("mint")
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -223,14 +229,14 @@ fun PlaceMeta(rating: Int?, category: String?) {
             )
         }
         if (stars.isNotEmpty()) {
-            Text(stars, style = MaterialTheme.typography.labelMedium, color = Color(0xFFF7B731))
+            Text(stars, style = MaterialTheme.typography.labelMedium, color = Clay.colors.ochre)
         }
     }
 }
 
 /** Replace inline [^pin:ID] refs with a sequential number styled in the accent
  *  color, mirroring the web's numbered pin badges. */
-private fun inlineText(text: String, places: List<PlacePayload>): androidx.compose.ui.text.AnnotatedString {
+private fun inlineText(text: String, places: List<PlacePayload>, pinColor: Color): androidx.compose.ui.text.AnnotatedString {
     val re = Regex("""\[\^pin:(\d+)\]""")
     return buildAnnotatedString {
         var last = 0
@@ -238,7 +244,7 @@ private fun inlineText(text: String, places: List<PlacePayload>): androidx.compo
         re.findAll(text).forEach { m ->
             append(text.substring(last, m.range.first))
             counter++
-            withStyle(SpanStyle(color = Color(0xFFE8763D), fontWeight = FontWeight.Bold)) {
+            withStyle(SpanStyle(color = pinColor, fontWeight = FontWeight.Bold)) {
                 append(" [$counter] ")
             }
             last = m.range.last + 1

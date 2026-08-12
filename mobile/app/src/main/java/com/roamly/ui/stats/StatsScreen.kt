@@ -55,7 +55,7 @@ import com.roamly.data.api.CountryVisit
 import com.roamly.data.api.PeriodStats
 import com.roamly.data.api.StatsResponse
 import com.roamly.data.api.YearlyOverviewResponse
-import com.roamly.ui.theme.Teal
+import com.roamly.ui.theme.Clay
 import kotlin.math.max
 
 @Composable
@@ -183,7 +183,7 @@ private fun PeriodBlock(label: String, current: PeriodStats, previous: PeriodSta
     val delta = current.points - previous.points
     val pct = if (previous.points > 0) (delta.toFloat() / previous.points * 100f) else null
     val (deltaColor, deltaIcon) = when {
-        delta > 0 -> Teal to Icons.Rounded.TrendingUp
+        delta > 0 -> Clay.colors.success to Icons.Rounded.TrendingUp
         delta < 0 -> MaterialTheme.colorScheme.error to Icons.Rounded.TrendingDown
         else -> MaterialTheme.colorScheme.onSurfaceVariant to Icons.Rounded.TrendingFlat
     }
