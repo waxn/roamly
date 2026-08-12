@@ -750,8 +750,8 @@ let visitedCount = 0;
 let visitedStates = [];
 
 async function loadScratchData() {
-    if (!scratchGeo) scratchGeo = await fetch(SCRATCH_URL).then(r => r.json());
-    if (!scratchStatesGeo) scratchStatesGeo = await fetch(SCRATCH_STATES_URL).then(r => r.json());
+    if (!scratchGeo) scratchGeo = await fetch(SCRATCH_URL).then(r => { if (!r.ok) throw new Error('scratch geo failed'); return r.json(); });
+    if (!scratchStatesGeo) scratchStatesGeo = await fetch(SCRATCH_STATES_URL).then(r => { if (!r.ok) throw new Error('scratch states geo failed'); return r.json(); });
     if (!visitedCodes.length) {
         try {
             const d = await fetch('/api/countries/').then(r => r.json());
@@ -800,7 +800,14 @@ scratchBtn.addEventListener('click', async () => {
     scratchOn = !scratchOn;
     scratchBtn.classList.toggle('active', scratchOn);
     if (scratchOn) {
-        await loadScratchData();
+        try {
+            await loadScratchData();
+        } catch (e) {
+            scratchOn = false;
+            scratchBtn.classList.toggle('active', false);
+            if (window.roamlyToast) window.roamlyToast('Failed to load scratch map data.', { type: 'error' });
+            return;
+        }
         addScratchLayers();
         const n = visitedCount || visitedCodes.length;
         const s = visitedStates.length;

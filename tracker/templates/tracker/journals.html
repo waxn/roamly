@@ -521,7 +521,7 @@ function fmtWeekday(dStr) {
 
 // ── Stats ──
 function loadStats() {
-    fetch('/api/journals/stats/').then(r=>r.json()).then(s=>{
+    fetch('/api/journals/stats/').then(r=>{ if(!r.ok) throw new Error('journal stats failed'); return r.json(); }).then(s=>{
         const chips = [
             {emoji:'🔥', num:s.current_streak, label:'day streak'},
             {emoji:'🏆', num:s.longest_streak, label:'longest streak'},
@@ -536,6 +536,10 @@ function loadStats() {
                 <span class="j-stat-emoji">${c.emoji}</span>
                 <div><div class="j-stat-num">${c.num}</div><div class="j-stat-label">${c.label}</div></div>
             </div>`).join('');
+    }).catch(()=>{
+        const el = document.getElementById('j-stats');
+        el.removeAttribute('aria-busy');
+        el.innerHTML = '<div class="j-empty-state" style="color:var(--danger);">Failed to load stats. <a href="#" onclick="loadStats();return false;">Retry</a></div>';
     });
 }
 
@@ -546,10 +550,12 @@ function renderWeekdays() {
 
 function loadMonth() {
     document.getElementById('j-cal-title').textContent = `${MONTHS[viewMonth-1]} ${viewYear}`;
-    fetch(`/api/journals/?year=${viewYear}&month=${viewMonth}`).then(r=>r.json()).then(data=>{
+    fetch(`/api/journals/?year=${viewYear}&month=${viewMonth}`).then(r=>{ if(!r.ok) throw new Error('month load failed'); return r.json(); }).then(data=>{
         monthEntries = {};
         data.entries.forEach(e=>{ monthEntries[e.date] = e; });
         renderGrid();
+    }).catch(()=>{
+        if (window.roamlyToast) window.roamlyToast('Failed to load calendar.', { type: 'error' });
     });
 }
 
@@ -580,7 +586,7 @@ function renderGrid() {
 
 // ── Recent entries ──
 function loadRecent() {
-    fetch('/api/journals/').then(r=>r.json()).then(data=>{
+    fetch('/api/journals/').then(r=>{ if(!r.ok) throw new Error('recent entries failed'); return r.json(); }).then(data=>{
         const el = document.getElementById('j-recent');
         el.removeAttribute('aria-busy');
         if (!data.entries.length) {
@@ -606,6 +612,10 @@ function loadRecent() {
                 </div>
             </div>`;
         }).join('');
+    }).catch(()=>{
+        const el = document.getElementById('j-recent');
+        el.removeAttribute('aria-busy');
+        el.innerHTML = '<div class="j-empty-state" style="color:var(--danger);">Failed to load entries. <a href="#" onclick="loadRecent();return false;">Retry</a></div>';
     });
 }
 
@@ -650,10 +660,16 @@ function runSearch(q) {
         return;
     }
     fetch(`/api/journals/search/?q=${encodeURIComponent(q)}`)
-        .then(r=>r.json())
+        .then(r=>{ if(!r.ok) throw new Error('search failed'); return r.json(); })
         .then(data=>{
             searchCount.textContent = `${data.count} result${data.count===1?'':'s'}`;
             renderEntryCards(data.entries, searchList);
+            searchResults.classList.add('active');
+            recentCard.style.display = 'none';
+        })
+        .catch(()=>{
+            searchCount.textContent = '';
+            searchList.innerHTML = '<div class="j-empty-state" style="color:var(--danger);">Search failed. <a href="#" onclick="runSearch(document.getElementById(\'j-search\').value);return false;">Retry</a></div>';
             searchResults.classList.add('active');
             recentCard.style.display = 'none';
         });

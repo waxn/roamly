@@ -428,12 +428,21 @@ function escHtml(s) {
 // ── Grid ──────────────────────────────────────────────────────────────────
 let placesCache = [];
 async function loadPlaces() {
-    const res = await fetch('/api/places/');
-    const data = await res.json();
-    placesCache = data.places || [];
-    if (window.setSnapshotUpdated) window.setSnapshotUpdated(data.computed_at);
     const grid = document.getElementById('places-grid');
     const empty = document.getElementById('places-empty');
+    let data;
+    try {
+        const res = await fetch('/api/places/');
+        if (!res.ok) throw new Error('places request failed');
+        data = await res.json();
+    } catch (e) {
+        grid.removeAttribute('aria-busy');
+        empty.style.display = 'none';
+        grid.innerHTML = '<div class="card place-empty" style="color:var(--danger);grid-column:1/-1;">Failed to load places. <a href="#" onclick="loadPlaces();return false;">Retry</a></div>';
+        return;
+    }
+    placesCache = data.places || [];
+    if (window.setSnapshotUpdated) window.setSnapshotUpdated(data.computed_at);
     grid.removeAttribute('aria-busy');
     if (!placesCache.length) {
         grid.innerHTML = '';

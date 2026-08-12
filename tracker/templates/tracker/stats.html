@@ -412,7 +412,7 @@ function loadStats() {
     loadTransport();
 
     fetch(`/api/stats/?${params}`)
-        .then(r => r.json())
+        .then(r => { if (!r.ok) throw new Error('stats request failed'); return r.json(); })
         .then(data => {
             document.getElementById('stat-points').textContent = data.total_points.toLocaleString();
             document.getElementById('stat-countries').textContent = data.countries;
@@ -429,17 +429,26 @@ function loadStats() {
                 timeline = 'No data in this range';
             }
             document.getElementById('timeline-info').innerHTML = timeline;
+        })
+        .catch(() => {
+            document.querySelectorAll('#stats-grid .stat-value').forEach(el => el.textContent = '—');
+            document.getElementById('timeline-info').innerHTML =
+                '<span style="color:var(--danger);">Failed to load stats. <a href="#" onclick="loadStats();return false;">Retry</a></span>';
         });
 
     const distParams = new URLSearchParams(params.toString());
     const range = document.getElementById('stats-range').value;
     if (range === '24' || range === '72') distParams.set('granularity', 'hourly');
     fetch(`/api/distance/?${distParams}`)
-        .then(r => r.json())
+        .then(r => { if (!r.ok) throw new Error('distance request failed'); return r.json(); })
         .then(data => {
             document.getElementById('stat-distance').textContent = formatDistance(data.total_km);
             document.getElementById('stat-distance-label').textContent = isImperial() ? 'Total Miles' : 'Total Kilometres';
             drawChart(data.days, data.distances, range);
+        })
+        .catch(() => {
+            document.getElementById('stat-distance').textContent = '—';
+            if (window.roamlyToast) window.roamlyToast('Failed to load distance chart.', { type: 'error' });
         });
 }
 
