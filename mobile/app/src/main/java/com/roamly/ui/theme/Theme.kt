@@ -129,8 +129,11 @@ private val RoamlyTypography = Typography().run {
         headlineMedium = headlineMedium.copy(fontFamily = FrauncesFamily, fontWeight = FontWeight.Bold),
         headlineSmall  = headlineSmall.copy(fontFamily = FrauncesFamily, fontWeight = FontWeight.Bold),
         titleLarge     = titleLarge.copy(fontFamily = FrauncesFamily, fontWeight = FontWeight.SemiBold),
-        titleMedium    = titleMedium.copy(fontFamily = PlexSansFamily, fontWeight = FontWeight.SemiBold),
-        titleSmall     = titleSmall.copy(fontFamily = PlexSansFamily, fontWeight = FontWeight.SemiBold),
+        // titleMedium/titleSmall back nearly every section header in the app (ClaySectionHeader,
+        // TripSections.SectionHeader, StatsScreen.SectionHeader, MapScreen.ResultHeader) — Fraunces
+        // here is what makes those read as editorial headings rather than body copy.
+        titleMedium    = titleMedium.copy(fontFamily = FrauncesFamily, fontWeight = FontWeight.SemiBold),
+        titleSmall     = titleSmall.copy(fontFamily = FrauncesFamily, fontWeight = FontWeight.SemiBold),
         bodyLarge      = bodyLarge.copy(fontFamily = PlexSansFamily),
         bodyMedium     = bodyMedium.copy(fontFamily = PlexSansFamily),
         bodySmall      = bodySmall.copy(fontFamily = PlexSansFamily),
