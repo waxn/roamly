@@ -1166,6 +1166,25 @@ curl -X POST {{ request.scheme }}://{{ request.get_host }}/api/push/ \
     .settings-footer-links{display:flex;gap:1.4rem;flex-wrap:wrap;}
     .settings-footer-links a{color:var(--text-dim);text-decoration:none;font-size:0.8rem;font-weight:600;transition:color 0.15s;}
     .settings-footer-links a:hover{color:var(--primary);}
+
+    /* Diagonal flowing stripe for a progress bar that's actively working —
+       replaces a spinner glued next to the status text, which reads as
+       misaligned (a spinner is baseline-aligned inline-block; text sits on
+       its own baseline a few px above the spinner's centre). The bar itself
+       carrying the "still working" cue needs no alignment against anything. */
+    @keyframes bar-flow-move { from { background-position: 0 0; } to { background-position: 28px 0; } }
+    .bar-flow {
+        background-image: repeating-linear-gradient(
+            45deg,
+            var(--primary) 0, var(--primary) 10px,
+            var(--primary-hover) 10px, var(--primary-hover) 20px
+        );
+        background-size: 28px 28px;
+        animation: bar-flow-move 0.9s linear infinite;
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .bar-flow { animation: none; background-image: none; background-color: var(--primary); }
+    }
 </style>
 
 {% include 'tracker/_contact.html' %}
@@ -1708,14 +1727,15 @@ function updateRoadsUI(data, finished) {
     // any batch count. Say so, rather than showing a frozen 0/0.
     if (!finished && data.phase === 'scanning') {
         bar.style.width = '8%';
-        bar.style.background = 'var(--primary)';
+        bar.style.background = '';
+        bar.classList.add('bar-flow');
         statusEl.style.color = 'var(--text-muted)';
-        statusEl.innerHTML = '<span class="spinner"></span> scanning your location history '
-            + 'to work out which areas to fetch…';
+        statusEl.textContent = 'scanning your location history to work out which areas to fetch…';
         return;
     }
 
     if (finished) {
+        bar.classList.remove('bar-flow');
         bar.style.background = data.status === 'completed' ? 'var(--success)' : 'var(--text-muted)';
         if (data.status === 'completed' && data.total === 0) {
             statusEl.textContent = 'no location points to cover yet.';
@@ -1724,9 +1744,17 @@ function updateRoadsUI(data, finished) {
             let msg = `${label} — ${(data.ways || 0).toLocaleString()} new roads, ${stored} stored in total`;
             if (data.failed) {
                 // A failed area means no roads there at all, which looks exactly
-                // like snapping being broken. Say so plainly.
-                msg += ` · ${data.failed.toLocaleString()} area${data.failed === 1 ? '' : 's'} failed`;
-                msg += ' — re-run to retry those';
+                // like snapping being broken. Say so plainly — and when every
+                // single area failed, that is Overpass being unreachable, not
+                // one bad corridor, so say that specifically rather than
+                // leaving a bare count to puzzle over.
+                if (data.failed >= data.total && data.total > 0) {
+                    msg = `${label} — could not reach Overpass for any area (${data.failed.toLocaleString()} failed). `
+                        + 'Check this server has outbound internet access, then re-run.';
+                } else {
+                    msg += ` · ${data.failed.toLocaleString()} area${data.failed === 1 ? '' : 's'} failed`;
+                    msg += ' — re-run to retry those';
+                }
                 statusEl.textContent = msg;
                 statusEl.style.color = 'var(--danger)';
                 return;
@@ -1736,9 +1764,10 @@ function updateRoadsUI(data, finished) {
         }
     } else {
         const eta = _etaFrom(processed, total, roadsStartTime);
-        bar.style.background = 'var(--primary)';
+        bar.style.background = '';
+        bar.classList.add('bar-flow');
         statusEl.style.color = 'var(--text-muted)';
-        statusEl.innerHTML = `<span class="spinner"></span> area ${processed.toLocaleString()}/${total.toLocaleString()}`
+        statusEl.textContent = `area ${processed.toLocaleString()}/${total.toLocaleString()}`
             + `${total > 0 ? ' (' + pct + '%)' : ''}, ${(data.ways || 0).toLocaleString()} new roads${eta ? ' — ' + eta : ''}`;
     }
 }
@@ -1746,8 +1775,12 @@ function updateRoadsUI(data, finished) {
 function startRoads() {
     const statusEl = document.getElementById('roads-status');
     document.getElementById('roads-progress-wrap').style.display = 'block';
-    statusEl.innerHTML = '<span class="spinner"></span> working out which areas to fetch...';
-    document.getElementById('roads-bar').style.width = '0%';
+    statusEl.style.color = 'var(--text-muted)';
+    statusEl.textContent = 'working out which areas to fetch…';
+    const bar = document.getElementById('roads-bar');
+    bar.style.width = '0%';
+    bar.style.background = '';
+    bar.classList.add('bar-flow');
     setRoadsUI(true);
     roadsStartTime = Date.now();
 
