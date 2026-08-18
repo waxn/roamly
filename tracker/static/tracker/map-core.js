@@ -207,6 +207,10 @@ document.querySelectorAll('.style-btn').forEach(btn => {
         _mapboxErrorShown = false;  // allow the diagnostic to show again for the new basemap
         map.setStyle(mapStyles[btn.dataset.style]);
         map.once('styledata', () => {
+            if (TRIP_LINES_ENABLED && connectLines === 'on') {
+                if (tripLineData) renderTripLines(tripLineData, false);
+                return;
+            }
             renderTrack(lastTrackData, false);
             if (accMap.size > 0) initAccLayers();
         });
@@ -307,7 +311,7 @@ function resetDateFilter() {
     document.getElementById('time-range').value = defaultTimeRange;
     updateDateFilterUI();
     clearAccumulated();
-    loadTrack(true);
+    loadCurrentMode(true);
 }
 
 function toLocalDateTimeParam(dateStr, kind) {
@@ -366,6 +370,24 @@ const HEATMAP_INTENSITY = {
 };
 const dotSizeArgs = DOT_SIZES[dotSizePref] || DOT_SIZES.medium;
 const heatIntArgs = HEATMAP_INTENSITY[heatmapIntensity] || HEATMAP_INTENSITY.medium;
+
+// Trip Lines mode — set only by map.html (not the editor), so this whole
+// feature is inert there regardless of the connect-lines preference.
+const TRIP_LINES_ENABLED = !!ROAMLY_MAP_CFG.tripLinesEnabled;
+const dwellBlobsOn = (localStorage.getItem('roamly_dwell_blobs') || 'on') === 'on';
+
+// Dispatch to whichever mode is active for the whole-range load. Points mode
+// (loadTrack + the viewport-driven detail layer) is untouched; trip-lines mode
+// replaces it entirely rather than layering on top, since the server already
+// returns the whole filtered range decimated into segments + dwell blobs, so
+// there is nothing left for viewport paging to do.
+function loadCurrentMode(autoFit) {
+    if (TRIP_LINES_ENABLED && connectLines === 'on') {
+        loadTripLines(autoFit);
+    } else {
+        loadTrack(autoFit);
+    }
+}
 
 let accMap = new Map();            // "devId:ts" → Feature, deduped accumulated points
 const rawCoords = new Map();       // point id → recorded [lng,lat], so snapping is reversible
@@ -703,6 +725,9 @@ function loadViewport(limit) {
 }
 
 function maybeLoadViewport() {
+    // Trip-lines mode already has the whole filtered range from one request —
+    // there is nothing for viewport-driven detail paging to add.
+    if (TRIP_LINES_ENABLED && connectLines === 'on') return;
     if (detailLoading || map.getZoom() < DETAIL_MIN_ZOOM || lastTrackData.length === 0) return;
     const b = map.getBounds();
     if (isViewportCovered(b)) {
@@ -893,6 +918,259 @@ function loadTrack(autoFit) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Trip Lines mode — selective, road-snapped travel lines + dwell blobs.
+//
+// A Google-Timeline-style alternative to points mode, not an overlay on top
+// of it: when active, this replaces the decimated track + viewport detail
+// layers entirely with a single whole-range fetch from /api/track/lines/,
+// which already did the point selection and road-snapping server-side (see
+// trip_lines_api in views.py). Client work is just drawing what came back and
+// handling the dwell-blob "click to expand" interaction.
+// ═══════════════════════════════════════════════════════════════════
+
+const TRIP_LINE_SOURCE = 'trip-lines-src';
+const TRIP_LINE_LAYER = 'trip-lines-layer';
+const TRIP_DWELL_SOURCE = 'trip-dwells-src';
+const TRIP_DWELL_LAYER = 'trip-dwells-layer';
+const TRIP_EXPAND_SOURCE = 'trip-dwell-expand-src';
+const TRIP_EXPAND_LINE_LAYER = 'trip-dwell-expand-lines';
+const TRIP_EXPAND_DOT_LAYER = 'trip-dwell-expand-dots';
+
+// Web Mercator ground resolution at zoom 0, equator (m/px) — the same constant
+// map.html's fog-of-war canvas overlay uses to convert a real-world radius to
+// screen pixels at the current zoom. circle-radius can't reference an
+// arbitrary ['zoom'] expression outside interpolate/step, so each dwell
+// feature carries its pixel radius pre-computed at zoom 0 and zoom 20; the
+// paint expression exponentially interpolates between them (radius doubles
+// every zoom level, same as the map's own tile resolution), floored to a
+// minimum so a small stay still reads as a dot from far away instead of
+// vanishing below one pixel.
+const MERC_RES_Z0 = 156543.03392;
+const DWELL_MIN_PX = 7;
+const DWELL_MAX_ZOOM_STOP = 20;
+
+let tripLineData = null;    // last-fetched devices[], kept for style-swap re-render
+let expandedDwellId = null; // visit id currently expanded to its raw point cloud, or null
+
+function dwellFeature(d, deviceId, color) {
+    const mPerPxZ0 = MERC_RES_Z0 * Math.cos(d.lat * Math.PI / 180);
+    const pxZ0 = d.radius_m / mPerPxZ0;
+    return {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
+        properties: {
+            id: d.id, device_id: deviceId, color,
+            radius_m: d.radius_m, start: d.start, end: d.end,
+            duration_s: d.duration_s, point_count: d.point_count,
+            place_name: d.place_name || '',
+            px_z0: pxZ0, px_max: pxZ0 * Math.pow(2, DWELL_MAX_ZOOM_STOP),
+        }
+    };
+}
+
+function clearTripLineLayers() {
+    collapseDwellExpand();
+    [TRIP_DWELL_LAYER, TRIP_LINE_LAYER].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+    [TRIP_DWELL_SOURCE, TRIP_LINE_SOURCE].forEach(id => { if (map.getSource(id)) map.removeSource(id); });
+}
+
+function renderTripLines(devices, autoFit) {
+    tripLineData = devices || [];
+    clearTripLineLayers();
+    if (!devices || !devices.length) return;
+
+    const lineFeatures = [];
+    const dwellFeatures = [];
+    let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+    const extend = (lng, lat) => {
+        if (lng < minLng) minLng = lng;
+        if (lng > maxLng) maxLng = lng;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+    };
+
+    devices.forEach(device => {
+        const color = deviceColor(device.id);
+        (device.segments || []).forEach(seg => {
+            if (!seg.coords || seg.coords.length < 2) return;
+            lineFeatures.push({
+                type: 'Feature',
+                geometry: { type: 'LineString', coordinates: seg.coords },
+                properties: { color, snapped: !!seg.snapped }
+            });
+            seg.coords.forEach(c => extend(c[0], c[1]));
+        });
+        if (dwellBlobsOn) {
+            (device.dwells || []).forEach(d => {
+                dwellFeatures.push(dwellFeature(d, device.id, color));
+                extend(d.lng, d.lat);
+            });
+        }
+    });
+
+    map.addSource(TRIP_LINE_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: lineFeatures } });
+    map.addLayer({
+        id: TRIP_LINE_LAYER,
+        type: 'line',
+        source: TRIP_LINE_SOURCE,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+            'line-color': ['get', 'color'],
+            'line-width': ['case', ['==', ['get', 'snapped'], true], 4, 3],
+            'line-opacity': 0.8,
+        }
+    });
+
+    if (dwellBlobsOn) {
+        map.addSource(TRIP_DWELL_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: dwellFeatures } });
+        map.addLayer({
+            id: TRIP_DWELL_LAYER,
+            type: 'circle',
+            source: TRIP_DWELL_SOURCE,
+            paint: {
+                // True-to-scale in metres once zoomed in close, but never smaller
+                // than DWELL_MIN_PX — that's what keeps a stop "visible and
+                // readable from a distance" at a low, zoomed-out view.
+                'circle-radius': ['max', DWELL_MIN_PX,
+                    ['interpolate', ['exponential', 2], ['zoom'],
+                        0, ['get', 'px_z0'], DWELL_MAX_ZOOM_STOP, ['get', 'px_max']]],
+                'circle-color': ['get', 'color'],
+                'circle-opacity': 0.28,
+                'circle-stroke-width': 2,
+                'circle-stroke-color': ['get', 'color'],
+                'circle-stroke-opacity': 0.9,
+            }
+        });
+    }
+
+    if (autoFit && minLng !== Infinity) {
+        map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 60, maxZoom: 15, duration: 800 });
+    }
+}
+
+function loadTripLines(autoFit) {
+    if (pendingFetch) { pendingFetch.abort(); }
+    pendingFetch = new AbortController();
+
+    showMapLoading('loading...');
+    const gapMinutes = Math.round(lineGapMs / 60000);
+    const qs = `${buildFilterParams()}&gap_minutes=${gapMinutes}`;
+
+    fetch(`/api/track/lines/?${qs}`, { signal: pendingFetch.signal })
+        .then(r => r.json())
+        .then(data => {
+            renderTripLines(data.devices, autoFit);
+            hideMapLoading();
+            const segs = (data.devices || []).reduce((s, d) => s + (d.segments || []).length, 0);
+            const stops = (data.devices || []).reduce((s, d) => s + (d.dwells || []).length, 0);
+            document.getElementById('map-info').textContent =
+                `${segs.toLocaleString()} line segment(s) · ${stops.toLocaleString()} stop(s)`;
+        })
+        .catch(err => {
+            if (err.name === 'AbortError') return;
+            hideMapLoading();
+            document.getElementById('map-info').textContent = 'error loading data';
+            console.error(err);
+        });
+}
+
+// ── Dwell-blob click to expand into its raw point cloud ──
+function formatDwellDuration(seconds) {
+    const mins = Math.round(seconds / 60);
+    if (mins < 60) return `${mins} min`;
+    const hrs = mins / 60;
+    return `${hrs >= 10 ? Math.round(hrs) : hrs.toFixed(1)} hr`;
+}
+
+function showDwellPopup(p, coords) {
+    const expanded = String(expandedDwellId) === String(p.id);
+    let html = `<strong>${p.place_name || 'Stop'}</strong>`;
+    html += `<br><span style="color:var(--text-muted)">${formatDwellDuration(p.duration_s)} · `
+          + `${Number(p.point_count).toLocaleString()} points</span>`;
+    if (p.start) html += `<br><span style="color:var(--text-muted)">${new Date(p.start).toLocaleString()}</span>`;
+    html += `<br><span style="color:var(--text-muted)">click ${expanded ? 'again to collapse' : 'to see the raw track'}</span>`;
+    new maplibregl.Popup({ offset: 10 }).setLngLat(coords).setHTML(html).addTo(map);
+}
+
+function collapseDwellExpand() {
+    expandedDwellId = null;
+    [TRIP_EXPAND_LINE_LAYER, TRIP_EXPAND_DOT_LAYER].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+    if (map.getSource(TRIP_EXPAND_SOURCE)) map.removeSource(TRIP_EXPAND_SOURCE);
+}
+
+function renderDwellExpand(points, color) {
+    [TRIP_EXPAND_LINE_LAYER, TRIP_EXPAND_DOT_LAYER].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+    if (map.getSource(TRIP_EXPAND_SOURCE)) map.removeSource(TRIP_EXPAND_SOURCE);
+    if (!points || !points.length) return;
+
+    const features = [{
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: points.map(p => [p.lng, p.lat]) },
+        properties: { color }
+    }];
+    points.forEach(p => features.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+        properties: { color, ts: p.ts, speed: p.speed ?? null }
+    }));
+
+    map.addSource(TRIP_EXPAND_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features } });
+    map.addLayer({
+        id: TRIP_EXPAND_LINE_LAYER,
+        type: 'line',
+        source: TRIP_EXPAND_SOURCE,
+        filter: ['==', ['geometry-type'], 'LineString'],
+        paint: { 'line-color': ['get', 'color'], 'line-width': 1.5, 'line-opacity': 0.55 }
+    });
+    map.addLayer({
+        id: TRIP_EXPAND_DOT_LAYER,
+        type: 'circle',
+        source: TRIP_EXPAND_SOURCE,
+        filter: ['==', ['geometry-type'], 'Point'],
+        paint: {
+            'circle-radius': 3,
+            'circle-color': ['get', 'color'],
+            'circle-stroke-width': 1,
+            'circle-stroke-color': 'rgba(255,255,255,0.8)',
+        }
+    });
+}
+
+function onDwellClick(e) {
+    const f = e.features[0];
+    const p = f.properties;
+    const coords = f.geometry.coordinates.slice();
+
+    if (String(expandedDwellId) === String(p.id)) {
+        collapseDwellExpand();
+        showDwellPopup(p, coords);
+        return;
+    }
+    expandedDwellId = p.id;
+    showDwellPopup(p, coords);
+
+    fetch(`/api/dwell/${p.id}/points/`)
+        .then(r => r.json())
+        .then(data => {
+            // Toggled off, or a different blob clicked, while this was in flight.
+            if (String(expandedDwellId) !== String(p.id)) return;
+            renderDwellExpand(data.points || [], p.color);
+        })
+        .catch(err => console.error('Failed to load dwell points:', err));
+}
+
+// Registered once, unconditionally: TRIP_DWELL_LAYER is a fixed layer id that
+// renderTripLines only ever removes and re-adds (never renamed), so a single
+// delegated listener here survives every re-render without stacking — unlike
+// re-registering inside renderTripLines itself, which would fire once per
+// past render on every click.
+if (TRIP_LINES_ENABLED) {
+    map.on('click', TRIP_DWELL_LAYER, onDwellClick);
+    map.on('mouseenter', TRIP_DWELL_LAYER, () => map.getCanvas().style.cursor = 'pointer');
+    map.on('mouseleave', TRIP_DWELL_LAYER, () => map.getCanvas().style.cursor = '');
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Init + filter handlers
 // ═══════════════════════════════════════════════════════════════════
 
@@ -923,7 +1201,7 @@ function loadTrack(autoFit) {
 })();
 
 map.on('load', () => {
-    loadTrack(true);
+    loadCurrentMode(true);
     if (window.__selectedFromURL) {
         fetchAndFocusSelected(window.__selectedFromURL, window.__selectedDateFromURL);
     }
@@ -947,7 +1225,7 @@ document.getElementById('map-load-more-btn').addEventListener('click', () => {
     document.getElementById(id).addEventListener('change', () => {
         updateDateFilterUI();
         clearAccumulated();
-        loadTrack(true);
+        loadCurrentMode(true);
     });
 });
 
@@ -961,7 +1239,7 @@ document.getElementById('map-load-more-btn').addEventListener('click', () => {
         }
         updateDateFilterUI();
         clearAccumulated();
-        loadTrack(true);
+        loadCurrentMode(true);
     });
 });
 

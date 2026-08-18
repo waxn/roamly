@@ -709,6 +709,10 @@ window.ROAMLY_MAP_CFG = {
     mapboxToken: '{{ MAPBOX_TOKEN|escapejs }}',
     csrfToken: '{{ csrf_token }}',
     snapAvailable: {{ ROAD_SNAP_ENABLED|yesno:"true,false" }},
+    // Gates the whole Trip Lines mode in map-core.js. Not set on the editor
+    // page, so the editor's own "connect points with lines" behaviour (a
+    // simple in-place overlay on the accumulated detail layer) is untouched.
+    tripLinesEnabled: true,
 };
 window.ROAMLY_MAP_HOOKS = {};
 </script>
@@ -1303,6 +1307,11 @@ function baseLayerIds() {
     [ACC_HEAT_LAYER, ACC_LINES_LAYER, ACC_SNAP_RING_LAYER, ACC_DOTS_LAYER].forEach(l => ids.push(l));
     // Filled gaps hide with the rest of the base layers during replay.
     [INF_LINE_LAYER, INF_RING_LAYER, INF_DOTS_LAYER].forEach(l => ids.push(l));
+    // Trip Lines mode's own layers — only exist when that mode is active, but
+    // when it is, replay must hide them the same way it hides the point-mode
+    // base layers, or the static lines/blobs would stay visible underneath
+    // the animated trail.
+    [TRIP_LINE_LAYER, TRIP_DWELL_LAYER, TRIP_EXPAND_LINE_LAYER, TRIP_EXPAND_DOT_LAYER].forEach(l => ids.push(l));
     return ids;
 }
 function setBaseLayersVisible(visible) {
