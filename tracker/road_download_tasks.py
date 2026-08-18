@@ -36,6 +36,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from django.conf import settings as django_settings
 from django.db import close_old_connections
 from django.utils import timezone
 
@@ -47,7 +48,11 @@ logger = logging.getLogger(__name__)
 
 _running_threads = {}
 
-OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
+# Env-configurable (OVERPASS_URL in .env / docker-compose) — see
+# roamly/settings.py. The official instance rate-limits/bans by IP; a
+# self-hoster behind a network it has blocked needs to be able to switch to
+# another public mirror or a private instance without a code change.
+OVERPASS_URL = django_settings.OVERPASS_URL
 OVERPASS_HEADERS = {'User-Agent': 'Roamly (self-hosted location tracker)'}
 
 # Drivable classes only. `service` is excluded on purpose: it is one of the most

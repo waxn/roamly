@@ -115,6 +115,15 @@ SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
 # checks. Self-hosters / forks can repoint this to their own release repo.
 MOBILE_UPDATE_REPO = os.environ.get('MOBILE_UPDATE_REPO', 'waxn/roamly')
 
+# Overpass API instance the road/subway data downloaders query
+# (tracker/road_download_tasks.py, imported from there into
+# tracker/rail_download_tasks.py — one setting covers both). The official
+# instance enforces a fair-use policy and will refuse connections from an IP
+# it judges abusive; self-hosters behind a network that can't reach it, or
+# whose IP has been rate-limited, can point this at any other public mirror
+# (e.g. https://overpass.kumi.systems/api/interpreter) or a private instance.
+OVERPASS_URL = os.environ.get('OVERPASS_URL', 'https://overpass-api.de/api/interpreter')
+
 # Secret key that, when entered on the signup form's "admin account" section,
 # creates an instance-admin account. Leave unset to disable admin signups.
 ADMIN_SIGNUP_KEY = os.environ.get('ADMIN_SIGNUP_KEY', '')
