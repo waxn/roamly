@@ -2185,7 +2185,7 @@ def trip_lines_api(request):
     start_date = request.GET.get('start_date')
     end_date = request.GET.get('end_date')
     try:
-        gap_break_s = max(60, int(request.GET.get('gap_minutes', _LINE_DEFAULT_GAP_MIN))) * 60
+        gap_break_s = max(60, int(request.GET.get('gap_minutes', _LINE_DEFAULT_GAP_MIN)) * 60)
     except (TypeError, ValueError):
         gap_break_s = _LINE_DEFAULT_GAP_MIN * 60
 
