@@ -1272,11 +1272,11 @@
             pending: {{ INTRO_PENDING|yesno:"true,false" }},
             steps: [
                 { url: "{% url 'tracker:map' %}", title: "Map", body: "Every point your phone or GPS logger sends in lands here in real time. Use the sidebar to switch time ranges and toggle layers like the heatmap, fog of war, and basemap style." },
-                { url: "{% url 'tracker:adventures' %}", title: "Adventures", body: "Adventures are shared trips — invite people, log each day, plan an itinerary, and let Roamly turn your GPS trail into a real story with photos and places." },
-                { url: "{% url 'tracker:journals' %}", title: "Journals", body: "Journals are your private day-by-day diary — mood, weather, photos, and a map of everywhere you went that day. Nobody you share an Adventure with can see these." },
-                { url: "{% url 'tracker:places' %}", title: "Places", body: "Name the spots you visit often — home, work, a favorite café — as circles on the map. Roamly will even suggest places you keep returning to but haven’t named yet." },
-                { url: "{% url 'tracker:search' %}", title: "Search", body: "Find anywhere you’ve been by name — a city, a business, a named Place — and jump straight to the days you were there." },
-                {% if AI_ASK_ENABLED %}{ url: "{% url 'tracker:ask' %}", title: "Ask", body: "Chat with your own location history in plain English — “where was I last Tuesday?” or “how far did I drive in June?” — and get an answer pulled straight from your data." },{% endif %}
+                { url: "{% url 'tracker:adventures' %}", title: "Adventures", body: "Adventures are shared trips: invite people, log each day, plan an itinerary, and watch your GPS trail turn into a real story with photos and places." },
+                { url: "{% url 'tracker:journals' %}", title: "Journals", body: "Journals are your private day-by-day diary: mood, weather, photos, and a map of everywhere you went. Nobody you share an Adventure with can see these." },
+                { url: "{% url 'tracker:places' %}", title: "Places", body: "Name the spots you visit often, like home, work, or a favorite café, as circles on the map. Roamly will even suggest places you keep returning to but haven’t named yet." },
+                { url: "{% url 'tracker:search' %}", title: "Search", body: "Look up anywhere you’ve been by name, whether that’s a city, a business, or a Place you’ve named, and jump straight to the days you were there." },
+                {% if AI_ASK_ENABLED %}{ url: "{% url 'tracker:ask' %}", title: "Ask", body: "Chat with your own location history in plain English. Ask “where was I last Tuesday?” or “how far did I drive in June?” and get an answer pulled straight from your data." },{% endif %}
                 { url: "{% url 'tracker:stats' %}", title: "Stats", body: "One dashboard for your whole history: distance travelled, time spent moving, places and countries visited, how you got around, and a GitHub-style heatmap of your daily distance." },
                 { url: "{% url 'tracker:visits' %}", title: "Visits", body: "See time spent broken down by place, so you can tell at a glance where your days actually went, city by city." },
                 { url: "{% url 'tracker:settings' %}", title: "Settings", body: "Devices, API keys, backups, and every preference live here. You can replay this tour anytime with the “Replay intro” button under General Preferences." }
@@ -1845,7 +1845,7 @@
                 if (banner) return banner;
                 banner = document.createElement('div');
                 banner.className = 'rly-banner';
-                banner.textContent = "You're offline — showing cached data where available.";
+                banner.textContent = "You're offline. Showing cached data where available.";
                 document.body.appendChild(banner);
                 return banner;
             }
@@ -1957,7 +1957,7 @@
                 localStorage.removeItem(STORE_STEP);
                 hide();
                 if (skippedByUser && window.roamlyToast) {
-                    window.roamlyToast('Intro skipped — replay it anytime from Settings.', { type: 'success' });
+                    window.roamlyToast('Intro skipped. Replay it anytime from Settings.', { type: 'success' });
                 }
             }
 
