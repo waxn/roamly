@@ -32,6 +32,7 @@ import logging
 import secrets
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -88,6 +89,13 @@ REQUEST_SLEEP_S = 3       # be a good Overpass citizen between requests
 # another worker and they all fought over the progress counter.
 STALE_AFTER_S = 240
 INSERT_CHUNK = 2000
+# Consecutive whole-batch "never reached Overpass" results before the run gives
+# up early instead of ploughing through every remaining batch one at a time —
+# each already-failed-fast batch still costs up to two OVERPASS_TIMEOUT-bound
+# attempts, so without this a total outage still takes tens of minutes to
+# finish "trying". One batch's worth of benefit of the doubt (a real blip),
+# then stop.
+CONNECTIVITY_FAIL_LIMIT = 2
 
 
 def _line_cells(gy0, gx0, gy1, gx1):
@@ -191,12 +199,26 @@ def _cell_box(gy, gx_from, gx_to):
 def _download_boxes(boxes, attempt=1, beat=None):
     """Fetch every drivable way intersecting any of `boxes`.
 
-    Returns (way_dicts, failed_box_count). A whole batch used to degrade silently
-    to an empty list on any Overpass error — a timeout on one busy corridor then
-    left that corridor with no roads at all, and nothing in the UI said so, which
-    reads exactly like snapping and gap routing being broken. So: retry with
-    backoff for transient errors, then bisect the batch (a timeout is usually one
-    dense box, not the whole set), and report what could not be fetched.
+    Returns (way_dicts, failed_box_count, unreachable). A whole batch used to
+    degrade silently to an empty list on any Overpass error — a timeout on one
+    busy corridor then left that corridor with no roads at all, and nothing in
+    the UI said so, which reads exactly like snapping and gap routing being
+    broken. So: retry with backoff for transient errors, then bisect the batch
+    (a timeout is usually one dense box, not the whole set), and report what
+    could not be fetched.
+
+    Bisecting only makes sense when a request that size was too much for
+    Overpass — an HTTPError means it was reached and said so. It does **not**
+    make sense when the request never got out the door at all (DNS failure,
+    connection refused, TLS error, the whole thing timing out with no
+    response): every leaf of the bisection tree would hit the identical
+    failure, so a batch of `BOXES_PER_REQUEST` boxes that genuinely can't reach
+    Overpass turns into O(n log n) doomed attempts at up to
+    `OVERPASS_TIMEOUT + 20` seconds apiece — this is what turned "Overpass is
+    unreachable" into a multi-hour hang with `processed` stuck at 0 rather than
+    a fast, clear failure. `unreachable=True` signals that case so the caller
+    can give up on the whole run early instead of repeating it batch after
+    batch (see _road_download_worker's circuit breaker).
     """
     clauses = '\n'.join(
         f'  way["highway"~"{HIGHWAY_RE}"]({s:.5f},{w:.5f},{n:.5f},{e:.5f});'
@@ -214,19 +236,29 @@ def _download_boxes(boxes, attempt=1, beat=None):
         req = urllib.request.Request(OVERPASS_URL, body, OVERPASS_HEADERS)
         with urllib.request.urlopen(req, timeout=OVERPASS_TIMEOUT + 20) as resp:
             result = json.loads(resp.read().decode())
-    except Exception as exc:
+    except urllib.error.HTTPError as exc:
+        # Reached Overpass; it answered with an error status (rate limit, 504
+        # under load, etc). Worth the full retry-then-bisect treatment — a
+        # smaller query is genuinely less likely to hit the same limit.
         if attempt < MAX_ATTEMPTS:
-            # Overpass rate-limits and sheds load routinely; back off and retry
-            # the same batch before concluding anything is wrong with it.
             time.sleep(RETRY_BACKOFF_S * attempt)
             return _download_boxes(boxes, attempt + 1, beat)
         if len(boxes) > 1:
             mid = len(boxes) // 2
-            left, lf = _download_boxes(boxes[:mid], beat=beat)
-            right, rf = _download_boxes(boxes[mid:], beat=beat)
-            return left + right, lf + rf
+            left, lf, lu = _download_boxes(boxes[:mid], beat=beat)
+            right, rf, ru = _download_boxes(boxes[mid:], beat=beat)
+            return left + right, lf + rf, lu and ru
         logger.warning('Overpass road download failed for box %s: %s', boxes[0], exc)
-        return [], 1
+        return [], 1, False
+    except Exception as exc:
+        # Never reached Overpass at all. One retry in case of a genuine blip,
+        # then give up on the WHOLE batch at once — see the docstring for why
+        # bisecting here would only make things far slower, not more thorough.
+        if attempt < MAX_ATTEMPTS:
+            time.sleep(RETRY_BACKOFF_S * attempt)
+            return _download_boxes(boxes, attempt + 1, beat)
+        logger.warning('Overpass unreachable, failing batch of %d boxes: %s', len(boxes), exc)
+        return [], len(boxes), True
 
     if result.get('remark'):
         # A remark means the query was truncated or hit a server limit, so the
@@ -234,9 +266,9 @@ def _download_boxes(boxes, attempt=1, beat=None):
         logger.warning('Overpass remark on road download: %s', result['remark'])
         if len(boxes) > 1:
             mid = len(boxes) // 2
-            left, lf = _download_boxes(boxes[:mid], beat=beat)
-            right, rf = _download_boxes(boxes[mid:], beat=beat)
-            return left + right, lf + rf
+            left, lf, lu = _download_boxes(boxes[:mid], beat=beat)
+            right, rf, ru = _download_boxes(boxes[mid:], beat=beat)
+            return left + right, lf + rf, lu and ru
 
     ways = []
     for el in result.get('elements', []):
@@ -263,7 +295,7 @@ def _download_boxes(boxes, attempt=1, beat=None):
             'node_ids': [],
             'coords': coords,
         })
-    return ways, 0
+    return ways, 0, False
 
 
 def _store_ways(ways):
@@ -330,6 +362,7 @@ def _road_download_worker(user_id, token):
         logger.info('Road download for user %s: %d areas in %d batches',
                     user_id, len(boxes), len(batches))
 
+        consecutive_unreachable = 0
         for batch in batches:
             try:
                 job.refresh_from_db()
@@ -338,11 +371,12 @@ def _road_download_worker(user_id, token):
             except RoadDownloadJob.DoesNotExist:
                 return
 
-            ways, failed_boxes = _download_boxes(batch, beat=_beat)
+            ways, failed_boxes, unreachable = _download_boxes(batch, beat=_beat)
             if ways:
                 ways_added += _store_ways(ways)
             failed += failed_boxes
             processed += 1
+            consecutive_unreachable = consecutive_unreachable + 1 if unreachable else 0
 
             # Conditional on the token, so a superseded worker can never write
             # its own counter over the live one.
@@ -351,6 +385,25 @@ def _road_download_worker(user_id, token):
             ).update(processed=processed, ways=ways_added, failed=failed,
                      updated_at=timezone.now())
             if not written:
+                return
+
+            if consecutive_unreachable >= CONNECTIVITY_FAIL_LIMIT:
+                # Overpass could not be reached at all for CONNECTIVITY_FAIL_LIMIT
+                # batches in a row — every remaining batch would fail exactly the
+                # same way, so count them as failed too and stop now rather than
+                # spending another two OVERPASS_TIMEOUTs per batch to rediscover
+                # the same outage dozens more times.
+                remaining = len(batches) - processed
+                if remaining:
+                    failed += remaining
+                    processed = len(batches)
+                    RoadDownloadJob.objects.filter(
+                        user_id=user_id, worker_token=token, status='running'
+                    ).update(processed=processed, failed=failed, updated_at=timezone.now())
+                logger.warning(
+                    'Road download for user %s: Overpass unreachable for %d consecutive '
+                    'batches, giving up early (%d of %d batches skipped)',
+                    user_id, CONNECTIVITY_FAIL_LIMIT, remaining, len(batches))
                 return
 
             time.sleep(REQUEST_SLEEP_S)
