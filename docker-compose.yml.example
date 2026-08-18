@@ -67,3 +67,6 @@ services:
       - EMAIL_USE_TLS=${EMAIL_USE_TLS:-True}
       - EMAIL_USE_SSL=${EMAIL_USE_SSL:-False}
       - DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL:-}
+      # Overpass API instance for Settings -> Download Road/Subway Data.
+      # Only needs setting if the official instance is unreachable/rate-limiting.
+      - OVERPASS_URL=${OVERPASS_URL:-https://overpass-api.de/api/interpreter}
