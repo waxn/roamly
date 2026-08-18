@@ -409,10 +409,21 @@
 
                 <div class="pref-form-group">
                     <label class="pref-label">
-                        Connect Points with Lines
-                        <div class="info-icon" data-tooltip="When zoomed in and detail points are loaded, draw lines connecting them in chronological order">?</div>
+                        Trip Lines Mode
+                        <div class="info-icon" data-tooltip="Replace individual points on the main map with a selective, road-snapped travel line plus dwell blobs at your stops — a Google Timeline-style view instead of a point cloud. Reload the map page after changing this.">?</div>
                     </label>
                     <select id="connect-lines" class="form-control" onchange="savePref('roamly_connect_lines', this.value)">
+                        <option value="off">Off (show individual points)</option>
+                        <option value="on">On (trip lines + dwell blobs)</option>
+                    </select>
+                </div>
+
+                <div class="pref-form-group">
+                    <label class="pref-label">
+                        Dwell Blobs
+                        <div class="info-icon" data-tooltip="In Trip Lines mode, draw stops as a circle sized to how far you actually wandered while there instead of a squiggly tangle of lines. Click a blob to expand it into the raw points. Only applies when Trip Lines Mode is on.">?</div>
+                    </label>
+                    <select id="dwell-blobs" class="form-control" onchange="savePref('roamly_dwell_blobs', this.value)">
                         <option value="off">Off</option>
                         <option value="on">On</option>
                     </select>
@@ -2301,6 +2312,7 @@ function savePref(key, value) {
 document.getElementById('default-time-range').value = localStorage.getItem('roamly_default_time_range') || '24';
 document.getElementById('speed-gradient').value = localStorage.getItem('roamly_speed_gradient') || 'on';
 document.getElementById('connect-lines').value = localStorage.getItem('roamly_connect_lines') || 'off';
+document.getElementById('dwell-blobs').value = localStorage.getItem('roamly_dwell_blobs') || 'on';
 
 // Mapbox access token — optional, unlocks Mapbox basemaps on the main map.
 // Stored server-side (UserProfile) so it syncs to every device, including the
