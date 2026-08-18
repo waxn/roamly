@@ -1999,9 +1999,15 @@ _LINE_SNAPPED_MIN_GATE_M = 8.0   # snapped: already real road geometry — only 
 _LINE_MAX_SPEED_MPS = 280.0      # ~1000 km/h — a faster hop is a GPS teleport, not travel
 _LINE_DEFAULT_GAP_MIN = 20       # matches roamly_line_gap_minutes' own default
 
-_DWELL_RADIUS_CACHE_TTL = 2592000   # 30 days — mirrors the road-snap cache; a closed Visit's points never change
 _DWELL_MIN_RADIUS_M = 12.0          # floor so a tight, well-behaved stay still reads as a real place on the map
 _DWELL_RADIUS_PERCENTILE = 0.9      # resists one stray fix ballooning the whole circle
+# Stop-detection parameters, mirroring visit_tasks.py so a blob means the same
+# thing as a row on the Visits page (see _detect_dwells for why these are
+# recomputed here rather than read from the Visit table).
+_DWELL_CLUSTER_RADIUS_M = 150.0     # visit_tasks.RADIUS_M
+_DWELL_MIN_DURATION_S = 300         # visit_tasks.MIN_DURATION_S — 5 minutes
+_DWELL_MAX_GAP_S = 3600             # a >1h hole ends the stay even at the same spot
+_DWELL_WINDOW_MAX_S = 7 * 24 * 3600  # ceiling on an expand request's window
 
 # Road-geometry densification. Snapping alone moves each fix onto the nearest
 # road but inserts nothing *between* consecutive fixes — so a car sampled every
@@ -2020,53 +2026,94 @@ _LINE_ROUTE_CACHE_TTL = 2592000  # 30 days — a pair of fixes and the road betw
 _LINE_ROUTE_CACHE_VERSION = 'v1'
 
 
-def _visit_radius_m(visit):
-    """How far this visit's points actually scattered from its centroid, in metres.
+def _detect_dwells(points):
+    """Find stops in one device's point stream, without touching the Visit table.
 
-    Cached forever in spirit (30-day TTL, like the road-snap cache) keyed by
-    visit id — a closed Visit's own points never change, so this only ever runs
-    once per visit. 90th-percentile rather than max so one stray fix can't
-    balloon an otherwise tight stay into a huge circle.
+    Deliberately **not** read from `Visit`: that table is only populated by
+    `visit_tasks._visit_worker`, which is a manual/geocode-triggered background
+    job, so on an instance where it has never run it is simply empty — and a map
+    layer that silently draws nothing until an unrelated job has been run is not
+    a working feature. Every point in the range is already in memory here for
+    the line pass, so detecting stops from the same stream costs one extra
+    linear walk, needs no prerequisite, and guarantees the blobs and the lines
+    agree about where a stop starts and ends (two independent sources could
+    disagree and draw a line straight through a blob).
+
+    The clustering parameters mirror `visit_tasks` (150m running-centroid
+    radius, 5 min minimum, 1 h gap) so a blob means the same thing here as a row
+    on the Visits page, even though the two are computed independently.
+
+    Returns ``[{lat, lng, radius_m, start_epoch, end_epoch, point_count, label}]``.
+    The radius is the 90th percentile of member distances from the final
+    centroid — resistant to one stray fix ballooning an otherwise tight stay —
+    floored at `_DWELL_MIN_RADIUS_M` so a very precise stay is still clickable.
     """
-    cache_key = f"dwell_radius:{visit.id}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
+    dwells = []
+    cur = None
 
-    coords = list(
-        Location.objects
-        .filter(device_id=visit.device_id, timestamp__gte=visit.start_time, timestamp__lte=visit.end_time)
-        .exclude(flag='suspect')
-        .order_by('timestamp')
-        .values_list('latitude', 'longitude')
-    )
-    if not coords:
-        radius = _DWELL_MIN_RADIUS_M
-    else:
-        dists = sorted(
-            _haversine_km(visit.latitude, visit.longitude, lat, lon) * 1000.0
-            for lat, lon in coords
-        )
+    def close(c):
+        if c is None:
+            return
+        duration = c['end'] - c['start']
+        if duration < _DWELL_MIN_DURATION_S:
+            return
+        clat, clon = c['lat_sum'] / c['n'], c['lon_sum'] / c['n']
+        dists = sorted(_haversine_km(clat, clon, la, lo) * 1000.0 for la, lo in c['pts'])
         idx = min(len(dists) - 1, int(len(dists) * _DWELL_RADIUS_PERCENTILE))
-        radius = max(_DWELL_MIN_RADIUS_M, dists[idx])
+        dwells.append({
+            'lat': _jf(clat),
+            'lng': _jf(clon),
+            'radius_m': round(max(_DWELL_MIN_RADIUS_M, dists[idx]), 1),
+            'start_epoch': c['start'],
+            'end_epoch': c['end'],
+            'point_count': c['n'],
+            'label': c['label'],
+        })
 
-    cache.set(cache_key, radius, _DWELL_RADIUS_CACHE_TTL)
-    return radius
+    for p in points:
+        if p['flag'] == 'suspect':
+            continue
+        lat, lon, epoch = p['lat'], p['lng'], p['ts']
+        if cur is None:
+            cur = {'lat_sum': lat, 'lon_sum': lon, 'n': 1, 'start': epoch, 'end': epoch,
+                   'pts': [(lat, lon)], 'label': p.get('label') or ''}
+            continue
+        clat, clon = cur['lat_sum'] / cur['n'], cur['lon_sum'] / cur['n']
+        if (_haversine_km(clat, clon, lat, lon) * 1000.0 <= _DWELL_CLUSTER_RADIUS_M
+                and (epoch - cur['end']) < _DWELL_MAX_GAP_S):
+            cur['lat_sum'] += lat
+            cur['lon_sum'] += lon
+            cur['n'] += 1
+            cur['end'] = epoch
+            cur['pts'].append((lat, lon))
+            if not cur['label'] and p.get('label'):
+                cur['label'] = p['label']
+        else:
+            close(cur)
+            cur = {'lat_sum': lat, 'lon_sum': lon, 'n': 1, 'start': epoch, 'end': epoch,
+                   'pts': [(lat, lon)], 'label': p.get('label') or ''}
+    close(cur)
+    return dwells
 
 
-def _dwell_payload(visit):
-    duration_s = max(0, int((visit.end_time - visit.start_time).total_seconds()))
-    label = (visit.poi.name if visit.poi_id else '') or visit.place_name or visit.city
+def _dwell_payload(device_str_id, d):
+    """Serialize one detected dwell for the map.
+
+    The id is synthetic (`<device>:<start epoch>`) rather than a database key,
+    because these are computed per request and never stored — it only has to be
+    stable enough for the client to track which blob is expanded, and to carry
+    the window back to [dwell_points_api].
+    """
     return {
-        'id': visit.id,
-        'lat': _jf(visit.latitude),
-        'lng': _jf(visit.longitude),
-        'radius_m': round(_visit_radius_m(visit), 1),
-        'start': visit.start_time.isoformat(),
-        'end': visit.end_time.isoformat(),
-        'duration_s': duration_s,
-        'point_count': visit.point_count,
-        'place_name': label,
+        'id': f"{device_str_id}:{int(d['start_epoch'])}",
+        'lat': d['lat'],
+        'lng': d['lng'],
+        'radius_m': d['radius_m'],
+        'start': datetime.fromtimestamp(d['start_epoch'], dt_timezone.utc).isoformat(),
+        'end': datetime.fromtimestamp(d['end_epoch'], dt_timezone.utc).isoformat(),
+        'duration_s': max(0, int(d['end_epoch'] - d['start_epoch'])),
+        'point_count': d['point_count'],
+        'place_name': d['label'],
     }
 
 
@@ -2189,15 +2236,15 @@ def _densify_along_roads(profile, verts, mode, budget):
     return out, routed_legs
 
 
-def _build_line_segments(points, visits, profile, gap_break_s, budget):
+def _build_line_segments(points, dwells, profile, gap_break_s, budget):
     """Split one device's points into gated, road-snapped transit LineStrings.
 
-    `points` is every point for the device/range in timestamp order. `visits`
-    are that device's Visit rows for the same range — the windows a dwell blob
-    already covers, so their points are excluded here rather than drawn as a
-    line. A run breaks whenever it crosses a visit (the track stopped there,
-    even briefly) or a gap exceeds `gap_break_s` (nothing was recorded in
-    between, so nothing should be drawn across it).
+    `points` is every point for the device/range in timestamp order. `dwells`
+    are that device's detected stops (from [_detect_dwells], same point stream)
+    — the windows a blob already covers, so their points are excluded here
+    rather than drawn as a line. A run breaks whenever it crosses a stop (the
+    track stayed put there) or a gap exceeds `gap_break_s` (nothing was recorded
+    in between, so nothing should be drawn across it).
 
     `budget` is the shared per-request routing countdown handed to
     [_densify_along_roads]; see there for why the line follows road curvature
@@ -2205,13 +2252,13 @@ def _build_line_segments(points, visits, profile, gap_break_s, budget):
     """
     from . import roads as roads_mod
 
-    visit_windows = sorted((v.start_time.timestamp(), v.end_time.timestamp()) for v in visits)
+    dwell_windows = sorted((d['start_epoch'], d['end_epoch']) for d in dwells)
 
     def in_visit(epoch):
-        # Small per-device lists (visits are sparse relative to points) — linear
+        # Small per-device lists (stops are sparse relative to points) — linear
         # scan is simpler than bisect and plenty fast here. Sorted by start, so
         # the first window starting after `epoch` proves no earlier one can match.
-        for s, e in visit_windows:
+        for s, e in dwell_windows:
             if s <= epoch <= e:
                 return True
             if epoch < s:
@@ -2292,9 +2339,10 @@ def trip_lines_api(request):
     """Selective, road-snapped travel lines + dwell blobs — the data source for
     the map's "line mode". Companion to track_api's decimated point view.
 
-    See _build_line_segments / _dwell_payload above for the two halves: transit
-    stretches (gated + optionally road-snapped) and dwell blobs (straight from
-    the Visit table, radius computed from each visit's own point scatter).
+    Both halves come from a single pass over the same point stream:
+    [_detect_dwells] finds the stops (self-contained — deliberately not read
+    from the Visit table, which is only populated by a background job that may
+    never have run), and [_build_line_segments] draws everything between them.
     """
     device_id = request.GET.get('device_id')
     all_time = request.GET.get('all')
@@ -2317,9 +2365,6 @@ def trip_lines_api(request):
         latitude__isnull=False,
         longitude__isnull=False,
     ).select_related('device').order_by('device_id', 'timestamp')
-
-    visit_qs = (Visit.objects.filter(device__user=request.user)
-                .select_related('poi').order_by('device_id', 'start_time'))
 
     cache_ttl = 60
     range_start = None
@@ -2353,11 +2398,6 @@ def trip_lines_api(request):
 
     if device_id:
         qs = qs.filter(device__device_id=device_id)
-        visit_qs = visit_qs.filter(device__device_id=device_id)
-    if range_start is not None:
-        visit_qs = visit_qs.filter(end_time__gte=range_start)
-    if range_end is not None:
-        visit_qs = visit_qs.filter(start_time__lte=range_end)
 
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
 
@@ -2366,6 +2406,9 @@ def trip_lines_api(request):
     for loc in qs.values(
         'id', 'latitude', 'longitude', 'timestamp', 'accuracy', 'speed',
         'transport_mode', 'flag', 'device_id', 'device__device_id', 'device__name',
+        # Only used to label a blob ("Home", "Portland") — the POI name if the
+        # match job has run, else whatever reverse geocoding produced.
+        'poi__name', 'place_name', 'city',
     ).iterator(chunk_size=5000):
         did = loc['device_id']
         if did not in points_by_device:
@@ -2381,26 +2424,24 @@ def trip_lines_api(request):
             'flag': loc['flag'],
             'ts': loc['timestamp'].timestamp(),
             'dt': loc['timestamp'],
+            'label': loc['poi__name'] or loc['place_name'] or loc['city'] or '',
         })
-
-    visits_by_device = defaultdict(list)
-    for v in visit_qs:
-        visits_by_device[v.device_id].append(v)
 
     # One routing budget shared across every device/segment in this request.
     budget = [_LINE_MAX_ROUTE_CALLS]
 
     result_devices = []
     for did, pts in points_by_device.items():
-        visits = visits_by_device.get(did, [])
         str_id, name = device_meta[did]
-        segments = _build_line_segments(pts, visits, profile, gap_break_s, budget)
-        dwells = [_dwell_payload(v) for v in visits]
+        # Stops first: the line pass draws everything they don't cover, so both
+        # halves are derived from one stream and can't disagree about a window.
+        found = _detect_dwells(pts)
+        segments = _build_line_segments(pts, found, profile, gap_break_s, budget)
         result_devices.append({
             'id': str_id,
             'name': name,
             'segments': segments,
-            'dwells': dwells,
+            'dwells': [_dwell_payload(str_id, d) for d in found],
         })
 
     # Why the lines may not be hugging roads is otherwise invisible from the
@@ -2417,26 +2458,43 @@ def trip_lines_api(request):
 
 
 @login_required
-def dwell_points_api(request, visit_id):
+def dwell_points_api(request):
     """Raw points inside one dwell blob's time window — the "click to expand"
     view. Deliberately un-gated (unlike trip_lines_api's transit segments): the
     whole point of expanding a blob is to see the real, jittery cloud of fixes
     it summarizes, not a cleaned-up version of it.
+
+    Keyed by ``device_id`` + ``start``/``end`` epoch seconds rather than a row
+    id, because dwells are detected per request and never stored. Ownership is
+    still enforced through the device lookup, and the window is clamped to
+    `_DWELL_WINDOW_MAX_S` so the endpoint can't be turned into an unbounded
+    point-dump for an arbitrary date range.
     """
-    visit = get_object_or_404(Visit, id=visit_id, device__user=request.user)
+    device_id = (request.GET.get('device_id') or '').strip()
+    try:
+        start_epoch = float(request.GET.get('start', ''))
+        end_epoch = float(request.GET.get('end', ''))
+    except (TypeError, ValueError):
+        return JsonResponse({'error': 'start and end are required.'}, status=400)
+    if not device_id or end_epoch < start_epoch:
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+    if end_epoch - start_epoch > _DWELL_WINDOW_MAX_S:
+        return JsonResponse({'error': 'Window too large.'}, status=400)
+
+    device = get_object_or_404(Device, device_id=device_id, user=request.user)
+    start = datetime.fromtimestamp(start_epoch, dt_timezone.utc)
+    end = datetime.fromtimestamp(end_epoch, dt_timezone.utc)
 
     MAX_POINTS = 3000
-    qs = (Location.objects
-          .filter(device_id=visit.device_id, timestamp__gte=visit.start_time, timestamp__lte=visit.end_time)
-          .order_by('timestamp')
-          .values('id', 'latitude', 'longitude', 'timestamp', 'speed', 'flag'))
-
-    rows = list(qs)
+    rows = list(Location.objects
+                .filter(device=device, timestamp__gte=start, timestamp__lte=end)
+                .order_by('timestamp')
+                .values('id', 'latitude', 'longitude', 'timestamp', 'speed', 'flag'))
     if len(rows) > MAX_POINTS:
         stride = max(1, len(rows) // MAX_POINTS)
         rows = rows[::stride]
 
-    points = [
+    return JsonResponse({'points': [
         {
             'id': r['id'],
             'lat': _jf(r['latitude']),
@@ -2446,11 +2504,7 @@ def dwell_points_api(request, visit_id):
             'flag': r['flag'],
         }
         for r in rows
-    ]
-    return JsonResponse({
-        'visit': _dwell_payload(visit),
-        'points': points,
-    })
+    ]})
 
 
 @login_required

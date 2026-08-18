@@ -1179,7 +1179,14 @@ function onDwellClick(e) {
     expandedDwellId = p.id;
     showDwellPopup(p, coords);
 
-    fetch(`/api/dwell/${p.id}/points/`)
+    // Dwells are detected per request and never stored, so the window itself is
+    // the key rather than a row id.
+    const q = new URLSearchParams({
+        device_id: p.device_id,
+        start: String(Math.floor(new Date(p.start).getTime() / 1000)),
+        end: String(Math.ceil(new Date(p.end).getTime() / 1000)),
+    });
+    fetch(`/api/dwell/points/?${q.toString()}`)
         .then(r => r.json())
         .then(data => {
             // Toggled off, or a different blob clicked, while this was in flight.
