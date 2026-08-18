@@ -938,34 +938,56 @@ const TRIP_EXPAND_DOT_LAYER = 'trip-dwell-expand-dots';
 
 // Web Mercator ground resolution at zoom 0, equator (m/px) — the same constant
 // map.html's fog-of-war canvas overlay uses to convert a real-world radius to
-// screen pixels at the current zoom. circle-radius can't reference an
-// arbitrary ['zoom'] expression outside interpolate/step, so each dwell
-// feature carries its pixel radius pre-computed at zoom 0 and zoom 20; the
-// paint expression exponentially interpolates between them (radius doubles
-// every zoom level, same as the map's own tile resolution), floored to a
-// minimum so a small stay still reads as a dot from far away instead of
-// vanishing below one pixel.
+// screen pixels at the current zoom.
+//
+// A blob's true pixel radius is `radius_m / mPerPx(lat, zoom)`, which doubles
+// every zoom level, floored at DWELL_MIN_PX so a small stay still reads as a
+// dot from far away instead of vanishing below one pixel. Expressing that
+// directly as ['max', MIN, ['interpolate', ..., ['zoom'], ...]] is INVALID:
+// MapLibre requires ['zoom'] to be the input of a *top-level* step/interpolate,
+// and nesting it inside ['max'] makes addLayer throw — which silently killed
+// the entire dwell layer. So the floor is instead baked into per-feature stop
+// values at every other zoom level: below the crossover both endpoints of an
+// interval are MIN (so it interpolates flat), above it they're exact powers of
+// two (so ['exponential', 2] reproduces the true curve exactly). Only the one
+// interval straddling the crossover is approximate, by well under a pixel.
 const MERC_RES_Z0 = 156543.03392;
 const DWELL_MIN_PX = 7;
 const DWELL_MAX_ZOOM_STOP = 20;
+const DWELL_ZOOM_STEP = 2;
+const DWELL_ZOOM_STOPS = (() => {
+    const zs = [];
+    for (let z = 0; z <= DWELL_MAX_ZOOM_STOP; z += DWELL_ZOOM_STEP) zs.push(z);
+    return zs;
+})();
 
 let tripLineData = null;    // last-fetched devices[], kept for style-swap re-render
 let expandedDwellId = null; // visit id currently expanded to its raw point cloud, or null
 
 function dwellFeature(d, deviceId, color) {
-    const mPerPxZ0 = MERC_RES_Z0 * Math.cos(d.lat * Math.PI / 180);
-    const pxZ0 = d.radius_m / mPerPxZ0;
+    const pxZ0 = d.radius_m / (MERC_RES_Z0 * Math.cos(d.lat * Math.PI / 180));
+    const props = {
+        id: d.id, device_id: deviceId, color,
+        radius_m: d.radius_m, start: d.start, end: d.end,
+        duration_s: d.duration_s, point_count: d.point_count,
+        place_name: d.place_name || '',
+    };
+    // One pre-floored radius per zoom stop — see DWELL_ZOOM_STOPS above.
+    DWELL_ZOOM_STOPS.forEach(z => {
+        props['px_z' + z] = Math.max(DWELL_MIN_PX, pxZ0 * Math.pow(2, z));
+    });
     return {
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
-        properties: {
-            id: d.id, device_id: deviceId, color,
-            radius_m: d.radius_m, start: d.start, end: d.end,
-            duration_s: d.duration_s, point_count: d.point_count,
-            place_name: d.place_name || '',
-            px_z0: pxZ0, px_max: pxZ0 * Math.pow(2, DWELL_MAX_ZOOM_STOP),
-        }
+        properties: props,
     };
+}
+
+// ['interpolate', ['exponential', 2], ['zoom'], 0, ['get','px_z0'], 2, ...]
+function dwellRadiusExpr() {
+    const expr = ['interpolate', ['exponential', 2], ['zoom']];
+    DWELL_ZOOM_STOPS.forEach(z => { expr.push(z, ['get', 'px_z' + z]); });
+    return expr;
 }
 
 function clearTripLineLayers() {
@@ -1031,9 +1053,7 @@ function renderTripLines(devices, autoFit) {
                 // True-to-scale in metres once zoomed in close, but never smaller
                 // than DWELL_MIN_PX — that's what keeps a stop "visible and
                 // readable from a distance" at a low, zoomed-out view.
-                'circle-radius': ['max', DWELL_MIN_PX,
-                    ['interpolate', ['exponential', 2], ['zoom'],
-                        0, ['get', 'px_z0'], DWELL_MAX_ZOOM_STOP, ['get', 'px_max']]],
+                'circle-radius': dwellRadiusExpr(),
                 'circle-color': ['get', 'color'],
                 'circle-opacity': 0.28,
                 'circle-stroke-width': 2,
