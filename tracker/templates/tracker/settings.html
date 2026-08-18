@@ -412,7 +412,7 @@
                         Trip Lines Mode
                         <div class="info-icon" data-tooltip="Replace individual points on the main map with a selective, road-snapped travel line plus dwell blobs at your stops — a Google Timeline-style view instead of a point cloud. Reload the map page after changing this.">?</div>
                     </label>
-                    <select id="connect-lines" class="form-control" onchange="savePref('roamly_connect_lines', this.value)">
+                    <select id="connect-lines" class="form-control" onchange="onTripLinesModeChange(this.value)">
                         <option value="off">Off (show individual points)</option>
                         <option value="on">On (trip lines + dwell blobs)</option>
                     </select>
@@ -1198,6 +1198,25 @@ curl -X POST {{ request.scheme }}://{{ request.get_host }}/api/push/ \
                     <span class="spinner"></span> Loading devices...
                 </div>
             </div>
+        </div>
+    </div>
+</div>
+
+<div id="trip-lines-prereq-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;" onclick="if(event.target === this) closeTripLinesPrereqModal();">
+    <div class="card" style="max-width: 480px; width: 90%; max-height: 85vh; overflow-y: auto;">
+        <div class="card-header">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span>Trip Lines Mode is on</span>
+                <button onclick="closeTripLinesPrereqModal()" style="background:none; border:none; font-size:1.5rem; cursor:pointer; color:var(--text-muted);">&times;</button>
+            </div>
+        </div>
+        <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1rem;">
+            Lines will draw right away. To make them follow road curvature instead of cutting
+            straight between points, road snapping needs to be set up first:
+        </p>
+        <div id="trip-lines-prereq-list" style="display:flex; flex-direction:column; gap:0.6rem; margin-bottom:1rem;"></div>
+        <div style="display:flex; justify-content:flex-end;">
+            <button class="btn btn-outline btn-sm" onclick="closeTripLinesPrereqModal()">Got it</button>
         </div>
     </div>
 </div>
@@ -2042,6 +2061,110 @@ fetch('/api/profile/roads-config/')
         _roadsResolvedNote(d.resolved, d.total_ways);
     })
     .catch(() => {});
+
+// ── Trip Lines Mode prerequisite check ───────────────────────────────────────
+// Turning Trip Lines on doesn't require road snapping — lines draw fine
+// without it, just as straight chords between gated points — but a user has
+// no way to discover that road-following curvature needs its own setup unless
+// something tells them. This checks the same /api/profile/roads-config/ the
+// Road Snapping card itself reads, and only bothers the user when there's
+// actually something to fix.
+function onTripLinesModeChange(value) {
+    savePref('roamly_connect_lines', value);
+    if (value === 'on') maybeShowTripLinesPrereqModal();
+}
+
+function tripLinesRoadItemHTML(done, title, desc, actionLabel, actionFn) {
+    const actionHtml = done ? '' :
+        `<button class="btn btn-primary btn-sm" onclick="${actionFn}" style="flex-shrink:0;">${actionLabel}</button>`;
+    return `<div style="display:flex; align-items:flex-start; gap:0.6rem; padding:0.6rem; border:1px solid var(--border); background:var(--bg-elevated);">
+        <span style="font-size:1rem; line-height:1.3; color:${done ? 'var(--success)' : 'var(--text-dim)'};">${done ? '✓' : '○'}</span>
+        <div style="flex:1; min-width:0;">
+            <div style="font-size:0.85rem; font-weight:600; color:var(--text);">${title}</div>
+            <div style="font-size:0.78rem; color:var(--text-muted); margin-top:0.15rem;">${desc}</div>
+        </div>
+        ${actionHtml}
+    </div>`;
+}
+
+function renderTripLinesPrereqList(d) {
+    const list = document.getElementById('trip-lines-prereq-list');
+    if (!list || !d) return;
+    const items = [
+        tripLinesRoadItemHTML(
+            !!d.snap_to_roads, 'Snap points to roads',
+            d.snap_to_roads ? 'Enabled.' : 'Off — lines draw at their raw recorded positions.',
+            'Enable', 'tripLinesFixEnableSnap()'),
+    ];
+    if (d.resolved) {
+        items.push(tripLinesRoadItemHTML(true, 'Road data source',
+            `Using ${ROAD_PROVIDER_LABELS[d.resolved] || d.resolved}.`, '', ''));
+    } else if (d.has_postgis) {
+        items.push(tripLinesRoadItemHTML(false, 'Road data source',
+            'No road data downloaded yet — this runs entirely on your own server, no API key needed.',
+            'Download now', 'tripLinesFixDownloadRoads()'));
+    } else {
+        items.push(tripLinesRoadItemHTML(false, 'Road data source',
+            'No Mapbox token or OSRM URL set. Local road data needs PostGIS, which this instance does not have.',
+            'Add Mapbox token', 'tripLinesFixGoToMapbox()'));
+    }
+    list.innerHTML = items.join('');
+}
+
+let _tripLinesPrereqChecking = false;
+function maybeShowTripLinesPrereqModal() {
+    if (_tripLinesPrereqChecking) return;
+    _tripLinesPrereqChecking = true;
+    fetch('/api/profile/roads-config/')
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+            _tripLinesPrereqChecking = false;
+            if (!d || (d.resolved && d.snap_to_roads)) return;   // nothing to fix
+            renderTripLinesPrereqList(d);
+            document.getElementById('trip-lines-prereq-modal').style.display = 'flex';
+        })
+        .catch(() => { _tripLinesPrereqChecking = false; });
+}
+function closeTripLinesPrereqModal() {
+    document.getElementById('trip-lines-prereq-modal').style.display = 'none';
+}
+
+function _refreshTripLinesPrereqList() {
+    fetch('/api/profile/roads-config/')
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) renderTripLinesPrereqList(d); })
+        .catch(() => {});
+}
+
+function tripLinesFixEnableSnap() {
+    document.getElementById('snap-to-roads').checked = true;
+    fetch('/api/profile/roads-config/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' },
+        body: JSON.stringify(_roadsConfigPayload()),
+    })
+        .then(r => r.json())
+        .then(d => {
+            _roadsResolvedNote(d.resolved, undefined);
+            if (window.roamlyToast) window.roamlyToast('Road snapping enabled.', { type: 'success' });
+            _refreshTripLinesPrereqList();
+        })
+        .catch(() => {});
+}
+
+function tripLinesFixDownloadRoads() {
+    closeTripLinesPrereqModal();
+    const btn = document.getElementById('roads-btn');
+    btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    startRoads();
+}
+
+function tripLinesFixGoToMapbox() {
+    closeTripLinesPrereqModal();
+    const el = document.getElementById('mapbox-token');
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.focus();
+}
 
 // ── Recalculate stats snapshot ───────────────────────────────────────────────
 function _relTimeAgo(iso) {
