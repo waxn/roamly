@@ -1081,10 +1081,20 @@ function loadTripLines(autoFit) {
         .then(data => {
             renderTripLines(data.devices, autoFit);
             hideMapLoading();
-            const segs = (data.devices || []).reduce((s, d) => s + (d.segments || []).length, 0);
-            const stops = (data.devices || []).reduce((s, d) => s + (d.dwells || []).length, 0);
+            const devices = data.devices || [];
+            const segs = devices.reduce((s, d) => s + (d.segments || []).length, 0);
+            const stops = devices.reduce((s, d) => s + (d.dwells || []).length, 0);
+            const routed = devices.reduce(
+                (s, d) => s + (d.segments || []).filter(x => x.routed).length, 0);
+            // Say why the lines aren't following roads rather than leaving the
+            // user to guess: the master toggle is off, or nothing resolved a
+            // provider (no road data downloaded / no token / no OSRM url).
+            let roadNote;
+            if (!data.snap_enabled) roadNote = 'roads: off';
+            else if (!data.snap_provider) roadNote = 'roads: no provider';
+            else roadNote = `roads: ${data.snap_provider}${routed ? ` · ${routed} routed` : ' · none matched'}`;
             document.getElementById('map-info').textContent =
-                `${segs.toLocaleString()} line segment(s) · ${stops.toLocaleString()} stop(s)`;
+                `${segs.toLocaleString()} line segment(s) · ${stops.toLocaleString()} stop(s) · ${roadNote}`;
         })
         .catch(err => {
             if (err.name === 'AbortError') return;

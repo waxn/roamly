@@ -2003,6 +2003,22 @@ _DWELL_RADIUS_CACHE_TTL = 2592000   # 30 days — mirrors the road-snap cache; a
 _DWELL_MIN_RADIUS_M = 12.0          # floor so a tight, well-behaved stay still reads as a real place on the map
 _DWELL_RADIUS_PERCENTILE = 0.9      # resists one stray fix ballooning the whole circle
 
+# Road-geometry densification. Snapping alone moves each fix onto the nearest
+# road but inserts nothing *between* consecutive fixes — so a car sampled every
+# 30s (~400m apart at speed) still draws a straight chord across every bend, on
+# the road but not following it. Splicing in the actual road geometry between
+# each pair of snapped vertices (roads.route_between, the same A*/Directions
+# call the map editor's "connect via roads" uses) is what makes the line hug
+# real curvature. Only pairs where BOTH ends snapped are routed: that proves
+# both anchors sit on the road network, so the route is a real road path rather
+# than an invented one from a fix that was never near a road.
+_LINE_DENSIFY_MIN_M = 40.0       # below this a chord is visually indistinguishable from the road
+_LINE_DENSIFY_MAX_M = 3000.0     # above this it's a recording gap — don't invent a path across it
+_LINE_DENSIFY_MAX_DETOUR = 2.5   # reject a "road route" this much longer than the direct line
+_LINE_MAX_ROUTE_CALLS = 200      # per-request routing budget, so one huge range can't hang the map
+_LINE_ROUTE_CACHE_TTL = 2592000  # 30 days — a pair of fixes and the road between them are both immutable
+_LINE_ROUTE_CACHE_VERSION = 'v1'
+
 
 def _visit_radius_m(visit):
     """How far this visit's points actually scattered from its centroid, in metres.
@@ -2065,6 +2081,11 @@ def _line_gate_points(points, snapped_coords):
     rejects any hop faster than a GPS teleport — same two ideas
     _gated_distance_segments uses for the equivalent distance-accumulation
     problem, just keeping coordinates instead of summing metres.
+
+    Returns a list of ``{'lng', 'lat', 'id', 'snapped'}`` vertices rather than
+    bare coordinates, because [_densify_along_roads] needs both the point ids
+    (to cache a routed leg per immutable pair) and which ends actually landed on
+    a road (only then is routing between them meaningful).
     """
     kept = []
     anchor = None  # (lat, lon, epoch)
@@ -2072,8 +2093,9 @@ def _line_gate_points(points, snapped_coords):
         snap = snapped_coords.get(p['id'])
         lat, lon = (snap[1], snap[0]) if snap else (p['lat'], p['lng'])
         epoch = p['ts']
+        vertex = {'lng': _jf(lon), 'lat': _jf(lat), 'id': p['id'], 'snapped': bool(snap)}
         if anchor is None:
-            kept.append((_jf(lon), _jf(lat)))
+            kept.append(vertex)
             anchor = (lat, lon, epoch)
             continue
         dt = epoch - anchor[2]
@@ -2086,12 +2108,88 @@ def _line_gate_points(points, snapped_coords):
             continue
         if d_m / dt > _LINE_MAX_SPEED_MPS:
             continue
-        kept.append((_jf(lon), _jf(lat)))
+        kept.append(vertex)
         anchor = (lat, lon, epoch)
     return kept
 
 
-def _build_line_segments(points, visits, profile, gap_break_s):
+def _polyline_len_m(coords):
+    """Length of a [(lng, lat), …] polyline in metres."""
+    return sum(
+        _haversine_km(coords[i][1], coords[i][0], coords[i + 1][1], coords[i + 1][0]) * 1000.0
+        for i in range(len(coords) - 1)
+    )
+
+
+def _densify_along_roads(profile, verts, mode, budget):
+    """Splice real road geometry between consecutive snapped vertices.
+
+    Snapping puts each fix *on* the right road; this is what makes the line
+    *follow* it. For each consecutive pair where both ends snapped, ask the road
+    provider for the actual path between them (`roads.route_between` — local A*,
+    Mapbox Directions or OSRM, whichever the profile resolves to) and insert its
+    intermediate shape points.
+
+    Guards, in order of how often they matter:
+      - both ends must have snapped, so both anchors are known to be on a road;
+      - the gap must be worth routing (`_LINE_DENSIFY_MIN_M`) and not a
+        recording hole a route would fabricate a path across (`_..._MAX_M`);
+      - a returned route much longer than the direct line is a bad match (wrong
+        carriageway, a loop around a block) and is discarded in favour of the
+        straight chord — a wrong road reads far worse than a slightly flat bend;
+      - `budget` is a shared per-request countdown so one huge range can't fire
+        thousands of A* searches and hang the map.
+
+    Results cache per (provider, id_a, id_b) for 30 days — the two fixes and the
+    road between them are all immutable — with an empty list as the "no usable
+    route" sentinel so a failed pair isn't retried on every pan.
+    """
+    from . import roads as roads_mod
+
+    provider = profile.road_provider_resolved
+    out = [(verts[0]['lng'], verts[0]['lat'])]
+    routed_legs = 0
+
+    for a, b in zip(verts, verts[1:]):
+        tail = (b['lng'], b['lat'])
+        if not (a['snapped'] and b['snapped']):
+            out.append(tail)
+            continue
+        d_m = _haversine_km(a['lat'], a['lng'], b['lat'], b['lng']) * 1000.0
+        if d_m < _LINE_DENSIFY_MIN_M or d_m > _LINE_DENSIFY_MAX_M:
+            out.append(tail)
+            continue
+
+        key = f"lineroute:{_LINE_ROUTE_CACHE_VERSION}:{provider}:{a['id']}:{b['id']}"
+        mid = cache.get(key)
+        if mid is None:
+            if budget[0] <= 0:
+                out.append(tail)
+                continue
+            budget[0] -= 1
+            try:
+                path = roads_mod.route_between(
+                    profile, (a['lng'], a['lat']), (b['lng'], b['lat']), mode)
+            except roads_mod.RoadProviderError:
+                path = None
+            except Exception:
+                logger.exception('Trip-lines road routing failed')
+                path = None
+            mid = []
+            if path and len(path) > 2:
+                if _polyline_len_m(path) <= d_m * _LINE_DENSIFY_MAX_DETOUR:
+                    mid = [[round(c[0], 6), round(c[1], 6)] for c in path[1:-1]]
+            cache.set(key, mid, _LINE_ROUTE_CACHE_TTL)
+
+        if mid:
+            out.extend((c[0], c[1]) for c in mid)
+            routed_legs += 1
+        out.append(tail)
+
+    return out, routed_legs
+
+
+def _build_line_segments(points, visits, profile, gap_break_s, budget):
     """Split one device's points into gated, road-snapped transit LineStrings.
 
     `points` is every point for the device/range in timestamp order. `visits`
@@ -2100,6 +2198,10 @@ def _build_line_segments(points, visits, profile, gap_break_s):
     line. A run breaks whenever it crosses a visit (the track stopped there,
     even briefly) or a gap exceeds `gap_break_s` (nothing was recorded in
     between, so nothing should be drawn across it).
+
+    `budget` is the shared per-request routing countdown handed to
+    [_densify_along_roads]; see there for why the line follows road curvature
+    rather than cutting straight between snapped fixes.
     """
     from . import roads as roads_mod
 
@@ -2160,12 +2262,27 @@ def _build_line_segments(points, visits, profile, gap_break_s):
                 logger.exception('Trip-lines road snap failed')
                 snapped_coords = {}
 
-        coords = _line_gate_points(run, snapped_coords)
+        verts = _line_gate_points(run, snapped_coords)
+        if len(verts) < 2:
+            continue
+
+        routed_legs = 0
+        if snapped_coords:
+            # Route with the run's dominant transport mode so a cycle leg isn't
+            # sent down a motorway; '' falls back to the provider's driving profile.
+            modes = Counter(
+                (p['transport_mode'] or '').strip() for p in run if (p['transport_mode'] or '').strip())
+            mode = modes.most_common(1)[0][0] if modes else ''
+            coords, routed_legs = _densify_along_roads(profile, verts, mode, budget)
+        else:
+            coords = [(v['lng'], v['lat']) for v in verts]
+
         if len(coords) < 2:
             continue
         segments.append({
             'coords': coords,
             'snapped': bool(snapped_coords) and (len(snapped_coords) * 2 >= len(run)),
+            'routed': routed_legs > 0,
         })
     return segments
 
@@ -2270,11 +2387,14 @@ def trip_lines_api(request):
     for v in visit_qs:
         visits_by_device[v.device_id].append(v)
 
+    # One routing budget shared across every device/segment in this request.
+    budget = [_LINE_MAX_ROUTE_CALLS]
+
     result_devices = []
     for did, pts in points_by_device.items():
         visits = visits_by_device.get(did, [])
         str_id, name = device_meta[did]
-        segments = _build_line_segments(pts, visits, profile, gap_break_s)
+        segments = _build_line_segments(pts, visits, profile, gap_break_s, budget)
         dwells = [_dwell_payload(v) for v in visits]
         result_devices.append({
             'id': str_id,
@@ -2283,7 +2403,15 @@ def trip_lines_api(request):
             'dwells': dwells,
         })
 
-    payload = {'devices': result_devices}
+    # Why the lines may not be hugging roads is otherwise invisible from the
+    # client: the master toggle is off, or no provider resolved (no downloaded
+    # road data / no Mapbox token / no OSRM url). Surfaced so the map can say so
+    # instead of just drawing straight chords with no explanation.
+    payload = {
+        'devices': result_devices,
+        'snap_enabled': bool(profile.snap_to_roads),
+        'snap_provider': profile.road_provider_resolved or '',
+    }
     cache.set(cache_key, payload, timeout=cache_ttl)
     return JsonResponse(payload)
 
