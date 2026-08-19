@@ -2026,7 +2026,8 @@ _LINE_ROUTE_CACHE_TTL = 2592000  # 30 days — a pair of fixes and the road betw
 _LINE_ROUTE_CACHE_VERSION = 'v1'
 
 
-def _detect_dwells(points):
+def _detect_dwells(points, cluster_radius_m=_DWELL_CLUSTER_RADIUS_M,
+                    min_duration_s=_DWELL_MIN_DURATION_S, min_points=0):
     """Find stops in one device's point stream, without touching the Visit table.
 
     Deliberately **not** read from `Visit`: that table is only populated by
@@ -2039,9 +2040,15 @@ def _detect_dwells(points):
     agree about where a stop starts and ends (two independent sources could
     disagree and draw a line straight through a blob).
 
-    The clustering parameters mirror `visit_tasks` (150m running-centroid
-    radius, 5 min minimum, 1 h gap) so a blob means the same thing here as a row
-    on the Visits page, even though the two are computed independently.
+    `cluster_radius_m`/`min_duration_s` default to the same values
+    `visit_tasks` uses (150m running-centroid radius, 5 min minimum) so a blob
+    means the same thing here as a row on the Visits page unless the user has
+    turned the sensitivity down in Settings — a busy day of short errands can
+    otherwise throw a blob at every red light and parking lot. `min_points`
+    (0 = off) is an additional, independent gate: a stay can clear the time bar
+    on a sparse track (e.g. a device that only pings every few minutes) yet
+    still not be worth a blob, so point count catches what duration alone
+    can't. Both bars must clear for a cluster to become a dwell.
 
     Returns ``[{lat, lng, radius_m, start_epoch, end_epoch, point_count, label}]``.
     The radius is the 90th percentile of member distances from the final
@@ -2055,7 +2062,7 @@ def _detect_dwells(points):
         if c is None:
             return
         duration = c['end'] - c['start']
-        if duration < _DWELL_MIN_DURATION_S:
+        if duration < min_duration_s or c['n'] < min_points:
             return
         clat, clon = c['lat_sum'] / c['n'], c['lon_sum'] / c['n']
         dists = sorted(_haversine_km(clat, clon, la, lo) * 1000.0 for la, lo in c['pts'])
@@ -2079,7 +2086,7 @@ def _detect_dwells(points):
                    'pts': [(lat, lon)], 'label': p.get('label') or ''}
             continue
         clat, clon = cur['lat_sum'] / cur['n'], cur['lon_sum'] / cur['n']
-        if (_haversine_km(clat, clon, lat, lon) * 1000.0 <= _DWELL_CLUSTER_RADIUS_M
+        if (_haversine_km(clat, clon, lat, lon) * 1000.0 <= cluster_radius_m
                 and (epoch - cur['end']) < _DWELL_MAX_GAP_S):
             cur['lat_sum'] += lat
             cur['lon_sum'] += lon
@@ -2354,6 +2361,24 @@ def trip_lines_api(request):
     except (TypeError, ValueError):
         gap_break_s = _LINE_DEFAULT_GAP_MIN * 60
 
+    # Dwell sensitivity — user-configurable (Settings → Dwell Sensitivity),
+    # clamped server-side since these ride in on the querystring. Both the
+    # duration and point-count bars must clear for a cluster to become a blob;
+    # see _detect_dwells for why point count is a second, independent gate
+    # rather than a duration substitute.
+    try:
+        dwell_min_min = min(180, max(1, int(request.GET.get('dwell_min_minutes', _DWELL_MIN_DURATION_S // 60))))
+    except (TypeError, ValueError):
+        dwell_min_min = _DWELL_MIN_DURATION_S // 60
+    try:
+        dwell_min_points = min(5000, max(0, int(request.GET.get('dwell_min_points', 0))))
+    except (TypeError, ValueError):
+        dwell_min_points = 0
+    try:
+        dwell_radius_m = min(1000.0, max(20.0, float(request.GET.get('dwell_radius_m', _DWELL_CLUSTER_RADIUS_M))))
+    except (TypeError, ValueError):
+        dwell_radius_m = _DWELL_CLUSTER_RADIUS_M
+
     gen = cache.get(f"cache_gen:{request.user.id}", 0)
     cache_key = f"tripline:{request.user.id}:{gen}:{request.GET.urlencode()}"
     cached = cache.get(cache_key)
@@ -2435,7 +2460,8 @@ def trip_lines_api(request):
         str_id, name = device_meta[did]
         # Stops first: the line pass draws everything they don't cover, so both
         # halves are derived from one stream and can't disagree about a window.
-        found = _detect_dwells(pts)
+        found = _detect_dwells(pts, cluster_radius_m=dwell_radius_m,
+                                min_duration_s=dwell_min_min * 60, min_points=dwell_min_points)
         segments = _build_line_segments(pts, found, profile, gap_break_s, budget)
         result_devices.append({
             'id': str_id,
