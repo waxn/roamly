@@ -375,6 +375,14 @@ const heatIntArgs = HEATMAP_INTENSITY[heatmapIntensity] || HEATMAP_INTENSITY.med
 // feature is inert there regardless of the connect-lines preference.
 const TRIP_LINES_ENABLED = !!ROAMLY_MAP_CFG.tripLinesEnabled;
 const dwellBlobsOn = (localStorage.getItem('roamly_dwell_blobs') || 'on') === 'on';
+// Dwell sensitivity — default duration floor of 30 min (vs. the 150m/5min the
+// server falls back to when a caller sends nothing) so a stock install isn't
+// throwing a blob at every red light and parking lot; min_points is an
+// independent gate (0 = off) for a stay that clears the time bar on a sparse
+// track but still shouldn't be a blob.
+const dwellMinMinutes = parseInt(localStorage.getItem('roamly_dwell_min_minutes') || '30', 10);
+const dwellMinPoints = parseInt(localStorage.getItem('roamly_dwell_min_points') || '0', 10);
+const dwellRadiusM = parseInt(localStorage.getItem('roamly_dwell_radius_m') || '150', 10);
 
 // Dispatch to whichever mode is active for the whole-range load. Points mode
 // (loadTrack + the viewport-driven detail layer) is untouched; trip-lines mode
@@ -1074,7 +1082,8 @@ function loadTripLines(autoFit) {
 
     showMapLoading('loading...');
     const gapMinutes = Math.round(lineGapMs / 60000);
-    const qs = `${buildFilterParams()}&gap_minutes=${gapMinutes}`;
+    const qs = `${buildFilterParams()}&gap_minutes=${gapMinutes}`
+        + `&dwell_min_minutes=${dwellMinMinutes}&dwell_min_points=${dwellMinPoints}&dwell_radius_m=${dwellRadiusM}`;
 
     fetch(`/api/track/lines/?${qs}`, { signal: pendingFetch.signal })
         .then(r => r.json())

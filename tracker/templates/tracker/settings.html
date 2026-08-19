@@ -429,6 +429,44 @@
                     </select>
                 </div>
 
+                <div class="pref-form-group">
+                    <label class="pref-label">
+                        Dwell Minimum Duration
+                        <div class="info-icon" data-tooltip="How long you need to stay somewhere before it counts as a dwell blob at all. Higher = fewer, more meaningful blobs (a coffee stop won't get one; an overnight stay will).">?</div>
+                    </label>
+                    <select id="dwell-min-minutes" class="form-control" onchange="savePref('roamly_dwell_min_minutes', this.value)">
+                        <option value="5">5 minutes</option>
+                        <option value="15">15 minutes</option>
+                        <option value="30">30 minutes (default)</option>
+                        <option value="60">1 hour</option>
+                    </select>
+                </div>
+
+                <div class="pref-form-group">
+                    <label class="pref-label">
+                        Dwell Minimum Points
+                        <div class="info-icon" data-tooltip="An additional, independent floor: a stay must also have at least this many recorded points, not just clear the duration bar. Catches a long-but-sparse stretch (e.g. a device that only pings every few minutes) that duration alone wouldn't filter out. Off = duration alone decides.">?</div>
+                    </label>
+                    <select id="dwell-min-points" class="form-control" onchange="savePref('roamly_dwell_min_points', this.value)">
+                        <option value="0">Off (default)</option>
+                        <option value="100">100 points</option>
+                        <option value="250">250 points</option>
+                        <option value="500">500 points</option>
+                    </select>
+                </div>
+
+                <div class="pref-form-group">
+                    <label class="pref-label">
+                        Dwell Cluster Radius
+                        <div class="info-icon" data-tooltip="How close together points need to be to count as the same stop. Wider merges nearby stops (e.g. wandering around a large parking lot or campus) into one blob instead of several.">?</div>
+                    </label>
+                    <select id="dwell-radius" class="form-control" onchange="savePref('roamly_dwell_radius_m', this.value)">
+                        <option value="150">150m (default)</option>
+                        <option value="250">250m</option>
+                        <option value="400">400m</option>
+                    </select>
+                </div>
+
                 <div class="pref-form-group" style="grid-column: 1 / -1;">
                     <label class="pref-label">
                         Mapbox Access Token
@@ -2469,6 +2507,9 @@ document.getElementById('default-time-range').value = localStorage.getItem('roam
 document.getElementById('speed-gradient').value = localStorage.getItem('roamly_speed_gradient') || 'on';
 document.getElementById('connect-lines').value = localStorage.getItem('roamly_connect_lines') || 'off';
 document.getElementById('dwell-blobs').value = localStorage.getItem('roamly_dwell_blobs') || 'on';
+document.getElementById('dwell-min-minutes').value = localStorage.getItem('roamly_dwell_min_minutes') || '30';
+document.getElementById('dwell-min-points').value = localStorage.getItem('roamly_dwell_min_points') || '0';
+document.getElementById('dwell-radius').value = localStorage.getItem('roamly_dwell_radius_m') || '150';
 
 // Mapbox access token — optional, unlocks Mapbox basemaps on the main map.
 // Stored server-side (UserProfile) so it syncs to every device, including the
