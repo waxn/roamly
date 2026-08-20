@@ -8309,14 +8309,18 @@ def place_suggestion_dismiss_api(request):
 
 
 # ---------------------------------------------------------------------------
-# POI Download
+# POI Download — admin-only, instance-wide (see Admin Panel -> Downloads).
+# POI has no user FK; the job now covers every user's combined travel area.
 # ---------------------------------------------------------------------------
 
 @login_required
 @require_http_methods(["POST"])
 def poi_download_api(request):
-    """Start downloading POIs for the user's travel area."""
-    job = start_poi_download(request.user.id)
+    """Start downloading POIs for the whole instance's travel area."""
+    err = _require_admin(request)
+    if err:
+        return err
+    job = start_poi_download()
     return JsonResponse({
         'status': job.status,
         'total': job.total,
@@ -8326,15 +8330,46 @@ def poi_download_api(request):
 @login_required
 def poi_status_api(request):
     """Check POI download status."""
-    return JsonResponse(get_poi_status(request.user.id))
+    err = _require_admin(request)
+    if err:
+        return err
+    return JsonResponse(get_poi_status())
 
 
 @login_required
 @require_http_methods(["POST"])
 def poi_stop_api(request):
     """Stop a running POI download."""
-    stopped = stop_poi_download(request.user.id)
+    err = _require_admin(request)
+    if err:
+        return err
+    stopped = stop_poi_download()
     return JsonResponse({'stopped': stopped})
+
+
+@login_required
+@require_http_methods(["POST"])
+def poi_delete_api(request):
+    """Delete all downloaded POIs.
+
+    POI is instance-wide reference data (like RoadSegment/RailSegment/
+    Boundary — no user FK), so this clears it for everyone on the instance,
+    same as road_data_delete_api/subway_data_delete_api. Safe to do: it is
+    re-downloadable cache-like data. Any running download is stopped first so
+    it can't keep inserting rows behind the delete.
+    """
+    err = _require_admin(request)
+    if err:
+        return err
+    stop_poi_download()
+    deleted = POI.objects.count()
+    if deleted:
+        if connection.vendor == 'postgresql':
+            with connection.cursor() as cur:
+                cur.execute(f'TRUNCATE TABLE {POI._meta.db_table}')
+        else:
+            POI.objects.all().delete()
+    return JsonResponse({'status': 'ok', 'deleted': deleted})
 
 
 @login_required
@@ -9853,30 +9888,40 @@ def roads_snap_api(request):
     })
 
 
-# ── Road data download ──────────────────────────────────────────────────────
+# ── Road data download — admin-only, instance-wide (see Admin Panel -> Downloads) ──
+# RoadSegment has no user FK; the job now covers every user's combined travel area.
 
 @login_required
 @require_http_methods(["POST"])
 def road_download_api(request):
-    """Start downloading OSM road geometry for the areas the user has visited."""
+    """Start downloading OSM road geometry for the whole instance's travel area."""
+    err = _require_admin(request)
+    if err:
+        return err
     from .road_download_tasks import start_road_download
-    job = start_road_download(request.user.id)
+    job = start_road_download()
     return JsonResponse({'status': job.status, 'total': job.total})
 
 
 @login_required
 def road_download_status_api(request):
     """Check road-download progress."""
+    err = _require_admin(request)
+    if err:
+        return err
     from .road_download_tasks import get_road_download_status
-    return JsonResponse(get_road_download_status(request.user.id))
+    return JsonResponse(get_road_download_status())
 
 
 @login_required
 @require_http_methods(["POST"])
 def road_download_stop_api(request):
     """Stop a running road download."""
+    err = _require_admin(request)
+    if err:
+        return err
     from .road_download_tasks import stop_road_download
-    return JsonResponse({'stopped': stop_road_download(request.user.id)})
+    return JsonResponse({'stopped': stop_road_download()})
 
 
 # ── Editor-generated points ─────────────────────────────────────────────────
@@ -9978,14 +10023,17 @@ def road_data_delete_api(request):
     """Delete all downloaded road geometry.
 
     RoadSegment is instance-wide reference data (like POI and Boundary — no user
-    FK), so this clears it for everyone on the instance; the Settings copy says
-    so. Safe to do: it is re-downloadable cache-like data, and nothing else
+    FK), so this clears it for everyone on the instance; the Admin Panel copy
+    says so. Safe to do: it is re-downloadable cache-like data, and nothing else
     references it. Any running download is stopped first so it can't keep
     inserting rows behind the delete.
     """
+    err = _require_admin(request)
+    if err:
+        return err
     from .road_download_tasks import stop_road_download
 
-    stop_road_download(request.user.id)
+    stop_road_download()
     deleted = RoadSegment.objects.count()
     # A plain DELETE on a table this size is slow and bloats WAL; TRUNCATE is
     # near-instant and reclaims the space immediately. Nothing references
@@ -10014,34 +10062,46 @@ def road_data_delete_api(request):
 @login_required
 @require_http_methods(["POST"])
 def subway_download_api(request):
-    """Start downloading OSM subway geometry for the areas the user has visited."""
+    """Start downloading OSM subway geometry for the whole instance's travel area."""
+    err = _require_admin(request)
+    if err:
+        return err
     from .rail_download_tasks import start_subway_download
-    job = start_subway_download(request.user.id)
+    job = start_subway_download()
     return JsonResponse({'status': job.status, 'total': job.total})
 
 
 @login_required
 def subway_download_status_api(request):
     """Check subway-download progress."""
+    err = _require_admin(request)
+    if err:
+        return err
     from .rail_download_tasks import get_subway_download_status
-    return JsonResponse(get_subway_download_status(request.user.id))
+    return JsonResponse(get_subway_download_status())
 
 
 @login_required
 @require_http_methods(["POST"])
 def subway_download_stop_api(request):
     """Stop a running subway download."""
+    err = _require_admin(request)
+    if err:
+        return err
     from .rail_download_tasks import stop_subway_download
-    return JsonResponse({'stopped': stop_subway_download(request.user.id)})
+    return JsonResponse({'stopped': stop_subway_download()})
 
 
 @login_required
 @require_http_methods(["POST"])
 def subway_data_delete_api(request):
     """Delete all downloaded subway geometry (instance-wide, like road data)."""
+    err = _require_admin(request)
+    if err:
+        return err
     from .rail_download_tasks import stop_subway_download
 
-    stop_subway_download(request.user.id)
+    stop_subway_download()
     ways = RailSegment.objects.count()
     stations = RailStation.objects.count()
     if ways or stations:

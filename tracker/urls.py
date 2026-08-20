@@ -170,6 +170,7 @@ urlpatterns = [
     path('api/poi/download/', views.poi_download_api, name='poi_download'),
     path('api/poi/status/', views.poi_status_api, name='poi_status'),
     path('api/poi/stop/', views.poi_stop_api, name='poi_stop'),
+    path('api/poi/delete/', views.poi_delete_api, name='poi_delete'),
     path('api/site/custom-js/', views.site_custom_js_api, name='site_custom_js'),
     path('api/site/contact-email/', views.site_contact_email_api, name='site_contact_email'),
     path('api/site/turnstile/', views.site_turnstile_api, name='site_turnstile'),
