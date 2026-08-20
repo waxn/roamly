@@ -1033,9 +1033,15 @@ class UserProfile(models.Model):
     # Provider is server-side rather than a localStorage map pref because the
     # provider config has to live here anyway and the nightly sweep needs a
     # server-side opt-in — splitting one feature's switches across two stores
-    # would be worse. '' means "auto": resolve local → mapbox → osrm.
-    road_provider = models.CharField(max_length=10, blank=True, default='')  # ''|local|mapbox|osrm
+    # would be worse. '' means "auto": resolve local → mapbox → osrm → valhalla.
+    road_provider = models.CharField(max_length=10, blank=True, default='')  # ''|local|mapbox|osrm|valhalla
     osrm_url = models.CharField(max_length=300, blank=True, default='')
+    # A self-hosted (or third-party) Valhalla instance. Meili, Valhalla's
+    # map-matching engine, is a proper HMM-based matcher — generally more
+    # robust than the local provider's nearest-edge+Viterbi-lite snapper in
+    # dense grids with parallel roads — at the cost of running and maintaining
+    # a whole separate service with its own regional tile build.
+    valhalla_url = models.CharField(max_length=300, blank=True, default='')
     # Display-only: snapped coordinates are cached, never written to Location.
     snap_to_roads = models.BooleanField(default=False)
 
@@ -1065,7 +1071,11 @@ class UserProfile(models.Model):
 
         The "auto" default the Settings card offers: prefer locally stored OSM
         roads (no external calls at all), fall back to Mapbox if the user already
-        has a token, then to a configured OSRM instance.
+        has a token, then a configured OSRM instance, then a configured Valhalla
+        instance. Valhalla sits last in "auto" because it's opt-in infrastructure
+        (a self-hoster has to stand up and tile-build it deliberately) rather
+        than something that's "just there" the way local roads or an already-set
+        Mapbox token are — so an explicit choice is how most people will reach it.
         """
         if self.road_provider:
             # An explicit choice still has to be usable.
@@ -1075,6 +1085,8 @@ class UserProfile(models.Model):
                 return 'mapbox' if self.mapbox_token else ''
             if self.road_provider == 'osrm':
                 return 'osrm' if self.osrm_url else ''
+            if self.road_provider == 'valhalla':
+                return 'valhalla' if self.valhalla_url else ''
             return ''
         if _local_roads_available():
             return 'local'
@@ -1082,6 +1094,8 @@ class UserProfile(models.Model):
             return 'mapbox'
         if self.osrm_url:
             return 'osrm'
+        if self.valhalla_url:
+            return 'valhalla'
         return ''
 
     @property
