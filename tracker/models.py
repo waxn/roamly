@@ -381,6 +381,34 @@ class POIDownloadJob(models.Model):
         return f"POI Download: {self.processed}/{self.total}"
 
 
+class DownloadedRegion(models.Model):
+    """A chunk of the world already queried from Overpass for a given download
+    kind, so a re-run — the manual admin-panel button or the auto-download
+    sweep (see auto_download_tasks.py) — only asks about growth since the
+    last run instead of re-downloading full history every time.
+
+    `key` is a "gy,gx" grid-cell coordinate (road_download_tasks.CELL_DEG)
+    for kind='road'/'subway' — both share the same cell grid
+    (road_download_tasks._visited_cells) but are tracked independently,
+    since a cell can have roads downloaded without subway or vice versa —
+    or "city|state" for kind='poi', which selects by city centroid rather
+    than grid cell (see poi_tasks.py).
+
+    Instance-wide reference data, like the tables it tracks coverage for
+    (no user FK) ⇒ excluded from backups.
+    """
+    KIND_CHOICES = [('road', 'Road'), ('subway', 'Subway'), ('poi', 'POI')]
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES)
+    key = models.CharField(max_length=200)
+
+    class Meta:
+        unique_together = [('kind', 'key')]
+        indexes = [models.Index(fields=['kind'])]
+
+    def __str__(self):
+        return f"{self.kind}:{self.key}"
+
+
 class POIMatchJob(models.Model):
     """Persistent state for the background 'match nearest POI to each point' task."""
     STATUS_CHOICES = [
@@ -1199,6 +1227,13 @@ class SiteConfig(models.Model):
     turnstile_enabled = models.BooleanField(default=False)
     turnstile_site_key = models.CharField(max_length=255, blank=True, default='')
     turnstile_secret_key = models.CharField(max_length=255, blank=True, default='')
+    # Auto-download new regions for road/subway/POI data as anyone on the
+    # instance travels somewhere not yet covered, instead of requiring an
+    # admin to notice and click the Downloads-tab button. Each defaults on;
+    # see tracker/auto_download_tasks.py.
+    auto_download_roads = models.BooleanField(default=True)
+    auto_download_subway = models.BooleanField(default=True)
+    auto_download_pois = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     @classmethod
