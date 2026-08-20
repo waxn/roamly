@@ -2,10 +2,15 @@
 
 A sibling of road_download_tasks — same daemon-thread + Job-row + worker-token
 mechanics, same Overpass politeness, and it reuses that module's `_visited_boxes`
-verbatim for area selection (the ~2km corridor cells the user travelled through,
-*including the bridged cells between consecutive fixes* — which is exactly where
-a subway ride left its gap). Rail is far sparser than roads, so downloading it
-for every visited cell is cheap; most cells return nothing.
+verbatim for area selection (the ~2km corridor cells anyone on the instance
+travelled through, *including the bridged cells between consecutive fixes* —
+which is exactly where a subway ride left its gap). Rail is far sparser than
+roads, so downloading it for every visited cell is cheap; most cells return
+nothing.
+
+**Admin-only, instance-wide singleton** (`RailDownloadJob`, pk=1) — same reason
+as road_download_tasks: RailSegment/RailStation have no user FK and are shared
+by everyone on the instance.
 
 Two differences from the road version:
   * the Overpass query fetches `railway=subway` running tracks (service tracks —
@@ -20,6 +25,7 @@ import logging
 import secrets
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -31,21 +37,25 @@ from .road_download_tasks import (
     _visited_boxes,
     OVERPASS_URL, OVERPASS_HEADERS, OVERPASS_TIMEOUT,
     BOXES_PER_REQUEST, MAX_ATTEMPTS, RETRY_BACKOFF_S, REQUEST_SLEEP_S,
-    STALE_AFTER_S, INSERT_CHUNK,
+    STALE_AFTER_S, INSERT_CHUNK, CONNECTIVITY_FAIL_LIMIT,
 )
 
 logger = logging.getLogger(__name__)
 
-_running_threads = {}
+# Single background thread for the whole instance — there is only ever one
+# RailDownloadJob row (pk=1) to run, unlike the old per-user dict.
+_running_thread = None
 
 
 def _download_boxes(boxes, attempt=1, beat=None):
     """Fetch subway track ways + station nodes intersecting any of `boxes`.
 
-    Returns (way_dicts, station_dicts, failed_box_count). Same retry-then-bisect
-    strategy as the road download: an Overpass timeout is usually one dense box,
-    not the whole batch, and a silent empty result would look identical to the
-    feature being broken.
+    Returns (way_dicts, station_dicts, failed_box_count, unreachable). Same
+    retry-then-bisect-on-HTTPError, fail-whole-batch-fast-on-unreachable
+    strategy as road_download_tasks._download_boxes — see that function's
+    docstring for why the two failure modes need different treatment: bisecting
+    a batch that never reached Overpass at all just reproduces the identical
+    failure at every leaf, slower.
     """
     clauses = []
     for (s, w, n, e) in boxes:
@@ -70,25 +80,34 @@ def _download_boxes(boxes, attempt=1, beat=None):
         req = urllib.request.Request(OVERPASS_URL, body, OVERPASS_HEADERS)
         with urllib.request.urlopen(req, timeout=OVERPASS_TIMEOUT + 20) as resp:
             result = json.loads(resp.read().decode())
-    except Exception as exc:
+    except urllib.error.HTTPError as exc:
         if attempt < MAX_ATTEMPTS:
             time.sleep(RETRY_BACKOFF_S * attempt)
             return _download_boxes(boxes, attempt + 1, beat)
         if len(boxes) > 1:
             mid = len(boxes) // 2
-            lw, ls, lf = _download_boxes(boxes[:mid], beat=beat)
-            rw, rs, rf = _download_boxes(boxes[mid:], beat=beat)
-            return lw + rw, ls + rs, lf + rf
+            lw, ls, lf, lu = _download_boxes(boxes[:mid], beat=beat)
+            rw, rs, rf, ru = _download_boxes(boxes[mid:], beat=beat)
+            return lw + rw, ls + rs, lf + rf, lu and ru
         logger.warning('Overpass subway download failed for box %s: %s', boxes[0], exc)
-        return [], [], 1
+        return [], [], 1, False
+    except Exception as exc:
+        # Never reached Overpass at all — one retry for a possible blip, then
+        # fail the WHOLE batch at once rather than bisecting into a doomed tree
+        # of identical failures.
+        if attempt < MAX_ATTEMPTS:
+            time.sleep(RETRY_BACKOFF_S * attempt)
+            return _download_boxes(boxes, attempt + 1, beat)
+        logger.warning('Overpass unreachable, failing subway batch of %d boxes: %s', len(boxes), exc)
+        return [], [], len(boxes), True
 
     if result.get('remark'):
         logger.warning('Overpass remark on subway download: %s', result['remark'])
         if len(boxes) > 1:
             mid = len(boxes) // 2
-            lw, ls, lf = _download_boxes(boxes[:mid], beat=beat)
-            rw, rs, rf = _download_boxes(boxes[mid:], beat=beat)
-            return lw + rw, ls + rs, lf + rf
+            lw, ls, lf, lu = _download_boxes(boxes[:mid], beat=beat)
+            rw, rs, rf, ru = _download_boxes(boxes[mid:], beat=beat)
+            return lw + rw, ls + rs, lf + rf, lu and ru
 
     ways, stations = [], []
     for el in result.get('elements', []):
@@ -115,7 +134,7 @@ def _download_boxes(boxes, attempt=1, beat=None):
                 'lon': el['lon'],
                 'lat': el['lat'],
             })
-    return ways, stations, 0
+    return ways, stations, 0, False
 
 
 def _store(ways, stations):
@@ -150,8 +169,9 @@ def _store(ways, stations):
     return w_added, s_added
 
 
-def _rail_download_worker(user_id, token):
-    """Download subway data for one user. Exits when the job stops naming it."""
+def _rail_download_worker(token):
+    """Download subway data for the whole instance. Exits when the job stops
+    naming it."""
     from .models import RailDownloadJob
 
     processed = 0
@@ -160,25 +180,25 @@ def _rail_download_worker(user_id, token):
     failed = 0
 
     def _beat(_n=None):
-        RailDownloadJob.objects.filter(user_id=user_id, worker_token=token).update(
+        RailDownloadJob.objects.filter(pk=1, worker_token=token).update(
             updated_at=timezone.now())
 
     try:
-        boxes = _visited_boxes(user_id, beat=_beat)
+        boxes = _visited_boxes(beat=_beat)
         batches = [boxes[i:i + BOXES_PER_REQUEST]
                    for i in range(0, len(boxes), BOXES_PER_REQUEST)]
 
         try:
-            job = RailDownloadJob.objects.get(user_id=user_id)
+            job = RailDownloadJob.objects.get(pk=1)
         except RailDownloadJob.DoesNotExist:
             return
         if job.worker_token != token:
             return
         job.total = len(batches)
         job.save(update_fields=['total', 'updated_at'])
-        logger.info('Subway download for user %s: %d areas in %d batches',
-                    user_id, len(boxes), len(batches))
+        logger.info('Subway download: %d areas in %d batches', len(boxes), len(batches))
 
+        consecutive_unreachable = 0
         for batch in batches:
             try:
                 job.refresh_from_db()
@@ -187,28 +207,43 @@ def _rail_download_worker(user_id, token):
             except RailDownloadJob.DoesNotExist:
                 return
 
-            ways, stations, failed_boxes = _download_boxes(batch, beat=_beat)
+            ways, stations, failed_boxes, unreachable = _download_boxes(batch, beat=_beat)
             if ways or stations:
                 w, s = _store(ways, stations)
                 ways_added += w
                 stations_added += s
             failed += failed_boxes
             processed += 1
+            consecutive_unreachable = consecutive_unreachable + 1 if unreachable else 0
 
             written = RailDownloadJob.objects.filter(
-                user_id=user_id, worker_token=token, status='running'
+                pk=1, worker_token=token, status='running'
             ).update(processed=processed, ways=ways_added, stations=stations_added,
                      failed=failed, updated_at=timezone.now())
             if not written:
                 return
 
+            if consecutive_unreachable >= CONNECTIVITY_FAIL_LIMIT:
+                remaining = len(batches) - processed
+                if remaining:
+                    failed += remaining
+                    processed = len(batches)
+                    RailDownloadJob.objects.filter(
+                        pk=1, worker_token=token, status='running'
+                    ).update(processed=processed, failed=failed, updated_at=timezone.now())
+                logger.warning(
+                    'Subway download: Overpass unreachable for %d consecutive '
+                    'batches, giving up early (%d of %d batches skipped)',
+                    CONNECTIVITY_FAIL_LIMIT, remaining, len(batches))
+                return
+
             time.sleep(REQUEST_SLEEP_S)
     except Exception:
-        logger.exception('Subway download crashed for user %s', user_id)
+        logger.exception('Subway download crashed')
     finally:
         try:
             RailDownloadJob.objects.filter(
-                user_id=user_id, worker_token=token, status='running'
+                pk=1, worker_token=token, status='running'
             ).update(processed=processed, ways=ways_added, stations=stations_added,
                      failed=failed, status='completed', updated_at=timezone.now())
         except Exception:
@@ -219,40 +254,41 @@ def _rail_download_worker(user_id, token):
             cache.delete(SUBWAY_AVAILABLE_CACHE_KEY)
         except Exception:
             pass
-        _running_threads.pop(user_id, None)
+        global _running_thread
+        _running_thread = None
         close_old_connections()
-        logger.info('Subway download done for user %s: %s batches, %s ways, %s '
+        logger.info('Subway download done: %s batches, %s ways, %s '
                     'stations, %s areas failed',
-                    user_id, processed, ways_added, stations_added, failed)
+                    processed, ways_added, stations_added, failed)
 
 
-def _is_thread_alive(user_id):
-    t = _running_threads.get(user_id)
-    return t is not None and t.is_alive()
+def _is_thread_alive():
+    return _running_thread is not None and _running_thread.is_alive()
 
 
-def _start_thread(user_id, token):
-    t = threading.Thread(target=_rail_download_worker, args=(user_id, token), daemon=True)
-    _running_threads[user_id] = t
+def _start_thread(token):
+    global _running_thread
+    t = threading.Thread(target=_rail_download_worker, args=(token,), daemon=True)
+    _running_thread = t
     t.start()
 
 
-def _claim(user_id):
+def _claim():
     from .models import RailDownloadJob
     token = secrets.token_hex(8)
-    RailDownloadJob.objects.filter(user_id=user_id).update(
+    RailDownloadJob.objects.filter(pk=1).update(
         worker_token=token, updated_at=timezone.now())
     return token
 
 
-def start_subway_download(user_id):
+def start_subway_download():
     from .models import RailDownloadJob
 
     job, created = RailDownloadJob.objects.get_or_create(
-        user_id=user_id, defaults={'status': 'running', 'total': 0},
+        pk=1, defaults={'status': 'running', 'total': 0},
     )
     if not created:
-        if job.status == 'running' and _is_thread_alive(user_id):
+        if job.status == 'running' and _is_thread_alive():
             return job
         job.status = 'running'
         job.total = 0
@@ -262,33 +298,33 @@ def start_subway_download(user_id):
         job.failed = 0
         job.save(update_fields=['status', 'total', 'processed', 'ways', 'stations',
                                 'failed', 'updated_at'])
-    _start_thread(user_id, _claim(user_id))
+    _start_thread(_claim())
     return job
 
 
-def stop_subway_download(user_id):
+def stop_subway_download():
     from .models import RailDownloadJob
     stopped = RailDownloadJob.objects.filter(
-        user_id=user_id, status='running'
+        pk=1, status='running'
     ).update(status='stopped', worker_token='', updated_at=timezone.now())
     return bool(stopped)
 
 
-def get_subway_download_status(user_id):
+def get_subway_download_status():
     from .models import RailDownloadJob, RailSegment, RailStation
 
     total_ways = RailSegment.objects.count()
     total_stations = RailStation.objects.count()
     try:
-        job = RailDownloadJob.objects.get(user_id=user_id)
+        job = RailDownloadJob.objects.get(pk=1)
     except RailDownloadJob.DoesNotExist:
         return {'status': 'idle', 'phase': '', 'processed': 0, 'total': 0,
                 'ways': 0, 'stations': 0, 'failed': 0,
                 'total_ways': total_ways, 'total_stations': total_stations}
 
-    if job.status == 'running' and not _is_thread_alive(user_id):
+    if job.status == 'running' and not _is_thread_alive():
         if (timezone.now() - job.updated_at).total_seconds() > STALE_AFTER_S:
-            _start_thread(user_id, _claim(user_id))
+            _start_thread(_claim())
 
     return {
         'status': job.status,

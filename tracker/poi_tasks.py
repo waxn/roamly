@@ -1,28 +1,68 @@
+"""Download named OpenStreetMap POIs into the POI table (background thread).
+
+Mirrors road_download_tasks.py — same daemon thread, same Job-row + worker-token
+mechanics, same Overpass politeness — but a different area-selection strategy:
+POIs are fetched from a 15km disc around every distinct city centroid anyone on
+the instance has been to, rather than the road downloader's tighter ~2km
+travelled-corridor cells. A city-level radius makes sense here in a way it
+wouldn't for roads: POI is a much smaller table (bare name/point/category, no
+geometry), and "everywhere reachable from downtown" is a more useful set of
+named places than only the streets actually driven.
+
+**Admin-only, instance-wide singleton** (`POIDownloadJob`, pk=1) — POI has no
+user FK and is shared by everyone on the instance, so both the job and the
+city list it downloads for now cover every user's location history, not just
+one user's own.
+"""
+
 import json
-import time
-import threading
 import logging
+import secrets
+import threading
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
+from django.conf import settings as django_settings
 from django.db.models import Avg, Count
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
-_running_threads = {}
+# Single background thread for the whole instance — there is only ever one
+# POIDownloadJob row (pk=1) to run, unlike the old per-user dict.
+_running_thread = None
 
-OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
-OVERPASS_HEADERS = {'User-Agent': 'Roamly/0.6.1 (self-hosted location tracker)'}
+# Same env-configurable endpoint as road/subway download — see
+# road_download_tasks.OVERPASS_URL for why this needs to be switchable.
+OVERPASS_URL = django_settings.OVERPASS_URL
+OVERPASS_HEADERS = {'User-Agent': 'Roamly (self-hosted location tracker)'}
 SEARCH_RADIUS = 15000  # 15km around each city center
 POI_TAGS = [
     'shop', 'amenity', 'aeroway', 'tourism', 'leisure',
     'historic', 'office', 'craft', 'healthcare', 'sport',
     'military', 'natural', 'man_made', 'railway', 'club',
 ]
+MAX_ATTEMPTS = 2
+RETRY_BACKOFF_S = 4
+REQUEST_SLEEP_S = 2       # be a good Overpass citizen between cities
+STALE_AFTER_S = 240
+# Consecutive whole-city "never reached Overpass" results before the run gives
+# up early — same reasoning as road_download_tasks.CONNECTIVITY_FAIL_LIMIT,
+# though there's no bisection here to amplify: a dead connection would still
+# otherwise grind through every remaining city at up to 35s apiece for nothing.
+CONNECTIVITY_FAIL_LIMIT = 2
 
 
-def _download_city_pois(lat, lng, radius=SEARCH_RADIUS):
-    """Download named POIs near a point from Overpass. Returns list of dicts."""
+def _download_city_pois(lat, lng, radius=SEARCH_RADIUS, attempt=1):
+    """Download named POIs near a point from Overpass.
+
+    Returns (poi_dicts, unreachable). `unreachable=True` means the request
+    itself failed (DNS/connection/timeout) as opposed to succeeding with
+    genuinely zero results — the two look identical from a bare empty list,
+    but only the first is grounds for the caller's circuit breaker to trip.
+    """
     tag_lines = []
     for tag in POI_TAGS:
         tag_lines.append(f'  nwr["name"]["{tag}"](around:{radius},{lat},{lng});')
@@ -40,62 +80,80 @@ def _download_city_pois(lat, lng, radius=SEARCH_RADIUS):
         req = urllib.request.Request(OVERPASS_URL, body, OVERPASS_HEADERS)
         with urllib.request.urlopen(req, timeout=35) as resp:
             result = json.loads(resp.read().decode())
-
-        if result.get('remark'):
-            logger.warning(f"Overpass remark for ({lat},{lng}): {result['remark']}")
-            return []
-
-        pois = []
-        for el in result.get('elements', []):
-            el_lat = el.get('lat') or (el.get('center') or {}).get('lat')
-            el_lon = el.get('lon') or (el.get('center') or {}).get('lon')
-            if not el_lat or not el_lon:
-                continue
-            tags = el.get('tags', {})
-            name = tags.get('name', tags.get('brand', ''))
-            if not name:
-                continue
-
-            # Determine category from tags
-            category = ''
-            for t in POI_TAGS:
-                if t in tags:
-                    category = t
-                    break
-            if not category and 'brand' in tags:
-                category = 'brand'
-
-            addr_parts = []
-            for k in ('addr:housenumber', 'addr:street', 'addr:city', 'addr:state'):
-                if tags.get(k):
-                    addr_parts.append(tags[k])
-            address = ', '.join(addr_parts)
-
-            pois.append({
-                'name': name,
-                'latitude': round(el_lat, 6),
-                'longitude': round(el_lon, 6),
-                'category': category,
-                'address': address,
-            })
-        return pois
-    except Exception as e:
+    except urllib.error.HTTPError as e:
+        # Reached Overpass; it answered with an error status. One retry with
+        # backoff — a smaller ask isn't possible here (one city is already
+        # one query), so there's nothing further to shrink.
+        if attempt < MAX_ATTEMPTS:
+            time.sleep(RETRY_BACKOFF_S * attempt)
+            return _download_city_pois(lat, lng, radius, attempt + 1)
         logger.warning(f"Overpass POI download failed for ({lat},{lng}): {e}")
-        return []
+        return [], False
+    except Exception as e:
+        # Never reached Overpass at all.
+        if attempt < MAX_ATTEMPTS:
+            time.sleep(RETRY_BACKOFF_S * attempt)
+            return _download_city_pois(lat, lng, radius, attempt + 1)
+        logger.warning(f"Overpass unreachable for POI download near ({lat},{lng}): {e}")
+        return [], True
+
+    if result.get('remark'):
+        logger.warning(f"Overpass remark for ({lat},{lng}): {result['remark']}")
+        return [], False
+
+    pois = []
+    for el in result.get('elements', []):
+        el_lat = el.get('lat') or (el.get('center') or {}).get('lat')
+        el_lon = el.get('lon') or (el.get('center') or {}).get('lon')
+        if not el_lat or not el_lon:
+            continue
+        tags = el.get('tags', {})
+        name = tags.get('name', tags.get('brand', ''))
+        if not name:
+            continue
+
+        # Determine category from tags
+        category = ''
+        for t in POI_TAGS:
+            if t in tags:
+                category = t
+                break
+        if not category and 'brand' in tags:
+            category = 'brand'
+
+        addr_parts = []
+        for k in ('addr:housenumber', 'addr:street', 'addr:city', 'addr:state'):
+            if tags.get(k):
+                addr_parts.append(tags[k])
+        address = ', '.join(addr_parts)
+
+        pois.append({
+            'name': name,
+            'latitude': round(el_lat, 6),
+            'longitude': round(el_lon, 6),
+            'category': category,
+            'address': address,
+        })
+    return pois, False
 
 
-def _poi_download_worker(user_id):
-    """Worker that downloads POIs for all cities a user has visited."""
+def _poi_download_worker(token):
+    """Worker that downloads POIs for every distinct city anyone on the
+    instance has visited. Exits the moment the job stops naming it."""
     from .models import Location, POI, POIDownloadJob
 
     processed = 0
     pois_added = 0
+    failed = 0
+
+    def _beat():
+        POIDownloadJob.objects.filter(pk=1, worker_token=token).update(
+            updated_at=timezone.now())
 
     try:
-        # Get distinct city centroids
+        # Distinct city centroids across every device on every user's account.
         cities = list(
-            Location.objects.filter(device__user_id=user_id)
-            .exclude(city='')
+            Location.objects.exclude(city='')
             .values('city', 'state')
             .annotate(
                 avg_lat=Avg('latitude'),
@@ -108,142 +166,156 @@ def _poi_download_worker(user_id):
         total = len(cities)
 
         try:
-            job = POIDownloadJob.objects.get(user_id=user_id)
-            job.total = total
-            job.save(update_fields=['total'])
+            job = POIDownloadJob.objects.get(pk=1)
         except POIDownloadJob.DoesNotExist:
             return
+        if job.worker_token != token:
+            return
+        job.total = total
+        job.save(update_fields=['total', 'updated_at'])
+        logger.info(f"POI download: {total} cities")
 
+        consecutive_unreachable = 0
         for city in cities:
-            # Check if we should stop
             try:
                 job.refresh_from_db()
-                if job.status != 'running':
-                    break
+                if job.status != 'running' or job.worker_token != token:
+                    return
             except POIDownloadJob.DoesNotExist:
-                break
+                return
 
-            pois = _download_city_pois(city['avg_lat'], city['avg_lng'])
+            _beat()
+            pois, unreachable = _download_city_pois(city['avg_lat'], city['avg_lng'])
+            consecutive_unreachable = consecutive_unreachable + 1 if unreachable else 0
+            if unreachable:
+                failed += 1
 
-            # Bulk insert, ignoring duplicates
-            poi_objects = []
-            for p in pois:
-                poi_objects.append(POI(
+            poi_objects = [
+                POI(
                     name=p['name'][:300],
                     latitude=p['latitude'],
                     longitude=p['longitude'],
                     category=p['category'][:100],
                     address=p['address'][:500],
-                ))
-
-            if poi_objects:
-                created = POI.objects.bulk_create(
-                    poi_objects, ignore_conflicts=True
                 )
+                for p in pois
+            ]
+            if poi_objects:
+                created = POI.objects.bulk_create(poi_objects, ignore_conflicts=True)
                 pois_added += len(created)
 
             processed += 1
 
-            # Save progress
-            try:
-                job.refresh_from_db()
-                job.processed = processed
-                job.pois_added = pois_added
-                job.save(update_fields=['processed', 'pois_added', 'updated_at'])
-            except POIDownloadJob.DoesNotExist:
-                break
+            written = POIDownloadJob.objects.filter(
+                pk=1, worker_token=token, status='running'
+            ).update(processed=processed, pois_added=pois_added, failed=failed,
+                     updated_at=timezone.now())
+            if not written:
+                return
 
-            # Rate limit: wait between city downloads
-            time.sleep(2)
+            if consecutive_unreachable >= CONNECTIVITY_FAIL_LIMIT:
+                remaining = total - processed
+                if remaining:
+                    failed += remaining
+                    processed = total
+                    POIDownloadJob.objects.filter(
+                        pk=1, worker_token=token, status='running'
+                    ).update(processed=processed, failed=failed, updated_at=timezone.now())
+                logger.warning(
+                    'POI download: Overpass unreachable for %d consecutive '
+                    'cities, giving up early (%d of %d cities skipped)',
+                    CONNECTIVITY_FAIL_LIMIT, remaining, total)
+                return
 
+            # Rate limit: wait between city downloads.
+            time.sleep(REQUEST_SLEEP_S)
+
+    except Exception:
+        logger.exception('POI download crashed')
     finally:
         try:
-            job = POIDownloadJob.objects.get(user_id=user_id)
-            job.processed = processed
-            job.pois_added = pois_added
-            if job.status == 'running':
-                job.status = 'completed'
-            job.save(update_fields=['processed', 'pois_added', 'status', 'updated_at'])
-        except POIDownloadJob.DoesNotExist:
+            POIDownloadJob.objects.filter(
+                pk=1, worker_token=token, status='running'
+            ).update(processed=processed, pois_added=pois_added, failed=failed,
+                     status='completed', updated_at=timezone.now())
+        except Exception:
             pass
+        global _running_thread
+        _running_thread = None
+        logger.info(f"POI download done: {processed} cities, {pois_added} POIs added, {failed} failed")
 
-        _running_threads.pop(user_id, None)
-        logger.info(f"POI download done for user {user_id}: {processed} cities, {pois_added} POIs added")
+
+def _is_thread_alive():
+    return _running_thread is not None and _running_thread.is_alive()
 
 
-def start_poi_download(user_id):
-    """Start POI download for a user. Returns the job."""
+def _start_thread(token):
+    global _running_thread
+    t = threading.Thread(target=_poi_download_worker, args=(token,), daemon=True)
+    _running_thread = t
+    t.start()
+
+
+def _claim():
+    from .models import POIDownloadJob
+    token = secrets.token_hex(8)
+    POIDownloadJob.objects.filter(pk=1).update(
+        worker_token=token, updated_at=timezone.now())
+    return token
+
+
+def start_poi_download():
+    """Start the instance-wide POI download. Returns the job."""
     from .models import POIDownloadJob
 
-    # Clean up finished jobs
-    POIDownloadJob.objects.filter(
-        user_id=user_id, status__in=['completed', 'stopped']
-    ).delete()
-
     job, created = POIDownloadJob.objects.get_or_create(
-        user_id=user_id,
-        defaults={'status': 'running', 'total': 0},
+        pk=1, defaults={'status': 'running', 'total': 0},
     )
-
     if not created:
-        if job.status == 'running' and _is_thread_alive(user_id):
+        if job.status == 'running' and _is_thread_alive():
             return job
         job.status = 'running'
         job.total = 0
         job.processed = 0
         job.pois_added = 0
-        job.save()
-
-    thread = threading.Thread(
-        target=_poi_download_worker, args=(user_id,), daemon=True
-    )
-    _running_threads[user_id] = thread
-    thread.start()
+        job.failed = 0
+        job.save(update_fields=['status', 'total', 'processed', 'pois_added', 'failed', 'updated_at'])
+    _start_thread(_claim())
     return job
 
 
-def _is_thread_alive(user_id):
-    thread = _running_threads.get(user_id)
-    return thread is not None and thread.is_alive()
-
-
-def get_poi_status(user_id):
+def get_poi_status():
     """Get POI download status."""
     from .models import POIDownloadJob, POI
 
     try:
-        job = POIDownloadJob.objects.get(user_id=user_id)
+        job = POIDownloadJob.objects.get(pk=1)
     except POIDownloadJob.DoesNotExist:
-        return {
-            'status': 'idle',
-            'total_pois': POI.objects.count(),
-        }
+        return {'status': 'idle', 'processed': 0, 'total': 0, 'pois_added': 0,
+                'failed': 0, 'total_pois': POI.objects.count()}
 
-    # Only mark stale if no update for 60s (handles multi-worker gunicorn)
-    if job.status == 'running':
-        from django.utils import timezone
-        age = (timezone.now() - job.updated_at).total_seconds()
-        if age > 60:
-            job.status = 'completed'
-            job.save(update_fields=['status'])
+    # Resurrect a run whose worker really did die (a process recycle) — same
+    # STALE_AFTER_S grace and _claim()-retires-any-straggler reasoning as
+    # road/subway download.
+    if job.status == 'running' and not _is_thread_alive():
+        if (timezone.now() - job.updated_at).total_seconds() > STALE_AFTER_S:
+            _start_thread(_claim())
 
     return {
         'status': job.status,
         'processed': job.processed,
         'total': job.total,
         'pois_added': job.pois_added,
+        'failed': job.failed,
         'total_pois': POI.objects.count(),
     }
 
 
-def stop_poi_download(user_id):
-    """Signal the POI download to stop."""
+def stop_poi_download():
+    """Stop the run. Clearing the token retires the worker as well as the row —
+    same reasoning as road/subway download's stop function."""
     from .models import POIDownloadJob
-
-    try:
-        job = POIDownloadJob.objects.get(user_id=user_id, status='running')
-        job.status = 'stopped'
-        job.save(update_fields=['status'])
-        return True
-    except POIDownloadJob.DoesNotExist:
-        return False
+    stopped = POIDownloadJob.objects.filter(
+        pk=1, status='running'
+    ).update(status='stopped', worker_token='', updated_at=timezone.now())
+    return bool(stopped)

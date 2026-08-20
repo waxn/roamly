@@ -2,13 +2,20 @@
 
 Mirrors poi_tasks.py — same daemon thread, same Job row for progress, same
 Overpass politeness — but differs in one important way: **the download area is
-derived from where the user actually has fixes**, not from a blanket radius
-around each city centroid.
+derived from where fixes actually exist across every device on the instance**,
+not from a blanket radius around each city centroid.
 
 That matters because RoadSegment is the largest table in the app. A 15km disc
 around a city centre is ~700 km², and a driver has been on maybe 5% of it. Taking
-the union of the ~2km grid cells the user has points in, merged into runs, covers
+the union of the ~2km grid cells anyone has points in, merged into runs, covers
 the same roads for roughly 5-10x less area and storage.
+
+**Admin-only, instance-wide singleton** (`RoadDownloadJob`, pk=1) — RoadSegment
+has no user FK and is shared by everyone on the instance, so the job that
+populates it, and the area it covers, are no longer scoped to a single user's
+own travel history. Was per-user (one row per user, area = that user's own
+devices) before this; see CLAUDE.md's "Downloads (admin panel)" section for
+why and what changed.
 
 Other size controls:
   * only drivable highway classes — no service roads (driveways and parking
@@ -46,7 +53,9 @@ from .transport_tasks import _haversine_m
 
 logger = logging.getLogger(__name__)
 
-_running_threads = {}
+# Single background thread for the whole instance — there is only ever one
+# RoadDownloadJob row (pk=1) to run, unlike the old per-user dict.
+_running_thread = None
 
 # Env-configurable (OVERPASS_URL in .env / docker-compose) — see
 # roamly/settings.py. The official instance rate-limits/bans by IP; a
@@ -120,8 +129,9 @@ def _line_cells(gy0, gx0, gy1, gx1):
     return out
 
 
-def _visited_boxes(user_id, beat=None):
-    """Bounding boxes covering the ~2km cells the user has travelled through.
+def _visited_boxes(beat=None):
+    """Bounding boxes covering the ~2km cells anyone on the instance has
+    travelled through — every device on every user's account, not just one.
 
     Includes the cells *between* consecutive fixes, not only the cells containing
     them. This is essential rather than a refinement: a tracking gap is by
@@ -143,9 +153,9 @@ def _visited_boxes(user_id, beat=None):
     # (which is ('device', '-timestamp')), so Postgres full-sorts every row
     # before yielding the first one — on a large history that is the slowest
     # thing the whole job does, and it happens before any progress is reported.
-    # Filtering per device lets the index serve each scan directly.
+    # Iterating per device lets the index serve each scan directly.
     scanned = 0
-    for dev_id in Device.objects.filter(user_id=user_id).values_list('id', flat=True):
+    for dev_id in Device.objects.all().values_list('id', flat=True):
         prev = None
         qs = (Location.objects.filter(device_id=dev_id)
               .order_by('timestamp')
@@ -326,11 +336,12 @@ def _store_ways(ways):
     return added
 
 
-def _road_download_worker(user_id, token):
-    """Download roads for one user. Exits the moment the job stops naming it.
+def _road_download_worker(token):
+    """Download roads for the whole instance. Exits the moment the job stops
+    naming it.
 
     `token` is the cross-process ownership check. Without it a status poll served
-    by another gunicorn worker sees an empty `_running_threads`, assumes the run
+    by another gunicorn worker sees no thread in its own process, assumes the run
     died and starts a second one; each keeps its own progress counter and
     overwrites the other, so the reported percentage jumps around and can go
     backwards. Whoever the row names is the only worker allowed to continue.
@@ -346,26 +357,25 @@ def _road_download_worker(user_id, token):
         # Touch the row so a slow-but-healthy phase is never mistaken for a dead
         # worker. Needed during the history scan too, which runs before `total`
         # is known and used to leave the row untouched for its whole duration.
-        RoadDownloadJob.objects.filter(user_id=user_id, worker_token=token).update(
+        RoadDownloadJob.objects.filter(pk=1, worker_token=token).update(
             updated_at=timezone.now())
 
     try:
         # total stays 0 while this runs; the status endpoint reports that as the
         # 'scanning' phase so the UI can say what is happening.
-        boxes = _visited_boxes(user_id, beat=_beat)
+        boxes = _visited_boxes(beat=_beat)
         batches = [boxes[i:i + BOXES_PER_REQUEST]
                    for i in range(0, len(boxes), BOXES_PER_REQUEST)]
 
         try:
-            job = RoadDownloadJob.objects.get(user_id=user_id)
+            job = RoadDownloadJob.objects.get(pk=1)
         except RoadDownloadJob.DoesNotExist:
             return
         if job.worker_token != token:
             return
         job.total = len(batches)
         job.save(update_fields=['total', 'updated_at'])
-        logger.info('Road download for user %s: %d areas in %d batches',
-                    user_id, len(boxes), len(batches))
+        logger.info('Road download: %d areas in %d batches', len(boxes), len(batches))
 
         consecutive_unreachable = 0
         for batch in batches:
@@ -386,7 +396,7 @@ def _road_download_worker(user_id, token):
             # Conditional on the token, so a superseded worker can never write
             # its own counter over the live one.
             written = RoadDownloadJob.objects.filter(
-                user_id=user_id, worker_token=token, status='running'
+                pk=1, worker_token=token, status='running'
             ).update(processed=processed, ways=ways_added, failed=failed,
                      updated_at=timezone.now())
             if not written:
@@ -403,22 +413,22 @@ def _road_download_worker(user_id, token):
                     failed += remaining
                     processed = len(batches)
                     RoadDownloadJob.objects.filter(
-                        user_id=user_id, worker_token=token, status='running'
+                        pk=1, worker_token=token, status='running'
                     ).update(processed=processed, failed=failed, updated_at=timezone.now())
                 logger.warning(
-                    'Road download for user %s: Overpass unreachable for %d consecutive '
+                    'Road download: Overpass unreachable for %d consecutive '
                     'batches, giving up early (%d of %d batches skipped)',
-                    user_id, CONNECTIVITY_FAIL_LIMIT, remaining, len(batches))
+                    CONNECTIVITY_FAIL_LIMIT, remaining, len(batches))
                 return
 
             time.sleep(REQUEST_SLEEP_S)
     except Exception:
-        logger.exception('Road download crashed for user %s', user_id)
+        logger.exception('Road download crashed')
     finally:
         # Only the owner finalises; a superseded worker must leave the row alone.
         try:
             RoadDownloadJob.objects.filter(
-                user_id=user_id, worker_token=token, status='running'
+                pk=1, worker_token=token, status='running'
             ).update(processed=processed, ways=ways_added, failed=failed,
                      status='completed', updated_at=timezone.now())
         except Exception:
@@ -431,24 +441,25 @@ def _road_download_worker(user_id, token):
             cache.delete(ROADS_AVAILABLE_CACHE_KEY)
         except Exception:
             pass
-        _running_threads.pop(user_id, None)
+        global _running_thread
+        _running_thread = None
         close_old_connections()
-        logger.info('Road download done for user %s: %s batches, %s ways added, '
-                    '%s areas failed', user_id, processed, ways_added, failed)
+        logger.info('Road download done: %s batches, %s ways added, '
+                    '%s areas failed', processed, ways_added, failed)
 
 
-def _is_thread_alive(user_id):
-    t = _running_threads.get(user_id)
-    return t is not None and t.is_alive()
+def _is_thread_alive():
+    return _running_thread is not None and _running_thread.is_alive()
 
 
-def _start_thread(user_id, token):
-    t = threading.Thread(target=_road_download_worker, args=(user_id, token), daemon=True)
-    _running_threads[user_id] = t
+def _start_thread(token):
+    global _running_thread
+    t = threading.Thread(target=_road_download_worker, args=(token,), daemon=True)
+    _running_thread = t
     t.start()
 
 
-def _claim(user_id):
+def _claim():
     """Take ownership of the run and return the new token.
 
     Writing a fresh token is also how any worker still running from a previous
@@ -456,19 +467,19 @@ def _claim(user_id):
     """
     from .models import RoadDownloadJob
     token = secrets.token_hex(8)
-    RoadDownloadJob.objects.filter(user_id=user_id).update(
+    RoadDownloadJob.objects.filter(pk=1).update(
         worker_token=token, updated_at=timezone.now())
     return token
 
 
-def start_road_download(user_id):
+def start_road_download():
     from .models import RoadDownloadJob
 
     job, created = RoadDownloadJob.objects.get_or_create(
-        user_id=user_id, defaults={'status': 'running', 'total': 0},
+        pk=1, defaults={'status': 'running', 'total': 0},
     )
     if not created:
-        if job.status == 'running' and _is_thread_alive(user_id):
+        if job.status == 'running' and _is_thread_alive():
             return job
         job.status = 'running'
         job.total = 0
@@ -476,11 +487,11 @@ def start_road_download(user_id):
         job.ways = 0
         job.failed = 0
         job.save(update_fields=['status', 'total', 'processed', 'ways', 'failed', 'updated_at'])
-    _start_thread(user_id, _claim(user_id))
+    _start_thread(_claim())
     return job
 
 
-def stop_road_download(user_id):
+def stop_road_download():
     """Stop the run. Clearing the token retires the worker as well as the row.
 
     Status alone was not enough: a worker sitting in a retry backoff only re-reads
@@ -489,17 +500,17 @@ def stop_road_download(user_id):
     """
     from .models import RoadDownloadJob
     stopped = RoadDownloadJob.objects.filter(
-        user_id=user_id, status='running'
+        pk=1, status='running'
     ).update(status='stopped', worker_token='', updated_at=timezone.now())
     return bool(stopped)
 
 
-def get_road_download_status(user_id):
+def get_road_download_status():
     from .models import RoadDownloadJob, RoadSegment
 
     total_ways = RoadSegment.objects.count()
     try:
-        job = RoadDownloadJob.objects.get(user_id=user_id)
+        job = RoadDownloadJob.objects.get(pk=1)
     except RoadDownloadJob.DoesNotExist:
         return {'status': 'idle', 'phase': '', 'processed': 0, 'total': 0,
                 'ways': 0, 'failed': 0, 'total_ways': total_ways}
@@ -507,9 +518,9 @@ def get_road_download_status(user_id):
     # Resurrect a run whose worker really did die (a process recycle). The grace
     # is long enough to clear the slowest healthy batch, and claiming a new token
     # retires any straggler rather than racing it.
-    if job.status == 'running' and not _is_thread_alive(user_id):
+    if job.status == 'running' and not _is_thread_alive():
         if (timezone.now() - job.updated_at).total_seconds() > STALE_AFTER_S:
-            _start_thread(user_id, _claim(user_id))
+            _start_thread(_claim())
 
     return {
         'status': job.status,
