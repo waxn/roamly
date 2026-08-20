@@ -347,8 +347,13 @@
                 server with no external calls. Only drivable roads are stored, and only for
                 the ~2km cells someone has points in. <strong>This is the largest table in the
                 app</strong> — expect tens of MB for one region, more if people road-trip.
-                Re-run after someone travels somewhere new.
+                Re-run after someone travels somewhere new, or leave auto-download on below.
             </p>
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8125rem;cursor:pointer;margin-bottom:0.75rem;">
+                <input type="checkbox" id="dl-roads-auto" {% if auto_download_roads %}checked{% endif %}
+                       onchange="dlToggleAuto('roads', this.checked)">
+                Auto-download new regions (checks every few hours; only asks Overpass about areas not already covered)
+            </label>
             <div class="settings-actions">
                 <button class="btn btn-primary btn-sm" id="dl-roads-btn" onclick="dlStartRoads()">Download Roads</button>
                 <button class="btn btn-outline btn-sm" id="dl-roads-stop-btn" onclick="dlStopRoads()" style="display:none;">Stop</button>
@@ -373,8 +378,13 @@
                 instance has been, so <strong>Diagnostics → Subway Gaps</strong> can find
                 underground rides GPS never recorded and fill them along the real line.
                 Subway data is far smaller than road data. Re-run after someone rides the
-                metro somewhere new.
+                metro somewhere new, or leave auto-download on below.
             </p>
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8125rem;cursor:pointer;margin-bottom:0.75rem;">
+                <input type="checkbox" id="dl-subway-auto" {% if auto_download_subway %}checked{% endif %}
+                       onchange="dlToggleAuto('subway', this.checked)">
+                Auto-download new regions (checks every few hours; only asks Overpass about areas not already covered)
+            </label>
             <div class="settings-actions">
                 <button class="btn btn-primary btn-sm" id="dl-subway-btn" onclick="dlStartSubway()">Download Subway</button>
                 <button class="btn btn-outline btn-sm" id="dl-subway-stop-btn" onclick="dlStopSubway()" style="display:none;">Stop</button>
@@ -398,8 +408,14 @@
                 Fetch named OpenStreetMap places (shops, cafés, parks, landmarks…) within
                 15km of every city anyone on this instance has visited, so points can show a
                 <strong>Place</strong> name (via each user's own Match POIs job in Settings)
-                and Search can find things by name. Re-run after someone visits a new city.
+                and Search can find things by name. Re-run after someone visits a new city,
+                or leave auto-download on below.
             </p>
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8125rem;cursor:pointer;margin-bottom:0.75rem;">
+                <input type="checkbox" id="dl-poi-auto" {% if auto_download_pois %}checked{% endif %}
+                       onchange="dlToggleAuto('poi', this.checked)">
+                Auto-download new regions (checks every few hours; only asks Overpass about cities not already covered)
+            </label>
             <div class="settings-actions">
                 <button class="btn btn-primary btn-sm" id="dl-poi-btn" onclick="dlStartPoi()">Download POIs</button>
                 <button class="btn btn-outline btn-sm" id="dl-poi-stop-btn" onclick="dlStopPoi()" style="display:none;">Stop</button>
@@ -1239,6 +1255,21 @@ function dlDeletePoi() { dlDelete('poi'); }
 // Called once, the first time the Downloads tab is opened — resumes the UI
 // for any of the three jobs that's already running (e.g. started by another
 // admin, or before a page reload).
+function dlToggleAuto(kind, checked) {
+    // Server takes all three flags together (SiteConfig has no per-field PATCH
+    // endpoint here), so always send the current state of all three checkboxes
+    // rather than just the one that changed.
+    fetch('/api/site/auto-download/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+        body: JSON.stringify({
+            auto_download_roads: document.getElementById('dl-roads-auto').checked,
+            auto_download_subway: document.getElementById('dl-subway-auto').checked,
+            auto_download_pois: document.getElementById('dl-poi-auto').checked,
+        }),
+    }).catch(() => {});
+}
+
 function loadDownloads() {
     ['roads', 'subway', 'poi'].forEach(kind => {
         fetch(DL_JOBS[kind].statusUrl)

@@ -49,6 +49,7 @@ from .models import (
     DismissedSuggestion, PlannedStop, KnownDevice, TOTPBackupCode,
     InferredLocation, EditBatch, TrashedLocation, RoadSegment, ROADS_AVAILABLE_CACHE_KEY,
     RailSegment, RailStation, DismissedSubwayGap, SUBWAY_AVAILABLE_CACHE_KEY,
+    DownloadedRegion,
 )
 from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email, send_contact_email
 from .image_utils import resize_image, resize_photo
@@ -1148,6 +1149,34 @@ def site_turnstile_api(request):
     ])
     cache.delete(TURNSTILE_ENABLED_CACHE_KEY)
     cache.delete(TURNSTILE_SITE_KEY_CACHE_KEY)
+    return JsonResponse({'ok': True})
+
+
+@login_required
+@require_http_methods(["POST"])
+def site_auto_download_api(request):
+    """Toggle auto-download of new regions for road/subway/POI data.
+
+    Each flag defaults on (see SiteConfig.auto_download_roads/subway/pois) —
+    this just lets an admin turn one off, e.g. an instance whose Overpass
+    mirror is unreliable and would rather trigger downloads by hand.
+    See auto_download_tasks.py for the sweep that reads these.
+    """
+    err = _require_admin(request)
+    if err:
+        return err
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+
+    config = SiteConfig.load()
+    config.auto_download_roads = bool(data.get('auto_download_roads'))
+    config.auto_download_subway = bool(data.get('auto_download_subway'))
+    config.auto_download_pois = bool(data.get('auto_download_pois'))
+    config.save(update_fields=[
+        'auto_download_roads', 'auto_download_subway', 'auto_download_pois', 'updated_at',
+    ])
     return JsonResponse({'ok': True})
 
 
@@ -8369,6 +8398,10 @@ def poi_delete_api(request):
                 cur.execute(f'TRUNCATE TABLE {POI._meta.db_table}')
         else:
             POI.objects.all().delete()
+    # Coverage tracking must reset with the data it describes — otherwise a
+    # re-download (manual or the auto-download sweep) would see every city
+    # as "already covered" and silently do nothing.
+    DownloadedRegion.objects.filter(kind='poi').delete()
     return JsonResponse({'status': 'ok', 'deleted': deleted})
 
 
@@ -9211,6 +9244,9 @@ def admin_panel_view(request):
         'site_turnstile_enabled': site_config.turnstile_enabled,
         'site_turnstile_site_key': site_config.turnstile_site_key,
         'site_turnstile_secret_set': bool(site_config.turnstile_secret_key),
+        'auto_download_roads': site_config.auto_download_roads,
+        'auto_download_subway': site_config.auto_download_subway,
+        'auto_download_pois': site_config.auto_download_pois,
     })
 
 
@@ -10046,6 +10082,9 @@ def road_data_delete_api(request):
         else:
             RoadSegment.objects.all().delete()
 
+    # Coverage tracking must reset with the data it describes — see the same
+    # comment in poi_delete_api.
+    DownloadedRegion.objects.filter(kind='road').delete()
     # The local provider advertises itself on an EXISTS check that is cached.
     cache.delete(ROADS_AVAILABLE_CACHE_KEY)
     return JsonResponse({'status': 'ok', 'deleted': deleted})
@@ -10113,6 +10152,9 @@ def subway_data_delete_api(request):
         else:
             RailSegment.objects.all().delete()
             RailStation.objects.all().delete()
+    # Coverage tracking must reset with the data it describes — see the same
+    # comment in poi_delete_api.
+    DownloadedRegion.objects.filter(kind='subway').delete()
     cache.delete(SUBWAY_AVAILABLE_CACHE_KEY)
     return JsonResponse({'status': 'ok', 'deleted': ways, 'stations': stations})
 
