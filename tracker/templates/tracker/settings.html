@@ -643,6 +643,11 @@
         <div class="card settings-span-6">
             <div class="card-header">Background Jobs</div>
             <p class="settings-section-desc">Long-running tasks that process your location history. All run in the background — you can navigate away while they run.</p>
+            <p class="settings-section-desc" style="color:var(--text-muted);">
+                Road, subway and POI data are instance-wide (shared by every user), so
+                downloading them moved to
+                {% if IS_ADMIN %}<a href="{% url 'tracker:admin_panel' %}">Admin Panel → Downloads</a>.{% else %}the Admin Panel — ask an instance admin to run them.{% endif %}
+            </p>
 
             <div style="display:flex;flex-direction:column;gap:1.25rem;">
                 <!-- Geocoding -->
@@ -666,7 +671,7 @@
                 <!-- Match POIs to points -->
                 <div>
                     <div style="font-size:0.875rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">Match POIs to Points</div>
-                    <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;">Label every GPS point with the nearest named place (store, café, park, …) so it shows in the data table's <strong>Place</strong> column. Uses your downloaded POIs — run <strong>POI Download</strong> first if you haven't. Re-run any time to refresh after downloading more POIs.</div>
+                    <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;">Label every GPS point with the nearest named place (store, café, park, …) so it shows in the data table's <strong>Place</strong> column. Uses the instance's downloaded POIs (Admin Panel → Downloads — ask an instance admin if none exist yet). Re-run any time to refresh after more POIs are downloaded.</div>
                     <div class="settings-actions">
                         <button class="btn btn-primary btn-sm" id="poi-match-btn" onclick="startPoiMatch()">Match POIs</button>
                         <button class="btn btn-outline btn-sm" id="poi-match-stop-btn" onclick="stopPoiMatch()" style="display:none;">Stop</button>
@@ -694,46 +699,6 @@
                             <div id="transport-bar" style="height:100%;width:0%;background:var(--primary);border-radius:0;transition:width 0.4s ease;"></div>
                         </div>
                         <div id="transport-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
-                    </div>
-                </div>
-
-                <div style="border-top:1px solid var(--border);"></div>
-
-                <!-- Download road data -->
-                <div>
-                    <div style="font-size:0.875rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">Download Road Data</div>
-                    <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;">Fetch OpenStreetMap roads for the areas you've actually been, so snapping and the editor's road routing can run entirely on your own server with no external calls. Only drivable roads are stored, and only for the ~2km cells you have points in. <strong>This is the largest table in the app</strong> — expect tens of MB for one region, more if you road-trip. Re-run after travelling somewhere new.</div>
-                    <div class="settings-actions">
-                        <button class="btn btn-primary btn-sm" id="roads-btn" onclick="startRoads()">Download Roads</button>
-                        <button class="btn btn-outline btn-sm" id="roads-stop-btn" onclick="stopRoads()" style="display:none;">Stop</button>
-                        <button class="btn btn-outline btn-sm" id="roads-delete-btn" onclick="deleteRoadData()"
-                                style="color:var(--danger);border-color:var(--danger);">Delete Road Data</button>
-                    </div>
-                    <div id="roads-progress-wrap" style="margin-top:0.6rem;display:none;">
-                        <div style="background:var(--bg-input);border-radius:0;height:6px;overflow:hidden;margin-bottom:0.35rem;">
-                            <div id="roads-bar" style="height:100%;width:0%;background:var(--primary);border-radius:0;transition:width 0.4s ease;"></div>
-                        </div>
-                        <div id="roads-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
-                    </div>
-                </div>
-
-                <div style="border-top:1px solid var(--border);"></div>
-
-                <!-- Download subway data -->
-                <div>
-                    <div style="font-size:0.875rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">Download Subway Data</div>
-                    <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;">Fetch OpenStreetMap subway tracks and stations for the areas you've been, so <strong>Diagnostics → Subway Gaps</strong> can find underground rides GPS never recorded and fill them along the real line. Subway data is far smaller than road data. Re-run after riding the metro somewhere new.</div>
-                    <div class="settings-actions">
-                        <button class="btn btn-primary btn-sm" id="subway-btn" onclick="startSubway()">Download Subway</button>
-                        <button class="btn btn-outline btn-sm" id="subway-stop-btn" onclick="stopSubway()" style="display:none;">Stop</button>
-                        <button class="btn btn-outline btn-sm" id="subway-delete-btn" onclick="deleteSubwayData()"
-                                style="color:var(--danger);border-color:var(--danger);">Delete Subway Data</button>
-                    </div>
-                    <div id="subway-progress-wrap" style="margin-top:0.6rem;display:none;">
-                        <div style="background:var(--bg-input);border-radius:0;height:6px;overflow:hidden;margin-bottom:0.35rem;">
-                            <div id="subway-bar" style="height:100%;width:0%;background:var(--primary);border-radius:0;transition:width 0.4s ease;"></div>
-                        </div>
-                        <div id="subway-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
                     </div>
                 </div>
 
@@ -1729,348 +1694,6 @@ fetch('/api/transport/detect/status/')
     })
     .catch(() => {});
 
-// ── Road snapping ────────────────────────────────────────────────────────────
-// formatEta() reads the global geocodeStartTime, which is why the POI-match and
-// transport blocks swap that global around their calls. Not worth imitating —
-// these two jobs pass their start time in instead.
-function _etaFrom(processed, total, startTime) {
-    const remaining = total - processed;
-    if (remaining <= 0 || processed < 2 || !startTime) return '';
-    const elapsed = (Date.now() - startTime) / 1000;
-    if (elapsed < 3) return '';
-    const secs = Math.round(remaining * (elapsed / processed));
-    if (secs < 60) return `~${secs}s left`;
-    if (secs < 3600) return `~${Math.round(secs / 60)}m left`;
-    const h = Math.floor(secs / 3600);
-    const m = Math.round((secs % 3600) / 60);
-    return `~${h}h ${m}m left`;
-}
-
-// --- Road data download ---
-let roadsStartTime = null;
-
-function setRoadsUI(running) {
-    const btn = document.getElementById('roads-btn');
-    const stopBtn = document.getElementById('roads-stop-btn');
-    btn.disabled = running;
-    btn.style.opacity = running ? '0.5' : '';
-    stopBtn.disabled = false;
-    stopBtn.style.display = running ? 'inline-block' : 'none';
-}
-
-function updateRoadsUI(data, finished) {
-    const wrap = document.getElementById('roads-progress-wrap');
-    const bar = document.getElementById('roads-bar');
-    const statusEl = document.getElementById('roads-status');
-    wrap.style.display = 'block';
-
-    const processed = data.processed || 0;
-    const total = data.total || 0;
-    const pct = total > 0 ? Math.round(processed / total * 100) : 0;
-    bar.style.width = pct + '%';
-    const stored = (data.total_ways || 0).toLocaleString();
-
-    // The history sweep that decides which areas to fetch runs before there is
-    // any batch count. Say so, rather than showing a frozen 0/0.
-    if (!finished && data.phase === 'scanning') {
-        bar.style.width = '8%';
-        bar.style.background = '';
-        bar.classList.add('bar-flow');
-        statusEl.style.color = 'var(--text-muted)';
-        statusEl.textContent = 'scanning your location history to work out which areas to fetch…';
-        return;
-    }
-
-    if (finished) {
-        bar.classList.remove('bar-flow');
-        bar.style.background = data.status === 'completed' ? 'var(--success)' : 'var(--text-muted)';
-        if (data.status === 'completed' && data.total === 0) {
-            statusEl.textContent = 'no location points to cover yet.';
-        } else {
-            const label = data.status === 'completed' ? 'done' : 'stopped';
-            let msg = `${label} — ${(data.ways || 0).toLocaleString()} new roads, ${stored} stored in total`;
-            if (data.failed) {
-                // A failed area means no roads there at all, which looks exactly
-                // like snapping being broken. Say so plainly — and when every
-                // single area failed, that is Overpass being unreachable, not
-                // one bad corridor, so say that specifically rather than
-                // leaving a bare count to puzzle over.
-                if (data.failed >= data.total && data.total > 0) {
-                    msg = `${label} — could not reach Overpass for any area (${data.failed.toLocaleString()} failed). `
-                        + 'Check this server has outbound internet access, then re-run.';
-                } else {
-                    msg += ` · ${data.failed.toLocaleString()} area${data.failed === 1 ? '' : 's'} failed`;
-                    msg += ' — re-run to retry those';
-                }
-                statusEl.textContent = msg;
-                statusEl.style.color = 'var(--danger)';
-                return;
-            }
-            statusEl.style.color = 'var(--text-muted)';
-            statusEl.textContent = msg;
-        }
-    } else {
-        const eta = _etaFrom(processed, total, roadsStartTime);
-        bar.style.background = '';
-        bar.classList.add('bar-flow');
-        statusEl.style.color = 'var(--text-muted)';
-        statusEl.textContent = `area ${processed.toLocaleString()}/${total.toLocaleString()}`
-            + `${total > 0 ? ' (' + pct + '%)' : ''}, ${(data.ways || 0).toLocaleString()} new roads${eta ? ' — ' + eta : ''}`;
-    }
-}
-
-function startRoads() {
-    const statusEl = document.getElementById('roads-status');
-    document.getElementById('roads-progress-wrap').style.display = 'block';
-    statusEl.style.color = 'var(--text-muted)';
-    statusEl.textContent = 'working out which areas to fetch…';
-    const bar = document.getElementById('roads-bar');
-    bar.style.width = '0%';
-    bar.style.background = '';
-    bar.classList.add('bar-flow');
-    setRoadsUI(true);
-    roadsStartTime = Date.now();
-
-    fetch('/api/roads/download/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
-        .then(r => {
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            return r.json();
-        })
-        .then(() => pollRoadsStatus())
-        .catch(err => {
-            // Never leave the spinner sitting on a stale message — that is
-            // indistinguishable from the job hanging.
-            setRoadsUI(false);
-            statusEl.style.color = 'var(--danger)';
-            statusEl.textContent = 'could not start the download (' + err.message
-                + '). Check the server logs.';
-        });
-}
-
-function stopRoads() {
-    document.getElementById('roads-stop-btn').disabled = true;
-    document.getElementById('roads-status').innerHTML = '<span class="spinner"></span> stopping...';
-    fetch('/api/roads/download/stop/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } });
-}
-
-function pollRoadsStatus() {
-    setRoadsUI(true);
-    const statusEl = document.getElementById('roads-status');
-    const interval = setInterval(() => {
-        fetch('/api/roads/download/status/')
-        .then(r => {
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            return r.json();
-        })
-        .then(data => {
-            if (data.status === 'running') {
-                updateRoadsUI(data, false);
-            } else if (data.status === 'completed' || data.status === 'stopped') {
-                updateRoadsUI(data, true);
-                clearInterval(interval);
-                setRoadsUI(false);
-            } else {
-                // 'idle' while we believe a run is in flight means the job row
-                // never appeared — say so instead of freezing on the old text.
-                clearInterval(interval);
-                setRoadsUI(false);
-                statusEl.style.color = 'var(--danger)';
-                statusEl.textContent = 'the download did not start — no job was recorded. '
-                    + 'Check the server logs.';
-            }
-        })
-        .catch(err => {
-            clearInterval(interval);
-            setRoadsUI(false);
-            statusEl.style.color = 'var(--danger)';
-            statusEl.textContent = 'lost contact with the download (' + err.message + ').';
-        });
-    }, 2000);
-}
-
-async function deleteRoadData() {
-    const statusEl = document.getElementById('roads-status');
-    const btn = document.getElementById('roads-delete-btn');
-    // Instance-wide reference data with no user FK, same as POIs — say so, since
-    // on a shared instance this affects everyone.
-    if (!await roamlyConfirm('Delete all downloaded road data for this instance?\n\n'
-        + 'Snapping and the editor\'s road routing will fall back to Mapbox or OSRM '
-        + 'until you download it again. Points the editor already created are kept.', {danger:true})) return;
-
-    btn.disabled = true;
-    document.getElementById('roads-progress-wrap').style.display = 'block';
-    statusEl.innerHTML = '<span class="spinner"></span> deleting…';
-
-    fetch('/api/roads/delete/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
-        .then(r => r.json())
-        .then(d => {
-            document.getElementById('roads-bar').style.width = '0%';
-            statusEl.textContent = d.status === 'ok'
-                ? `deleted — ${(d.deleted || 0).toLocaleString()} roads removed.`
-                : 'delete failed.';
-        })
-        .catch(() => { statusEl.textContent = 'delete failed.'; })
-        .finally(() => { btn.disabled = false; });
-}
-
-// Resume the road-download UI if it is already running on page load
-fetch('/api/roads/download/status/')
-    .then(r => { if (r.ok) return r.json(); })
-    .then(data => {
-        if (data && data.status === 'running') {
-            roadsStartTime = Date.now();
-            updateRoadsUI(data, false);
-            pollRoadsStatus();
-        }
-    })
-    .catch(() => {});
-
-// --- Subway data download (mirrors the road download above) ---
-let subwayStartTime = null;
-
-function setSubwayUI(running) {
-    const btn = document.getElementById('subway-btn');
-    const stopBtn = document.getElementById('subway-stop-btn');
-    btn.disabled = running;
-    btn.style.opacity = running ? '0.5' : '';
-    stopBtn.disabled = false;
-    stopBtn.style.display = running ? 'inline-block' : 'none';
-}
-
-function updateSubwayUI(data, finished) {
-    const bar = document.getElementById('subway-bar');
-    const statusEl = document.getElementById('subway-status');
-    document.getElementById('subway-progress-wrap').style.display = 'block';
-
-    const processed = data.processed || 0;
-    const total = data.total || 0;
-    const pct = total > 0 ? Math.round(processed / total * 100) : 0;
-    bar.style.width = pct + '%';
-    const ways = (data.total_ways || 0).toLocaleString();
-    const stns = (data.total_stations || 0).toLocaleString();
-
-    if (!finished && data.phase === 'scanning') {
-        bar.style.width = '8%';
-        bar.style.background = 'var(--primary)';
-        statusEl.style.color = 'var(--text-muted)';
-        statusEl.innerHTML = '<span class="spinner"></span> scanning your location history '
-            + 'to work out which areas to fetch…';
-        return;
-    }
-
-    if (finished) {
-        bar.style.background = data.status === 'completed' ? 'var(--success)' : 'var(--text-muted)';
-        if (data.status === 'completed' && data.total === 0) {
-            statusEl.textContent = 'no location points to cover yet.';
-        } else {
-            const label = data.status === 'completed' ? 'done' : 'stopped';
-            let msg = `${label} — ${ways} track segments, ${stns} stations stored`;
-            if (data.failed) {
-                msg += ` · ${data.failed.toLocaleString()} area${data.failed === 1 ? '' : 's'} failed — re-run to retry`;
-                statusEl.textContent = msg;
-                statusEl.style.color = 'var(--danger)';
-                return;
-            }
-            statusEl.style.color = 'var(--text-muted)';
-            statusEl.textContent = msg;
-        }
-    } else {
-        const eta = _etaFrom(processed, total, subwayStartTime);
-        bar.style.background = 'var(--primary)';
-        statusEl.style.color = 'var(--text-muted)';
-        statusEl.innerHTML = `<span class="spinner"></span> area ${processed.toLocaleString()}/${total.toLocaleString()}`
-            + `${total > 0 ? ' (' + pct + '%)' : ''}, ${(data.ways || 0).toLocaleString()} segments${eta ? ' — ' + eta : ''}`;
-    }
-}
-
-function startSubway() {
-    const statusEl = document.getElementById('subway-status');
-    document.getElementById('subway-progress-wrap').style.display = 'block';
-    statusEl.innerHTML = '<span class="spinner"></span> working out which areas to fetch...';
-    document.getElementById('subway-bar').style.width = '0%';
-    setSubwayUI(true);
-    subwayStartTime = Date.now();
-
-    fetch('/api/subway/download/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
-        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-        .then(() => pollSubwayStatus())
-        .catch(err => {
-            setSubwayUI(false);
-            statusEl.style.color = 'var(--danger)';
-            statusEl.textContent = 'could not start the download (' + err.message + '). Check the server logs.';
-        });
-}
-
-function stopSubway() {
-    document.getElementById('subway-stop-btn').disabled = true;
-    document.getElementById('subway-status').innerHTML = '<span class="spinner"></span> stopping...';
-    fetch('/api/subway/download/stop/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } });
-}
-
-function pollSubwayStatus() {
-    setSubwayUI(true);
-    const statusEl = document.getElementById('subway-status');
-    const interval = setInterval(() => {
-        fetch('/api/subway/download/status/')
-        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-        .then(data => {
-            if (data.status === 'running') {
-                updateSubwayUI(data, false);
-            } else if (data.status === 'completed' || data.status === 'stopped') {
-                updateSubwayUI(data, true);
-                clearInterval(interval);
-                setSubwayUI(false);
-            } else {
-                clearInterval(interval);
-                setSubwayUI(false);
-                statusEl.style.color = 'var(--danger)';
-                statusEl.textContent = 'the download did not start — no job was recorded. Check the server logs.';
-            }
-        })
-        .catch(err => {
-            clearInterval(interval);
-            setSubwayUI(false);
-            statusEl.style.color = 'var(--danger)';
-            statusEl.textContent = 'lost contact with the download (' + err.message + ').';
-        });
-    }, 2000);
-}
-
-async function deleteSubwayData() {
-    const statusEl = document.getElementById('subway-status');
-    const btn = document.getElementById('subway-delete-btn');
-    if (!await roamlyConfirm('Delete all downloaded subway data for this instance?\n\n'
-        + 'Diagnostics → Subway Gaps will stop finding rides until you download it again. '
-        + 'Points already filled are kept.', {danger:true})) return;
-
-    btn.disabled = true;
-    document.getElementById('subway-progress-wrap').style.display = 'block';
-    statusEl.innerHTML = '<span class="spinner"></span> deleting…';
-
-    fetch('/api/subway/delete/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
-        .then(r => r.json())
-        .then(d => {
-            document.getElementById('subway-bar').style.width = '0%';
-            statusEl.textContent = d.status === 'ok'
-                ? `deleted — ${(d.deleted || 0).toLocaleString()} segments, ${(d.stations || 0).toLocaleString()} stations removed.`
-                : 'delete failed.';
-        })
-        .catch(() => { statusEl.textContent = 'delete failed.'; })
-        .finally(() => { btn.disabled = false; });
-}
-
-// Resume the subway-download UI if it is already running on page load
-fetch('/api/subway/download/status/')
-    .then(r => { if (r.ok) return r.json(); })
-    .then(data => {
-        if (data && data.status === 'running') {
-            subwayStartTime = Date.now();
-            updateSubwayUI(data, false);
-            pollSubwayStatus();
-        }
-    })
-    .catch(() => {});
-
 // --- Roads config card ---
 const ROAD_PROVIDER_LABELS = {
     local: 'your downloaded OSM roads',
@@ -2237,9 +1860,16 @@ function tripLinesFixEnableSnap() {
 
 function tripLinesFixDownloadRoads() {
     closeTripLinesPrereqModal();
-    const btn = document.getElementById('roads-btn');
-    btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    startRoads();
+    // Road data is instance-wide and downloading it is now admin-only (Admin
+    // Panel -> Downloads), so this can no longer just flip a button on this
+    // page — send an admin straight there, or tell anyone else who to ask.
+    {% if IS_ADMIN %}
+    window.location.href = "{% url 'tracker:admin_panel' %}#downloads";
+    {% else %}
+    if (window.roamlyAlert) {
+        window.roamlyAlert('Road data downloads are shared instance-wide and managed by an admin now — ask your instance admin to run one from Admin Panel → Downloads.');
+    }
+    {% endif %}
 }
 
 function tripLinesFixGoToMapbox() {
