@@ -70,3 +70,25 @@ services:
       # Overpass API instance for Settings -> Download Road/Subway Data.
       # Only needs setting if the official instance is unreachable/rate-limiting.
       - OVERPASS_URL=${OVERPASS_URL:-https://overpass-api.de/api/interpreter}
+
+  # --- Optional: self-hosted Valhalla (road snapping/routing provider) ---
+  # Not required — Roamly works fine with local/Mapbox/OSRM alone. Uncomment
+  # this if you want Valhalla's Meili map matching (Settings -> Road Snapping
+  # -> Road Data Provider -> Valhalla, pointing at http://valhalla:8002).
+  #
+  # This stub gets you a running server; it does NOT build routing tiles for
+  # you, and there's no public demo server to fall back to like OSRM has — you
+  # need an .osm.pbf extract for your region (e.g. from Geofabrik) and to run
+  # Valhalla's own tile-build step once before the service is actually useful.
+  # The exact build command depends on which Valhalla image/version you use;
+  # follow that image's own docs rather than trusting stale flags pasted here
+  # (start at https://github.com/valhalla/valhalla, or a maintained Docker
+  # wrapper like https://github.com/gis-ops/docker-valhalla).
+  # valhalla:
+  #   image: ghcr.io/valhalla/valhalla:latest
+  #   container_name: roamly_valhalla
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8002:8002"
+  #   volumes:
+  #     - ./data/valhalla:/custom_files
