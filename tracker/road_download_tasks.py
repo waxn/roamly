@@ -17,6 +17,17 @@ own travel history. Was per-user (one row per user, area = that user's own
 devices) before this; see CLAUDE.md's "Downloads (admin panel)" section for
 why and what changed.
 
+**Incremental.** `_visited_boxes` diffs the full desired cell set against
+`DownloadedRegion(kind='road')` and only builds boxes for cells not already
+covered, so a re-run — the manual button or `auto_download_tasks.py`'s
+periodic sweep — costs a DB scan and zero Overpass requests once an
+instance's history is fully downloaded. A batch's cells are only marked
+covered once that batch comes back with zero box failures, so a partial
+failure stays uncovered and gets retried by the next run instead of being
+silently skipped forever. `road_data_delete_api` clears the matching
+`DownloadedRegion` rows alongside the data, so deleting really does mean
+starting over.
+
 Other size controls:
   * only drivable highway classes — no service roads (driveways and parking
     aisles are a large share of all OSM ways and you never snap a drive to one),
@@ -129,9 +140,9 @@ def _line_cells(gy0, gx0, gy1, gx1):
     return out
 
 
-def _visited_boxes(beat=None):
-    """Bounding boxes covering the ~2km cells anyone on the instance has
-    travelled through — every device on every user's account, not just one.
+def _visited_cells(beat=None):
+    """The raw set of ~2km cells anyone on the instance has travelled
+    through — every device on every user's account, not just one.
 
     Includes the cells *between* consecutive fixes, not only the cells containing
     them. This is essential rather than a refinement: a tracking gap is by
@@ -140,10 +151,6 @@ def _visited_boxes(beat=None):
     roads._load_graph then had nothing to connect the two anchors with. The gaps
     the fill job exists to close were precisely the ones it could never route —
     endpoints snapped, middle permanently empty.
-
-    Cells are merged along each latitude row afterwards, so a corridor collapses
-    into a handful of wide boxes instead of hundreds of squares — fewer Overpass
-    clauses for identical coverage.
     """
     from .models import Device, Location
 
@@ -182,11 +189,27 @@ def _visited_boxes(beat=None):
 
             prev = (lat, lng, ts, cell)
 
+    return cells
+
+
+def _cell_key(gy, gx):
+    return f'{gy},{gx}'
+
+
+def _merge_cells_to_boxes(cells):
+    """Merge a cell set into (box, cell_keys) runs, one per row.
+
+    Cells are merged along each latitude row, so a corridor collapses into a
+    handful of wide boxes instead of hundreds of squares — fewer Overpass
+    clauses for identical coverage. Each returned pair carries the exact cell
+    keys it covers, so a caller can record them in DownloadedRegion once the
+    box is actually (successfully) downloaded.
+    """
     rows = {}
     for gy, gx in cells:
         rows.setdefault(gy, []).append(gx)
 
-    boxes = []
+    out = []
     for gy, xs in rows.items():
         xs.sort()
         run_start = prev = xs[0]
@@ -196,10 +219,52 @@ def _visited_boxes(beat=None):
             if gx == prev + 1 and (prev - run_start + 1) < MAX_RUN_CELLS:
                 prev = gx
                 continue
-            boxes.append(_cell_box(gy, run_start, prev))
+            keys = [_cell_key(gy, gx2) for gx2 in range(run_start, prev + 1)]
+            out.append((_cell_box(gy, run_start, prev), keys))
             run_start = prev = gx
-        boxes.append(_cell_box(gy, run_start, prev))
-    return boxes
+        keys = [_cell_key(gy, gx2) for gx2 in range(run_start, prev + 1)]
+        out.append((_cell_box(gy, run_start, prev), keys))
+    return out
+
+
+def _visited_boxes(kind, beat=None):
+    """Bounding boxes covering the visited cells **not already downloaded**
+    for `kind` ('road' or 'subway') — see DownloadedRegion.
+
+    Diffing against what's already been fetched is what makes a re-run (the
+    manual admin-panel button or the auto-download sweep in
+    auto_download_tasks.py) cheap: once an instance's travel history is fully
+    covered, a sweep that finds nothing new costs one DB scan and zero
+    Overpass requests, instead of re-querying the whole history's worth of
+    boxes every time. Road and subway are tracked independently even though
+    they share the same cell grid and corridor computation (_visited_cells),
+    since a cell can have one without the other.
+
+    Returns (boxes, box_cells) — box_cells[i] is the list of "gy,gx" keys
+    backing boxes[i], for the caller to mark covered once that box's batch
+    actually succeeds.
+    """
+    from .models import DownloadedRegion
+
+    cells = _visited_cells(beat=beat)
+    covered = set(DownloadedRegion.objects.filter(kind=kind).values_list('key', flat=True))
+    new_cells = {c for c in cells if _cell_key(*c) not in covered}
+
+    pairs = _merge_cells_to_boxes(new_cells)
+    boxes = [p[0] for p in pairs]
+    box_cells = [p[1] for p in pairs]
+    return boxes, box_cells
+
+
+def _mark_covered(kind, keys):
+    """Record cells as downloaded for `kind` so a future run skips them."""
+    from .models import DownloadedRegion
+    if not keys:
+        return
+    DownloadedRegion.objects.bulk_create(
+        [DownloadedRegion(kind=kind, key=k) for k in keys],
+        ignore_conflicts=True,
+    )
 
 
 def _cell_box(gy, gx_from, gx_to):
@@ -362,10 +427,15 @@ def _road_download_worker(token):
 
     try:
         # total stays 0 while this runs; the status endpoint reports that as the
-        # 'scanning' phase so the UI can say what is happening.
-        boxes = _visited_boxes(beat=_beat)
+        # 'scanning' phase so the UI can say what is happening. `boxes` here
+        # only covers cells not already in DownloadedRegion for 'road' — a
+        # re-run (manual or the auto-download sweep) over fully-covered
+        # history yields zero boxes and makes no Overpass calls at all.
+        boxes, box_cells = _visited_boxes('road', beat=_beat)
         batches = [boxes[i:i + BOXES_PER_REQUEST]
                    for i in range(0, len(boxes), BOXES_PER_REQUEST)]
+        cell_batches = [box_cells[i:i + BOXES_PER_REQUEST]
+                        for i in range(0, len(box_cells), BOXES_PER_REQUEST)]
 
         try:
             job = RoadDownloadJob.objects.get(pk=1)
@@ -375,10 +445,10 @@ def _road_download_worker(token):
             return
         job.total = len(batches)
         job.save(update_fields=['total', 'updated_at'])
-        logger.info('Road download: %d areas in %d batches', len(boxes), len(batches))
+        logger.info('Road download: %d new areas in %d batches', len(boxes), len(batches))
 
         consecutive_unreachable = 0
-        for batch in batches:
+        for batch, cell_batch in zip(batches, cell_batches):
             try:
                 job.refresh_from_db()
                 if job.status != 'running' or job.worker_token != token:
@@ -392,6 +462,12 @@ def _road_download_worker(token):
             failed += failed_boxes
             processed += 1
             consecutive_unreachable = consecutive_unreachable + 1 if unreachable else 0
+            if failed_boxes == 0:
+                # Every box in this batch was actually queried (even if some
+                # came back with zero ways) — only mark cells covered when
+                # nothing in the batch failed, so a partial failure keeps its
+                # cells uncovered and gets retried by the next run.
+                _mark_covered('road', [k for keys in cell_batch for k in keys])
 
             # Conditional on the token, so a superseded worker can never write
             # its own counter over the live one.

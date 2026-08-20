@@ -140,7 +140,7 @@ def _download_city_pois(lat, lng, radius=SEARCH_RADIUS, attempt=1):
 def _poi_download_worker(token):
     """Worker that downloads POIs for every distinct city anyone on the
     instance has visited. Exits the moment the job stops naming it."""
-    from .models import Location, POI, POIDownloadJob
+    from .models import DownloadedRegion, Location, POI, POIDownloadJob
 
     processed = 0
     pois_added = 0
@@ -151,7 +151,11 @@ def _poi_download_worker(token):
             updated_at=timezone.now())
 
     try:
-        # Distinct city centroids across every device on every user's account.
+        # Distinct city centroids across every device on every user's account,
+        # minus cities already in DownloadedRegion(kind='poi') — a re-run
+        # (manual or the auto-download sweep) only asks Overpass about cities
+        # nobody had visited last time, same incremental idea as
+        # road_download_tasks._visited_boxes.
         cities = list(
             Location.objects.exclude(city='')
             .values('city', 'state')
@@ -162,6 +166,8 @@ def _poi_download_worker(token):
             )
             .order_by('-cnt')
         )
+        covered = set(DownloadedRegion.objects.filter(kind='poi').values_list('key', flat=True))
+        cities = [c for c in cities if f"{c['city']}|{c['state']}" not in covered]
 
         total = len(cities)
 
@@ -189,6 +195,12 @@ def _poi_download_worker(token):
             consecutive_unreachable = consecutive_unreachable + 1 if unreachable else 0
             if unreachable:
                 failed += 1
+            else:
+                # Overpass genuinely answered for this city (even if it found
+                # nothing) — mark it covered so a future run doesn't ask again.
+                # An unreachable city stays uncovered and gets retried.
+                DownloadedRegion.objects.get_or_create(
+                    kind='poi', key=f"{city['city']}|{city['state']}")
 
             poi_objects = [
                 POI(

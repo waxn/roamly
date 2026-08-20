@@ -32,9 +32,12 @@ import urllib.request
 from django.db import close_old_connections
 from django.utils import timezone
 
-# Area selection is identical to roads — reuse it rather than fork it.
+# Area selection is identical to roads — reuse it rather than fork it. Road
+# and subway coverage are tracked independently (kind='road' vs 'subway')
+# even though they share the same cell grid, since a cell can have one
+# without the other — see _visited_boxes's docstring.
 from .road_download_tasks import (
-    _visited_boxes,
+    _visited_boxes, _mark_covered,
     OVERPASS_URL, OVERPASS_HEADERS, OVERPASS_TIMEOUT,
     BOXES_PER_REQUEST, MAX_ATTEMPTS, RETRY_BACKOFF_S, REQUEST_SLEEP_S,
     STALE_AFTER_S, INSERT_CHUNK, CONNECTIVITY_FAIL_LIMIT,
@@ -184,9 +187,13 @@ def _rail_download_worker(token):
             updated_at=timezone.now())
 
     try:
-        boxes = _visited_boxes(beat=_beat)
+        # Only cells not already in DownloadedRegion(kind='subway') — see
+        # road_download_tasks._visited_boxes.
+        boxes, box_cells = _visited_boxes('subway', beat=_beat)
         batches = [boxes[i:i + BOXES_PER_REQUEST]
                    for i in range(0, len(boxes), BOXES_PER_REQUEST)]
+        cell_batches = [box_cells[i:i + BOXES_PER_REQUEST]
+                        for i in range(0, len(box_cells), BOXES_PER_REQUEST)]
 
         try:
             job = RailDownloadJob.objects.get(pk=1)
@@ -196,10 +203,10 @@ def _rail_download_worker(token):
             return
         job.total = len(batches)
         job.save(update_fields=['total', 'updated_at'])
-        logger.info('Subway download: %d areas in %d batches', len(boxes), len(batches))
+        logger.info('Subway download: %d new areas in %d batches', len(boxes), len(batches))
 
         consecutive_unreachable = 0
-        for batch in batches:
+        for batch, cell_batch in zip(batches, cell_batches):
             try:
                 job.refresh_from_db()
                 if job.status != 'running' or job.worker_token != token:
@@ -215,6 +222,8 @@ def _rail_download_worker(token):
             failed += failed_boxes
             processed += 1
             consecutive_unreachable = consecutive_unreachable + 1 if unreachable else 0
+            if failed_boxes == 0:
+                _mark_covered('subway', [k for keys in cell_batch for k in keys])
 
             written = RailDownloadJob.objects.filter(
                 pk=1, worker_token=token, status='running'
