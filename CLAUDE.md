@@ -46,15 +46,15 @@ sudo docker compose restart web
 # View logs
 sudo docker compose logs web --tail=50
 
-# Run migrations after adding/changing models
-sudo docker compose exec web python manage.py makemigrations
-sudo docker compose exec web python manage.py migrate
-
 # Django shell
 sudo docker compose exec web python manage.py shell
 ```
 
-`tracker/migrations/`, `staticfiles/` and `media/` are volume-mounted (see `docker-compose.yml`); **templates are not** — a template edit needs `up -d --build` to reach the container. Python file changes require a restart. Model changes require a new migration.
+**`migrate` runs automatically on every container start** — the `web` service's `command:` in `docker-compose.yml` is `migrate --noinput && collectstatic --noinput && gunicorn ...`, so `up -d --build` (or even a plain `restart web`) already applies any pending migration. There is no separate manual migrate step in the normal workflow.
+
+**`makemigrations` is never a deploy-time step either.** Migration files are written (by hand or via `makemigrations`) at *development* time and committed straight to git alongside the model change — `tracker/migrations/` is volume-mounted (along with `staticfiles/` and `media/`), so a rebuild already has the file; there's nothing left to generate on the deployed container. Only run `makemigrations` yourself if you've hand-edited a model with no migration file for it yet, which shouldn't happen in the normal flow.
+
+**Templates are not volume-mounted** — a template edit needs `up -d --build` to reach the container. Python file changes need at least a `restart web`; a new model/migration needs `up -d --build` so the fresh migration file and any new dependency are both picked up.
 
 ## Architecture
 
@@ -67,7 +67,7 @@ Single Django app (`tracker/`) inside the `roamly` project. No separate services
 
 Boundaries are loaded by **`import_boundaries`** (`tracker/management/commands/`): downloads US Census TIGER shapefiles (`cb_<year>_<fips>_{place,cousub}_500k.zip`) per state, transforms to 4326, `bulk_create`s into `Boundary`. `--states ME,VA` limits states; `--regeocode` relabels all stored locations (caches one lookup per ~111m cell).
 
-`geocoding_tasks._geocode_worker` drains the `city=''` backlog in chunks (one UPDATE per place), busting user cache after each chunk. Kicked fire-and-forget from `push_location` via `ensure_auto_geocode(user_id)` (debounced, no-op while a thread already runs), and on demand from Settings. **Adding `reverse-geocode` dep + migration + boundary import requires `docker compose up -d --build`, then `migrate` and `import_boundaries --regeocode`.**
+`geocoding_tasks._geocode_worker` drains the `city=''` backlog in chunks (one UPDATE per place), busting user cache after each chunk. Kicked fire-and-forget from `push_location` via `ensure_auto_geocode(user_id)` (debounced, no-op while a thread already runs), and on demand from Settings. **Adding `reverse-geocode` dep + migration + boundary import requires `docker compose up -d --build`** (the new dependency needs the image rebuilt; the migration applies automatically as part of that — see "Running the app") **then a manual `import_boundaries --regeocode`**, since boundary import is a one-off data load, not something a migration can do on its own.
 
 **Database:** SQLite (dev); PostgreSQL + PostGIS when `DATABASE_URL` is set. Code checks `HAS_POSTGIS` at runtime and falls back gracefully.
 
