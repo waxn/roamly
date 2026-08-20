@@ -34,3 +34,8 @@ class TrackerConfig(AppConfig):
                 start_log_cleanup_scheduler()
             except Exception:
                 pass
+            try:
+                from .auto_download_tasks import start_auto_download_scheduler
+                start_auto_download_scheduler()
+            except Exception:
+                pass
