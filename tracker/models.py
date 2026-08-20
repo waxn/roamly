@@ -347,22 +347,38 @@ class POI(models.Model):
 
 
 class POIDownloadJob(models.Model):
-    """Persistent state for background POI download tasks."""
+    """Persistent state for the background POI download task.
+
+    Singleton (pk=1), like SiteConfig — POI is instance-wide reference data
+    (no user FK), so the job that populates it is now an admin-only,
+    instance-wide operation rather than one row per user. Was a per-user
+    OneToOneField(User) row before this; the migration that changed it also
+    drops any pre-existing per-user rows, since job *status* has no value
+    worth preserving across the shape change.
+    """
     STATUS_CHOICES = [
         ('running', 'Running'),
         ('completed', 'Completed'),
         ('stopped', 'Stopped'),
     ]
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='poi_job')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='running')
     processed = models.IntegerField(default=0)
     total = models.IntegerField(default=0)
     pois_added = models.IntegerField(default=0)
+    # Cities Overpass would not return after retries — same "surfaced rather
+    # than silently empty" reasoning as RoadDownloadJob.failed.
+    failed = models.IntegerField(default=0)
+    worker_token = models.CharField(max_length=32, blank=True, default='')
     started_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
     def __str__(self):
-        return f"POI Download {self.user.username}: {self.processed}/{self.total}"
+        return f"POI Download: {self.processed}/{self.total}"
 
 
 class POIMatchJob(models.Model):
@@ -565,13 +581,21 @@ def _local_roads_available():
 
 
 class RoadDownloadJob(models.Model):
-    """Persistent state for the background OSM road download task."""
+    """Persistent state for the background OSM road download task.
+
+    Singleton (pk=1), like SiteConfig — RoadSegment is instance-wide
+    reference data (no user FK), and the download area now covers every
+    user's combined travel history, so the job tracking it is an admin-only,
+    instance-wide operation rather than one row per user. Was a per-user
+    OneToOneField(User) row before this; the migration that changed it also
+    drops any pre-existing per-user rows, since job *status* has no value
+    worth preserving across the shape change.
+    """
     STATUS_CHOICES = [
         ('running', 'Running'),
         ('completed', 'Completed'),
         ('stopped', 'Stopped'),
     ]
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='road_download_job')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='running')
     processed = models.IntegerField(default=0)   # areas downloaded
     total = models.IntegerField(default=0)       # areas queued
@@ -590,23 +614,28 @@ class RoadDownloadJob(models.Model):
     started_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
     def __str__(self):
-        return f"Road Download {self.user.username}: {self.processed}/{self.total}"
+        return f"Road Download: {self.processed}/{self.total}"
 
 
 class RailDownloadJob(models.Model):
     """Persistent state for the background OSM subway download task.
 
-    A clone of RoadDownloadJob — same worker-token ownership, same progress
-    columns — with one extra counter for stations (RailStation rows added this
-    run), since the subway download stores both track ways and station nodes.
+    A clone of RoadDownloadJob — same singleton (pk=1) shape, same
+    worker-token ownership, same progress columns — with one extra counter
+    for stations (RailStation rows added this run), since the subway
+    download stores both track ways and station nodes.
     """
     STATUS_CHOICES = [
         ('running', 'Running'),
         ('completed', 'Completed'),
         ('stopped', 'Stopped'),
     ]
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='rail_download_job')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='running')
     processed = models.IntegerField(default=0)   # areas downloaded
     total = models.IntegerField(default=0)       # areas queued
@@ -617,8 +646,13 @@ class RailDownloadJob(models.Model):
     started_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
     def __str__(self):
-        return f"Subway Download {self.user.username}: {self.processed}/{self.total}"
+        return f"Subway Download: {self.processed}/{self.total}"
 
 
 class EditBatch(models.Model):
