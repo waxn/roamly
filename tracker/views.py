@@ -9759,6 +9759,7 @@ def profile_roads_config_api(request):
             'road_provider': profile.road_provider,
             'resolved': profile.road_provider_resolved,
             'osrm_url': profile.osrm_url,
+            'valhalla_url': profile.valhalla_url,
             'snap_to_roads': profile.snap_to_roads,
             'has_postgis': HAS_POSTGIS,
             'has_local_roads': RoadSegment.objects.exists() if HAS_POSTGIS else False,
@@ -9774,14 +9775,15 @@ def profile_roads_config_api(request):
         return JsonResponse({'error': 'Invalid request.'}, status=400)
 
     provider = (data.get('road_provider') or '').strip()
-    if provider not in ('', 'local', 'mapbox', 'osrm'):
+    if provider not in ('', 'local', 'mapbox', 'osrm', 'valhalla'):
         return JsonResponse({'error': 'Unknown road provider.'}, status=400)
     profile.road_provider = provider
     profile.osrm_url = (data.get('osrm_url') or '').strip().rstrip('/')[:300]
+    profile.valhalla_url = (data.get('valhalla_url') or '').strip().rstrip('/')[:300]
     profile.snap_to_roads = bool(data.get('snap_to_roads'))
 
     profile.save(update_fields=[
-        'road_provider', 'osrm_url', 'snap_to_roads',
+        'road_provider', 'osrm_url', 'valhalla_url', 'snap_to_roads',
     ])
     return JsonResponse({
         'ok': True,

@@ -771,13 +771,14 @@
                 <div class="pref-form-group">
                     <label class="pref-label">
                         Road Data Provider
-                        <div class="info-icon" data-tooltip="Auto prefers your own downloaded roads, then Mapbox if you have a token, then OSRM.">?</div>
+                        <div class="info-icon" data-tooltip="Auto prefers your own downloaded roads, then Mapbox if you have a token, then OSRM, then Valhalla.">?</div>
                     </label>
                     <select id="road-provider" class="form-control">
                         <option value="">Auto (recommended)</option>
                         {% if has_postgis %}<option value="local">Local OSM roads</option>{% endif %}
                         <option value="mapbox">Mapbox</option>
                         <option value="osrm">OSRM</option>
+                        <option value="valhalla">Valhalla</option>
                     </select>
                 </div>
 
@@ -787,6 +788,14 @@
                         <div class="info-icon" data-tooltip="Base URL of an OSRM instance, e.g. http://host.docker.internal:5000 for one running on this host.">?</div>
                     </label>
                     <input type="text" id="osrm-url" class="form-control" placeholder="http://host.docker.internal:5000">
+                </div>
+
+                <div class="pref-form-group">
+                    <label class="pref-label">
+                        Valhalla URL
+                        <div class="info-icon" data-tooltip="Base URL of a Valhalla instance (Meili map matching + /route), e.g. http://host.docker.internal:8002 for one running on this host. Generally more accurate snapping than the local/OSRM options in dense road grids, at the cost of running and tile-building a separate service yourself — there's no public demo server to point at.">?</div>
+                    </label>
+                    <input type="text" id="valhalla-url" class="form-control" placeholder="http://host.docker.internal:8002">
                 </div>
 
             </div>
@@ -2067,12 +2076,14 @@ const ROAD_PROVIDER_LABELS = {
     local: 'your downloaded OSM roads',
     mapbox: 'Mapbox',
     osrm: 'your OSRM instance',
+    valhalla: 'your Valhalla instance',
 };
 
 function _roadsConfigPayload() {
     return {
         road_provider: document.getElementById('road-provider').value,
         osrm_url: document.getElementById('osrm-url').value.trim(),
+        valhalla_url: document.getElementById('valhalla-url').value.trim(),
         snap_to_roads: document.getElementById('snap-to-roads').checked,
     };
 }
@@ -2090,7 +2101,7 @@ function _roadsResolvedNote(resolved, totalWays) {
         status.textContent = msg + '.';
         status.style.color = 'var(--text-muted)';
     } else {
-        status.textContent = 'no usable provider yet — download road data, add a Mapbox token, or set an OSRM URL.';
+        status.textContent = 'no usable provider yet — download road data, add a Mapbox token, or set an OSRM/Valhalla URL.';
         status.style.color = 'var(--text-muted)';
     }
 }
@@ -2108,7 +2119,7 @@ function saveRoadsConfig() {
     .then(({ ok, d }) => {
         if (ok && d.ok) {
             if (!d.resolved && d.snap_to_roads) {
-                status.textContent = 'saved, but no usable road provider yet — download road data, add a Mapbox token, or set an OSRM URL.';
+                status.textContent = 'saved, but no usable road provider yet — download road data, add a Mapbox token, or set an OSRM/Valhalla URL.';
                 status.style.color = 'var(--danger)';
             } else {
                 status.textContent = 'saved — reload the map to see the change.';
@@ -2128,6 +2139,7 @@ fetch('/api/profile/roads-config/')
         if (!d) return;
         document.getElementById('road-provider').value = d.road_provider || '';
         document.getElementById('osrm-url').value = d.osrm_url || '';
+        document.getElementById('valhalla-url').value = d.valhalla_url || '';
         document.getElementById('snap-to-roads').checked = !!d.snap_to_roads;
         _roadsResolvedNote(d.resolved, d.total_ways);
     })
