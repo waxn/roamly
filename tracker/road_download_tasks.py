@@ -55,6 +55,7 @@ import urllib.parse
 import urllib.request
 
 from django.conf import settings as django_settings
+from django.core.cache import cache
 from django.db import close_old_connections
 from django.utils import timezone
 
@@ -140,6 +141,19 @@ def _line_cells(gy0, gx0, gy1, gx1):
     return out
 
 
+# Short-lived cache for _visited_cells's result. Road and subway downloads
+# both call it (rail_download_tasks reuses road_download_tasks._visited_boxes
+# verbatim) with an identical cell computation, and the auto-download sweep
+# checks both kinds back to back — without this, a full per-device scan of
+# every location on the instance (the slowest part of the whole job, per the
+# comment below) ran twice in a row for byte-for-byte the same result. TTL is
+# long enough to cover two downloads kicked off moments apart (the sweep, or
+# an admin clicking both buttons in quick succession) but short enough that a
+# point pushed since the last scan isn't excluded from "visited" for long.
+_VISITED_CELLS_CACHE_KEY = 'road_download:visited_cells'
+_VISITED_CELLS_CACHE_TTL = 600  # 10 minutes
+
+
 def _visited_cells(beat=None):
     """The raw set of ~2km cells anyone on the instance has travelled
     through — every device on every user's account, not just one.
@@ -153,6 +167,10 @@ def _visited_cells(beat=None):
     endpoints snapped, middle permanently empty.
     """
     from .models import Device, Location
+
+    cached = cache.get(_VISITED_CELLS_CACHE_KEY)
+    if cached is not None:
+        return cached
 
     cells = set()
     # One device at a time, ordered by timestamp. A single global
@@ -189,6 +207,7 @@ def _visited_cells(beat=None):
 
             prev = (lat, lng, ts, cell)
 
+    cache.set(_VISITED_CELLS_CACHE_KEY, cells, _VISITED_CELLS_CACHE_TTL)
     return cells
 
 
