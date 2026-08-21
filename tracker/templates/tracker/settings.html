@@ -108,6 +108,39 @@
             align-items: center;
             flex-wrap: wrap;
         }
+        /* Road Snapping master switch — this card's one decision, given the
+           visual weight to match. Everything else in the card is an override. */
+        .road-master {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.7rem;
+            padding: 0.85rem 0.95rem;
+            border: 1px solid var(--primary);
+            border-radius: var(--radius-md, 8px);
+            background: var(--bg-input);
+            cursor: pointer;
+        }
+        .road-master input { margin-top: 0.15rem; flex-shrink: 0; }
+        .road-master-title { font-size: 0.9375rem; font-weight: 600; color: var(--text); }
+        .road-master-sub {
+            display: block;
+            margin-top: 0.25rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            line-height: 1.45;
+        }
+        .road-advanced { margin-top: 1rem; }
+        .road-advanced > summary {
+            cursor: pointer;
+            font-size: 0.8125rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            list-style: none;
+        }
+        .road-advanced > summary::-webkit-details-marker { display: none; }
+        .road-advanced > summary::before { content: '▸ '; }
+        .road-advanced[open] > summary::before { content: '▾ '; }
+        .road-advanced > summary:hover { color: var(--text); }
         .profile-row {
             display: flex;
             align-items: center;
@@ -721,62 +754,77 @@
             <div class="card-header">Road Snapping <span class="badge" style="font-size:0.65rem;">per-account</span></div>
             <p class="settings-section-desc">
                 GPS scatter puts recorded points beside the road instead of on it. Snapping
-                draws them where they belong. <strong>It is display-only</strong> — your recorded
-                coordinates are never modified, and one click of the sidebar toggle shows the
-                raw track again.
+                draws them where they belong, and is what makes <strong>Trip Lines Mode</strong>
+                follow road curvature instead of cutting straight between points.
+                <strong>It is display-only</strong> — your recorded coordinates are never modified.
             </p>
-            <p class="settings-section-desc" style="margin-top:-0.35rem;">
+
+            <label class="road-master">
+                <input type="checkbox" id="snap-to-roads" onchange="onSnapMasterChange()">
+                <span>
+                    <span class="road-master-title">Road snapping (account-wide master switch)</span>
+                    <span class="road-master-sub">
+                        On by default. Applies to every device you sign in from, and powers both
+                        point snapping and Trip Lines road curvature. Saves as soon as you change it.
+                        <br>Not to be confused with the map sidebar's <strong>snapped view</strong>
+                        button, which only shows or hides snapped positions in the browser you're
+                        looking at — it can't turn the feature on or off for your account.
+                    </span>
+                </span>
+            </label>
+            <div id="roads-config-status" style="font-size:0.8125rem;color:var(--text-muted);margin-top:0.6rem;"></div>
+
+            <p class="settings-section-desc" style="margin-top:1rem;margin-bottom:0;">
                 Only road journeys are snapped — walking is left exactly as recorded, so a
                 garden or footpath keeps its detail. Running <strong>Detect Transport Modes</strong>
                 above makes that decision more accurate: without it the split is guessed from
                 speed, with it each journey is classified as a whole.
             </p>
 
-            <div class="pref-grid">
-                <div class="pref-form-group">
-                    <label class="pref-label">
-                        Road Data Provider
-                        <div class="info-icon" data-tooltip="Auto prefers your own downloaded roads, then Mapbox if you have a token, then OSRM, then Valhalla.">?</div>
-                    </label>
-                    <select id="road-provider" class="form-control">
-                        <option value="">Auto (recommended)</option>
-                        {% if has_postgis %}<option value="local">Local OSM roads</option>{% endif %}
-                        <option value="mapbox">Mapbox</option>
-                        <option value="osrm">OSRM</option>
-                        <option value="valhalla">Valhalla</option>
-                    </select>
+            <details class="road-advanced">
+                <summary>Advanced — road data provider</summary>
+                <p class="settings-section-desc" style="margin-top:0.6rem;">
+                    <strong>Auto</strong> handles this for almost everyone: it uses the road data
+                    downloaded onto this server if there is any, and falls back to Mapbox if you
+                    have a token. Only change this if you run your own routing engine.
+                </p>
+                <div class="pref-grid">
+                    <div class="pref-form-group">
+                        <label class="pref-label">
+                            Road Data Provider
+                            <div class="info-icon" data-tooltip="Auto prefers your own downloaded roads, then Mapbox if you have a token, then OSRM, then Valhalla.">?</div>
+                        </label>
+                        <select id="road-provider" class="form-control">
+                            <option value="">Auto (recommended)</option>
+                            {% if has_postgis %}<option value="local">Local OSM roads</option>{% endif %}
+                            <option value="mapbox">Mapbox</option>
+                            <option value="osrm">OSRM</option>
+                            <option value="valhalla">Valhalla</option>
+                        </select>
+                    </div>
+
+                    <div class="pref-form-group">
+                        <label class="pref-label">
+                            OSRM URL
+                            <div class="info-icon" data-tooltip="Base URL of an OSRM instance, e.g. http://host.docker.internal:5000 for one running on this host. Only needed if you picked OSRM above.">?</div>
+                        </label>
+                        <input type="text" id="osrm-url" class="form-control" placeholder="http://host.docker.internal:5000">
+                    </div>
+
+                    <div class="pref-form-group">
+                        <label class="pref-label">
+                            Valhalla URL
+                            <div class="info-icon" data-tooltip="Base URL of a Valhalla instance (Meili map matching + /route). Only needed if you picked Valhalla above.">?</div>
+                        </label>
+                        <input type="text" id="valhalla-url" class="form-control" placeholder="http://host.docker.internal:8002">
+                    </div>
                 </div>
 
-                <div class="pref-form-group">
-                    <label class="pref-label">
-                        OSRM URL
-                        <div class="info-icon" data-tooltip="Base URL of an OSRM instance, e.g. http://host.docker.internal:5000 for one running on this host.">?</div>
-                    </label>
-                    <input type="text" id="osrm-url" class="form-control" placeholder="http://host.docker.internal:5000">
+                <div class="settings-actions" style="margin-top:0.75rem;">
+                    <button class="btn btn-primary btn-sm" onclick="saveRoadsConfig()">Save provider</button>
+                    <a href="{% url 'tracker:editor' %}" class="btn btn-outline btn-sm">Open map editor</a>
                 </div>
-
-                <div class="pref-form-group">
-                    <label class="pref-label">
-                        Valhalla URL
-                        <div class="info-icon" data-tooltip="Base URL of a Valhalla instance (Meili map matching + /route), e.g. http://host.docker.internal:8002 for one running on this host. Generally more accurate snapping than the local/OSRM options in dense road grids, at the cost of running and tile-building a separate service yourself — there's no public demo server to point at.">?</div>
-                    </label>
-                    <input type="text" id="valhalla-url" class="form-control" placeholder="http://host.docker.internal:8002">
-                </div>
-
-            </div>
-
-            <div class="settings-subsection">
-                <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;color:var(--text);cursor:pointer;">
-                    <input type="checkbox" id="snap-to-roads">
-                    Snap points to roads (display only)
-                </label>
-            </div>
-
-            <div class="settings-actions" style="margin-top:0.75rem;">
-                <button class="btn btn-primary btn-sm" onclick="saveRoadsConfig()">Save</button>
-                <a href="{% url 'tracker:editor' %}" class="btn btn-outline btn-sm">Open map editor</a>
-                <span id="roads-config-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
-            </div>
+            </details>
         </div>
 
         <!-- AI Ask (per-user) -->
@@ -1711,10 +1759,20 @@ function _roadsConfigPayload() {
     };
 }
 
+// The one line under the master switch that says what will actually happen.
+// Snapping being ON is not the same as snapping WORKING — road_provider_resolved
+// is the real gate — so this reports the switch and the provider together rather
+// than letting a user conclude from a ticked box that curves should be appearing.
 function _roadsResolvedNote(resolved, totalWays) {
     const status = document.getElementById('roads-config-status');
+    const on = document.getElementById('snap-to-roads').checked;
+    if (!on) {
+        status.textContent = 'Off — points and Trip Lines draw at their raw recorded positions.';
+        status.style.color = 'var(--text-muted)';
+        return;
+    }
     if (resolved) {
-        let msg = `using ${ROAD_PROVIDER_LABELS[resolved] || resolved}`;
+        let msg = `On, using ${ROAD_PROVIDER_LABELS[resolved] || resolved}`;
         if (resolved === 'local' && totalWays !== undefined) {
             // Both snapping and the editor's road routing need roads near the points in
             // question, so the stored count is the first thing to check when
@@ -1722,11 +1780,37 @@ function _roadsResolvedNote(resolved, totalWays) {
             msg += ` — ${(totalWays || 0).toLocaleString()} roads stored`;
         }
         status.textContent = msg + '.';
-        status.style.color = 'var(--text-muted)';
+        status.style.color = 'var(--success)';
     } else {
-        status.textContent = 'no usable provider yet — download road data, add a Mapbox token, or set an OSRM/Valhalla URL.';
+        status.textContent = 'On, but no road data is available yet — snapping starts by itself once '
+            + 'an admin downloads road data, or you add a Mapbox token below.';
         status.style.color = 'var(--text-muted)';
     }
+}
+
+// The master switch autosaves. A checkbox that needs a separate Save press is
+// most of why this feature went unnoticed: it looked set once ticked.
+function onSnapMasterChange() {
+    const status = document.getElementById('roads-config-status');
+    status.textContent = 'saving…';
+    status.style.color = 'var(--text-muted)';
+    fetch('/api/profile/roads-config/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' },
+        body: JSON.stringify(_roadsConfigPayload()),
+    })
+    .then(r => r.json())
+    .then(d => {
+        _roadsResolvedNote(d && d.resolved, undefined);
+        if (window.roamlyToast) {
+            window.roamlyToast(
+                document.getElementById('snap-to-roads').checked
+                    ? 'Road snapping on — reload the map to see it.'
+                    : 'Road snapping off.',
+                { type: 'success' });
+        }
+    })
+    .catch(() => { status.textContent = 'save failed.'; status.style.color = 'var(--danger)'; });
 }
 
 function saveRoadsConfig() {
@@ -1741,13 +1825,8 @@ function saveRoadsConfig() {
     .then(r => r.json().then(d => ({ ok: r.ok, d })))
     .then(({ ok, d }) => {
         if (ok && d.ok) {
-            if (!d.resolved && d.snap_to_roads) {
-                status.textContent = 'saved, but no usable road provider yet — download road data, add a Mapbox token, or set an OSRM/Valhalla URL.';
-                status.style.color = 'var(--danger)';
-            } else {
-                status.textContent = 'saved — reload the map to see the change.';
-                status.style.color = 'var(--success)';
-            }
+            _roadsResolvedNote(d.resolved, undefined);
+            if (window.roamlyToast) window.roamlyToast('Saved — reload the map to see the change.', { type: 'success' });
         } else {
             status.textContent = d.error || 'save failed.';
             status.style.color = 'var(--danger)';
@@ -1798,7 +1877,7 @@ function renderTripLinesPrereqList(d) {
     if (!list || !d) return;
     const items = [
         tripLinesRoadItemHTML(
-            !!d.snap_to_roads, 'Snap points to roads',
+            !!d.snap_to_roads, 'Road snapping (account-wide master switch)',
             d.snap_to_roads ? 'Enabled.' : 'Off — lines draw at their raw recorded positions.',
             'Enable', 'tripLinesFixEnableSnap()'),
     ];
