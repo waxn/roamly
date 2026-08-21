@@ -1099,8 +1099,10 @@ function loadTripLines(autoFit) {
             // user to guess: the master toggle is off, or nothing resolved a
             // provider (no road data downloaded / no token / no OSRM url).
             let roadNote;
-            if (!data.snap_enabled) roadNote = 'roads: off';
-            else if (!data.snap_provider) roadNote = 'roads: no provider';
+            // Name the exact control that fixes each case — "roads: off" alone
+            // sent people to the sidebar button, which is a different switch.
+            if (!data.snap_enabled) roadNote = 'roads: off (Settings → Road Snapping)';
+            else if (!data.snap_provider) roadNote = 'roads: no data (ask an admin to download road data)';
             else roadNote = `roads: ${data.snap_provider}${routed ? ` · ${routed} routed` : ' · none matched'}`;
             document.getElementById('map-info').textContent =
                 `${segs.toLocaleString()} line segment(s) · ${stops.toLocaleString()} stop(s) · ${roadNote}`;
@@ -1293,7 +1295,15 @@ document.getElementById('date-reset').addEventListener('click', resetDateFilter)
 
 
 // ═══════════════════════════════════════════════════════════════════
-// Snap to roads — display only.
+// Snapped view — display only, this browser only.
+//
+// Two different controls used to be called "snap to roads", which is the whole
+// reason snapping looked broken: this button (the sidebar's `snapped view`,
+// backed by localStorage `roamly_snap_roads`) only decides whether snapped
+// positions are *shown* on this page in this browser. The account-wide master
+// switch is UserProfile.snap_to_roads (Settings -> Road Snapping) — with that
+// off, /api/roads/snap/ returns nothing and this button has nothing to show,
+// and ROAD_SNAP_ENABLED means the button isn't even rendered.
 //
 // The recorded latitude/longitude in the database are never touched: the server
 // works out the nearest road position, caches it per point id, and hands it back
