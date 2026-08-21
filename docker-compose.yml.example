@@ -71,29 +71,3 @@ services:
       # Only needs setting if the official instance is unreachable/rate-limiting.
       - OVERPASS_URL=${OVERPASS_URL:-https://overpass-api.de/api/interpreter}
 
-  # --- Optional: self-hosted Valhalla (road snapping/routing provider) ---
-  # Not required — Roamly works fine with local/Mapbox/OSRM alone. Uncomment
-  # this if you want Valhalla's Meili map matching (Settings -> Road Snapping
-  # -> Road Data Provider -> Valhalla; UserProfile.valhalla_url already
-  # defaults to http://valhalla:8002, matching this service's name+port, so
-  # picking the provider needs no URL entry once this is running).
-  #
-  # This is the official image (ghcr.io/valhalla/valhalla-scripted) — it
-  # downloads the .osm.pbf extracts named in tile_urls (space-separated) and
-  # builds routing tiles itself on first start; no separate manual build step.
-  # VALHALLA_TILE_URLS in .env is what to edit — Admin Panel -> Downloads ->
-  # Valhalla Tiles auto-detects which US states your location history has
-  # visited and shows you the exact value to paste in. The image rebuilds
-  # tiles (diffed by md5 against what it built last) whenever the container
-  # (re)starts, not live — so after updating .env, run
-  # `sudo docker compose restart valhalla` to pick up newly added regions.
-  # valhalla:
-  #   image: ghcr.io/valhalla/valhalla-scripted:latest
-  #   container_name: roamly_valhalla
-  #   restart: unless-stopped
-  #   environment:
-  #     - tile_urls=${VALHALLA_TILE_URLS:-}
-  #     - build_admins=True
-  #     - build_time_zones=True
-  #   volumes:
-  #     - ./data/valhalla:/custom_files

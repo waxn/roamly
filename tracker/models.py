@@ -394,18 +394,10 @@ class DownloadedRegion(models.Model):
     or "city|state" for kind='poi', which selects by city centroid rather
     than grid cell (see poi_tasks.py).
 
-    kind='valhalla' is a different flavor: `key` is a US state name, and a
-    row means "included in the tile_urls list we've shown the admin" rather
-    than "actually fetched" — Django never downloads Valhalla's tiles itself
-    (see valhalla_tiles_tasks.py); the self-hosted Valhalla container does
-    that from tile_urls on its own next restart. There's no automatic way to
-    confirm the admin restarted it, same as any other "needs a rebuild" step
-    in this app.
-
     Instance-wide reference data, like the tables it tracks coverage for
     (no user FK) ⇒ excluded from backups.
     """
-    KIND_CHOICES = [('road', 'Road'), ('subway', 'Subway'), ('poi', 'POI'), ('valhalla', 'Valhalla')]
+    KIND_CHOICES = [('road', 'Road'), ('subway', 'Subway'), ('poi', 'POI')]
     kind = models.CharField(max_length=10, choices=KIND_CHOICES)
     key = models.CharField(max_length=200)
 
@@ -1103,18 +1095,9 @@ class UserProfile(models.Model):
     # Provider is server-side rather than a localStorage map pref because the
     # provider config has to live here anyway and the nightly sweep needs a
     # server-side opt-in — splitting one feature's switches across two stores
-    # would be worse. '' means "auto": resolve local → mapbox → osrm → valhalla.
-    road_provider = models.CharField(max_length=10, blank=True, default='')  # ''|local|mapbox|osrm|valhalla
+    # would be worse. '' means "auto": resolve local → mapbox → osrm.
+    road_provider = models.CharField(max_length=10, blank=True, default='')  # ''|local|mapbox|osrm
     osrm_url = models.CharField(max_length=300, blank=True, default='')
-    # A self-hosted (or third-party) Valhalla instance. Meili, Valhalla's
-    # map-matching engine, is a proper HMM-based matcher — generally more
-    # robust than the local provider's nearest-edge+Viterbi-lite snapper in
-    # dense grids with parallel roads — at the cost of running and maintaining
-    # a whole separate service with its own regional tile build. Defaults to
-    # the optional docker-compose service's own internal address, matching
-    # its container/service name and port — so a self-hoster who runs that
-    # service never has to type a URL, just flip road_provider to 'valhalla'.
-    valhalla_url = models.CharField(max_length=300, blank=True, default='http://valhalla:8002')
     # Display-only: snapped coordinates are cached, never written to Location.
     # Defaults ON (migration 0071 also flips every pre-existing profile) because
     # this is the master switch for the whole snap pipeline — point-mode snapping
@@ -1152,11 +1135,14 @@ class UserProfile(models.Model):
 
         The "auto" default the Settings card offers: prefer locally stored OSM
         roads (no external calls at all), fall back to Mapbox if the user already
-        has a token, then a configured OSRM instance, then a configured Valhalla
-        instance. Valhalla sits last in "auto" because it's opt-in infrastructure
-        (a self-hoster has to stand up and tile-build it deliberately) rather
-        than something that's "just there" the way local roads or an already-set
-        Mapbox token are — so an explicit choice is how most people will reach it.
+        has a token, then a configured OSRM instance.
+
+        Returning '' when nothing is usable is load-bearing — it is the gate every
+        snap consumer checks, and it is what lets snap_to_roads default on without
+        firing requests at a provider that isn't there. A previous Valhalla option
+        defaulted its URL to the compose service's address, so this fell through to
+        'valhalla' for *every* account with no local roads and no token and never
+        returned '' at all; that is one of the reasons it was removed.
         """
         if self.road_provider:
             # An explicit choice still has to be usable.
@@ -1166,8 +1152,6 @@ class UserProfile(models.Model):
                 return 'mapbox' if self.mapbox_token else ''
             if self.road_provider == 'osrm':
                 return 'osrm' if self.osrm_url else ''
-            if self.road_provider == 'valhalla':
-                return 'valhalla' if self.valhalla_url else ''
             return ''
         if _local_roads_available():
             return 'local'
@@ -1175,8 +1159,6 @@ class UserProfile(models.Model):
             return 'mapbox'
         if self.osrm_url:
             return 'osrm'
-        if self.valhalla_url:
-            return 'valhalla'
         return ''
 
     @property
@@ -1253,13 +1235,6 @@ class SiteConfig(models.Model):
     auto_download_roads = models.BooleanField(default=True)
     auto_download_subway = models.BooleanField(default=True)
     auto_download_pois = models.BooleanField(default=True)
-    # Auto-detect newly-visited US states for the optional self-hosted
-    # Valhalla service's tile_urls list (see valhalla_tiles_tasks.py). Unlike
-    # the three above, this never touches Overpass or downloads anything
-    # itself — it only keeps DownloadedRegion(kind='valhalla') and the Admin
-    # Panel's displayed tile_urls value current; applying a new region still
-    # needs the admin to restart the valhalla container.
-    auto_download_valhalla_tiles = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     @classmethod

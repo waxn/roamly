@@ -792,14 +792,13 @@
                     <div class="pref-form-group">
                         <label class="pref-label">
                             Road Data Provider
-                            <div class="info-icon" data-tooltip="Auto prefers your own downloaded roads, then Mapbox if you have a token, then OSRM, then Valhalla.">?</div>
+                            <div class="info-icon" data-tooltip="Auto prefers your own downloaded roads, then Mapbox if you have a token, then OSRM.">?</div>
                         </label>
                         <select id="road-provider" class="form-control">
                             <option value="">Auto (recommended)</option>
                             {% if has_postgis %}<option value="local">Local OSM roads</option>{% endif %}
                             <option value="mapbox">Mapbox</option>
                             <option value="osrm">OSRM</option>
-                            <option value="valhalla">Valhalla</option>
                         </select>
                     </div>
 
@@ -809,14 +808,6 @@
                             <div class="info-icon" data-tooltip="Base URL of an OSRM instance, e.g. http://host.docker.internal:5000 for one running on this host. Only needed if you picked OSRM above.">?</div>
                         </label>
                         <input type="text" id="osrm-url" class="form-control" placeholder="http://host.docker.internal:5000">
-                    </div>
-
-                    <div class="pref-form-group">
-                        <label class="pref-label">
-                            Valhalla URL
-                            <div class="info-icon" data-tooltip="Base URL of a Valhalla instance (Meili map matching + /route). Only needed if you picked Valhalla above.">?</div>
-                        </label>
-                        <input type="text" id="valhalla-url" class="form-control" placeholder="http://host.docker.internal:8002">
                     </div>
                 </div>
 
@@ -1747,14 +1738,12 @@ const ROAD_PROVIDER_LABELS = {
     local: 'your downloaded OSM roads',
     mapbox: 'Mapbox',
     osrm: 'your OSRM instance',
-    valhalla: 'your Valhalla instance',
 };
 
 function _roadsConfigPayload() {
     return {
         road_provider: document.getElementById('road-provider').value,
         osrm_url: document.getElementById('osrm-url').value.trim(),
-        valhalla_url: document.getElementById('valhalla-url').value.trim(),
         snap_to_roads: document.getElementById('snap-to-roads').checked,
     };
 }
@@ -1841,7 +1830,6 @@ fetch('/api/profile/roads-config/')
         if (!d) return;
         document.getElementById('road-provider').value = d.road_provider || '';
         document.getElementById('osrm-url').value = d.osrm_url || '';
-        document.getElementById('valhalla-url').value = d.valhalla_url || '';
         document.getElementById('snap-to-roads').checked = !!d.snap_to_roads;
         _roadsResolvedNote(d.resolved, d.total_ways);
     })

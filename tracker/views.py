@@ -1155,11 +1155,10 @@ def site_turnstile_api(request):
 @login_required
 @require_http_methods(["POST"])
 def site_auto_download_api(request):
-    """Toggle auto-download of new regions for road/subway/POI data, and
-    auto-detection of new Valhalla tile regions.
+    """Toggle auto-download of new regions for road/subway/POI data.
 
-    Each flag defaults on (see SiteConfig.auto_download_roads/subway/pois/
-    valhalla_tiles) — this just lets an admin turn one off, e.g. an instance
+    Each flag defaults on (see SiteConfig.auto_download_roads/subway/pois)
+    — this just lets an admin turn one off, e.g. an instance
     whose Overpass mirror is unreliable and would rather trigger downloads by
     hand. See auto_download_tasks.py for the sweep that reads these.
     """
@@ -1175,37 +1174,11 @@ def site_auto_download_api(request):
     config.auto_download_roads = bool(data.get('auto_download_roads'))
     config.auto_download_subway = bool(data.get('auto_download_subway'))
     config.auto_download_pois = bool(data.get('auto_download_pois'))
-    config.auto_download_valhalla_tiles = bool(data.get('auto_download_valhalla_tiles'))
     config.save(update_fields=[
         'auto_download_roads', 'auto_download_subway', 'auto_download_pois',
-        'auto_download_valhalla_tiles', 'updated_at',
+        'updated_at',
     ])
     return JsonResponse({'ok': True})
-
-
-@login_required
-def valhalla_tiles_status_api(request):
-    """Current auto-detected Valhalla tile region state for the Admin Panel
-    card: which US states, and the exact tile_urls value to paste into .env."""
-    err = _require_admin(request)
-    if err:
-        return err
-    from . import valhalla_tiles_tasks
-    return JsonResponse(valhalla_tiles_tasks.get_status())
-
-
-@login_required
-@require_http_methods(["POST"])
-def valhalla_tiles_rescan_api(request):
-    """Manually trigger the same region-detection sync_regions() runs on its
-    own during the auto-download sweep. Cheap — a DB query against already-
-    geocoded Location rows, no Overpass call — so no job row/progress bar."""
-    err = _require_admin(request)
-    if err:
-        return err
-    from . import valhalla_tiles_tasks
-    added = valhalla_tiles_tasks.sync_regions()
-    return JsonResponse({'added': added, **valhalla_tiles_tasks.get_status()})
 
 
 @csrf_exempt
@@ -9275,7 +9248,6 @@ def admin_panel_view(request):
         'auto_download_roads': site_config.auto_download_roads,
         'auto_download_subway': site_config.auto_download_subway,
         'auto_download_pois': site_config.auto_download_pois,
-        'auto_download_valhalla_tiles': site_config.auto_download_valhalla_tiles,
     })
 
 
@@ -9859,7 +9831,6 @@ def profile_roads_config_api(request):
             'road_provider': profile.road_provider,
             'resolved': profile.road_provider_resolved,
             'osrm_url': profile.osrm_url,
-            'valhalla_url': profile.valhalla_url,
             'snap_to_roads': profile.snap_to_roads,
             'has_postgis': HAS_POSTGIS,
             'has_local_roads': RoadSegment.objects.exists() if HAS_POSTGIS else False,
@@ -9875,15 +9846,14 @@ def profile_roads_config_api(request):
         return JsonResponse({'error': 'Invalid request.'}, status=400)
 
     provider = (data.get('road_provider') or '').strip()
-    if provider not in ('', 'local', 'mapbox', 'osrm', 'valhalla'):
+    if provider not in ('', 'local', 'mapbox', 'osrm'):
         return JsonResponse({'error': 'Unknown road provider.'}, status=400)
     profile.road_provider = provider
     profile.osrm_url = (data.get('osrm_url') or '').strip().rstrip('/')[:300]
-    profile.valhalla_url = (data.get('valhalla_url') or '').strip().rstrip('/')[:300]
     profile.snap_to_roads = bool(data.get('snap_to_roads'))
 
     profile.save(update_fields=[
-        'road_provider', 'osrm_url', 'valhalla_url', 'snap_to_roads',
+        'road_provider', 'osrm_url', 'snap_to_roads',
     ])
     return JsonResponse({
         'ok': True,

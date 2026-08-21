@@ -1,4 +1,4 @@
-"""Road snapping and route reconstruction, with four interchangeable providers.
+"""Road snapping and route reconstruction, with three interchangeable providers.
 
 Two public entry points, both taking a UserProfile so provider choice is
 per-user:
@@ -22,15 +22,10 @@ UserProfile.road_provider_resolved):
   mapbox    Map Matching + Directions, using the token the user already has for
             basemaps. Capped at 100 coordinates per matching request.
   osrm      A configurable OSRM instance (self-hosted, or the public demo).
-            /match/v1 and /route/v1.
-  valhalla  A configurable Valhalla instance (self-hosted; there's no
-            equivalent of OSRM's public demo server). Meili — Valhalla's
-            map-matching engine — via /trace_attributes (shape_match:
-            map_snap), and /route for point-to-point gap routing. Deliberately
-            last in "auto": it's opt-in infrastructure a self-hoster stands up
-            and tile-builds on purpose, not something that's "just there" the
-            way local roads or an already-set Mapbox token are, so reaching it
-            via an explicit choice is the expected path.
+            /match/v1 and /route/v1. The escape hatch for anyone who wants a
+            proper HMM map matcher rather than the local snapper: /match/v1 is
+            exactly that, with a public demo server and a far simpler self-host
+            story than a tile-building routing stack.
 
 Every function degrades rather than raising at the caller: a failed snap returns
 the input unchanged, and a failed route lets the gap filler fall back to
@@ -254,9 +249,6 @@ def _profile_for(provider, mode):
     """Map a Location.transport_mode to the provider's routing profile."""
     if provider == 'mapbox':
         return {'walk': 'walking', 'cycle': 'cycling'}.get(mode, 'driving')
-    if provider == 'valhalla':
-        # Valhalla's costing model names.
-        return {'walk': 'pedestrian', 'cycle': 'bicycle'}.get(mode, 'auto')
     # OSRM's stock profile names.
     return {'walk': 'foot', 'cycle': 'bike'}.get(mode, 'driving')
 
@@ -313,8 +305,6 @@ def snap_points(profile, pts):
                 fresh = _local_snap(todo)
             elif provider == 'mapbox':
                 fresh = _mapbox_snap(profile, todo)
-            elif provider == 'valhalla':
-                fresh = _valhalla_snap(profile, todo)
             else:
                 fresh = _osrm_snap(profile, todo)
         except RoadProviderError:
@@ -359,8 +349,6 @@ def route_alternatives(profile, a, b, mode='', k=3, max_anchor_m=None):
         routes = _local_alternatives(a, b, mode, k, max_anchor_m)
     elif provider == 'mapbox':
         routes = _mapbox_routes(profile, a, b, mode, k)
-    elif provider == 'valhalla':
-        routes = _valhalla_routes(profile, a, b, mode, k)
     else:
         routes = _osrm_routes(profile, a, b, mode, k)
 
@@ -454,8 +442,6 @@ def route_between(profile, a, b, mode=''):
         return _local_route(a, b, mode)
     if provider == 'mapbox':
         return _mapbox_route(profile, a, b, mode)
-    if provider == 'valhalla':
-        return _valhalla_route(profile, a, b, mode)
     return _osrm_route(profile, a, b, mode)
 
 
@@ -1033,147 +1019,6 @@ def _osrm_route(profile, a, b, mode=''):
         return None
     coords = routes[0].get('geometry', {}).get('coordinates') or []
     return [(c[0], c[1]) for c in coords] or None
-
-
-# ---------------------------------------------------------------------------
-# Valhalla provider — Meili for map matching, /route for gap routing.
-#
-# Valhalla's action endpoints (trace_attributes, route, ...) are POST-only in
-# their own docs, but every one also accepts a plain GET with the request body
-# URL-encoded into a `json` query parameter — the "convenience" form of the
-# API. Reusing _get_json (GET-only, with this module's HTTP-error-to-English
-# translation already built in) via that form means no second HTTP helper is
-# needed just for this provider.
-# ---------------------------------------------------------------------------
-
-# Meili's own default is far higher than this; kept modest so one failed
-# request costs a bounded amount of retry work, same reasoning as the other
-# two providers' per-request coordinate caps.
-_VALHALLA_TRACE_MAX = 500
-
-
-def _valhalla_base(profile):
-    url = (profile.valhalla_url or '').strip().rstrip('/')
-    if not url:
-        raise RoadProviderError('No Valhalla URL is configured.')
-    return url
-
-
-def _decode_polyline6(encoded):
-    """Decode a Valhalla-encoded shape string into [(lng, lat), ...].
-
-    Same algorithm as Google's polyline encoding, but Valhalla uses 6 decimal
-    places of precision (divisor 1e6) where most other implementations
-    (including the one this format is usually associated with) use 5 — using
-    the wrong divisor doesn't error, it just silently returns coordinates off
-    by roughly 10x, so this is worth getting exactly right rather than reusing
-    a generic polyline library tuned for the more common precision.
-    """
-    coords = []
-    index = lat = lng = 0
-    length = len(encoded)
-    while index < length:
-        for is_lat in (True, False):
-            shift = result = 0
-            while True:
-                b = ord(encoded[index]) - 63
-                index += 1
-                result |= (b & 0x1f) << shift
-                shift += 5
-                if b < 0x20:
-                    break
-            delta = ~(result >> 1) if (result & 1) else (result >> 1)
-            if is_lat:
-                lat += delta
-            else:
-                lng += delta
-        coords.append((lng / 1e6, lat / 1e6))
-    return coords
-
-
-def _valhalla_snap(profile, pts):
-    base = _valhalla_base(profile)
-    prof = _profile_for('valhalla', '')
-    out = {}
-    for i in range(0, len(pts), _VALHALLA_TRACE_MAX):
-        chunk = pts[i:i + _VALHALLA_TRACE_MAX]
-        shape = []
-        for p in chunk:
-            pt = {'lat': p['lat'], 'lon': p['lng']}
-            if p.get('timestamp') is not None:
-                pt['time'] = int(p['timestamp'].timestamp())
-            if p.get('accuracy') is not None:
-                pt['accuracy'] = p['accuracy']
-            shape.append(pt)
-        body = {
-            'shape': shape,
-            'costing': prof,
-            'shape_match': 'map_snap',
-            'trace_options': {'search_radius': 50},
-        }
-        data = _get_json(f'{base}/trace_attributes', {'json': json.dumps(body)})
-        matched = data.get('matched_points') or []
-        for p, mp in zip(chunk, matched):
-            # Meili marks a point 'unmatched' when nothing within its search
-            # radius fit the trace — same "leave it alone" case as OSRM's null
-            # tracepoint entries.
-            if not mp or mp.get('type') == 'unmatched':
-                continue
-            lng, lat = mp.get('lon'), mp.get('lat')
-            if lng is None or lat is None:
-                continue
-            if _haversine_m(p['lng'], p['lat'], lng, lat) <= _snap_limit_m(p.get('accuracy')):
-                out[p['id']] = (lng, lat)
-    return out
-
-
-def _valhalla_route(profile, a, b, mode=''):
-    base = _valhalla_base(profile)
-    prof = _profile_for('valhalla', mode)
-    body = {
-        'locations': [{'lat': a[1], 'lon': a[0]}, {'lat': b[1], 'lon': b[0]}],
-        'costing': prof,
-    }
-    data = _get_json(f'{base}/route', {'json': json.dumps(body)})
-    legs = (data.get('trip') or {}).get('legs') or []
-    if not legs:
-        return None
-    shape = legs[0].get('shape')
-    if not shape:
-        return None
-    coords = _decode_polyline6(shape)
-    return coords if len(coords) >= 2 else None
-
-
-def _valhalla_routes(profile, a, b, mode='', k=3):
-    base = _valhalla_base(profile)
-    prof = _profile_for('valhalla', mode)
-    body = {
-        'locations': [{'lat': a[1], 'lon': a[0]}, {'lat': b[1], 'lon': b[0]}],
-        'costing': prof,
-        # Valhalla's own count of the primary trip, so ask for k-1 more.
-        'alternates': max(0, k - 1),
-    }
-    data = _get_json(f'{base}/route', {'json': json.dumps(body)})
-    trips = []
-    if data.get('trip'):
-        trips.append(data['trip'])
-    for alt in (data.get('alternates') or []):
-        if alt.get('trip'):
-            trips.append(alt['trip'])
-
-    out = []
-    for trip in trips[:k]:
-        legs = trip.get('legs') or []
-        if not legs:
-            continue
-        shape = legs[0].get('shape')
-        if not shape:
-            continue
-        coords = _decode_polyline6(shape)
-        if len(coords) >= 2:
-            out.append(coords)
-    return out
 
 
 # ---------------------------------------------------------------------------

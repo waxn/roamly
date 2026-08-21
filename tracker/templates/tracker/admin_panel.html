@@ -430,41 +430,6 @@
             </div>
         </div>
 
-        <div class="card" style="transition:none;">
-            <div class="card-header" style="display:flex;align-items:center;gap:0.4rem;">
-                Valhalla Tiles
-                <span class="badge badge-warning" style="font-size:0.65rem;">instance-wide</span>
-            </div>
-            <p class="settings-section-desc">
-                Optional self-hosted road-snapping/routing provider (the <code>valhalla</code>
-                service in <code>docker-compose.yml</code>). Unlike the three downloads above,
-                Roamly never calls Overpass for this — the Valhalla container downloads its own
-                OSM extracts and builds routing tiles itself, only when it (re)starts. This just
-                detects which US states anyone's location history covers and keeps the value
-                below current; applying a newly-detected region still needs a manual restart.
-            </p>
-            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8125rem;cursor:pointer;margin-bottom:0.75rem;">
-                <input type="checkbox" id="dl-valhalla-auto" {% if auto_download_valhalla_tiles %}checked{% endif %}
-                       onchange="dlToggleAuto('valhalla', this.checked)">
-                Auto-detect new regions (checks every few hours; a DB query only, no external calls)
-            </label>
-            <div class="settings-actions">
-                <button class="btn btn-primary btn-sm" id="valhalla-rescan-btn" onclick="valhallaRescan()">Rescan Now</button>
-            </div>
-            <div style="margin-top:0.75rem;">
-                <div id="valhalla-states" style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.5rem;">Loading…</div>
-                <label for="valhalla-tile-urls" style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">VALHALLA_TILE_URLS (paste into .env)</label>
-                <div style="display:flex;gap:0.5rem;align-items:flex-start;">
-                    <textarea id="valhalla-tile-urls" class="form-control" readonly rows="3"
-                        style="font-family:var(--font-mono);font-size:0.75rem;resize:vertical;flex:1;"></textarea>
-                    <button class="btn btn-outline btn-sm" onclick="copyValhallaUrls(event)">Copy</button>
-                </div>
-                <p class="settings-section-desc" style="margin-top:0.5rem;margin-bottom:0;">
-                    After updating <code>.env</code>: <code>sudo docker compose restart valhalla</code>
-                    to rebuild tiles for the new regions.
-                </p>
-            </div>
-        </div>
     </div>
 </div>
 {% endblock %}
@@ -1094,8 +1059,8 @@ const DL_JOBS = {
         startUrl: '/api/roads/download/', statusUrl: '/api/roads/download/status/',
         stopUrl: '/api/roads/download/stop/', deleteUrl: '/api/roads/delete/',
         deleteConfirm: 'Delete all downloaded road data for this instance?\n\n'
-            + 'Snapping and the editor\'s road routing will fall back to Mapbox, OSRM or '
-            + 'Valhalla (whichever is configured) until you download it again.',
+            + 'Snapping and the editor\'s road routing will fall back to Mapbox or OSRM '
+            + '(whichever is configured) until you download it again.',
         finishedMsg: (d, label) => `${label} — ${(d.ways || 0).toLocaleString()} new roads, `
             + `${(d.total_ways || 0).toLocaleString()} stored in total`,
         progressMsg: (d, eta) => `area ${d.processed.toLocaleString()}/${d.total.toLocaleString()}`
@@ -1292,8 +1257,8 @@ function dlDeletePoi() { dlDelete('poi'); }
 // for any of the three jobs that's already running (e.g. started by another
 // admin, or before a page reload).
 function dlToggleAuto(kind, checked) {
-    // Server takes all four flags together (SiteConfig has no per-field PATCH
-    // endpoint here), so always send the current state of all four checkboxes
+    // Server takes all three flags together (SiteConfig has no per-field PATCH
+    // endpoint here), so always send the current state of all three checkboxes
     // rather than just the one that changed.
     fetch('/api/site/auto-download/', {
         method: 'POST',
@@ -1302,61 +1267,8 @@ function dlToggleAuto(kind, checked) {
             auto_download_roads: document.getElementById('dl-roads-auto').checked,
             auto_download_subway: document.getElementById('dl-subway-auto').checked,
             auto_download_pois: document.getElementById('dl-poi-auto').checked,
-            auto_download_valhalla_tiles: document.getElementById('dl-valhalla-auto').checked,
         }),
     }).catch(() => {});
-}
-
-function renderValhallaStatus(data) {
-    const statesEl = document.getElementById('valhalla-states');
-    const urlsEl = document.getElementById('valhalla-tile-urls');
-    if (!data || !data.count) {
-        statesEl.textContent = 'No regions detected yet — nobody’s location history has a US state on it, or nothing has been scanned yet.';
-        urlsEl.value = '';
-        return;
-    }
-    statesEl.textContent = `${data.count} state${data.count === 1 ? '' : 's'} detected: ${data.states.join(', ')}`;
-    urlsEl.value = data.tile_urls;
-}
-
-function loadValhallaStatus() {
-    fetch('/api/admin/valhalla-tiles/')
-        .then(r => { if (r.ok) return r.json(); })
-        .then(data => { if (data) renderValhallaStatus(data); })
-        .catch(() => {});
-}
-
-function valhallaRescan() {
-    const btn = document.getElementById('valhalla-rescan-btn');
-    btn.disabled = true;
-    fetch('/api/admin/valhalla-tiles/rescan/', {
-        method: 'POST',
-        headers: { 'X-CSRFToken': getCookie('csrftoken') },
-    })
-        .then(r => { if (r.ok) return r.json(); })
-        .then(data => {
-            if (data) {
-                renderValhallaStatus(data);
-                if (window.roamlyToast) {
-                    roamlyToast(data.added
-                        ? `${data.added} new region${data.added === 1 ? '' : 's'} detected.`
-                        : 'No new regions.', { type: 'success' });
-                }
-            }
-        })
-        .catch(() => {})
-        .finally(() => { btn.disabled = false; });
-}
-
-function copyValhallaUrls(event) {
-    const val = document.getElementById('valhalla-tile-urls').value;
-    if (!val) return;
-    navigator.clipboard.writeText(val).then(() => {
-        const btn = event.target;
-        const orig = btn.textContent;
-        btn.textContent = 'Copied!';
-        setTimeout(() => { btn.textContent = orig; }, 1500);
-    });
 }
 
 function loadDownloads() {
@@ -1372,7 +1284,6 @@ function loadDownloads() {
             })
             .catch(() => {});
     });
-    loadValhallaStatus();
 }
 
 // ── CSRF ───────────────────────────────────────────────────────────────────
