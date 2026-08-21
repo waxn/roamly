@@ -394,10 +394,18 @@ class DownloadedRegion(models.Model):
     or "city|state" for kind='poi', which selects by city centroid rather
     than grid cell (see poi_tasks.py).
 
+    kind='valhalla' is a different flavor: `key` is a US state name, and a
+    row means "included in the tile_urls list we've shown the admin" rather
+    than "actually fetched" — Django never downloads Valhalla's tiles itself
+    (see valhalla_tiles_tasks.py); the self-hosted Valhalla container does
+    that from tile_urls on its own next restart. There's no automatic way to
+    confirm the admin restarted it, same as any other "needs a rebuild" step
+    in this app.
+
     Instance-wide reference data, like the tables it tracks coverage for
     (no user FK) ⇒ excluded from backups.
     """
-    KIND_CHOICES = [('road', 'Road'), ('subway', 'Subway'), ('poi', 'POI')]
+    KIND_CHOICES = [('road', 'Road'), ('subway', 'Subway'), ('poi', 'POI'), ('valhalla', 'Valhalla')]
     kind = models.CharField(max_length=10, choices=KIND_CHOICES)
     key = models.CharField(max_length=200)
 
@@ -1102,8 +1110,11 @@ class UserProfile(models.Model):
     # map-matching engine, is a proper HMM-based matcher — generally more
     # robust than the local provider's nearest-edge+Viterbi-lite snapper in
     # dense grids with parallel roads — at the cost of running and maintaining
-    # a whole separate service with its own regional tile build.
-    valhalla_url = models.CharField(max_length=300, blank=True, default='')
+    # a whole separate service with its own regional tile build. Defaults to
+    # the optional docker-compose service's own internal address, matching
+    # its container/service name and port — so a self-hoster who runs that
+    # service never has to type a URL, just flip road_provider to 'valhalla'.
+    valhalla_url = models.CharField(max_length=300, blank=True, default='http://valhalla:8002')
     # Display-only: snapped coordinates are cached, never written to Location.
     snap_to_roads = models.BooleanField(default=False)
 
@@ -1234,6 +1245,13 @@ class SiteConfig(models.Model):
     auto_download_roads = models.BooleanField(default=True)
     auto_download_subway = models.BooleanField(default=True)
     auto_download_pois = models.BooleanField(default=True)
+    # Auto-detect newly-visited US states for the optional self-hosted
+    # Valhalla service's tile_urls list (see valhalla_tiles_tasks.py). Unlike
+    # the three above, this never touches Overpass or downloads anything
+    # itself — it only keeps DownloadedRegion(kind='valhalla') and the Admin
+    # Panel's displayed tile_urls value current; applying a new region still
+    # needs the admin to restart the valhalla container.
+    auto_download_valhalla_tiles = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     @classmethod
