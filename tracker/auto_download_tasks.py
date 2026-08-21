@@ -1,4 +1,5 @@
-"""Background scheduler that starts road/subway/POI downloads automatically.
+"""Background scheduler that starts road/subway/POI downloads automatically,
+plus Valhalla tile-region detection.
 
 Downloads (see the admin panel's Downloads tab) used to require an admin to
 notice someone had travelled somewhere new and click a button. This sweeps
@@ -14,6 +15,15 @@ DownloadedRegion for that kind — so a sweep that finds nothing new costs one
 DB scan and zero Overpass requests. That's what makes running this
 unattended, on a timer, safe by default: an instance whose travel history is
 already fully covered barely notices it running.
+
+A fourth, differently-shaped check (SiteConfig.auto_download_valhalla_tiles)
+detects newly-visited US states for the optional self-hosted Valhalla
+service's tile_urls list — see valhalla_tiles_tasks.py. It's not a download
+at all (no Overpass call, no background thread): Valhalla's own image
+downloads its OSM extracts and builds tiles itself, only on container
+(re)start, so the most this sweep can do automatically is keep the detected
+region list current — applying it still needs the admin to update .env and
+restart the container.
 
 Mirrors the daemon-thread pattern in log_cleanup_tasks.py: one long-lived
 thread, close_old_connections() each pass (no request cycle to recycle the
@@ -109,14 +119,26 @@ def _maybe_start_poi():
     start_poi_download()
 
 
+def _maybe_sync_valhalla_regions():
+    """Unlike the other three, this is a plain DB query against already-
+    geocoded Location rows — no Overpass call, no background thread, nothing
+    that can be "already running" — so it just runs inline rather than
+    through the job-row/thread machinery the other three need."""
+    from . import valhalla_tiles_tasks
+    added = valhalla_tiles_tasks.sync_regions()
+    if added:
+        logger.info('auto-download: %d new Valhalla tile region(s) detected '
+                    '(admin restart still required to apply)', added)
+
+
 def _do_sweep():
     from .models import SiteConfig
 
     config = SiteConfig.load()
     # Sequential, not parallel: each start_*_download() call only blocks long
     # enough to kick its own background thread and returns immediately, and
-    # running the three checks one after another naturally staggers whatever
-    # Overpass load they do end up generating instead of bursting all three
+    # running the checks one after another naturally staggers whatever
+    # Overpass load they do end up generating instead of bursting them all
     # at once.
     if config.auto_download_roads:
         try:
@@ -133,6 +155,11 @@ def _do_sweep():
             _maybe_start_poi()
         except Exception:
             logger.exception('auto-download: POI check failed')
+    if config.auto_download_valhalla_tiles:
+        try:
+            _maybe_sync_valhalla_regions()
+        except Exception:
+            logger.exception('auto-download: Valhalla region check failed')
 
 
 def _run_scheduler():
