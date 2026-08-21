@@ -1116,7 +1116,15 @@ class UserProfile(models.Model):
     # service never has to type a URL, just flip road_provider to 'valhalla'.
     valhalla_url = models.CharField(max_length=300, blank=True, default='http://valhalla:8002')
     # Display-only: snapped coordinates are cached, never written to Location.
-    snap_to_roads = models.BooleanField(default=False)
+    # Defaults ON (migration 0071 also flips every pre-existing profile) because
+    # this is the master switch for the whole snap pipeline — point-mode snapping
+    # *and* Trip Lines' road-following curvature — and defaulting it off meant the
+    # feature was silently inert for every account until someone found a checkbox
+    # buried under a provider dropdown. It is harmless when there is nothing
+    # behind it: road_provider_resolved gates every consumer, so an account with
+    # no downloaded roads and no external provider behaves exactly as before and
+    # starts snapping by itself the moment a provider becomes available.
+    snap_to_roads = models.BooleanField(default=True)
 
     # TOTP two-factor auth — an alternate 2FA method to the emailed new-device
     # code above, and independent of it: works with no SMTP configured, and
