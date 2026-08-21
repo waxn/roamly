@@ -1740,6 +1740,12 @@ const ROAD_PROVIDER_LABELS = {
     osrm: 'your OSRM instance',
 };
 
+// The roads-config endpoint saves the whole card at once, so nothing may POST
+// before the initial GET has filled the provider fields — an early click on the
+// autosaving master switch would otherwise write back empty strings and wipe a
+// configured OSRM URL. The switch is disabled until the load lands.
+let _roadsConfigLoaded = false;
+
 function _roadsConfigPayload() {
     return {
         road_provider: document.getElementById('road-provider').value,
@@ -1780,6 +1786,7 @@ function _roadsResolvedNote(resolved, totalWays) {
 // The master switch autosaves. A checkbox that needs a separate Save press is
 // most of why this feature went unnoticed: it looked set once ticked.
 function onSnapMasterChange() {
+    if (!_roadsConfigLoaded) return;
     const status = document.getElementById('roads-config-status');
     status.textContent = 'saving…';
     status.style.color = 'var(--text-muted)';
@@ -1803,6 +1810,7 @@ function onSnapMasterChange() {
 }
 
 function saveRoadsConfig() {
+    if (!_roadsConfigLoaded) return;
     const status = document.getElementById('roads-config-status');
     status.textContent = 'saving…';
     status.style.color = 'var(--text-muted)';
@@ -1824,6 +1832,7 @@ function saveRoadsConfig() {
     .catch(() => { status.textContent = 'save failed.'; status.style.color = 'var(--danger)'; });
 }
 
+document.getElementById('snap-to-roads').disabled = true;
 fetch('/api/profile/roads-config/')
     .then(r => { if (r.ok) return r.json(); })
     .then(d => {
@@ -1831,6 +1840,8 @@ fetch('/api/profile/roads-config/')
         document.getElementById('road-provider').value = d.road_provider || '';
         document.getElementById('osrm-url').value = d.osrm_url || '';
         document.getElementById('snap-to-roads').checked = !!d.snap_to_roads;
+        document.getElementById('snap-to-roads').disabled = false;
+        _roadsConfigLoaded = true;
         _roadsResolvedNote(d.resolved, d.total_ways);
     })
     .catch(() => {});
@@ -1910,6 +1921,9 @@ function _refreshTripLinesPrereqList() {
 }
 
 function tripLinesFixEnableSnap() {
+    // Same whole-card-POST caveat as onSnapMasterChange: don't write back
+    // provider fields that haven't been loaded yet.
+    if (!_roadsConfigLoaded) return;
     document.getElementById('snap-to-roads').checked = true;
     fetch('/api/profile/roads-config/', {
         method: 'POST',
