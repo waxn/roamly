@@ -5959,52 +5959,114 @@ def geocode_stop(request):
 # Export / Import
 # ---------------------------------------------------------------------------
 
+class _EchoBuffer:
+    """A write-only file-like object that returns what it was handed.
+
+    ``csv.writer`` insists on a file-like target, but a streaming export must
+    never let one accumulate — so this returns each formatted line to the
+    caller instead of storing it.
+    """
+
+    def write(self, value):
+        return value
+
+
 @login_required
 def export_csv(request):
-    """Export locations as CSV."""
-    locations = Location.objects.filter(device__user=request.user).select_related('device').order_by('timestamp')
+    """Stream locations as CSV.
 
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = 'attachment; filename="roamly_export.csv"'
+    Deliberately streamed rather than built up in an ``HttpResponse`` body: a
+    real history is hundreds of thousands of rows, and materialising every
+    ``Location`` model instance plus the whole CSV string before sending the
+    first byte was enough to push a gunicorn worker into the OOM killer — the
+    request never returned and the tunnel in front of it reported a 502. The
+    generator below holds one chunk at a time, and ``values_list`` +
+    ``iterator()`` keeps the ORM from instantiating (or caching) models at all.
+    """
+    rows = (
+        Location.objects.filter(device__user=request.user)
+        .order_by('timestamp')
+        .values_list(
+            'device__device_id', 'latitude', 'longitude', 'altitude', 'accuracy',
+            'speed', 'battery', 'timestamp', 'city', 'state', 'country', 'country_code',
+        )
+    )
 
-    writer = csv.writer(response)
-    writer.writerow([
-        'device', 'latitude', 'longitude', 'altitude', 'accuracy',
-        'speed', 'battery', 'timestamp', 'city', 'state', 'country', 'country_code',
-    ])
-    for loc in locations:
-        writer.writerow([
-            loc.device.device_id, loc.latitude, loc.longitude,
-            loc.altitude or '', loc.accuracy or '', loc.speed or '',
-            loc.battery or '', loc.timestamp.isoformat(),
-            loc.city, loc.state, loc.country, loc.country_code,
+    def gen():
+        # csv.writer needs a file-like object; this one just hands the formatted
+        # line straight back so nothing accumulates.
+        buf = _EchoBuffer()
+        writer = csv.writer(buf)
+        yield writer.writerow([
+            'device', 'latitude', 'longitude', 'altitude', 'accuracy',
+            'speed', 'battery', 'timestamp', 'city', 'state', 'country', 'country_code',
         ])
+        chunk = []
+        for (device_id, lat, lon, alt, acc, speed, battery,
+             ts, city, state, country, cc) in rows.iterator(chunk_size=5000):
+            chunk.append(writer.writerow([
+                device_id, lat, lon,
+                alt if alt is not None else '', acc if acc is not None else '',
+                speed if speed is not None else '', battery if battery is not None else '',
+                ts.isoformat() if ts else '', city, state, country, cc,
+            ]))
+            # Yielding per row would push ~400k tiny chunks through gzip and the
+            # WSGI server; batching keeps the syscall count sane.
+            if len(chunk) >= 2000:
+                yield ''.join(chunk)
+                chunk = []
+        if chunk:
+            yield ''.join(chunk)
+
+    response = StreamingHttpResponse(gen(), content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="roamly_export.csv"'
+    response['Cache-Control'] = 'no-store'
+    response['X-Accel-Buffering'] = 'no'  # let chunks flush past nginx buffering
     return response
 
 
 @login_required
 def export_gpx(request):
-    """Export locations as GPX."""
-    locations = Location.objects.filter(device__user=request.user).order_by('timestamp')
+    """Stream locations as GPX 1.1.
 
-    gpx_lines = [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        '<gpx version="1.1" creator="Roamly">',
-        '  <trk>',
-        '    <name>Roamly Export</name>',
-        '    <trkseg>',
-    ]
-    for loc in locations:
-        ele = f'      <ele>{loc.altitude}</ele>' if loc.altitude else ''
-        gpx_lines.append(f'      <trkpt lat="{loc.latitude}" lon="{loc.longitude}">')
-        if ele:
-            gpx_lines.append(ele)
-        gpx_lines.append(f'        <time>{loc.timestamp.isoformat()}</time>')
-        gpx_lines.append('      </trkpt>')
-    gpx_lines += ['    </trkseg>', '  </trk>', '</gpx>']
+    Streamed for the same reason as :func:`export_csv` — the old version built
+    one list of every line and then joined it, so a large history was held in
+    memory twice over before a single byte was sent.
+    """
+    rows = (
+        Location.objects.filter(device__user=request.user)
+        .order_by('timestamp')
+        .values_list('latitude', 'longitude', 'altitude', 'timestamp')
+    )
 
-    response = HttpResponse('\n'.join(gpx_lines), content_type='application/gpx+xml')
+    def gen():
+        yield (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<gpx version="1.1" creator="Roamly">\n'
+            '  <trk>\n'
+            '    <name>Roamly Export</name>\n'
+            '    <trkseg>\n'
+        )
+        chunk = []
+        for lat, lon, alt, ts in rows.iterator(chunk_size=5000):
+            parts = [f'      <trkpt lat="{lat}" lon="{lon}">\n']
+            if alt is not None:
+                parts.append(f'        <ele>{alt}</ele>\n')
+            if ts:
+                parts.append(f'        <time>{ts.isoformat()}</time>\n')
+            parts.append('      </trkpt>\n')
+            chunk.append(''.join(parts))
+            if len(chunk) >= 2000:
+                yield ''.join(chunk)
+                chunk = []
+        if chunk:
+            yield ''.join(chunk)
+        yield '    </trkseg>\n  </trk>\n</gpx>\n'
+
+    response = StreamingHttpResponse(gen(), content_type='application/gpx+xml')
     response['Content-Disposition'] = 'attachment; filename="roamly_export.gpx"'
+    response['Cache-Control'] = 'no-store'
+    response['X-Accel-Buffering'] = 'no'
     return response
 
 
