@@ -1091,6 +1091,24 @@ class UserProfile(models.Model):
     # same trick as Adventure.invite_token.
     email_unsub_token = models.CharField(max_length=32, unique=True, null=True, blank=True)
 
+    # "No data" tracking alert (see tracker/alert_tasks.py). Opt-in, SMTP-gated
+    # and — unlike the summary emails above — independent of the AI provider,
+    # since this is a plain operational notice with nothing to narrate. Fires
+    # when *no* device on the account has reported a fix for
+    # alert_no_data_hours, which is the failure users actually care about: a
+    # phone that silently stopped tracking. Deliberately account-wide rather
+    # than per-device — a retired device that will never report again would
+    # otherwise alert forever.
+    alert_no_data_enabled = models.BooleanField(default=False)
+    alert_no_data_hours = models.PositiveIntegerField(default=3)
+    # Dedupe cursor: the timestamp of the newest fix at the moment the alert
+    # went out. One email per outage — the sweep skips a user whose newest fix
+    # is still the one already alerted about, and re-arms by itself as soon as
+    # a newer point lands (tracking resumed, so the next silence is a new
+    # outage). No separate "recovered" flag to keep in sync.
+    alert_no_data_last_point = models.DateTimeField(null=True, blank=True)
+    alert_no_data_sent_at = models.DateTimeField(null=True, blank=True)
+
     # Roads: snap-to-road rendering + tracking-gap filling (see tracker/roads.py).
     # Provider is server-side rather than a localStorage map pref because the
     # provider config has to live here anyway and the nightly sweep needs a

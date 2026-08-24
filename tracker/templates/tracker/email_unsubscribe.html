@@ -58,8 +58,10 @@
             <a class="btn" href="{% url 'tracker:login' %}">go to Roamly</a>
             {% else %}
             <div class="heading">Email preferences</div>
-            <p class="lede">Choose which Roamly recap emails you'd like to receive at {{ profile.user.email }}.</p>
-            {% if one_click_period %}
+            <p class="lede">Choose which Roamly emails you'd like to receive at {{ profile.user.email }}.</p>
+            {% if one_click_period == 'alerts' %}
+            <div class="banner">You've been unsubscribed from tracking alerts.</div>
+            {% elif one_click_period %}
             <div class="banner">You've been unsubscribed from {{ one_click_period }} recaps.</div>
             {% elif saved %}
             <div class="banner saved">Your preferences have been saved.</div>
@@ -81,6 +83,10 @@
                 <div class="field">
                     <input type="checkbox" id="summary_yearly" name="summary_yearly" {% if profile.summary_yearly %}checked{% endif %}>
                     <label for="summary_yearly">Yearly recap<span class="sub">Jan 1st, your year in review</span></label>
+                </div>
+                <div class="field">
+                    <input type="checkbox" id="alert_no_data_enabled" name="alert_no_data_enabled" {% if profile.alert_no_data_enabled %}checked{% endif %}>
+                    <label for="alert_no_data_enabled">Tracking alerts<span class="sub">If no location data arrives for {{ profile.alert_no_data_hours }}h</span></label>
                 </div>
                 <button type="submit" class="btn primary">Save preferences</button>
             </form>

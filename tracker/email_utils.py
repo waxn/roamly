@@ -372,6 +372,89 @@ def send_summary_email(to_email, *, period_label, heading, narrative_paras,
     return _send(subject, text, html, to_email)
 
 
+def send_no_data_alert_email(to_email, *, silent_for, last_point_at=None,
+                            device_name='', threshold_label='', map_url=None,
+                            settings_url=None, unsubscribe_url=None,
+                            is_test=False):
+    """Alert the user that no device has reported a location fix in a while.
+
+    ``silent_for`` is a pre-formatted human duration ("4h 20m"), ``threshold_label``
+    the configured trigger ("3 hours"), ``last_point_at`` a formatted local
+    timestamp of the newest fix (None when the account has never logged one).
+    ``device_name`` names the device that reported it. ``is_test`` re-words the
+    lead so a preview send from Settings is never mistaken for a real outage.
+
+    Unlike the recap emails this carries no AI narrative and no stats — it is an
+    operational notice, and the useful content is entirely "when did tracking
+    stop, and on which device".
+    """
+    subject = ('Roamly test alert: tracking check'
+               if is_test else 'Roamly alert: no location data received')
+    heading = 'Tracking check' if is_test else 'Tracking may have stopped'
+    if is_test:
+        lead = (
+            'This is a <b style="color:%s;">test</b> of your Roamly tracking alert. '
+            'Here\'s what a real one would look like, using your current data.' % _TEXT
+        )
+        text_lead = ("This is a test of your Roamly tracking alert, using your "
+                     "current data.")
+    else:
+        lead = (
+            'Roamly hasn\'t received any location data from your devices for '
+            f'<b style="color:{_TEXT};">{escape(silent_for)}</b>. If you expected to be '
+            'tracking, it\'s worth checking that the app is still running and has '
+            'background location permission.'
+        )
+        text_lead = (f"Roamly hasn't received any location data from your devices "
+                     f"for {silent_for}. If you expected to be tracking, check that "
+                     f"the app is still running and has background location permission.")
+
+    rows = [("Silent for", silent_for)]
+    if threshold_label:
+        rows.append(("Alerts after", threshold_label))
+
+    body = _p(lead) + _stat_grid(rows)
+    if last_point_at:
+        detail = f'Last fix: <b style="color:{_TEXT};">{escape(last_point_at)}</b>'
+        if device_name:
+            detail += f' from {escape(device_name)}'
+        body += _p(detail)
+    else:
+        body += _p('No location fixes have ever been recorded on this account.')
+    if map_url:
+        body += _button('Open your map', map_url)
+    if settings_url:
+        body += (
+            f'<p style="margin:{"-10px" if map_url else "18px"} 0 4px 0;">'
+            f'{_link("Change alert settings \u2192", settings_url)}</p>'
+        )
+    if unsubscribe_url:
+        body += (
+            f'<p style="margin:18px 0 0 0;font-family:{_SANS};font-size:12px;color:{_DIM};">'
+            f'Don\'t want these? <a href="{escape(unsubscribe_url)}" target="_blank" '
+            f'style="color:{_DIM};text-decoration:underline;">Manage email preferences</a></p>'
+        )
+
+    text_lines = [heading, '', text_lead, '']
+    text_lines += [f'{label}: {value}' for label, value in rows]
+    if last_point_at:
+        text_lines.append('Last fix: ' + last_point_at
+                          + (f' from {device_name}' if device_name else ''))
+    else:
+        text_lines.append('No location fixes have ever been recorded on this account.')
+    if map_url:
+        text_lines += ['', f'Open your map: {map_url}']
+    if settings_url:
+        text_lines += ['', f'Change alert settings: {settings_url}']
+    if unsubscribe_url:
+        text_lines += ['', f'Manage email preferences: {unsubscribe_url}']
+    text = '\n'.join(text_lines)
+    html = _shell(heading, body, preheader=(
+        'Test of your Roamly tracking alert' if is_test
+        else f'No location data for {silent_for}'))
+    return _send(subject, text, html, to_email)
+
+
 def send_password_reset_email(to_email, reset_url, username=''):
     """Email a password-reset link."""
     subject = 'Reset your Roamly password'

@@ -1053,6 +1053,12 @@ def settings_view(request):
         'summary_weekly': profile.summary_weekly,
         'summary_monthly': profile.summary_monthly,
         'summary_yearly': profile.summary_yearly,
+        # Tracking alerts — need SMTP + an address on the account, but (unlike
+        # the recap emails above) no AI provider.
+        'alerts_available': bool(email_enabled() and request.user.email),
+        'alert_no_data_enabled': profile.alert_no_data_enabled,
+        'alert_no_data_hours': profile.alert_no_data_hours,
+        'alert_hour_choices': _alert_hour_choices(profile.alert_no_data_hours),
         # TOTP two-factor auth
         'totp_enabled': profile.totp_enabled,
         'totp_backup_remaining': (
@@ -1268,6 +1274,10 @@ def profile_ai_config_api(request):
 
 
 _SUMMARY_PERIODS = ('daily', 'weekly', 'monthly', 'yearly')
+# The ?period= value the tracking-alert email uses for one-click unsubscribe.
+# Not a cadence — alerts have no schedule — so it's kept out of _SUMMARY_PERIODS
+# rather than bolted onto a tuple that drives summary_* field names.
+_ALERTS_PERIOD = 'alerts'
 
 
 @require_http_methods(["GET", "POST"])
@@ -1296,11 +1306,20 @@ def email_unsubscribe_view(request, token):
     if request.method == 'POST':
         for period in _SUMMARY_PERIODS:
             setattr(profile, f'summary_{period}', bool(request.POST.get(f'summary_{period}')))
-        profile.save(update_fields=[f'summary_{p}' for p in _SUMMARY_PERIODS])
+        # Tracking alerts ride on the same preferences page — a recipient acting
+        # from their inbox shouldn't have to know which of the two systems sent
+        # the mail they're trying to switch off.
+        profile.alert_no_data_enabled = bool(request.POST.get('alert_no_data_enabled'))
+        profile.save(update_fields=[f'summary_{p}' for p in _SUMMARY_PERIODS]
+                     + ['alert_no_data_enabled'])
         saved = True
     else:
         one_click = request.GET.get('period')
-        if one_click in _SUMMARY_PERIODS and getattr(profile, f'summary_{one_click}'):
+        if one_click == _ALERTS_PERIOD and profile.alert_no_data_enabled:
+            profile.alert_no_data_enabled = False
+            profile.save(update_fields=['alert_no_data_enabled'])
+            saved = True
+        elif one_click in _SUMMARY_PERIODS and getattr(profile, f'summary_{one_click}'):
             setattr(profile, f'summary_{one_click}', False)
             profile.save(update_fields=[f'summary_{one_click}'])
             saved = True
@@ -1355,6 +1374,103 @@ def profile_summary_email_api(request):
         'summary_daily', 'summary_weekly', 'summary_monthly', 'summary_yearly',
     ])
     return JsonResponse({'ok': True, 'available': available})
+
+
+_ALERT_HOUR_PRESETS = (1, 2, 3, 6, 12, 24, 48, 72, 168)
+
+
+def _alert_hour_choices(current):
+    """``[{value, label, selected}]`` for the alert-threshold dropdown.
+
+    Built server-side rather than hardcoded in the template so a stored value
+    outside the preset list (set by hand, or left behind by a future change to
+    the presets) still appears and stays selected. Without that the browser
+    would silently fall back to the first option, and the card's autosave would
+    then quietly rewrite the user's threshold to 1 hour.
+    """
+    hours = set(_ALERT_HOUR_PRESETS)
+    if current:
+        hours.add(int(current))
+    hours = sorted(hours)
+
+    def _label(h):
+        if h == 1:
+            return '1 hour'
+        if h % 24 == 0 and h >= 24:
+            days = h // 24
+            if days == 7:
+                return '1 week'
+            return '1 day' if days == 1 else f'{days} days'
+        return f'{h} hours'
+
+    return [{'value': h, 'label': _label(h), 'selected': h == current} for h in hours]
+
+
+@login_required
+def profile_alerts_api(request):
+    """GET: the user's no-data alert config + whether the feature is available
+    (SMTP configured and the account has an email address). POST: save the
+    toggle + threshold, or (with ``test`` set) fire an immediate test send.
+
+    Unlike profile_summary_email_api this does NOT require AI Ask — the alert is
+    a plain operational notice with nothing to narrate. See tracker/alert_tasks.py."""
+    from . import alert_tasks
+
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    available = bool(email_enabled() and request.user.email)
+
+    if request.method != 'POST':
+        last_ts, device_name = (None, '')
+        if available:
+            last_ts, device_name = alert_tasks.latest_fix(request.user)
+        return JsonResponse({
+            'available': available,
+            'email_enabled': email_enabled(),
+            'has_email': bool(request.user.email),
+            'alert_no_data_enabled': profile.alert_no_data_enabled,
+            'alert_no_data_hours': profile.alert_no_data_hours,
+            'last_point': last_ts.isoformat() if last_ts else None,
+            'last_point_device': device_name,
+            'last_alert_sent': (profile.alert_no_data_sent_at.isoformat()
+                                if profile.alert_no_data_sent_at else None),
+            'min_hours': alert_tasks.MIN_HOURS,
+            'max_hours': alert_tasks.MAX_HOURS,
+        })
+
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+
+    # Test send: fire one alert immediately against the user's real current data
+    # (bypasses the enabled flag, threshold and per-outage dedupe; no cursor change).
+    if data.get('test'):
+        if not available:
+            return JsonResponse(
+                {'error': 'Alerts need SMTP configured and an email address on your account.'},
+                status=400)
+        alert_tasks.send_alert_now(request.user.id)
+        return JsonResponse({'ok': True, 'test': True})
+
+    enabled = bool(data.get('alert_no_data_enabled'))
+    hours = alert_tasks.clamp_hours(data.get('alert_no_data_hours'),
+                                    default=profile.alert_no_data_hours)
+    fields = ['alert_no_data_enabled', 'alert_no_data_hours']
+    # Re-arm on any config change: a threshold the user just lowered (or an alert
+    # they just switched back on) should be evaluated against the current outage
+    # from scratch, not suppressed by a cursor left over from the old settings.
+    if enabled != profile.alert_no_data_enabled or hours != profile.alert_no_data_hours:
+        profile.alert_no_data_last_point = None
+        fields.append('alert_no_data_last_point')
+    profile.alert_no_data_enabled = enabled
+    profile.alert_no_data_hours = hours
+    profile.save(update_fields=fields)
+    return JsonResponse({
+        'ok': True,
+        'available': available,
+        'alert_no_data_enabled': profile.alert_no_data_enabled,
+        'alert_no_data_hours': profile.alert_no_data_hours,
+    })
 
 
 @login_required

@@ -30,6 +30,11 @@ class TrackerConfig(AppConfig):
             except Exception:
                 pass
             try:
+                from .alert_tasks import start_alert_scheduler
+                start_alert_scheduler()
+            except Exception:
+                pass
+            try:
                 from .log_cleanup_tasks import start_log_cleanup_scheduler
                 start_log_cleanup_scheduler()
             except Exception:

@@ -916,6 +916,59 @@
         </div>
 
 
+        <!-- Tracking Alerts (per-user) -->
+        <div class="card settings-span-12">
+            <div class="card-header" style="display:flex;align-items:center;gap:0.4rem;">
+                Tracking Alerts
+                <span class="badge" style="font-size:0.65rem;">per-account</span>
+            </div>
+            <p class="settings-section-desc">
+                Get an email if Roamly <strong>stops receiving location data</strong> — a good way to catch a phone
+                that's quietly stopped tracking after an OS update or a battery optimisation kicked in.
+            </p>
+            {% if alerts_available %}
+            <p class="settings-section-desc" style="margin-top:-0.4rem;">
+                Sent to <strong>{{ user.email }}</strong>. You'll get <strong>one email per outage</strong> — the next
+                one only after tracking resumes and stops again.
+            </p>
+
+            <label class="alert-master" style="display:flex;align-items:center;gap:0.6rem;font-size:0.9rem;cursor:pointer;padding:0.7rem 0.85rem;border:1px solid var(--primary);background:var(--primary-soft);margin-bottom:0.9rem;">
+                <input type="checkbox" id="alert-no-data-enabled" {% if alert_no_data_enabled %}checked{% endif %} onchange="saveAlertConfig()">
+                <span>
+                    <strong>Alert me when tracking stops</strong>
+                    <span style="display:block;color:var(--text-muted);font-size:0.8rem;margin-top:0.1rem;">Checked every 15 minutes</span>
+                </span>
+            </label>
+
+            <div class="pref-grid" style="margin-bottom:0.85rem;">
+                <div>
+                    <label style="font-size:0.8125rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">Alert me after no data for</label>
+                    <select id="alert-no-data-hours" class="form-control" onchange="saveAlertConfig()">
+                        {% for choice in alert_hour_choices %}
+                        <option value="{{ choice.value }}" {% if choice.selected %}selected{% endif %}>{{ choice.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <p id="alert-last-point" class="settings-section-desc" style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.5rem;"></p>
+
+            <div class="settings-actions" style="margin-top:0.25rem;">
+                <button class="btn btn-outline btn-sm" onclick="sendAlertTest()">Send test</button>
+                <span id="alert-config-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+            </div>
+            {% else %}
+            <p class="settings-section-desc" style="color:var(--text-muted);">
+                Tracking alerts need
+                <strong>{% if email_enabled %}✓{% else %}✗{% endif %} email delivery</strong>
+                (SMTP, configured by the instance admin) and
+                <strong>{% if user.email %}✓{% else %}✗{% endif %} an email address on your account</strong>.
+                Once both are ready, the options appear here.
+            </p>
+            {% endif %}
+        </div>
+
+
         <!-- GPSLogger Setup -->
         <div class="card settings-span-12">
             <div class="card-header">GPSLogger for Android Setup</div>
@@ -2092,6 +2145,64 @@ function sendSummaryTest() {
     })
     .catch(() => { status.textContent = 'test failed.'; status.style.color = 'var(--danger)'; });
 }
+
+// ── Tracking alerts ("no data received") ────────────────────────────────────
+// Both controls autosave on change — the whole point of this card is a switch
+// that's actually on when it looks on, so there's no Save button to forget.
+function saveAlertConfig() {
+    const status = document.getElementById('alert-config-status');
+    if (!status) return;
+    status.textContent = 'saving…'; status.style.color = 'var(--text-muted)';
+    fetch('/api/profile/alerts/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            alert_no_data_enabled: !!document.getElementById('alert-no-data-enabled')?.checked,
+            alert_no_data_hours: parseInt(document.getElementById('alert-no-data-hours')?.value, 10) || 3,
+        }),
+    })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+        if (ok && d.ok) { status.textContent = 'saved.'; status.style.color = 'var(--success)'; }
+        else { status.textContent = d.error || 'save failed.'; status.style.color = 'var(--danger)'; }
+    })
+    .catch(() => { status.textContent = 'save failed.'; status.style.color = 'var(--danger)'; });
+}
+function sendAlertTest() {
+    const status = document.getElementById('alert-config-status');
+    status.textContent = 'sending test…'; status.style.color = 'var(--text-muted)';
+    fetch('/api/profile/alerts/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ test: true }),
+    })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+        if (ok && d.ok) { status.textContent = 'test sent — check your inbox.'; status.style.color = 'var(--success)'; }
+        else { status.textContent = d.error || 'test failed.'; status.style.color = 'var(--danger)'; }
+    })
+    .catch(() => { status.textContent = 'test failed.'; status.style.color = 'var(--danger)'; });
+}
+// Show when the last fix actually landed, so "no alerts yet" is distinguishable
+// from "alerts are broken" without having to open the map.
+function loadAlertStatus() {
+    const el = document.getElementById('alert-last-point');
+    if (!el) return;
+    fetch('/api/profile/alerts/')
+        .then(r => r.json())
+        .then(d => {
+            if (!d.last_point) { el.textContent = 'No location data has been recorded on this account yet.'; return; }
+            const last = new Date(d.last_point);
+            const mins = Math.max(0, Math.round((Date.now() - last.getTime()) / 60000));
+            const ago = mins < 60 ? `${mins}m ago`
+                : (mins < 1440 ? `${Math.floor(mins / 60)}h ${mins % 60}m ago`
+                               : `${Math.floor(mins / 1440)}d ago`);
+            const dev = d.last_point_device ? ` from ${d.last_point_device}` : '';
+            el.textContent = `Last fix: ${last.toLocaleString()} (${ago})${dev}.`;
+        })
+        .catch(() => { el.textContent = ''; });
+}
+document.addEventListener('DOMContentLoaded', loadAlertStatus);
 
 // ── Two-Factor Authentication (TOTP) ────────────────────────────────────────
 function totpToggle(id) {
