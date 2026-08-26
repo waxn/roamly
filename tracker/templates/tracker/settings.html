@@ -178,73 +178,67 @@
             margin-top: 0.375rem;
             color: var(--text-muted);
         }
-        /* Side jump-nav for settings categories.
-           On wide screens, widen the settings container by exactly the nav
-           column (190px) + gap (1.5rem) so the cards keep their original,
-           pre-nav width and the pinned nav lives in the added side space. */
-        @media (min-width: 960px) {
-            body > .container.settings-container { max-width: calc(1150px + 190px + 1.5rem); }
+        body > .container.settings-container {
+            max-width: none;
+            padding-inline: clamp(1rem, 3vw, 3.5rem);
         }
         .settings-layout {
             display: flex;
             flex-direction: column;
-            gap: 1.5rem;
+            gap: 1.25rem;
             align-items: stretch;
         }
-        .settings-layout > .settings-grid { flex: 1; min-width: 0; }
         .settings-side { min-width: 0; }
-        .settings-nav { display: none; }
-        @media (min-width: 960px) {
-            .settings-layout {
-                flex-direction: row;
-                align-items: flex-start;
-            }
-            /* Heading + nav share one sticky column so both stay in the
-               viewport at all times while the cards scroll past. */
-            .settings-side {
-                position: sticky;
-                top: 1rem;
-                flex: 0 0 190px;
-                width: 190px;
-                max-height: calc(100vh - 2rem);
-                display: flex;
-                flex-direction: column;
-                gap: 0.75rem;
-            }
-            .settings-side .page-header { margin: 0; }
-            .settings-nav {
-                display: block;
-                flex: 1 1 auto;
-                min-height: 0;
-                overflow-y: auto;
-                border: 1px solid var(--border);
-                padding: 0.4rem;
-                background: var(--bg-card);
-            }
-        }
-        .settings-nav a {
-            display: block;
-            padding: 0.4rem 0.6rem;
-            font-size: 0.82rem;
+        .settings-side .page-header { margin-bottom: 1rem; }
+        .settings-side .page-header p {
+            margin: 0.35rem 0 0;
             color: var(--text-muted);
-            text-decoration: none;
-            border-left: 2px solid transparent;
+            max-width: 48rem;
+        }
+        .settings-nav {
+            display: flex;
+            gap: 0.35rem;
+            overflow-x: auto;
+            padding: 0.35rem;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            scrollbar-width: thin;
+        }
+        .settings-nav button {
+            appearance: none;
+            border: 0;
+            border-bottom: 2px solid transparent;
+            background: transparent;
+            padding: 0.7rem 0.9rem;
+            font: inherit;
+            font-size: 0.84rem;
+            font-weight: 600;
+            color: var(--text-muted);
             white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            cursor: pointer;
             transition: color .12s, border-color .12s, background .12s;
         }
-        .settings-nav a:hover { color: var(--text); background: var(--bg-input); }
-        .settings-nav a.active { color: var(--primary); border-left-color: var(--primary); font-weight: 600; }
+        .settings-nav button:hover { color: var(--text); background: var(--bg-input); }
+        .settings-nav button.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+            background: var(--bg-input);
+        }
+        .settings-page-heading { grid-column: 1 / -1; margin: 0.25rem 0 0; }
+        .settings-page-heading h2 { margin: 0; font-size: clamp(1.2rem, 2vw, 1.55rem); }
+        .settings-page-heading p { margin: 0.3rem 0 0; color: var(--text-muted); font-size: 0.875rem; }
+        .settings-grid > .card[hidden] { display: none; }
     </style>
     <div class="settings-layout">
     <div class="settings-side">
         <div class="page-header">
             <h1>Settings</h1>
+            <p>Manage your account, maps, notifications, tracking data, and integrations.</p>
         </div>
-        <nav class="settings-nav" id="settings-nav" aria-label="Settings sections"></nav>
+        <nav class="settings-nav" id="settings-nav" aria-label="Settings pages"></nav>
     </div>
     <div class="settings-grid">
+        <div class="settings-page-heading" id="settings-page-heading" aria-live="polite"></div>
         <!-- Profile Picture -->
         <div class="card settings-span-12">
             <div class="card-header">Profile Picture</div>
@@ -2953,52 +2947,77 @@ async function deleteAccount() {
     });
 }
 
-// ── Settings side jump-nav ──────────────────────────────────────────────
-// Build the category nav from the cards so it never drifts out of sync with
-// the sections on the page.
-(function buildSettingsNav() {
+// ── Settings pages ──────────────────────────────────────────────────────
+// Keep the many independent controls manageable without changing their APIs.
+(function buildSettingsPages() {
     const nav = document.getElementById('settings-nav');
-    if (!nav) return;
-    const cards = document.querySelectorAll('.settings-grid > .card');
-    const links = {};
-    const used = {};
-    cards.forEach(card => {
-        const header = card.querySelector('.card-header');
-        if (!header) return;
-        // Prefer the header's first text node so badges/icons don't leak in.
-        let label = '';
-        for (const n of header.childNodes) {
-            if (n.nodeType === Node.TEXT_NODE && n.textContent.trim()) { label = n.textContent.trim(); break; }
+    const heading = document.getElementById('settings-page-heading');
+    if (!nav || !heading) return;
+    const pages = {
+        account: {
+            label: 'Account & Security',
+            description: 'Your profile, sign-in protection, connected devices, and account controls.',
+            cards: ['Profile Picture', 'Two-Factor Authentication', 'Devices', 'Danger Zone']
+        },
+        maps: {
+            label: 'Maps',
+            description: 'Choose how your maps look, load, and connect recorded points.',
+            cards: ['General Preferences', 'Main Map Settings', 'Map Point Display', 'Road Snapping']
+        },
+        notifications: {
+            label: 'Email & Notifications',
+            description: 'Configure summaries, tracking alerts, and the AI service used to create insights.',
+            cards: ['Summary Emails', 'Tracking Alerts', 'AI Ask']
+        },
+        data: {
+            label: 'Data & Tracking',
+            description: 'Import, export, process, diagnose, and automatically back up your location history.',
+            cards: ['Data Management', 'Background Jobs', 'GPSLogger for Android Setup', 'Automatic Backups', 'Diagnostics']
+        },
+        developer: {
+            label: 'Developer',
+            description: 'Create API credentials and connect other location-tracking clients.',
+            cards: ['API Keys', 'API Usage']
         }
-        if (!label) label = header.textContent.trim();
-        if (!label) return;
-        let id = 'sec-' + label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-        if (used[id]) { used[id]++; id += '-' + used[id]; } else { used[id] = 1; }
-        card.id = id;
-        card.style.scrollMarginTop = '80px';
-        const a = document.createElement('a');
-        a.href = '#' + id;
-        a.textContent = label;
-        a.addEventListener('click', (ev) => {
-            ev.preventDefault();
-            card.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            history.replaceState(null, '', '#' + id);
-        });
-        nav.appendChild(a);
-        links[id] = a;
+    };
+    const cards = Array.from(document.querySelectorAll('.settings-grid > .card'));
+    const cardLabel = card => {
+        const header = card.querySelector('.card-header');
+        if (!header) return '';
+        const textNode = Array.from(header.childNodes).find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
+        return (textNode ? textNode.textContent : header.textContent).trim();
+    };
+    cards.forEach(card => {
+        const label = cardLabel(card);
+        const page = Object.entries(pages).find(([, config]) => config.cards.includes(label));
+        card.dataset.settingsPage = page ? page[0] : 'data';
     });
-    // Highlight the section currently in view.
-    if ('IntersectionObserver' in window) {
-        const obs = new IntersectionObserver((entries) => {
-            entries.forEach(e => {
-                if (e.isIntersecting && links[e.target.id]) {
-                    Object.values(links).forEach(a => a.classList.remove('active'));
-                    links[e.target.id].classList.add('active');
-                }
-            });
-        }, { rootMargin: '-15% 0px -75% 0px', threshold: 0 });
-        cards.forEach(c => { if (c.id) obs.observe(c); });
+
+    function showPage(key, updateUrl = true) {
+        if (!pages[key]) key = 'account';
+        cards.forEach(card => { card.hidden = card.dataset.settingsPage !== key; });
+        nav.querySelectorAll('button').forEach(button => {
+            const active = button.dataset.page === key;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+        heading.innerHTML = `<h2>${pages[key].label}</h2><p>${pages[key].description}</p>`;
+        if (updateUrl) history.replaceState(null, '', '#' + key);
     }
+
+    Object.entries(pages).forEach(([key, page]) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.page = key;
+        button.setAttribute('role', 'tab');
+        button.textContent = page.label;
+        button.addEventListener('click', () => showPage(key));
+        nav.appendChild(button);
+    });
+    nav.setAttribute('role', 'tablist');
+    const initialPage = location.hash.slice(1);
+    showPage(pages[initialPage] ? initialPage : 'account', false);
+    window.addEventListener('hashchange', () => showPage(location.hash.slice(1), false));
 })();
 </script>
 {% endblock %}

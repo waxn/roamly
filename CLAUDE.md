@@ -60,6 +60,8 @@ sudo docker compose exec web python manage.py shell
 
 Single Django app (`tracker/`) inside the `roamly` project. No separate services — background work (geocoding, backups, POI download) runs in Python threads launched from views.
 
+**Settings information architecture.** `/settings/` is one server-rendered template with five client-side pages selected by URL hash: Account & Security, Maps, Email & Notifications, Data & Tracking, and Developer. The tab switcher groups the existing cards without changing their forms or API endpoints, and the settings container deliberately uses the full viewport width. New settings cards must be added to the appropriate `pages` entry in `settings.html` so they do not fall into the Data & Tracking fallback unintentionally.
+
 **Geocoding is local, never on the push path.** `push_location` (`/api/push/`) creates points with `city=''` and returns immediately; labelling happens in a background thread. Reverse geocoding lives in `tracker/offline_geocode.py`:
 
 - **`local_reverse_geocode(lat, lon)`** — for US points, does **point-in-polygon** against the `Boundary` table (PostGIS `MultiPolygonField`, GiST-indexed): incorporated places / CDPs first (`kind='place'`), then county subdivisions (`kind='cousub'`), so a point resolves to the town that *contains* it, not nearest centroid.
