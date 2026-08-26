@@ -179,8 +179,7 @@
             color: var(--text-muted);
         }
         body > .container.settings-container {
-            max-width: none;
-            padding-inline: clamp(1rem, 3vw, 3.5rem);
+            max-width: 1150px;
         }
         .settings-layout {
             display: flex;
@@ -2974,8 +2973,8 @@ async function deleteAccount() {
             description: 'Import, export, process, diagnose, and automatically back up your location history.',
             cards: ['Data Management', 'Background Jobs', 'GPSLogger for Android Setup', 'Automatic Backups', 'Diagnostics']
         },
-        developer: {
-            label: 'Developer',
+        api: {
+            label: 'API',
             description: 'Create API credentials and connect other location-tracking clients.',
             cards: ['API Keys', 'API Usage']
         }
