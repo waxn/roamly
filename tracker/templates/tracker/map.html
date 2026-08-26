@@ -628,10 +628,10 @@
                         <span class="tool-btn-badge" id="fog-badge"></span>
                     </button>
                     {% if ROAD_SNAP_ENABLED %}
-                    {# Display-only, this-browser-only. Deliberately NOT called
+                    {% comment %}Display-only, this-browser-only. Deliberately NOT called
                        "snap to roads": that is the name of the account-wide
                        master switch in Settings, and two controls sharing one
-                       name is why the real switch went unfound. #}
+                       name is why the real switch went unfound.{% endcomment %}
                     <button class="tool-btn" id="snap-btn" type="button"
                             title="Show this map's points on their snapped road positions. Display only, and only in this browser — road snapping itself is switched on for your whole account in Settings → Road Snapping.">
                         snapped view
