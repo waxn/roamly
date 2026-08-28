@@ -1143,6 +1143,12 @@ class UserProfile(models.Model):
     # client-side tour without touching this flag.
     intro_seen = models.BooleanField(default=True)
 
+    # Health Connect: which writing app's records to trust for a given day when
+    # several of them recorded the same walk. Blank means "pick the source with
+    # the most data that day", resolved per (day, metric) at read time. Config,
+    # so excluded from backups like the AI/summary/alert prefs above.
+    health_preferred_source = models.CharField(max_length=128, blank=True, default='')
+
     @property
     def ai_configured(self):
         return bool(self.ai_ask_enabled and self.ai_base_url and self.ai_api_key and self.ai_model)
@@ -1502,3 +1508,116 @@ class DailyLogRollup(models.Model):
 
     def __str__(self):
         return f"Rollup {self.date}: {self.requests} req"
+
+
+# ── Health Connect ────────────────────────────────────────────────────────────
+# Steps / distance / calories read from Android Health Connect, plus manually
+# imported exercise sessions. Deliberately isolated: nothing in the tracking,
+# stats, visits or distance pipeline reads these tables, and they read nothing
+# from it. Health works on an account that never enabled GPS tracking at all,
+# which is why neither model has a Device FK.
+#
+# Both are non-spatial, so unlike Location/Visit/Boundary they are defined once
+# rather than behind the HAS_POSTGIS branch — that split exists only to keep a
+# geometry column and its GiST index off SQLite.
+
+HEALTH_KINDS = [
+    ('steps', 'Steps'),
+    ('distance', 'Distance'),
+    ('calories_active', 'Active calories'),
+    ('calories_total', 'Total calories'),
+]
+
+
+class HealthSample(models.Model):
+    """One raw Health Connect record.
+
+    Stored raw rather than pre-aggregated so the day view can show *when* the
+    user was moving, not just a daily total.
+
+    ``hc_id`` is Health Connect's own record UUID, which makes ingest idempotent
+    under ``bulk_create(ignore_conflicts=True)`` against the unique constraint —
+    the same dedupe strategy push_location_batch uses on Location.
+
+    ``source`` matters more than it looks: several apps (the phone's own step
+    counter, Fitbit, Samsung Health, Strava) all write overlapping records for
+    the same walk. Health Connect's aggregate() API dedupes them against a user
+    priority list; raw records carry no such dedupe, so summing across sources
+    inflates a day's steps several times over. Within one package records are
+    non-overlapping, so the read path sums per-source and then picks one source
+    per (day, metric) — see _health_daily_totals in views.py.
+
+    ``device_id`` is a plain CharField, NOT a Device FK: health must work for an
+    account that never enabled tracking. It exists from the first migration
+    because two phones on one account produce distinct hc_ids for the same steps
+    from the same source package, and that cannot be backfilled later.
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='health_samples')
+    kind = models.CharField(max_length=16, choices=HEALTH_KINDS)
+    value = models.FloatField()  # count / metres / kilocalories, per `kind`
+    start_time = models.DateTimeField()
+    end_time = models.DateTimeField()
+    # HC startZoneOffset.totalSeconds — recorded so a future "use the timezone I
+    # was actually in" option doesn't require re-syncing the whole history.
+    zone_offset_seconds = models.IntegerField(null=True, blank=True)
+    source = models.CharField(max_length=128, blank=True, default='')
+    device_id = models.CharField(max_length=100, blank=True, default='')
+    hc_id = models.CharField(max_length=64)
+    last_modified = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Deliberately NO `ordering`. Django appends Meta.ordering columns to the
+        # GROUP BY of a .values().annotate() aggregation, which would shatter the
+        # daily rollup into one group per row. Order explicitly at each call site.
+        unique_together = ['user', 'hc_id']
+        indexes = [
+            models.Index(fields=['user', 'kind', 'start_time'], name='tracker_hs_user_kind_idx'),
+            models.Index(fields=['user', '-start_time'], name='tracker_hs_user_start_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.kind}={self.value} @ {self.start_time}"
+
+
+class HealthWorkout(models.Model):
+    """An exercise session the user explicitly chose to import.
+
+    Deliberately manual — the app lists Health Connect sessions and the user taps
+    Import on the ones worth keeping, rather than a heuristic deciding which
+    sessions "look real" on their behalf.
+
+    Totals are denormalised, computed on the phone at import time via Health
+    Connect's aggregate() over the session window. They are NOT recomputed from
+    HealthSample: steps aren't recorded for a bike ride, the user may not have
+    granted every metric permission, and a session can predate the sample sync
+    window — so a server-side recomputation would quietly report zeros.
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='health_workouts')
+    hc_id = models.CharField(max_length=64)
+    source = models.CharField(max_length=128, blank=True, default='')
+    device_id = models.CharField(max_length=100, blank=True, default='')
+    start_time = models.DateTimeField()
+    end_time = models.DateTimeField()
+    zone_offset_seconds = models.IntegerField(null=True, blank=True)
+    # Both the raw HC constant (fidelity) and a resolved slug (display), so
+    # neither the server nor the web page has to carry Google's enum table.
+    exercise_type = models.IntegerField(default=0)
+    exercise_slug = models.CharField(max_length=40, blank=True, default='')
+    title = models.CharField(max_length=200, blank=True, default='')
+    notes = models.TextField(blank=True, default='')
+    duration_s = models.IntegerField(default=0)
+    steps = models.IntegerField(null=True, blank=True)
+    distance_m = models.FloatField(null=True, blank=True)
+    calories_kcal = models.FloatField(null=True, blank=True)
+    avg_heart_rate = models.FloatField(null=True, blank=True)
+    imported_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['user', 'hc_id']
+        indexes = [
+            models.Index(fields=['user', '-start_time'], name='tracker_hw_user_start_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.exercise_slug or 'workout'} @ {self.start_time}"
