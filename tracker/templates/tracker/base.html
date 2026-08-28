@@ -1179,6 +1179,7 @@
                 <li><a href="{% url 'tracker:adventures' %}" class="{% if request.resolver_match.url_name == 'adventures' or request.resolver_match.url_name == 'adventure_edit' %}active{% endif %}">Adventures</a></li>
                 <li><a href="{% url 'tracker:journals' %}" class="{% if request.resolver_match.url_name == 'journals' %}active{% endif %}">Journals</a></li>
                 <li><a href="{% url 'tracker:places' %}" class="{% if request.resolver_match.url_name == 'places' %}active{% endif %}">Places</a></li>
+                <li><a href="{% url 'tracker:health' %}" class="{% if request.resolver_match.url_name == 'health' %}active{% endif %}">Health</a></li>
                 <li><a href="{% url 'tracker:search' %}" class="{% if request.resolver_match.url_name == 'search' %}active{% endif %}">Search</a></li>
                 {% if AI_ASK_ENABLED %}<li><a href="{% url 'tracker:ask' %}" class="{% if request.resolver_match.url_name == 'ask' %}active{% endif %}">Ask</a></li>{% endif %}
                 <li class="nav-dropdown">
@@ -1252,6 +1253,10 @@
                 <div class="bottom-nav-icon-wrap"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/><line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/></svg></div>
                 places
             </a>
+            <a href="{% url 'tracker:health' %}" class="{% if request.resolver_match.url_name == 'health' %}active{% endif %}">
+                <div class="bottom-nav-icon-wrap"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+                health
+            </a>
             <a href="{% url 'tracker:settings' %}" class="{% if request.resolver_match.url_name == 'settings' %}active{% endif %}">
                 <div class="bottom-nav-icon-wrap"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
                 settings
@@ -1275,6 +1280,7 @@
                 { url: "{% url 'tracker:adventures' %}", title: "Adventures", body: "Adventures are shared trips: invite people, log each day, plan an itinerary, and watch your GPS trail turn into a real story with photos and places." },
                 { url: "{% url 'tracker:journals' %}", title: "Journals", body: "Journals are your private day-by-day diary: mood, weather, photos, and a map of everywhere you went. Nobody you share an Adventure with can see these." },
                 { url: "{% url 'tracker:places' %}", title: "Places", body: "Name the spots you visit often, like home, work, or a favorite café, as circles on the map. Roamly will even suggest places you keep returning to but haven’t named yet." },
+                { url: "{% url 'tracker:health' %}", title: "Health", body: "Steps, distance and calories sync automatically from Health Connect on your Android phone. Workouts are yours to pick — browse your sessions in the app and import only the ones worth keeping." },
                 { url: "{% url 'tracker:search' %}", title: "Search", body: "Look up anywhere you’ve been by name, whether that’s a city, a business, or a Place you’ve named, and jump straight to the days you were there." },
                 {% if AI_ASK_ENABLED %}{ url: "{% url 'tracker:ask' %}", title: "Ask", body: "Chat with your own location history in plain English. Ask “where was I last Tuesday?” or “how far did I drive in June?” and get an answer pulled straight from your data." },{% endif %}
                 { url: "{% url 'tracker:stats' %}", title: "Stats", body: "One dashboard for your whole history: distance travelled, time spent moving, places and countries visited, how you got around, and a GitHub-style heatmap of your daily distance." },
