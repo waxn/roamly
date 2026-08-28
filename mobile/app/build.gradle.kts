@@ -13,8 +13,8 @@ android {
         applicationId = "com.roamly"
         minSdk = 26
         targetSdk = 36
-        versionCode = 32
-        versionName = "1.20.0"
+        versionCode = 33
+        versionName = "1.21.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -133,6 +133,9 @@ dependencies {
 
     // Image loading (journal photos)
     implementation(libs.coil.compose)
+
+    // Health Connect (steps / distance / calories / workouts)
+    implementation(libs.health.connect.client)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
