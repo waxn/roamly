@@ -4441,10 +4441,16 @@ _VISITS_MAX_GAP_CROSS = 3600  # cap only when geocoded place label changes
 def _visits_dwell_gap(prev, cur, level):
     """Seconds between two points for visit time attribution.
 
-    prev/cur: (timestamp, city, state, country, country_code).
-    Count the full interval when 
-    still at the same place; cap at 1 hour when the
-    label changes (e.g. travel between towns with sparse pings).
+    prev/cur: (timestamp, city, state, country, country_code, lat, lon).
+    Count the full interval when still at the same place; cap at 1 hour when
+    the label changes (e.g. travel between towns with sparse pings).
+
+    The cap is wrong for one case it can't distinguish from travel: tracking
+    that stopped and resumed in essentially the same spot, where a nearby
+    boundary or a shifted geocode puts a different label on the two fixes. The
+    hole is time in the earlier place, not a journey out of it, so
+    `dwell_utils.bridges_gap` lifts the cap when the two fixes are close enough
+    together that nobody went anywhere.
     """
     raw = (cur[0] - prev[0]).total_seconds()
     if raw <= 0:
@@ -4455,7 +4461,13 @@ def _visits_dwell_gap(prev, cur, level):
         same = (prev[2], prev[3]) == (cur[2], cur[3])
     else:
         same = prev[3] == cur[3]
-    return raw if same else min(raw, _VISITS_MAX_GAP_CROSS)
+    if same:
+        return raw
+    if raw > _VISITS_MAX_GAP_CROSS and bridges_gap(
+        prev[5], prev[6], cur[5], cur[6], raw, _VISITS_MAX_GAP_CROSS
+    ):
+        return raw
+    return min(raw, _VISITS_MAX_GAP_CROSS)
 
 
 @login_required
@@ -4526,11 +4538,11 @@ def _compute_visits_from_qs(locations):
     time_country = defaultdict(float)
 
     points = locations.order_by('timestamp').values_list(
-        'timestamp', 'city', 'state', 'country', 'country_code',
+        'timestamp', 'city', 'state', 'country', 'country_code', 'latitude', 'longitude',
     )
     prev = None
-    for ts, city, state_val, country_val, cc in points.iterator():
-        cur = (ts, city, state_val, country_val, cc)
+    for ts, city, state_val, country_val, cc, lat, lon in points.iterator():
+        cur = (ts, city, state_val, country_val, cc, lat, lon)
         if prev:
             if prev[1]:
                 gap = _visits_dwell_gap(prev, cur, 'city')
@@ -5690,10 +5702,11 @@ def trip_visits_api(request, trip_id):
 
     time_city = defaultdict(float)
     time_country = defaultdict(float)
-    points = locations.order_by('timestamp').values_list('timestamp', 'city', 'state', 'country', 'country_code')
+    points = locations.order_by('timestamp').values_list(
+        'timestamp', 'city', 'state', 'country', 'country_code', 'latitude', 'longitude')
     prev = None
-    for ts, city, state_val, country_val, cc in points.iterator():
-        cur = (ts, city, state_val, country_val, cc)
+    for ts, city, state_val, country_val, cc, lat, lon in points.iterator():
+        cur = (ts, city, state_val, country_val, cc, lat, lon)
         if prev:
             if prev[1]:
                 gap = _visits_dwell_gap(prev, cur, 'city')
