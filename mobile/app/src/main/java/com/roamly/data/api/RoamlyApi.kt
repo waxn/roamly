@@ -332,4 +332,29 @@ interface RoamlyApi {
 
     @GET("api/devices/")
     suspend fun getDevices(): Response<DevicesResponse>
+
+    // --- Health (Health Connect) ---
+
+    @POST("api/health/samples/")
+    suspend fun pushHealthSamples(@Body body: HealthSamplesPush): Response<HealthPushResponse>
+
+    @POST("api/health/workouts/import/")
+    suspend fun importHealthWorkouts(@Body body: HealthWorkoutsPush): Response<HealthPushResponse>
+
+    /** hc_ids already on the server, so the browse list can mark rows as imported. */
+    @GET("api/health/workouts/imported/")
+    suspend fun getImportedWorkoutIds(
+        @Query("start_date") startDate: String? = null,
+        @Query("end_date") endDate: String? = null,
+        @Query("all") all: Int? = null,
+    ): Response<ImportedWorkoutsResponse>
+
+    @POST("api/health/workouts/{id}/delete/")
+    suspend fun deleteHealthWorkout(@Path("id") id: Int): Response<ResponseBody>
+
+    @GET("api/health/status/")
+    suspend fun getHealthStatus(): Response<HealthStatusResponse>
+
+    @POST("api/health/delete/")
+    suspend fun deleteAllHealthData(): Response<ResponseBody>
 }

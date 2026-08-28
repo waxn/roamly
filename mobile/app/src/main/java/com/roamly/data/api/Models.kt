@@ -661,3 +661,76 @@ data class SearchResponse(
     @SerializedName("places_checked")  val placesChecked: Int = 0,
     @SerializedName("needs_download")  val needsDownload: Boolean = false,
 )
+
+// --- Health (Health Connect) ---
+
+data class HealthSampleDto(
+    val kind: String = "",
+    val value: Double = 0.0,
+    val start: String = "",
+    val end: String = "",
+    @SerializedName("zone_offset_seconds") val zoneOffsetSeconds: Int? = null,
+    val source: String = "",
+    @SerializedName("device_id") val deviceId: String = "",
+    @SerializedName("hc_id") val hcId: String = "",
+    @SerializedName("last_modified") val lastModified: String? = null,
+)
+
+data class HealthSamplesPush(
+    val samples: List<HealthSampleDto> = emptyList(),
+    /** hc_ids Health Connect reported as deleted, so the server drops them too. */
+    val deleted: List<String> = emptyList(),
+)
+
+data class HealthWorkoutDto(
+    @SerializedName("hc_id") val hcId: String = "",
+    val source: String = "",
+    @SerializedName("device_id") val deviceId: String = "",
+    val start: String = "",
+    val end: String = "",
+    @SerializedName("zone_offset_seconds") val zoneOffsetSeconds: Int? = null,
+    @SerializedName("exercise_type") val exerciseType: Int = 0,
+    @SerializedName("exercise_slug") val exerciseSlug: String = "",
+    val title: String = "",
+    val notes: String = "",
+    @SerializedName("duration_s") val durationS: Int = 0,
+    val steps: Int? = null,
+    @SerializedName("distance_m") val distanceM: Double? = null,
+    @SerializedName("calories_kcal") val caloriesKcal: Double? = null,
+    @SerializedName("avg_heart_rate") val avgHeartRate: Double? = null,
+)
+
+data class HealthWorkoutsPush(
+    val workouts: List<HealthWorkoutDto> = emptyList(),
+)
+
+data class HealthPushResponse(
+    val status: String = "",
+    val submitted: Int = 0,
+    val accepted: Int = 0,
+    val updated: Int = 0,
+    val deleted: Int = 0,
+)
+
+data class ImportedWorkoutsResponse(
+    @SerializedName("hc_ids") val hcIds: List<String> = emptyList(),
+)
+
+data class HealthSourceRow(
+    val source: String = "",
+    val kind: String = "",
+    val count: Int = 0,
+    val first: String? = null,
+    val last: String? = null,
+)
+
+data class HealthStatusResponse(
+    val connected: Boolean = false,
+    @SerializedName("sample_count")  val sampleCount: Int = 0,
+    @SerializedName("workout_count") val workoutCount: Int = 0,
+    val earliest: String? = null,
+    val latest: String? = null,
+    @SerializedName("last_workout_at") val lastWorkoutAt: String? = null,
+    val sources: List<HealthSourceRow> = emptyList(),
+    @SerializedName("preferred_source") val preferredSource: String = "",
+)
