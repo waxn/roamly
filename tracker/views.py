@@ -52,7 +52,7 @@ from .models import (
     DownloadedRegion,
 )
 from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email, send_contact_email
-from .dwell_utils import bridges_gap, GAP_BRIDGE_RADIUS_M
+from .dwell_utils import bridges_gap, GAP_BRIDGE_RADIUS_M, GAP_BRIDGE_MAX_S
 from .image_utils import resize_image, resize_photo
 from . import geoip_utils
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
@@ -8242,6 +8242,9 @@ def place_detail_api(request, place_id):
     return JsonResponse(_compute_place_detail(request.user, place))
 
 
+_PLACE_GAP_CAP_S = 600   # a gap this short is ordinary sampling — credit it in full
+
+
 def _compute_place_detail(user, place):
     """Stats for one custom place: points, days, time spent, cities.
 
@@ -8254,6 +8257,14 @@ def _compute_place_detail(user, place):
     `place_detail_api` view and the AI `get_custom_place_detail` tool."""
     base = Location.objects.filter(device__user=user)
     nearby = _find_nearby_locations(base, place.latitude, place.longitude, place.radius_m)
+
+    # Every point here is already inside the place circle, so when the circle is
+    # small enough that any two members are necessarily within
+    # GAP_BRIDGE_RADIUS_M of each other, bridges_gap' distance test is satisfied
+    # by construction and the scan can stay timestamps-only as documented above.
+    # Only a place wider than that has to pay for the coordinates.
+    needs_coords = place.radius_m * 2 > GAP_BRIDGE_RADIUS_M
+    fields = ('timestamp', 'latitude', 'longitude') if needs_coords else ('timestamp',)
 
     # Cities: aggregate in the DB — only the top 12 rows come back, no Python
     # pass over every inside point.
@@ -8273,7 +8284,32 @@ def _compute_place_detail(user, place):
     total_dwell = 0
     first_ts = last_ts = None
     prev_ts = None
-    for (ts,) in nearby.order_by('timestamp').values_list('timestamp').iterator(chunk_size=10000):
+    prev_pos = None
+
+    def _credit(gap_s, pos):
+        """Seconds of `gap_s` to count as time inside the place.
+
+        A gap under _PLACE_GAP_CAP_S is normal sampling and counts in full.
+        Anything longer used to count as nothing at all — which is why a stay
+        with tracking off for an afternoon reported only the tracked minutes
+        either side of the hole. If tracking resumed in the same spot the person
+        never left, so bridges_gap credits the whole thing.
+        """
+        if gap_s <= 0:
+            return 0
+        if gap_s <= _PLACE_GAP_CAP_S:
+            return int(gap_s)
+        if not needs_coords:
+            # Distance already satisfied by construction; only the ceiling is left.
+            return int(gap_s) if gap_s <= GAP_BRIDGE_MAX_S else 0
+        if prev_pos is None or pos is None:
+            return 0
+        return int(gap_s) if bridges_gap(prev_pos[0], prev_pos[1], pos[0], pos[1],
+                                         gap_s, _PLACE_GAP_CAP_S) else 0
+
+    for row in nearby.order_by('timestamp').values_list(*fields).iterator(chunk_size=10000):
+        ts = row[0]
+        pos = (row[1], row[2]) if needs_coords else None
         total += 1
         if first_ts is None:
             first_ts = ts
@@ -8285,15 +8321,12 @@ def _compute_place_detail(user, place):
             by_day[d] = day
         day['count'] += 1
         if day['prev'] is not None:
-            g = (ts - day['prev']).total_seconds()
-            if 0 < g <= 600:
-                day['time_spent'] += int(g)
+            day['time_spent'] += _credit((ts - day['prev']).total_seconds(), pos)
         day['prev'] = ts
         if prev_ts is not None:
-            g = (ts - prev_ts).total_seconds()
-            if 0 < g <= 600:
-                total_dwell += int(g)
+            total_dwell += _credit((ts - prev_ts).total_seconds(), pos)
         prev_ts = ts
+        prev_pos = pos
 
     days = sorted(
         ({'date': v['date'], 'count': v['count'], 'time_spent': v['time_spent']} for v in by_day.values()),
