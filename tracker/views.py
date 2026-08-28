@@ -8273,7 +8273,7 @@ def _compute_place_detail(user, place):
 
     # Every point here is already inside the place circle, so when the circle is
     # small enough that any two members are necessarily within
-    # GAP_BRIDGE_RADIUS_M of each other, bridges_gap' distance test is satisfied
+    # GAP_BRIDGE_RADIUS_M of each other, bridges_gap's distance test is satisfied
     # by construction and the scan can stay timestamps-only as documented above.
     # Only a place wider than that has to pay for the coordinates.
     needs_coords = place.radius_m * 2 > GAP_BRIDGE_RADIUS_M
