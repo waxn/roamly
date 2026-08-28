@@ -24,6 +24,7 @@ urlpatterns = [
     path('adventures/', views.adventures_view, name='adventures'),
     path('journals/', views.journals_view, name='journals'),
     path('places/', views.places_view, name='places'),
+    path('health/', views.health_view, name='health'),
     path('ask/', views.ask_view, name='ask'),
     path('settings/', views.settings_view, name='settings'),
     path('diagnostics/', views.diagnostics_view, name='diagnostics'),
@@ -161,6 +162,20 @@ urlpatterns = [
     path('api/journals/<str:date_str>/save/', views.journal_save_api, name='journal_save_api'),
     path('api/journals/<str:date_str>/delete/', views.journal_delete_api, name='journal_delete_api'),
     path('api/journals/<str:date_str>/photos/', views.journal_photos_api, name='journal_photos_api'),
+
+    # Health API (Health Connect)
+    # Literal sub-paths first — the <str:date_str> capture would otherwise
+    # shadow every one of them, same ordering rule as the journals block above.
+    path('api/health/samples/', views.health_samples_push, name='health_samples_push'),
+    path('api/health/workouts/', views.health_workouts_api, name='health_workouts_api'),
+    path('api/health/workouts/import/', views.health_workouts_import, name='health_workouts_import'),
+    path('api/health/workouts/imported/', views.health_imported_workouts_api, name='health_imported_workouts'),
+    path('api/health/workouts/<int:workout_id>/delete/', views.health_workout_delete, name='health_workout_delete'),
+    path('api/health/daily/', views.health_daily_api, name='health_daily_api'),
+    path('api/health/status/', views.health_status_api, name='health_status_api'),
+    path('api/health/source/', views.health_source_api, name='health_source_api'),
+    path('api/health/delete/', views.health_delete_api, name='health_delete_api'),
+    path('api/health/day/<str:date_str>/', views.health_day_api, name='health_day_api'),
 
     # Geocoding
     path('api/geocode/', views.geocode_api, name='geocode_api'),
