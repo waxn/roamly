@@ -52,6 +52,7 @@ from .models import (
     DownloadedRegion,
 )
 from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email, send_contact_email
+from .dwell_utils import bridges_gap, GAP_BRIDGE_RADIUS_M
 from .image_utils import resize_image, resize_photo
 from . import geoip_utils
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
@@ -2152,7 +2153,7 @@ _DWELL_RADIUS_PERCENTILE = 0.9      # resists one stray fix ballooning the whole
 # recomputed here rather than read from the Visit table).
 _DWELL_CLUSTER_RADIUS_M = 150.0     # visit_tasks.RADIUS_M
 _DWELL_MIN_DURATION_S = 300         # visit_tasks.MIN_DURATION_S — 5 minutes
-_DWELL_MAX_GAP_S = 3600             # a >1h hole ends the stay even at the same spot
+_DWELL_MAX_GAP_S = 3600             # a >1h hole ends the stay — unless bridges_gap says tracking just resumed here
 _DWELL_WINDOW_MAX_S = 7 * 24 * 3600  # ceiling on an expand request's window
 
 # Road-geometry densification. Snapping alone moves each fix onto the nearest
@@ -2170,6 +2171,14 @@ _LINE_DENSIFY_MAX_DETOUR = 2.5   # reject a "road route" this much longer than t
 _LINE_MAX_ROUTE_CALLS = 200      # per-request routing budget, so one huge range can't hang the map
 _LINE_ROUTE_CACHE_TTL = 2592000  # 30 days — a pair of fixes and the road between them are both immutable
 _LINE_ROUTE_CACHE_VERSION = 'v1'
+
+
+def _new_cluster(lat, lon, epoch, label):
+    """Fresh stop accumulator. `last_lat`/`last_lon` are the most recent member
+    point — not the running centroid — since that is the fix a tracking gap is
+    measured from."""
+    return {'lat_sum': lat, 'lon_sum': lon, 'n': 1, 'start': epoch, 'end': epoch,
+            'last_lat': lat, 'last_lon': lon, 'pts': [(lat, lon)], 'label': label}
 
 
 def _detect_dwells(points, cluster_radius_m=_DWELL_CLUSTER_RADIUS_M,
@@ -2195,6 +2204,12 @@ def _detect_dwells(points, cluster_radius_m=_DWELL_CLUSTER_RADIUS_M,
     on a sparse track (e.g. a device that only pings every few minutes) yet
     still not be worth a blob, so point count catches what duration alone
     can't. Both bars must clear for a cluster to become a dwell.
+
+    A hole longer than `_DWELL_MAX_GAP_S` normally ends the stay, but
+    `dwell_utils.bridges_gap` overrides that when tracking resumes within
+    `GAP_BRIDGE_RADIUS_M` of where it stopped: the phone was off, the person
+    stayed put, and the blob should span the whole hole rather than being cut
+    in two with the time between discarded.
 
     Returns ``[{lat, lng, radius_m, start_epoch, end_epoch, point_count, label}]``.
     The radius is the 90th percentile of member distances from the final
@@ -2228,23 +2243,31 @@ def _detect_dwells(points, cluster_radius_m=_DWELL_CLUSTER_RADIUS_M,
             continue
         lat, lon, epoch = p['lat'], p['lng'], p['ts']
         if cur is None:
-            cur = {'lat_sum': lat, 'lon_sum': lon, 'n': 1, 'start': epoch, 'end': epoch,
-                   'pts': [(lat, lon)], 'label': p.get('label') or ''}
+            cur = _new_cluster(lat, lon, epoch, p.get('label') or '')
             continue
         clat, clon = cur['lat_sum'] / cur['n'], cur['lon_sum'] / cur['n']
-        if (_haversine_km(clat, clon, lat, lon) * 1000.0 <= cluster_radius_m
-                and (epoch - cur['end']) < _DWELL_MAX_GAP_S):
+        gap = epoch - cur['end']
+        merge = (_haversine_km(clat, clon, lat, lon) * 1000.0 <= cluster_radius_m
+                 and gap < _DWELL_MAX_GAP_S)
+        if not merge:
+            # Tracking stopped and resumed in the same spot — the phone was off,
+            # the person never left. Re-open the stay so the hole reads as one
+            # blob covering the whole time rather than two either side of it.
+            # Measured from the last member point, which is where the gap began.
+            merge = bridges_gap(cur['last_lat'], cur['last_lon'], lat, lon,
+                                gap, _DWELL_MAX_GAP_S)
+        if merge:
             cur['lat_sum'] += lat
             cur['lon_sum'] += lon
             cur['n'] += 1
             cur['end'] = epoch
+            cur['last_lat'], cur['last_lon'] = lat, lon
             cur['pts'].append((lat, lon))
             if not cur['label'] and p.get('label'):
                 cur['label'] = p['label']
         else:
             close(cur)
-            cur = {'lat_sum': lat, 'lon_sum': lon, 'n': 1, 'start': epoch, 'end': epoch,
-                   'pts': [(lat, lon)], 'label': p.get('label') or ''}
+            cur = _new_cluster(lat, lon, epoch, p.get('label') or '')
     close(cur)
     return dwells
 
