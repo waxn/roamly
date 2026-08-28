@@ -165,7 +165,7 @@ def _visit_worker(user_id):
                         if not merge:
                             merge = bridges_gap(
                                 current_visit['last_lat'], current_visit['last_lon'],
-                                loc.latitude, loc.longitude, time_gap,
+                                loc.latitude, loc.longitude, time_gap, 3600,
                             )
 
                         if merge:

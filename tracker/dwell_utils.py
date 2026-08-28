@@ -39,15 +39,23 @@ def haversine_m(lat1, lon1, lat2, lon2):
     return r * 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
 
 
-def bridges_gap(lat1, lon1, lat2, lon2, gap_s):
+def bridges_gap(lat1, lon1, lat2, lon2, gap_s, min_gap_s):
     """True if `gap_s` seconds between two fixes should count as time in place.
 
-    Callers apply this as an escape hatch *after* their own normal cap, so it
-    only ever adds time that was previously discarded — it never shortens a
-    stay, and it never widens ordinary point-to-point clustering (which would
-    let a slow walk chain into one endless "stay").
+    `min_gap_s` is the caller's own normal cap — the interval past which it
+    already stops crediting time. Passing it is what keeps this an escape hatch
+    for *tracking holes* rather than a wider clustering radius: without the
+    floor, an ordinary 5-minute sampling interval 200m from the running
+    centroid also "bridges", and a slow walk chains point by point into one
+    endless stationary stay. Below the floor, callers keep their existing
+    behaviour untouched; above it, a stay that resumes nearby is re-opened
+    instead of being cut with the hole discarded.
+
+    So this only ever adds back time that was previously thrown away. It never
+    shortens a stay and never merges two points the caller would already have
+    kept apart on distance alone.
     """
-    if gap_s <= 0 or gap_s > GAP_BRIDGE_MAX_S:
+    if gap_s < min_gap_s or gap_s <= 0 or gap_s > GAP_BRIDGE_MAX_S:
         return False
     if None in (lat1, lon1, lat2, lon2):
         return False
