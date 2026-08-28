@@ -8,6 +8,8 @@ from collections import defaultdict
 from django.utils import timezone
 from django.db import transaction
 
+from .dwell_utils import bridges_gap
+
 logger = logging.getLogger(__name__)
 
 _running_threads = {}
@@ -59,6 +61,30 @@ def _find_nearest_poi(lat, lon, radius_m=150):
                 best_dist = dist
                 best_poi = p
         return best_poi
+
+def _new_visit(device_id, loc):
+    """Start a fresh visit accumulator at `loc`.
+
+    `last_lat`/`last_lon` track the most recent member point (not the running
+    centroid) because that is the fix a tracking gap is measured *from* — see
+    the gap-bridging branch in _visit_worker.
+    """
+    return {
+        'device_id': device_id,
+        'start_time': loc.timestamp,
+        'end_time': loc.timestamp,
+        'lat_sum': loc.latitude,
+        'lon_sum': loc.longitude,
+        'last_lat': loc.latitude,
+        'last_lon': loc.longitude,
+        'point_count': 1,
+        'city': loc.city,
+        'state': loc.state,
+        'country': loc.country,
+        'country_code': loc.country_code,
+        'place_name': loc.place_name,
+    }
+
 
 def _visit_worker(user_id):
     from .models import Location, Visit, VisitJob, POI
@@ -121,32 +147,33 @@ def _visit_worker(user_id):
                     processed_ids.append(loc.id)
                     
                     if current_visit is None:
-                        current_visit = {
-                            'device_id': device_id,
-                            'start_time': loc.timestamp,
-                            'end_time': loc.timestamp,
-                            'lat_sum': loc.latitude,
-                            'lon_sum': loc.longitude,
-                            'point_count': 1,
-                            'city': loc.city,
-                            'state': loc.state,
-                            'country': loc.country,
-                            'country_code': loc.country_code,
-                            'place_name': loc.place_name,
-                        }
+                        current_visit = _new_visit(device_id, loc)
                     else:
                         # Check distance to centroid
                         centroid_lat = current_visit['lat_sum'] / current_visit['point_count']
                         centroid_lon = current_visit['lon_sum'] / current_visit['point_count']
                         dist = _haversine_m(centroid_lat, centroid_lon, loc.latitude, loc.longitude)
                         
-                        # Check time gap (if gap > 1 hour, consider visit ended even if same location)
+                        # A gap over 1 hour normally ends the visit even at the same
+                        # location. But tracking that stops and resumes in essentially
+                        # the same spot is a phone that was off, not a person who left,
+                        # so bridges_gap re-opens the stay and the whole hole counts as
+                        # time here. Measured from the last member point rather than the
+                        # centroid: that is the fix the gap actually started at.
                         time_gap = (loc.timestamp - current_visit['end_time']).total_seconds()
+                        merge = dist <= RADIUS_M and time_gap < 3600
+                        if not merge:
+                            merge = bridges_gap(
+                                current_visit['last_lat'], current_visit['last_lon'],
+                                loc.latitude, loc.longitude, time_gap,
+                            )
 
-                        if dist <= RADIUS_M and time_gap < 3600:
+                        if merge:
                             current_visit['end_time'] = loc.timestamp
                             current_visit['lat_sum'] += loc.latitude
                             current_visit['lon_sum'] += loc.longitude
+                            current_visit['last_lat'] = loc.latitude
+                            current_visit['last_lon'] = loc.longitude
                             current_visit['point_count'] += 1
                         else:
                             # Close visit
@@ -155,19 +182,7 @@ def _visit_worker(user_id):
                                 visits_to_create.append(current_visit)
                             
                             # Start new visit
-                            current_visit = {
-                                'device_id': device_id,
-                                'start_time': loc.timestamp,
-                                'end_time': loc.timestamp,
-                                'lat_sum': loc.latitude,
-                                'lon_sum': loc.longitude,
-                                'point_count': 1,
-                                'city': loc.city,
-                                'state': loc.state,
-                                'country': loc.country,
-                                'country_code': loc.country_code,
-                                'place_name': loc.place_name,
-                            }
+                            current_visit = _new_visit(device_id, loc)
                 
                 # Create visits
                 new_visits = []
