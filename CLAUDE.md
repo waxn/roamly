@@ -281,6 +281,7 @@ Callbacks run on `HandlerThread` ("RoamlyLocCb"). No-fix retries: quick (4s × 3
 | `tracker/log_cleanup_tasks.py` | Hourly log rollup + retention-pruning scheduler |
 | `tracker/error_log_handler.py` | Logging handler that records 500s into ActionLog |
 | `tracker/image_utils.py` | `resize_image`, `resize_photo` helpers |
+| `tracker/dwell_utils.py` | `bridges_gap` — shared rule for crediting a tracking gap as time in place |
 
 ## Models
 
@@ -466,7 +467,22 @@ All stored in `localStorage` with `roamly_` prefix:
 
 ## Visit time spent
 
-`/api/visits/` sums gaps between consecutive geocoded points. Same place label: full gap counts. Changed label: gap capped at 1 hour (`_visits_dwell_gap` in `views.py`).
+`/api/visits/` sums gaps between consecutive geocoded points. Same place label: full gap counts. Changed label: gap capped at 1 hour (`_visits_dwell_gap` in `views.py`) — unless the gap is bridged (below).
+
+**Gap bridging — tracking that stops and resumes in place.** A phone that is off, dead or force-stopped leaves a hole in the track, and every time-attribution path in the app independently cut the stay at a fixed time threshold and discarded that interval: an afternoon in a town with tracking off reported only the tracked minutes either side of the hole. **`tracker/dwell_utils.bridges_gap(lat1, lon1, lat2, lon2, gap_s, min_gap_s)`** is the single rule all four now share — a gap counts as time in place when the last fix before it and the first fix after it are within **`GAP_BRIDGE_RADIUS_M` (300m)** and the gap is no longer than **`GAP_BRIDGE_MAX_S` (12h)**.
+
+The ceiling is load-bearing: two nearby fixes prove nothing about the interval between them — the phone could have been off while its owner flew somewhere and came back — so the bridge only covers spans short enough that staying put is by far the likelier explanation. Beyond it, every surface cuts the stay exactly where it always did.
+
+**`min_gap_s` is what keeps this an escape hatch rather than a wider clustering radius**, and omitting it is a real regression, not a theoretical one. Each caller passes *its own* normal cap, so the bridge applies only to intervals that caller had already given up on. Without the floor it fires whenever the caller's ordinary merge test fails — including on a routine sampling interval that merely landed outside the clustering radius — and a slow walk with points 200m and 5 minutes apart chains step by step into one long stationary "stay" where previously there was no stop at all. Below the floor, behaviour is bit-for-bit unchanged; above it, the rule is purely additive and never shortens a stay.
+
+Lives in its own module because `visit_tasks` needs it and `views.py` imports `visit_tasks`. The four consumers:
+
+- **`visit_tasks._visit_worker`** — the `Visit` table (feeds place suggestions and the summary emails' stay timeline / top places). Bridges past its hardcoded 1h cut. Measured from a new `last_lat`/`last_lon` on the visit accumulator — the *last member point*, not the running centroid, since that is the fix the gap actually started at. The three duplicated visit-dict literals were factored into `_new_visit(device_id, loc)`. **Existing `Visit` rows are not retroactively recomputed** — they only change when the visit job re-runs over points with `processed_for_visits=False`.
+- **`views._detect_dwells`** — the map's Trip Lines dwell blobs. Bridges past `_DWELL_MAX_GAP_S`, keeping the blobs and the Visits page agreeing about where a stop starts and ends (the invariant the function's docstring is built around). Same `last_lat`/`last_lon` treatment, via `_new_cluster`.
+- **`views._compute_place_detail`** — a custom place's `time_spent`, previously capped at `_PLACE_GAP_CAP_S` (600s), so a 4h hole contributed **zero**. Every point here is already inside the place circle, so when `radius_m * 2 <= GAP_BRIDGE_RADIUS_M` the distance test holds by construction and only the ceiling is applied — preserving the deliberately **timestamps-only** scan for the default 150m radius. A wider place adds `latitude`/`longitude` to the `values_list` and gets the real endpoint check.
+- **`views._visits_dwell_gap`** — the Visits page. The 1h cross-label cap assumes travel between towns, but a nearby boundary or a shifted geocode can put a different label on two fixes metres apart; the bridge lifts the cap there. Genuine travel is unaffected (endpoints kilometres apart). `prev`/`cur` tuples grew `lat, lon`, so **both** call sites (`_compute_visits_from_qs` and `trip_visits_api`'s inlined copy) had to widen their `values_list`.
+
+Pure Python change ⇒ **restart `web`**; no model, no migration.
 
 ## Distance travelled
 
