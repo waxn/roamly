@@ -202,9 +202,45 @@ def _build_custom_places_data(user):
     ]
 
 
+def _build_health_workouts_data(user):
+    """Build serializable imported workouts for a user's backup.
+
+    Shared with views._write_backup_json so the download and the S3 backup stay
+    identical by construction, the same arrangement _build_adventures_data /
+    _build_journals_data / _build_custom_places_data already have.
+
+    There is deliberately no matching helper for health *samples*: they are the
+    only health section large enough to matter, and the download streams them
+    row-by-row to avoid materialising a whole history in memory. A shared
+    list-building helper would defeat exactly that.
+    """
+    from .models import HealthWorkout
+
+    return [
+        {
+            'hc_id': w.hc_id,
+            'source': w.source,
+            'device_id': w.device_id,
+            'start_time': w.start_time,
+            'end_time': w.end_time,
+            'zone_offset_seconds': w.zone_offset_seconds,
+            'exercise_type': w.exercise_type,
+            'exercise_slug': w.exercise_slug,
+            'title': w.title,
+            'notes': w.notes,
+            'duration_s': w.duration_s,
+            'steps': w.steps,
+            'distance_m': w.distance_m,
+            'calories_kcal': w.calories_kcal,
+            'avg_heart_rate': w.avg_heart_rate,
+        }
+        for w in HealthWorkout.objects.filter(user=user).order_by('start_time')
+    ]
+
+
 def _build_backup_json(user):
     """Build the backup JSON data dict for a user (same format as export_backup view)."""
-    from .models import Device, Location, APIKey
+    from .models import Device, Location, APIKey, HealthSample
 
     devices = Device.objects.filter(user=user)
     locations = Location.objects.filter(device__user=user).select_related('device').order_by('timestamp')
@@ -212,7 +248,7 @@ def _build_backup_json(user):
 
     data = {
         'meta': {
-            'version': 9,
+            'version': 10,
             'exported_at': timezone.now().isoformat(),
             'username': user.username,
         },
@@ -250,6 +286,17 @@ def _build_backup_json(user):
         ],
         'journals': _build_journals_data(user),
         'custom_places': _build_custom_places_data(user),
+        # Health Connect data. Genuinely irreplaceable rather than a cache of
+        # something re-derivable: Health Connect only serves the trailing 30 days
+        # without READ_HEALTH_DATA_HISTORY, and a source app can retract records
+        # at any time, so this copy is the long-term archive.
+        'health_workouts': _build_health_workouts_data(user),
+        'health_samples': list(
+            HealthSample.objects.filter(user=user).order_by('start_time').values(
+                'kind', 'value', 'start_time', 'end_time', 'zone_offset_seconds',
+                'source', 'device_id', 'hc_id', 'last_modified',
+            )
+        ),
     }
     return json.dumps(data, cls=DjangoJSONEncoder)
 
