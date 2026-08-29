@@ -811,6 +811,74 @@
             </details>
         </div>
 
+        <!-- Health (Zepp + file import) -->
+        <div class="card settings-span-12">
+            <div class="card-header" style="display:flex;align-items:center;gap:0.4rem;">
+                Health Data
+                <span class="badge" style="font-size:0.65rem;">per-account</span>
+            </div>
+            <p class="settings-section-desc">
+                Steps, distance and calories shown on the <a href="/health/">Health</a> page. The Android app
+                syncs these from <strong>Health Connect</strong> automatically. If your data lives in
+                <strong>Zepp</strong> (Amazfit) instead, Health Connect often won&rsquo;t carry it — use one of the
+                two routes below.
+            </p>
+
+            <div style="border:1px solid var(--border);padding:0.9rem;margin-bottom:1rem;">
+                <strong style="font-size:0.9rem;">Zepp cloud sync</strong>
+                <p class="settings-section-desc" style="margin-top:0.4rem;">
+                    Zepp&rsquo;s official API is for companies only, so this uses the same endpoint the Zepp app
+                    itself uses, with an <strong>app token</strong> taken from the app. Capture it with an HTTPS
+                    proxy (HTTP Toolkit, Fiddler) while the Zepp app loads your data, or read it from
+                    <code>hm_id_sdk_android.xml</code> on a rooted phone &mdash; look for the
+                    <code>apptoken</code> header and your numeric user id.
+                    <br><em style="color:var(--text-muted);">Unofficial, so it can stop working whenever Zepp changes something. Failures are shown below rather than passing silently.</em>
+                </p>
+
+                <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;cursor:pointer;margin-bottom:0.75rem;">
+                    <input type="checkbox" id="zepp-enabled">
+                    Sync my Zepp data every 6 hours
+                </label>
+
+                <div class="pref-grid" style="margin-bottom:0.75rem;">
+                    <div>
+                        <label style="font-size:0.8125rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">App token</label>
+                        <input type="password" id="zepp-token" class="form-control" placeholder="apptoken header value">
+                    </div>
+                    <div>
+                        <label style="font-size:0.8125rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">User ID</label>
+                        <input type="text" id="zepp-user-id" class="form-control" placeholder="numeric Zepp user id">
+                    </div>
+                    <div>
+                        <label style="font-size:0.8125rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">API host <span style="opacity:0.7;">(region)</span></label>
+                        <select id="zepp-host" class="form-control"></select>
+                    </div>
+                </div>
+
+                <div class="settings-actions">
+                    <button class="btn btn-primary btn-sm" onclick="saveZeppConfig()">Save</button>
+                    <button class="btn btn-outline btn-sm" onclick="syncZeppNow()">Sync now</button>
+                    <span id="zepp-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+                </div>
+                <div id="zepp-error" style="display:none;font-size:0.8125rem;color:var(--danger);margin-top:0.6rem;"></div>
+            </div>
+
+            <div style="border:1px solid var(--border);padding:0.9rem;">
+                <strong style="font-size:0.9rem;">Import from a file</strong>
+                <p class="settings-section-desc" style="margin-top:0.4rem;">
+                    The route that can&rsquo;t break. Upload a CSV with a <strong>date</strong> column plus any of
+                    <strong>steps</strong>, <strong>distance</strong> or <strong>calories</strong> &mdash; a Zepp
+                    export, a community export script&rsquo;s output, or your own spreadsheet. Column names are
+                    matched loosely. Re-importing the same days corrects them rather than double counting.
+                </p>
+                <div class="settings-actions">
+                    <input type="file" id="health-import-file" accept=".csv,.gz" class="form-control" style="max-width:22rem;">
+                    <button class="btn btn-outline btn-sm" onclick="importHealthFile()">Import</button>
+                    <span id="health-import-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+                </div>
+            </div>
+        </div>
+
         <!-- AI Ask (per-user) -->
         <div class="card settings-span-12">
             <div class="card-header" style="display:flex;align-items:center;gap:0.4rem;">
@@ -2051,6 +2119,133 @@ fetch('/api/stats/recompute/status/')
         else _renderStatsRecalc(data, false);
     })
     .catch(() => {});
+
+// ── Health: Zepp sync + file import ─────────────────────────────────────────
+// Zepp's official API is corporate-only, so this configures the unofficial
+// app-token route. The token is masked on read like the AI key: it is only sent
+// back to the server when the user actually typed a new one.
+
+const ZEPP_MASK = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
+
+function loadZeppConfig() {
+    fetch('/api/health/zepp/')
+        .then(r => { if (!r.ok) throw new Error('load failed'); return r.json(); })
+        .then(cfg => {
+            document.getElementById('zepp-enabled').checked = !!cfg.enabled;
+            document.getElementById('zepp-token').value = cfg.token || '';
+            document.getElementById('zepp-user-id').value = cfg.user_id || '';
+
+            const host = document.getElementById('zepp-host');
+            host.innerHTML = (cfg.known_hosts || []).map(h =>
+                `<option value="${h}"${h === cfg.host ? ' selected' : ''}>${h}</option>`).join('');
+
+            renderZeppStatus(cfg);
+        })
+        .catch(() => {
+            document.getElementById('zepp-status').textContent = 'could not load settings';
+        });
+}
+
+function renderZeppStatus(cfg) {
+    const status = document.getElementById('zepp-status');
+    const err = document.getElementById('zepp-error');
+
+    if (cfg.running) {
+        status.textContent = 'syncing…';
+    } else if (cfg.last_sync) {
+        status.textContent = 'last synced ' + new Date(cfg.last_sync).toLocaleString();
+    } else if (cfg.configured) {
+        status.textContent = 'never synced';
+    } else {
+        status.textContent = '';
+    }
+
+    // An unofficial API will break eventually; when it does, say so plainly
+    // instead of leaving the Health page looking like an empty account.
+    if (cfg.last_error) {
+        err.style.display = '';
+        err.textContent = cfg.last_error;
+    } else {
+        err.style.display = 'none';
+    }
+}
+
+function saveZeppConfig() {
+    const status = document.getElementById('zepp-status');
+    status.textContent = 'saving…';
+    const token = document.getElementById('zepp-token').value.trim();
+    fetch('/api/health/zepp/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({
+            enabled: document.getElementById('zepp-enabled').checked,
+            token: token,
+            user_id: document.getElementById('zepp-user-id').value.trim(),
+            host: document.getElementById('zepp-host').value,
+        }),
+    })
+    .then(r => { if (!r.ok) throw new Error('save failed'); return r.json(); })
+    .then(() => {
+        window.roamlyToast('Zepp settings saved', { type: 'success' });
+        loadZeppConfig();
+    })
+    .catch(() => {
+        status.textContent = '';
+        window.roamlyToast('Could not save Zepp settings', { type: 'error' });
+    });
+}
+
+function syncZeppNow() {
+    const status = document.getElementById('zepp-status');
+    status.textContent = 'starting…';
+    fetch('/api/health/zepp/sync/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: '{}',
+    })
+    .then(r => r.json().then(j => { if (!r.ok) throw new Error(j.error || 'sync failed'); return j; }))
+    .then(() => {
+        status.textContent = 'syncing…';
+        // The sync runs in a background thread, so poll until it reports done.
+        const poll = setInterval(() => {
+            fetch('/api/health/zepp/').then(r => r.json()).then(cfg => {
+                renderZeppStatus(cfg);
+                if (!cfg.running) clearInterval(poll);
+            }).catch(() => clearInterval(poll));
+        }, 3000);
+    })
+    .catch(e => {
+        status.textContent = '';
+        window.roamlyToast(e.message || 'Could not start the sync', { type: 'error' });
+    });
+}
+
+function importHealthFile() {
+    const input = document.getElementById('health-import-file');
+    const status = document.getElementById('health-import-status');
+    if (!input.files || !input.files.length) {
+        window.roamlyToast('Choose a file first', { type: 'error' });
+        return;
+    }
+    const fd = new FormData();
+    fd.append('file', input.files[0]);
+    status.textContent = 'importing…';
+    fetch('/api/health/import/', {
+        method: 'POST', headers: { 'X-CSRFToken': csrfToken }, body: fd,
+    })
+    .then(r => r.json().then(j => { if (!r.ok) throw new Error(j.error || 'import failed'); return j; }))
+    .then(j => {
+        status.textContent = `${j.created} added, ${j.updated} updated` +
+            (j.skipped ? `, ${j.skipped} skipped` : '');
+        window.roamlyToast('Health data imported', { type: 'success' });
+    })
+    .catch(e => {
+        status.textContent = '';
+        window.roamlyToast(e.message || 'Could not import that file', { type: 'error' });
+    });
+}
+
+loadZeppConfig();
 
 // ── AI Ask (per-user) ────────────────────────────────────────────────────────
 function _aiConfigPayload() {
