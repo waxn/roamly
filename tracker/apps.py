@@ -44,3 +44,8 @@ class TrackerConfig(AppConfig):
                 start_auto_download_scheduler()
             except Exception:
                 pass
+            try:
+                from .zepp_tasks import start_zepp_scheduler
+                start_zepp_scheduler()
+            except Exception:
+                pass

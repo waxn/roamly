@@ -175,6 +175,9 @@ urlpatterns = [
     path('api/health/status/', views.health_status_api, name='health_status_api'),
     path('api/health/source/', views.health_source_api, name='health_source_api'),
     path('api/health/delete/', views.health_delete_api, name='health_delete_api'),
+    path('api/health/zepp/', views.health_zepp_config_api, name='health_zepp_config_api'),
+    path('api/health/zepp/sync/', views.health_zepp_sync_api, name='health_zepp_sync_api'),
+    path('api/health/import/', views.health_import_api, name='health_import_api'),
     path('api/health/day/<str:date_str>/', views.health_day_api, name='health_day_api'),
 
     # Geocoding
