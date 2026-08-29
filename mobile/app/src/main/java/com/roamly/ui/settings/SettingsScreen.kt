@@ -64,6 +64,11 @@ fun SettingsScreen(
         LocationTableScreen(onBack = { showDataTable = false })
         return
     }
+    var showHealth by remember { mutableStateOf(false) }
+    if (showHealth) {
+        com.roamly.ui.health.HealthScreen(onBack = { showHealth = false })
+        return
+    }
     val state by viewModel.uiState.collectAsState()
     val updateState by updateViewModel.state.collectAsState()
     val context = LocalContext.current
@@ -655,6 +660,18 @@ fun SettingsScreen(
                 Icon(Icons.Rounded.Storage, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Location Data", fontWeight = FontWeight.Bold)
+            }
+
+            Spacer(Modifier.height(10.dp))
+            ClayButton(
+                onClick = { showHealth = true },
+                gradient = clay.secondaryGradient,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Rounded.MonitorHeart, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Health", fontWeight = FontWeight.Bold)
             }
         }
 

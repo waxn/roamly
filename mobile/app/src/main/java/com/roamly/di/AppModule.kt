@@ -181,6 +181,16 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideHealthRepository(api: RoamlyApi): com.roamly.data.repository.HealthRepository =
+        com.roamly.data.repository.HealthRepository(api)
+
+    @Provides
+    @Singleton
+    fun provideHealthConnectManager(@ApplicationContext context: Context): com.roamly.health.HealthConnectManager =
+        com.roamly.health.HealthConnectManager(context)
+
+    @Provides
+    @Singleton
     fun provideTrackingDatabase(@ApplicationContext context: Context): TrackingDatabase =
         TrackingDatabase.getInstance(context)
 

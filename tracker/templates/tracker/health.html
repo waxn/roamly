@@ -1,0 +1,836 @@
+{% extends 'tracker/base.html' %}
+{% block title %}Health - Roamly{% endblock %}
+
+{% block extra_css %}
+.health-wrap { max-width: 1150px; }
+
+/* ── Chart primitives (ported from stats.html — same hand-rolled Canvas
+      approach, no charting library anywhere in this app) ─────────────────── */
+.h-chart-container { position: relative; width: 100%; height: 240px; margin-top: 0.75rem; }
+.h-chart-container canvas { width: 100%; height: 100%; }
+.h-chart-tooltip {
+    position: absolute; pointer-events: none;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 0;
+    padding: 0.325rem 0.5rem; font-size: 0.75rem; font-family: var(--font-body);
+    color: var(--text); white-space: nowrap; opacity: 0;
+    transition: opacity 0.15s; z-index: 10;
+}
+.h-chart-hover-line {
+    position: absolute; width: 1px; background: var(--border-bright);
+    opacity: 0; pointer-events: none; transition: opacity 0.12s;
+}
+.h-chart-hover-dot {
+    position: absolute; width: 11px; height: 11px; border-radius: 50%;
+    background: var(--primary); border: 2px solid var(--bg-card);
+    box-shadow: 0 0 0 4px var(--primary-soft);
+    transform: translate(-50%, -50%); opacity: 0; pointer-events: none;
+    transition: opacity 0.12s;
+}
+
+/* ── Steps heatmap (trailing year, one square per day) ──────────────────── */
+.heat-card { position: relative; }
+.heat-scroll { overflow-x: auto; overflow-y: hidden; padding: 0.25rem 0 0.375rem; }
+.heatmap {
+    --heat-cell: 12px; --heat-gap: 3px;
+    display: grid; grid-template-columns: auto 1fr;
+    column-gap: 0.5rem; row-gap: 0.375rem; width: max-content;
+}
+.heat-months, .heat-grid { grid-column: 2; }
+.heat-dows { grid-column: 1; grid-row: 2; }
+.heat-months { grid-row: 1; display: grid; grid-auto-rows: 11px; column-gap: var(--heat-gap); }
+.heat-month {
+    font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-muted);
+    line-height: 11px; white-space: nowrap;
+}
+.heat-dows { display: grid; grid-template-rows: repeat(7, var(--heat-cell)); gap: var(--heat-gap); }
+.heat-dow {
+    font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-muted);
+    line-height: var(--heat-cell); text-align: right;
+}
+.heat-grid {
+    grid-row: 2; display: grid; grid-auto-flow: column;
+    grid-template-rows: repeat(7, var(--heat-cell));
+    grid-auto-columns: var(--heat-cell); gap: var(--heat-gap);
+}
+.heat-cell {
+    width: var(--heat-cell); height: var(--heat-cell); border-radius: 0;
+    border: 1px solid var(--border); background: var(--bg-input);
+}
+.heat-cell[data-day] { cursor: pointer; }
+.heat-cell[data-day]:hover { outline: 1px solid var(--border-bright); outline-offset: 1px; }
+.heat-void { visibility: hidden; }
+.heat-legend {
+    display: flex; align-items: center; justify-content: flex-end; gap: 0.375rem;
+    font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+.heat-legend .heat-cell { cursor: default; }
+
+/* ── Workouts ───────────────────────────────────────────────────────────── */
+.h-workout {
+    display: flex; align-items: center; gap: 0.875rem;
+    padding: 0.75rem 0; border-bottom: 1px solid var(--border);
+}
+.h-workout:last-child { border-bottom: none; }
+.h-w-badge {
+    flex: 0 0 auto; width: 40px; height: 40px; display: flex;
+    align-items: center; justify-content: center;
+    border: 1px solid var(--border); font-size: 1.1rem;
+}
+.h-w-main { flex: 1 1 auto; min-width: 0; }
+.h-w-title { font-weight: 600; font-size: 0.9375rem; }
+.h-w-sub {
+    font-family: var(--font-mono); font-size: 0.75rem;
+    color: var(--text-muted); margin-top: 0.15rem;
+}
+.h-w-stats {
+    flex: 0 0 auto; display: flex; gap: 1.25rem;
+    font-family: var(--font-mono); font-size: 0.8125rem;
+}
+.h-w-stat span { display: block; font-size: 0.625rem; color: var(--text-muted); }
+.h-w-del {
+    flex: 0 0 auto; background: none; border: none; cursor: pointer;
+    color: var(--text-muted); font-size: 1.1rem; line-height: 1; padding: 0.25rem;
+}
+.h-w-del:hover { color: var(--danger); }
+
+/* ── Sources ────────────────────────────────────────────────────────────── */
+.h-source {
+    display: flex; align-items: center; gap: 0.625rem;
+    padding: 0.5rem 0; border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+}
+.h-source:last-child { border-bottom: none; }
+.h-source-name { flex: 1 1 auto; font-family: var(--font-mono); font-size: 0.8125rem; }
+.h-source-count { color: var(--text-muted); font-family: var(--font-mono); font-size: 0.75rem; }
+
+/* ── Day detail modal ───────────────────────────────────────────────────── */
+.h-modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    display: none; align-items: center; justify-content: center;
+    z-index: 2000; padding: 1rem;
+}
+.h-modal-overlay.open { display: flex; }
+.h-modal {
+    background: var(--bg-card); border: 1px solid var(--border);
+    width: 100%; max-width: 720px; max-height: 88vh; overflow-y: auto;
+}
+.h-modal-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border);
+}
+.h-modal-body { padding: 1.25rem; }
+.h-modal-close {
+    background: none; border: none; cursor: pointer;
+    color: var(--text-muted); font-size: 1.5rem; line-height: 1;
+}
+.h-hours { display: flex; align-items: flex-end; gap: 2px; height: 120px; margin: 0.75rem 0 0.25rem; }
+.h-hour { flex: 1 1 0; background: var(--primary); min-height: 1px; opacity: 0.85; }
+.h-hour-labels {
+    display: flex; justify-content: space-between;
+    font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-muted);
+}
+.h-empty-state {
+    text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); font-size: 0.9375rem;
+}
+{% endblock %}
+
+{% block content %}
+<div class="container health-wrap">
+    <div class="page-toolbar">
+        <div>
+            <h1>health</h1>
+            <p class="page-lead" style="margin-bottom:0;">steps, distance and calories from your phone.</p>
+        </div>
+        <div class="toolbar-actions" id="h-filters">
+            <select id="h-range">
+                <option value="30">Last 30 days</option>
+                <option value="90">Last 90 days</option>
+                <option value="365">Last year</option>
+                <option value="all">All time</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Shown instead of everything else when the account has no health data yet. -->
+    <div class="card" id="h-not-connected" style="display:none;">
+        <div class="card-header">Connect Health Connect</div>
+        <div class="h-empty-state" style="text-align:left;padding:1rem 0;">
+            <p style="margin-top:0;">No health data yet.</p>
+            <p>Roamly reads steps, distance and calories from <strong>Health Connect</strong> on
+               Android. Open the Roamly app, go to <strong>Settings &rarr; Health</strong>, grant
+               permission, and turn on syncing. Your data stays between your phone and this server.</p>
+            <p style="margin-bottom:0;">Workouts are separate and stay under your control &mdash; browse
+               your exercise sessions in the app and import only the ones you want.</p>
+        </div>
+    </div>
+
+    <div id="h-content">
+        <div class="grid grid-4">
+            <div class="card stat-card">
+                <div class="stat-label">total steps</div>
+                <div class="stat-value" id="h-stat-steps"><span class="skeleton skel-statval"></span></div>
+            </div>
+            <div class="card stat-card">
+                <div class="stat-label">distance</div>
+                <div class="stat-value" id="h-stat-distance"><span class="skeleton skel-statval"></span></div>
+            </div>
+            <div class="card stat-card">
+                <div class="stat-label">active calories</div>
+                <div class="stat-value" id="h-stat-calories"><span class="skeleton skel-statval"></span></div>
+            </div>
+            <div class="card stat-card">
+                <div class="stat-label">daily average</div>
+                <div class="stat-value" id="h-stat-avg"><span class="skeleton skel-statval"></span></div>
+            </div>
+        </div>
+
+        <div class="grid" style="margin-top:1.25rem;">
+            <div class="card heat-card" style="grid-column: 1 / -1;">
+                <div class="card-header" style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;">
+                    <span>Daily Steps</span>
+                    <span id="heat-summary" style="font-size:0.75rem;font-weight:500;color:var(--text-muted);font-family:var(--font-mono);"></span>
+                </div>
+                <div class="heat-scroll">
+                    <div class="heatmap">
+                        <div class="heat-months" id="heat-months"></div>
+                        <div class="heat-dows" id="heat-dows"></div>
+                        <div class="heat-grid" id="heat-grid"></div>
+                    </div>
+                </div>
+                <div class="heat-legend" id="heat-legend"></div>
+                <div class="h-chart-tooltip" id="heat-tooltip"></div>
+            </div>
+
+            <div class="card" style="grid-column: 1 / -1;">
+                <div class="card-header">Steps over time</div>
+                <div class="h-chart-container" id="h-steps-chart-wrap">
+                    <canvas id="h-steps-chart"></canvas>
+                    <div class="h-chart-hover-line" id="h-steps-line"></div>
+                    <div class="h-chart-hover-dot" id="h-steps-dot"></div>
+                    <div class="h-chart-tooltip" id="h-steps-tip"></div>
+                </div>
+            </div>
+
+            <div class="card" style="grid-column: 1 / -1;">
+                <div class="card-header">Distance over time</div>
+                <div class="h-chart-container" id="h-dist-chart-wrap">
+                    <canvas id="h-dist-chart"></canvas>
+                    <div class="h-chart-hover-line" id="h-dist-line"></div>
+                    <div class="h-chart-hover-dot" id="h-dist-dot"></div>
+                    <div class="h-chart-tooltip" id="h-dist-tip"></div>
+                </div>
+            </div>
+
+            <div class="card" style="grid-column: 1 / -1;">
+                <div class="card-header" style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;">
+                    <span>Workouts</span>
+                    <span id="h-workouts-count" style="font-size:0.75rem;font-weight:500;color:var(--text-muted);font-family:var(--font-mono);"></span>
+                </div>
+                <div id="h-workouts" aria-busy="true">
+                    {% for i in "1234" %}
+                    <div class="h-workout" aria-hidden="true">
+                        <span class="skeleton" style="width:40px;height:40px;flex:0 0 auto;"></span>
+                        <div style="flex:1 1 auto;">
+                            <div class="skeleton skel-line" style="width:9rem;margin-bottom:0.35rem;"></div>
+                            <div class="skeleton skel-line sm" style="width:12rem;"></div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="card" style="grid-column: 1 / -1;" id="h-sources-card">
+                <div class="card-header">Data sources</div>
+                <p style="font-size:0.8125rem;color:var(--text-muted);margin-top:0;">
+                    Several apps can record the same walk. Roamly counts one app per day and metric
+                    so your steps aren&rsquo;t double counted &mdash; pick which one to trust, or leave
+                    it on automatic and the most complete record for each day wins.
+                </p>
+                <div id="h-sources"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="h-modal-overlay" id="h-day-overlay">
+    <div class="h-modal">
+        <div class="h-modal-head">
+            <div>
+                <strong id="h-day-title">&nbsp;</strong>
+                <div id="h-day-sub" style="font-family:var(--font-mono);font-size:0.75rem;color:var(--text-muted);"></div>
+            </div>
+            <button class="h-modal-close" id="h-day-close" aria-label="Close">&times;</button>
+        </div>
+        <div class="h-modal-body" id="h-day-body"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const csrfToken = '{{ csrf_token }}';
+
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const TZ_OFFSET = new Date().getTimezoneOffset();
+
+let healthData = null;
+
+// ── Shared helpers ──────────────────────────────────────────────────────────
+
+function isImperial() {
+    return (localStorage.getItem('roamly_speed_unit') || 'kmh') === 'mph';
+}
+
+// Health Connect reports distance in metres; roamly_speed_unit decides the face.
+function formatDistanceM(metres) {
+    const km = (metres || 0) / 1000;
+    if (isImperial()) return (km * 0.621371).toFixed(1) + ' mi';
+    return km.toFixed(1) + ' km';
+}
+
+function fmtInt(n) {
+    return Math.round(n || 0).toLocaleString();
+}
+
+// Advance a 'YYYY-MM-DD' string by N days without timezone issues.
+function addDays(dateStr, n) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+// Monday-first row index (0=Mon .. 6=Sun). Parsed as UTC to match the API's day
+// keys and to dodge local-timezone date shifts.
+function dowIndex(dateStr) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7;
+}
+
+function hexA(hex, alpha) {
+    const h = (hex || '').trim().replace('#', '');
+    if (h.length !== 6) return hex;
+    const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function cssVar(name, fallback) {
+    return (getComputedStyle(document.documentElement).getPropertyValue(name) || fallback).trim();
+}
+
+function errorHtml(msg, retryFn) {
+    return `<div class="h-empty-state" style="color:var(--danger);">${msg} <a href="#" onclick="${retryFn};return false;">Retry</a></div>`;
+}
+
+function rangeParams() {
+    const range = document.getElementById('h-range').value;
+    const params = new URLSearchParams();
+    if (range === 'all') params.set('all', '1');
+    else params.set('hours', String(parseInt(range, 10) * 24));
+    params.set('tz_offset', String(TZ_OFFSET));
+    return params;
+}
+
+// ── Status: decides whether the page shows data or the connect prompt ───────
+
+function loadStatus() {
+    return fetch('/api/health/status/')
+        .then(r => { if (!r.ok) throw new Error('status failed'); return r.json(); })
+        .then(s => {
+            document.getElementById('h-not-connected').style.display = s.connected ? 'none' : '';
+            document.getElementById('h-content').style.display = s.connected ? '' : 'none';
+            if (s.connected) renderSources(s);
+            return s;
+        });
+}
+
+function renderSources(status) {
+    const el = document.getElementById('h-sources');
+    // One row per writing app, collapsed across metrics.
+    const byApp = new Map();
+    (status.sources || []).forEach(row => {
+        const cur = byApp.get(row.source) || 0;
+        byApp.set(row.source, cur + row.count);
+    });
+    if (!byApp.size) {
+        document.getElementById('h-sources-card').style.display = 'none';
+        return;
+    }
+    const preferred = status.preferred_source || '';
+    const rows = [...byApp.entries()].sort((a, b) => b[1] - a[1]);
+    el.innerHTML = `
+        <div class="h-source">
+            <input type="radio" name="h-source" value="" id="h-src-auto" ${preferred ? '' : 'checked'}>
+            <label class="h-source-name" for="h-src-auto">automatic (most complete each day)</label>
+        </div>
+    ` + rows.map(([name, count], i) => `
+        <div class="h-source">
+            <input type="radio" name="h-source" value="${name}" id="h-src-${i}" ${preferred === name ? 'checked' : ''}>
+            <label class="h-source-name" for="h-src-${i}">${name || 'unknown'}</label>
+            <span class="h-source-count">${fmtInt(count)} records</span>
+        </div>
+    `).join('');
+
+    el.querySelectorAll('input[name="h-source"]').forEach(input => {
+        input.addEventListener('change', () => savePreferredSource(input.value));
+    });
+}
+
+function savePreferredSource(value) {
+    fetch('/api/health/source/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ preferred_source: value }),
+    })
+    .then(r => { if (!r.ok) throw new Error('save failed'); return r.json(); })
+    .then(() => {
+        window.roamlyToast('Data source updated', { type: 'success' });
+        loadDaily();      // totals change, so repaint
+        loadHeatmap();
+    })
+    .catch(() => window.roamlyToast('Could not save that preference', { type: 'error' }));
+}
+
+// ── Daily series: stat tiles + the two line charts ──────────────────────────
+
+function loadDaily() {
+    const params = rangeParams();
+    fetch('/api/health/daily/?' + params.toString())
+        .then(r => { if (!r.ok) throw new Error('daily failed'); return r.json(); })
+        .then(data => {
+            healthData = data;
+            renderStats(data);
+            drawSeries('h-steps', data.days, data.steps, cssVar('--primary', '#e8763d'),
+                       v => fmtInt(v) + ' steps');
+            drawSeries('h-dist', data.days, data.distance, cssVar('--clay-sky', '#4fc3d9'),
+                       v => formatDistanceM(v));
+        })
+        .catch(() => {
+            ['h-stat-steps', 'h-stat-distance', 'h-stat-calories', 'h-stat-avg']
+                .forEach(id => { document.getElementById(id).textContent = '—'; });
+            window.roamlyToast('Could not load health data', { type: 'error' });
+        });
+}
+
+function renderStats(data) {
+    const t = data.totals || {};
+    document.getElementById('h-stat-steps').textContent = fmtInt(t.steps);
+    document.getElementById('h-stat-distance').textContent = formatDistanceM(t.distance_m);
+    document.getElementById('h-stat-calories').textContent = fmtInt(t.calories_active) + ' kcal';
+    document.getElementById('h-stat-avg').textContent = fmtInt(t.avg_steps);
+}
+
+// ── Canvas line chart (ported from admin_panel.html's hand-rolled helpers) ──
+
+function monotoneSpline(ctx, pts) {
+    if (pts.length < 2) return;
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = pts[i === 0 ? 0 : i - 1], p1 = pts[i],
+              p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+        ctx.bezierCurveTo(
+            p1.x + (p2.x - p0.x) / 6, p1.y + (p2.y - p0.y) / 6,
+            p2.x - (p3.x - p1.x) / 6, p2.y - (p3.y - p1.y) / 6,
+            p2.x, p2.y);
+    }
+}
+
+// Kept per-chart so the hover handlers can find their own points again.
+const chartState = {};
+
+function drawSeries(prefix, days, values, colour, fmt) {
+    const canvas = document.getElementById(prefix + '-chart');
+    if (!canvas || !days) return;
+    const wrap = canvas.parentElement;
+    const dpr = window.devicePixelRatio || 1;
+    const W = wrap.clientWidth, H = wrap.clientHeight;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    if (!days.length) {
+        ctx.fillStyle = cssVar('--text-muted', '#888');
+        ctx.font = '13px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText('no data in this range', W / 2, H / 2);
+        chartState[prefix] = null;
+        return;
+    }
+
+    const padL = 8, padR = 8, padT = 12, padB = 22;
+    const max = Math.max(1, ...values);
+    const pts = days.map((d, i) => ({
+        x: padL + (W - padL - padR) * (days.length === 1 ? 0.5 : i / (days.length - 1)),
+        y: padT + (H - padT - padB) * (1 - (values[i] || 0) / max),
+        day: d, value: values[i] || 0,
+    }));
+
+    // Grid lines, read from CSS vars at draw time so light/dark both work.
+    ctx.strokeStyle = hexA(cssVar('--border', '#333'), 0.8);
+    ctx.lineWidth = 1;
+    for (let g = 0; g <= 4; g++) {
+        const y = padT + (H - padT - padB) * g / 4;
+        ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+    }
+
+    ctx.beginPath();
+    monotoneSpline(ctx, pts);
+    ctx.lineTo(pts[pts.length - 1].x, H - padB);
+    ctx.lineTo(pts[0].x, H - padB);
+    ctx.closePath();
+    ctx.fillStyle = hexA(colour, 0.14);
+    ctx.fill();
+
+    ctx.beginPath();
+    monotoneSpline(ctx, pts);
+    ctx.strokeStyle = colour;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Month ticks along the bottom.
+    ctx.fillStyle = cssVar('--text-muted', '#888');
+    ctx.font = '10px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    let lastMonth = null;
+    days.forEach((d, i) => {
+        const month = d.slice(0, 7);
+        if (month !== lastMonth) {
+            lastMonth = month;
+            ctx.fillText(MONTH_NAMES[parseInt(d.slice(5, 7), 10) - 1], pts[i].x, H - 6);
+        }
+    });
+
+    chartState[prefix] = { pts, fmt, W };
+}
+
+function attachChartHover(prefix) {
+    const wrap = document.getElementById(prefix + '-chart-wrap');
+    const line = document.getElementById(prefix + '-line');
+    const dot = document.getElementById(prefix + '-dot');
+    const tip = document.getElementById(prefix + '-tip');
+
+    wrap.addEventListener('mousemove', function(e) {
+        const st = chartState[prefix];
+        if (!st || !st.pts.length) return;
+        const r = wrap.getBoundingClientRect();
+        const x = e.clientX - r.left;
+        let best = st.pts[0], bestD = Infinity;
+        st.pts.forEach(p => { const d = Math.abs(p.x - x); if (d < bestD) { bestD = d; best = p; } });
+        line.style.left = best.x + 'px';
+        line.style.top = '0'; line.style.height = r.height + 'px';
+        line.style.opacity = '1';
+        dot.style.left = best.x + 'px'; dot.style.top = best.y + 'px'; dot.style.opacity = '1';
+        tip.innerHTML = `${best.day}<br>${st.fmt(best.value)}`;
+        tip.style.opacity = '1';
+        tip.style.left = Math.max(50, Math.min(r.width - 50, best.x)) + 'px';
+        tip.style.top = Math.max(0, best.y - 44) + 'px';
+        tip.style.transform = 'translateX(-50%)';
+        wrap.dataset.day = best.day;
+    });
+    wrap.addEventListener('mouseleave', () => {
+        line.style.opacity = '0'; dot.style.opacity = '0'; tip.style.opacity = '0';
+    });
+    wrap.addEventListener('click', () => {
+        if (wrap.dataset.day) openDay(wrap.dataset.day);
+    });
+}
+
+// ── Steps heatmap (trailing year) ──────────────────────────────────────────
+// Deliberately independent of the toolbar range, exactly like the Stats page's
+// distance heatmap: it always shows the last year.
+
+const HEAT_WEEKS = 53;
+const HEAT_ALPHA = [null, 0.22, 0.45, 0.7, 1];   // index = level 1..4; 0 renders empty
+const DOW_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', ''];
+
+function heatAccent() { return cssVar('--primary', '#e8763d'); }
+
+function heatCellStyle(level) {
+    if (!level) return '';
+    return `background:${hexA(heatAccent(), HEAT_ALPHA[level])};border-color:${hexA(heatAccent(), Math.min(1, HEAT_ALPHA[level] + 0.15))};`;
+}
+
+// Bucket daily step counts into 4 levels by quartile of the *active* days.
+// Daily activity is skewed — a lot of ordinary days plus a handful of long
+// walks — so a linear ramp would flatten nearly everything to level 1.
+function makeHeatLevel(values) {
+    const nz = values.filter(v => v > 0).sort((a, b) => a - b);
+    if (!nz.length) return null;
+    const q = p => nz[Math.min(nz.length - 1, Math.floor(p * nz.length))];
+    let t = [q(0.25), q(0.5), q(0.75)];
+    if (!(t[0] < t[1] && t[1] < t[2])) {
+        const lo = nz[0], hi = nz[nz.length - 1];
+        if (hi <= lo) return v => (v > 0 ? 4 : 0);
+        t = [1, 2, 3].map(i => lo + (hi - lo) * i / 4);
+    }
+    return v => {
+        if (!(v > 0)) return 0;
+        if (v <= t[0]) return 1;
+        if (v <= t[1]) return 2;
+        if (v <= t[2]) return 3;
+        return 4;
+    };
+}
+
+function loadHeatmap() {
+    fetch(`/api/health/daily/?all=1&tz_offset=${TZ_OFFSET}`)
+        .then(r => { if (!r.ok) throw new Error('heatmap failed'); return r.json(); })
+        .then(data => drawHeatmap(data.days || [], data.steps || []))
+        .catch(() => {
+            document.getElementById('heat-summary').textContent = 'could not load';
+        });
+}
+
+function drawHeatmap(days, steps) {
+    const grid = document.getElementById('heat-grid');
+    const monthsEl = document.getElementById('heat-months');
+    const dowsEl = document.getElementById('heat-dows');
+    const legendEl = document.getElementById('heat-legend');
+    const summaryEl = document.getElementById('heat-summary');
+
+    const byDay = new Map(days.map((d, i) => [d, steps[i]]));
+
+    const today = new Date().toISOString().slice(0, 10);
+    const gridStart = addDays(today, -dowIndex(today) - (HEAT_WEEKS - 1) * 7);
+
+    const cells = [];
+    const windowVals = [];
+    for (let c = 0; c < HEAT_WEEKS; c++) {
+        for (let r = 0; r < 7; r++) {
+            const day = addDays(gridStart, c * 7 + r);
+            if (day > today) { cells.push(null); continue; }
+            const n = byDay.get(day) || 0;
+            cells.push({ day, n });
+            windowVals.push(n);
+        }
+    }
+
+    const levelOf = makeHeatLevel(windowVals);
+    const activeDays = windowVals.filter(v => v > 0).length;
+    const totalSteps = windowVals.reduce((a, b) => a + b, 0);
+
+    dowsEl.innerHTML = DOW_LABELS.map(l => `<div class="heat-dow">${l}</div>`).join('');
+
+    grid.innerHTML = cells.map(c => {
+        if (!c) return '<div class="heat-cell heat-void"></div>';
+        const level = levelOf ? levelOf(c.n) : 0;
+        const tip = `${c.day}\n${c.n > 0 ? fmtInt(c.n) + ' steps' : 'no steps'}`;
+        return `<div class="heat-cell" style="${heatCellStyle(level)}" data-day="${c.day}" data-tip="${tip.replace(/\n/g, '&#10;')}"></div>`;
+    }).join('');
+
+    let lastMonth = null, lastCol = -3;
+    const labels = [];
+    for (let c = 0; c < HEAT_WEEKS; c++) {
+        const day = addDays(gridStart, c * 7);
+        const month = day.slice(0, 7);
+        if (month !== lastMonth) {
+            lastMonth = month;
+            if (c - lastCol >= 3 && c <= HEAT_WEEKS - 3) {
+                labels.push(`<div class="heat-month" style="grid-column:${c + 1} / span 4;">${MONTH_NAMES[parseInt(day.slice(5, 7), 10) - 1]}</div>`);
+                lastCol = c;
+            }
+        }
+    }
+    monthsEl.style.gridTemplateColumns = `repeat(${HEAT_WEEKS}, var(--heat-cell))`;
+    monthsEl.innerHTML = labels.join('');
+
+    summaryEl.textContent = activeDays
+        ? `${fmtInt(totalSteps)} steps over ${activeDays} active day${activeDays !== 1 ? 's' : ''} in the last year`
+        : 'no step data in the last year';
+
+    legendEl.innerHTML = 'less'
+        + [0, 1, 2, 3, 4].map(l => `<div class="heat-cell" style="${heatCellStyle(l)}"></div>`).join('')
+        + 'more';
+}
+
+// Delegated — the grid is rebuilt on every draw.
+(function attachHeatmapHover() {
+    const card = document.querySelector('.heat-card');
+    const grid = document.getElementById('heat-grid');
+    const tooltip = document.getElementById('heat-tooltip');
+
+    grid.addEventListener('mouseover', function(e) {
+        const cell = e.target.closest('.heat-cell[data-day]');
+        if (!cell) return;
+        tooltip.innerHTML = cell.dataset.tip.replace('\n', '<br>');
+        tooltip.style.opacity = '1';
+        const cr = card.getBoundingClientRect();
+        const r = cell.getBoundingClientRect();
+        const x = Math.max(60, Math.min(cr.width - 60, r.left - cr.left + r.width / 2));
+        tooltip.style.left = x + 'px';
+        tooltip.style.top = (r.top - cr.top - 34) + 'px';
+        tooltip.style.transform = 'translateX(-50%)';
+    });
+    grid.addEventListener('mouseleave', () => { tooltip.style.opacity = '0'; });
+    grid.addEventListener('click', function(e) {
+        const cell = e.target.closest('.heat-cell[data-day]');
+        if (cell) openDay(cell.dataset.day);
+    });
+})();
+
+// ── Workouts ───────────────────────────────────────────────────────────────
+
+const WORKOUT_GLYPHS = {
+    running: '🏃', walking: '🚶', hiking: '🥾', biking: '🚴', cycling: '🚴',
+    swimming: '🏊', strength_training: '🏋️', workout: '💪', yoga: '🧘',
+    rowing: '🚣', elliptical: '🌀', dancing: '💃', climbing: '🧗',
+};
+
+function workoutGlyph(slug) {
+    if (!slug) return '💪';
+    for (const key in WORKOUT_GLYPHS) {
+        if (slug.indexOf(key) !== -1) return WORKOUT_GLYPHS[key];
+    }
+    return '💪';
+}
+
+function fmtDuration(seconds) {
+    const s = Math.max(0, Math.round(seconds || 0));
+    const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+    return h ? `${h}h ${m}m` : `${m}m`;
+}
+
+function loadWorkouts() {
+    const el = document.getElementById('h-workouts');
+    fetch('/api/health/workouts/?' + rangeParams().toString())
+        .then(r => { if (!r.ok) throw new Error('workouts failed'); return r.json(); })
+        .then(data => {
+            el.removeAttribute('aria-busy');
+            const rows = data.workouts || [];
+            document.getElementById('h-workouts-count').textContent =
+                rows.length ? `${data.count} imported` : '';
+            if (!rows.length) {
+                el.innerHTML = `<div class="h-empty-state">No workouts imported yet.<br>
+                    Browse your exercise sessions in the Roamly app and import the ones you want.</div>`;
+                return;
+            }
+            el.innerHTML = rows.map(w => {
+                const when = new Date(w.start).toLocaleString([], {
+                    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                const bits = [when, fmtDuration(w.duration_s)];
+                if (w.distance_m) bits.push(formatDistanceM(w.distance_m));
+                if (w.calories_kcal) bits.push(Math.round(w.calories_kcal) + ' kcal');
+                return `
+                <div class="h-workout">
+                    <div class="h-w-badge">${workoutGlyph(w.exercise_slug)}</div>
+                    <div class="h-w-main">
+                        <div class="h-w-title">${w.title || (w.exercise_slug || 'workout').replace(/_/g, ' ')}</div>
+                        <div class="h-w-sub">${bits.join(' · ')}</div>
+                    </div>
+                    <button class="h-w-del" data-id="${w.id}" title="Remove from Roamly">&times;</button>
+                </div>`;
+            }).join('');
+            el.querySelectorAll('.h-w-del').forEach(btn => {
+                btn.addEventListener('click', () => removeWorkout(btn.dataset.id));
+            });
+        })
+        .catch(() => {
+            el.removeAttribute('aria-busy');
+            el.innerHTML = errorHtml('Failed to load workouts.', 'loadWorkouts()');
+        });
+}
+
+async function removeWorkout(id) {
+    const ok = await window.roamlyConfirm(
+        'Remove this workout from Roamly? It stays in Health Connect on your phone, and you can import it again.',
+        { danger: true, confirmText: 'Remove' });
+    if (!ok) return;
+    fetch(`/api/health/workouts/${id}/delete/`, {
+        method: 'POST', headers: { 'X-CSRFToken': csrfToken },
+    })
+    .then(r => { if (!r.ok) throw new Error('delete failed'); return r.json(); })
+    .then(() => { window.roamlyToast('Workout removed', { type: 'success' }); loadWorkouts(); })
+    .catch(() => window.roamlyToast('Could not remove that workout', { type: 'error' }));
+}
+
+// ── Day detail ─────────────────────────────────────────────────────────────
+// The payoff for storing raw Health Connect records rather than daily totals:
+// this shows *when* you were moving, which an aggregate could not reconstruct.
+
+function openDay(day) {
+    const overlay = document.getElementById('h-day-overlay');
+    const body = document.getElementById('h-day-body');
+    document.getElementById('h-day-title').textContent = day;
+    document.getElementById('h-day-sub').textContent = '';
+    body.innerHTML = '<div class="h-empty-state">Loading…</div>';
+    overlay.classList.add('open');
+
+    fetch(`/api/health/day/${day}/?tz_offset=${TZ_OFFSET}`)
+        .then(r => { if (!r.ok) throw new Error('day failed'); return r.json(); })
+        .then(data => renderDay(day, data))
+        .catch(() => { body.innerHTML = errorHtml('Failed to load that day.', `openDay('${day}')`); });
+}
+
+function renderDay(day, data) {
+    const t = data.totals || {};
+    document.getElementById('h-day-sub').textContent =
+        `${fmtInt(t.steps)} steps · ${formatDistanceM(t.distance)} · ${fmtInt(t.calories_active)} kcal`;
+
+    const hours = (data.hourly && data.hourly.steps) || [];
+    const max = Math.max(1, ...hours);
+    const bars = hours.map((v, h) =>
+        `<div class="h-hour" style="height:${Math.max(1, (v / max) * 100)}%;" title="${h}:00 — ${fmtInt(v)} steps"></div>`
+    ).join('');
+
+    const workouts = (data.workouts || []).map(w => {
+        const bits = [fmtDuration(w.duration_s)];
+        if (w.distance_m) bits.push(formatDistanceM(w.distance_m));
+        if (w.calories_kcal) bits.push(Math.round(w.calories_kcal) + ' kcal');
+        return `<div class="h-workout">
+            <div class="h-w-badge">${workoutGlyph(w.exercise_slug)}</div>
+            <div class="h-w-main">
+                <div class="h-w-title">${w.title || (w.exercise_slug || 'workout').replace(/_/g, ' ')}</div>
+                <div class="h-w-sub">${bits.join(' · ')}</div>
+            </div>
+        </div>`;
+    }).join('');
+
+    document.getElementById('h-day-body').innerHTML = `
+        <div style="font-size:0.8125rem;color:var(--text-muted);">steps by hour</div>
+        <div class="h-hours">${bars}</div>
+        <div class="h-hour-labels"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span></div>
+        ${workouts ? `<div style="margin-top:1.25rem;font-size:0.8125rem;color:var(--text-muted);">workouts</div>${workouts}` : ''}
+        <div style="margin-top:1.25rem;display:flex;gap:0.75rem;flex-wrap:wrap;">
+            <a class="btn btn-outline btn-sm" href="/map/?start=${day}&end=${day}">See the map for this day</a>
+            <a class="btn btn-outline btn-sm" href="/journals/">Open journals</a>
+        </div>`;
+}
+
+(function attachDayModal() {
+    const overlay = document.getElementById('h-day-overlay');
+    document.getElementById('h-day-close').addEventListener('click', () => overlay.classList.remove('open'));
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') overlay.classList.remove('open');
+    });
+})();
+
+// ── Init ───────────────────────────────────────────────────────────────────
+
+document.getElementById('h-range').addEventListener('change', () => {
+    loadDaily();
+    loadWorkouts();
+});
+
+window.addEventListener('resize', () => {
+    if (!healthData) return;
+    drawSeries('h-steps', healthData.days, healthData.steps, cssVar('--primary', '#e8763d'),
+               v => fmtInt(v) + ' steps');
+    drawSeries('h-dist', healthData.days, healthData.distance, cssVar('--clay-sky', '#4fc3d9'),
+               v => formatDistanceM(v));
+});
+
+(function init() {
+    attachChartHover('h-steps');
+    attachChartHover('h-dist');
+    loadStatus().then(s => {
+        if (!s || !s.connected) return;
+        loadDaily();
+        loadHeatmap();
+        loadWorkouts();
+    }).catch(() => {
+        window.roamlyToast('Could not reach the server', { type: 'error' });
+    });
+})();
+</script>
+{% endblock %}

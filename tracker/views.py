@@ -49,7 +49,7 @@ from .models import (
     DismissedSuggestion, PlannedStop, KnownDevice, TOTPBackupCode,
     InferredLocation, EditBatch, TrashedLocation, RoadSegment, ROADS_AVAILABLE_CACHE_KEY,
     RailSegment, RailStation, DismissedSubwayGap, SUBWAY_AVAILABLE_CACHE_KEY,
-    DownloadedRegion,
+    DownloadedRegion, HealthSample, HealthWorkout, HEALTH_KINDS,
 )
 from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email, send_contact_email
 from .dwell_utils import bridges_gap, GAP_BRIDGE_RADIUS_M, GAP_BRIDGE_MAX_S
@@ -61,6 +61,7 @@ from .backup_tasks import (
     test_s3_connection, run_backup_now, get_backup_status, stop_backup_now,
     run_image_backup_now, get_image_backup_status, _get_user_media_files,
     _build_adventures_data, _build_journals_data, _build_custom_places_data,
+    _build_health_workouts_data,
 )
 
 logger = logging.getLogger(__name__)
@@ -69,6 +70,23 @@ logger = logging.getLogger(__name__)
 def _bust_user_cache(user_id):
     """Increment the per-user cache generation so all cached API responses are invalidated."""
     key = f"cache_gen:{user_id}"
+    val = (cache.get(key) or 0) + 1
+    cache.set(key, val, timeout=86400 * 30)
+
+
+def _bust_health_cache(user_id):
+    """Increment the per-user *health* cache generation.
+
+    Deliberately a separate counter from cache_gen. A phone pushing GPS every 30
+    seconds bumps cache_gen constantly, and health data cannot possibly change
+    because a location arrived — sharing the counter would mean the health cache
+    never survives long enough to hit. The converse matters just as much: a
+    health sync must not bump cache_gen either, or it would evict every cached
+    track, tile, distance and locations response several times a day for a
+    feature that changed none of them. Same reasoning that keeps fog:{user} and
+    StatsSnapshot off cache_gen.
+    """
+    key = f"health_gen:{user_id}"
     val = (cache.get(key) or 0) + 1
     cache.set(key, val, timeout=86400 * 30)
 
@@ -6125,7 +6143,7 @@ def _write_backup_json(user, f, progress=None):
     loc_total = Location.objects.filter(device__user=user).count()
 
     report('Collecting devices')
-    meta = {'version': 9, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 10, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # Same complete, nested schema as the S3 backup (_build_backup_json) so the
@@ -6140,6 +6158,9 @@ def _write_backup_json(user, f, progress=None):
     journals = _build_journals_data(user)
     report('Collecting places')
     custom_places = _build_custom_places_data(user)
+    report('Collecting health')
+    health_workouts = _build_health_workouts_data(user)
+    health_total = HealthSample.objects.filter(user=user).count()
 
     f.write(b'{"meta":' + encoder.encode(meta).encode() + b',')
     f.write(b'"devices":' + encoder.encode(devices).encode() + b',')
@@ -6147,6 +6168,7 @@ def _write_backup_json(user, f, progress=None):
     f.write(b'"api_keys":' + encoder.encode(api_keys).encode() + b',')
     f.write(b'"journals":' + encoder.encode(journals).encode() + b',')
     f.write(b'"custom_places":' + encoder.encode(custom_places).encode() + b',')
+    f.write(b'"health_workouts":' + encoder.encode(health_workouts).encode() + b',')
 
     report('Writing locations', 0, loc_total)
     f.write(b'"locations":[')
@@ -6171,8 +6193,37 @@ def _write_backup_json(user, f, progress=None):
         written += 1
         if written % 5000 == 0:
             report('Writing locations', written, loc_total)
-    f.write(b']}')
+    f.write(b'],')
     report('Writing locations', loc_total, loc_total)
+
+    # Health samples are the only health section large enough to matter, so they
+    # stream row-by-row like locations rather than being materialised — a whole
+    # history in memory is what OOM-killed the worker before locations streamed.
+    report('Writing health', 0, health_total)
+    f.write(b'"health_samples":[')
+    first = True
+    written = 0
+    hqs = (HealthSample.objects.filter(user=user).order_by('start_time')
+           .values_list('kind', 'value', 'start_time', 'end_time',
+                        'zone_offset_seconds', 'source', 'device_id',
+                        'hc_id', 'last_modified')
+           .iterator(chunk_size=5000))
+    for kind, value, start_time, end_time, zone, source, device_id, hc_id, last_mod in hqs:
+        if not first:
+            f.write(b',')
+        first = False
+        f.write(encoder.encode({
+            'kind': kind, 'value': _jf(value),
+            'start_time': start_time, 'end_time': end_time,
+            'zone_offset_seconds': zone, 'source': source,
+            'device_id': device_id, 'hc_id': hc_id,
+            'last_modified': last_mod,
+        }).encode())
+        written += 1
+        if written % 5000 == 0:
+            report('Writing health', written, health_total)
+    f.write(b']}')
+    report('Writing health', health_total, health_total)
 
 
 # Share of the progress bar given to the small sections before the locations
@@ -6181,8 +6232,8 @@ def _write_backup_json(user, f, progress=None):
 _BACKUP_PREP_PCT = 8
 _DATA_PHASE_PCT = 55
 _BACKUP_STAGES = ['Counting locations', 'Collecting devices', 'Collecting adventures',
-                  'Collecting journals', 'Collecting places',
-                  'Writing locations']
+                  'Collecting journals', 'Collecting places', 'Collecting health',
+                  'Writing locations', 'Writing health']
 
 
 def _backup_tmp_path(job_id):
@@ -6411,7 +6462,8 @@ def restore_backup(request):
     user = request.user
     counts = {'devices': 0, 'locations': 0, 'trips': 0, 'trip_places': 0,
               'adventures': 0, 'api_keys': 0, 'journals': 0,
-              'custom_places': 0, 'media_files': 0}
+              'custom_places': 0, 'media_files': 0,
+              'health_samples': 0, 'health_workouts': 0}
     errors = 0
 
     try:
@@ -6793,6 +6845,78 @@ def restore_backup(request):
                     errors += 1
                     logger.warning(f"Backup restore custom place error: {e}")
 
+            # Restore Health Connect data (v10+). Older backups simply lack both
+            # keys and restore exactly as before — no version branch needed, the
+            # same way the v7/v8 additions are handled above.
+            #
+            # Both are idempotent on (user, hc_id) via bulk_create's
+            # ignore_conflicts, so a second restore of the same file is a no-op.
+            # Note there is no geometry here, so unlike the locations loop above
+            # nothing needs a manual Point() before the bulk insert.
+            health_batch = []
+            health_total = 0
+            for hs in data.get('health_samples', []):
+                try:
+                    start = _parse_timestamp(hs.get('start_time'))
+                    if not start or not hs.get('hc_id'):
+                        errors += 1
+                        continue
+                    health_batch.append(HealthSample(
+                        user=user,
+                        kind=hs.get('kind', ''),
+                        value=float(hs.get('value') or 0),
+                        start_time=start,
+                        end_time=_parse_timestamp(hs.get('end_time')) or start,
+                        zone_offset_seconds=hs.get('zone_offset_seconds'),
+                        source=hs.get('source', '') or '',
+                        device_id=hs.get('device_id', '') or '',
+                        hc_id=hs['hc_id'],
+                        last_modified=_parse_timestamp(hs.get('last_modified')),
+                    ))
+                    if len(health_batch) >= BATCH_SIZE:
+                        created = HealthSample.objects.bulk_create(
+                            health_batch, ignore_conflicts=True)
+                        health_total += len(created)
+                        health_batch = []
+                except Exception as e:
+                    errors += 1
+                    logger.warning(f"Backup restore health sample error: {e}")
+            if health_batch:
+                created = HealthSample.objects.bulk_create(health_batch, ignore_conflicts=True)
+                health_total += len(created)
+            counts['health_samples'] = health_total
+
+            for hw in data.get('health_workouts', []):
+                try:
+                    start = _parse_timestamp(hw.get('start_time'))
+                    if not start or not hw.get('hc_id'):
+                        errors += 1
+                        continue
+                    _, created = HealthWorkout.objects.get_or_create(
+                        user=user, hc_id=hw['hc_id'],
+                        defaults={
+                            'source': hw.get('source', '') or '',
+                            'device_id': hw.get('device_id', '') or '',
+                            'start_time': start,
+                            'end_time': _parse_timestamp(hw.get('end_time')) or start,
+                            'zone_offset_seconds': hw.get('zone_offset_seconds'),
+                            'exercise_type': hw.get('exercise_type') or 0,
+                            'exercise_slug': hw.get('exercise_slug', '') or '',
+                            'title': hw.get('title', '') or '',
+                            'notes': hw.get('notes', '') or '',
+                            'duration_s': hw.get('duration_s') or 0,
+                            'steps': hw.get('steps'),
+                            'distance_m': hw.get('distance_m'),
+                            'calories_kcal': hw.get('calories_kcal'),
+                            'avg_heart_rate': hw.get('avg_heart_rate'),
+                        }
+                    )
+                    if created:
+                        counts['health_workouts'] += 1
+                except Exception as e:
+                    errors += 1
+                    logger.warning(f"Backup restore health workout error: {e}")
+
     except Exception as e:
         logger.error(f"Backup restore failed: {e}")
         return JsonResponse({'error': f'Restore failed: {e}'}, status=500)
@@ -6828,6 +6952,11 @@ def restore_backup(request):
     if counts['custom_places']:
         _bust_user_cache(user.id)
         _refresh_places_snapshot(user)
+
+    # Health reads sit behind their own generation counter, so a restore has to
+    # bust that one too — _bust_user_cache above does not cover it.
+    if counts['health_samples'] or counts['health_workouts']:
+        _bust_health_cache(user.id)
 
     return JsonResponse({'status': 'ok', 'restored': counts, 'errors': errors})
 
@@ -11042,3 +11171,620 @@ def trash_empty_api(request):
     from .models import TrashedLocation
     deleted, _ = TrashedLocation.objects.filter(user=request.user).delete()
     return JsonResponse({'status': 'ok', 'deleted': deleted})
+
+
+# ── Health Connect ───────────────────────────────────────────────────────────
+# Steps / distance / calories read from Android Health Connect, plus manually
+# imported exercise sessions. Entirely self-contained: no endpoint here reads or
+# writes Location, Visit, StatsSnapshot or any distance figure, and nothing in
+# those pipelines reads HealthSample. Health works on an account that never
+# enabled GPS tracking.
+#
+# Auth: @login_required alone is correct for both callers. ApiKeyAuthMiddleware
+# already resolves request.user from an `Authorization: Bearer <key>` header
+# when no session is present, so the Android app authenticates either way.
+# push_location's manual get_api_key_user() dance exists only because
+# GPSLogger/OwnTracks put the key in a query param or JSON body, which the
+# middleware does not handle — the Roamly app always sends Bearer.
+
+_HEALTH_KIND_SET = {k for k, _ in HEALTH_KINDS}
+_HEALTH_MAX_SAMPLES = 1000      # per push; rows are small, backfill volume is high
+_HEALTH_MAX_WORKOUTS = 50       # per import; this is a manual, deliberate action
+_HEALTH_DELETE_CHUNK = 500
+_HEALTH_CACHE_TTL = 600
+_HEALTH_DAY_RAW_CAP = 600       # raw points returned by the day view, strided
+
+
+def _health_gen(user_id):
+    return cache.get(f"health_gen:{user_id}", 0)
+
+
+def _require_json(request):
+    """415 unless the body is declared as JSON.
+
+    These endpoints must be @csrf_exempt (the app authenticates by session
+    cookie or Bearer key and has no CSRF token), so this stands in for the
+    missing token: an application/json POST is not a CORS "simple request", so a
+    cross-origin forgery attempt triggers a preflight the app never answers.
+    """
+    ctype = (request.META.get('CONTENT_TYPE') or '').split(';')[0].strip().lower()
+    if ctype != 'application/json':
+        return JsonResponse({'error': 'Content-Type must be application/json'}, status=415)
+    return None
+
+
+def _health_tz_offset(request):
+    """Browser Date.getTimezoneOffset() in minutes (UTC − local), same as journals/ask."""
+    try:
+        return int(request.GET.get('tz_offset') or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _health_range(request):
+    """Resolve (start, end) for a health read, mirroring distance_api's params.
+
+    Returns (start, end) as aware datetimes, either bound possibly None.
+    """
+    all_time = request.GET.get('all')
+    start_date = request.GET.get('start_date')
+    end_date = request.GET.get('end_date')
+
+    if start_date and end_date:
+        try:
+            start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
+            end = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
+            if timezone.is_naive(start):
+                start = timezone.make_aware(start)
+            if timezone.is_naive(end):
+                end = timezone.make_aware(end)
+            return start, end
+        except (ValueError, TypeError):
+            pass
+    if all_time:
+        return None, None
+    try:
+        hours = int(request.GET.get('hours', 24 * 30))
+    except (TypeError, ValueError):
+        hours = 24 * 30
+    return timezone.now() - timedelta(hours=hours), None
+
+
+def _health_daily_totals(user, start, end, tz_offset=0, preferred_source=''):
+    """Per-local-day totals for every metric, de-duplicated across source apps.
+
+    This is the one genuinely subtle piece of the feature. Several apps (the
+    phone's own step counter, Fitbit, Samsung Health, Strava) all write records
+    for the *same* walk. Health Connect's own aggregate() API resolves that
+    against a user-configured priority list; raw records carry no such dedupe, so
+    a naive SUM over every row reports two or three times the real step count for
+    anyone running more than one fitness app — which is most people who would
+    want this feature.
+
+    Within a single writing package records *are* non-overlapping (Health Connect
+    truncates an app's own overlapping writes), so per-source sums are safe and
+    cross-source sums are not. We therefore total to (day, kind, source) first
+    and then pick exactly one source per (day, kind): the user's preferred source
+    when it recorded anything that day, otherwise the source with the largest
+    total, which is the most complete record of the day.
+
+    Done in Python rather than as a GROUP BY because TruncDate is exactly where
+    PostgreSQL and SQLite diverge on timezone handling, the per-source resolution
+    is awkward to express in SQL, and the result is cached anyway.
+    """
+    qs = HealthSample.objects.filter(user=user)
+    if start:
+        qs = qs.filter(start_time__gte=start)
+    if end:
+        qs = qs.filter(start_time__lte=end)
+
+    tz_delta = timedelta(minutes=tz_offset or 0)
+    # .order_by() clears any inherited ordering before the streaming scan.
+    rows = qs.order_by().values_list('start_time', 'kind', 'value', 'source')
+
+    per_source = defaultdict(float)      # (day, kind, source) -> total
+    for st, kind, value, source in rows.iterator(chunk_size=10000):
+        if value is None:
+            continue
+        day = (st - tz_delta).strftime('%Y-%m-%d')
+        per_source[(day, kind, source or '')] += float(value)
+
+    # Resolve one source per (day, kind).
+    candidates = defaultdict(dict)       # (day, kind) -> {source: total}
+    for (day, kind, source), total in per_source.items():
+        candidates[(day, kind)][source] = total
+
+    totals = {}                          # (day, kind) -> total
+    chosen = {}                          # day -> {kind: source}
+    for (day, kind), by_source in candidates.items():
+        if preferred_source and preferred_source in by_source:
+            source = preferred_source
+        else:
+            source = max(by_source, key=lambda s: by_source[s])
+        totals[(day, kind)] = by_source[source]
+        chosen.setdefault(day, {})[kind] = source
+
+    return totals, chosen
+
+
+def _health_daily_payload(user, start, end, tz_offset=0, preferred_source=''):
+    """Array-parallel daily series, shaped like distance_api's {days, distances}."""
+    totals, chosen = _health_daily_totals(user, start, end, tz_offset, preferred_source)
+    days = sorted({day for day, _ in totals})
+
+    series = {kind: [round(totals.get((day, kind), 0.0), 2) for day in days]
+              for kind in _HEALTH_KIND_SET}
+
+    grand = {kind: round(sum(series[kind]), 2) for kind in _HEALTH_KIND_SET}
+    steps = series.get('steps', [])
+    active_days = sum(1 for v in steps if v > 0)
+    best_idx = max(range(len(steps)), key=lambda i: steps[i]) if steps else None
+
+    return {
+        'days': days,
+        'steps': series.get('steps', []),
+        'distance': series.get('distance', []),
+        'calories_active': series.get('calories_active', []),
+        'calories_total': series.get('calories_total', []),
+        'sources': chosen,
+        'totals': {
+            'steps': grand.get('steps', 0),
+            'distance_m': grand.get('distance', 0),
+            'calories_active': grand.get('calories_active', 0),
+            'calories_total': grand.get('calories_total', 0),
+            'active_days': active_days,
+            'avg_steps': round(grand.get('steps', 0) / active_days, 1) if active_days else 0,
+        },
+        'best_day': ({'date': days[best_idx], 'steps': steps[best_idx]}
+                     if best_idx is not None and steps and steps[best_idx] > 0 else None),
+        'tz_offset': tz_offset,
+    }
+
+
+def _health_workout_payload(w):
+    return {
+        'id': w.id,
+        'hc_id': w.hc_id,
+        'start': w.start_time.isoformat(),
+        'end': w.end_time.isoformat(),
+        'exercise_type': w.exercise_type,
+        'exercise_slug': w.exercise_slug,
+        'title': w.title,
+        'notes': w.notes,
+        'duration_s': w.duration_s,
+        'steps': w.steps,
+        'distance_m': w.distance_m,
+        'calories_kcal': w.calories_kcal,
+        'avg_heart_rate': w.avg_heart_rate,
+        'source': w.source,
+        'imported_at': w.imported_at.isoformat() if w.imported_at else None,
+    }
+
+
+# ── Health page ──────────────────────────────────────────────────────────────
+
+@login_required
+def health_view(request):
+    return render(request, 'tracker/health.html')
+
+
+# ── Health ingest (called by the Android app) ────────────────────────────────
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def health_samples_push(request):
+    """Ingest a batch of raw Health Connect records, plus any deletions.
+
+    Body: {"samples": [...], "deleted": ["<hc_id>", ...]}
+
+    Note there is no geometry column on HealthSample, so the manual
+    Point(lng, lat, srid=4326) assignment that push_location_batch needs before
+    its bulk_create does NOT apply here — do not add it by pattern-matching.
+    """
+    err = _require_json(request)
+    if err:
+        return err
+    try:
+        data = json.loads(request.body.decode('utf-8') or '{}')
+    except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    if not isinstance(data, dict):
+        return JsonResponse({'error': 'Expected an object'}, status=400)
+
+    samples = data.get('samples') or []
+    deleted = data.get('deleted') or []
+    if not isinstance(samples, list) or not isinstance(deleted, list):
+        return JsonResponse({'error': 'samples and deleted must be lists'}, status=400)
+    if len(samples) > _HEALTH_MAX_SAMPLES:
+        return JsonResponse(
+            {'error': f'Batch too large (max {_HEALTH_MAX_SAMPLES})'}, status=400)
+
+    user = request.user
+    submitted = len(samples)
+    to_create = []
+    incoming_modified = {}
+
+    for row in samples:
+        if not isinstance(row, dict):
+            continue
+        hc_id = str(row.get('hc_id') or '').strip()[:64]
+        kind = str(row.get('kind') or '').strip()
+        if not hc_id or kind not in _HEALTH_KIND_SET:
+            continue
+        try:
+            value = float(row.get('value'))
+        except (TypeError, ValueError):
+            continue
+        start = _parse_timestamp(row.get('start'))
+        end = _parse_timestamp(row.get('end')) or start
+        if not start:
+            continue
+        zone = row.get('zone_offset_seconds')
+        try:
+            zone = int(zone) if zone is not None else None
+        except (TypeError, ValueError):
+            zone = None
+        last_modified = _parse_timestamp(row.get('last_modified'))
+        if last_modified:
+            incoming_modified[hc_id] = (last_modified, value)
+        to_create.append(HealthSample(
+            user=user, kind=kind, value=value,
+            start_time=start, end_time=end,
+            zone_offset_seconds=zone,
+            source=str(row.get('source') or '')[:128],
+            device_id=str(row.get('device_id') or '')[:100],
+            hc_id=hc_id, last_modified=last_modified,
+        ))
+
+    before = HealthSample.objects.filter(user=user).count() if to_create else 0
+    if to_create:
+        try:
+            HealthSample.objects.bulk_create(to_create, ignore_conflicts=True)
+        except Exception:
+            for obj in to_create:
+                try:
+                    obj.save()
+                except Exception:
+                    pass
+    after = HealthSample.objects.filter(user=user).count() if to_create else 0
+    # Counted by difference rather than len(bulk_create(...)): on PostgreSQL the
+    # returned list includes rows that were skipped by ignore_conflicts, so
+    # len() overcounts (a pre-existing bug in push_location_batch).
+    accepted = max(0, after - before)
+
+    # Health Connect can revise a record in place — same hc_id, newer
+    # lastModifiedTime. ignore_conflicts would silently keep the stale value, so
+    # refresh the rows whose incoming copy is newer than what we hold.
+    updated = 0
+    if incoming_modified:
+        existing = (HealthSample.objects
+                    .filter(user=user, hc_id__in=list(incoming_modified))
+                    .only('id', 'hc_id', 'value', 'last_modified'))
+        stale = []
+        for obj in existing:
+            new_modified, new_value = incoming_modified.get(obj.hc_id, (None, None))
+            if new_modified and (obj.last_modified is None or new_modified > obj.last_modified):
+                obj.value = new_value
+                obj.last_modified = new_modified
+                stale.append(obj)
+        if stale:
+            HealthSample.objects.bulk_update(stale, ['value', 'last_modified'])
+            updated = len(stale)
+
+    removed = 0
+    if deleted:
+        ids = [str(x)[:64] for x in deleted[:_HEALTH_MAX_SAMPLES] if x]
+        for i in range(0, len(ids), _HEALTH_DELETE_CHUNK):
+            chunk = ids[i:i + _HEALTH_DELETE_CHUNK]
+            n, _ = HealthSample.objects.filter(user=user, hc_id__in=chunk).delete()
+            removed += n
+
+    if accepted or updated or removed:
+        _bust_health_cache(user.id)
+
+    return JsonResponse({'status': 'ok', 'submitted': submitted, 'accepted': accepted,
+                         'updated': updated, 'deleted': removed})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def health_workouts_import(request):
+    """Import exercise sessions the user picked in the app.
+
+    Totals ride in from the phone (computed there via Health Connect's
+    aggregate() over the session window) rather than being recomputed from
+    HealthSample: steps aren't recorded for a bike ride, the user may not have
+    granted every metric permission, and a session can predate the sample sync
+    window — so recomputing here would quietly report zeros.
+    """
+    err = _require_json(request)
+    if err:
+        return err
+    try:
+        data = json.loads(request.body.decode('utf-8') or '{}')
+    except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    rows = data.get('workouts') if isinstance(data, dict) else data
+    if not isinstance(rows, list):
+        return JsonResponse({'error': 'Expected a list of workouts'}, status=400)
+    if len(rows) > _HEALTH_MAX_WORKOUTS:
+        return JsonResponse(
+            {'error': f'Too many workouts (max {_HEALTH_MAX_WORKOUTS})'}, status=400)
+
+    user = request.user
+    to_create = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        hc_id = str(row.get('hc_id') or '').strip()[:64]
+        start = _parse_timestamp(row.get('start'))
+        end = _parse_timestamp(row.get('end')) or start
+        if not hc_id or not start:
+            continue
+
+        def _num(key, cast=float):
+            try:
+                v = row.get(key)
+                return cast(v) if v is not None else None
+            except (TypeError, ValueError):
+                return None
+
+        zone = _num('zone_offset_seconds', int)
+        to_create.append(HealthWorkout(
+            user=user, hc_id=hc_id, start_time=start, end_time=end,
+            zone_offset_seconds=zone,
+            source=str(row.get('source') or '')[:128],
+            device_id=str(row.get('device_id') or '')[:100],
+            exercise_type=_num('exercise_type', int) or 0,
+            exercise_slug=str(row.get('exercise_slug') or '')[:40],
+            title=str(row.get('title') or '')[:200],
+            notes=str(row.get('notes') or ''),
+            duration_s=_num('duration_s', int) or int((end - start).total_seconds()),
+            steps=_num('steps', int),
+            distance_m=_num('distance_m'),
+            calories_kcal=_num('calories_kcal'),
+            avg_heart_rate=_num('avg_heart_rate'),
+        ))
+
+    before = HealthWorkout.objects.filter(user=user).count()
+    if to_create:
+        HealthWorkout.objects.bulk_create(to_create, ignore_conflicts=True)
+    accepted = max(0, HealthWorkout.objects.filter(user=user).count() - before)
+    if accepted:
+        _bust_health_cache(user.id)
+    return JsonResponse({'status': 'ok', 'submitted': len(rows), 'accepted': accepted})
+
+
+@login_required
+@require_http_methods(["GET"])
+def health_imported_workouts_api(request):
+    """The hc_ids already imported in a window.
+
+    The mobile browse list uses this to mark rows as imported, so the server
+    stays the single source of truth — importing on one phone and browsing on
+    another agree, and a server-side delete shows up immediately. Cheaper than a
+    local Room table, and it can't drift.
+    """
+    qs = HealthWorkout.objects.filter(user=request.user)
+    start, end = _health_range(request)
+    if start:
+        qs = qs.filter(start_time__gte=start)
+    if end:
+        qs = qs.filter(start_time__lte=end)
+    return JsonResponse({'hc_ids': list(qs.order_by().values_list('hc_id', flat=True))})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def health_workout_delete(request, workout_id):
+    deleted, _ = HealthWorkout.objects.filter(user=request.user, id=workout_id).delete()
+    if deleted:
+        _bust_health_cache(request.user.id)
+    return JsonResponse({'status': 'ok', 'deleted': deleted})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def health_delete_api(request):
+    """Wipe every health row for the user — the escape hatch for a bad sync.
+
+    The phone must clear its stored changes token afterwards, or the next
+    incremental sync will report only what changed since the deletion and the
+    history will not come back.
+    """
+    samples, _ = HealthSample.objects.filter(user=request.user).delete()
+    workouts, _ = HealthWorkout.objects.filter(user=request.user).delete()
+    _bust_health_cache(request.user.id)
+    return JsonResponse({'status': 'ok', 'samples': samples, 'workouts': workouts})
+
+
+# ── Health reads (the web page) ──────────────────────────────────────────────
+
+@login_required
+def health_daily_api(request):
+    try:
+        return _health_daily_api_inner(request)
+    except Exception as exc:
+        import traceback
+        logger.error("health_daily_api error: %s\n%s", exc, traceback.format_exc())
+        return JsonResponse({'error': str(exc), 'type': type(exc).__name__}, status=500)
+
+
+def _health_daily_api_inner(request):
+    gen = _health_gen(request.user.id)
+    cache_key = f"health:daily:{request.user.id}:{gen}:{request.GET.urlencode()}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached)
+
+    tz_offset = _health_tz_offset(request)
+    start, end = _health_range(request)
+    profile = getattr(request.user, 'profile', None)
+    preferred = getattr(profile, 'health_preferred_source', '') or ''
+
+    payload = _health_daily_payload(request.user, start, end, tz_offset, preferred)
+    cache.set(cache_key, payload, timeout=_HEALTH_CACHE_TTL)
+    return JsonResponse(payload)
+
+
+@login_required
+def health_day_api(request, date_str):
+    try:
+        return _health_day_api_inner(request, date_str)
+    except Exception as exc:
+        import traceback
+        logger.error("health_day_api error: %s\n%s", exc, traceback.format_exc())
+        return JsonResponse({'error': str(exc), 'type': type(exc).__name__}, status=500)
+
+
+def _health_day_api_inner(request, date_str):
+    """One local day: hourly buckets, that day's workouts, and the raw records.
+
+    This is the payoff for storing raw Health Connect records instead of daily
+    totals — it can show *when* the user was moving, which a daily aggregate
+    could never reconstruct.
+    """
+    d = _parse_date_only(date_str)
+    if not d:
+        return JsonResponse({'error': 'Invalid date'}, status=400)
+
+    tz_offset = _health_tz_offset(request)
+    # Reuse the canonical browser-offset → UTC-window converter rather than
+    # writing a second one.
+    start, end = _journal_day_bounds(d, tz_offset)
+
+    qs = (HealthSample.objects
+          .filter(user=request.user, start_time__gte=start, start_time__lte=end)
+          .order_by('start_time'))
+
+    tz_delta = timedelta(minutes=tz_offset or 0)
+    hourly = {kind: [0.0] * 24 for kind in _HEALTH_KIND_SET}
+    # Per-source, then resolved — same cross-source dedupe as the daily view.
+    per_source = defaultdict(float)      # (hour, kind, source) -> total
+    raw = []
+    for st, en, kind, value, source in qs.values_list(
+            'start_time', 'end_time', 'kind', 'value', 'source').iterator(chunk_size=5000):
+        if value is None:
+            continue
+        hour = (st - tz_delta).hour
+        per_source[(hour, kind, source or '')] += float(value)
+        if kind == 'steps':
+            raw.append({'start': st.isoformat(), 'end': en.isoformat() if en else None,
+                        'value': float(value), 'source': source or ''})
+
+    candidates = defaultdict(dict)
+    for (hour, kind, source), total in per_source.items():
+        candidates[(hour, kind)][source] = total
+    profile = getattr(request.user, 'profile', None)
+    preferred = getattr(profile, 'health_preferred_source', '') or ''
+    for (hour, kind), by_source in candidates.items():
+        source = preferred if preferred in by_source else max(by_source, key=lambda s: by_source[s])
+        if kind in hourly:
+            hourly[kind][hour] = round(by_source[source], 2)
+
+    if len(raw) > _HEALTH_DAY_RAW_CAP:
+        stride = max(1, len(raw) // _HEALTH_DAY_RAW_CAP)
+        raw = raw[::stride]
+
+    workouts = (HealthWorkout.objects
+                .filter(user=request.user, start_time__gte=start, start_time__lte=end)
+                .order_by('start_time'))
+
+    return JsonResponse({
+        'date': date_str,
+        'hourly': hourly,
+        'totals': {kind: round(sum(hourly[kind]), 2) for kind in hourly},
+        'raw': raw,
+        'workouts': [_health_workout_payload(w) for w in workouts],
+        'tz_offset': tz_offset,
+    })
+
+
+@login_required
+def health_workouts_api(request):
+    qs = HealthWorkout.objects.filter(user=request.user)
+    start, end = _health_range(request)
+    if start:
+        qs = qs.filter(start_time__gte=start)
+    if end:
+        qs = qs.filter(start_time__lte=end)
+    try:
+        limit = min(int(request.GET.get('limit', 200)), 1000)
+        offset = max(int(request.GET.get('offset', 0)), 0)
+    except (TypeError, ValueError):
+        limit, offset = 200, 0
+    total = qs.count()
+    rows = qs.order_by('-start_time')[offset:offset + limit]
+    return JsonResponse({
+        'workouts': [_health_workout_payload(w) for w in rows],
+        'count': total,
+        'has_more': offset + limit < total,
+    })
+
+
+@login_required
+def health_status_api(request):
+    """Whether health is connected, and which apps have been writing.
+
+    `sources` is what makes the cross-source double-counting problem visible to
+    the user and lets them pin a preferred app, rather than leaving them to
+    wonder why their step count looks doubled.
+    """
+    user = request.user
+    samples = HealthSample.objects.filter(user=user)
+    sample_count = samples.count()
+    newest = samples.order_by('-start_time').values_list('start_time', flat=True).first()
+    oldest = samples.order_by('start_time').values_list('start_time', flat=True).first()
+
+    sources = []
+    if sample_count:
+        agg = (samples.order_by()
+               .values('source', 'kind')
+               .annotate(n=Count('id'), first=Min('start_time'), last=Max('start_time')))
+        for row in agg:
+            sources.append({
+                'source': row['source'] or '',
+                'kind': row['kind'],
+                'count': row['n'],
+                'first': row['first'].isoformat() if row['first'] else None,
+                'last': row['last'].isoformat() if row['last'] else None,
+            })
+        sources.sort(key=lambda r: -r['count'])
+
+    profile = getattr(user, 'profile', None)
+    last_workout = (HealthWorkout.objects.filter(user=user)
+                    .order_by('-start_time').values_list('start_time', flat=True).first())
+
+    return JsonResponse({
+        'connected': sample_count > 0,
+        'sample_count': sample_count,
+        'workout_count': HealthWorkout.objects.filter(user=user).count(),
+        'earliest': oldest.isoformat() if oldest else None,
+        'latest': newest.isoformat() if newest else None,
+        'last_workout_at': last_workout.isoformat() if last_workout else None,
+        'sources': sources,
+        'preferred_source': getattr(profile, 'health_preferred_source', '') or '',
+    })
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def health_source_api(request):
+    """Get/set the preferred writing app, mirroring profile_mapbox_token_api's split."""
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if request.method == 'GET':
+        return JsonResponse({'preferred_source': profile.health_preferred_source})
+    try:
+        data = json.loads(request.body.decode('utf-8') or '{}')
+    except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
+        data = {}
+    profile.health_preferred_source = str(data.get('preferred_source') or '').strip()[:128]
+    profile.save(update_fields=['health_preferred_source'])
+    _bust_health_cache(request.user.id)
+    return JsonResponse({'status': 'ok', 'preferred_source': profile.health_preferred_source})

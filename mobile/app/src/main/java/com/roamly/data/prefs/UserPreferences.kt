@@ -58,6 +58,20 @@ class UserPreferences @Inject constructor(
 
         // In-app update: epoch millis of the last on-launch update check (throttle).
         private val KEY_LAST_UPDATE_CHECK = longPreferencesKey("last_update_check")
+
+        // Health Connect sync. The changes token is Health Connect's own cursor
+        // for "what changed since last time"; the backfill cursor is how far back
+        // the initial historical read has got, so a worker killed mid-backfill
+        // resumes rather than starting over.
+        private val KEY_HEALTH_ENABLED         = booleanPreferencesKey("health_enabled")
+        private val KEY_HEALTH_CHANGES_TOKEN   = stringPreferencesKey("health_changes_token")
+        private val KEY_HEALTH_BACKFILL_CURSOR = longPreferencesKey("health_backfill_cursor")
+        private val KEY_HEALTH_BACKFILL_DONE   = booleanPreferencesKey("health_backfill_done")
+        private val KEY_HEALTH_BACKFILL_DAYS   = intPreferencesKey("health_backfill_days")
+        private val KEY_HEALTH_LAST_SYNC_TIME    = longPreferencesKey("health_last_sync_time")
+        private val KEY_HEALTH_LAST_SYNC_SUCCESS = booleanPreferencesKey("health_last_sync_success")
+        private val KEY_HEALTH_LAST_SYNC_COUNT   = intPreferencesKey("health_last_sync_count")
+        private val KEY_HEALTH_LAST_SYNC_ERROR   = stringPreferencesKey("health_last_sync_error")
     }
 
     // ── Auth / connection ──────────────────────────────────────────────────
@@ -101,6 +115,19 @@ class UserPreferences @Inject constructor(
 
     /** Epoch millis of the last on-launch update check (used to throttle to ~24h). */
     val lastUpdateCheck: Flow<Long> = context.dataStore.data.map { it[KEY_LAST_UPDATE_CHECK] ?: 0L }
+
+    // ── Health Connect ─────────────────────────────────────────────────────
+
+    val healthEnabled:        Flow<Boolean> = context.dataStore.data.map { it[KEY_HEALTH_ENABLED] ?: false }
+    val healthChangesToken:   Flow<String>  = context.dataStore.data.map { it[KEY_HEALTH_CHANGES_TOKEN] ?: "" }
+    val healthBackfillCursor: Flow<Long>    = context.dataStore.data.map { it[KEY_HEALTH_BACKFILL_CURSOR] ?: 0L }
+    val healthBackfillDone:   Flow<Boolean> = context.dataStore.data.map { it[KEY_HEALTH_BACKFILL_DONE] ?: false }
+    /** How far back the initial backfill reaches. 30 unless the history permission was granted. */
+    val healthBackfillDays:   Flow<Int>     = context.dataStore.data.map { it[KEY_HEALTH_BACKFILL_DAYS] ?: 30 }
+    val healthLastSyncTime:    Flow<Long>    = context.dataStore.data.map { it[KEY_HEALTH_LAST_SYNC_TIME] ?: 0L }
+    val healthLastSyncSuccess: Flow<Boolean> = context.dataStore.data.map { it[KEY_HEALTH_LAST_SYNC_SUCCESS] ?: false }
+    val healthLastSyncCount:   Flow<Int>     = context.dataStore.data.map { it[KEY_HEALTH_LAST_SYNC_COUNT] ?: 0 }
+    val healthLastSyncError:   Flow<String>  = context.dataStore.data.map { it[KEY_HEALTH_LAST_SYNC_ERROR] ?: "" }
 
     // ── Writers ────────────────────────────────────────────────────────────
 
@@ -217,6 +244,44 @@ class UserPreferences @Inject constructor(
      * because the server authenticates the Bearer key on every endpoint). Tracking
      * preferences, device id and dark mode are kept so a re-login feels seamless.
      */
+    suspend fun setHealthEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_HEALTH_ENABLED] = enabled }
+    }
+
+    suspend fun setHealthChangesToken(token: String) {
+        context.dataStore.edit { it[KEY_HEALTH_CHANGES_TOKEN] = token }
+    }
+
+    suspend fun setHealthBackfillCursor(epochMs: Long) {
+        context.dataStore.edit { it[KEY_HEALTH_BACKFILL_CURSOR] = epochMs }
+    }
+
+    suspend fun setHealthBackfillDone(done: Boolean) {
+        context.dataStore.edit { it[KEY_HEALTH_BACKFILL_DONE] = done }
+    }
+
+    suspend fun setHealthBackfillDays(days: Int) {
+        context.dataStore.edit { it[KEY_HEALTH_BACKFILL_DAYS] = days }
+    }
+
+    suspend fun setHealthSyncResult(success: Boolean, count: Int, error: String) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_HEALTH_LAST_SYNC_TIME]    = System.currentTimeMillis()
+            prefs[KEY_HEALTH_LAST_SYNC_SUCCESS] = success
+            prefs[KEY_HEALTH_LAST_SYNC_COUNT]   = count
+            prefs[KEY_HEALTH_LAST_SYNC_ERROR]   = error
+        }
+    }
+
+    /** Forget the sync cursors so the next run re-backfills from scratch. */
+    suspend fun resetHealthSyncState() {
+        context.dataStore.edit { prefs ->
+            prefs.remove(KEY_HEALTH_CHANGES_TOKEN)
+            prefs.remove(KEY_HEALTH_BACKFILL_CURSOR)
+            prefs.remove(KEY_HEALTH_BACKFILL_DONE)
+        }
+    }
+
     suspend fun clear() {
         context.dataStore.edit { prefs ->
             prefs.remove(KEY_SERVER_URL)
@@ -225,6 +290,19 @@ class UserPreferences @Inject constructor(
             prefs.remove(KEY_USERNAME)
             prefs.remove(KEY_MAPBOX_TOKEN)
             prefs.remove(KEY_ASK_ENABLED)
+            // Health state is account-scoped — the changes token in particular is
+            // bound to a (package, account) pairing that no longer applies, so
+            // carrying it across a sign-out would silently skip the new account's
+            // history. Deliberate contrast with KEY_DEVICE_COOKIE, kept on purpose.
+            prefs.remove(KEY_HEALTH_ENABLED)
+            prefs.remove(KEY_HEALTH_CHANGES_TOKEN)
+            prefs.remove(KEY_HEALTH_BACKFILL_CURSOR)
+            prefs.remove(KEY_HEALTH_BACKFILL_DONE)
+            prefs.remove(KEY_HEALTH_BACKFILL_DAYS)
+            prefs.remove(KEY_HEALTH_LAST_SYNC_TIME)
+            prefs.remove(KEY_HEALTH_LAST_SYNC_SUCCESS)
+            prefs.remove(KEY_HEALTH_LAST_SYNC_COUNT)
+            prefs.remove(KEY_HEALTH_LAST_SYNC_ERROR)
         }
     }
 }
