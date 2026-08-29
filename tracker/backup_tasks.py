@@ -218,7 +218,7 @@ def _build_health_workouts_data(user):
 
     return [
         {
-            'hc_id': w.hc_id,
+            'external_id': w.external_id,
             'source': w.source,
             'device_id': w.device_id,
             'start_time': w.start_time,
@@ -248,7 +248,7 @@ def _build_backup_json(user):
 
     data = {
         'meta': {
-            'version': 10,
+            'version': 11,
             'exported_at': timezone.now().isoformat(),
             'username': user.username,
         },
@@ -294,7 +294,7 @@ def _build_backup_json(user):
         'health_samples': list(
             HealthSample.objects.filter(user=user).order_by('start_time').values(
                 'kind', 'value', 'start_time', 'end_time', 'zone_offset_seconds',
-                'source', 'device_id', 'hc_id', 'last_modified',
+                'source', 'device_id', 'external_id', 'last_modified',
             )
         ),
     }

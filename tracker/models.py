@@ -1149,6 +1149,30 @@ class UserProfile(models.Model):
     # so excluded from backups like the AI/summary/alert prefs above.
     health_preferred_source = models.CharField(max_length=128, blank=True, default='')
 
+    # Zepp (Amazfit) cloud sync. Zepp's *official* REST API is corporate-only —
+    # their docs say data cooperation "only supports corporate users, not
+    # individual users" — and Zepp's Health Connect integration is too patchy to
+    # rely on, so this talks to the same endpoint the Zepp app itself uses.
+    #
+    # That means the credential is an `apptoken` lifted from the app (proxy
+    # capture or a rooted device), not something Roamly can mint. It is stored
+    # like ai_api_key: masked on read, only overwritten when the submitted value
+    # differs from the mask. Being unofficial, it can stop working whenever Zepp
+    # changes something — zepp_last_error exists so that surfaces plainly
+    # instead of looking like an empty account.
+    zepp_enabled = models.BooleanField(default=False)
+    zepp_token = models.CharField(max_length=255, blank=True, default='')
+    zepp_user_id = models.CharField(max_length=64, blank=True, default='')
+    # Regional API host; Zepp shards accounts by region and the wrong host just
+    # returns nothing, so it is configurable rather than hardcoded.
+    zepp_host = models.CharField(max_length=128, blank=True, default='api-mifit.huami.com')
+    zepp_last_sync = models.DateTimeField(null=True, blank=True)
+    zepp_last_error = models.TextField(blank=True, default='')
+
+    @property
+    def zepp_configured(self):
+        return bool(self.zepp_enabled and self.zepp_token and self.zepp_user_id)
+
     @property
     def ai_configured(self):
         return bool(self.ai_ask_enabled and self.ai_base_url and self.ai_api_key and self.ai_model)
@@ -1535,9 +1559,15 @@ class HealthSample(models.Model):
     Stored raw rather than pre-aggregated so the day view can show *when* the
     user was moving, not just a daily total.
 
-    ``hc_id`` is Health Connect's own record UUID, which makes ingest idempotent
-    under ``bulk_create(ignore_conflicts=True)`` against the unique constraint —
-    the same dedupe strategy push_location_batch uses on Location.
+    ``external_id`` is the source's own stable id for the record, which makes
+    ingest idempotent under ``bulk_create(ignore_conflicts=True)`` against the
+    unique constraint — the same dedupe strategy push_location_batch uses on
+    Location. For Health Connect that is its record UUID; Zepp has no such id, so
+    it gets a deterministic key synthesised from the day and segment
+    (``zepp:steps:2026-08-27:540``), which means a re-sync of the same day
+    updates rather than duplicates. The column was called ``hc_id`` when Health
+    Connect was the only source; the wire format still accepts that name, since
+    app builds predating the rename are already in the wild.
 
     ``source`` matters more than it looks: several apps (the phone's own step
     counter, Fitbit, Samsung Health, Strava) all write overlapping records for
@@ -1549,7 +1579,7 @@ class HealthSample(models.Model):
 
     ``device_id`` is a plain CharField, NOT a Device FK: health must work for an
     account that never enabled tracking. It exists from the first migration
-    because two phones on one account produce distinct hc_ids for the same steps
+    because two phones on one account produce distinct record ids for the same steps
     from the same source package, and that cannot be backfilled later.
     """
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='health_samples')
@@ -1562,7 +1592,7 @@ class HealthSample(models.Model):
     zone_offset_seconds = models.IntegerField(null=True, blank=True)
     source = models.CharField(max_length=128, blank=True, default='')
     device_id = models.CharField(max_length=100, blank=True, default='')
-    hc_id = models.CharField(max_length=64)
+    external_id = models.CharField(max_length=120)
     last_modified = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -1570,7 +1600,7 @@ class HealthSample(models.Model):
         # Deliberately NO `ordering`. Django appends Meta.ordering columns to the
         # GROUP BY of a .values().annotate() aggregation, which would shatter the
         # daily rollup into one group per row. Order explicitly at each call site.
-        unique_together = ['user', 'hc_id']
+        unique_together = ['user', 'external_id']
         indexes = [
             models.Index(fields=['user', 'kind', 'start_time'], name='tracker_hs_user_kind_idx'),
             models.Index(fields=['user', '-start_time'], name='tracker_hs_user_start_idx'),
@@ -1594,7 +1624,7 @@ class HealthWorkout(models.Model):
     window — so a server-side recomputation would quietly report zeros.
     """
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='health_workouts')
-    hc_id = models.CharField(max_length=64)
+    external_id = models.CharField(max_length=120)
     source = models.CharField(max_length=128, blank=True, default='')
     device_id = models.CharField(max_length=100, blank=True, default='')
     start_time = models.DateTimeField()
@@ -1614,7 +1644,7 @@ class HealthWorkout(models.Model):
     imported_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ['user', 'hc_id']
+        unique_together = ['user', 'external_id']
         indexes = [
             models.Index(fields=['user', '-start_time'], name='tracker_hw_user_start_idx'),
         ]

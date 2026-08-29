@@ -6143,7 +6143,7 @@ def _write_backup_json(user, f, progress=None):
     loc_total = Location.objects.filter(device__user=user).count()
 
     report('Collecting devices')
-    meta = {'version': 10, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 11, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # Same complete, nested schema as the S3 backup (_build_backup_json) so the
@@ -6206,9 +6206,9 @@ def _write_backup_json(user, f, progress=None):
     hqs = (HealthSample.objects.filter(user=user).order_by('start_time')
            .values_list('kind', 'value', 'start_time', 'end_time',
                         'zone_offset_seconds', 'source', 'device_id',
-                        'hc_id', 'last_modified')
+                        'external_id', 'last_modified')
            .iterator(chunk_size=5000))
-    for kind, value, start_time, end_time, zone, source, device_id, hc_id, last_mod in hqs:
+    for kind, value, start_time, end_time, zone, source, device_id, ext_id, last_mod in hqs:
         if not first:
             f.write(b',')
         first = False
@@ -6216,7 +6216,7 @@ def _write_backup_json(user, f, progress=None):
             'kind': kind, 'value': _jf(value),
             'start_time': start_time, 'end_time': end_time,
             'zone_offset_seconds': zone, 'source': source,
-            'device_id': device_id, 'hc_id': hc_id,
+            'device_id': device_id, 'external_id': ext_id,
             'last_modified': last_mod,
         }).encode())
         written += 1
@@ -6849,7 +6849,7 @@ def restore_backup(request):
             # keys and restore exactly as before — no version branch needed, the
             # same way the v7/v8 additions are handled above.
             #
-            # Both are idempotent on (user, hc_id) via bulk_create's
+            # Both are idempotent on (user, external_id) via bulk_create's
             # ignore_conflicts, so a second restore of the same file is a no-op.
             # Note there is no geometry here, so unlike the locations loop above
             # nothing needs a manual Point() before the bulk insert.
@@ -6858,7 +6858,9 @@ def restore_backup(request):
             for hs in data.get('health_samples', []):
                 try:
                     start = _parse_timestamp(hs.get('start_time'))
-                    if not start or not hs.get('hc_id'):
+                    # v10 called this hc_id; v11 renamed it. Read either.
+                    ext_id = hs.get('external_id') or hs.get('hc_id')
+                    if not start or not ext_id:
                         errors += 1
                         continue
                     health_batch.append(HealthSample(
@@ -6870,7 +6872,7 @@ def restore_backup(request):
                         zone_offset_seconds=hs.get('zone_offset_seconds'),
                         source=hs.get('source', '') or '',
                         device_id=hs.get('device_id', '') or '',
-                        hc_id=hs['hc_id'],
+                        external_id=ext_id,
                         last_modified=_parse_timestamp(hs.get('last_modified')),
                     ))
                     if len(health_batch) >= BATCH_SIZE:
@@ -6889,11 +6891,12 @@ def restore_backup(request):
             for hw in data.get('health_workouts', []):
                 try:
                     start = _parse_timestamp(hw.get('start_time'))
-                    if not start or not hw.get('hc_id'):
+                    ext_id = hw.get('external_id') or hw.get('hc_id')
+                    if not start or not ext_id:
                         errors += 1
                         continue
                     _, created = HealthWorkout.objects.get_or_create(
-                        user=user, hc_id=hw['hc_id'],
+                        user=user, external_id=ext_id,
                         defaults={
                             'source': hw.get('source', '') or '',
                             'device_id': hw.get('device_id', '') or '',
@@ -11344,7 +11347,7 @@ def _health_daily_payload(user, start, end, tz_offset=0, preferred_source=''):
 def _health_workout_payload(w):
     return {
         'id': w.id,
-        'hc_id': w.hc_id,
+        'external_id': w.external_id,
         'start': w.start_time.isoformat(),
         'end': w.end_time.isoformat(),
         'exercise_type': w.exercise_type,
@@ -11376,7 +11379,7 @@ def health_view(request):
 def health_samples_push(request):
     """Ingest a batch of raw Health Connect records, plus any deletions.
 
-    Body: {"samples": [...], "deleted": ["<hc_id>", ...]}
+    Body: {"samples": [...], "deleted": ["<external_id>", ...]}
 
     Note there is no geometry column on HealthSample, so the manual
     Point(lng, lat, srid=4326) assignment that push_location_batch needs before
@@ -11408,9 +11411,11 @@ def health_samples_push(request):
     for row in samples:
         if not isinstance(row, dict):
             continue
-        hc_id = str(row.get('hc_id') or '').strip()[:64]
+        # 'hc_id' is the original wire name; mobile v1.21.0 shipped before the
+        # rename to external_id and is already installed, so both are accepted.
+        ext_id = str(row.get('external_id') or row.get('hc_id') or '').strip()[:120]
         kind = str(row.get('kind') or '').strip()
-        if not hc_id or kind not in _HEALTH_KIND_SET:
+        if not ext_id or kind not in _HEALTH_KIND_SET:
             continue
         try:
             value = float(row.get('value'))
@@ -11427,14 +11432,14 @@ def health_samples_push(request):
             zone = None
         last_modified = _parse_timestamp(row.get('last_modified'))
         if last_modified:
-            incoming_modified[hc_id] = (last_modified, value)
+            incoming_modified[ext_id] = (last_modified, value)
         to_create.append(HealthSample(
             user=user, kind=kind, value=value,
             start_time=start, end_time=end,
             zone_offset_seconds=zone,
             source=str(row.get('source') or '')[:128],
             device_id=str(row.get('device_id') or '')[:100],
-            hc_id=hc_id, last_modified=last_modified,
+            external_id=ext_id, last_modified=last_modified,
         ))
 
     before = HealthSample.objects.filter(user=user).count() if to_create else 0
@@ -11459,11 +11464,11 @@ def health_samples_push(request):
     updated = 0
     if incoming_modified:
         existing = (HealthSample.objects
-                    .filter(user=user, hc_id__in=list(incoming_modified))
-                    .only('id', 'hc_id', 'value', 'last_modified'))
+                    .filter(user=user, external_id__in=list(incoming_modified))
+                    .only('id', 'external_id', 'value', 'last_modified'))
         stale = []
         for obj in existing:
-            new_modified, new_value = incoming_modified.get(obj.hc_id, (None, None))
+            new_modified, new_value = incoming_modified.get(obj.external_id, (None, None))
             if new_modified and (obj.last_modified is None or new_modified > obj.last_modified):
                 obj.value = new_value
                 obj.last_modified = new_modified
@@ -11474,10 +11479,10 @@ def health_samples_push(request):
 
     removed = 0
     if deleted:
-        ids = [str(x)[:64] for x in deleted[:_HEALTH_MAX_SAMPLES] if x]
+        ids = [str(x)[:120] for x in deleted[:_HEALTH_MAX_SAMPLES] if x]
         for i in range(0, len(ids), _HEALTH_DELETE_CHUNK):
             chunk = ids[i:i + _HEALTH_DELETE_CHUNK]
-            n, _ = HealthSample.objects.filter(user=user, hc_id__in=chunk).delete()
+            n, _ = HealthSample.objects.filter(user=user, external_id__in=chunk).delete()
             removed += n
 
     if accepted or updated or removed:
@@ -11519,10 +11524,10 @@ def health_workouts_import(request):
     for row in rows:
         if not isinstance(row, dict):
             continue
-        hc_id = str(row.get('hc_id') or '').strip()[:64]
+        ext_id = str(row.get('external_id') or row.get('hc_id') or '').strip()[:120]
         start = _parse_timestamp(row.get('start'))
         end = _parse_timestamp(row.get('end')) or start
-        if not hc_id or not start:
+        if not ext_id or not start:
             continue
 
         def _num(key, cast=float):
@@ -11534,7 +11539,7 @@ def health_workouts_import(request):
 
         zone = _num('zone_offset_seconds', int)
         to_create.append(HealthWorkout(
-            user=user, hc_id=hc_id, start_time=start, end_time=end,
+            user=user, external_id=ext_id, start_time=start, end_time=end,
             zone_offset_seconds=zone,
             source=str(row.get('source') or '')[:128],
             device_id=str(row.get('device_id') or '')[:100],
@@ -11574,7 +11579,8 @@ def health_imported_workouts_api(request):
         qs = qs.filter(start_time__gte=start)
     if end:
         qs = qs.filter(start_time__lte=end)
-    return JsonResponse({'hc_ids': list(qs.order_by().values_list('hc_id', flat=True))})
+    # Response key stays 'hc_ids' — mobile v1.21.0 reads that name.
+    return JsonResponse({'hc_ids': list(qs.order_by().values_list('external_id', flat=True))})
 
 
 @login_required
@@ -11788,3 +11794,186 @@ def health_source_api(request):
     profile.save(update_fields=['health_preferred_source'])
     _bust_health_cache(request.user.id)
     return JsonResponse({'status': 'ok', 'preferred_source': profile.health_preferred_source})
+
+
+# ── Zepp (Amazfit) ───────────────────────────────────────────────────────────
+# Zepp's official REST API is corporate-only ("data cooperation currently only
+# supports corporate users, not individual users"), and Zepp's Health Connect
+# integration is too patchy to rely on — so the only route to a user's own Zepp
+# data is the endpoint the Zepp app itself uses, with an apptoken lifted from
+# the app. Unofficial by necessity, so every failure is recorded and shown
+# rather than left to look like an empty account. See tracker/zepp_tasks.py.
+
+@login_required
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def health_zepp_config_api(request):
+    """Get/set Zepp sync config. Token masked on read, like the AI API key."""
+    from . import zepp_tasks
+
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+
+    if request.method == 'GET':
+        return JsonResponse({
+            'enabled': profile.zepp_enabled,
+            'token': _AI_KEY_MASK if profile.zepp_token else '',
+            'user_id': profile.zepp_user_id,
+            'host': profile.zepp_host or zepp_tasks.DEFAULT_HOST,
+            'known_hosts': zepp_tasks.KNOWN_HOSTS,
+            'configured': profile.zepp_configured,
+            'last_sync': profile.zepp_last_sync.isoformat() if profile.zepp_last_sync else None,
+            'last_error': profile.zepp_last_error,
+            'running': zepp_tasks.is_running(request.user.id),
+        })
+
+    try:
+        data = json.loads(request.body.decode('utf-8') or '{}')
+    except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
+        data = {}
+
+    profile.zepp_enabled = bool(data.get('enabled'))
+    profile.zepp_user_id = str(data.get('user_id') or '').strip()[:64]
+    host = str(data.get('host') or '').strip()[:128]
+    profile.zepp_host = host or zepp_tasks.DEFAULT_HOST
+
+    # Only overwrite the stored token when the submitted value isn't the mask —
+    # same convention as ai_api_key and the Turnstile secret.
+    token = str(data.get('token') or '').strip()
+    if token and token != _AI_KEY_MASK:
+        profile.zepp_token = token[:255]
+    elif not token:
+        profile.zepp_token = ''
+
+    # Settings that just changed are worth re-evaluating from scratch, so a
+    # stale error doesn't linger next to a fixed config.
+    profile.zepp_last_error = ''
+    profile.save(update_fields=['zepp_enabled', 'zepp_user_id', 'zepp_host',
+                                'zepp_token', 'zepp_last_error'])
+    return JsonResponse({'status': 'ok', 'configured': profile.zepp_configured})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def health_zepp_sync_api(request):
+    """Kick a Zepp sync now. Returns immediately; poll the config endpoint."""
+    from . import zepp_tasks
+
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if not profile.zepp_configured:
+        return JsonResponse(
+            {'error': 'Zepp is not configured — add a token and user id first.'}, status=400)
+
+    try:
+        data = json.loads(request.body.decode('utf-8') or '{}')
+    except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
+        data = {}
+    days = data.get('days')
+
+    started = zepp_tasks.start_sync(request.user, days=days)
+    return JsonResponse({'status': 'ok', 'started': started,
+                         'running': zepp_tasks.is_running(request.user.id)})
+
+
+# ── Health file import ───────────────────────────────────────────────────────
+
+_HEALTH_IMPORT_MAX_ROWS = 200000
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def health_import_api(request):
+    """Import health data from an uploaded CSV.
+
+    The robust counterpart to the Zepp cloud sync: it can't break when Zepp
+    changes their API, and it needs no credentials. Column matching is
+    deliberately tolerant — reusing _get_csv_field, the same broad-alias helper
+    the location CSV import uses — because the exact headers differ between
+    Zepp's GDPR export, the community export scripts, and whatever a user
+    assembles by hand.
+
+    Rows are keyed 'import:<kind>:<date>', so re-importing an overlapping export
+    updates those days rather than duplicating them.
+    """
+    upload = request.FILES.get('file')
+    if not upload:
+        return JsonResponse({'error': 'No file uploaded'}, status=400)
+
+    try:
+        raw = upload.read()
+        if raw[:2] == b'\x1f\x8b':
+            raw = gzip.decompress(raw)
+        text = raw.decode('utf-8-sig', errors='replace')
+    except Exception as exc:
+        return JsonResponse({'error': f'Could not read the file: {exc}'}, status=400)
+
+    reader = csv.DictReader(io.StringIO(text))
+    source = (request.POST.get('source') or 'import').strip()[:128] or 'import'
+
+    rows = []
+    skipped = 0
+    for i, row in enumerate(reader):
+        if i >= _HEALTH_IMPORT_MAX_ROWS:
+            break
+        if not isinstance(row, dict):
+            continue
+        date_raw = _get_csv_field(row, 'date', 'Date', 'date_time', 'day', 'time', 'timestamp')
+        d = _parse_date_only(date_raw)
+        if not d:
+            skipped += 1
+            continue
+
+        start = datetime.combine(d, dt_time.min)
+        end = datetime.combine(d, dt_time.max)
+        if timezone.is_naive(start):
+            start = timezone.make_aware(start)
+        if timezone.is_naive(end):
+            end = timezone.make_aware(end)
+
+        day = d.strftime('%Y-%m-%d')
+        found = False
+        for kind, names in (
+            ('steps', ('steps', 'step', 'total_steps', 'steps_count', 'stepCount')),
+            ('distance', ('distance', 'distance_m', 'distance_meters', 'dis', 'meters')),
+            ('calories_active', ('calories', 'calorie', 'cal', 'active_calories',
+                                 'calories_burned', 'kcal')),
+        ):
+            value = _safe_float(_get_csv_field(row, *names))
+            if value is None or value <= 0:
+                continue
+            rows.append(HealthSample(
+                user=request.user, kind=kind, value=value,
+                start_time=start, end_time=end,
+                source=source, external_id=f'{source}:{kind}:{day}',
+            ))
+            found = True
+        if not found:
+            skipped += 1
+
+    if not rows:
+        return JsonResponse(
+            {'error': 'No usable rows found. The file needs a date column plus at '
+                      'least one of steps, distance or calories.',
+             'skipped': skipped}, status=400)
+
+    before = HealthSample.objects.filter(user=request.user).count()
+    HealthSample.objects.bulk_create(rows, ignore_conflicts=True)
+    created = max(0, HealthSample.objects.filter(user=request.user).count() - before)
+
+    # An overlapping re-import should correct a day, not be silently dropped by
+    # ignore_conflicts — same reasoning as the Zepp sync's update pass.
+    existing = {s.external_id: s for s in HealthSample.objects.filter(
+        user=request.user, external_id__in=[r.external_id for r in rows])}
+    stale = []
+    for r in rows:
+        obj = existing.get(r.external_id)
+        if obj is not None and obj.value != r.value:
+            obj.value = r.value
+            stale.append(obj)
+    if stale:
+        HealthSample.objects.bulk_update(stale, ['value'])
+
+    _bust_health_cache(request.user.id)
+    return JsonResponse({'status': 'ok', 'created': created, 'updated': len(stale),
+                         'rows': len(rows), 'skipped': skipped})
