@@ -4,6 +4,30 @@
 {% block extra_css %}
 .health-wrap { max-width: 1150px; }
 
+/* Range toolbar — same rules as stats.html's .stats-filters, so the range
+   picker looks and behaves like the one on every other analysis page. */
+.health-filters {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.health-filters select, .health-filters input {
+    background: var(--bg-input);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius:0;
+    padding: 0.4rem 0.85rem;
+    font-size: 0.8125rem;
+    font-family: var(--font-body);
+    font-weight: 500;
+    outline: none;
+}
+.health-filters select:focus, .health-filters input:focus {
+    border-color: var(--border-bright);
+    box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
 /* ── Chart primitives (ported from stats.html — same hand-rolled Canvas
       approach, no charting library anywhere in this app) ─────────────────── */
 .h-chart-container { position: relative; width: 100%; height: 240px; margin-top: 0.75rem; }
@@ -142,13 +166,18 @@
             <h1>health</h1>
             <p class="page-lead" style="margin-bottom:0;">steps, distance and calories from your phone.</p>
         </div>
-        <div class="toolbar-actions" id="h-filters">
+        <div class="health-filters toolbar-actions">
             <select id="h-range">
-                <option value="30">Last 30 days</option>
-                <option value="90">Last 90 days</option>
-                <option value="365">Last year</option>
+                <option value="24">Last 24 hours</option>
+                <option value="72">Last 3 days</option>
+                <option value="168">Last week</option>
+                <option value="720" selected>Last 30 days</option>
+                <option value="2160">Last 90 days</option>
+                <option value="8760">Last year</option>
                 <option value="all">All time</option>
             </select>
+            <input type="date" id="h-start" title="Start date">
+            <input type="date" id="h-end" title="End date">
         </div>
     </div>
 
@@ -321,11 +350,22 @@ function errorHtml(msg, retryFn) {
     return `<div class="h-empty-state" style="color:var(--danger);">${msg} <a href="#" onclick="${retryFn};return false;">Retry</a></div>`;
 }
 
+// Mirrors stats.html's getFilterParams: an explicit start+end date pair wins
+// over the range select, which is what lets the date inputs override it.
 function rangeParams() {
     const range = document.getElementById('h-range').value;
+    const startDate = document.getElementById('h-start').value;
+    const endDate = document.getElementById('h-end').value;
     const params = new URLSearchParams();
-    if (range === 'all') params.set('all', '1');
-    else params.set('hours', String(parseInt(range, 10) * 24));
+
+    if (startDate && endDate) {
+        params.set('start_date', startDate);
+        params.set('end_date', endDate);
+    } else if (range === 'all') {
+        params.set('all', '1');
+    } else {
+        params.set('hours', range);
+    }
     params.set('tz_offset', String(TZ_OFFSET));
     return params;
 }
@@ -807,9 +847,11 @@ function renderDay(day, data) {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 
-document.getElementById('h-range').addEventListener('change', () => {
-    loadDaily();
-    loadWorkouts();
+['h-range', 'h-start', 'h-end'].forEach(id => {
+    document.getElementById(id).addEventListener('change', () => {
+        loadDaily();
+        loadWorkouts();
+    });
 });
 
 window.addEventListener('resize', () => {
@@ -819,6 +861,17 @@ window.addEventListener('resize', () => {
     drawSeries('h-dist', healthData.days, healthData.distance, cssVar('--clay-sky', '#4fc3d9'),
                v => formatDistanceM(v));
 });
+
+// ?start=YYYY-MM-DD&end=YYYY-MM-DD initializes the range picker before the
+// first load, matching stats.html (and map-core.js's ?start=&end= handling).
+(function() {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get('start') && p.get('end')) {
+        document.getElementById('h-start').value = p.get('start');
+        document.getElementById('h-end').value = p.get('end');
+        document.getElementById('h-range').value = 'all';
+    }
+})();
 
 (function init() {
     attachChartHover('h-steps');
