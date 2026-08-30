@@ -1119,6 +1119,8 @@ const DL_JOBS = {
             + `${d.total > 0 ? ' (' + Math.round(d.processed / d.total * 100) + '%)' : ''}, `
             + `${(d.ways || 0).toLocaleString()} new roads${eta ? ' — ' + eta : ''}`,
         deleteMsg: d => `deleted — ${(d.deleted || 0).toLocaleString()} roads removed.`,
+        storedCount: d => d.total_ways || 0,
+        coverUnit: 'areas', deleteLabel: 'Delete Road Data',
         hasScanPhase: true,
     },
     subway: {
@@ -1134,6 +1136,8 @@ const DL_JOBS = {
             + `${(d.ways || 0).toLocaleString()} segments${eta ? ' — ' + eta : ''}`,
         deleteMsg: d => `deleted — ${(d.deleted || 0).toLocaleString()} segments, `
             + `${(d.stations || 0).toLocaleString()} stations removed.`,
+        storedCount: d => (d.total_ways || 0) + (d.total_stations || 0),
+        coverUnit: 'areas', deleteLabel: 'Delete Subway Data',
         hasScanPhase: true,
     },
     poi: {
@@ -1148,6 +1152,8 @@ const DL_JOBS = {
             + `${d.total > 0 ? ' (' + Math.round(d.processed / d.total * 100) + '%)' : ''}, `
             + `${(d.pois_added || 0).toLocaleString()} added${eta ? ' — ' + eta : ''}`,
         deleteMsg: d => `deleted — ${(d.deleted || 0).toLocaleString()} POIs removed.`,
+        storedCount: d => d.total_pois || 0,
+        coverUnit: 'cities', deleteLabel: 'Delete POIs',
         hasScanPhase: false,
     },
 };
@@ -1184,8 +1190,31 @@ function dlUpdateUI(kind, data, finished) {
         bar.classList.remove('bar-flow');
         bar.style.background = data.status === 'completed' ? 'var(--success)' : 'var(--text-muted)';
         if (data.status === 'completed' && data.total === 0) {
-            statusEl.textContent = 'no location points to cover yet.';
-            statusEl.style.color = 'var(--text-muted)';
+            // Zero batches has three completely different causes and they used to
+            // read identically. `covered` is how many DownloadedRegion rows exist
+            // for this kind, so an incremental run that legitimately found nothing
+            // new is no longer indistinguishable from an empty instance — or from
+            // the state that actually bites: everything marked covered by a run
+            // that got empty answers out of a broken endpoint, which suppresses
+            // every retry forever until the coverage record is cleared.
+            const covered = data.covered || 0;
+            const stored = cfg.storedCount(data);
+            if (!covered) {
+                statusEl.textContent = 'no location points to cover yet.';
+                statusEl.style.color = 'var(--text-muted)';
+            } else if (!stored) {
+                statusEl.textContent = `nothing fetched — all ${covered.toLocaleString()} `
+                    + `${cfg.coverUnit} in your history are already marked as downloaded, but `
+                    + 'nothing is stored. An earlier run got empty answers from an Overpass '
+                    + `endpoint that could not serve them. Press "${cfg.deleteLabel}" to clear `
+                    + 'the coverage record, then download again.';
+                statusEl.style.color = 'var(--danger)';
+            } else {
+                statusEl.textContent = `nothing new to fetch — all `
+                    + `${covered.toLocaleString()} ${cfg.coverUnit} in your history are already `
+                    + `downloaded (${stored.toLocaleString()} stored).`;
+                statusEl.style.color = 'var(--text-muted)';
+            }
         } else {
             const label = data.status === 'completed' ? 'done' : 'stopped';
             let msg = cfg.finishedMsg(data, label);

@@ -622,14 +622,20 @@ def stop_road_download():
 
 
 def get_road_download_status():
-    from .models import RoadDownloadJob, RoadSegment
+    from .models import DownloadedRegion, RoadDownloadJob, RoadSegment
 
     total_ways = RoadSegment.objects.count()
+    # How much of the history is already recorded as fetched. Reported so the UI
+    # can tell "you have no location history" apart from "your history is fully
+    # covered already" — both of which end a run with total=0 batches, and only
+    # one of which means what the message used to say. See _visited_boxes.
+    covered = DownloadedRegion.objects.filter(kind='road').count()
     try:
         job = RoadDownloadJob.objects.get(pk=1)
     except RoadDownloadJob.DoesNotExist:
         return {'status': 'idle', 'phase': '', 'processed': 0, 'total': 0,
                 'ways': 0, 'failed': 0, 'total_ways': total_ways,
+                'covered': covered,
                 'last_error': '', 'last_error_kind': '', 'last_error_endpoint': ''}
 
     # Resurrect a run whose worker really did die (a process recycle). The grace
@@ -650,6 +656,7 @@ def get_road_download_status():
         'ways': job.ways or 0,
         'failed': job.failed or 0,
         'total_ways': total_ways,
+        'covered': covered,
         'last_error': job.last_error or '',
         'last_error_kind': job.last_error_kind or '',
         'last_error_endpoint': job.last_error_endpoint or '',
