@@ -345,9 +345,9 @@
                 mirror no longer fails a whole run. One URL per line. Leave blank to use
                 the built-in pool.
             </p>
-            <textarea id="overpass-urls" class="form-input" rows="4" spellcheck="false"
-                      style="font-family:var(--font-mono);font-size:0.8125rem;"
-                      placeholder="https://overpass.kumi.systems/api/interpreter">{{ site_overpass_urls }}</textarea>
+            <textarea id="overpass-urls" class="form-control" rows="4" spellcheck="false"
+                style="font-family:var(--font-mono);font-size:0.8125rem;white-space:pre;resize:vertical;"
+                placeholder="https://overpass.kumi.systems/api/interpreter">{{ site_overpass_urls }}</textarea>
             <div class="settings-actions" style="margin-top:0.6rem;">
                 <button class="btn btn-primary btn-sm" id="overpass-save-btn"
                         onclick="saveOverpassUrls()">Save Endpoints</button>
