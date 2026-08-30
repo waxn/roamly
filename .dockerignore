@@ -10,3 +10,21 @@ __pycache__/
 .env.*
 docker-compose.yml
 docker-compose.*.yml
+
+# The Android app — ~300MB of Gradle build output that was being copied into
+# every image layer. The Django image never reads it: the in-app updater
+# fetches the APK from GitHub into MEDIA_ROOT (views.mobile_download_apk),
+# not from this directory.
+mobile/
+*.apk
+
+# Both are volume-mounted at runtime, and the Dockerfile mkdir -p's them after
+# COPY, so the mount shadows whatever gets copied in. collectstatic rebuilds
+# staticfiles on every container start anyway.
+staticfiles/
+media/
+
+# Editor / tooling noise
+.idea/
+.vscode/
+*.log
