@@ -34,10 +34,14 @@ remaining batch as failed, which made the admin panel print "could not reach
 Overpass for any area" about a server that could reach Overpass perfectly well.
 
 **Endpoint failover.** Requests walk a pool of endpoints, advancing to the next
-one only on ``timeout``/``unreachable`` — never on ``http``, because there the
-server *did* answer and asking three more mirrors the same oversized question
-only earns three more rate limits. The endpoint that last worked is remembered
-so a run doesn't re-pay a dead endpoint's failure cost on every request.
+one on ``timeout``/``unreachable`` — but not on an ``http`` answer *about the
+query*, because there the server did answer and asking three more mirrors the
+same oversized question only earns three more rate limits. The exception is a
+mirror-down status (``_FAILOVER_STATUSES``): a 502 or 503 from a reverse proxy
+says nothing about the query, so the walk continues rather than failing every
+batch against a first endpoint that is simply having a bad day. The endpoint
+that last worked is remembered so a run doesn't re-pay a dead endpoint's failure
+cost on every request.
 
 Crucially, a query is only reported ``unreachable`` when **every** endpoint was
 unreachable. If even one was reached-but-slow, the aggregate is ``timeout``, so
@@ -115,9 +119,21 @@ MAX_ENDPOINTS = 12
 
 _HTTP_NOTES = {
     429: ' (rate limited)',
+    500: ' (server error)',
+    502: ' (bad gateway)',
     503: ' (service unavailable)',
     504: ' (gateway timeout)',
 }
+
+# HTTP statuses that mean *this mirror is down*, not *this query was rejected*.
+# The general rule below is to stop the walk on any http answer, because 429 and
+# 504 are Overpass telling us something about the request — asking three more
+# mirrors the same oversized question only earns three more rate limits. A 502
+# or 503 from a reverse proxy says nothing about the query at all: the mirror
+# simply is not serving. Stopping there is how a pool whose *first* endpoint is
+# having a bad day fails every batch while a perfectly healthy mirror sits
+# untried two lines further down the list.
+_FAILOVER_STATUSES = {500, 502, 503}
 
 # errnos that mean the packet never had anywhere to go.
 _UNREACHABLE_ERRNOS = {
@@ -330,8 +346,21 @@ def overpass_query(query, timeout=SOCKET_TIMEOUT, beat=None):
             kind, msg = classify(exc)
             last_msg, last_url = msg, url
             if kind == 'http':
-                # Reached, and it answered. Do not fail over — see module docs.
                 status = exc.code if isinstance(exc, urllib.error.HTTPError) else None
+                if status in _FAILOVER_STATUSES:
+                    # The mirror is down rather than objecting to the query, so
+                    # the next one is worth a try. Recorded in `kinds` as a
+                    # timeout: it is reached-but-no-usable-answer, which is what
+                    # that bucket means, and it keeps a pool-wide outage out of
+                    # the callers' connectivity circuit breaker (the endpoints
+                    # *were* reached) while capping their bisect depth. The
+                    # message keeps the real HTTP status, so the admin panel
+                    # still names what actually happened and where.
+                    kinds.append('timeout')
+                    logger.warning('Overpass %s via %s — trying next endpoint', msg, url)
+                    continue
+                # Reached, and it answered *about the query*. Do not fail over —
+                # see module docs.
                 logger.warning('Overpass http error via %s: %s', url, msg)
                 return OverpassResult(None, 'http', msg, url, status)
             kinds.append(kind)
