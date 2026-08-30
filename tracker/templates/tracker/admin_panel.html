@@ -351,8 +351,11 @@
             <div class="settings-actions" style="margin-top:0.6rem;">
                 <button class="btn btn-primary btn-sm" id="overpass-save-btn"
                         onclick="saveOverpassUrls()">Save Endpoints</button>
+                <button class="btn btn-outline btn-sm" id="overpass-test-btn"
+                        onclick="testOverpass()">Test Connection</button>
             </div>
             <div id="overpass-config-status" style="margin-top:0.6rem;font-size:0.8125rem;color:var(--text-muted);"></div>
+            <div id="overpass-test-result" style="margin-top:0.6rem;font-size:0.8125rem;"></div>
         </div>
 
         <div class="card" style="transition:none;">
@@ -1339,6 +1342,54 @@ function saveOverpassUrls() {
         })
         .catch(() => {
             el.textContent = 'Could not save.';
+            el.style.color = 'var(--danger)';
+        })
+        .finally(() => { btn.disabled = false; });
+}
+
+function testOverpass() {
+    const btn = document.getElementById('overpass-test-btn');
+    const el = document.getElementById('overpass-test-result');
+    btn.disabled = true;
+    el.style.color = 'var(--text-muted)';
+    el.textContent = 'probing every endpoint…';
+    fetch('/api/site/overpass-test/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': getCookie('csrftoken') },
+    })
+        .then(r => r.json())
+        .then(d => {
+            const rows = (d.endpoints || []);
+            if (!rows.length) {
+                el.textContent = 'No endpoints configured.';
+                el.style.color = 'var(--danger)';
+                return;
+            }
+            el.innerHTML = rows.map(r => {
+                const tag = r.primary ? ' <span style="color:var(--text-dim);">(tried first)</span>' : '';
+                if (r.ok) {
+                    const notes = [];
+                    // Answered, just slowly. Worth saying, because a mirror this slow
+                    // will still work but is the one most likely to time out on the
+                    // heavier POI queries.
+                    if (r.slow) notes.push('slow — downloads will work but take a while');
+                    if (r.remark) notes.push(`answered but truncated: ${esc(r.remark)}`);
+                    const warn = notes.length
+                        ? ` <span style="color:var(--warning);">— ${notes.join('; ')}</span>` : '';
+                    const colour = r.slow ? 'var(--warning)' : 'var(--success)';
+                    return `<div style="color:${colour};">✓ <span style="font-family:var(--font-mono);">`
+                        + `${esc(_dlHost(r.url))}</span> — ${r.ms.toLocaleString()} ms${tag}${warn}</div>`;
+                }
+                return `<div style="color:var(--danger);">✕ <span style="font-family:var(--font-mono);">`
+                    + `${esc(_dlHost(r.url))}</span> — ${esc(r.kind)}: ${esc(r.error)}${tag}</div>`;
+            }).join('');
+            if (!d.ok) {
+                el.innerHTML += '<div style="color:var(--danger);margin-top:0.35rem;">'
+                    + 'No endpoint answered. Downloads cannot run until at least one does.</div>';
+            }
+        })
+        .catch(() => {
+            el.textContent = 'Could not run the test.';
             el.style.color = 'var(--danger)';
         })
         .finally(() => { btn.disabled = false; });

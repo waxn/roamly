@@ -1248,6 +1248,23 @@ def site_overpass_config_api(request):
     })
 
 
+@login_required
+@require_POST
+def overpass_test_api(request):
+    """Probe every configured Overpass endpoint. Admins only.
+
+    Turns "the download says it failed" into a per-endpoint answer — reachable,
+    how slow, or exactly which error — without having to read container logs or
+    start a real download to find out.
+    """
+    err = _require_admin(request)
+    if err:
+        return err
+    from . import overpass
+    results = overpass.probe_endpoints()
+    return JsonResponse({'ok': any(r['ok'] for r in results), 'endpoints': results})
+
+
 @csrf_exempt
 def contact_api(request):
     """Public contact form → email the instance contact address.

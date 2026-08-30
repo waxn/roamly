@@ -47,10 +47,12 @@ the caller's connectivity circuit breaker stays out of it.
 import errno
 import http.client
 import json
+import concurrent.futures
 import logging
 import re
 import socket
 import ssl
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -343,3 +345,61 @@ def error_fields(res):
         'last_error_kind': (res.kind or '')[:16],
         'last_error_endpoint': (res.endpoint or '')[:300],
     }
+
+
+# Trivial query for the admin connection test. Deliberately tiny: all we are
+# measuring is whether an endpoint answers and how fast, so an empty result is
+# a perfectly good success.
+PROBE_QUERY = '[out:json][timeout:10];way(1);out ids;'
+
+# Probe budget. Generous on purpose: probes run concurrently, so the whole test
+# is bounded by the slowest endpoint rather than their sum, and a mirror that
+# needs 20s for a trivial query is still perfectly usable for a real download at
+# SOCKET_TIMEOUT. Failing it at a tight 15s would tell an admin to remove an
+# endpoint that works.
+PROBE_TIMEOUT = 30.0
+# Answered, but slowly enough to be worth flagging — the downloads will work,
+# they will just take a long time and are more likely to hit SOCKET_TIMEOUT on
+# the heavier queries.
+PROBE_SLOW_MS = 5000
+
+
+def probe_one(url, timeout=PROBE_TIMEOUT):
+    """Reachability + latency for a single endpoint. Never raises."""
+    started = time.monotonic()
+    try:
+        data = _post(url, PROBE_QUERY, timeout)
+    except Exception as exc:
+        kind, msg = classify(exc)
+        status = exc.code if isinstance(exc, urllib.error.HTTPError) else None
+        return {
+            'url': url, 'ok': False, 'ms': int((time.monotonic() - started) * 1000),
+            'kind': kind, 'error': msg, 'status': status, 'remark': '',
+            'slow': False,
+        }
+    ms = int((time.monotonic() - started) * 1000)
+    return {
+        'url': url, 'ok': True, 'ms': ms,
+        'kind': None, 'error': '', 'status': 200, 'slow': ms >= PROBE_SLOW_MS,
+        # A mirror that answers but truncates is worth surfacing — it looks
+        # healthy here while quietly returning partial data to a real download.
+        'remark': (data.get('remark') or '')[:200] if isinstance(data, dict) else '',
+    }
+
+
+def probe_endpoints(timeout=PROBE_TIMEOUT):
+    """Probe every configured endpoint and report each one's verdict.
+
+    Deliberately *not* the failover walk: the point is a per-endpoint answer,
+    including for endpoints a real request would never have reached because an
+    earlier one succeeded. Probes run concurrently so the call is bounded by the
+    slowest single endpoint rather than the sum of them.
+    """
+    pool = endpoints()
+    if not pool:
+        return []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(pool)) as ex:
+        results = list(ex.map(lambda u: probe_one(u, timeout), pool))
+    for i, r in enumerate(results):
+        r['primary'] = (i == 0)
+    return results
