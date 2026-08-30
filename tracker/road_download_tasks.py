@@ -45,20 +45,16 @@ dropping one silently disconnects the graph there. The area reduction above
 already saves far more than simplification would.
 """
 
-import json
 import logging
 import secrets
 import threading
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 
-from django.conf import settings as django_settings
 from django.core.cache import cache
 from django.db import close_old_connections
 from django.utils import timezone
 
+from . import overpass
 # Reused rather than reimplemented — note it takes **lat first**, unlike
 # roads._haversine_m which takes lng first.
 from .transport_tasks import _haversine_m
@@ -69,12 +65,6 @@ logger = logging.getLogger(__name__)
 # RoadDownloadJob row (pk=1) to run, unlike the old per-user dict.
 _running_thread = None
 
-# Env-configurable (OVERPASS_URL in .env / docker-compose) — see
-# roamly/settings.py. The official instance rate-limits/bans by IP; a
-# self-hoster behind a network it has blocked needs to be able to switch to
-# another public mirror or a private instance without a code change.
-OVERPASS_URL = django_settings.OVERPASS_URL
-OVERPASS_HEADERS = {'User-Agent': 'Roamly (self-hosted location tracker)'}
 
 # Drivable classes only. `service` is excluded on purpose: it is one of the most
 # numerous highway values in OSM (driveways, parking aisles, alleys) and snapping
@@ -103,10 +93,17 @@ BOXES_PER_REQUEST = 20
 # kilometres wide — asking Overpass for every drivable way in a strip that size
 # is what made requests time out in the first place. ~26km per box.
 MAX_RUN_CELLS = 12
-# Deliberately below Overpass's own patience so a hung request fails fast rather
-# than holding a worker for minutes.
-OVERPASS_TIMEOUT = 60
+# The endpoint pool, timeouts and failure classification all live in
+# tracker/overpass.py, which is the only place that talks to Overpass.
+OVERPASS_TIMEOUT = overpass.QUERY_TIMEOUT
 MAX_ATTEMPTS = 2          # attempts per batch before bisecting it
+# How deep a batch may be bisected when the failure was a *timeout* rather than
+# an HTTP error. A timeout now correctly takes the retry-then-bisect path, but
+# unlike an HTTP error it can cost a full failover walk across the endpoint pool
+# at every leaf, so an unbounded tree would recreate the multi-hour stall this
+# whole change exists to remove. Two levels (20 boxes -> 10 -> 5) is where
+# nearly all of the "a smaller query fits" benefit already is.
+MAX_TIMEOUT_BISECT_DEPTH = 2
 RETRY_BACKOFF_S = 4
 REQUEST_SLEEP_S = 3       # be a good Overpass citizen between requests
 # How long the row may go untouched before a status poll assumes the worker died.
@@ -295,7 +292,7 @@ def _cell_box(gy, gx_from, gx_to):
     return (south, west, north, east)
 
 
-def _download_boxes(boxes, attempt=1, beat=None):
+def _download_boxes(boxes, attempt=1, beat=None, depth=0):
     """Fetch every drivable way intersecting any of `boxes`.
 
     Returns (way_dicts, failed_box_count, unreachable). A whole batch used to
@@ -306,18 +303,26 @@ def _download_boxes(boxes, attempt=1, beat=None):
     (a timeout is usually one dense box, not the whole set), and report what
     could not be fetched.
 
-    Bisecting only makes sense when a request that size was too much for
-    Overpass — an HTTPError means it was reached and said so. It does **not**
-    make sense when the request never got out the door at all (DNS failure,
-    connection refused, TLS error, the whole thing timing out with no
-    response): every leaf of the bisection tree would hit the identical
-    failure, so a batch of `BOXES_PER_REQUEST` boxes that genuinely can't reach
-    Overpass turns into O(n log n) doomed attempts at up to
-    `OVERPASS_TIMEOUT + 20` seconds apiece — this is what turned "Overpass is
-    unreachable" into a multi-hour hang with `processed` stuck at 0 rather than
-    a fast, clear failure. `unreachable=True` signals that case so the caller
-    can give up on the whole run early instead of repeating it batch after
-    batch (see _road_download_worker's circuit breaker).
+    Bisecting makes sense whenever Overpass was *reached* but the request that
+    size did not work — whether it answered with an error status (rate limit,
+    504) or was simply too slow to answer. Both mean a smaller query has a real
+    chance, so both retry and then bisect.
+
+    It does **not** make sense when the request never got out the door at all
+    (DNS failure, connection refused, no route, TLS error): every leaf of the
+    bisection tree would hit the identical failure, so a batch of
+    `BOXES_PER_REQUEST` boxes turns into O(n log n) doomed attempts — which is
+    what turned "Overpass is unreachable" into a multi-hour hang with
+    `processed` stuck at 0 rather than a fast, clear failure. `unreachable=True`
+    signals only that case, so the caller can give up on the whole run early
+    (see _road_download_worker's circuit breaker).
+
+    The distinction is drawn by tracker/overpass.py. Getting it wrong in the
+    other direction is what made this visible: a read timeout from a merely
+    *slow* mirror used to be reported as unreachable, so two slow batches
+    tripped the circuit breaker, every remaining batch was counted as failed,
+    and the admin panel announced "could not reach Overpass for any area" about
+    a server that could reach Overpass perfectly well.
     """
     clauses = '\n'.join(
         f'  way["highway"~"{HIGHWAY_RE}"]({s:.5f},{w:.5f},{n:.5f},{e:.5f});'
@@ -328,45 +333,48 @@ def _download_boxes(boxes, attempt=1, beat=None):
         f'(\n{clauses}\n);\n'
         f'out body geom;\n'
     )
-    if beat:
-        beat()
-    try:
-        body = urllib.parse.urlencode({'data': query}).encode()
-        req = urllib.request.Request(OVERPASS_URL, body, OVERPASS_HEADERS)
-        with urllib.request.urlopen(req, timeout=OVERPASS_TIMEOUT + 20) as resp:
-            result = json.loads(resp.read().decode())
-    except urllib.error.HTTPError as exc:
-        # Reached Overpass; it answered with an error status (rate limit, 504
-        # under load, etc). Worth the full retry-then-bisect treatment — a
-        # smaller query is genuinely less likely to hit the same limit.
+    res = overpass.overpass_query(query, beat=beat)
+
+    if res.kind in ('http', 'timeout'):
+        # Overpass was reached. It either answered with an error status (rate
+        # limit, 504 under load) or was too slow to answer at all — a smaller
+        # query is both less likely to hit the limit and genuinely faster, so
+        # both get the retry-then-bisect treatment.
         if attempt < MAX_ATTEMPTS:
             time.sleep(RETRY_BACKOFF_S * attempt)
-            return _download_boxes(boxes, attempt + 1, beat)
-        if len(boxes) > 1:
+            return _download_boxes(boxes, attempt + 1, beat, depth)
+        if len(boxes) > 1 and (res.kind == 'http' or depth < MAX_TIMEOUT_BISECT_DEPTH):
             mid = len(boxes) // 2
-            left, lf, lu = _download_boxes(boxes[:mid], beat=beat)
-            right, rf, ru = _download_boxes(boxes[mid:], beat=beat)
+            left, lf, lu = _download_boxes(boxes[:mid], beat=beat, depth=depth + 1)
+            right, rf, ru = _download_boxes(boxes[mid:], beat=beat, depth=depth + 1)
             return left + right, lf + rf, lu and ru
-        logger.warning('Overpass road download failed for box %s: %s', boxes[0], exc)
-        return [], 1, False
-    except Exception as exc:
-        # Never reached Overpass at all. One retry in case of a genuine blip,
-        # then give up on the WHOLE batch at once — see the docstring for why
-        # bisecting here would only make things far slower, not more thorough.
+        logger.warning('Overpass %s for %d road box(es) via %s: %s',
+                       res.kind, len(boxes), res.endpoint, res.error)
+        # Deliberately NOT unreachable: an endpoint answered, so the caller's
+        # connectivity circuit breaker must stay out of it. Reporting a slow
+        # mirror as unreachable is what reddened whole runs after two batches.
+        return [], len(boxes), False
+
+    if res.kind == 'unreachable':
+        # No endpoint in the pool could be reached. One retry in case of a
+        # genuine blip, then give up on the WHOLE batch at once — see the
+        # docstring for why bisecting here is only slower, not more thorough.
         if attempt < MAX_ATTEMPTS:
             time.sleep(RETRY_BACKOFF_S * attempt)
-            return _download_boxes(boxes, attempt + 1, beat)
-        logger.warning('Overpass unreachable, failing batch of %d boxes: %s', len(boxes), exc)
+            return _download_boxes(boxes, attempt + 1, beat, depth)
+        logger.warning('No Overpass endpoint reachable, failing batch of %d boxes: %s',
+                       len(boxes), res.error)
         return [], len(boxes), True
 
+    result = res.data
     if result.get('remark'):
         # A remark means the query was truncated or hit a server limit, so the
         # result is incomplete even though the request "succeeded".
         logger.warning('Overpass remark on road download: %s', result['remark'])
         if len(boxes) > 1:
             mid = len(boxes) // 2
-            left, lf, lu = _download_boxes(boxes[:mid], beat=beat)
-            right, rf, ru = _download_boxes(boxes[mid:], beat=beat)
+            left, lf, lu = _download_boxes(boxes[:mid], beat=beat, depth=depth + 1)
+            right, rf, ru = _download_boxes(boxes[mid:], beat=beat, depth=depth + 1)
             return left + right, lf + rf, lu and ru
 
     ways = []

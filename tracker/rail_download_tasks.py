@@ -20,14 +20,10 @@ Two differences from the road version:
   * there is no highway/oneway concept — a RailSegment is just name + geometry.
 """
 
-import json
 import logging
 import secrets
 import threading
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 
 from django.db import close_old_connections
 from django.utils import timezone
@@ -36,9 +32,10 @@ from django.utils import timezone
 # and subway coverage are tracked independently (kind='road' vs 'subway')
 # even though they share the same cell grid, since a cell can have one
 # without the other — see _visited_boxes's docstring.
+from . import overpass
 from .road_download_tasks import (
     _visited_boxes, _mark_covered,
-    OVERPASS_URL, OVERPASS_HEADERS, OVERPASS_TIMEOUT,
+    OVERPASS_TIMEOUT, MAX_TIMEOUT_BISECT_DEPTH,
     BOXES_PER_REQUEST, MAX_ATTEMPTS, RETRY_BACKOFF_S, REQUEST_SLEEP_S,
     STALE_AFTER_S, INSERT_CHUNK, CONNECTIVITY_FAIL_LIMIT,
 )
@@ -50,7 +47,7 @@ logger = logging.getLogger(__name__)
 _running_thread = None
 
 
-def _download_boxes(boxes, attempt=1, beat=None):
+def _download_boxes(boxes, attempt=1, beat=None, depth=0):
     """Fetch subway track ways + station nodes intersecting any of `boxes`.
 
     Returns (way_dicts, station_dicts, failed_box_count, unreachable). Same
@@ -76,40 +73,42 @@ def _download_boxes(boxes, attempt=1, beat=None):
         f'(\n' + '\n'.join(clauses) + f'\n);\n'
         f'out body geom;\n'
     )
-    if beat:
-        beat()
-    try:
-        body = urllib.parse.urlencode({'data': query}).encode()
-        req = urllib.request.Request(OVERPASS_URL, body, OVERPASS_HEADERS)
-        with urllib.request.urlopen(req, timeout=OVERPASS_TIMEOUT + 20) as resp:
-            result = json.loads(resp.read().decode())
-    except urllib.error.HTTPError as exc:
+    res = overpass.overpass_query(query, beat=beat)
+
+    if res.kind in ('http', 'timeout'):
+        # Overpass was reached — it answered with an error status, or was too
+        # slow to answer at all. Both mean a smaller query has a real chance, so
+        # both retry and then bisect. See road_download_tasks._download_boxes.
         if attempt < MAX_ATTEMPTS:
             time.sleep(RETRY_BACKOFF_S * attempt)
-            return _download_boxes(boxes, attempt + 1, beat)
-        if len(boxes) > 1:
+            return _download_boxes(boxes, attempt + 1, beat, depth)
+        if len(boxes) > 1 and (res.kind == 'http' or depth < MAX_TIMEOUT_BISECT_DEPTH):
             mid = len(boxes) // 2
-            lw, ls, lf, lu = _download_boxes(boxes[:mid], beat=beat)
-            rw, rs, rf, ru = _download_boxes(boxes[mid:], beat=beat)
+            lw, ls, lf, lu = _download_boxes(boxes[:mid], beat=beat, depth=depth + 1)
+            rw, rs, rf, ru = _download_boxes(boxes[mid:], beat=beat, depth=depth + 1)
             return lw + rw, ls + rs, lf + rf, lu and ru
-        logger.warning('Overpass subway download failed for box %s: %s', boxes[0], exc)
-        return [], [], 1, False
-    except Exception as exc:
-        # Never reached Overpass at all — one retry for a possible blip, then
-        # fail the WHOLE batch at once rather than bisecting into a doomed tree
-        # of identical failures.
+        logger.warning('Overpass %s for %d subway box(es) via %s: %s',
+                       res.kind, len(boxes), res.endpoint, res.error)
+        # Deliberately NOT unreachable — an endpoint answered.
+        return [], [], len(boxes), False
+
+    if res.kind == 'unreachable':
+        # No endpoint in the pool could be reached; every leaf of a bisection
+        # would fail identically, so fail the whole batch at once.
         if attempt < MAX_ATTEMPTS:
             time.sleep(RETRY_BACKOFF_S * attempt)
-            return _download_boxes(boxes, attempt + 1, beat)
-        logger.warning('Overpass unreachable, failing subway batch of %d boxes: %s', len(boxes), exc)
+            return _download_boxes(boxes, attempt + 1, beat, depth)
+        logger.warning('No Overpass endpoint reachable, failing batch of %d boxes: %s',
+                       len(boxes), res.error)
         return [], [], len(boxes), True
 
+    result = res.data
     if result.get('remark'):
         logger.warning('Overpass remark on subway download: %s', result['remark'])
         if len(boxes) > 1:
             mid = len(boxes) // 2
-            lw, ls, lf, lu = _download_boxes(boxes[:mid], beat=beat)
-            rw, rs, rf, ru = _download_boxes(boxes[mid:], beat=beat)
+            lw, ls, lf, lu = _download_boxes(boxes[:mid], beat=beat, depth=depth + 1)
+            rw, rs, rf, ru = _download_boxes(boxes[mid:], beat=beat, depth=depth + 1)
             return lw + rw, ls + rs, lf + rf, lu and ru
 
     ways, stations = [], []
