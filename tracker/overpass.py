@@ -80,11 +80,22 @@ SOCKET_TIMEOUT = QUERY_TIMEOUT + 20
 # for an instance in that position it is a guaranteed failed attempt on every
 # request. Add it back at the top of the list from Admin Panel -> Downloads if
 # this server can reach it.
+#
+# **Every endpoint here must be a *world* instance.** A regional extract is the
+# single worst thing that can be in this pool, because it does not fail: it
+# answers HTTP 200 with an empty ``elements`` list for anything outside its own
+# region, which is indistinguishable from "there genuinely is no subway in this
+# cell". The download then records zero ways, counts zero failures, and — since
+# a batch with no failures is a batch that succeeded — writes every one of its
+# cells into DownloadedRegion as *covered*, so the area is never asked about
+# again. ``overpass.osm.ch`` was in this list and is Switzerland-only; that is
+# exactly how a Montreal metro download came back with 0 segments and 0
+# stations and then stayed that way on every retry. Verify a candidate with the
+# admin panel's endpoint test, which now probes coverage as well as reachability.
 DEFAULT_POOL = [
     'https://overpass.kumi.systems/api/interpreter',
     'https://overpass.private.coffee/api/interpreter',
     'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
-    'https://overpass.osm.ch/api/interpreter',
 ]
 
 # Which endpoint last answered. Cached so every gunicorn worker benefits, with a
