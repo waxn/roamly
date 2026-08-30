@@ -15,18 +15,15 @@ city list it downloads for now cover every user's location history, not just
 one user's own.
 """
 
-import json
 import logging
 import secrets
 import threading
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 
-from django.conf import settings as django_settings
 from django.db.models import Avg, Count
 from django.utils import timezone
+
+from . import overpass
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +31,6 @@ logger = logging.getLogger(__name__)
 # POIDownloadJob row (pk=1) to run, unlike the old per-user dict.
 _running_thread = None
 
-# Same env-configurable endpoint as road/subway download — see
-# road_download_tasks.OVERPASS_URL for why this needs to be switchable.
-OVERPASS_URL = django_settings.OVERPASS_URL
-OVERPASS_HEADERS = {'User-Agent': 'Roamly (self-hosted location tracker)'}
 SEARCH_RADIUS = 15000  # 15km around each city center
 POI_TAGS = [
     'shop', 'amenity', 'aeroway', 'tourism', 'leisure',
@@ -51,17 +44,25 @@ STALE_AFTER_S = 240
 # Consecutive whole-city "never reached Overpass" results before the run gives
 # up early — same reasoning as road_download_tasks.CONNECTIVITY_FAIL_LIMIT,
 # though there's no bisection here to amplify: a dead connection would still
-# otherwise grind through every remaining city at up to 35s apiece for nothing.
+# otherwise grind through every remaining city for nothing.
 CONNECTIVITY_FAIL_LIMIT = 2
 
 
-def _download_city_pois(lat, lng, radius=SEARCH_RADIUS, attempt=1):
+def _download_city_pois(lat, lng, radius=SEARCH_RADIUS, attempt=1, beat=None):
     """Download named POIs near a point from Overpass.
 
-    Returns (poi_dicts, unreachable). `unreachable=True` means the request
-    itself failed (DNS/connection/timeout) as opposed to succeeding with
-    genuinely zero results — the two look identical from a bare empty list,
-    but only the first is grounds for the caller's circuit breaker to trip.
+    Returns (poi_dicts, unreachable). `unreachable=True` means no Overpass
+    endpoint could be reached at all, as opposed to succeeding with genuinely
+    zero results — the two look identical from a bare empty list, but only the
+    first is grounds for the caller's circuit breaker to trip.
+
+    A *timeout* is deliberately not unreachable. This query is the heaviest the
+    app makes (every POI tag within 15km of a city), and it used to run with its
+    own tighter 30s/35s budget while roads had 60s/80s, so against an ordinarily
+    slow mirror it timed out on essentially every city — and each of those
+    counted as unreachable, which tripped the breaker two cities in and marked
+    every remaining city failed. It now shares tracker/overpass.py's timeouts
+    and classification with the road and subway downloads.
     """
     tag_lines = []
     for tag in POI_TAGS:
@@ -70,33 +71,34 @@ def _download_city_pois(lat, lng, radius=SEARCH_RADIUS, attempt=1):
     tag_lines.append(f'  nwr["brand"](around:{radius},{lat},{lng});')
 
     query = (
-        f'[out:json][timeout:30];\n'
+        f'[out:json][timeout:{overpass.QUERY_TIMEOUT}];\n'
         f'(\n' + '\n'.join(tag_lines) + f'\n);\n'
         f'out center 5000;\n'
     )
 
-    try:
-        body = urllib.parse.urlencode({'data': query}).encode()
-        req = urllib.request.Request(OVERPASS_URL, body, OVERPASS_HEADERS)
-        with urllib.request.urlopen(req, timeout=35) as resp:
-            result = json.loads(resp.read().decode())
-    except urllib.error.HTTPError as e:
-        # Reached Overpass; it answered with an error status. One retry with
-        # backoff — a smaller ask isn't possible here (one city is already
-        # one query), so there's nothing further to shrink.
+    res = overpass.overpass_query(query, beat=beat)
+
+    if res.kind in ('http', 'timeout'):
+        # Overpass was reached but gave no usable answer — an error status, or
+        # too slow. One retry with backoff; there is nothing to bisect here,
+        # since one city is already one query.
         if attempt < MAX_ATTEMPTS:
             time.sleep(RETRY_BACKOFF_S * attempt)
-            return _download_city_pois(lat, lng, radius, attempt + 1)
-        logger.warning(f"Overpass POI download failed for ({lat},{lng}): {e}")
+            return _download_city_pois(lat, lng, radius, attempt + 1, beat)
+        logger.warning('Overpass %s for POI download near (%s,%s) via %s: %s',
+                       res.kind, lat, lng, res.endpoint, res.error)
+        # Deliberately NOT unreachable — an endpoint answered.
         return [], False
-    except Exception as e:
-        # Never reached Overpass at all.
+
+    if res.kind == 'unreachable':
         if attempt < MAX_ATTEMPTS:
             time.sleep(RETRY_BACKOFF_S * attempt)
-            return _download_city_pois(lat, lng, radius, attempt + 1)
-        logger.warning(f"Overpass unreachable for POI download near ({lat},{lng}): {e}")
+            return _download_city_pois(lat, lng, radius, attempt + 1, beat)
+        logger.warning('No Overpass endpoint reachable for POI download near (%s,%s): %s',
+                       lat, lng, res.error)
         return [], True
 
+    result = res.data
     if result.get('remark'):
         logger.warning(f"Overpass remark for ({lat},{lng}): {result['remark']}")
         return [], False
@@ -190,8 +192,8 @@ def _poi_download_worker(token):
             except POIDownloadJob.DoesNotExist:
                 return
 
-            _beat()
-            pois, unreachable = _download_city_pois(city['avg_lat'], city['avg_lng'])
+            pois, unreachable = _download_city_pois(
+                city['avg_lat'], city['avg_lng'], beat=_beat)
             consecutive_unreachable = consecutive_unreachable + 1 if unreachable else 0
             if unreachable:
                 failed += 1
