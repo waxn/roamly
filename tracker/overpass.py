@@ -399,6 +399,60 @@ def error_fields(res):
 # a perfectly good success.
 PROBE_QUERY = '[out:json][timeout:10];way(1);out ids;'
 
+# Three widely separated, densely mapped places. A world instance returns nodes
+# in all three; a regional extract returns nodes only where its own data is, and
+# a country-sized one returns nothing at all.
+#
+# This is the *only* automated way to catch the worst thing that can be in the
+# pool. A regional extract does not fail — it answers HTTP 200 with an empty
+# elements list for everywhere it does not cover, which a download cannot tell
+# apart from "this cell genuinely has no subway", so it silently stores nothing
+# and then marks the area covered forever (see DEFAULT_POOL). The reachability
+# probe above cannot see it either, because an empty answer is a valid success
+# there. overpass.osm.ch passed that probe happily while serving Switzerland
+# only.
+#
+# Deliberately a *separate* request from the reachability probe rather than a
+# replacement for it: this one walks a bbox index instead of fetching one object
+# by id, so a loaded mirror can time out on it while being perfectly usable for
+# real downloads. Its failure must therefore never fail the endpoint — it
+# reports 'unknown' and says nothing.
+COVERAGE_ANCHORS = [
+    (48.80, 2.20, 48.92, 2.47),        # Paris
+    (40.60, -74.10, 40.85, -73.85),    # New York
+    (35.62, 139.65, 35.75, 139.80),    # Tokyo
+]
+COVERAGE_QUERY = (
+    '[out:json][timeout:25];('
+    + ''.join(f'node["place"="city"]({s:.2f},{w:.2f},{n:.2f},{e:.2f});'
+              for (s, w, n, e) in COVERAGE_ANCHORS)
+    + ');out skel;'
+)
+# Shorter than PROBE_TIMEOUT: this runs *after* the reachability probe on the
+# same endpoint, so it adds to the wall time of the whole test, and an answer
+# that slow tells us nothing worth waiting for.
+COVERAGE_TIMEOUT = 20.0
+
+
+def probe_coverage(url, timeout=COVERAGE_TIMEOUT):
+    """Does `url` serve world data, or only one region? Never raises.
+
+    Returns ('world' | 'partial' | 'unknown', regions_found). 'unknown' is the
+    honest answer whenever the query itself did not complete — a mirror is not
+    accused of being an extract because it was busy.
+    """
+    try:
+        data = _post(url, COVERAGE_QUERY, timeout)
+    except Exception:
+        return 'unknown', 0
+    els = data.get('elements') or [] if isinstance(data, dict) else []
+    found = 0
+    for (s, w, n, e) in COVERAGE_ANCHORS:
+        if any(el.get('lat') is not None and el.get('lon') is not None
+               and s <= el['lat'] <= n and w <= el['lon'] <= e for el in els):
+            found += 1
+    return ('world' if found == len(COVERAGE_ANCHORS) else 'partial'), found
+
 # Probe budget. Generous on purpose: probes run concurrently, so the whole test
 # is bounded by the slowest endpoint rather than their sum, and a mirror that
 # needs 20s for a trivial query is still perfectly usable for a real download at
@@ -422,15 +476,21 @@ def probe_one(url, timeout=PROBE_TIMEOUT):
         return {
             'url': url, 'ok': False, 'ms': int((time.monotonic() - started) * 1000),
             'kind': kind, 'error': msg, 'status': status, 'remark': '',
-            'slow': False,
+            'slow': False, 'coverage': 'unknown', 'regions': 0,
+            'regions_total': len(COVERAGE_ANCHORS),
         }
     ms = int((time.monotonic() - started) * 1000)
+    coverage, regions = probe_coverage(url)
     return {
         'url': url, 'ok': True, 'ms': ms,
         'kind': None, 'error': '', 'status': 200, 'slow': ms >= PROBE_SLOW_MS,
         # A mirror that answers but truncates is worth surfacing — it looks
         # healthy here while quietly returning partial data to a real download.
         'remark': (data.get('remark') or '')[:200] if isinstance(data, dict) else '',
+        # World instance or regional extract — see COVERAGE_QUERY for why an
+        # endpoint that answers is not yet an endpoint that is usable.
+        'coverage': coverage, 'regions': regions,
+        'regions_total': len(COVERAGE_ANCHORS),
     }
 
 

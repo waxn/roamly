@@ -1484,10 +1484,24 @@ function testOverpass() {
                     // heavier POI queries.
                     if (r.slow) notes.push('slow — downloads will work but take a while');
                     if (r.remark) notes.push(`answered but truncated: ${esc(r.remark)}`);
+                    // The one failure mode that looks like success. A regional extract
+                    // answers 200 with nothing outside its own region, which a download
+                    // cannot tell from "no subway here" — it stores nothing, reports no
+                    // failure, and marks the area covered for good. Louder than 'slow'
+                    // because a slow mirror still works.
+                    const bad = r.coverage === 'partial';
+                    if (bad) {
+                        notes.push(`serves only part of the world (found ${r.regions} of `
+                            + `${r.regions_total} test regions) — this looks like a regional `
+                            + 'extract, not a world instance. Remove it: downloads through it '
+                            + 'come back empty without reporting an error.');
+                    }
                     const warn = notes.length
-                        ? ` <span style="color:var(--warning);">— ${notes.join('; ')}</span>` : '';
-                    const colour = r.slow ? 'var(--warning)' : 'var(--success)';
-                    return `<div style="color:${colour};">✓ <span style="font-family:var(--font-mono);">`
+                        ? ` <span style="color:${bad ? 'var(--danger)' : 'var(--warning)'};">`
+                          + `— ${notes.join('; ')}</span>` : '';
+                    const colour = bad ? 'var(--danger)' : (r.slow ? 'var(--warning)' : 'var(--success)');
+                    return `<div style="color:${colour};">${bad ? '!' : '✓'} `
+                        + `<span style="font-family:var(--font-mono);">`
                         + `${esc(_dlHost(r.url))}</span> — ${r.ms.toLocaleString()} ms${tag}${warn}</div>`;
                 }
                 return `<div style="color:var(--danger);">✕ <span style="font-family:var(--font-mono);">`
