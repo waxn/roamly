@@ -327,3 +327,19 @@ def overpass_query(query, timeout=SOCKET_TIMEOUT, beat=None):
     # against that endpoint can still succeed.
     kind = 'unreachable' if kinds and all(k == 'unreachable' for k in kinds) else 'timeout'
     return OverpassResult(None, kind, last_msg, last_url, None)
+
+
+def error_fields(res):
+    """last_error* column values for a failed OverpassResult (or None).
+
+    Shared by all three download jobs so their rows describe a failure the same
+    way. `res` is whatever `overpass_query` returned for the most recent failing
+    request, or None when nothing has failed this run.
+    """
+    if res is None or res.kind is None:
+        return {'last_error': '', 'last_error_kind': '', 'last_error_endpoint': ''}
+    return {
+        'last_error': (res.error or '')[:300],
+        'last_error_kind': (res.kind or '')[:16],
+        'last_error_endpoint': (res.endpoint or '')[:300],
+    }

@@ -51,7 +51,8 @@ CONNECTIVITY_FAIL_LIMIT = 2
 def _download_city_pois(lat, lng, radius=SEARCH_RADIUS, attempt=1, beat=None):
     """Download named POIs near a point from Overpass.
 
-    Returns (poi_dicts, unreachable, answered).
+    Returns (poi_dicts, unreachable, answered, err), where `err` is the failing
+    OverpassResult (or None) so the caller can record what actually went wrong.
 
     `unreachable=True` means no Overpass endpoint could be reached at all, as
     opposed to succeeding with genuinely zero results — the two look identical
@@ -98,7 +99,7 @@ def _download_city_pois(lat, lng, radius=SEARCH_RADIUS, attempt=1, beat=None):
         # Deliberately NOT unreachable — an endpoint answered. Not `answered`
         # either, though: nothing usable came back, so this city must stay
         # uncovered and be retried by the next run.
-        return [], False, False
+        return [], False, False, res
 
     if res.kind == 'unreachable':
         if attempt < MAX_ATTEMPTS:
@@ -106,14 +107,15 @@ def _download_city_pois(lat, lng, radius=SEARCH_RADIUS, attempt=1, beat=None):
             return _download_city_pois(lat, lng, radius, attempt + 1, beat)
         logger.warning('No Overpass endpoint reachable for POI download near (%s,%s): %s',
                        lat, lng, res.error)
-        return [], True, False
+        return [], True, False, res
 
     result = res.data
     if result.get('remark'):
         # Truncated or limit-hit: the answer is incomplete, so this city has
         # not really been downloaded and must not be recorded as covered.
         logger.warning(f"Overpass remark for ({lat},{lng}): {result['remark']}")
-        return [], False, False
+        return [], False, False, res._replace(
+            kind='http', error=f"truncated result: {result['remark']}"[:300])
 
     pois = []
     for el in result.get('elements', []):
@@ -148,7 +150,7 @@ def _download_city_pois(lat, lng, radius=SEARCH_RADIUS, attempt=1, beat=None):
             'category': category,
             'address': address,
         })
-    return pois, False, True
+    return pois, False, True, None
 
 
 def _poi_download_worker(token):
@@ -159,6 +161,7 @@ def _poi_download_worker(token):
     processed = 0
     pois_added = 0
     failed = 0
+    last_err = None
 
     def _beat():
         POIDownloadJob.objects.filter(pk=1, worker_token=token).update(
@@ -204,8 +207,10 @@ def _poi_download_worker(token):
             except POIDownloadJob.DoesNotExist:
                 return
 
-            pois, unreachable, answered = _download_city_pois(
+            pois, unreachable, answered, err = _download_city_pois(
                 city['avg_lat'], city['avg_lng'], beat=_beat)
+            if err is not None:
+                last_err = err
             consecutive_unreachable = consecutive_unreachable + 1 if unreachable else 0
             if answered:
                 # Overpass genuinely answered for this city (even if it found
@@ -239,7 +244,7 @@ def _poi_download_worker(token):
             written = POIDownloadJob.objects.filter(
                 pk=1, worker_token=token, status='running'
             ).update(processed=processed, pois_added=pois_added, failed=failed,
-                     updated_at=timezone.now())
+                     updated_at=timezone.now(), **overpass.error_fields(last_err))
             if not written:
                 return
 
@@ -250,7 +255,8 @@ def _poi_download_worker(token):
                     processed = total
                     POIDownloadJob.objects.filter(
                         pk=1, worker_token=token, status='running'
-                    ).update(processed=processed, failed=failed, updated_at=timezone.now())
+                    ).update(processed=processed, failed=failed, updated_at=timezone.now(),
+                             **overpass.error_fields(last_err))
                 logger.warning(
                     'POI download: Overpass unreachable for %d consecutive '
                     'cities, giving up early (%d of %d cities skipped)',
@@ -309,7 +315,12 @@ def start_poi_download():
         job.processed = 0
         job.pois_added = 0
         job.failed = 0
-        job.save(update_fields=['status', 'total', 'processed', 'pois_added', 'failed', 'updated_at'])
+        job.last_error = ''
+        job.last_error_kind = ''
+        job.last_error_endpoint = ''
+        job.save(update_fields=['status', 'total', 'processed', 'pois_added', 'failed',
+                                'last_error', 'last_error_kind', 'last_error_endpoint',
+                                'updated_at'])
     _start_thread(_claim())
     return job
 
@@ -322,7 +333,8 @@ def get_poi_status():
         job = POIDownloadJob.objects.get(pk=1)
     except POIDownloadJob.DoesNotExist:
         return {'status': 'idle', 'processed': 0, 'total': 0, 'pois_added': 0,
-                'failed': 0, 'total_pois': POI.objects.count()}
+                'failed': 0, 'total_pois': POI.objects.count(),
+                'last_error': '', 'last_error_kind': '', 'last_error_endpoint': ''}
 
     # Resurrect a run whose worker really did die (a process recycle) — same
     # STALE_AFTER_S grace and _claim()-retires-any-straggler reasoning as
@@ -338,6 +350,9 @@ def get_poi_status():
         'pois_added': job.pois_added,
         'failed': job.failed,
         'total_pois': POI.objects.count(),
+        'last_error': job.last_error or '',
+        'last_error_kind': job.last_error_kind or '',
+        'last_error_endpoint': job.last_error_endpoint or '',
     }
 
 

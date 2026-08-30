@@ -295,7 +295,9 @@ def _cell_box(gy, gx_from, gx_to):
 def _download_boxes(boxes, attempt=1, beat=None, depth=0):
     """Fetch every drivable way intersecting any of `boxes`.
 
-    Returns (way_dicts, failed_box_count, unreachable). A whole batch used to
+    Returns (way_dicts, failed_box_count, unreachable, err), where `err` is the
+    failing OverpassResult (or None) so the caller can record what actually went
+    wrong. A whole batch used to
     degrade silently to an empty list on any Overpass error — a timeout on one
     busy corridor then left that corridor with no roads at all, and nothing in
     the UI said so, which reads exactly like snapping and gap routing being
@@ -345,15 +347,15 @@ def _download_boxes(boxes, attempt=1, beat=None, depth=0):
             return _download_boxes(boxes, attempt + 1, beat, depth)
         if len(boxes) > 1 and (res.kind == 'http' or depth < MAX_TIMEOUT_BISECT_DEPTH):
             mid = len(boxes) // 2
-            left, lf, lu = _download_boxes(boxes[:mid], beat=beat, depth=depth + 1)
-            right, rf, ru = _download_boxes(boxes[mid:], beat=beat, depth=depth + 1)
-            return left + right, lf + rf, lu and ru
+            left, lf, lu, le = _download_boxes(boxes[:mid], beat=beat, depth=depth + 1)
+            right, rf, ru, re_ = _download_boxes(boxes[mid:], beat=beat, depth=depth + 1)
+            return left + right, lf + rf, lu and ru, le or re_
         logger.warning('Overpass %s for %d road box(es) via %s: %s',
                        res.kind, len(boxes), res.endpoint, res.error)
         # Deliberately NOT unreachable: an endpoint answered, so the caller's
         # connectivity circuit breaker must stay out of it. Reporting a slow
         # mirror as unreachable is what reddened whole runs after two batches.
-        return [], len(boxes), False
+        return [], len(boxes), False, res
 
     if res.kind == 'unreachable':
         # No endpoint in the pool could be reached. One retry in case of a
@@ -364,7 +366,7 @@ def _download_boxes(boxes, attempt=1, beat=None, depth=0):
             return _download_boxes(boxes, attempt + 1, beat, depth)
         logger.warning('No Overpass endpoint reachable, failing batch of %d boxes: %s',
                        len(boxes), res.error)
-        return [], len(boxes), True
+        return [], len(boxes), True, res
 
     result = res.data
     if result.get('remark'):
@@ -373,9 +375,9 @@ def _download_boxes(boxes, attempt=1, beat=None, depth=0):
         logger.warning('Overpass remark on road download: %s', result['remark'])
         if len(boxes) > 1:
             mid = len(boxes) // 2
-            left, lf, lu = _download_boxes(boxes[:mid], beat=beat, depth=depth + 1)
-            right, rf, ru = _download_boxes(boxes[mid:], beat=beat, depth=depth + 1)
-            return left + right, lf + rf, lu and ru
+            left, lf, lu, le = _download_boxes(boxes[:mid], beat=beat, depth=depth + 1)
+            right, rf, ru, re_ = _download_boxes(boxes[mid:], beat=beat, depth=depth + 1)
+            return left + right, lf + rf, lu and ru, le or re_
 
     ways = []
     for el in result.get('elements', []):
@@ -402,7 +404,7 @@ def _download_boxes(boxes, attempt=1, beat=None, depth=0):
             'node_ids': [],
             'coords': coords,
         })
-    return ways, 0, False
+    return ways, 0, False, None
 
 
 def _store_ways(ways):
@@ -443,6 +445,7 @@ def _road_download_worker(token):
     processed = 0
     ways_added = 0
     failed = 0
+    last_err = None
     job = None
 
     def _beat(_n=None):
@@ -483,7 +486,9 @@ def _road_download_worker(token):
             except RoadDownloadJob.DoesNotExist:
                 return
 
-            ways, failed_boxes, unreachable = _download_boxes(batch, beat=_beat)
+            ways, failed_boxes, unreachable, err = _download_boxes(batch, beat=_beat)
+            if err is not None:
+                last_err = err
             if ways:
                 ways_added += _store_ways(ways)
             failed += failed_boxes
@@ -501,7 +506,7 @@ def _road_download_worker(token):
             written = RoadDownloadJob.objects.filter(
                 pk=1, worker_token=token, status='running'
             ).update(processed=processed, ways=ways_added, failed=failed,
-                     updated_at=timezone.now())
+                     updated_at=timezone.now(), **overpass.error_fields(last_err))
             if not written:
                 return
 
@@ -517,7 +522,9 @@ def _road_download_worker(token):
                     processed = len(batches)
                     RoadDownloadJob.objects.filter(
                         pk=1, worker_token=token, status='running'
-                    ).update(processed=processed, failed=failed, updated_at=timezone.now())
+                    ).update(processed=processed, failed=failed,
+                             updated_at=timezone.now(),
+                             **overpass.error_fields(last_err))
                 logger.warning(
                     'Road download: Overpass unreachable for %d consecutive '
                     'batches, giving up early (%d of %d batches skipped)',
@@ -533,7 +540,8 @@ def _road_download_worker(token):
             RoadDownloadJob.objects.filter(
                 pk=1, worker_token=token, status='running'
             ).update(processed=processed, ways=ways_added, failed=failed,
-                     status='completed', updated_at=timezone.now())
+                     status='completed', updated_at=timezone.now(),
+                     **overpass.error_fields(last_err))
         except Exception:
             pass
         # The local provider only reports itself available once rows exist, and
@@ -589,7 +597,12 @@ def start_road_download():
         job.processed = 0
         job.ways = 0
         job.failed = 0
-        job.save(update_fields=['status', 'total', 'processed', 'ways', 'failed', 'updated_at'])
+        job.last_error = ''
+        job.last_error_kind = ''
+        job.last_error_endpoint = ''
+        job.save(update_fields=['status', 'total', 'processed', 'ways', 'failed',
+                                'last_error', 'last_error_kind', 'last_error_endpoint',
+                                'updated_at'])
     _start_thread(_claim())
     return job
 
@@ -616,7 +629,8 @@ def get_road_download_status():
         job = RoadDownloadJob.objects.get(pk=1)
     except RoadDownloadJob.DoesNotExist:
         return {'status': 'idle', 'phase': '', 'processed': 0, 'total': 0,
-                'ways': 0, 'failed': 0, 'total_ways': total_ways}
+                'ways': 0, 'failed': 0, 'total_ways': total_ways,
+                'last_error': '', 'last_error_kind': '', 'last_error_endpoint': ''}
 
     # Resurrect a run whose worker really did die (a process recycle). The grace
     # is long enough to clear the slowest healthy batch, and claiming a new token
@@ -636,4 +650,7 @@ def get_road_download_status():
         'ways': job.ways or 0,
         'failed': job.failed or 0,
         'total_ways': total_ways,
+        'last_error': job.last_error or '',
+        'last_error_kind': job.last_error_kind or '',
+        'last_error_endpoint': job.last_error_endpoint or '',
     }

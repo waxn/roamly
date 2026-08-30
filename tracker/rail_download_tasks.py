@@ -84,13 +84,13 @@ def _download_boxes(boxes, attempt=1, beat=None, depth=0):
             return _download_boxes(boxes, attempt + 1, beat, depth)
         if len(boxes) > 1 and (res.kind == 'http' or depth < MAX_TIMEOUT_BISECT_DEPTH):
             mid = len(boxes) // 2
-            lw, ls, lf, lu = _download_boxes(boxes[:mid], beat=beat, depth=depth + 1)
-            rw, rs, rf, ru = _download_boxes(boxes[mid:], beat=beat, depth=depth + 1)
-            return lw + rw, ls + rs, lf + rf, lu and ru
+            lw, ls, lf, lu, le = _download_boxes(boxes[:mid], beat=beat, depth=depth + 1)
+            rw, rs, rf, ru, re_ = _download_boxes(boxes[mid:], beat=beat, depth=depth + 1)
+            return lw + rw, ls + rs, lf + rf, lu and ru, le or re_
         logger.warning('Overpass %s for %d subway box(es) via %s: %s',
                        res.kind, len(boxes), res.endpoint, res.error)
         # Deliberately NOT unreachable — an endpoint answered.
-        return [], [], len(boxes), False
+        return [], [], len(boxes), False, res
 
     if res.kind == 'unreachable':
         # No endpoint in the pool could be reached; every leaf of a bisection
@@ -100,16 +100,16 @@ def _download_boxes(boxes, attempt=1, beat=None, depth=0):
             return _download_boxes(boxes, attempt + 1, beat, depth)
         logger.warning('No Overpass endpoint reachable, failing batch of %d boxes: %s',
                        len(boxes), res.error)
-        return [], [], len(boxes), True
+        return [], [], len(boxes), True, res
 
     result = res.data
     if result.get('remark'):
         logger.warning('Overpass remark on subway download: %s', result['remark'])
         if len(boxes) > 1:
             mid = len(boxes) // 2
-            lw, ls, lf, lu = _download_boxes(boxes[:mid], beat=beat, depth=depth + 1)
-            rw, rs, rf, ru = _download_boxes(boxes[mid:], beat=beat, depth=depth + 1)
-            return lw + rw, ls + rs, lf + rf, lu and ru
+            lw, ls, lf, lu, le = _download_boxes(boxes[:mid], beat=beat, depth=depth + 1)
+            rw, rs, rf, ru, re_ = _download_boxes(boxes[mid:], beat=beat, depth=depth + 1)
+            return lw + rw, ls + rs, lf + rf, lu and ru, le or re_
 
     ways, stations = [], []
     for el in result.get('elements', []):
@@ -136,7 +136,7 @@ def _download_boxes(boxes, attempt=1, beat=None, depth=0):
                 'lon': el['lon'],
                 'lat': el['lat'],
             })
-    return ways, stations, 0, False
+    return ways, stations, 0, False, None
 
 
 def _store(ways, stations):
@@ -180,6 +180,7 @@ def _rail_download_worker(token):
     ways_added = 0
     stations_added = 0
     failed = 0
+    last_err = None
 
     def _beat(_n=None):
         RailDownloadJob.objects.filter(pk=1, worker_token=token).update(
@@ -213,7 +214,9 @@ def _rail_download_worker(token):
             except RailDownloadJob.DoesNotExist:
                 return
 
-            ways, stations, failed_boxes, unreachable = _download_boxes(batch, beat=_beat)
+            ways, stations, failed_boxes, unreachable, err = _download_boxes(batch, beat=_beat)
+            if err is not None:
+                last_err = err
             if ways or stations:
                 w, s = _store(ways, stations)
                 ways_added += w
@@ -227,7 +230,8 @@ def _rail_download_worker(token):
             written = RailDownloadJob.objects.filter(
                 pk=1, worker_token=token, status='running'
             ).update(processed=processed, ways=ways_added, stations=stations_added,
-                     failed=failed, updated_at=timezone.now())
+                     failed=failed, updated_at=timezone.now(),
+                     **overpass.error_fields(last_err))
             if not written:
                 return
 
@@ -238,7 +242,8 @@ def _rail_download_worker(token):
                     processed = len(batches)
                     RailDownloadJob.objects.filter(
                         pk=1, worker_token=token, status='running'
-                    ).update(processed=processed, failed=failed, updated_at=timezone.now())
+                    ).update(processed=processed, failed=failed, updated_at=timezone.now(),
+                             **overpass.error_fields(last_err))
                 logger.warning(
                     'Subway download: Overpass unreachable for %d consecutive '
                     'batches, giving up early (%d of %d batches skipped)',
@@ -253,7 +258,8 @@ def _rail_download_worker(token):
             RailDownloadJob.objects.filter(
                 pk=1, worker_token=token, status='running'
             ).update(processed=processed, ways=ways_added, stations=stations_added,
-                     failed=failed, status='completed', updated_at=timezone.now())
+                     failed=failed, status='completed', updated_at=timezone.now(),
+                     **overpass.error_fields(last_err))
         except Exception:
             pass
         try:
@@ -304,8 +310,12 @@ def start_subway_download():
         job.ways = 0
         job.stations = 0
         job.failed = 0
+        job.last_error = ''
+        job.last_error_kind = ''
+        job.last_error_endpoint = ''
         job.save(update_fields=['status', 'total', 'processed', 'ways', 'stations',
-                                'failed', 'updated_at'])
+                                'failed', 'last_error', 'last_error_kind',
+                                'last_error_endpoint', 'updated_at'])
     _start_thread(_claim())
     return job
 
@@ -328,7 +338,8 @@ def get_subway_download_status():
     except RailDownloadJob.DoesNotExist:
         return {'status': 'idle', 'phase': '', 'processed': 0, 'total': 0,
                 'ways': 0, 'stations': 0, 'failed': 0,
-                'total_ways': total_ways, 'total_stations': total_stations}
+                'total_ways': total_ways, 'total_stations': total_stations,
+                'last_error': '', 'last_error_kind': '', 'last_error_endpoint': ''}
 
     if job.status == 'running' and not _is_thread_alive():
         if (timezone.now() - job.updated_at).total_seconds() > STALE_AFTER_S:
@@ -344,4 +355,7 @@ def get_subway_download_status():
         'failed': job.failed or 0,
         'total_ways': total_ways,
         'total_stations': total_stations,
+        'last_error': job.last_error or '',
+        'last_error_kind': job.last_error_kind or '',
+        'last_error_endpoint': job.last_error_endpoint or '',
     }

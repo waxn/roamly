@@ -368,6 +368,14 @@ class POIDownloadJob(models.Model):
     # Cities Overpass would not return after retries — same "surfaced rather
     # than silently empty" reasoning as RoadDownloadJob.failed.
     failed = models.IntegerField(default=0)
+    # What the most recent Overpass failure of this run actually was, so the UI
+    # can say something better than a bare count. "could not reach Overpass for
+    # any area" with no further detail is what made a slow mirror
+    # indistinguishable from an offline server. `last_error_kind` is
+    # tracker/overpass.py's classification: 'http' / 'timeout' / 'unreachable'.
+    last_error = models.CharField(max_length=300, blank=True, default='')
+    last_error_kind = models.CharField(max_length=16, blank=True, default='')
+    last_error_endpoint = models.CharField(max_length=300, blank=True, default='')
     worker_token = models.CharField(max_length=32, blank=True, default='')
     started_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -632,6 +640,14 @@ class RoadDownloadJob(models.Model):
     # silent failure leaves a corridor with no roads, which looks identical to
     # snapping simply not working.
     failed = models.IntegerField(default=0)
+    # What the most recent Overpass failure of this run actually was, so the UI
+    # can say something better than a bare count. "could not reach Overpass for
+    # any area" with no further detail is what made a slow mirror
+    # indistinguishable from an offline server. `last_error_kind` is
+    # tracker/overpass.py's classification: 'http' / 'timeout' / 'unreachable'.
+    last_error = models.CharField(max_length=300, blank=True, default='')
+    last_error_kind = models.CharField(max_length=16, blank=True, default='')
+    last_error_endpoint = models.CharField(max_length=300, blank=True, default='')
     # Which worker owns this run. _running_threads is per-process, so with more
     # than one gunicorn worker the liveness check cannot see a thread running
     # elsewhere and would resurrect a second one — both then writing their own
@@ -670,6 +686,14 @@ class RailDownloadJob(models.Model):
     ways = models.IntegerField(default=0)        # rail segments stored this run
     stations = models.IntegerField(default=0)    # rail stations stored this run
     failed = models.IntegerField(default=0)
+    # What the most recent Overpass failure of this run actually was, so the UI
+    # can say something better than a bare count. "could not reach Overpass for
+    # any area" with no further detail is what made a slow mirror
+    # indistinguishable from an offline server. `last_error_kind` is
+    # tracker/overpass.py's classification: 'http' / 'timeout' / 'unreachable'.
+    last_error = models.CharField(max_length=300, blank=True, default='')
+    last_error_kind = models.CharField(max_length=16, blank=True, default='')
+    last_error_endpoint = models.CharField(max_length=300, blank=True, default='')
     worker_token = models.CharField(max_length=32, blank=True, default='')
     started_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
