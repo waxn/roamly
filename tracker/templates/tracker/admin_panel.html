@@ -1158,13 +1158,33 @@ function dlUpdateUI(kind, data, finished) {
             let msg = cfg.finishedMsg(data, label);
             if (data.failed) {
                 // A failed area/city means nothing was fetched there, which reads exactly
-                // like the feature being broken — say so plainly, and specifically when
-                // literally everything failed (Overpass unreachable), not just a bare count.
+                // like the feature being broken — so say what actually went wrong. A bare
+                // "could not reach Overpass" made a slow mirror, a rate-limited one and a
+                // genuinely offline server all look identical, which is precisely what
+                // made this hard to diagnose. data.last_error_kind is the server-side
+                // classification (see tracker/overpass.py).
+                const n = data.failed.toLocaleString();
+                const where = data.last_error_endpoint ? ` (${_dlHost(data.last_error_endpoint)})` : '';
+                const detail = data.last_error ? ` Last error: ${data.last_error}${where}.` : '';
                 if (data.failed >= data.total && data.total > 0) {
-                    msg = `${label} — could not reach Overpass for any area (${data.failed.toLocaleString()} failed). `
-                        + 'Check this server has outbound internet access, then re-run.';
+                    if (data.last_error_kind === 'unreachable') {
+                        msg = `${label} — could not reach any Overpass endpoint (${n} failed).`
+                            + `${detail} Check this server's outbound internet access, or set`
+                            + ' an endpoint it can reach under Overpass Connection above, then re-run.';
+                    } else if (data.last_error_kind === 'timeout') {
+                        msg = `${label} — every Overpass endpoint was too slow to answer (${n} failed).`
+                            + `${detail} The mirrors are reachable but overloaded — try again later,`
+                            + ' or add a faster endpoint under Overpass Connection above.';
+                    } else if (data.last_error_kind === 'http') {
+                        msg = `${label} — Overpass rejected every request (${n} failed).${detail}`
+                            + ' If this is a rate limit, wait and re-run, or add another endpoint above.';
+                    } else {
+                        msg = `${label} — could not reach Overpass for any area (${n} failed). `
+                            + 'Check this server has outbound internet access, then re-run.';
+                    }
                 } else {
-                    msg += ` · ${data.failed.toLocaleString()} area${data.failed === 1 ? '' : 's'} failed — re-run to retry those`;
+                    msg += ` · ${n} area${data.failed === 1 ? '' : 's'} failed — re-run to retry those`;
+                    if (data.last_error) msg += `.${detail}`;
                 }
                 statusEl.textContent = msg;
                 statusEl.style.color = 'var(--danger)';
