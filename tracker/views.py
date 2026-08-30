@@ -1229,10 +1229,15 @@ def site_overpass_config_api(request):
         except (json.JSONDecodeError, ValueError):
             return JsonResponse({'error': 'Invalid request.'}, status=400)
         raw = (data.get('overpass_urls') or '').strip()
-        if raw and not overpass.parse_endpoint_list(raw):
+        parsed = overpass.parse_endpoint_list(raw)
+        if raw and not parsed:
             return JsonResponse(
                 {'error': 'No usable endpoints — each line must be a full '
                           'http:// or https:// URL.'}, status=400)
+        if len(parsed) > overpass.MAX_ENDPOINTS:
+            return JsonResponse(
+                {'error': f'Too many endpoints (max {overpass.MAX_ENDPOINTS}). '
+                          'Each one is a potential attempt on every request.'}, status=400)
         # Store the admin's text as typed (minus surrounding whitespace) so the
         # textarea round-trips; parsing happens at read time.
         config.overpass_urls = raw[:4000]
@@ -1243,7 +1248,11 @@ def site_overpass_config_api(request):
 
     return JsonResponse({
         'overpass_urls': config.overpass_urls,
+        # The effective list, which is what the editor renders — so the built-in
+        # defaults are reorderable and deletable like anything else rather than
+        # being invisible until someone retypes them by hand.
         'resolved': overpass.endpoints(),
+        'defaults': overpass.DEFAULT_POOL,
         'source': 'custom' if overpass.parse_endpoint_list(config.overpass_urls) else 'default',
     })
 
@@ -1261,7 +1270,16 @@ def overpass_test_api(request):
     if err:
         return err
     from . import overpass
-    results = overpass.probe_endpoints()
+
+    # Probe the list currently on screen when one is supplied, so an admin can
+    # test an edit before committing to it. No new capability: an admin can
+    # already point the saved config anywhere, and this is the same gate.
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        data = {}
+    urls = overpass.parse_endpoint_list('\n'.join(data.get('endpoints') or []))
+    results = overpass.probe_endpoints(urls=urls[:overpass.MAX_ENDPOINTS] or None)
     return JsonResponse({'ok': any(r['ok'] for r in results), 'endpoints': results})
 
 
@@ -9686,7 +9704,6 @@ def admin_panel_view(request):
         'auto_download_roads': site_config.auto_download_roads,
         'auto_download_subway': site_config.auto_download_subway,
         'auto_download_pois': site_config.auto_download_pois,
-        'site_overpass_urls': site_config.overpass_urls,
     })
 
 

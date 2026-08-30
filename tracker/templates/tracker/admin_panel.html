@@ -342,17 +342,25 @@
                 All three downloads below fetch their data from Overpass. Endpoints are
                 tried <strong>in order</strong>, moving on to the next only when one can't
                 be reached or is too slow to answer &mdash; so a single dead or overloaded
-                mirror no longer fails a whole run. One URL per line. Leave blank to use
-                the built-in pool.
+                mirror no longer fails a whole run. Reorder to change which is tried first,
+                remove any you don't want, and add your own.
             </p>
-            <textarea id="overpass-urls" class="form-control" rows="4" spellcheck="false"
-                style="font-family:var(--font-mono);font-size:0.8125rem;white-space:pre;resize:vertical;"
-                placeholder="https://overpass.kumi.systems/api/interpreter">{{ site_overpass_urls }}</textarea>
-            <div class="settings-actions" style="margin-top:0.6rem;">
+            <div id="overpass-list"></div>
+            <div style="display:flex;gap:0.5rem;margin-top:0.6rem;">
+                <input type="text" id="overpass-add" class="form-control" spellcheck="false"
+                       style="font-family:var(--font-mono);font-size:0.8125rem;"
+                       placeholder="https://overpass.example.org/api/interpreter"
+                       onkeydown="if(event.key==='Enter'){event.preventDefault();overpassAdd();}">
+                <button class="btn btn-outline btn-sm" onclick="overpassAdd()"
+                        style="white-space:nowrap;">Add</button>
+            </div>
+            <div class="settings-actions" style="margin-top:0.75rem;">
                 <button class="btn btn-primary btn-sm" id="overpass-save-btn"
                         onclick="saveOverpassUrls()">Save Endpoints</button>
                 <button class="btn btn-outline btn-sm" id="overpass-test-btn"
                         onclick="testOverpass()">Test Connection</button>
+                <button class="btn btn-outline btn-sm" id="overpass-reset-btn"
+                        onclick="overpassReset()">Reset to Defaults</button>
             </div>
             <div id="overpass-config-status" style="margin-top:0.6rem;font-size:0.8125rem;color:var(--text-muted);"></div>
             <div id="overpass-test-result" style="margin-top:0.6rem;font-size:0.8125rem;"></div>
@@ -459,6 +467,28 @@
 {% block extra_css %}
 <style>
 .tab-btn { min-width:90px; }
+/* Overpass endpoint list — rows join into one plate, like a table without one. */
+.op-row {
+    display:flex; align-items:center; gap:0.5rem;
+    padding:0.45rem 0.6rem; margin-bottom:-1px;
+    border:1px solid var(--border); background:var(--bg-input);
+}
+.op-row:first-child { border-radius:var(--radius-clay-sm) var(--radius-clay-sm) 0 0; }
+.op-row:last-child { border-radius:0 0 var(--radius-clay-sm) var(--radius-clay-sm); margin-bottom:0; }
+.op-row:only-child { border-radius:var(--radius-clay-sm); }
+.op-num { font-family:var(--font-mono); font-size:0.75rem; color:var(--text-dim); min-width:1.1rem; }
+.op-url {
+    flex:1; min-width:0; font-family:var(--font-mono); font-size:0.8125rem;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.op-btn {
+    background:none; border:1px solid var(--border); color:var(--text-muted);
+    cursor:pointer; padding:0.1rem 0.4rem; border-radius:var(--radius-clay-sm);
+    font-size:0.8rem; line-height:1.4; transition:border-color 0.15s, color 0.15s;
+}
+.op-btn:hover:not(:disabled) { border-color:var(--border-bright); color:var(--text); }
+.op-btn:disabled { opacity:0.25; cursor:default; }
+.op-btn.op-danger:hover { border-color:var(--danger); color:var(--danger); }
 .al-row:hover { background:var(--bg-elevated); }
 
 /* Chart canvas + hover overlays (mirrors the Stats page) */
@@ -1302,16 +1332,90 @@ function _dlHost(u) {
     try { return new URL(u).host; } catch (e) { return u || ''; }
 }
 
-function renderOverpassConfig(data) {
-    const el = document.getElementById('overpass-config-status');
+// Endpoint list editor. The rows render the *effective* list, so the built-in
+// defaults can be reordered and removed like anything else instead of being
+// invisible until someone retypes them by hand. Any edit makes the list
+// explicit — blank means "use the built-in pool", so a deletion has to be
+// saved as a full list or it would simply come back.
+let overpassList = [];
+let overpassSource = 'default';
+let overpassDirty = false;
+
+function renderOverpassList() {
+    const el = document.getElementById('overpass-list');
     if (!el) return;
-    const list = (data.resolved || []).map(
-        (u, i) => `<div style="font-family:var(--font-mono);">${i + 1}. ${_dlHost(u)}</div>`).join('');
-    const src = data.source === 'custom'
-        ? 'Using the list above, in this order:'
-        : 'No custom list set &mdash; using the built-in default pool, in this order:';
-    el.innerHTML = `${src}<div style="margin-top:0.35rem;">${list}</div>`;
-    el.style.color = 'var(--text-muted)';
+    if (!overpassList.length) {
+        el.innerHTML = '<div class="op-row" style="color:var(--warning);">'
+            + 'No endpoints — saving now falls back to the built-in pool.</div>';
+    } else {
+        const last = overpassList.length - 1;
+        el.innerHTML = overpassList.map((u, i) => `
+            <div class="op-row">
+                <span class="op-num">${i + 1}</span>
+                <span class="op-url" title="${esc(u)}">${esc(u)}</span>
+                ${i === 0 ? '<span style="color:var(--text-dim);font-size:0.7rem;white-space:nowrap;">tried first</span>' : ''}
+                <button class="op-btn" title="Move up" onclick="overpassMove(${i},-1)" ${i === 0 ? 'disabled' : ''}>&uarr;</button>
+                <button class="op-btn" title="Move down" onclick="overpassMove(${i},1)" ${i === last ? 'disabled' : ''}>&darr;</button>
+                <button class="op-btn op-danger" title="Remove" onclick="overpassRemove(${i})">&times;</button>
+            </div>`).join('');
+    }
+    const note = document.getElementById('overpass-config-status');
+    if (!note) return;
+    if (overpassDirty) {
+        note.textContent = 'Unsaved changes — press Save Endpoints to apply.';
+        note.style.color = 'var(--warning)';
+    } else {
+        note.textContent = overpassSource === 'custom'
+            ? 'Using this custom list.'
+            : 'Using the built-in default pool.';
+        note.style.color = 'var(--text-muted)';
+    }
+}
+
+function overpassMove(i, d) {
+    const j = i + d;
+    if (j < 0 || j >= overpassList.length) return;
+    [overpassList[i], overpassList[j]] = [overpassList[j], overpassList[i]];
+    overpassDirty = true;
+    renderOverpassList();
+}
+
+function overpassRemove(i) {
+    overpassList.splice(i, 1);
+    overpassDirty = true;
+    renderOverpassList();
+}
+
+function overpassAdd() {
+    const input = document.getElementById('overpass-add');
+    // Accept a pasted list as readily as a single URL — same splitting the
+    // server does, so what you can paste here is what it will accept.
+    const added = input.value.split(/[,\s]+/)
+        .map(u => u.trim())
+        .filter(u => /^https?:\/\//i.test(u))
+        .filter(u => !overpassList.includes(u));
+    if (!added.length) {
+        roamlyToast('Enter a full http:// or https:// URL', { type: 'error' });
+        return;
+    }
+    overpassList = overpassList.concat(added);
+    input.value = '';
+    overpassDirty = true;
+    renderOverpassList();
+}
+
+async function overpassReset() {
+    if (!await roamlyConfirm(
+        'Discard this endpoint list and go back to the built-in default pool?',
+        { title: 'Reset endpoints', danger: true, confirmText: 'Reset' })) return;
+    _overpassSave('', 'Reset to the built-in pool');
+}
+
+function renderOverpassConfig(data) {
+    overpassList = (data.resolved || []).slice();
+    overpassSource = data.source || 'default';
+    overpassDirty = false;
+    renderOverpassList();
 }
 
 function loadOverpassConfig() {
@@ -1321,14 +1425,14 @@ function loadOverpassConfig() {
         .catch(() => {});
 }
 
-function saveOverpassUrls() {
+function _overpassSave(body, successMsg) {
     const btn = document.getElementById('overpass-save-btn');
     const el = document.getElementById('overpass-config-status');
     btn.disabled = true;
     fetch('/api/site/overpass/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
-        body: JSON.stringify({ overpass_urls: document.getElementById('overpass-urls').value }),
+        body: JSON.stringify({ overpass_urls: body }),
     })
         .then(r => r.json().then(d => ({ ok: r.ok, d })))
         .then(({ ok, d }) => {
@@ -1338,13 +1442,17 @@ function saveOverpassUrls() {
                 return;
             }
             renderOverpassConfig(d);
-            roamlyToast('Overpass endpoints saved', { type: 'success' });
+            roamlyToast(successMsg, { type: 'success' });
         })
         .catch(() => {
             el.textContent = 'Could not save.';
             el.style.color = 'var(--danger)';
         })
         .finally(() => { btn.disabled = false; });
+}
+
+function saveOverpassUrls() {
+    _overpassSave(overpassList.join('\n'), 'Overpass endpoints saved');
 }
 
 function testOverpass() {
@@ -1355,7 +1463,9 @@ function testOverpass() {
     el.textContent = 'probing every endpoint…';
     fetch('/api/site/overpass-test/', {
         method: 'POST',
-        headers: { 'X-CSRFToken': getCookie('csrftoken') },
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+        // Probe what is on screen, so an edit can be tested before it is saved.
+        body: JSON.stringify({ endpoints: overpassList }),
     })
         .then(r => r.json())
         .then(d => {

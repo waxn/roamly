@@ -98,6 +98,10 @@ _last_good = None
 ENDPOINTS_CACHE_KEY = 'overpass_endpoints'
 _ENDPOINTS_TTL = 3600
 
+# Ceiling on the configured list. Each endpoint is a potential attempt on every
+# single request, so a long list turns one unreachable batch into a long walk.
+MAX_ENDPOINTS = 12
+
 _HTTP_NOTES = {
     429: ' (rate limited)',
     503: ' (service unavailable)',
@@ -136,7 +140,10 @@ def parse_endpoint_list(text):
     pasted comment can't lock an admin out of saving.
     """
     out = [u.strip() for u in re.split(r'[,\s]+', text or '') if u.strip()]
-    out = [u for u in out if u.startswith('http://') or u.startswith('https://')]
+    # Scheme is case-insensitive per RFC 3986, and the admin panel's own filter
+    # is too — a mismatch here would silently drop an endpoint on save that the
+    # UI had happily accepted.
+    out = [u for u in out if u.lower().startswith(('http://', 'https://'))]
     return list(dict.fromkeys(out))
 
 
@@ -387,15 +394,18 @@ def probe_one(url, timeout=PROBE_TIMEOUT):
     }
 
 
-def probe_endpoints(timeout=PROBE_TIMEOUT):
-    """Probe every configured endpoint and report each one's verdict.
+def probe_endpoints(timeout=PROBE_TIMEOUT, urls=None):
+    """Probe every endpoint in `urls` (default: the configured pool).
+
+    Passing `urls` lets the admin panel test a list that has been reordered or
+    added to but not yet saved.
 
     Deliberately *not* the failover walk: the point is a per-endpoint answer,
     including for endpoints a real request would never have reached because an
     earlier one succeeded. Probes run concurrently so the call is bounded by the
     slowest single endpoint rather than the sum of them.
     """
-    pool = endpoints()
+    pool = list(urls) if urls else endpoints()
     if not pool:
         return []
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(pool)) as ex:
