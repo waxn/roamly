@@ -51,10 +51,18 @@ CONNECTIVITY_FAIL_LIMIT = 2
 def _download_city_pois(lat, lng, radius=SEARCH_RADIUS, attempt=1, beat=None):
     """Download named POIs near a point from Overpass.
 
-    Returns (poi_dicts, unreachable). `unreachable=True` means no Overpass
-    endpoint could be reached at all, as opposed to succeeding with genuinely
-    zero results — the two look identical from a bare empty list, but only the
-    first is grounds for the caller's circuit breaker to trip.
+    Returns (poi_dicts, unreachable, answered).
+
+    `unreachable=True` means no Overpass endpoint could be reached at all, as
+    opposed to succeeding with genuinely zero results — the two look identical
+    from a bare empty list, but only the first is grounds for the caller's
+    circuit breaker to trip.
+
+    `answered=True` means Overpass genuinely answered for this city, even if it
+    found nothing. Only then may the caller record the city as covered. An empty
+    list alone is not enough to tell: a rate-limited city, a timed-out city and
+    a city with no POIs all return one, and treating the first two as covered
+    marked them permanently done so they were never retried.
 
     A *timeout* is deliberately not unreachable. This query is the heaviest the
     app makes (every POI tag within 15km of a city), and it used to run with its
@@ -87,8 +95,10 @@ def _download_city_pois(lat, lng, radius=SEARCH_RADIUS, attempt=1, beat=None):
             return _download_city_pois(lat, lng, radius, attempt + 1, beat)
         logger.warning('Overpass %s for POI download near (%s,%s) via %s: %s',
                        res.kind, lat, lng, res.endpoint, res.error)
-        # Deliberately NOT unreachable — an endpoint answered.
-        return [], False
+        # Deliberately NOT unreachable — an endpoint answered. Not `answered`
+        # either, though: nothing usable came back, so this city must stay
+        # uncovered and be retried by the next run.
+        return [], False, False
 
     if res.kind == 'unreachable':
         if attempt < MAX_ATTEMPTS:
@@ -96,12 +106,14 @@ def _download_city_pois(lat, lng, radius=SEARCH_RADIUS, attempt=1, beat=None):
             return _download_city_pois(lat, lng, radius, attempt + 1, beat)
         logger.warning('No Overpass endpoint reachable for POI download near (%s,%s): %s',
                        lat, lng, res.error)
-        return [], True
+        return [], True, False
 
     result = res.data
     if result.get('remark'):
+        # Truncated or limit-hit: the answer is incomplete, so this city has
+        # not really been downloaded and must not be recorded as covered.
         logger.warning(f"Overpass remark for ({lat},{lng}): {result['remark']}")
-        return [], False
+        return [], False, False
 
     pois = []
     for el in result.get('elements', []):
@@ -136,7 +148,7 @@ def _download_city_pois(lat, lng, radius=SEARCH_RADIUS, attempt=1, beat=None):
             'category': category,
             'address': address,
         })
-    return pois, False
+    return pois, False, True
 
 
 def _poi_download_worker(token):
@@ -192,17 +204,21 @@ def _poi_download_worker(token):
             except POIDownloadJob.DoesNotExist:
                 return
 
-            pois, unreachable = _download_city_pois(
+            pois, unreachable, answered = _download_city_pois(
                 city['avg_lat'], city['avg_lng'], beat=_beat)
             consecutive_unreachable = consecutive_unreachable + 1 if unreachable else 0
-            if unreachable:
-                failed += 1
-            else:
+            if answered:
                 # Overpass genuinely answered for this city (even if it found
                 # nothing) — mark it covered so a future run doesn't ask again.
-                # An unreachable city stays uncovered and gets retried.
                 DownloadedRegion.objects.get_or_create(
                     kind='poi', key=f"{city['city']}|{city['state']}")
+            else:
+                # Any city we did not get a usable answer for stays uncovered so
+                # the next run retries it, and is counted so the total is honest.
+                # This used to key off `unreachable` alone, which meant a
+                # rate-limited or truncated city was silently marked covered
+                # forever AND left out of the failure count.
+                failed += 1
 
             poi_objects = [
                 POI(
