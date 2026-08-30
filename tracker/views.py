@@ -1206,6 +1206,48 @@ def site_auto_download_api(request):
     return JsonResponse({'ok': True})
 
 
+@login_required
+def site_overpass_config_api(request):
+    """Get or set the Overpass endpoints the downloads query. Admins only.
+
+    Lives here rather than only in env because docker-compose.yml is gitignored
+    and enumerates its env vars explicitly, so adding OVERPASS_URLS to .env
+    alone never reaches the container. Blank means "use settings.OVERPASS_URLS",
+    which is the built-in pool with the legacy OVERPASS_URL first if set.
+    """
+    err = _require_admin(request)
+    if err:
+        return err
+
+    from django.core.cache import cache
+    from . import overpass
+
+    config = SiteConfig.load()
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body or '{}')
+        except (json.JSONDecodeError, ValueError):
+            return JsonResponse({'error': 'Invalid request.'}, status=400)
+        raw = (data.get('overpass_urls') or '').strip()
+        if raw and not overpass.parse_endpoint_list(raw):
+            return JsonResponse(
+                {'error': 'No usable endpoints — each line must be a full '
+                          'http:// or https:// URL.'}, status=400)
+        # Store the admin's text as typed (minus surrounding whitespace) so the
+        # textarea round-trips; parsing happens at read time.
+        config.overpass_urls = raw[:4000]
+        config.save(update_fields=['overpass_urls', 'updated_at'])
+        cache.delete(overpass.ENDPOINTS_CACHE_KEY)
+        # The remembered endpoint may not be in the new list at all.
+        cache.delete(overpass.LAST_GOOD_CACHE_KEY)
+
+    return JsonResponse({
+        'overpass_urls': config.overpass_urls,
+        'resolved': overpass.endpoints(),
+        'source': 'custom' if overpass.parse_endpoint_list(config.overpass_urls) else 'default',
+    })
+
+
 @csrf_exempt
 def contact_api(request):
     """Public contact form → email the instance contact address.
@@ -9627,6 +9669,7 @@ def admin_panel_view(request):
         'auto_download_roads': site_config.auto_download_roads,
         'auto_download_subway': site_config.auto_download_subway,
         'auto_download_pois': site_config.auto_download_pois,
+        'site_overpass_urls': site_config.overpass_urls,
     })
 
 

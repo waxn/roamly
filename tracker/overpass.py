@@ -48,6 +48,7 @@ import errno
 import http.client
 import json
 import logging
+import re
 import socket
 import ssl
 import urllib.error
@@ -90,6 +91,11 @@ LAST_GOOD_CACHE_KEY = 'overpass:last_good'
 _LAST_GOOD_TTL = 3600
 _last_good = None
 
+# Resolved endpoint pool, cached because every Overpass request reads it and it
+# only changes when an admin saves. Busted by site_overpass_config_api.
+ENDPOINTS_CACHE_KEY = 'overpass_endpoints'
+_ENDPOINTS_TTL = 3600
+
 _HTTP_NOTES = {
     429: ' (rate limited)',
     503: ' (service unavailable)',
@@ -120,10 +126,53 @@ class OverpassResult(NamedTuple):
         return self.kind is None
 
 
-def endpoints():
-    """The configured endpoint pool, in order, deduped."""
+def parse_endpoint_list(text):
+    """Split an admin-entered blob into endpoint URLs, in order, deduped.
+
+    Accepts newline-, comma- or space-separated input. Anything that isn't an
+    http(s) URL is dropped rather than rejected, so a stray blank line or a
+    pasted comment can't lock an admin out of saving.
+    """
+    out = [u.strip() for u in re.split(r'[,\s]+', text or '') if u.strip()]
+    out = [u for u in out if u.startswith('http://') or u.startswith('https://')]
+    return list(dict.fromkeys(out))
+
+
+def _resolve_endpoints():
+    """SiteConfig wins outright when set, else the settings pool.
+
+    An admin who has typed a list has made an explicit choice — quietly
+    appending the built-in pool underneath it would send queries to mirrors
+    they did not pick, which is exactly the surprise this field exists to
+    remove for an instance with a private Overpass.
+    """
+    try:
+        from .models import SiteConfig
+        configured = parse_endpoint_list(SiteConfig.load().overpass_urls)
+        if configured:
+            return configured
+    except Exception:
+        # No DB yet (a migration, a management command) — fall through.
+        pass
     urls = list(getattr(django_settings, 'OVERPASS_URLS', None) or DEFAULT_POOL)
     return list(dict.fromkeys(u.strip() for u in urls if u and u.strip()))
+
+
+def endpoints():
+    """The configured endpoint pool, in order, deduped.
+
+    Cached like context_processors.get_contact_email — this is read on every
+    Overpass request from a background thread, and the answer changes only when
+    an admin saves. ENDPOINTS_CACHE_KEY is deleted by the save endpoint.
+    """
+    urls = cache.get(ENDPOINTS_CACHE_KEY)
+    if urls is None:
+        urls = _resolve_endpoints()
+        try:
+            cache.set(ENDPOINTS_CACHE_KEY, urls, _ENDPOINTS_TTL)
+        except Exception:
+            pass
+    return urls
 
 
 def _get_last_good():

@@ -194,6 +194,7 @@ urlpatterns = [
     path('api/site/contact-email/', views.site_contact_email_api, name='site_contact_email'),
     path('api/site/turnstile/', views.site_turnstile_api, name='site_turnstile'),
     path('api/site/auto-download/', views.site_auto_download_api, name='site_auto_download'),
+    path('api/site/overpass/', views.site_overpass_config_api, name='site_overpass_config'),
     path('api/contact/', views.contact_api, name='contact_api'),
     path('api/poi/match/', views.poi_match_api, name='poi_match'),
     path('api/poi/match/status/', views.poi_match_status_api, name='poi_match_status'),

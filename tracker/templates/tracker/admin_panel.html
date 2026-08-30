@@ -337,6 +337,25 @@
         </p>
 
         <div class="card" style="transition:none;">
+            <div class="card-header">Overpass Connection</div>
+            <p class="settings-section-desc">
+                All three downloads below fetch their data from Overpass. Endpoints are
+                tried <strong>in order</strong>, moving on to the next only when one can't
+                be reached or is too slow to answer &mdash; so a single dead or overloaded
+                mirror no longer fails a whole run. One URL per line. Leave blank to use
+                the built-in pool.
+            </p>
+            <textarea id="overpass-urls" class="form-input" rows="4" spellcheck="false"
+                      style="font-family:var(--font-mono);font-size:0.8125rem;"
+                      placeholder="https://overpass.kumi.systems/api/interpreter">{{ site_overpass_urls }}</textarea>
+            <div class="settings-actions" style="margin-top:0.6rem;">
+                <button class="btn btn-primary btn-sm" id="overpass-save-btn"
+                        onclick="saveOverpassUrls()">Save Endpoints</button>
+            </div>
+            <div id="overpass-config-status" style="margin-top:0.6rem;font-size:0.8125rem;color:var(--text-muted);"></div>
+        </div>
+
+        <div class="card" style="transition:none;">
             <div class="card-header" style="display:flex;align-items:center;gap:0.4rem;">
                 Road Data
                 <span class="badge badge-warning" style="font-size:0.65rem;">instance-wide</span>
@@ -1256,6 +1275,55 @@ function dlDeletePoi() { dlDelete('poi'); }
 // Called once, the first time the Downloads tab is opened — resumes the UI
 // for any of the three jobs that's already running (e.g. started by another
 // admin, or before a page reload).
+function _dlHost(u) {
+    try { return new URL(u).host; } catch (e) { return u || ''; }
+}
+
+function renderOverpassConfig(data) {
+    const el = document.getElementById('overpass-config-status');
+    if (!el) return;
+    const list = (data.resolved || []).map(
+        (u, i) => `<div style="font-family:var(--font-mono);">${i + 1}. ${_dlHost(u)}</div>`).join('');
+    const src = data.source === 'custom'
+        ? 'Using the list above, in this order:'
+        : 'No custom list set &mdash; using the built-in default pool, in this order:';
+    el.innerHTML = `${src}<div style="margin-top:0.35rem;">${list}</div>`;
+    el.style.color = 'var(--text-muted)';
+}
+
+function loadOverpassConfig() {
+    fetch('/api/site/overpass/')
+        .then(r => r.json())
+        .then(renderOverpassConfig)
+        .catch(() => {});
+}
+
+function saveOverpassUrls() {
+    const btn = document.getElementById('overpass-save-btn');
+    const el = document.getElementById('overpass-config-status');
+    btn.disabled = true;
+    fetch('/api/site/overpass/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+        body: JSON.stringify({ overpass_urls: document.getElementById('overpass-urls').value }),
+    })
+        .then(r => r.json().then(d => ({ ok: r.ok, d })))
+        .then(({ ok, d }) => {
+            if (!ok) {
+                el.textContent = d.error || 'Could not save.';
+                el.style.color = 'var(--danger)';
+                return;
+            }
+            renderOverpassConfig(d);
+            roamlyToast('Overpass endpoints saved', { type: 'success' });
+        })
+        .catch(() => {
+            el.textContent = 'Could not save.';
+            el.style.color = 'var(--danger)';
+        })
+        .finally(() => { btn.disabled = false; });
+}
+
 function dlToggleAuto(kind, checked) {
     // Server takes all three flags together (SiteConfig has no per-field PATCH
     // endpoint here), so always send the current state of all three checkboxes
@@ -1272,6 +1340,7 @@ function dlToggleAuto(kind, checked) {
 }
 
 function loadDownloads() {
+    loadOverpassConfig();
     ['roads', 'subway', 'poi'].forEach(kind => {
         fetch(DL_JOBS[kind].statusUrl)
             .then(r => { if (r.ok) return r.json(); })

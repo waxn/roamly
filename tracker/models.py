@@ -1283,6 +1283,14 @@ class SiteConfig(models.Model):
     auto_download_roads = models.BooleanField(default=True)
     auto_download_subway = models.BooleanField(default=True)
     auto_download_pois = models.BooleanField(default=True)
+    # Overpass endpoints for those downloads, one per line, tried in order.
+    # Blank falls back to settings.OVERPASS_URLS (the built-in pool, with the
+    # legacy OVERPASS_URL env var first if it is set). Editable here rather
+    # than only via env because docker-compose.yml is gitignored and enumerates
+    # its env vars explicitly, so adding one to .env alone never reaches the
+    # container — which makes "just point it at a working mirror" a much bigger
+    # job than it sounds. See tracker/overpass.py.
+    overpass_urls = models.TextField(blank=True, default='')
     updated_at = models.DateTimeField(auto_now=True)
 
     @classmethod
