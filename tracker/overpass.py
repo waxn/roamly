@@ -494,6 +494,42 @@ def probe_one(url, timeout=PROBE_TIMEOUT):
     }
 
 
+def _endpoint_addresses(url):
+    """The set of IPs `url`'s host resolves to, or an empty set if it can't be."""
+    try:
+        host = urllib.parse.urlsplit(url).hostname
+        if not host:
+            return frozenset()
+        infos = socket.getaddrinfo(host, None)
+    except Exception:
+        return frozenset()
+    return frozenset(i[4][0] for i in infos if i[4])
+
+
+def _mark_shared_hosts(results):
+    """Flag endpoints that are the *same machine* under different names.
+
+    Two names on one box are one endpoint's worth of redundancy, not two — they
+    go down together, and a pool that looks four deep can be three servers or
+    fewer. `overpass.kumi.systems` and `overpass.private.coffee` resolve to an
+    identical IPv4 *and* IPv6 address, so a pool listing both and watching them
+    both return 502 at the same moment is watching one server have a bad day.
+
+    Resolution failures are silently ignored: this is an advisory note, and a
+    DNS hiccup must not turn into an accusation.
+    """
+    addrs = [_endpoint_addresses(r['url']) for r in results]
+    for i, r in enumerate(results):
+        if not addrs[i]:
+            r['shares_host_with'] = []
+            continue
+        r['shares_host_with'] = [
+            urllib.parse.urlsplit(results[j]['url']).hostname or results[j]['url']
+            for j in range(len(results))
+            if j != i and addrs[j] and addrs[i] & addrs[j]
+        ]
+
+
 def probe_endpoints(timeout=PROBE_TIMEOUT, urls=None):
     """Probe every endpoint in `urls` (default: the configured pool).
 
@@ -510,6 +546,7 @@ def probe_endpoints(timeout=PROBE_TIMEOUT, urls=None):
         return []
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(pool)) as ex:
         results = list(ex.map(lambda u: probe_one(u, timeout), pool))
+    _mark_shared_hosts(results)
     for i, r in enumerate(results):
         r['primary'] = (i == 0)
     return results

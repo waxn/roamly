@@ -1477,6 +1477,14 @@ function testOverpass() {
             }
             el.innerHTML = rows.map(r => {
                 const tag = r.primary ? ' <span style="color:var(--text-dim);">(tried first)</span>' : '';
+                // Two names on one box are one endpoint's worth of redundancy, not
+                // two — they go down together. Shown on failed rows as well as ok
+                // ones, since "both of these returned 502" is exactly when it explains
+                // what you are looking at.
+                const shared = (r.shares_host_with || []).length
+                    ? `<div style="color:var(--text-dim);margin-left:1.1rem;">same server as `
+                      + `${r.shares_host_with.map(esc).join(', ')} — not an independent mirror</div>`
+                    : '';
                 if (r.ok) {
                     const notes = [];
                     // Answered, just slowly. Worth saying, because a mirror this slow
@@ -1502,10 +1510,12 @@ function testOverpass() {
                     const colour = bad ? 'var(--danger)' : (r.slow ? 'var(--warning)' : 'var(--success)');
                     return `<div style="color:${colour};">${bad ? '!' : '✓'} `
                         + `<span style="font-family:var(--font-mono);">`
-                        + `${esc(_dlHost(r.url))}</span> — ${r.ms.toLocaleString()} ms${tag}${warn}</div>`;
+                        + `${esc(_dlHost(r.url))}</span> — ${r.ms.toLocaleString()} ms${tag}${warn}</div>`
+                        + shared;
                 }
                 return `<div style="color:var(--danger);">✕ <span style="font-family:var(--font-mono);">`
-                    + `${esc(_dlHost(r.url))}</span> — ${esc(r.kind)}: ${esc(r.error)}${tag}</div>`;
+                    + `${esc(_dlHost(r.url))}</span> — ${esc(r.kind)}: ${esc(r.error)}${tag}</div>`
+                    + shared;
             }).join('');
             if (!d.ok) {
                 el.innerHTML += '<div style="color:var(--danger);margin-top:0.35rem;">'
