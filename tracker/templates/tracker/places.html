@@ -364,7 +364,7 @@ const basemapStyle = {
     glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
     sources: { base: {
         type: 'raster',
-        tiles: ['https://basemaps.cartocdn.com/' + (theme === 'light' ? 'light_all' : 'dark_all') + '/{z}/{x}/{y}.png'],
+        tiles: ['https://basemaps.cartocdn.com/' + (theme === 'light' ? 'light_all' : 'dark_all') + '/{z}/{x}/{y}.png{{ CARTO_TILE_QS|escapejs }}'],
         tileSize: 256,
         attribution: '&copy; OpenStreetMap &copy; CARTO'
     }},

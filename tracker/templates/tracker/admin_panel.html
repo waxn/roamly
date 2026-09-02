@@ -27,6 +27,7 @@
         <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('custom-js',this)">Custom JS</button>
         <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('contact',this)">Contact</button>
         <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('captcha',this)">CAPTCHA</button>
+        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('basemaps',this)">Basemaps</button>
         <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('downloads',this)">Downloads</button>
     </div>
 
@@ -327,6 +328,33 @@
         </div>
     </div>
 
+    <!-- ── Basemaps tab ── -->
+    <div id="tab-basemaps" style="display:none;">
+        <div class="card" style="transition:none;">
+            <div class="card-header">CARTO basemap API key</div>
+            <p class="settings-section-desc">
+                The built-in <strong>Streets</strong> and <strong>Dark</strong> basemaps on every map in Roamly are CARTO raster tiles. CARTO used to serve these without a key; it now requires one and stamps a repeated <strong>&ldquo;API KEY REQUIRED&rdquo;</strong> watermark across every tile requested without it. Get a free key (5&nbsp;million tiles/month) from <a href="https://carto.com/basemaps/apikey/" target="_blank" rel="noopener">carto.com/basemaps/apikey</a> and paste it here — it applies instance-wide to the main map, editor, adventures, journals, places and diagnostics maps.
+            </p>
+            <div class="form-group">
+                <label for="carto-api-key">API key</label>
+                <input type="text" id="carto-api-key" class="form-control" maxlength="255"
+                    placeholder="unset — tiles will show the CARTO watermark"
+                    value="{{ site_carto_api_key }}"
+                    style="max-width:520px;font-family:var(--font-mono);font-size:0.8125rem;">
+            </div>
+            <p class="settings-section-desc" style="margin-top:-0.35rem;">
+                Leave blank to keep the previous key-less tile URLs. This is a client-side key that rides in the tile URL of every map, so it is public by design and shown here in the clear — the same as a Mapbox public token.
+            </p>
+            <div class="settings-actions" style="margin-top:0.75rem;">
+                <button class="btn btn-primary btn-sm" onclick="saveCartoConfig()">Save</button>
+                <span id="carto-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+            </div>
+            <p class="settings-section-desc" style="margin-top:0.85rem;">
+                Already-loaded map pages keep the tiles they fetched — reload a map to see the change.
+            </p>
+        </div>
+    </div>
+
     <!-- ── Downloads tab ── -->
     <div id="tab-downloads" style="display:none;">
         <p class="settings-section-desc" style="margin-bottom:1.25rem;">
@@ -557,7 +585,7 @@
 {% block extra_js %}
 <script>
 // ── Tab switching ──────────────────────────────────────────────────────────
-const TABS = ['monitoring','access-log','events','retention','users','custom-js','contact','captcha','downloads'];
+const TABS = ['monitoring','access-log','events','retention','users','custom-js','contact','captcha','basemaps','downloads'];
 const _loaded = {};
 function showTab(name, btn) {
     TABS.forEach(t => {
@@ -1085,6 +1113,22 @@ async function saveTurnstileConfig() {
     st.textContent = r.ok ? 'Saved.' : (d.error || 'Error saving.');
     st.style.color = r.ok ? 'var(--success)' : 'var(--danger)';
     setTimeout(()=>{ st.textContent=''; }, 3000);
+}
+
+// ── CARTO basemap API key ───────────────────────────────────────────────────
+async function saveCartoConfig() {
+    const st = document.getElementById('carto-status');
+    st.textContent = 'Saving…'; st.style.color = 'var(--text-muted)';
+    const r = await fetch('/api/site/carto/', {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
+        body: JSON.stringify({
+            carto_api_key: document.getElementById('carto-api-key').value.trim(),
+        }),
+    });
+    let d = {}; try { d = await r.json(); } catch(e) {}
+    st.textContent = r.ok ? 'Saved. Reload a map page to see the new tiles.' : (d.error || 'Error saving.');
+    st.style.color = r.ok ? 'var(--success)' : 'var(--danger)';
+    setTimeout(()=>{ st.textContent=''; }, 4000);
 }
 
 // ── Downloads (road / subway / POI — instance-wide, admin-only) ─────────────

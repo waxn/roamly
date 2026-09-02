@@ -1179,6 +1179,35 @@ def site_turnstile_api(request):
 
 @login_required
 @require_http_methods(["POST"])
+def site_carto_api(request):
+    """Save the instance's CARTO basemap API key. Admins only.
+
+    Deliberately not masked the way turnstile_secret_key is: this key is
+    embedded in the tile URL of every map the app draws, so it is already
+    public to anyone who opens devtools — exactly like UserProfile.mapbox_token.
+    Masking it would only stop the admin from checking what they had typed.
+    """
+    from .context_processors import CARTO_API_KEY_CACHE_KEY
+
+    err = _require_admin(request)
+    if err:
+        return err
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+
+    carto_api_key = (data.get('carto_api_key') or '').strip()[:255]
+
+    config = SiteConfig.load()
+    config.carto_api_key = carto_api_key
+    config.save(update_fields=['carto_api_key', 'updated_at'])
+    cache.delete(CARTO_API_KEY_CACHE_KEY)
+    return JsonResponse({'ok': True, 'carto_api_key': carto_api_key})
+
+
+@login_required
+@require_http_methods(["POST"])
 def site_auto_download_api(request):
     """Toggle auto-download of new regions for road/subway/POI data.
 
@@ -9701,6 +9730,7 @@ def admin_panel_view(request):
         'site_turnstile_enabled': site_config.turnstile_enabled,
         'site_turnstile_site_key': site_config.turnstile_site_key,
         'site_turnstile_secret_set': bool(site_config.turnstile_secret_key),
+        'site_carto_api_key': site_config.carto_api_key,
         'auto_download_roads': site_config.auto_download_roads,
         'auto_download_subway': site_config.auto_download_subway,
         'auto_download_pois': site_config.auto_download_pois,

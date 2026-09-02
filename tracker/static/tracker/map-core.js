@@ -19,6 +19,14 @@
 window.ROAMLY_MAP_CFG = window.ROAMLY_MAP_CFG || {};
 window.ROAMLY_MAP_HOOKS = window.ROAMLY_MAP_HOOKS || {};
 
+// CARTO now requires an API key on its raster basemaps and watermarks every
+// tile served without one. The instance key lives on SiteConfig (Admin Panel ->
+// Basemaps) and reaches templates as CARTO_TILE_QS, an already-built '?key=...'
+// suffix; this file is a static asset rather than a template, so the page hands
+// it over through ROAMLY_MAP_CFG the same way it does the Mapbox token. Blank
+// when no key is set, leaving the URLs exactly as they were.
+const _cartoQs = ROAMLY_MAP_CFG.cartoQs || '';
+
 const mapStyles = {
     'Streets': {
         version: 8,
@@ -26,7 +34,7 @@ const mapStyles = {
         sources: {
             'osm': {
                 type: 'raster',
-                tiles: ['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'],
+                tiles: ['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png' + _cartoQs],
                 tileSize: 256,
                 attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
             }
@@ -39,7 +47,7 @@ const mapStyles = {
         sources: {
             'carto': {
                 type: 'raster',
-                tiles: ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'],
+                tiles: ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png' + _cartoQs],
                 tileSize: 256,
                 attribution: '&copy; CartoDB'
             }

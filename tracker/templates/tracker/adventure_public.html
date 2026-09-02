@@ -430,8 +430,8 @@ const PREVIEW_TRIP_ID = {{ preview_trip_id|default:0 }};
 const PHOTO_CONTAINER_SENTINEL = '(photo grid upload)';
 const HAS_PIN = {% if trip.access_pin %}true{% else %}false{% endif %};
 const mapStyles = {
-    'Dark':    { version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf', sources:{carto:{type:'raster',tiles:['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'],tileSize:256}}, layers:[{id:'carto',type:'raster',source:'carto'}] },
-    'Streets': { version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf', sources:{osm:{type:'raster',tiles:['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'],tileSize:256}}, layers:[{id:'osm',type:'raster',source:'osm'}] },
+    'Dark':    { version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf', sources:{carto:{type:'raster',tiles:['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png{{ CARTO_TILE_QS|escapejs }}'],tileSize:256}}, layers:[{id:'carto',type:'raster',source:'carto'}] },
+    'Streets': { version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf', sources:{osm:{type:'raster',tiles:['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png{{ CARTO_TILE_QS|escapejs }}'],tileSize:256}}, layers:[{id:'osm',type:'raster',source:'osm'}] },
 };
 
 // Place categories — emoji glyph + label, matching the editor.

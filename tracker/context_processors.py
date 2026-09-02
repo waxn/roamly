@@ -1,10 +1,12 @@
 from django.conf import settings
 from django.core.cache import cache
+from urllib.parse import quote
 
 CUSTOM_JS_CACHE_KEY = 'site_custom_js'
 CONTACT_EMAIL_CACHE_KEY = 'site_contact_email'
 TURNSTILE_ENABLED_CACHE_KEY = 'site_turnstile_enabled'
 TURNSTILE_SITE_KEY_CACHE_KEY = 'site_turnstile_site_key'
+CARTO_API_KEY_CACHE_KEY = 'site_carto_api_key'
 
 
 def get_custom_js():
@@ -67,6 +69,38 @@ def get_turnstile_site_key():
     return key
 
 
+def get_carto_api_key():
+    """CARTO basemap API key (admin-editable), cached like the other SiteConfig
+    values. Public by design — it rides in the tile URL of every map the app
+    draws, so unlike the Turnstile secret there is nothing to keep from a
+    template."""
+    key = cache.get(CARTO_API_KEY_CACHE_KEY)
+    if key is None:
+        from .models import SiteConfig
+        try:
+            key = SiteConfig.load().carto_api_key or ''
+        except Exception:
+            key = ''
+        cache.set(CARTO_API_KEY_CACHE_KEY, key, 3600)
+    return key
+
+
+def get_carto_tile_qs():
+    """The query string to append to a CARTO raster tile URL, or ''.
+
+    Exposed to templates as CARTO_TILE_QS and appended verbatim to each
+    basemaps.cartocdn.com URL. Templates get the finished suffix rather than the
+    raw key because every one of the dozen-odd tile URLs across the app wants
+    exactly the same thing, and building it once is what stops them drifting
+    apart. A blank key gives a blank suffix, leaving those URLs byte for byte
+    what they were before the key existed.
+    """
+    key = get_carto_api_key()
+    if not key:
+        return ''
+    return '?key=' + quote(key, safe='')
+
+
 def custom_js_snippet(request):
     """Provide the instance custom JS, the viewer's admin flag, and the per-user
     AI Ask feature flag to all templates."""
@@ -108,4 +142,7 @@ def custom_js_snippet(request):
         'EMAIL_ENABLED': bool(getattr(settings, 'EMAIL_ENABLED', False)),
         'TURNSTILE_ENABLED': get_turnstile_enabled(),
         'TURNSTILE_SITE_KEY': get_turnstile_site_key(),
+        # Appended to every basemaps.cartocdn.com tile URL in the templates and
+        # handed to map-core.js via ROAMLY_MAP_CFG. '' when no key is set.
+        'CARTO_TILE_QS': get_carto_tile_qs(),
     }

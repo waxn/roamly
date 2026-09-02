@@ -501,8 +501,8 @@ let saveTimer = null;
 
 const theme = localStorage.getItem('roamly_theme') || 'dark';
 const basemap = theme === 'light'
-    ? 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'
-    : 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png';
+    ? 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png{{ CARTO_TILE_QS|escapejs }}'
+    : 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png{{ CARTO_TILE_QS|escapejs }}';
 
 function todayStr() {
     const d = new Date();

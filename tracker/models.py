@@ -1315,6 +1315,13 @@ class SiteConfig(models.Model):
     # container — which makes "just point it at a working mirror" a much bigger
     # job than it sounds. See tracker/overpass.py.
     overpass_urls = models.TextField(blank=True, default='')
+    # CARTO basemap API key. The free CARTO raster basemaps (basemaps.cartocdn.com)
+    # behind the Streets/Dark styles now require a key — without one every tile
+    # comes back stamped with an "API KEY REQUIRED" watermark. Blank keeps the
+    # previous key-less URLs byte for byte. Like UserProfile.mapbox_token this is a
+    # client-side key embedded in tile URLs, so it is public by design and
+    # deliberately NOT masked the way turnstile_secret_key is.
+    carto_api_key = models.CharField(blank=True, default='', max_length=255)
     updated_at = models.DateTimeField(auto_now=True)
 
     @classmethod

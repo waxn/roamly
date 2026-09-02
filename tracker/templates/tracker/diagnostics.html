@@ -675,8 +675,8 @@ function reviewMapStyle() {
             base: {
                 type: 'raster',
                 tiles: [dark
-                    ? 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-                    : 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'],
+                    ? 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png{{ CARTO_TILE_QS|escapejs }}'
+                    : 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png{{ CARTO_TILE_QS|escapejs }}'],
                 tileSize: 256,
                 attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
             }

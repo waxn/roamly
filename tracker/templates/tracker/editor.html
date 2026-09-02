@@ -242,6 +242,7 @@
 <script>
 window.ROAMLY_MAP_CFG = {
     mapboxToken: '{{ MAPBOX_TOKEN|escapejs }}',
+    cartoQs: '{{ CARTO_TILE_QS|escapejs }}',
     csrfToken: '{{ csrf_token }}',
     snapAvailable: {{ ROAD_SNAP_ENABLED|yesno:"true,false" }},
 };
