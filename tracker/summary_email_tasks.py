@@ -17,6 +17,7 @@ import json
 import time
 import logging
 import threading
+from collections import defaultdict
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 
@@ -60,15 +61,61 @@ def _human_duration(seconds):
     return f"{minutes}m"
 
 
-def _top_cities(qs, limit=5):
-    """Top ``limit`` cities in ``qs`` by time spent, as ``(label, duration)`` rows."""
-    from .views import _compute_visits_from_qs
-    data = _compute_visits_from_qs(qs.exclude(city=''))
-    ranked = sorted(data['cities'], key=lambda c: c['time_spent'], reverse=True)[:limit]
+def _top_cities(user, win_start, win_end, limit=5):
+    """Top ``limit`` cities in [win_start, win_end) by time spent, as
+    ``(label, duration)`` rows.
+
+    Deliberately does not just call ``views._compute_visits_from_qs`` on a
+    queryset scoped to ``[win_start, win_end)`` the way this used to — that
+    query can't see a gap that straddles the window edge. Tracking that stops
+    the evening before and resumes at school the next morning has its "prev"
+    fix outside today's window, so a strictly-windowed gap walk never has
+    both ends of that gap in hand and silently drops it, even though the same
+    gap is credited correctly once the *full* history is walked (which is
+    what the all-time Visits page does, and why its cumulative total for a
+    place can be so much larger than any single day's email ever showed).
+    Fetching one extra point on each side of the window restores that
+    continuity; each gap's credited seconds are then clipped to their overlap
+    with the window so a boundary-straddling stay only contributes the
+    portion that actually falls on this email's day.
+    """
+    from .views import _visits_dwell_gap
+    from .models import Location
+
+    fields = ('timestamp', 'city', 'state', 'country', 'country_code', 'latitude', 'longitude')
+    base = Location.objects.filter(device__user=user).exclude(city='')
+
+    points = list(
+        base.filter(timestamp__gte=win_start, timestamp__lt=win_end)
+        .order_by('timestamp').values_list(*fields)
+    )
+    before = (base.filter(timestamp__lt=win_start)
+              .order_by('-timestamp').values_list(*fields).first())
+    after = (base.filter(timestamp__gte=win_end)
+             .order_by('timestamp').values_list(*fields).first())
+    if before:
+        points.insert(0, before)
+    if after:
+        points.append(after)
+
+    time_city = defaultdict(float)
+    prev = None
+    for cur in points:
+        if prev:
+            gap = _visits_dwell_gap(prev, cur, 'city')
+            if gap > 0:
+                overlap_start = max(prev[0], win_start)
+                overlap_end = min(prev[0] + timedelta(seconds=gap), win_end)
+                overlap = (overlap_end - overlap_start).total_seconds()
+                if overlap > 0:
+                    time_city[(prev[1], prev[2], prev[3], prev[4])] += overlap
+        prev = cur
+
+    ranked = sorted(time_city.items(), key=lambda kv: kv[1], reverse=True)[:limit]
     rows = []
-    for c in ranked:
-        label = f"{c['city']}, {c['state']}" if c['state'] else c['city']
-        rows.append((label, _human_duration(c['time_spent'])))
+    for (city, state, _country, _cc), seconds in ranked:
+        label = f"{city}, {state}" if state else city
+        rows.append((label, _human_duration(seconds)))
     return rows
 
 
@@ -298,7 +345,7 @@ def _send_period(profile, period, allow_empty=False):
     dist_value, dist_unit = _format_distance(dist['total_km'], profile.distance_unit)
 
     visits = _period_visits(user, win_start, win_end)
-    top_cities = _top_cities(qs)
+    top_cities = _top_cities(user, win_start, win_end)
     top_places = _top_places(visits)
 
     summary = {
