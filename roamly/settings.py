@@ -37,6 +37,9 @@ MIDDLEWARE = [
     'tracker.middleware.ApiKeyAuthMiddleware',
     # After ApiKeyAuthMiddleware so request.user is resolved before we log it.
     'tracker.middleware.RequestLoggingMiddleware',
+    # Also after ApiKeyAuthMiddleware: activates the user's local timezone,
+    # derived from their latest fix, so date ranges and day buckets are local.
+    'tracker.middleware.UserTimezoneMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]

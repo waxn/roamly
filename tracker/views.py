@@ -53,6 +53,7 @@ from .models import (
 )
 from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email, send_contact_email
 from .dwell_utils import bridges_gap, GAP_BRIDGE_RADIUS_M, GAP_BRIDGE_MAX_S
+from .tz_utils import aware_local
 from .image_utils import resize_image, resize_photo
 from . import geoip_utils
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
@@ -2044,9 +2045,9 @@ def locations_bounds_api(request):
             start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
             end_dt = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
             if timezone.is_naive(start):
-                start = timezone.make_aware(start)
+                start = aware_local(start)
             if timezone.is_naive(end_dt):
-                end_dt = timezone.make_aware(end_dt)
+                end_dt = aware_local(end_dt, end_of_day=True)
             qs = qs.filter(timestamp__gte=start, timestamp__lte=end_dt)
         except (ValueError, TypeError):
             pass
@@ -2113,9 +2114,9 @@ def track_api(request):
             start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
             end_dt = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
             if timezone.is_naive(start):
-                start = timezone.make_aware(start)
+                start = aware_local(start)
             if timezone.is_naive(end_dt):
-                end_dt = timezone.make_aware(end_dt)
+                end_dt = aware_local(end_dt, end_of_day=True)
             qs = qs.filter(timestamp__gte=start, timestamp__lte=end_dt)
             if end_dt < timezone.now() - timedelta(hours=1):
                 cache_ttl = 3600  # historical range, cache 1 hour
@@ -2692,9 +2693,9 @@ def trip_lines_api(request):
             range_start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
             range_end = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
             if timezone.is_naive(range_start):
-                range_start = timezone.make_aware(range_start)
+                range_start = aware_local(range_start)
             if timezone.is_naive(range_end):
-                range_end = timezone.make_aware(range_end)
+                range_end = aware_local(range_end, end_of_day=True)
             qs = qs.filter(timestamp__gte=range_start, timestamp__lte=range_end)
             if range_end < timezone.now() - timedelta(hours=1):
                 cache_ttl = 3600
@@ -2896,7 +2897,10 @@ def _locations_api_inner(request):
             if sort_key == 'timestamp':
                 dt = datetime.fromisoformat(raw)
                 if timezone.is_naive(dt):
-                    dt = timezone.make_aware(dt)
+                    # UTC, not the user's zone: this is a keyset cursor the
+                    # server emitted and the client echoed back, so it has to be
+                    # read as the same instant it was written as.
+                    dt = timezone.make_aware(dt, dt_timezone.utc)
                 return dt
             return str(raw)
         except (TypeError, ValueError):
@@ -2909,9 +2913,9 @@ def _locations_api_inner(request):
             start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
             end = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
             if timezone.is_naive(start):
-                start = timezone.make_aware(start)
+                start = aware_local(start)
             if timezone.is_naive(end):
-                end = timezone.make_aware(end)
+                end = aware_local(end, end_of_day=True)
             locations = locations.filter(timestamp__gte=start, timestamp__lte=end)
         except (ValueError, TypeError):
             pass
@@ -3196,9 +3200,9 @@ def vector_tile(request, z, x, y):
             start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
             end_dt = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
             if timezone.is_naive(start):
-                start = timezone.make_aware(start)
+                start = aware_local(start)
             if timezone.is_naive(end_dt):
-                end_dt = timezone.make_aware(end_dt)
+                end_dt = aware_local(end_dt, end_of_day=True)
             extra_where.append("AND l.timestamp >= %(ts_start)s AND l.timestamp <= %(ts_end)s")
             params["ts_start"] = start
             params["ts_end"] = end_dt
@@ -3380,7 +3384,13 @@ def _compute_distance_from_qs(locations, granularity='daily'):
     for _dev_id, grp in groupby(rows, key=lambda r: r[0]):
         dev_points = ((lat, lon, ts, acc) for _d, lat, lon, ts, acc in grp)
         for cdt, km in _gated_distance_segments(dev_points):
-            key = cdt.strftime('%Y-%m-%d %H') if granularity == "hourly" else cdt.strftime('%Y-%m-%d')
+            # Bucket by the user's LOCAL day/hour, not UTC. cdt is an aware UTC
+            # instant; timezone.localtime converts it to the zone activated for
+            # this user (UserTimezoneMiddleware for a request, user_timezone()
+            # for the snapshot worker), so an evening drive lands on the day it
+            # was actually driven rather than tomorrow.
+            local = timezone.localtime(cdt)
+            key = local.strftime('%Y-%m-%d %H') if granularity == "hourly" else local.strftime('%Y-%m-%d')
             bucket_km[key] += km
             total_km += km
     keys = sorted(bucket_km.keys())
@@ -3502,9 +3512,9 @@ def stats_api(request):
             start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
             end = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
             if timezone.is_naive(start):
-                start = timezone.make_aware(start)
+                start = aware_local(start)
             if timezone.is_naive(end):
-                end = timezone.make_aware(end)
+                end = aware_local(end, end_of_day=True)
             locations = locations.filter(timestamp__gte=start, timestamp__lte=end)
         except (ValueError, TypeError):
             pass
@@ -3628,7 +3638,10 @@ def yearly_overview_api(request):
 def _compute_yearly_payload(user):
     """Week/month/year comparison stats, monthly breakdown, and top
     cities/countries/places (POI visits + custom places). Always all-time."""
-    now = timezone.now()
+    # Local, so "this week"/"this month"/"this year" start at the user's own
+    # midnight. The .replace(hour=0, ...) boundaries below are only local ones
+    # because `now` carries the active zone; on a UTC `now` they'd be UTC.
+    now = timezone.localtime()
     qs = Location.objects.filter(device__user=user)
 
     def _period_stats(start, end):
@@ -3941,9 +3954,9 @@ def distance_api(request):
             start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
             end = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
             if timezone.is_naive(start):
-                start = timezone.make_aware(start)
+                start = aware_local(start)
             if timezone.is_naive(end):
-                end = timezone.make_aware(end)
+                end = aware_local(end, end_of_day=True)
             locations = locations.filter(timestamp__gte=start, timestamp__lte=end)
         except (ValueError, TypeError):
             pass
@@ -4198,9 +4211,9 @@ def location_diagnostics_api(request):
             start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
             end = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
             if timezone.is_naive(start):
-                start = timezone.make_aware(start)
+                start = aware_local(start)
             if timezone.is_naive(end):
-                end = timezone.make_aware(end)
+                end = aware_local(end, end_of_day=True)
             qs = qs.filter(timestamp__gte=start, timestamp__lte=end)
             rng = {"start": start.isoformat(), "end": end.isoformat()}
             win_start, win_end = start, end
@@ -4247,9 +4260,9 @@ def location_diagnostics_detail_api(request):
     except (ValueError, TypeError):
         return JsonResponse({"error": "bad_range"}, status=400)
     if timezone.is_naive(start):
-        start = timezone.make_aware(start)
+        start = aware_local(start)
     if timezone.is_naive(end):
-        end = timezone.make_aware(end)
+        end = aware_local(end, end_of_day=True)
     if end <= start:
         return JsonResponse({"error": "bad_range"}, status=400)
 
@@ -4453,9 +4466,9 @@ def flag_scan_api(request):
             start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
             end = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
             if timezone.is_naive(start):
-                start = timezone.make_aware(start)
+                start = aware_local(start)
             if timezone.is_naive(end):
-                end = timezone.make_aware(end)
+                end = aware_local(end, end_of_day=True)
             win_start, win_end = start, end
         except (ValueError, TypeError):
             pass
@@ -4782,7 +4795,7 @@ def create_trip(request):
             return JsonResponse({"error": "Start date is required"}, status=400)
         start = datetime.fromisoformat(start_raw.replace('Z', '+00:00'))
         if timezone.is_naive(start):
-            start = timezone.make_aware(start)
+            start = aware_local(start)
 
         end_raw = data.get('end_time', '').strip()
         if end_raw:
@@ -4791,10 +4804,10 @@ def create_trip(request):
             if len(end_raw) <= 10:
                 end = end.replace(hour=23, minute=59, second=59)
             if timezone.is_naive(end):
-                end = timezone.make_aware(end)
+                end = aware_local(end, end_of_day=True)
         else:
             # No end date — open-ended adventure, far future so all points are captured
-            end = timezone.make_aware(datetime(2099, 12, 31, 23, 59, 59))
+            end = aware_local(datetime(2099, 12, 31, 23, 59, 59))
     except (KeyError, ValueError) as e:
         return JsonResponse({"error": f"Invalid dates: {e}"}, status=400)
 
@@ -4970,7 +4983,7 @@ def update_trip(request, trip_id):
     if 'start_time' in data and data['start_time']:
         try:
             start = datetime.fromisoformat(data['start_time'].replace('Z', '+00:00'))
-            trip.start_time = timezone.make_aware(start) if timezone.is_naive(start) else start
+            trip.start_time = aware_local(start) if timezone.is_naive(start) else start
         except (ValueError, TypeError):
             pass
     if 'end_time' in data:
@@ -4978,11 +4991,11 @@ def update_trip(request, trip_id):
         if raw:
             try:
                 end = datetime.fromisoformat(raw.replace('Z', '+00:00'))
-                trip.end_time = timezone.make_aware(end) if timezone.is_naive(end) else end
+                trip.end_time = aware_local(end) if timezone.is_naive(end) else end
             except (ValueError, TypeError):
                 pass
         else:
-            trip.end_time = timezone.make_aware(datetime(2099, 12, 31, 23, 59, 59))
+            trip.end_time = aware_local(datetime(2099, 12, 31, 23, 59, 59))
     if 'device_id' in data and data['device_id']:
         try:
             device = Device.objects.get(user=request.user, device_id=data['device_id'])
@@ -5670,7 +5683,7 @@ def trip_create_milestone(request, trip_id):
     try:
         date_val = datetime.fromisoformat(date_raw.replace('Z', '+00:00'))
         if timezone.is_naive(date_val):
-            date_val = timezone.make_aware(date_val)
+            date_val = aware_local(date_val)
     except (ValueError, AttributeError):
         date_val = timezone.now()
     milestone = AdventureMilestone.objects.create(
@@ -7067,6 +7080,13 @@ def restore_backup(request):
     if counts['health_samples'] or counts['health_workouts']:
         _bust_health_cache(user.id)
 
+    # The user's local timezone is derived from their newest fix, which a restore
+    # can move to a different continent. Its own cache is keyed separately from
+    # cache_gen (a push must not invalidate it), so it needs busting by name.
+    if counts['locations']:
+        from .tz_utils import bust_user_timezone
+        bust_user_timezone(user.id)
+
     return JsonResponse({'status': 'ok', 'restored': counts, 'errors': errors})
 
 
@@ -7126,7 +7146,12 @@ def _parse_timestamp(value):
         try:
             ts = datetime.fromisoformat(fmt_value)
             if timezone.is_naive(ts):
-                ts = timezone.make_aware(ts)
+                # A naive timestamp in an import file is read as UTC, explicitly
+                # and regardless of the user's active zone: reinterpreting it
+                # locally would silently shift an entire imported history by the
+                # importer's offset, and re-importing the same file after moving
+                # country would place the same fixes at different instants.
+                ts = timezone.make_aware(ts, dt_timezone.utc)
             return ts
         except (ValueError, TypeError):
             pass
@@ -7154,7 +7179,7 @@ def _parse_timestamp(value):
         try:
             ts = datetime.strptime(value, fmt)
             if timezone.is_naive(ts):
-                ts = timezone.make_aware(ts)
+                ts = timezone.make_aware(ts, dt_timezone.utc)   # see above
             return ts
         except (ValueError, TypeError):
             pass
@@ -8211,7 +8236,7 @@ def _parse_date_search_query(query):
     for fmt in day_formats:
         try:
             d = datetime.strptime(text, fmt)
-            start = timezone.make_aware(datetime(d.year, d.month, d.day, 0, 0, 0))
+            start = aware_local(datetime(d.year, d.month, d.day, 0, 0, 0))
             end = start + timedelta(days=1)
             return {'start': start, 'end': end, 'kind': 'day'}
         except ValueError:
@@ -8220,11 +8245,11 @@ def _parse_date_search_query(query):
     for fmt in month_formats:
         try:
             d = datetime.strptime(text, fmt)
-            start = timezone.make_aware(datetime(d.year, d.month, 1, 0, 0, 0))
+            start = aware_local(datetime(d.year, d.month, 1, 0, 0, 0))
             if d.month == 12:
-                end = timezone.make_aware(datetime(d.year + 1, 1, 1, 0, 0, 0))
+                end = aware_local(datetime(d.year + 1, 1, 1, 0, 0, 0))
             else:
-                end = timezone.make_aware(datetime(d.year, d.month + 1, 1, 0, 0, 0))
+                end = aware_local(datetime(d.year, d.month + 1, 1, 0, 0, 0))
             return {'start': start, 'end': end, 'kind': 'month'}
         except ValueError:
             continue
@@ -8232,8 +8257,8 @@ def _parse_date_search_query(query):
     if text.isdigit() and len(text) == 4:
         year = int(text)
         if 1900 <= year <= 2100:
-            start = timezone.make_aware(datetime(year, 1, 1, 0, 0, 0))
-            end = timezone.make_aware(datetime(year + 1, 1, 1, 0, 0, 0))
+            start = aware_local(datetime(year, 1, 1, 0, 0, 0))
+            end = aware_local(datetime(year + 1, 1, 1, 0, 0, 0))
             return {'start': start, 'end': end, 'kind': 'year'}
 
     return None
@@ -8975,9 +9000,9 @@ def transport_breakdown_api(request):
             start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
             end = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
             if timezone.is_naive(start):
-                start = timezone.make_aware(start)
+                start = aware_local(start)
             if timezone.is_naive(end):
-                end = timezone.make_aware(end)
+                end = aware_local(end, end_of_day=True)
             qs = qs.filter(timestamp__gte=start, timestamp__lte=end)
         except (ValueError, TypeError):
             pass
@@ -9284,10 +9309,14 @@ def _journal_day_bounds(d, tz_offset=0):
         tz_offset = 0
     start = datetime.combine(d, dt_time.min) + timedelta(minutes=tz_offset)
     end = datetime.combine(d, dt_time.max) + timedelta(minutes=tz_offset)
+    # UTC explicitly. Adding tz_offset above has ALREADY expressed local midnight
+    # as a UTC wall-clock, so the tzinfo attached here must be UTC or the offset
+    # is applied twice. This was only accidentally right while the ambient zone
+    # was UTC for every request; UserTimezoneMiddleware makes it load-bearing.
     if timezone.is_naive(start):
-        start = timezone.make_aware(start)
+        start = timezone.make_aware(start, dt_timezone.utc)
     if timezone.is_naive(end):
-        end = timezone.make_aware(end)
+        end = timezone.make_aware(end, dt_timezone.utc)
     return start, end
 
 
@@ -9849,6 +9878,13 @@ def _admin_daily_series(since_date):
     from django.db.models.functions import TruncDate
     from .models import AccessLog, ActionLog, DailyLogRollup
 
+    # Admin traffic buckets stay on UTC days, explicitly, even though
+    # UserTimezoneMiddleware has activated the viewing admin's own zone. The
+    # DailyLogRollup rows this merges with are written per UTC day by
+    # log_cleanup_tasks (a thread with no active zone), so bucketing the live
+    # tail locally would put two different definitions of "a day" in one chart.
+    # This is instance-wide operational data, not the admin's own travel.
+
     rollups = DailyLogRollup.objects.all()
     if since_date:
         rollups = rollups.filter(date__gte=since_date)
@@ -9870,29 +9906,29 @@ def _admin_daily_series(since_date):
     if last_rollup is not None:
         live_from = last_rollup + timedelta(days=1)
         naive = datetime.combine(live_from, dt_time.min)
-        live_from_dt = timezone.make_aware(naive) if timezone.is_naive(naive) else naive
+        live_from_dt = timezone.make_aware(naive, dt_timezone.utc) if timezone.is_naive(naive) else naive
         acc = acc.filter(timestamp__gte=live_from_dt)
         act = act.filter(timestamp__gte=live_from_dt)
     elif since_date:
         naive = datetime.combine(since_date, dt_time.min)
-        since_dt = timezone.make_aware(naive) if timezone.is_naive(naive) else naive
+        since_dt = timezone.make_aware(naive, dt_timezone.utc) if timezone.is_naive(naive) else naive
         acc = acc.filter(timestamp__gte=since_dt)
         act = act.filter(timestamp__gte=since_dt)
 
     req_by_day = dict(
-        acc.annotate(d=TruncDate('timestamp')).values('d')
+        acc.annotate(d=TruncDate('timestamp', tzinfo=dt_timezone.utc)).values('d')
         .annotate(n=Count('id')).values_list('d', 'n')
     )
     ip_by_day = dict(
-        acc.exclude(ip_address__isnull=True).annotate(d=TruncDate('timestamp'))
+        acc.exclude(ip_address__isnull=True).annotate(d=TruncDate('timestamp', tzinfo=dt_timezone.utc))
         .values('d').annotate(n=Count('ip_address', distinct=True)).values_list('d', 'n')
     )
     usr_by_day = dict(
-        acc.filter(user__isnull=False).annotate(d=TruncDate('timestamp'))
+        acc.filter(user__isnull=False).annotate(d=TruncDate('timestamp', tzinfo=dt_timezone.utc))
         .values('d').annotate(n=Count('user', distinct=True)).values_list('d', 'n')
     )
     act_by_day = {}
-    for row in (act.annotate(d=TruncDate('timestamp')).values('d', 'action')
+    for row in (act.annotate(d=TruncDate('timestamp', tzinfo=dt_timezone.utc)).values('d', 'action')
                 .annotate(n=Count('id'))):
         act_by_day.setdefault(row['d'], {}).update({row['action']: row['n']})
 
@@ -9938,14 +9974,15 @@ def admin_overview_api(request):
         acc = acc.filter(timestamp__gte=since)
         act = act.filter(timestamp__gte=since)
 
-    # Time series.
+    # Time series. Buckets are pinned to UTC for the same reason the daily
+    # series is — see _admin_daily_series.
     if gran == 'hour':
         buckets = list(
-            acc.annotate(t=TruncHour('timestamp')).values('t')
+            acc.annotate(t=TruncHour('timestamp', tzinfo=dt_timezone.utc)).values('t')
             .annotate(n=Count('id')).order_by('t').values_list('t', 'n')
         )
         act_buckets = {}
-        for row in (act.annotate(t=TruncHour('timestamp')).values('t', 'action')
+        for row in (act.annotate(t=TruncHour('timestamp', tzinfo=dt_timezone.utc)).values('t', 'action')
                     .annotate(n=Count('id'))):
             act_buckets.setdefault(row['t'], {})[row['action']] = row['n']
         series = [
@@ -9958,7 +9995,7 @@ def admin_overview_api(request):
             for t, n in buckets
         ]
     else:
-        since_date = timezone.localtime(since).date() if since else None
+        since_date = since.astimezone(dt_timezone.utc).date() if since else None
         series = [
             {
                 't': d['date'], 'requests': d['requests'],
@@ -10464,9 +10501,9 @@ def _inferred_filter(request, qs):
             start = datetime.fromisoformat(start_date)
             end = datetime.fromisoformat(end_date)
             if timezone.is_naive(start):
-                start = timezone.make_aware(start)
+                start = aware_local(start)
             if timezone.is_naive(end):
-                end = timezone.make_aware(end)
+                end = aware_local(end, end_of_day=True)
             qs = qs.filter(timestamp__gte=start, timestamp__lte=end)
         except (ValueError, TypeError):
             pass
@@ -10837,7 +10874,9 @@ def _parse_dt(value):
         dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
     except (ValueError, TypeError, AttributeError):
         return None
-    return timezone.make_aware(dt) if timezone.is_naive(dt) else dt
+    # UTC: editor timestamps are instants read back off stored points, not a
+    # date the user picked in a filter.
+    return timezone.make_aware(dt, dt_timezone.utc) if timezone.is_naive(dt) else dt
 
 
 @login_required
@@ -11345,9 +11384,9 @@ def _health_range(request):
             start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
             end = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
             if timezone.is_naive(start):
-                start = timezone.make_aware(start)
+                start = aware_local(start)
             if timezone.is_naive(end):
-                end = timezone.make_aware(end)
+                end = aware_local(end, end_of_day=True)
             return start, end
         except (ValueError, TypeError):
             pass
@@ -12034,9 +12073,9 @@ def health_import_api(request):
         start = datetime.combine(d, dt_time.min)
         end = datetime.combine(d, dt_time.max)
         if timezone.is_naive(start):
-            start = timezone.make_aware(start)
+            start = aware_local(start)
         if timezone.is_naive(end):
-            end = timezone.make_aware(end)
+            end = aware_local(end, end_of_day=True)
 
         day = d.strftime('%Y-%m-%d')
         found = False

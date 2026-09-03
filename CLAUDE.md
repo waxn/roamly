@@ -325,6 +325,7 @@ Callbacks run on `HandlerThread` ("RoamlyLocCb"). No-fix retries: quick (4s × 3
 | `tracker/error_log_handler.py` | Logging handler that records 500s into ActionLog |
 | `tracker/image_utils.py` | `resize_image`, `resize_photo` helpers |
 | `tracker/dwell_utils.py` | `bridges_gap` — shared rule for crediting a tracking gap as time in place |
+| `tracker/tz_utils.py` | Per-user local timezone from the latest fix; `aware_local` (DST-safe day bounds), `user_timezone` |
 | `tracker/zepp_tasks.py` | Zepp (Amazfit) cloud sync — unofficial band_data API + 6-hourly scheduler |
 | `tracker/models.py` → `HealthSample`/`HealthWorkout` | Health Connect data (see Health Connect above) |
 
@@ -529,6 +530,34 @@ All stored in `localStorage` with `roamly_` prefix:
 | `roamly_snap_roads` | on / off | on (sidebar `snapped view` — display only, this browser; the account-wide master switch is `UserProfile.snap_to_roads`) |
 | `roamly_intro_active` | '1' / unset | unset (whether the welcome tour is currently in progress — see `RoamlyIntro`) |
 | `roamly_intro_step` | integer index | unset (which tour step to resume on the next page load) |
+
+## Local time
+
+**Times are the user's local time by default, and the zone comes from their most recent GPS fix.** Roamly stores every timestamp as an aware UTC instant (`TIME_ZONE = 'UTC'`, `USE_TZ = True`) and that has not changed — what changed is the zone every *boundary* over those instants is drawn in. Display was already local everywhere (`toLocaleString` in the templates); the day boundaries underneath it were UTC, so a date range picked as "Sep 2" ran UTC midnight to UTC midnight and an evening drive was bucketed onto the next day.
+
+**The zone is derived, not configured.** A location tracker already knows where its user is, so there is no timezone field to set and keep current, no second source of truth to drift, and the answer follows the user as they travel. It also resolves identically in a background thread, which the browser `tz_offset` querystring pattern (Health / Journals / Ask) structurally cannot — the recap-email, alert and snapshot schedulers have no browser. `tracker/tz_utils.py` resolves lat/lon → IANA zone **offline** via `timezonefinder` (lazy module-level singleton, mirroring `geoip_utils.py`), from the newest fix across all the user's devices, queried **one device at a time** so `tracker_loc_device__idx` is an index seek rather than a full-history scan — the same reasoning as `alert_tasks.latest_fix`. Cached at `usertz:{user_id}`: **1h** for a resolved zone, but only **5 min** for an unresolved one (`''` → UTC), so a brand-new account is not stuck on UTC for an hour after pushing its very first point. No points yet, or a fix over open ocean, falls back to UTC. `restore_backup` busts the key, since a restore can move the newest fix to another continent.
+
+**Activation, not argument-threading, is what makes it reach the call sites.** `timezone.make_aware` / `localtime` / `localdate` and `TruncDate` / `TruncHour` all already consult Django's thread-local active zone, so the work is choosing it and activating it at each entry point:
+
+- **`middleware.UserTimezoneMiddleware`** (registered after `ApiKeyAuthMiddleware`, so `request.user` is resolved for Bearer-key mobile clients too) sets it per request. It sets the zone on **every** request including anonymous ones — it is thread-local and gunicorn reuses threads, so leaving a previous request's zone in place would apply one user's timezone to the next.
+- **`stats_tasks.compute_snapshot`** wraps the compute in `user_timezone(user)`; the snapshot bakes in day boundaries, so it must be built under the same zone a request would read it in. **Existing snapshots were computed under UTC and need one recompute** to re-bucket.
+- **`stats_tasks._stats_scheduler_loop`** makes its "already refreshed today" test per user — one shared `localdate()` would recompute a user whose day hasn't turned over and skip one whose has.
+- **`summary_email_tasks._process_user`** wraps the whole cadence loop, so `_period_bounds` / `_local_midnight` bracket the user's own day, week, month or year.
+- **`alert_tasks._process_user`** wraps only the `_send_alert` render — the thresholds are elapsed seconds, which no timezone changes; only the "last fix was at …" label is zone-sensitive.
+
+**The line: boundaries the user picks are local; instants that arrive as data stay UTC.** Because activation is global, the sites that must *not* follow the user's zone are pinned explicitly with `timezone.make_aware(x, dt_timezone.utc)`, each with a comment saying why:
+
+- **`_journal_day_bounds`** — the critical one. It adds the browser's `tz_offset` to express local midnight *as a UTC wall-clock*, then makes it aware; attaching the user's zone there would apply the offset **twice**. This was only accidentally correct while the ambient zone was UTC for every request.
+- **`_parse_timestamp`** (CSV / GPX / Takeout / OwnTracks import) — reinterpreting a naive imported timestamp locally would shift an entire imported history by the importer's offset, and re-importing the same file after moving country would place the same fixes at different instants.
+- **`_locations_api_inner`'s sort cursor** — a keyset cursor the server emitted and the client echoed back must be read as the instant it was written as.
+- **`editor_tasks`' `_parse_dt`** — instants read back off stored points, not a picked date.
+- **`_admin_daily_series` / `admin_overview_api`** — `TruncDate` / `TruncHour` take `tzinfo=dt_timezone.utc`. `DailyLogRollup` rows are written per **UTC** day by `log_cleanup_tasks` (a thread with no active zone), and the overview merges stored rollups with a live tail; bucketing the tail locally would put two different definitions of "a day" in one chart. Admin traffic is instance-wide operational data, not the viewing admin's own travel.
+
+**`tz_utils.aware_local(naive, end_of_day=False)` replaces bare `timezone.make_aware` at every day-boundary site**, because introducing real zones introduces DST. `make_aware` **raises `ValueError`** for a wall-clock time DST made imaginary (spring-forward gap) or ambiguous (fall-back fold) — and both land exactly on **midnight** in real zones: America/Santiago, America/Havana, Asia/Beirut, Asia/Gaza and Asia/Hebron all shift at 00:00, roughly once a year each. Every date-range filter wraps its `make_aware` in `except (ValueError, TypeError): pass`, so the raise would not surface as an error — it would **silently drop the date filter and answer with the account's entire history** for that one day. None of this was reachable in UTC, which has no DST.
+
+The two cases must be told apart rather than both handed to `fold`, because fold means opposite things in each: in a **fold** `fold=0` is the earlier instant (a start bound) and `fold=1` the later (an inclusive end bound), but in a **gap** `fold=0` is the *later* instant and is the transition itself — precisely when the local day began — while `fold=1` lands an hour *before* it, on the previous day, which for an end bound would put it before the start. So `fold=0` is right everywhere except an ambiguous end-of-day bound. A round-trip through UTC distinguishes them: a real-but-repeated time survives it, an imaginary one does not.
+
+**Deliberately unchanged:** the `tz_offset` querystring pattern (Health / Journals / Ask) still works exactly as before — it is pinned to UTC where it does its own conversion, so the two mechanisms do not compound. `DailyLogRollup` history stays UTC-shaped. **New Python dependency (`timezonefinder`) ⇒ `docker compose up -d --build`**; no model, no migration.
 
 ## Visit time spent
 

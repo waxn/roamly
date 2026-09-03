@@ -81,3 +81,43 @@ class ApiKeyAuthMiddleware:
                         pass
 
         return self.get_response(request)
+
+
+class UserTimezoneMiddleware:
+    """Activate the request user's local timezone, derived from their latest fix.
+
+    Roamly stores timestamps as aware UTC instants but the user thinks in local
+    time, so every *boundary* drawn over those instants — a picked date range, a
+    daily bucket — should be a local one. Django reads the active zone in
+    ``timezone.make_aware`` / ``localtime`` / ``localdate`` and in ``TruncDate``
+    / ``TruncHour``, so activating it here is what makes the date-range filters
+    across the location, stats, distance, diagnostics and transport endpoints
+    mean local midnight rather than UTC midnight, without touching any of them.
+
+    Must sit AFTER ApiKeyAuthMiddleware so request.user is resolved (session or
+    Bearer key) — a mobile client authenticating by key gets the same treatment
+    as a browser session.
+
+    The zone is set explicitly on every request, anonymous ones included: it is
+    thread-local and gunicorn reuses threads, so leaving a previous request's
+    zone in place would apply one user's timezone to the next request served by
+    that worker.
+
+    Deliberately NOT applied to the admin monitoring aggregation, which pins UTC
+    itself — see ``_admin_daily_series``.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        try:
+            user = getattr(request, 'user', None)
+            if user is not None and user.is_authenticated:
+                from .tz_utils import timezone_for_user
+                timezone.activate(timezone_for_user(user))
+            else:
+                timezone.deactivate()
+        except Exception:
+            timezone.deactivate()
+        return self.get_response(request)

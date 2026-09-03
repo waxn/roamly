@@ -116,6 +116,11 @@ def _rollup_days(today):
     while day <= yesterday and guard < 3660:  # ~10y ceiling, defensive
         guard += 1
         naive_start = datetime.combine(day, dtime.min)
+        # Plain make_aware, and it stays that way: this is a daemon thread, which
+        # never activates a user zone, so "a day" here is a UTC day. That is what
+        # DailyLogRollup rows mean, and admin_overview_api pins its live tail to
+        # UTC to match — see _admin_daily_series. Do not switch this to
+        # tz_utils.aware_local; it would redefine every stored rollup's day.
         day_start = timezone.make_aware(naive_start) if timezone.is_naive(naive_start) else naive_start
         day_end = day_start + timedelta(days=1)
 

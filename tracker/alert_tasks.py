@@ -177,6 +177,7 @@ def _process_user(user_id, force=False, stamp=True):
     consuming the real alert for an outage that is genuinely underway.
     """
     from .models import UserProfile
+    from .tz_utils import user_timezone
 
     profile = (UserProfile.objects.filter(user_id=user_id)
                .select_related('user').first())
@@ -211,8 +212,13 @@ def _process_user(user_id, force=False, stamp=True):
                         and profile.alert_no_data_last_point >= last_ts):
                     return 'already' # already alerted for this same outage
 
-        sent = _send_alert(profile, last_ts, device_name, hours,
-                           silent_seconds, is_test=force)
+        # Only the "last fix was at ..." label in the mail is zone-sensitive —
+        # every threshold above is elapsed seconds, which no timezone changes.
+        # This thread has no request to inherit a zone from, so activate the
+        # user's own for the render, and release it before the sweep's next user.
+        with user_timezone(user_id):
+            sent = _send_alert(profile, last_ts, device_name, hours,
+                               silent_seconds, is_test=force)
         if sent and stamp:
             profile.alert_no_data_last_point = last_ts
             profile.alert_no_data_sent_at = now

@@ -89,6 +89,7 @@ def compute_snapshot(user_id):
         _compute_visits_from_qs, _compute_yearly_payload, _compute_places_payload,
         _compute_transport_breakdown_from_qs, _flag_suspicious_locations,
     )
+    from .tz_utils import user_timezone
 
     # Resolve the row's pk without dragging the (potentially multi-MB) JSON
     # columns over the wire — we only need it to claim the row.
@@ -125,12 +126,18 @@ def compute_snapshot(user_id):
             user = User.objects.get(id=user_id)
             all_qs = Location.objects.filter(device__user=user)
 
-            overview = _compute_overview_from_qs(all_qs, user)
-            overview['distance'] = _compute_distance_from_qs(all_qs, 'daily')
-            visits = _compute_visits_from_qs(all_qs.exclude(city=''))
-            yearly = _compute_yearly_payload(user)
-            places = _compute_places_payload(user)
-            transport = _compute_transport_breakdown_from_qs(all_qs)
+            # The snapshot bakes in day boundaries — _compute_distance_from_qs
+            # keys its buckets by local day, _compute_yearly_payload starts its
+            # week/month/year at local midnight — so the worker has to compute
+            # under the same zone a request would. This thread has no request to
+            # inherit one from, hence activating it explicitly here.
+            with user_timezone(user):
+                overview = _compute_overview_from_qs(all_qs, user)
+                overview['distance'] = _compute_distance_from_qs(all_qs, 'daily')
+                visits = _compute_visits_from_qs(all_qs.exclude(city=''))
+                yearly = _compute_yearly_payload(user)
+                places = _compute_places_payload(user)
+                transport = _compute_transport_breakdown_from_qs(all_qs)
 
             StatsSnapshot.objects.filter(pk=snap_id).update(
                 stats_json=overview, visits_json=visits, yearly_json=yearly,
@@ -191,6 +198,7 @@ def _stats_scheduler_loop():
     midnight recomputes everyone; later sweeps skip users already done today, so
     it's restart-safe (no missed-cron, no duplicate runs)."""
     from .models import StatsSnapshot, Location
+    from .tz_utils import user_timezone
 
     while True:
         try:
@@ -228,7 +236,16 @@ def _stats_scheduler_loop():
                         .filter(user_id=uid)
                         .values('computed_at')
                         .first())
-                if snap and snap['computed_at'] and timezone.localtime(snap['computed_at']).date() >= today:
+                # "Today" is per user now that snapshots bucket by local day, so
+                # the freshness test has to be made in that user's own zone —
+                # one shared localdate() would recompute a user whose day hasn't
+                # turned over yet, and skip one whose has.
+                with user_timezone(uid):
+                    fresh = bool(
+                        snap and snap['computed_at']
+                        and timezone.localtime(snap['computed_at']).date() >= timezone.localdate()
+                    )
+                if fresh:
                     continue
                 # compute_snapshot's advisory lock makes this a cheap no-op if a
                 # compute is already in flight (this or another worker), so we no

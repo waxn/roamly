@@ -27,6 +27,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from . import email_utils
+from .tz_utils import aware_local, user_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -211,10 +212,16 @@ SUMMARY_SYSTEM_PROMPT_PERIOD = (
 # ── Period windows ──────────────────────────────────────────────────────────
 
 def _local_midnight(d):
-    """Aware datetime at local midnight for date ``d``."""
+    """Aware datetime at local midnight for date ``d``.
+
+    ``aware_local`` rather than ``make_aware``: _process_user activates the
+    user's own zone around this, and make_aware raises on a midnight that DST
+    made imaginary or ambiguous — which would cost that user their recap on the
+    one day a year their zone shifts at 00:00.
+    """
     naive = datetime(d.year, d.month, d.day)
     if timezone.is_naive(naive):
-        return timezone.make_aware(naive)
+        return aware_local(naive)
     return naive
 
 
@@ -409,22 +416,30 @@ def _process_user(user_id, only_period=None, force=False, stamp=True, allow_empt
     with _user_email_lock(user_id) as got:
         if not got:
             return
-        now = timezone.localtime()
-        periods = (only_period,) if only_period else PERIODS
-        for period in periods:
-            # A forced send (the "Send test" button) previews a cadence even if the
-            # user hasn't toggled it on yet; the scheduler path requires the flag.
-            if not force and not getattr(profile, f'summary_{period}'):
-                continue
-            if not force:
-                cur_start, _ws, _we, _lbl = _period_bounds(period, now)
-                last = getattr(profile, f'summary_last_{period}')
-                if last is not None and last >= cur_start:
-                    continue   # already delivered for the current period
-            result = _send_period(profile, period, allow_empty=allow_empty)
-            if stamp and result in ('sent', 'empty'):
-                setattr(profile, f'summary_last_{period}', timezone.now())
-                profile.save(update_fields=[f'summary_last_{period}'])
+        # A "daily" recap has to cover the user's own day, not the server's, and
+        # this sweep runs in a daemon thread with no request to inherit a zone
+        # from — so activate the user's own before anything reads a boundary.
+        # Everything downstream already goes through timezone.localtime /
+        # _local_midnight (which is make_aware), so the zone is all that changes.
+        # It also has to be released per user: the loop below moves on to the
+        # next account in the same thread.
+        with user_timezone(user_id):
+            now = timezone.localtime()
+            periods = (only_period,) if only_period else PERIODS
+            for period in periods:
+                # A forced send (the "Send test" button) previews a cadence even if the
+                # user hasn't toggled it on yet; the scheduler path requires the flag.
+                if not force and not getattr(profile, f'summary_{period}'):
+                    continue
+                if not force:
+                    cur_start, _ws, _we, _lbl = _period_bounds(period, now)
+                    last = getattr(profile, f'summary_last_{period}')
+                    if last is not None and last >= cur_start:
+                        continue   # already delivered for the current period
+                result = _send_period(profile, period, allow_empty=allow_empty)
+                if stamp and result in ('sent', 'empty'):
+                    setattr(profile, f'summary_last_{period}', timezone.now())
+                    profile.save(update_fields=[f'summary_last_{period}'])
 
 
 def send_summary_now(user_id, period='daily'):

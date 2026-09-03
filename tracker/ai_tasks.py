@@ -312,7 +312,10 @@ def _tool_get_distance(user, start_date=None, end_date=None, **_):
         if end:
             dt = dt.replace(hour=23, minute=59, second=59)
         if timezone.is_naive(dt):
-            dt = timezone.make_aware(dt)
+            # aware_local, not make_aware: this runs in a request, so a real
+            # zone is active and make_aware raises on a DST-imaginary midnight.
+            from .tz_utils import aware_local
+            dt = aware_local(dt, end_of_day=end)
         return dt
 
     if start_date:
