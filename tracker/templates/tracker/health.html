@@ -163,6 +163,14 @@
     font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-dim);
     letter-spacing: 0.06em; text-transform: uppercase; margin: 1.5rem 0 0.25rem;
 }
+/* Towns are a best-effort join on the day window — health carries no Device FK,
+   so an account that never enabled GPS tracking simply shows nothing here. */
+.h-towns { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+.h-town {
+    display: flex; align-items: baseline; gap: 0.5rem;
+    border: 1px solid var(--border); padding: 0.375rem 0.625rem; font-size: 0.8125rem;
+}
+.h-town-time { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); }
 
 .h-empty-state {
     text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); font-size: 0.9375rem;
@@ -285,6 +293,7 @@
                         <div class="h-chart-hover-dot" id="h-day-dot"></div>
                         <div class="h-chart-tooltip" id="h-day-tip"></div>
                     </div>
+                    <div id="h-day-towns"></div>
                     <div id="h-day-workouts"></div>
                     <div id="h-day-links" style="margin-top:1.5rem;display:flex;gap:0.75rem;flex-wrap:wrap;"></div>
                 </div>
@@ -1052,6 +1061,15 @@ function renderDay(day, data) {
         `<div class="h-day-stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
 
     drawDayChart(data);
+
+    const cities = data.cities || [];
+    document.getElementById('h-day-towns').innerHTML = cities.length ? `
+        <div class="h-day-section">Where you were</div>
+        <div class="h-towns">${cities.map(c => `
+            <div class="h-town">
+                <span>${escapeHtml(c.label)}</span>
+                <span class="h-town-time">${c.seconds ? fmtDuration(c.seconds) : 'passing through'}</span>
+            </div>`).join('')}</div>` : '';
 
     document.getElementById('h-day-workouts').innerHTML = workouts.length ? `
         <div class="h-day-section">Workouts</div>

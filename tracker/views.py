@@ -11610,6 +11610,62 @@ def _health_daily_payload(user, start, end, tz_offset=0, preferred_source='',
     return payload
 
 
+_HEALTH_DAY_MAX_CITIES = 8
+
+
+def _health_day_cities(user, start, end):
+    """Towns the user was in during a day window, with time spent in each.
+
+    Attribution reuses the Visits page's own rule (`_visits_dwell_gap`, which
+    credits an interval to the place the earlier fix was in and caps it when the
+    label changes), so an hour reported here agrees with what /visits/ says
+    rather than being a second, differently-counted estimate of the same day.
+
+    Health has no Device FK by design — it must work on an account that never
+    enabled GPS tracking — so this is a plain best-effort join by time window,
+    and an account with no location history simply gets an empty list.
+    """
+    points = (Location.objects
+              .filter(device__user=user, timestamp__gte=start, timestamp__lte=end)
+              .exclude(city='')
+              .order_by('timestamp')
+              .values_list('timestamp', 'city', 'state', 'country', 'country_code',
+                           'latitude', 'longitude'))
+
+    seconds = defaultdict(float)
+    counts = defaultdict(int)
+    first_seen = {}
+    prev = None
+    for row in points.iterator(chunk_size=5000):
+        cur = tuple(row)
+        key = (cur[1], cur[2], cur[3], cur[4])
+        counts[key] += 1
+        first_seen.setdefault(key, cur[0])
+        if prev is not None:
+            gap = _visits_dwell_gap(prev, cur, 'city')
+            if gap > 0:
+                seconds[(prev[1], prev[2], prev[3], prev[4])] += gap
+        prev = cur
+
+    rows = []
+    for key, n in counts.items():
+        city, state_val, country_val, _cc = key
+        rows.append({
+            'city': city,
+            'state': state_val,
+            'country': country_val,
+            'label': f"{city}, {state_val}" if state_val else city,
+            'seconds': round(seconds.get(key, 0.0)),
+            'points': n,
+            'first_seen': first_seen[key].isoformat(),
+        })
+
+    # Longest stay first; a town with no credited time (a single fix as the day
+    # ended) still belongs on the list, ordered by when it was reached.
+    rows.sort(key=lambda r: (-r['seconds'], r['first_seen']))
+    return rows[:_HEALTH_DAY_MAX_CITIES]
+
+
 def _health_workout_payload(w):
     return {
         'id': w.id,
@@ -11928,8 +11984,12 @@ def _health_day_api_inner(request, date_str):
     if not d:
         return JsonResponse({'error': 'Invalid date'}, status=400)
 
-    # Cached like the daily series: opening several days in a row is the normal
-    # way to use the detail panel, and each open is a fresh scan otherwise.
+    # Cached like the daily series, and for a stronger reason since this scans
+    # health samples *and* location rows: opening several days in a row is the
+    # normal way to use the panel. Keyed on health_gen only, so a city label
+    # filled in by the geocoder after the fact lags by up to the TTL — the same
+    # trade the fog and place-suggestion caches already make for a whole-history
+    # scan that no single push can meaningfully invalidate.
     gen = _health_gen(request.user.id)
     cache_key = f"health:day:{request.user.id}:{gen}:{date_str}:{request.GET.urlencode()}"
     cached = cache.get(cache_key)
@@ -11984,6 +12044,7 @@ def _health_day_api_inner(request, date_str):
         'totals': {kind: round(sum(hourly[kind]), 2) for kind in hourly},
         'raw': raw,
         'workouts': [_health_workout_payload(w) for w in workouts],
+        'cities': _health_day_cities(request.user, start, end),
         'tz_offset': tz_offset,
     }
     cache.set(cache_key, payload, timeout=_HEALTH_CACHE_TTL)
