@@ -30,7 +30,12 @@
 
 /* ── Chart primitives (ported from stats.html — same hand-rolled Canvas
       approach, no charting library anywhere in this app) ─────────────────── */
-.h-chart-container { position: relative; width: 100%; height: 240px; margin-top: 0.75rem; }
+.h-chart-container { position: relative; width: 100%; height: 250px; margin-top: 0.75rem; }
+.h-chart-container.clickable canvas { cursor: pointer; }
+.h-chart-note {
+    font-family: var(--font-mono); font-size: 0.7rem; font-weight: 500;
+    color: var(--text-muted);
+}
 .h-chart-container canvas { width: 100%; height: 100%; }
 .h-chart-tooltip {
     position: absolute; pointer-events: none;
@@ -128,32 +133,37 @@
 .h-source-name { flex: 1 1 auto; font-family: var(--font-mono); font-size: 0.8125rem; }
 .h-source-count { color: var(--text-muted); font-family: var(--font-mono); font-size: 0.75rem; }
 
-/* ── Day detail modal ───────────────────────────────────────────────────── */
-.h-modal-overlay {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
-    display: none; align-items: center; justify-content: center;
-    z-index: 2000; padding: 1rem;
+/* ── Day detail (inline, below the charts) ──────────────────────────────── */
+/* Deliberately a card in the page flow rather than the modal this used to be:
+   the day's detail is a drill-down *of* the chart above it, and a dialog that
+   covers the chart hides the thing being drilled into. */
+.h-day-card { display: none; }
+.h-day-card.open { display: block; }
+.h-day-close {
+    background: none; border: 1px solid var(--border); cursor: pointer;
+    color: var(--text-muted); font-family: var(--font-mono); font-size: 0.625rem;
+    letter-spacing: 0.06em; text-transform: uppercase; padding: 0.2rem 0.5rem;
 }
-.h-modal-overlay.open { display: flex; }
-.h-modal {
-    background: var(--bg-card); border: 1px solid var(--border);
-    width: 100%; max-width: 720px; max-height: 88vh; overflow-y: auto;
+.h-day-close:hover { color: var(--text); border-color: var(--border-bright); }
+.h-day-stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 1px; background: var(--border);
+    border: 1px solid var(--border); margin-bottom: 0.5rem;
 }
-.h-modal-head {
-    display: flex; align-items: baseline; justify-content: space-between;
-    gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border);
+.h-day-stat { background: var(--bg-card); padding: 0.7rem 0.875rem; }
+.h-day-stat .k {
+    font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-dim);
+    letter-spacing: 0.06em; text-transform: uppercase;
 }
-.h-modal-body { padding: 1.25rem; }
-.h-modal-close {
-    background: none; border: none; cursor: pointer;
-    color: var(--text-muted); font-size: 1.5rem; line-height: 1;
+.h-day-stat .v {
+    font-family: var(--font-mono); font-size: 1.15rem; font-weight: 600;
+    margin-top: 0.2rem;
 }
-.h-hours { display: flex; align-items: flex-end; gap: 2px; height: 120px; margin: 0.75rem 0 0.25rem; }
-.h-hour { flex: 1 1 0; background: var(--primary); min-height: 1px; opacity: 0.85; }
-.h-hour-labels {
-    display: flex; justify-content: space-between;
-    font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-muted);
+.h-day-section {
+    font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-dim);
+    letter-spacing: 0.06em; text-transform: uppercase; margin: 1.5rem 0 0.25rem;
 }
+
 .h-empty-state {
     text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); font-size: 0.9375rem;
 }
@@ -232,7 +242,10 @@
             </div>
 
             <div class="card" style="grid-column: 1 / -1;">
-                <div class="card-header">Steps over time</div>
+                <div class="card-header" style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;">
+                    <span>Steps over time</span>
+                    <span class="h-chart-note" id="h-steps-note"></span>
+                </div>
                 <div class="h-chart-container" id="h-steps-chart-wrap">
                     <canvas id="h-steps-chart"></canvas>
                     <div class="h-chart-hover-line" id="h-steps-line"></div>
@@ -242,12 +255,38 @@
             </div>
 
             <div class="card" style="grid-column: 1 / -1;">
-                <div class="card-header">Distance over time</div>
+                <div class="card-header" style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;">
+                    <span>Distance over time</span>
+                    <span class="h-chart-note" id="h-dist-note"></span>
+                </div>
                 <div class="h-chart-container" id="h-dist-chart-wrap">
                     <canvas id="h-dist-chart"></canvas>
                     <div class="h-chart-hover-line" id="h-dist-line"></div>
                     <div class="h-chart-hover-dot" id="h-dist-dot"></div>
                     <div class="h-chart-tooltip" id="h-dist-tip"></div>
+                </div>
+            </div>
+
+            <!-- Opened by clicking a day on either chart or on the heatmap. The
+                 hourly canvas lives here statically rather than being rebuilt
+                 with the surrounding text, so its hover handler is attached once. -->
+            <div class="card h-day-card" id="h-day-card" style="grid-column: 1 / -1;">
+                <div class="card-header" style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;">
+                    <span id="h-day-title">&nbsp;</span>
+                    <button class="h-day-close" id="h-day-close">close</button>
+                </div>
+                <div id="h-day-loading" class="h-empty-state">Loading&hellip;</div>
+                <div id="h-day-content" style="display:none;">
+                    <div class="h-day-stats" id="h-day-stats"></div>
+                    <div class="h-day-section">Steps by hour</div>
+                    <div class="h-chart-container" id="h-day-chart-wrap" style="height:200px;margin-top:0.25rem;">
+                        <canvas id="h-day-chart"></canvas>
+                        <div class="h-chart-hover-line" id="h-day-line"></div>
+                        <div class="h-chart-hover-dot" id="h-day-dot"></div>
+                        <div class="h-chart-tooltip" id="h-day-tip"></div>
+                    </div>
+                    <div id="h-day-workouts"></div>
+                    <div id="h-day-links" style="margin-top:1.5rem;display:flex;gap:0.75rem;flex-wrap:wrap;"></div>
                 </div>
             </div>
 
@@ -282,18 +321,6 @@
     </div>
 </div>
 
-<div class="h-modal-overlay" id="h-day-overlay">
-    <div class="h-modal">
-        <div class="h-modal-head">
-            <div>
-                <strong id="h-day-title">&nbsp;</strong>
-                <div id="h-day-sub" style="font-family:var(--font-mono);font-size:0.75rem;color:var(--text-muted);"></div>
-            </div>
-            <button class="h-modal-close" id="h-day-close" aria-label="Close">&times;</button>
-        </div>
-        <div class="h-modal-body" id="h-day-body"></div>
-    </div>
-</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -426,6 +453,7 @@ function savePreferredSource(value) {
         window.roamlyToast('Data source updated', { type: 'success' });
         loadDaily();      // totals change, so repaint
         loadHeatmap();
+        if (dayData && dayData.date) openDay(dayData.date);
     })
     .catch(() => window.roamlyToast('Could not save that preference', { type: 'error' }));
 }
@@ -439,10 +467,7 @@ function loadDaily() {
         .then(data => {
             healthData = data;
             renderStats(data);
-            drawSeries('h-steps', data.days, data.steps, cssVar('--primary', '#e8763d'),
-                       v => fmtInt(v) + ' steps');
-            drawSeries('h-dist', data.days, data.distance, cssVar('--clay-sky', '#4fc3d9'),
-                       v => formatDistanceM(v));
+            renderCharts(data);
         })
         .catch(() => {
             ['h-stat-steps', 'h-stat-distance', 'h-stat-calories', 'h-stat-avg']
@@ -459,7 +484,9 @@ function renderStats(data) {
     document.getElementById('h-stat-avg').textContent = fmtInt(t.avg_steps);
 }
 
-// ── Canvas line chart (ported from admin_panel.html's hand-rolled helpers) ──
+// ── Canvas charts (hand-rolled, as everywhere else in this app) ────────────
+// One drawChart() serves the two range charts and the day's hourly breakdown,
+// so their axes, labels, hover and click behaviour can only ever agree.
 
 function monotoneSpline(ctx, pts) {
     if (pts.length < 2) return;
@@ -474,105 +501,286 @@ function monotoneSpline(ctx, pts) {
     }
 }
 
+// A "nice" axis ceiling: a round tick *step* (1/2/2.5/5 × 10ⁿ) times the tick
+// count. Rounding the ceiling alone is not enough — 21,000 steps rounds up to a
+// tidy 25,000, but quartering that gives gridlines at 6,250 and 18,750, which
+// is what the labels actually read. Choosing the step first is what makes every
+// line on the axis a round number.
+function niceAxis(maxValue, ticks) {
+    if (!(maxValue > 0)) return ticks;
+    const raw = maxValue / ticks;
+    const base = Math.pow(10, Math.floor(Math.log10(raw)));
+    const n = raw / base;
+    const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10;
+    return step * base * ticks;
+}
+
+function fmtCompact(n) {
+    const v = Math.abs(n || 0);
+    if (v >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (v >= 10000) return Math.round(n / 1000) + 'k';
+    if (v >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+    return String(Math.round(n));
+}
+
+// Distance arrives in metres; the axis follows roamly_speed_unit like every
+// other distance the app prints. Decimals are chosen from the tick *step* (the
+// axis ceiling over its tick count) rather than per value, so one scale never
+// mixes "7.5" with "10".
+function fmtDistanceAxis(metres, top) {
+    const conv = m => ((m || 0) / 1000) * (isImperial() ? 0.621371 : 1);
+    const step = conv(top || 0) / CHART_TICKS;
+    return conv(metres).toFixed(step >= 10 ? 0 : step >= 1 ? 1 : 2);
+}
+
+function distanceUnitLabel() { return isImperial() ? 'miles' : 'kilometres'; }
+
+const CHART_TICKS = 5;   // gridline intervals; see niceAxis
+
 // Kept per-chart so the hover handlers can find their own points again.
 const chartState = {};
 
-function drawSeries(prefix, days, values, colour, fmt) {
+/*
+ * opts: { items:[{label, value, tip, ...}], colour, mode:'line'|'bar',
+ *         fmtAxis, onPick, emptyText }
+ *
+ * Every item carries its own label and tooltip; this function only decides
+ * geometry, which is what keeps one implementation usable for a 24-bar day and
+ * a 53-bar year alike.
+ */
+function drawChart(prefix, opts) {
     const canvas = document.getElementById(prefix + '-chart');
-    if (!canvas || !days) return;
+    if (!canvas) return;
     const wrap = canvas.parentElement;
     const dpr = window.devicePixelRatio || 1;
     const W = wrap.clientWidth, H = wrap.clientHeight;
+    if (!W || !H) return;
     canvas.width = W * dpr; canvas.height = H * dpr;
     const ctx = canvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
 
-    if (!days.length) {
-        ctx.fillStyle = cssVar('--text-muted', '#888');
+    const items = opts.items || [];
+    const muted = cssVar('--text-muted', '#888');
+    const border = cssVar('--border', '#333');
+    const rawMax = Math.max(0, ...items.map(it => it.value || 0));
+
+    if (!items.length || !(rawMax > 0)) {
+        ctx.fillStyle = muted;
         ctx.font = '13px system-ui';
         ctx.textAlign = 'center';
-        ctx.fillText('no data in this range', W / 2, H / 2);
+        ctx.fillText(opts.emptyText || 'no data in this range', W / 2, H / 2);
         chartState[prefix] = null;
+        wrap.classList.remove('clickable');
         return;
     }
 
-    const padL = 8, padR = 8, padT = 12, padB = 22;
-    const max = Math.max(1, ...values);
-    const pts = days.map((d, i) => ({
-        x: padL + (W - padL - padR) * (days.length === 1 ? 0.5 : i / (days.length - 1)),
-        y: padT + (H - padT - padB) * (1 - (values[i] || 0) / max),
-        day: d, value: values[i] || 0,
-    }));
+    const fmtAxis = opts.fmtAxis || fmtCompact;
+    const TICKS = CHART_TICKS;
+    const top = niceAxis(rawMax, TICKS);
 
-    // Grid lines, read from CSS vars at draw time so light/dark both work.
-    ctx.strokeStyle = hexA(cssVar('--border', '#333'), 0.8);
+    // Left gutter sized to the widest y label, so a five-digit step count is
+    // never clipped and a two-digit one doesn't waste a third of the plot.
+    ctx.font = '10px ui-monospace, monospace';
+    let labelW = 0;
+    for (let g = 0; g <= TICKS; g++) {
+        labelW = Math.max(labelW, ctx.measureText(fmtAxis(top * g / TICKS, top)).width);
+    }
+    const padL = Math.ceil(labelW) + 12, padR = 10, padT = 12, padB = 26;
+    const plotW = Math.max(1, W - padL - padR), plotH = Math.max(1, H - padT - padB);
+    const baseY = padT + plotH;
+
+    // Gridlines, with their values labelled — the y axis the old chart lacked.
+    ctx.strokeStyle = hexA(border, 0.8);
     ctx.lineWidth = 1;
-    for (let g = 0; g <= 4; g++) {
-        const y = padT + (H - padT - padB) * g / 4;
+    ctx.fillStyle = muted;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let g = 0; g <= TICKS; g++) {
+        const y = padT + plotH * g / TICKS;
         ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+        ctx.fillText(fmtAxis(top * (TICKS - g) / TICKS, top), padL - 6, y);
     }
 
-    ctx.beginPath();
-    monotoneSpline(ctx, pts);
-    ctx.lineTo(pts[pts.length - 1].x, H - padB);
-    ctx.lineTo(pts[0].x, H - padB);
-    ctx.closePath();
-    ctx.fillStyle = hexA(colour, 0.14);
-    ctx.fill();
+    const bar = opts.mode === 'bar';
+    const slot = plotW / items.length;
+    const pts = items.map((it, i) => ({
+        x: bar ? padL + slot * (i + 0.5)
+               : padL + (items.length === 1 ? plotW / 2 : plotW * i / (items.length - 1)),
+        y: baseY - plotH * Math.min(1, (it.value || 0) / top),
+        item: it, index: i,
+    }));
 
-    ctx.beginPath();
-    monotoneSpline(ctx, pts);
-    ctx.strokeStyle = colour;
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    if (bar) {
+        const w = Math.max(1, Math.min(slot - 2, slot * 0.74));
+        ctx.fillStyle = hexA(opts.colour, 0.85);
+        pts.forEach(p => {
+            if (!(p.item.value > 0)) return;
+            ctx.fillRect(p.x - w / 2, p.y, w, Math.max(1, baseY - p.y));
+        });
+    } else if (pts.length === 1) {
+        ctx.fillStyle = opts.colour;
+        ctx.beginPath(); ctx.arc(pts[0].x, pts[0].y, 3.5, 0, Math.PI * 2); ctx.fill();
+    } else {
+        ctx.beginPath();
+        monotoneSpline(ctx, pts);
+        ctx.lineTo(pts[pts.length - 1].x, baseY);
+        ctx.lineTo(pts[0].x, baseY);
+        ctx.closePath();
+        ctx.fillStyle = hexA(opts.colour, 0.14);
+        ctx.fill();
 
-    // Month ticks along the bottom.
-    ctx.fillStyle = cssVar('--text-muted', '#888');
-    ctx.font = '10px ui-monospace, monospace';
+        ctx.beginPath();
+        monotoneSpline(ctx, pts);
+        ctx.strokeStyle = opts.colour;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+
+    // X labels, thinned to whatever actually fits: the spacing is derived from
+    // the widest label and the real slot width, so a 24-hour day, a 30-day
+    // month and a 5-year monthly axis all label themselves without overlapping.
+    ctx.fillStyle = muted;
     ctx.textAlign = 'center';
-    let lastMonth = null;
-    days.forEach((d, i) => {
-        const month = d.slice(0, 7);
-        if (month !== lastMonth) {
-            lastMonth = month;
-            ctx.fillText(MONTH_NAMES[parseInt(d.slice(5, 7), 10) - 1], pts[i].x, H - 6);
-        }
-    });
+    ctx.textBaseline = 'alphabetic';
+    const stepX = items.length > 1 ? (pts[1].x - pts[0].x) : plotW;
+    const widest = Math.max(1, ...items.map(it => ctx.measureText(it.label || '').width));
+    const every = Math.max(1, Math.ceil((widest + 12) / Math.max(1, stepX)));
+    for (let i = 0; i < items.length; i += every) {
+        if (!items[i].label) continue;
+        ctx.fillText(items[i].label, pts[i].x, H - 8);
+    }
 
-    chartState[prefix] = { pts, fmt, W };
+    chartState[prefix] = { pts, opts, bar };
+    wrap.classList.toggle('clickable', !!opts.onPick);
 }
 
 function attachChartHover(prefix) {
     const wrap = document.getElementById(prefix + '-chart-wrap');
+    if (!wrap) return;
     const line = document.getElementById(prefix + '-line');
     const dot = document.getElementById(prefix + '-dot');
     const tip = document.getElementById(prefix + '-tip');
 
-    wrap.addEventListener('mousemove', function(e) {
+    function nearest(e) {
         const st = chartState[prefix];
-        if (!st || !st.pts.length) return;
+        if (!st || !st.pts.length) return null;
         const r = wrap.getBoundingClientRect();
         const x = e.clientX - r.left;
         let best = st.pts[0], bestD = Infinity;
         st.pts.forEach(p => { const d = Math.abs(p.x - x); if (d < bestD) { bestD = d; best = p; } });
-        line.style.left = best.x + 'px';
-        line.style.top = '0'; line.style.height = r.height + 'px';
+        return { st, r, best };
+    }
+
+    wrap.addEventListener('mousemove', function(e) {
+        const hit = nearest(e);
+        if (!hit) return;
+        line.style.left = hit.best.x + 'px';
+        line.style.top = '0'; line.style.height = hit.r.height + 'px';
         line.style.opacity = '1';
-        dot.style.left = best.x + 'px'; dot.style.top = best.y + 'px'; dot.style.opacity = '1';
-        tip.innerHTML = `${best.day}<br>${st.fmt(best.value)}`;
+        dot.style.left = hit.best.x + 'px'; dot.style.top = hit.best.y + 'px';
+        dot.style.opacity = '1';
+        tip.innerHTML = hit.best.item.tip;
         tip.style.opacity = '1';
-        tip.style.left = Math.max(50, Math.min(r.width - 50, best.x)) + 'px';
-        tip.style.top = Math.max(0, best.y - 44) + 'px';
+        tip.style.left = Math.max(70, Math.min(hit.r.width - 70, hit.best.x)) + 'px';
+        tip.style.top = Math.max(0, hit.best.y - 50) + 'px';
         tip.style.transform = 'translateX(-50%)';
-        wrap.dataset.day = best.day;
     });
     wrap.addEventListener('mouseleave', () => {
         line.style.opacity = '0'; dot.style.opacity = '0'; tip.style.opacity = '0';
     });
-    wrap.addEventListener('click', () => {
-        if (wrap.dataset.day) openDay(wrap.dataset.day);
+    wrap.addEventListener('click', function(e) {
+        const hit = nearest(e);
+        if (hit && hit.st.opts.onPick) hit.st.opts.onPick(hit.best.item);
     });
+}
+
+// ── The two range charts ───────────────────────────────────────────────────
+// The server buckets the series to day / week / month for the range asked for
+// (see _health_bucketed) and fills the axis continuously, so what is drawn here
+// is already at the right resolution — this only labels and paints it.
+
+const GRAN_NOTE = { day: 'daily totals', week: 'weekly totals', month: 'monthly totals' };
+
+function parseDay(dateStr) {
+    const [y, m, d] = (dateStr || '').split('-').map(Number);
+    return new Date(y, (m || 1) - 1, d || 1);
+}
+
+function fmtDayLong(dateStr) {
+    return parseDay(dateStr).toLocaleDateString([], {
+        weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function bucketLabel(b, gran) {
+    const d = parseDay(b.start);
+    if (gran === 'month') {
+        // Year only where it changes, which on a monthly axis is January.
+        return d.getMonth() === 0
+            ? `${MONTH_NAMES[d.getMonth()]} ’${String(d.getFullYear()).slice(2)}`
+            : MONTH_NAMES[d.getMonth()];
+    }
+    return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`;
+}
+
+function bucketRange(b, gran) {
+    const s = parseDay(b.start), e = parseDay(b.end);
+    if (gran === 'day') return fmtDayLong(b.start);
+    if (gran === 'month') {
+        return s.toLocaleDateString([], { month: 'long', year: 'numeric' });
+    }
+    return `${s.getDate()} ${MONTH_NAMES[s.getMonth()]} – ${e.getDate()} ${MONTH_NAMES[e.getMonth()]} ${e.getFullYear()}`;
+}
+
+function chartItem(b, gran, key, fmt) {
+    const value = b[key] || 0;
+    const recorded = b.recorded_days || 0;
+    const extra = gran === 'day' ? '' :
+        `<br><span style="color:var(--text-muted);">${recorded} of ${b.days} days recorded</span>`;
+    return {
+        key: b.key, start: b.start, end: b.end, gran, value,
+        label: bucketLabel(b, gran),
+        tip: `${bucketRange(b, gran)}<br>${fmt(value)}${extra}`,
+    };
+}
+
+function renderCharts(data) {
+    const gran = data.granularity || 'day';
+    const buckets = data.buckets || [];
+    const note = GRAN_NOTE[gran] || GRAN_NOTE.day;
+    const hint = gran === 'day' ? 'click a day for detail' : 'click a bar to zoom in';
+
+    document.getElementById('h-steps-note').textContent =
+        buckets.length ? `${note} · ${hint}` : '';
+    document.getElementById('h-dist-note').textContent =
+        buckets.length ? `${note} · ${distanceUnitLabel()}` : '';
+
+    const mode = gran === 'day' ? 'line' : 'bar';
+    drawChart('h-steps', {
+        items: buckets.map(b => chartItem(b, gran, 'steps', v => fmtInt(v) + ' steps')),
+        colour: cssVar('--primary', '#e8763d'),
+        mode: mode, fmtAxis: fmtCompact, onPick: pickBucket,
+        emptyText: 'no steps recorded in this range',
+    });
+    drawChart('h-dist', {
+        items: buckets.map(b => chartItem(b, gran, 'distance', v => formatDistanceM(v))),
+        colour: cssVar('--clay-sky', '#4fc3d9'),
+        mode: mode, fmtAxis: fmtDistanceAxis, onPick: pickBucket,
+        emptyText: 'no distance recorded in this range',
+    });
+}
+
+// A day opens its detail; a week or month bar narrows the range to itself,
+// which redraws per-day — the only route from an aggregated bar to one day.
+function pickBucket(item) {
+    if (item.gran === 'day') { openDay(item.key); return; }
+    document.getElementById('h-start').value = item.start;
+    document.getElementById('h-end').value = item.end;
+    document.getElementById('h-range').value = 'all';
+    closeDay();
+    loadDaily();
+    loadWorkouts();
+    window.roamlyToast(`Showing ${bucketRange(item, item.gran)}`, { type: 'success' });
 }
 
 // ── Steps heatmap (trailing year) ──────────────────────────────────────────
@@ -613,7 +821,7 @@ function makeHeatLevel(values) {
 }
 
 function loadHeatmap() {
-    fetch(`/api/health/daily/?all=1&tz_offset=${TZ_OFFSET}`)
+    fetch(`/api/health/daily/?all=1&granularity=day&tz_offset=${TZ_OFFSET}`)
         .then(r => { if (!r.ok) throw new Error('heatmap failed'); return r.json(); })
         .then(data => drawHeatmap(data.days || [], data.steps || []))
         .catch(() => {
@@ -786,80 +994,128 @@ async function removeWorkout(id) {
 // ── Day detail ─────────────────────────────────────────────────────────────
 // The payoff for storing raw Health Connect records rather than daily totals:
 // this shows *when* you were moving, which an aggregate could not reconstruct.
+// It renders below the charts rather than over them, so the day stays visibly
+// a drill-down of the chart it came from.
+
+let dayData = null;
+let dayToken = 0;          // discards a slow response for a day since replaced
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
 function openDay(day) {
-    const overlay = document.getElementById('h-day-overlay');
-    const body = document.getElementById('h-day-body');
-    document.getElementById('h-day-title').textContent = day;
-    document.getElementById('h-day-sub').textContent = '';
-    body.innerHTML = '<div class="h-empty-state">Loading…</div>';
-    overlay.classList.add('open');
+    const card = document.getElementById('h-day-card');
+    const loading = document.getElementById('h-day-loading');
+    const token = ++dayToken;
+
+    card.classList.add('open');
+    document.getElementById('h-day-title').textContent = fmtDayLong(day);
+    loading.innerHTML = 'Loading…';
+    loading.style.display = '';
+    document.getElementById('h-day-content').style.display = 'none';
+    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
     fetch(`/api/health/day/${day}/?tz_offset=${TZ_OFFSET}`)
         .then(r => { if (!r.ok) throw new Error('day failed'); return r.json(); })
-        .then(data => renderDay(day, data))
-        .catch(() => { body.innerHTML = errorHtml('Failed to load that day.', `openDay('${day}')`); });
+        .then(data => { if (token === dayToken) renderDay(day, data); })
+        .catch(() => {
+            if (token !== dayToken) return;
+            loading.innerHTML = errorHtml('Failed to load that day.', `openDay('${day}')`);
+        });
+}
+
+function closeDay() {
+    document.getElementById('h-day-card').classList.remove('open');
+    dayData = null;
+    dayToken++;
 }
 
 function renderDay(day, data) {
+    dayData = data;
+    document.getElementById('h-day-loading').style.display = 'none';
+    document.getElementById('h-day-content').style.display = '';
+
     const t = data.totals || {};
-    document.getElementById('h-day-sub').textContent =
-        `${fmtInt(t.steps)} steps · ${formatDistanceM(t.distance)} · ${fmtInt(t.calories_active)} kcal`;
+    const workouts = data.workouts || [];
+    const tiles = [
+        ['steps', fmtInt(t.steps)],
+        ['distance', formatDistanceM(t.distance)],
+        ['active calories', fmtInt(t.calories_active) + ' kcal'],
+    ];
+    // Only shown when the phone actually recorded it — an absent metric is very
+    // different from a zero one, and a "0 kcal" tile would read as the latter.
+    if (t.calories_total) tiles.push(['total calories', fmtInt(t.calories_total) + ' kcal']);
+    if (workouts.length) tiles.push(['workouts', String(workouts.length)]);
+    document.getElementById('h-day-stats').innerHTML = tiles.map(([k, v]) =>
+        `<div class="h-day-stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
 
-    const hours = (data.hourly && data.hourly.steps) || [];
-    const max = Math.max(1, ...hours);
-    const bars = hours.map((v, h) =>
-        `<div class="h-hour" style="height:${Math.max(1, (v / max) * 100)}%;" title="${h}:00 — ${fmtInt(v)} steps"></div>`
-    ).join('');
+    drawDayChart(data);
 
-    const workouts = (data.workouts || []).map(w => {
-        const bits = [fmtDuration(w.duration_s)];
-        if (w.distance_m) bits.push(formatDistanceM(w.distance_m));
-        if (w.calories_kcal) bits.push(Math.round(w.calories_kcal) + ' kcal');
-        return `<div class="h-workout">
-            <div class="h-w-badge">${workoutGlyph(w.exercise_slug)}</div>
-            <div class="h-w-main">
-                <div class="h-w-title">${w.title || (w.exercise_slug || 'workout').replace(/_/g, ' ')}</div>
-                <div class="h-w-sub">${bits.join(' · ')}</div>
-            </div>
-        </div>`;
-    }).join('');
+    document.getElementById('h-day-workouts').innerHTML = workouts.length ? `
+        <div class="h-day-section">Workouts</div>
+        ${workouts.map(w => {
+            const bits = [fmtDuration(w.duration_s)];
+            if (w.distance_m) bits.push(formatDistanceM(w.distance_m));
+            if (w.calories_kcal) bits.push(Math.round(w.calories_kcal) + ' kcal');
+            return `<div class="h-workout">
+                <div class="h-w-badge">${workoutGlyph(w.exercise_slug)}</div>
+                <div class="h-w-main">
+                    <div class="h-w-title">${escapeHtml(w.title || (w.exercise_slug || 'workout').replace(/_/g, ' '))}</div>
+                    <div class="h-w-sub">${bits.join(' · ')}</div>
+                </div>
+            </div>`;
+        }).join('')}` : '';
 
-    document.getElementById('h-day-body').innerHTML = `
-        <div style="font-size:0.8125rem;color:var(--text-muted);">steps by hour</div>
-        <div class="h-hours">${bars}</div>
-        <div class="h-hour-labels"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span></div>
-        ${workouts ? `<div style="margin-top:1.25rem;font-size:0.8125rem;color:var(--text-muted);">workouts</div>${workouts}` : ''}
-        <div style="margin-top:1.25rem;display:flex;gap:0.75rem;flex-wrap:wrap;">
-            <a class="btn btn-outline btn-sm" href="/map/?start=${day}&end=${day}">See the map for this day</a>
-            <a class="btn btn-outline btn-sm" href="/journals/">Open journals</a>
-        </div>`;
+    document.getElementById('h-day-links').innerHTML = `
+        <a class="btn btn-outline btn-sm" href="/map/?start=${day}&end=${day}">See the map for this day</a>
+        <a class="btn btn-outline btn-sm" href="/journals/">Open journals</a>`;
 }
 
-(function attachDayModal() {
-    const overlay = document.getElementById('h-day-overlay');
-    document.getElementById('h-day-close').addEventListener('click', () => overlay.classList.remove('open'));
-    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
-    document.addEventListener('keydown', e => {
-        if (e.key === 'Escape') overlay.classList.remove('open');
+function drawDayChart(data) {
+    const hourly = data.hourly || {};
+    const steps = hourly.steps || [];
+    const cals = hourly.calories_active || [];
+    drawChart('h-day', {
+        items: steps.map((v, h) => ({
+            value: v,
+            label: String(h).padStart(2, '0'),
+            tip: `${String(h).padStart(2, '0')}:00 – ${String(h).padStart(2, '0')}:59<br>`
+                 + `${fmtInt(v)} steps`
+                 + (cals[h] ? `<br><span style="color:var(--text-muted);">${fmtInt(cals[h])} kcal</span>` : ''),
+        })),
+        colour: cssVar('--primary', '#e8763d'),
+        mode: 'bar',
+        fmtAxis: fmtCompact,
+        emptyText: 'no hourly step data for this day',
     });
-})();
+}
 
 // ── Init ───────────────────────────────────────────────────────────────────
 
 ['h-range', 'h-start', 'h-end'].forEach(id => {
     document.getElementById(id).addEventListener('change', () => {
+        closeDay();          // the open day may not be in the new range
         loadDaily();
         loadWorkouts();
     });
 });
 
+document.getElementById('h-day-close').addEventListener('click', closeDay);
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeDay();
+});
+
+// One frame's debounce — a resize event stream would otherwise repaint three
+// canvases per pixel dragged.
+let resizeTimer = null;
 window.addEventListener('resize', () => {
-    if (!healthData) return;
-    drawSeries('h-steps', healthData.days, healthData.steps, cssVar('--primary', '#e8763d'),
-               v => fmtInt(v) + ' steps');
-    drawSeries('h-dist', healthData.days, healthData.distance, cssVar('--clay-sky', '#4fc3d9'),
-               v => formatDistanceM(v));
+    if (resizeTimer) cancelAnimationFrame(resizeTimer);
+    resizeTimer = requestAnimationFrame(() => {
+        if (healthData) renderCharts(healthData);
+        if (dayData) drawDayChart(dayData);
+    });
 });
 
 // ?start=YYYY-MM-DD&end=YYYY-MM-DD initializes the range picker before the
@@ -876,6 +1132,7 @@ window.addEventListener('resize', () => {
 (function init() {
     attachChartHover('h-steps');
     attachChartHover('h-dist');
+    attachChartHover('h-day');
     loadStatus().then(s => {
         if (!s || !s.connected) return;
         loadDaily();

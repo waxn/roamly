@@ -11456,7 +11456,125 @@ def _health_daily_totals(user, start, end, tz_offset=0, preferred_source=''):
     return totals, chosen
 
 
-def _health_daily_payload(user, start, end, tz_offset=0, preferred_source=''):
+# ── Chart bucketing ─────────────────────────────────────────────────────────
+#
+# The per-day arrays below are the raw record and stay per-day — the heatmap
+# reads them straight. The *charts* need an axis that scales with the range
+# asked for, which a per-day series cannot give on its own: a year is 365
+# unlabellable points, and a 30-day range with five recorded days draws those
+# five evenly spaced as though they were consecutive, which is a plainly wrong
+# picture of the month. So the chart series is bucketed to day / week / month
+# and the axis is filled continuously — empty buckets included — rather than
+# being whatever days happened to carry a record.
+
+_HEALTH_MAX_BUCKETS = 400          # past this a finer bucket is unreadable anyway
+_HEALTH_GRANULARITIES = ('day', 'week', 'month')
+_HEALTH_BUCKET_KINDS = ('steps', 'distance', 'calories_active', 'calories_total')
+
+
+def _health_bucket_start(d, granularity):
+    """First day of d's bucket. Weeks are Monday-first, as everywhere else here."""
+    if granularity == 'month':
+        return d.replace(day=1)
+    if granularity == 'week':
+        return d - timedelta(days=d.weekday())
+    return d
+
+
+def _health_bucket_next(d, granularity):
+    if granularity == 'month':
+        return (d.replace(day=28) + timedelta(days=7)).replace(day=1)
+    if granularity == 'week':
+        return d + timedelta(days=7)
+    return d + timedelta(days=1)
+
+
+def _health_auto_granularity(span_days):
+    if span_days <= 70:
+        return 'day'
+    if span_days <= 400:
+        return 'week'
+    return 'month'
+
+
+def _health_axis_days(days, start, end, tz_offset):
+    """(first, last) dates for the chart axis.
+
+    The requested window wins wherever it is bounded, so a "last 30 days" chart
+    covers thirty days even when only five of them recorded anything; an
+    unbounded side falls back to the extent of the data. Recorded days are never
+    clipped off their own chart, whatever the window says.
+    """
+    tz_delta = timedelta(minutes=tz_offset or 0)
+    data_first = date.fromisoformat(days[0]) if days else None
+    data_last = date.fromisoformat(days[-1]) if days else None
+    today = (timezone.now() - tz_delta).date()
+
+    first = (start - tz_delta).date() if start else data_first
+    last = (end - tz_delta).date() if end else (max(data_last, today) if data_last else today)
+    if first is None or last is None:
+        return None, None
+    if data_first and data_first < first:
+        first = data_first
+    if data_last and data_last > last:
+        last = data_last
+    if last < first:
+        first, last = last, first
+    return first, last
+
+
+def _health_bucketed(days, series, start, end, tz_offset, granularity='auto'):
+    """Bucket the per-day series onto a continuous day/week/month axis."""
+    first, last = _health_axis_days(days, start, end, tz_offset)
+    if first is None:
+        return {'granularity': 'day', 'buckets': []}
+
+    span = (last - first).days + 1
+    gran = (granularity if granularity in _HEALTH_GRANULARITIES
+            else _health_auto_granularity(span))
+
+    # Coarsen until the axis is actually plottable: an explicit ?granularity=day
+    # over ten years of history would otherwise ask for thousands of points.
+    est = {'day': span, 'week': span / 7.0, 'month': span / 30.4}
+    while gran != 'month' and est[gran] > _HEALTH_MAX_BUCKETS:
+        gran = _HEALTH_GRANULARITIES[_HEALTH_GRANULARITIES.index(gran) + 1]
+
+    index = {day: i for i, day in enumerate(days)}
+    buckets = []
+    cursor = _health_bucket_start(first, gran)
+    while cursor <= last:
+        nxt = _health_bucket_next(cursor, gran)
+        sums = dict.fromkeys(_HEALTH_BUCKET_KINDS, 0.0)
+        recorded = 0
+        d = cursor
+        while d < nxt:
+            i = index.get(d.isoformat())
+            if i is not None:
+                had = False
+                for kind in _HEALTH_BUCKET_KINDS:
+                    value = series.get(kind, [])[i] if i < len(series.get(kind, [])) else 0.0
+                    sums[kind] += value
+                    had = had or value > 0
+                if had:
+                    recorded += 1
+            d += timedelta(days=1)
+        end_day = min(nxt - timedelta(days=1), last)
+        bucket = {
+            'key': cursor.isoformat(),
+            'start': cursor.isoformat(),
+            'end': end_day.isoformat(),
+            'days': (end_day - cursor).days + 1,
+            'recorded_days': recorded,
+        }
+        bucket.update({kind: round(sums[kind], 2) for kind in _HEALTH_BUCKET_KINDS})
+        buckets.append(bucket)
+        cursor = nxt
+
+    return {'granularity': gran, 'buckets': buckets}
+
+
+def _health_daily_payload(user, start, end, tz_offset=0, preferred_source='',
+                          granularity='auto'):
     """Array-parallel daily series, shaped like distance_api's {days, distances}."""
     totals, chosen = _health_daily_totals(user, start, end, tz_offset, preferred_source)
     days = sorted({day for day, _ in totals})
@@ -11469,7 +11587,7 @@ def _health_daily_payload(user, start, end, tz_offset=0, preferred_source=''):
     active_days = sum(1 for v in steps if v > 0)
     best_idx = max(range(len(steps)), key=lambda i: steps[i]) if steps else None
 
-    return {
+    payload = {
         'days': days,
         'steps': series.get('steps', []),
         'distance': series.get('distance', []),
@@ -11488,6 +11606,8 @@ def _health_daily_payload(user, start, end, tz_offset=0, preferred_source=''):
                      if best_idx is not None and steps and steps[best_idx] > 0 else None),
         'tz_offset': tz_offset,
     }
+    payload.update(_health_bucketed(days, series, start, end, tz_offset, granularity))
+    return payload
 
 
 def _health_workout_payload(w):
@@ -11779,7 +11899,10 @@ def _health_daily_api_inner(request):
     profile = getattr(request.user, 'profile', None)
     preferred = getattr(profile, 'health_preferred_source', '') or ''
 
-    payload = _health_daily_payload(request.user, start, end, tz_offset, preferred)
+    granularity = (request.GET.get('granularity') or 'auto').strip().lower()
+
+    payload = _health_daily_payload(request.user, start, end, tz_offset, preferred,
+                                    granularity)
     cache.set(cache_key, payload, timeout=_HEALTH_CACHE_TTL)
     return JsonResponse(payload)
 
@@ -11804,6 +11927,14 @@ def _health_day_api_inner(request, date_str):
     d = _parse_date_only(date_str)
     if not d:
         return JsonResponse({'error': 'Invalid date'}, status=400)
+
+    # Cached like the daily series: opening several days in a row is the normal
+    # way to use the detail panel, and each open is a fresh scan otherwise.
+    gen = _health_gen(request.user.id)
+    cache_key = f"health:day:{request.user.id}:{gen}:{date_str}:{request.GET.urlencode()}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached)
 
     tz_offset = _health_tz_offset(request)
     # Reuse the canonical browser-offset → UTC-window converter rather than
@@ -11847,14 +11978,16 @@ def _health_day_api_inner(request, date_str):
                 .filter(user=request.user, start_time__gte=start, start_time__lte=end)
                 .order_by('start_time'))
 
-    return JsonResponse({
+    payload = {
         'date': date_str,
         'hourly': hourly,
         'totals': {kind: round(sum(hourly[kind]), 2) for kind in hourly},
         'raw': raw,
         'workouts': [_health_workout_payload(w) for w in workouts],
         'tz_offset': tz_offset,
-    })
+    }
+    cache.set(cache_key, payload, timeout=_HEALTH_CACHE_TTL)
+    return JsonResponse(payload)
 
 
 @login_required
