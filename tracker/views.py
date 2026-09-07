@@ -50,6 +50,7 @@ from .models import (
     InferredLocation, EditBatch, TrashedLocation, RoadSegment, ROADS_AVAILABLE_CACHE_KEY,
     RailSegment, RailStation, DismissedSubwayGap, SUBWAY_AVAILABLE_CACHE_KEY,
     DownloadedRegion, HealthSample, HealthWorkout, HEALTH_KINDS,
+    Activity, ACTIVITY_KINDS,
 )
 from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email, send_contact_email
 from .dwell_utils import bridges_gap, GAP_BRIDGE_RADIUS_M, GAP_BRIDGE_MAX_S
@@ -63,6 +64,7 @@ from .backup_tasks import (
     run_image_backup_now, get_image_backup_status, _get_user_media_files,
     _build_adventures_data, _build_journals_data, _build_custom_places_data,
     _build_health_workouts_data,
+    _build_activities_data,
 )
 
 logger = logging.getLogger(__name__)
@@ -90,6 +92,28 @@ def _bust_health_cache(user_id):
     key = f"health_gen:{user_id}"
     val = (cache.get(key) or 0) + 1
     cache.set(key, val, timeout=86400 * 30)
+
+
+def _bust_activity_cache(user_id):
+    """Increment the per-user *activity* cache generation.
+
+    A third counter, for the same reason health has its own. An activity list is
+    derived from GPS, so sharing cache_gen looks defensible right up until you
+    notice a tracking phone bumps it every 30 seconds — the list would never
+    survive long enough to be hit. And the converse: saving a ride must not evict
+    every cached track, tile and distance response, none of which it changed.
+
+    Only the list needs a counter at all. The detail and track responses are
+    content-addressed on stats_computed_at / stats_point_count, so they
+    invalidate themselves when the numbers behind them actually move.
+    """
+    key = f"activity_gen:{user_id}"
+    val = (cache.get(key) or 0) + 1
+    cache.set(key, val, timeout=86400 * 30)
+
+
+def _activity_gen(user_id):
+    return cache.get(f"activity_gen:{user_id}", 0)
 
 
 def _jf(value):
@@ -6296,7 +6320,7 @@ def _write_backup_json(user, f, progress=None):
     loc_total = Location.objects.filter(device__user=user).count()
 
     report('Collecting devices')
-    meta = {'version': 11, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 12, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # Same complete, nested schema as the S3 backup (_build_backup_json) so the
@@ -6313,6 +6337,8 @@ def _write_backup_json(user, f, progress=None):
     custom_places = _build_custom_places_data(user)
     report('Collecting health')
     health_workouts = _build_health_workouts_data(user)
+    report('Collecting activities')
+    activities = _build_activities_data(user)
     health_total = HealthSample.objects.filter(user=user).count()
 
     f.write(b'{"meta":' + encoder.encode(meta).encode() + b',')
@@ -6322,6 +6348,7 @@ def _write_backup_json(user, f, progress=None):
     f.write(b'"journals":' + encoder.encode(journals).encode() + b',')
     f.write(b'"custom_places":' + encoder.encode(custom_places).encode() + b',')
     f.write(b'"health_workouts":' + encoder.encode(health_workouts).encode() + b',')
+    f.write(b'"activities":' + encoder.encode(activities).encode() + b',')
 
     report('Writing locations', 0, loc_total)
     f.write(b'"locations":[')
@@ -6386,6 +6413,7 @@ _BACKUP_PREP_PCT = 8
 _DATA_PHASE_PCT = 55
 _BACKUP_STAGES = ['Counting locations', 'Collecting devices', 'Collecting adventures',
                   'Collecting journals', 'Collecting places', 'Collecting health',
+                  'Collecting activities',
                   'Writing locations', 'Writing health']
 
 
@@ -6616,7 +6644,7 @@ def restore_backup(request):
     counts = {'devices': 0, 'locations': 0, 'trips': 0, 'trip_places': 0,
               'adventures': 0, 'api_keys': 0, 'journals': 0,
               'custom_places': 0, 'media_files': 0,
-              'health_samples': 0, 'health_workouts': 0}
+              'health_samples': 0, 'health_workouts': 0, 'activities': 0}
     errors = 0
 
     try:
@@ -7073,7 +7101,35 @@ def restore_backup(request):
                     errors += 1
                     logger.warning(f"Backup restore health workout error: {e}")
 
-    except Exception as e:
+            # Activities (v12+). Older backups simply lack the key and restore
+            # exactly as before — no version branch needed, same as v10 -> v11.
+            for a in data.get('activities', []):
+                try:
+                    device = device_map.get(a.get('device_id'))
+                    start = _parse_timestamp(a.get('start_time'))
+                    end = _parse_timestamp(a.get('end_time')) or start
+                    client_id = a.get('client_id')
+                    if not device or not start or not client_id:
+                        errors += 1
+                        continue
+                    _, created = Activity.objects.get_or_create(
+                        user=user, client_id=client_id,
+                        defaults={
+                            'device': device,
+                            'kind': a.get('kind') or 'other',
+                            'title': a.get('title', '') or '',
+                            'notes': a.get('notes', '') or '',
+                            'start_time': start,
+                            'end_time': end,
+                            # Left uncomputed on purpose: the first read derives
+                            # the stats from whatever locations actually restored,
+                            # rather than trusting figures from another database.
+                            'stats_computed_at': None,
+                        }
+                    )
+                    if created:
+                        counts['activities'] += 1
+                except Exception as e:
                     errors += 1
                     logger.warning(f"Backup restore activity error: {e}")
 
@@ -7115,6 +7171,8 @@ def restore_backup(request):
 
     # Health reads sit behind their own generation counter, so a restore has to
     # bust that one too — _bust_user_cache above does not cover it.
+    if counts['activities']:
+        _bust_activity_cache(user.id)
     if counts['health_samples'] or counts['health_workouts']:
         _bust_health_cache(user.id)
 
@@ -12366,3 +12424,400 @@ def health_import_api(request):
     return JsonResponse({'status': 'ok', 'created': created, 'updated': len(stale),
                          'rows': len(rows), 'skipped': skipped})
 
+
+# ── Activity recording ───────────────────────────────────────────────────────
+# An Activity stores only the envelope; the track is derived from Location by
+# (device, start_time, end_time). See the model docstring for why there is no
+# grouping column on Location.
+
+# After this long, stop re-checking whether late points have landed. The phone
+# uploads offline-first so points routinely arrive after the save, but not a day
+# later — and without a cut-off every read of every activity a user has ever
+# recorded would pay a COUNT forever.
+_ACTIVITY_SETTLE_S = 24 * 3600
+# Below this, treat a fix as stationary. The tracker floors stationary jitter to
+# exactly 0 (MIN_LOGGED_SPEED_MPS on the phone), so any positive speed is real
+# motion; this is only a guard for imported history with derived speeds.
+_ACT_MOVING_SPEED_MPS = 0.5
+# Never credit a tracking hole as moving time.
+_ACT_MOVING_MAX_GAP_S = 60
+# Rolling median width for max speed. The nightly _flag_suspicious_locations
+# scan has not run on a ride recorded ten minutes ago, so `flag` alone cannot be
+# relied on to have caught an isolated Doppler spike — a median can.
+_ACT_SPEED_MEDIAN_N = 3
+_ACT_TRACK_MAX_POINTS = 2000
+_ACT_TRACK_SEGMENT_GAP_S = 60
+_ACT_LIST_PAGE = 50
+_ACT_CACHE_TTL = 300
+
+
+def _activity_payload(act):
+    """Serialize an Activity. Stats may be None — that means "not computed yet"."""
+    return {
+        'id': act.id,
+        'client_id': act.client_id,
+        'kind': act.kind,
+        'title': act.title,
+        'notes': act.notes,
+        'device_id': act.device.device_id if act.device_id else '',
+        'start': act.start_time.isoformat(),
+        'end': act.end_time.isoformat(),
+        'elapsed_seconds': act.elapsed_seconds,
+        'moving_seconds': act.moving_seconds,
+        'distance_km': _jf(act.distance_km),
+        'avg_speed_kmh': _jf(act.avg_speed_kmh),
+        'max_speed_kmh': _jf(act.max_speed_kmh),
+        'point_count': act.point_count,
+        'computed_at': act.stats_computed_at.isoformat() if act.stats_computed_at else None,
+        'created_at': act.created_at.isoformat(),
+    }
+
+
+def _activity_point_count(act):
+    """How many fixes are in the activity's window right now.
+
+    Must use filters byte-identical to Activity.locations, or comparing it
+    against stats_point_count is meaningless and every read recomputes.
+    """
+    return Location.objects.filter(
+        device=act.device,
+        timestamp__gte=act.start_time,
+        timestamp__lte=act.end_time,
+    ).count()
+
+
+def _compute_activity_stats(act):
+    """Recompute an activity's cached stats from its Location rows, and save them.
+
+    One ordered scan feeds everything. Distance reuses _gated_distance_segments
+    with ``initial_state='MOVING'`` — the same escape hatch
+    _compute_transport_breakdown_from_qs relies on, for the same reason: the
+    default STATIONARY start credits nothing until the track sustains a
+    departure past _DIST_EXIT_RADIUS_M for a full minute, so a twenty-minute
+    loop around a park would report zero. Reusing the function rather than
+    writing a second distance is what keeps this number in step with every other
+    distance in the app.
+    """
+    rows = list(act.locations.values_list(
+        'latitude', 'longitude', 'timestamp', 'accuracy', 'speed', 'flag'))
+
+    elapsed = max(0, int((act.end_time - act.start_time).total_seconds()))
+    distance_km = 0.0
+    moving_s = 0.0
+    max_kmh = None
+
+    if rows:
+        pts = [(r[0], r[1], r[2], r[3]) for r in rows]
+        distance_km = sum(km for _ts, km in _gated_distance_segments(pts, initial_state='MOVING'))
+
+        # Moving time, pairwise. Credit dt only when the gap is short enough to
+        # describe motion rather than a tracking hole, and the earlier fix was
+        # actually moving. Imported history has no Doppler, so fall back to the
+        # displacement-derived speed there.
+        for a, b in zip(rows, rows[1:]):
+            dt = (b[2] - a[2]).total_seconds()
+            if dt <= 0 or dt > _ACT_MOVING_MAX_GAP_S:
+                continue
+            mps = a[4]
+            if mps is None:
+                mps = _haversine_km(a[0], a[1], b[0], b[1]) * 1000.0 / dt
+            if mps >= _ACT_MOVING_SPEED_MPS:
+                moving_s += dt
+
+        # Max speed off a rolling median, not the raw maximum: a single bad
+        # Doppler reading is exactly the thing that would otherwise claim you hit
+        # 90 km/h on a walk. Suspect-flagged fixes are dropped first, but the
+        # flag scan runs nightly and cannot have seen a ride from ten minutes
+        # ago, which is why the median is doing the real work here.
+        speeds = [r[4] for r in rows if r[4] is not None and r[5] != 'suspect'
+                  and r[4] <= _DIST_MAX_SPEED_MPS]
+        if speeds:
+            if len(speeds) >= _ACT_SPEED_MEDIAN_N:
+                half = _ACT_SPEED_MEDIAN_N // 2
+                smoothed = [
+                    sorted(speeds[i - half:i + half + 1])[half]
+                    for i in range(half, len(speeds) - half)
+                ]
+            else:
+                smoothed = speeds
+            max_kmh = max(smoothed) * 3.6
+
+    avg_kmh = (distance_km / (moving_s / 3600.0)) if moving_s > 0 else None
+
+    act.distance_km = distance_km
+    act.moving_seconds = int(moving_s)
+    act.elapsed_seconds = elapsed
+    act.avg_speed_kmh = avg_kmh
+    act.max_speed_kmh = max_kmh
+    act.point_count = len(rows)
+    act.stats_point_count = len(rows)
+    act.stats_computed_at = timezone.now()
+    act.save(update_fields=[
+        'distance_km', 'moving_seconds', 'elapsed_seconds', 'avg_speed_kmh',
+        'max_speed_kmh', 'point_count', 'stats_point_count', 'stats_computed_at',
+    ])
+    return act
+
+
+def _activity_stats(act, force=False):
+    """Ensure ``act``'s cached stats are current, recomputing only when they aren't.
+
+    Lazy rather than computed-on-save, because the phone uploads offline-first:
+    an activity is routinely saved before some or all of its points have landed.
+    stats_point_count is the staleness key — if the window holds a different
+    number of fixes than it did at compute time, the stats are stale.
+
+    bulk_create(ignore_conflicts=True) *skips* a re-pushed point rather than
+    duplicating it, which is what makes a plain count a sound key here.
+    """
+    if force or act.stats_computed_at is None:
+        return _compute_activity_stats(act)
+    settled = act.stats_computed_at >= act.end_time + timedelta(seconds=_ACTIVITY_SETTLE_S)
+    if settled:
+        return act
+    if _activity_point_count(act) != act.stats_point_count:
+        return _compute_activity_stats(act)
+    return act
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def activities_api(request):
+    """GET: list the user's activities. POST: save one from the phone's envelope.
+
+    @login_required is correct for the browser *and* the app:
+    ApiKeyAuthMiddleware resolves request.user from an Authorization: Bearer
+    header when no session is present, so save-on-stop survives session expiry.
+    _require_json stands in for the missing CSRF token, exactly as the health
+    ingest endpoints do.
+    """
+    user = request.user
+
+    if request.method == 'GET':
+        key = f"act:list:{user.id}:{_activity_gen(user.id)}:{request.META.get('QUERY_STRING', '')}"
+        cached = cache.get(key)
+        if cached is not None:
+            return JsonResponse(cached)
+
+        try:
+            limit = max(1, min(_ACT_LIST_PAGE, int(request.GET.get('limit', _ACT_LIST_PAGE))))
+            offset = max(0, int(request.GET.get('offset', 0)))
+        except (TypeError, ValueError):
+            limit, offset = _ACT_LIST_PAGE, 0
+
+        qs = Activity.objects.filter(user=user).select_related('device')
+        kind = (request.GET.get('kind') or '').strip()
+        if kind:
+            qs = qs.filter(kind=kind)
+        total = qs.count()
+        rows = list(qs[offset:offset + limit])
+        # Refresh only what is on this page, and only when actually stale — the
+        # list is served from the cached columns, never from a per-row scan.
+        for act in rows:
+            _activity_stats(act)
+        payload = {
+            'activities': [_activity_payload(a) for a in rows],
+            'total': total,
+            'offset': offset,
+            'limit': limit,
+            'has_more': offset + len(rows) < total,
+        }
+        cache.set(key, payload, _ACT_CACHE_TTL)
+        return JsonResponse(payload)
+
+    err = _require_json(request)
+    if err:
+        return err
+    try:
+        data = json.loads(request.body.decode('utf-8') or '{}')
+    except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    client_id = str(data.get('client_id') or '').strip()[:64]
+    device_id = str(data.get('device_id') or '').strip()[:100]
+    start = _parse_timestamp(data.get('start'))
+    end = _parse_timestamp(data.get('end'))
+    if not client_id or not device_id or not start or not end:
+        return JsonResponse(
+            {'error': 'client_id, device_id, start and end are required'}, status=400)
+    if end < start:
+        return JsonResponse({'error': 'end precedes start'}, status=400)
+
+    kind = str(data.get('kind') or 'other').strip().lower()
+    if kind not in dict(ACTIVITY_KINDS):
+        kind = 'other'
+
+    # get_or_create the device the way push_location does: an activity can
+    # legitimately be saved before its first point has landed.
+    device, _ = Device.objects.get_or_create(user=user, device_id=device_id)
+
+    act, created = Activity.objects.get_or_create(
+        user=user, client_id=client_id,
+        defaults={
+            'device': device, 'kind': kind,
+            'title': str(data.get('title') or '')[:200],
+            'notes': str(data.get('notes') or ''),
+            'start_time': start, 'end_time': end,
+        },
+    )
+    _activity_stats(act, force=created)
+    _bust_activity_cache(user.id)
+    return JsonResponse({'status': 'ok', 'created': created,
+                         'activity': _activity_payload(act)},
+                        status=201 if created else 200)
+
+
+def _get_activity(request, activity_id):
+    """Fetch an owned activity, or None."""
+    return Activity.objects.filter(
+        pk=activity_id, user=request.user).select_related('device').first()
+
+
+@login_required
+@require_http_methods(["GET"])
+def activity_detail_api(request, activity_id):
+    act = _get_activity(request, activity_id)
+    if not act:
+        return JsonResponse({'error': 'Not found'}, status=404)
+    _activity_stats(act)
+    # Content-addressed: the key changes exactly when the numbers behind it do,
+    # so there is nothing to invalidate by hand.
+    stamp = int(act.stats_computed_at.timestamp()) if act.stats_computed_at else 0
+    key = f"act:detail:{request.user.id}:{act.id}:{stamp}"
+    cached = cache.get(key)
+    if cached is not None:
+        return JsonResponse(cached)
+    payload = {'activity': _activity_payload(act)}
+    cache.set(key, payload, 86400)
+    return JsonResponse(payload)
+
+
+@login_required
+@require_http_methods(["GET"])
+def activity_track_api(request, activity_id):
+    """The drawn track: gap-split segments, decimated, with a parallel speed array.
+
+    Speeds ride alongside so the page can paint the speed gradient — a
+    functional encoding the design system deliberately leaves alone.
+    """
+    act = _get_activity(request, activity_id)
+    if not act:
+        return JsonResponse({'error': 'Not found'}, status=404)
+    _activity_stats(act)
+
+    key = f"act:track:{request.user.id}:{act.id}:{act.stats_point_count}"
+    cached = cache.get(key)
+    if cached is not None:
+        return JsonResponse(cached)
+
+    rows = list(act.locations.values_list('latitude', 'longitude', 'timestamp', 'speed'))
+    # Stride before segmenting so the cap holds regardless of how the track
+    # splits, keeping every segment's own endpoints below.
+    stride = max(1, (len(rows) // _ACT_TRACK_MAX_POINTS) + 1) if rows else 1
+
+    segments, speeds = [], []
+    cur_pts, cur_sp = [], []
+    prev_ts = None
+    for i, (lat, lon, ts, sp) in enumerate(rows):
+        gap = prev_ts is not None and (ts - prev_ts).total_seconds() > _ACT_TRACK_SEGMENT_GAP_S
+        if gap and cur_pts:
+            segments.append(cur_pts)
+            speeds.append(cur_sp)
+            cur_pts, cur_sp = [], []
+        keep = (i % stride == 0) or gap or i == len(rows) - 1
+        if keep:
+            cur_pts.append([lon, lat])
+            cur_sp.append(round((sp or 0.0) * 3.6, 2))
+        prev_ts = ts
+    if cur_pts:
+        segments.append(cur_pts)
+        speeds.append(cur_sp)
+
+    payload = {
+        'segments': segments,
+        'speeds': speeds,
+        'point_count': len(rows),
+        'start': [rows[0][1], rows[0][0]] if rows else None,
+        'end': [rows[-1][1], rows[-1][0]] if rows else None,
+    }
+    cache.set(key, payload, 86400)
+    return JsonResponse(payload)
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def activity_update_api(request, activity_id):
+    """Rename / re-categorise. Never touches the window, so stats stay valid."""
+    act = _get_activity(request, activity_id)
+    if not act:
+        return JsonResponse({'error': 'Not found'}, status=404)
+    err = _require_json(request)
+    if err:
+        return err
+    try:
+        data = json.loads(request.body.decode('utf-8') or '{}')
+    except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    fields = []
+    if 'title' in data:
+        act.title = str(data.get('title') or '')[:200]
+        fields.append('title')
+    if 'notes' in data:
+        act.notes = str(data.get('notes') or '')
+        fields.append('notes')
+    if 'kind' in data:
+        kind = str(data.get('kind') or '').strip().lower()
+        if kind in dict(ACTIVITY_KINDS):
+            act.kind = kind
+            fields.append('kind')
+    if fields:
+        act.save(update_fields=fields)
+        _bust_activity_cache(request.user.id)
+    return JsonResponse({'status': 'ok', 'activity': _activity_payload(act)})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def activity_delete_api(request, activity_id):
+    """Delete the activity — the view over the track, never the recorded fixes.
+
+    The points stay in normal history, which is the whole point of deriving the
+    track rather than owning it: discarding a ride you didn't mean to record
+    should not punch a hole in your location history.
+    """
+    act = _get_activity(request, activity_id)
+    if not act:
+        return JsonResponse({'error': 'Not found'}, status=404)
+    act.delete()
+    _bust_activity_cache(request.user.id)
+    return JsonResponse({'status': 'ok'})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def activity_recompute_api(request, activity_id):
+    """Force a stats recompute, bypassing the settle window."""
+    act = _get_activity(request, activity_id)
+    if not act:
+        return JsonResponse({'error': 'Not found'}, status=404)
+    _activity_stats(act, force=True)
+    _bust_activity_cache(request.user.id)
+    return JsonResponse({'status': 'ok', 'activity': _activity_payload(act)})
+
+
+@login_required
+def activities_view(request):
+    return render(request, 'tracker/activities.html')
+
+
+@login_required
+def activity_detail_view(request, activity_id):
+    act = _get_activity(request, activity_id)
+    if not act:
+        return redirect('tracker:activities')
+    return render(request, 'tracker/activity_detail.html', {'activity_id': act.id})

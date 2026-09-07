@@ -25,6 +25,8 @@ urlpatterns = [
     path('journals/', views.journals_view, name='journals'),
     path('places/', views.places_view, name='places'),
     path('health/', views.health_view, name='health'),
+    path('activities/', views.activities_view, name='activities'),
+    path('activities/<int:activity_id>/', views.activity_detail_view, name='activity_detail'),
     path('ask/', views.ask_view, name='ask'),
     path('settings/', views.settings_view, name='settings'),
     path('diagnostics/', views.diagnostics_view, name='diagnostics'),
@@ -179,6 +181,14 @@ urlpatterns = [
     path('api/health/zepp/sync/', views.health_zepp_sync_api, name='health_zepp_sync_api'),
     path('api/health/import/', views.health_import_api, name='health_import_api'),
     path('api/health/day/<str:date_str>/', views.health_day_api, name='health_day_api'),
+
+    # Activities (recorded rides / walks / runs)
+    path('api/activities/', views.activities_api, name='activities_api'),
+    path('api/activities/<int:activity_id>/', views.activity_detail_api, name='activity_detail_api'),
+    path('api/activities/<int:activity_id>/track/', views.activity_track_api, name='activity_track_api'),
+    path('api/activities/<int:activity_id>/update/', views.activity_update_api, name='activity_update_api'),
+    path('api/activities/<int:activity_id>/delete/', views.activity_delete_api, name='activity_delete_api'),
+    path('api/activities/<int:activity_id>/recompute/', views.activity_recompute_api, name='activity_recompute_api'),
 
     # Geocoding
     path('api/geocode/', views.geocode_api, name='geocode_api'),

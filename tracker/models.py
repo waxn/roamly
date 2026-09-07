@@ -1719,3 +1719,90 @@ class HealthWorkout(models.Model):
     def __str__(self):
         return f"{self.exercise_slug or 'workout'} @ {self.start_time}"
 
+
+# ── Activity recording ───────────────────────────────────────────────────────
+# A deliberately recorded ride / walk / run: the user taps Start, the phone
+# captures at ~2s instead of the background interval, and Stop saves the envelope.
+#
+# The envelope is ALL that is stored. The track is derived from Location by
+# (device, start_time, end_time), exactly as Adventure.locations does, so the
+# points stay ordinary fixes that the normal map, distance and stats already
+# count. An Activity is a *view over* the track, not a silo — which is why
+# deleting one deletes a view and never a recorded fix.
+#
+# That is also why there is no grouping FK on Location. It is queried from ~75
+# places across the app, and a per-point activity column would be stale on
+# backlog replay regardless: bulk_create(ignore_conflicts=True) *skips* a
+# re-pushed point rather than updating it. Same reasoning that keeps CustomPlace
+# membership computed on the fly rather than materialised.
+#
+# Non-spatial — the geometry lives on the Location rows this points at — so
+# defined once rather than behind the HAS_POSTGIS branch, like the health models.
+
+ACTIVITY_KINDS = [
+    ('ride', 'Ride'),
+    ('run', 'Run'),
+    ('walk', 'Walk'),
+    ('hike', 'Hike'),
+    ('other', 'Other'),
+]
+
+
+class Activity(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='activities')
+    # Both FKs earn their place: `user` for the list query and ownership, `device`
+    # because that is what the track derives from. device.user == user is enforced
+    # at creation.
+    device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='activities')
+    # Phone-minted UUID, unique per user. This is the idempotency key: a
+    # WorkManager retry of a save that actually succeeded costs nothing. Same role
+    # HealthWorkout.external_id plays for the import path.
+    client_id = models.CharField(max_length=64)
+    kind = models.CharField(max_length=16, choices=ACTIVITY_KINDS, default='other')
+    title = models.CharField(max_length=200, blank=True, default='')
+    notes = models.TextField(blank=True, default='')
+    start_time = models.DateTimeField()
+    end_time = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    # Cached derived stats. NULL means "never computed" — the first read computes
+    # them, so an Activity can legitimately be saved before its points arrive.
+    distance_km = models.FloatField(null=True, blank=True)
+    moving_seconds = models.IntegerField(null=True, blank=True)
+    elapsed_seconds = models.IntegerField(default=0)
+    avg_speed_kmh = models.FloatField(null=True, blank=True)
+    max_speed_kmh = models.FloatField(null=True, blank=True)
+    point_count = models.IntegerField(default=0)
+    stats_computed_at = models.DateTimeField(null=True, blank=True)
+    # Staleness key: how many Location rows were in the window when the stats were
+    # computed. The phone uploads offline-first, so points routinely land *after*
+    # the Activity row — a read compares this against a live COUNT and recomputes
+    # when they differ. No coordination, no background job, no second source of
+    # truth. (Once past _ACTIVITY_SETTLE_S the check stops, so a long history of
+    # rides doesn't pay a COUNT per row forever.)
+    stats_point_count = models.IntegerField(default=0)
+
+    class Meta:
+        unique_together = ['user', 'client_id']
+        indexes = [
+            models.Index(fields=['user', '-start_time'], name='tracker_act_user_start_idx'),
+        ]
+        ordering = ['-start_time']
+
+    def __str__(self):
+        return f"{self.kind} @ {self.start_time}"
+
+    @property
+    def locations(self):
+        """The track, derived on demand and never stored. Mirrors Adventure.locations.
+
+        Ordered by ``(timestamp, id)`` rather than timestamp alone: imported
+        history gets ids in file order, which need not match time order, so a bare
+        timestamp sort leaves same-second fixes in an arbitrary sequence — the same
+        trap transport_tasks documents for its own paging cursor.
+        """
+        return Location.objects.filter(
+            device=self.device,
+            timestamp__gte=self.start_time,
+            timestamp__lte=self.end_time,
+        ).order_by('timestamp', 'id')

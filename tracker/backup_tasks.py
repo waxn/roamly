@@ -238,6 +238,38 @@ def _build_health_workouts_data(user):
     ]
 
 
+def _build_activities_data(user):
+    """Build serializable recorded activities for a user's backup.
+
+    Shared with views._write_backup_json, like the adventures / journals /
+    places / health-workouts builders, so the download and the S3 backup stay
+    identical by construction.
+
+    A list builder rather than a stream: the streaming carve-out exists only for
+    locations and health samples, which are whole-history sized. Activities are
+    a handful per week.
+
+    Only the envelope is stored. The derived stats are deliberately left out —
+    they are a cache over Location rows that the restore will recompute anyway,
+    and a restore into a partially-populated history should report what is
+    actually there rather than a figure from another database.
+    """
+    from .models import Activity
+
+    return [
+        {
+            'client_id': a.client_id,
+            'device_id': a.device.device_id if a.device_id else '',
+            'kind': a.kind,
+            'title': a.title,
+            'notes': a.notes,
+            'start_time': a.start_time,
+            'end_time': a.end_time,
+        }
+        for a in Activity.objects.filter(user=user).select_related('device').order_by('start_time')
+    ]
+
+
 def _build_backup_json(user):
     """Build the backup JSON data dict for a user (same format as export_backup view)."""
     from .models import Device, Location, APIKey, HealthSample
@@ -248,7 +280,7 @@ def _build_backup_json(user):
 
     data = {
         'meta': {
-            'version': 11,
+            'version': 12,
             'exported_at': timezone.now().isoformat(),
             'username': user.username,
         },
@@ -291,6 +323,7 @@ def _build_backup_json(user):
         # without READ_HEALTH_DATA_HISTORY, and a source app can retract records
         # at any time, so this copy is the long-term archive.
         'health_workouts': _build_health_workouts_data(user),
+        'activities': _build_activities_data(user),
         'health_samples': list(
             HealthSample.objects.filter(user=user).order_by('start_time').values(
                 'kind', 'value', 'start_time', 'end_time', 'zone_offset_seconds',
