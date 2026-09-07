@@ -1,0 +1,285 @@
+{% extends 'tracker/base.html' %}
+{% block title %}Activity - Roamly{% endblock %}
+
+{% block extra_css %}
+<style>
+.ad-back { color:var(--text-muted); text-decoration:none; font-size:0.85rem; }
+.ad-back:hover { color:var(--primary); }
+.ad-head { display:flex; align-items:flex-start; gap:14px; margin:10px 0 4px; }
+.ad-glyph { font-size:2rem; }
+.ad-title { font-family:var(--font-display); font-size:1.7rem; margin:0; }
+.ad-when { color:var(--text-muted); font-size:0.85rem; font-family:var(--font-mono); }
+.ad-actions { margin-left:auto; display:flex; gap:8px; }
+.ad-btn {
+    padding:6px 14px; border:1px solid var(--border); border-radius:8px;
+    background:var(--bg-elevated); color:var(--text); cursor:pointer; font-size:0.85rem;
+    font-family:var(--font-body);
+}
+.ad-btn:hover { border-color:var(--primary); }
+.ad-btn.danger:hover { border-color:var(--danger); color:var(--danger); }
+.ad-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:12px; margin:18px 0; }
+.ad-stat { padding:14px; border:1px solid var(--border); border-radius:10px; background:var(--bg-elevated); }
+.ad-stat .v { font-family:var(--font-mono); font-size:1.4rem; font-weight:600; }
+.ad-stat .l { color:var(--text-muted); font-size:0.75rem; margin-top:2px; }
+.ad-card { border:1px solid var(--border); border-radius:10px; background:var(--bg-elevated); padding:16px; margin-bottom:18px; }
+.ad-card h2 { font-family:var(--font-display); font-size:1.05rem; margin:0 0 12px; }
+#ad-map { height:420px; border-radius:8px; overflow:hidden; }
+#ad-chart-wrap { position:relative; }
+#ad-chart { width:100%; height:200px; display:block; }
+.ad-pending { color:var(--clay-amber); font-size:0.9rem; }
+.ad-note { color:var(--text-muted); font-size:0.8rem; margin-top:10px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<a class="ad-back" href="/activities/">&larr; Activities</a>
+
+<div class="ad-head">
+    <div class="ad-glyph" id="ad-glyph">📍</div>
+    <div>
+        <h1 class="ad-title" id="ad-title">Loading…</h1>
+        <div class="ad-when" id="ad-when"></div>
+    </div>
+    <div class="ad-actions">
+        <button class="ad-btn" id="ad-rename">Rename</button>
+        <button class="ad-btn danger" id="ad-delete">Delete</button>
+    </div>
+</div>
+
+<div class="ad-stats" id="ad-stats" aria-busy="true">
+    <div class="ad-stat"><div class="v"><span class="skeleton skel-statval"></span></div><div class="l">distance</div></div>
+    <div class="ad-stat"><div class="v"><span class="skeleton skel-statval"></span></div><div class="l">moving</div></div>
+    <div class="ad-stat"><div class="v"><span class="skeleton skel-statval"></span></div><div class="l">elapsed</div></div>
+    <div class="ad-stat"><div class="v"><span class="skeleton skel-statval"></span></div><div class="l">avg</div></div>
+</div>
+
+<div class="ad-card">
+    <h2>Route</h2>
+    <div id="ad-map"></div>
+    <div class="ad-note" id="ad-note"></div>
+</div>
+
+<div class="ad-card">
+    <h2>Speed</h2>
+    <div id="ad-chart-wrap"><canvas id="ad-chart"></canvas></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const ACTIVITY_ID = {{ activity_id }};
+const csrfToken = '{{ csrf_token }}';
+const GLYPH = { ride:'🚲', run:'🏃', walk:'🚶', hike:'🥾', other:'📍' };
+const LABEL = { ride:'Ride', run:'Run', walk:'Walk', hike:'Hike', other:'Activity' };
+
+const theme = localStorage.getItem('roamly_theme') || 'dark';
+const basemap = theme === 'light'
+    ? 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png{{ CARTO_TILE_QS|escapejs }}'
+    : 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png{{ CARTO_TILE_QS|escapejs }}';
+
+let amap = null, amapLoaded = false;
+
+function isImperial() { return (localStorage.getItem('roamly_speed_unit') || 'kmh') === 'mph'; }
+function toDist(km) { return isImperial() ? km * 0.621371 : km; }
+function distUnit() { return isImperial() ? 'mi' : 'km'; }
+function speedUnit() { return isImperial() ? 'mph' : 'km/h'; }
+function cssVar(n, fb) {
+    return getComputedStyle(document.documentElement).getPropertyValue(n).trim() || fb;
+}
+function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c =>
+        ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+function fmtDuration(s) {
+    if (!s) return '—';
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+/** Round tick *step* (1/2/2.5/5 x 10^n), then multiply — the same approach
+ *  health.html uses, because rounding the ceiling instead puts gridlines on
+ *  values the labels never show. */
+function niceAxis(max, ticks) {
+    if (!(max > 0)) return { top: 1, step: 1 / ticks };
+    const raw = max / ticks;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const n = raw / mag;
+    const step = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
+    return { top: step * ticks, step };
+}
+
+function renderActivity(a) {
+    document.getElementById('ad-glyph').textContent = GLYPH[a.kind] || GLYPH.other;
+    document.getElementById('ad-title').textContent = a.title || LABEL[a.kind] || 'Activity';
+    document.getElementById('ad-when').textContent =
+        new Date(a.start).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' });
+
+    const stats = document.getElementById('ad-stats');
+    stats.setAttribute('aria-busy', 'false');
+    if (a.computed_at === null) {
+        stats.innerHTML = `<div class="ad-pending">Waiting for this activity's points to finish
+            uploading. The figures fill in by themselves once they land.</div>`;
+        return;
+    }
+    const tile = (v, l) => `<div class="ad-stat"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+    stats.innerHTML = [
+        tile(toDist(a.distance_km ?? 0).toFixed(2) + ' ' + distUnit(), 'distance'),
+        tile(fmtDuration(a.moving_seconds), 'moving'),
+        tile(fmtDuration(a.elapsed_seconds), 'elapsed'),
+        tile((a.avg_speed_kmh != null ? toDist(a.avg_speed_kmh).toFixed(1) : '—') + ' ' + speedUnit(), 'avg speed'),
+        tile((a.max_speed_kmh != null ? toDist(a.max_speed_kmh).toFixed(1) : '—') + ' ' + speedUnit(), 'max speed'),
+        tile((a.point_count || 0).toLocaleString(), 'points'),
+    ].join('');
+}
+
+function ensureMap() {
+    if (amap) return;
+    amap = new maplibregl.Map({
+        container: 'ad-map',
+        style: {
+            version: 8,
+            sources: { base: { type:'raster', tiles:[basemap], tileSize:256,
+                               attribution:'© OpenStreetMap © CARTO' } },
+            layers: [{ id:'base', type:'raster', source:'base' }],
+        },
+        center: [0, 20], zoom: 1, attributionControl: false,
+    });
+    amap.on('load', () => { amapLoaded = true; });
+}
+
+function renderTrack(track) {
+    ensureMap();
+    const note = document.getElementById('ad-note');
+    if (!track.segments || !track.segments.length) {
+        note.textContent = 'No GPS points landed in this activity’s window yet.';
+        return;
+    }
+    note.textContent = `${track.point_count.toLocaleString()} points`;
+
+    const draw = () => {
+        if (!amapLoaded) { setTimeout(draw, 60); return; }
+        amap.resize();
+        ['ad-line','ad-start','ad-end'].forEach(id => { if (amap.getLayer(id)) amap.removeLayer(id); });
+        ['line','startend'].forEach(id => { if (amap.getSource(id)) amap.removeSource(id); });
+
+        amap.addSource('line', { type:'geojson', data:{ type:'Feature',
+            geometry:{ type:'MultiLineString', coordinates: track.segments } } });
+        amap.addLayer({ id:'ad-line', type:'line', source:'line',
+            layout:{ 'line-join':'round', 'line-cap':'round' },
+            paint:{ 'line-color':'#e8763d', 'line-width':4, 'line-opacity':0.9 } });
+
+        if (track.start && track.end) {
+            amap.addSource('startend', { type:'geojson', data:{ type:'FeatureCollection', features:[
+                { type:'Feature', properties:{kind:'start'}, geometry:{type:'Point', coordinates:track.start} },
+                { type:'Feature', properties:{kind:'end'},   geometry:{type:'Point', coordinates:track.end} },
+            ]}});
+            amap.addLayer({ id:'ad-start', type:'circle', source:'startend', filter:['==','kind','start'],
+                paint:{ 'circle-radius':7, 'circle-color':'#7ba3b8', 'circle-stroke-width':2.5, 'circle-stroke-color':'#fff' } });
+            amap.addLayer({ id:'ad-end', type:'circle', source:'startend', filter:['==','kind','end'],
+                paint:{ 'circle-radius':7, 'circle-color':'#d0694a', 'circle-stroke-width':2.5, 'circle-stroke-color':'#fff' } });
+        }
+
+        const b = new maplibregl.LngLatBounds();
+        track.segments.forEach(seg => seg.forEach(c => b.extend(c)));
+        if (!b.isEmpty()) amap.fitBounds(b, { padding:40, maxZoom:16, duration:300 });
+    };
+    setTimeout(draw, 120);
+}
+
+/** Speed over the track, hand-rolled on canvas — this app has no charting
+ *  library, and stats.html / health.html carry same-named helpers with
+ *  incompatible signatures, so this is its own compact copy rather than a shared
+ *  import that would have to satisfy both. */
+function drawSpeedChart(speeds) {
+    const flat = [];
+    speeds.forEach(seg => seg.forEach(v => flat.push(isImperial() ? v * 0.621371 : v)));
+    const canvas = document.getElementById('ad-chart');
+    const wrap = document.getElementById('ad-chart-wrap');
+    const dpr = window.devicePixelRatio || 1;
+    const w = wrap.clientWidth, h = 200;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    canvas.style.height = h + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+
+    if (flat.length < 2) {
+        ctx.fillStyle = cssVar('--text-muted', '#888');
+        ctx.font = '13px system-ui';
+        ctx.fillText('Not enough points to chart.', 12, h / 2);
+        return;
+    }
+
+    const TICKS = 4;
+    const { top, step } = niceAxis(Math.max(...flat), TICKS);
+    ctx.font = '11px ui-monospace, monospace';
+    let gutter = 0;
+    for (let i = 0; i <= TICKS; i++) {
+        gutter = Math.max(gutter, ctx.measureText((step * i).toFixed(0)).width);
+    }
+    const padL = gutter + 12, padR = 8, padT = 10, padB = 22;
+    const plotW = w - padL - padR, plotH = h - padT - padB;
+
+    ctx.strokeStyle = cssVar('--border', '#333');
+    ctx.fillStyle = cssVar('--text-muted', '#888');
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= TICKS; i++) {
+        const y = padT + plotH - (i / TICKS) * plotH;
+        ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+        ctx.fillText((step * i).toFixed(0), padL - gutter - 6, y + 4);
+    }
+    ctx.fillText(speedUnit(), padL - gutter - 6, padT - 2);
+
+    ctx.strokeStyle = cssVar('--primary', '#e8763d');
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    flat.forEach((v, i) => {
+        const x = padL + (i / (flat.length - 1)) * plotW;
+        const y = padT + plotH - Math.min(v / top, 1) * plotH;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+}
+
+async function rename() {
+    const current = document.getElementById('ad-title').textContent;
+    const next = window.prompt('Activity name', current);
+    if (next === null) return;
+    const r = await fetch(`/api/activities/${ACTIVITY_ID}/update/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ title: next }),
+    });
+    if (r.ok) {
+        document.getElementById('ad-title').textContent = next || 'Activity';
+        window.roamlyToast('Renamed', { type: 'success' });
+    } else {
+        window.roamlyToast('Could not rename', { type: 'error' });
+    }
+}
+
+async function remove() {
+    const ok = await window.roamlyConfirm(
+        'Delete this activity? Your GPS points stay in your location history — only the ' +
+        'activity record is removed.',
+        { title: 'Delete activity', danger: true, confirmText: 'Delete' });
+    if (!ok) return;
+    const r = await fetch(`/api/activities/${ACTIVITY_ID}/delete/`, {
+        method: 'POST', headers: { 'X-CSRFToken': csrfToken },
+    });
+    if (r.ok) window.location.href = '/activities/';
+    else window.roamlyToast('Could not delete', { type: 'error' });
+}
+
+document.getElementById('ad-rename').addEventListener('click', rename);
+document.getElementById('ad-delete').addEventListener('click', remove);
+
+fetch(`/api/activities/${ACTIVITY_ID}/`)
+    .then(r => r.json())
+    .then(d => { if (d.activity) renderActivity(d.activity); });
+
+fetch(`/api/activities/${ACTIVITY_ID}/track/`)
+    .then(r => r.json())
+    .then(d => { renderTrack(d); drawSpeedChart(d.speeds || []); });
+</script>
+{% endblock %}

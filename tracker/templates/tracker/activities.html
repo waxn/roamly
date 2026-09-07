@@ -1,0 +1,139 @@
+{% extends 'tracker/base.html' %}
+{% block title %}Activities - Roamly{% endblock %}
+
+{% block extra_css %}
+<style>
+.act-head { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:6px; }
+.act-head h1 { margin:0; font-family:var(--font-display); font-size:1.9rem; }
+.act-sub { color:var(--text-muted); font-size:0.9rem; margin-bottom:20px; }
+.act-filters { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
+.act-chip {
+    padding:6px 14px; border:1px solid var(--border); border-radius:999px;
+    background:var(--bg-elevated); color:var(--text-muted); cursor:pointer;
+    font-size:0.85rem; font-family:var(--font-body);
+}
+.act-chip.on { background:var(--primary); border-color:var(--primary); color:#fff; }
+.act-grid { display:grid; gap:12px; }
+.act-card {
+    display:flex; align-items:center; gap:16px; padding:16px;
+    border:1px solid var(--border); border-radius:10px; background:var(--bg-elevated);
+    text-decoration:none; color:inherit;
+}
+.act-card:hover { border-color:var(--primary); }
+.act-glyph { font-size:1.6rem; width:38px; text-align:center; flex-shrink:0; }
+.act-main { flex:1; min-width:0; }
+.act-title { font-weight:600; margin-bottom:2px; }
+.act-when { color:var(--text-muted); font-size:0.8rem; font-family:var(--font-mono); }
+.act-nums { display:flex; gap:22px; flex-shrink:0; }
+.act-num .v { font-family:var(--font-mono); font-weight:600; }
+.act-num .l { color:var(--text-muted); font-size:0.7rem; text-align:right; }
+.act-pending { color:var(--clay-amber); font-size:0.78rem; }
+.act-empty { color:var(--text-muted); padding:40px 0; text-align:center; }
+@media (max-width:640px) {
+    .act-card { flex-wrap:wrap; }
+    .act-nums { width:100%; justify-content:space-between; gap:0; }
+    .act-num .l { text-align:left; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="act-head"><h1>Activities</h1></div>
+<div class="act-sub">Rides, walks and runs you recorded deliberately. The GPS points are the
+    same ones on your map — an activity is a view over them, not a separate copy.</div>
+
+<div class="act-filters" id="act-filters"></div>
+
+<div class="act-grid" id="act-list" aria-busy="true">
+    <div class="skeleton skel-card" style="height:74px"></div>
+    <div class="skeleton skel-card" style="height:74px"></div>
+    <div class="skeleton skel-card" style="height:74px"></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const KINDS = [
+    ['',      'All'],
+    ['ride',  'Ride'],
+    ['run',   'Run'],
+    ['walk',  'Walk'],
+    ['hike',  'Hike'],
+    ['other', 'Other'],
+];
+const GLYPH = { ride:'🚲', run:'🏃', walk:'🚶', hike:'🥾', other:'📍' };
+let activeKind = '';
+
+function isImperial() { return (localStorage.getItem('roamly_speed_unit') || 'kmh') === 'mph'; }
+function fmtDistance(km) {
+    if (km == null) return '—';
+    return isImperial() ? (km * 0.621371).toFixed(2) + ' mi' : km.toFixed(2) + ' km';
+}
+function fmtDuration(s) {
+    if (!s) return '—';
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c =>
+        ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+function renderFilters() {
+    document.getElementById('act-filters').innerHTML = KINDS.map(([slug, label]) =>
+        `<button class="act-chip${slug === activeKind ? ' on' : ''}" data-kind="${slug}">${label}</button>`
+    ).join('');
+    document.querySelectorAll('#act-filters .act-chip').forEach(btn => {
+        btn.addEventListener('click', () => { activeKind = btn.dataset.kind; renderFilters(); load(); });
+    });
+}
+
+function render(rows) {
+    const el = document.getElementById('act-list');
+    el.setAttribute('aria-busy', 'false');
+    if (!rows.length) {
+        el.innerHTML = `<div class="act-empty">No activities recorded yet.<br>
+            Start one from the Record button on the map in the Roamly app.</div>`;
+        return;
+    }
+    el.innerHTML = rows.map(a => {
+        const when = new Date(a.start).toLocaleString([], {
+            year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+        // computed_at is null until the server has seen the points. Saying so beats
+        // showing a confident 0.00 km for a ride still uploading from a tunnel.
+        const nums = a.computed_at === null
+            ? `<div class="act-pending">waiting for points…</div>`
+            : `<div class="act-nums">
+                 <div class="act-num"><div class="v">${fmtDistance(a.distance_km)}</div><div class="l">distance</div></div>
+                 <div class="act-num"><div class="v">${fmtDuration(a.moving_seconds)}</div><div class="l">moving</div></div>
+                 <div class="act-num"><div class="v">${a.avg_speed_kmh != null ? (isImperial() ? (a.avg_speed_kmh*0.621371).toFixed(1) : a.avg_speed_kmh.toFixed(1)) : '—'}</div><div class="l">${isImperial() ? 'mph' : 'km/h'} avg</div></div>
+               </div>`;
+        return `<a class="act-card" href="/activities/${a.id}/">
+            <div class="act-glyph">${GLYPH[a.kind] || GLYPH.other}</div>
+            <div class="act-main">
+                <div class="act-title">${escapeHtml(a.title || (KINDS.find(k => k[0] === a.kind) || [,'Activity'])[1])}</div>
+                <div class="act-when">${when}</div>
+            </div>
+            ${nums}
+        </a>`;
+    }).join('');
+}
+
+function load() {
+    const el = document.getElementById('act-list');
+    el.setAttribute('aria-busy', 'true');
+    const qs = activeKind ? `?kind=${encodeURIComponent(activeKind)}` : '';
+    fetch(`/api/activities/${qs}`)
+        .then(r => r.json())
+        .then(d => render(d.activities || []))
+        .catch(() => {
+            el.setAttribute('aria-busy', 'false');
+            el.innerHTML = `<div class="act-empty">Couldn't load activities.
+                <button class="act-chip" onclick="load()">Retry</button></div>`;
+        });
+}
+
+renderFilters();
+load();
+</script>
+{% endblock %}
