@@ -34,6 +34,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Check
@@ -113,6 +114,8 @@ import kotlin.math.sqrt
 fun MapScreen(
     viewModel: MapViewModel = hiltViewModel(),
     onNavigateToDate: ((String) -> Unit)? = null,
+    /** Open the activity recorder. Null hides the button (e.g. in a preview). */
+    onRecord: (() -> Unit)? = null,
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -328,6 +331,13 @@ fun MapScreen(
             modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // Record sits above the zoom pair rather than in the nav: the bar is full
+            // at six tabs, and this is where you already are before heading out.
+            if (onRecord != null) {
+                ZoomFab(icon = Icons.Rounded.FiberManualRecord, desc = "Record an activity") {
+                    onRecord()
+                }
+            }
             ZoomFab(icon = Icons.Rounded.Add, desc = "Zoom in") { mapView.controller.zoomIn() }
             ZoomFab(icon = Icons.Rounded.Remove, desc = "Zoom out") { mapView.controller.zoomOut() }
         }

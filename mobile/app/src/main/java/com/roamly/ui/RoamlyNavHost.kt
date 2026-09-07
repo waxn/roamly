@@ -52,6 +52,7 @@ import com.roamly.ui.map.MapViewModel
 import com.roamly.ui.settings.SettingsScreen
 import com.roamly.ui.search.SearchTabScreen
 import com.roamly.ui.stats.StatsScreen
+import com.roamly.ui.record.RecordScreen
 import com.roamly.ui.trips.TripDetailScreen
 import com.roamly.ui.update.UpdateBanner
 import com.roamly.ui.update.UpdateViewModel
@@ -65,6 +66,12 @@ sealed class Screen(val route: String, val label: String) {
     object Settings   : Screen("settings",    "Settings")
     object Login      : Screen("login",       "Login")
     object TripDetail : Screen("trips/{tripId}", "Trip")
+    // A real route with no tab, like TripDetail: the bar is full at six, and
+    // Record is reached from the map where you already are before heading out.
+    // Being a route rather than a swap-in-place boolean also means system back
+    // just works, with no BackHandler — recording continues in the foreground
+    // service either way, which the ongoing notification says.
+    object Record     : Screen("record",      "Record")
 }
 
 // Search sits in the middle slot always — it hosts history search, plus the AI
@@ -119,7 +126,8 @@ fun RoamlyNavHost() {
     }
 
     val showBottomBar = currentDestination?.route != Screen.Login.route &&
-            currentDestination?.route != Screen.TripDetail.route
+            currentDestination?.route != Screen.TripDetail.route &&
+            currentDestination?.route != Screen.Record.route
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -187,7 +195,15 @@ fun RoamlyNavHost() {
                     }
                 )
             }
-            composable(Screen.Map.route) { MapScreen(viewModel = mapViewModel) }
+            composable(Screen.Map.route) {
+                MapScreen(
+                    viewModel = mapViewModel,
+                    onRecord = { navController.navigate(Screen.Record.route) },
+                )
+            }
+            composable(Screen.Record.route) {
+                RecordScreen(onBack = { navController.popBackStack() })
+            }
             composable(Screen.Adventures.route) {
                 GroupsScreen(
                     onTripClick = { id -> navController.navigate("trips/$id") },
