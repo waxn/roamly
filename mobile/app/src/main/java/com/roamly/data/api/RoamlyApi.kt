@@ -341,6 +341,27 @@ interface RoamlyApi {
     @POST("api/health/workouts/import/")
     suspend fun importHealthWorkouts(@Body body: HealthWorkoutsPush): Response<HealthPushResponse>
 
+    // --- Activities (recorded rides / walks / runs) ---
+
+    @POST("api/activities/")
+    suspend fun createActivity(@Body body: ActivityCreateRequest): Response<ActivityCreateResponse>
+
+    @GET("api/activities/")
+    suspend fun getActivities(
+        @Query("limit") limit: Int? = null,
+        @Query("offset") offset: Int? = null,
+        @Query("kind") kind: String? = null,
+    ): Response<ActivityListResponse>
+
+    @GET("api/activities/{id}/")
+    suspend fun getActivity(@Path("id") id: Int): Response<ActivityDetailResponse>
+
+    @GET("api/activities/{id}/track/")
+    suspend fun getActivityTrack(@Path("id") id: Int): Response<ActivityTrackResponse>
+
+    @POST("api/activities/{id}/delete/")
+    suspend fun deleteActivity(@Path("id") id: Int): Response<Unit>
+
     /** hc_ids already on the server, so the browse list can mark rows as imported. */
     @GET("api/health/workouts/imported/")
     suspend fun getImportedWorkoutIds(

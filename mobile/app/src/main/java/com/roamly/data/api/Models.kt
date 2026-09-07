@@ -734,3 +734,66 @@ data class HealthStatusResponse(
     val sources: List<HealthSourceRow> = emptyList(),
     @SerializedName("preferred_source") val preferredSource: String = "",
 )
+
+// --- Activities (recorded rides / walks / runs) ---
+
+/** The envelope posted on Stop. Everything else is derived server-side from the
+ *  Location rows in the window, so this is all the phone has to get right. */
+data class ActivityCreateRequest(
+    @SerializedName("client_id") val clientId: String,
+    @SerializedName("device_id") val deviceId: String,
+    val kind: String,
+    val title: String = "",
+    val notes: String = "",
+    /** ISO-8601 UTC, same format UploadWorker stamps points with. */
+    val start: String,
+    val end: String,
+)
+
+data class ActivityDto(
+    val id: Int = 0,
+    @SerializedName("client_id") val clientId: String = "",
+    val kind: String = "other",
+    val title: String = "",
+    val notes: String = "",
+    @SerializedName("device_id") val deviceId: String = "",
+    val start: String = "",
+    val end: String = "",
+    @SerializedName("elapsed_seconds") val elapsedSeconds: Int = 0,
+    @SerializedName("moving_seconds") val movingSeconds: Int? = null,
+    @SerializedName("distance_km") val distanceKm: Double? = null,
+    @SerializedName("avg_speed_kmh") val avgSpeedKmh: Double? = null,
+    @SerializedName("max_speed_kmh") val maxSpeedKmh: Double? = null,
+    @SerializedName("point_count") val pointCount: Int = 0,
+    /** Null until the server has computed stats — an activity can be saved before
+     *  its points have finished uploading. */
+    @SerializedName("computed_at") val computedAt: String? = null,
+    @SerializedName("created_at") val createdAt: String = "",
+)
+
+data class ActivityCreateResponse(
+    val status: String = "",
+    val created: Boolean = false,
+    val activity: ActivityDto? = null,
+)
+
+data class ActivityListResponse(
+    val activities: List<ActivityDto> = emptyList(),
+    val total: Int = 0,
+    val offset: Int = 0,
+    val limit: Int = 0,
+    @SerializedName("has_more") val hasMore: Boolean = false,
+)
+
+data class ActivityDetailResponse(
+    val activity: ActivityDto? = null,
+)
+
+/** Gap-split, decimated track. `speeds` is parallel to `segments` point-for-point. */
+data class ActivityTrackResponse(
+    val segments: List<List<List<Double>>> = emptyList(),
+    val speeds: List<List<Double>> = emptyList(),
+    @SerializedName("point_count") val pointCount: Int = 0,
+    val start: List<Double>? = null,
+    val end: List<Double>? = null,
+)

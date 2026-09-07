@@ -13,6 +13,7 @@ import androidx.core.content.ContextCompat
 import com.roamly.MainActivity
 import com.roamly.R
 import com.roamly.RoamlyApp
+import com.roamly.data.prefs.ActivitySession
 import com.roamly.data.prefs.UserPreferences
 import com.roamly.receiver.RestarterReceiver
 import com.roamly.receiver.TrackingAlarmReceiver
@@ -103,6 +104,20 @@ private const val MIN_LOGGED_SPEED_MPS = 0.45f  // ≈ 1 mph (0.44704 m/s)
 private const val SPEED_SPIKE_FACTOR = 2.5f
 private const val SPEED_SPIKE_MIN_DELTA_MPS = 3.0f  // ≈ 6.7 mph
 
+// Activity recording. A deliberately recorded ride/walk captures far harder than
+// the background life-log: ~2s fixes with the stream held through screen-off,
+// which is the only way a pocketed phone gets more than one fix per
+// MIN_ALARM_FLOOR_MS. Paid for by the user explicitly pressing Start, and bounded
+// by ACTIVITY_MAX_MS so a forgotten recording cannot flatten the battery overnight.
+private const val ACTIVITY_INTERVAL_MS = 2_000L
+private const val ACTIVITY_MAX_MS = 12 * 60 * 60_000L
+// updateNotification() runs once per saved point. At 2s that is 15x more often
+// than the shortest interval the app otherwise allows, so it gets a floor —
+// which is a no-op at every one of those intervals.
+private const val NOTIFY_MIN_INTERVAL_MS = 2_000L
+// Same reasoning for the per-point battery binder call.
+private const val BATTERY_READ_MAX_AGE_MS = 30_000L
+
 const val ACTION_STOP     = "com.roamly.STOP"
 const val ACTION_PAUSE    = "com.roamly.PAUSE"
 const val ACTION_RESUME   = "com.roamly.RESUME"
@@ -114,7 +129,11 @@ private data class TrackingConfig(
     val priority: String,
     val maxAccuracyM: Float,
     val suppressDrift: Boolean,
-)
+    /** The activity being recorded, or null for ordinary background tracking. */
+    val activity: ActivitySession? = null,
+) {
+    val recording: Boolean get() = activity != null
+}
 
 @AndroidEntryPoint
 class LocationTrackingService : Service() {
@@ -153,6 +172,12 @@ class LocationTrackingService : Service() {
     /** When a genuine fix last landed. Unlike [lastAcceptedAtMs] this is never advanced by a
      *  dwell point, so the dwell window in `saveOrDwell` can actually expire. */
     @Volatile private var lastRealFixAtMs: Long = 0L
+    /** Cached battery level + notification throttle. Both exist only because a
+     *  recording saves a point every ~2s, 15x more often than the shortest
+     *  interval the app otherwise allows; both are no-ops at those intervals. */
+    @Volatile private var lastBatteryPct: Int? = null
+    @Volatile private var lastBatteryAtMs: Long = 0L
+    @Volatile private var lastNotifyAtMs: Long = 0L
     private var configJob: Job? = null
     private var watchdogJob: Job? = null
     private var syncPrefJob: Job? = null
@@ -193,7 +218,8 @@ class LocationTrackingService : Service() {
             }
             ACTION_PAUSE  -> {
                 isPaused = true; filter.reset(); driftAnchor.reset(); cancelNextFix()
-                stopLocationUpdates(); streaming = false; releaseWakeLock(); updateNotification()
+                stopLocationUpdates(); streaming = false; releaseWakeLock()
+                updateNotification(force = true)
                 return START_STICKY
             }
             ACTION_RESUME -> {
@@ -414,17 +440,37 @@ class LocationTrackingService : Service() {
                 prefs.locationPriority,
                 prefs.maxAccuracyM,
                 prefs.suppressStationaryDrift,
-            ) { interval, priority, maxAcc, suppressDrift ->
+                prefs.activitySession,
+            ) { interval, priority, maxAcc, suppressDrift, activity ->
+                // A live session replaces the user's interval with the recording
+                // constant rather than overwriting their preference — which is why
+                // stopping restores nothing: clearing the session *is* the restore.
+                val act = activity?.takeIf {
+                    System.currentTimeMillis() - it.startedAtMs < ACTIVITY_MAX_MS
+                }
                 TrackingConfig(
-                    intervalMs = interval.coerceIn(5, 120) * 1000L,
+                    intervalMs = if (act != null) ACTIVITY_INTERVAL_MS
+                                 else interval.coerceIn(5, 120) * 1000L,
                     priority = priority,
                     maxAccuracyM = maxAcc.coerceAtLeast(1).toFloat(),
                     suppressDrift = suppressDrift,
+                    activity = act,
                 )
             }.distinctUntilChanged().collect { cfg ->
+                // The interval can change 15x when a recording starts or stops, so a
+                // dedup window and a drift anchor built under the old one must not
+                // survive into the new one.
+                if (cfg.activity?.id != currentConfig?.activity?.id) {
+                    filter.reset()
+                    driftAnchor.reset()
+                }
                 currentConfig = cfg
                 filter.minTimeBetweenMs = cfg.intervalMs
-                driftAnchor.enabled = cfg.suppressDrift
+                // DriftAnchor's thresholds are fix *counts*, not durations: at 2s an
+                // anchor would form after ~6s of near-stillness — a red light, a
+                // track-stand, unclipping — and thereafter rewrite position and force
+                // speed to 0. Wrong for a ride, right for a parked phone.
+                driftAnchor.enabled = cfg.suppressDrift && !cfg.recording
                 // Allow a fix to be up to two intervals old before it's "stale", so a
                 // freshly-acquired or post-wake fix is never dropped for lagging now().
                 filter.maxAgeMs = (cfg.intervalMs * 2).coerceAtLeast(30_000L)
@@ -460,8 +506,11 @@ class LocationTrackingService : Service() {
             // (so alarm cycles skipped the GPS request in Doze, the one place they must not),
             // never released the pinned wake lock, and left the watchdog re-arming a stream
             // the OS had already suspended.
-            streaming = screenOn
-            if (screenOn) acquireWakeLock()  // pin the CPU so stream + watchdog stay alive
+            // Recording keeps the stream armed screen-off, which is the whole
+            // point: MIN_ALARM_FLOOR_MS caps the alarm path at one fix per 15s, so a
+            // pocketed phone would otherwise draw a polygon instead of a ride.
+            streaming = screenOn || cfg.recording
+            if (streaming) acquireWakeLock()  // pin the CPU so stream + watchdog stay alive
             else releaseWakeLock()
             seedLastLocation()           // immediate first point
         } else {
@@ -469,6 +518,7 @@ class LocationTrackingService : Service() {
             streaming = false
             releaseWakeLock()
         }
+        updateNotification(force = true)
         // Always (re)anchor the Doze-proof alarm cadence.
         cancelNextFix()
         if (!isPaused) runFixCycle()     // take one now; it schedules the next + the catch-up
@@ -504,7 +554,14 @@ class LocationTrackingService : Service() {
         // skipping there would halve the cadence (the acquisition itself takes a few seconds,
         // so the save lands mid-interval and the next on-time alarm would wrongly skip it).
         val now = System.currentTimeMillis()
-        if (streaming && lastAcceptedAtMs != 0L && now - lastAcceptedAtMs < cfg.intervalMs) {
+        // While recording, freshness is judged against the *alarm* cadence, not the
+        // 2s capture interval — otherwise this skip could never fire and every alarm
+        // would launch a full acquireBestFix burst on top of a perfectly healthy
+        // stream, which is the single worst thing this mode could do to the battery.
+        // Still evidence-based: if the stream really is suspended, lastAcceptedAtMs
+        // goes stale within the window and the alarm takes over regardless.
+        val freshWindow = if (cfg.recording) alarmIntervalMs(cfg) else cfg.intervalMs
+        if (streaming && lastAcceptedAtMs != 0L && now - lastAcceptedAtMs < freshWindow) {
             scheduleNextFix(alarmIntervalMs(cfg))
             return
         }
@@ -564,6 +621,9 @@ class LocationTrackingService : Service() {
      *  after consecutive misses so network location fills indoor gaps. Only degrades the
      *  "auto" setting — explicit user choices ("high"/"balanced"/"low") are honoured exactly. */
     private fun accuracyForCurrentState(cfg: TrackingConfig): FixAccuracy {
+        // Never degrade during a recording: BALANCED frequently reports no Doppler,
+        // and live speed, max speed and the track's shape all depend on having it.
+        if (cfg.recording) return FixAccuracy.HIGH
         // Degrade after just a couple of misses so network/Wi-Fi location can supply a coarse
         // fix and keep the cadence rather than letting a slow GPS cold-start become a gap.
         return if (cfg.priority == "auto" && consecutiveMisses >= 2) FixAccuracy.BALANCED
@@ -793,7 +853,8 @@ class LocationTrackingService : Service() {
             intervalMs = intervalMs,
             minIntervalMs = intervalMs,
             maxDelayMs = intervalMs,
-            accuracy = accuracyFor(cfg.priority),  // "auto" continuous: short interval -> high
+            // Recording pins HIGH for the same reason accuracyForCurrentState does.
+            accuracy = if (cfg.recording) FixAccuracy.HIGH else accuracyFor(cfg.priority),
         )
     }
 
@@ -807,6 +868,17 @@ class LocationTrackingService : Service() {
             while (isActive) {
                 delay(WATCHDOG_CHECK_MS)
                 if (isPaused) continue
+                // Safety valve for a recording the user forgot to stop. It has to live
+                // here, not only in the config transform: that transform re-runs only
+                // when one of the prefs emits, so a ride left running overnight would
+                // never re-evaluate its own age — and this mode holds a wake lock and a
+                // 2s GPS stream, which is the heaviest thing the app can do.
+                currentConfig?.activity?.let { act ->
+                    if (System.currentTimeMillis() - act.startedAtMs >= ACTIVITY_MAX_MS) {
+                        Log.w(TAG, "Recording exceeded ${ACTIVITY_MAX_MS}ms — auto-stopping")
+                        runCatching { ActivityCoordinator.stop(applicationContext, prefs) }
+                    }
+                }
                 updateNotification()
                 if (!streaming) continue
                 val cfg = currentConfig ?: continue
@@ -834,8 +906,16 @@ class LocationTrackingService : Service() {
         // stable anchor (speed 0). Pass-through when disabled or genuinely moving.
         val loc = if (driftAnchor.enabled && !isDwell) driftAnchor.resolve(rawLoc) else rawLoc
 
-        val bm = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-        val battery = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).takeIf { it >= 0 }
+        val recording = currentConfig?.recording == true
+
+        val nowMs = System.currentTimeMillis()
+        if (lastBatteryAtMs == 0L || nowMs - lastBatteryAtMs >= BATTERY_READ_MAX_AGE_MS) {
+            val bm = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+            lastBatteryPct = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                .takeIf { it >= 0 }
+            lastBatteryAtMs = nowMs
+        }
+        val battery = lastBatteryPct
 
         // Speed implied by how far we actually moved since the last accepted fix —
         // a sanity check against GPS speed glitches. lastAcceptedLocation is still
@@ -854,7 +934,12 @@ class LocationTrackingService : Service() {
                 loc.speed < MIN_LOGGED_SPEED_MPS   -> 0f   // stationary: drop GPS jitter speed
                 // Reported speed dwarfs what our displacement supports → sensor
                 // glitch (e.g. "walking but 20 mph"); use the displacement speed.
-                movedSpeed != null &&
+                // Skipped while recording: this pair was tuned for 30s deltas, and at
+                // 2s the displacement-derived movedSpeed is noise-dominated — position
+                // smoothing can make it ~0 for a genuinely moving rider, at which point
+                // a correct 8 m/s Doppler reading satisfies both clauses and gets
+                // overwritten with nonsense.
+                !recording && movedSpeed != null &&
                     loc.speed > movedSpeed * SPEED_SPIKE_FACTOR &&
                     loc.speed - movedSpeed > SPEED_SPIKE_MIN_DELTA_MPS -> movedSpeed
                 else                               -> loc.speed
@@ -872,12 +957,25 @@ class LocationTrackingService : Service() {
         lastAcceptedLocation = loc
         lastAcceptedAtMs = System.currentTimeMillis()
         if (!isDwell) lastRealFixAtMs = lastAcceptedAtMs
-        runCatching { CsvPointLogger.appendPoint(applicationContext, point) }
-            .onFailure { Log.e(TAG, "Failed to append point CSV", it) }
+        // Skipped while recording: it mkdirs + opens + closes under a global lock per
+        // point, which is thousands of file operations across a ride for a Diagnostics
+        // debugging aid.
+        if (!recording) {
+            runCatching { CsvPointLogger.appendPoint(applicationContext, point) }
+                .onFailure { Log.e(TAG, "Failed to append point CSV", it) }
+        }
         Log.d(TAG, "Saved ${loc.latitude},${loc.longitude} acc=${loc.accuracy}m")
         val now = System.currentTimeMillis()
-        val unsynced = db.pointDao().unsyncedCount()
         val reachedTimeThreshold = now - lastUploadScheduleAt >= UPLOAD_SCHEDULE_MIN_INTERVAL_MS
+        // While recording, uploads go purely on the clock. The count trigger would fire
+        // every ~20s at a 2s interval; on the clock it is one batch a minute of ~30
+        // points, comfortably inside the 500-point cap. Checking the threshold first
+        // also skips the per-point COUNT query below.
+        if (recording && !reachedTimeThreshold) {
+            updateNotification()
+            return
+        }
+        val unsynced = db.pointDao().unsyncedCount()
         val shouldSchedule = reachedTimeThreshold || unsynced >= UPLOAD_BATCH_TRIGGER_COUNT
         if (shouldSchedule) {
             lastUploadScheduleAt = now
@@ -960,6 +1058,11 @@ class LocationTrackingService : Service() {
             "\n⚠ Exact alarms denied — Doze cadence limited to ~15 min" else ""
         val warn = batteryWarn + alarmWarn
         if (isPaused) return "Tracking is paused$warn"
+        currentConfig?.activity?.let { act ->
+            val mins = ((System.currentTimeMillis() - act.startedAtMs) / 60_000L)
+                .coerceAtLeast(0)
+            return "Recording ${act.kind} · ${mins}m$warn"
+        }
         val loc = lastAcceptedLocation ?: return "Waiting for the next fix$warn"
         val ageSec = ((System.currentTimeMillis() - lastAcceptedAtMs) / 1000L).coerceAtLeast(0)
         val accuracy = if (loc.hasAccuracy()) "${loc.accuracy.toInt()}m" else "unknown accuracy"
@@ -971,7 +1074,12 @@ class LocationTrackingService : Service() {
         return "Last fix $age · $accuracy$warn"
     }
 
-    private fun updateNotification() {
+    /** [force] bypasses the throttle for a state change the user must see at once
+     *  (pause, resume, a recording starting or stopping). */
+    private fun updateNotification(force: Boolean = false) {
+        val now = SystemClock.elapsedRealtime()
+        if (!force && now - lastNotifyAtMs < NOTIFY_MIN_INTERVAL_MS) return
+        lastNotifyAtMs = now
         getSystemService(NotificationManager::class.java)
             .notify(NOTIFICATION_ID, buildNotification())
     }

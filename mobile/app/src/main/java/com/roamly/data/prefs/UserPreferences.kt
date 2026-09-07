@@ -15,6 +15,14 @@ import javax.inject.Singleton
 
 private val Context.dataStore by preferencesDataStore(name = "roamly_prefs")
 
+/** An in-progress activity recording. [id] is the phone-minted client id the
+ *  server dedupes the eventual save on. */
+data class ActivitySession(
+    val id: String,
+    val startedAtMs: Long,
+    val kind: String,
+)
+
 @Singleton
 class UserPreferences @Inject constructor(
     @ApplicationContext private val context: Context
@@ -49,6 +57,15 @@ class UserPreferences @Inject constructor(
         private val KEY_AUTO_START_TRACKING    = booleanPreferencesKey("auto_start_tracking")
         private val KEY_SYNC_ON_MOBILE_DATA    = booleanPreferencesKey("sync_on_mobile_data")
         private val KEY_SUPPRESS_DRIFT         = booleanPreferencesKey("suppress_stationary_drift")
+
+        // Activity recording. A non-blank id IS the "recording right now" state.
+        // It lives in DataStore so it survives a process kill — the service resumes
+        // the recording rather than stranding a high-frequency override — and
+        // clearing it *is* the restore: normal capture is rebuilt from the user's
+        // own untouched prefs, so there is nothing stashed that could be left behind.
+        private val KEY_ACTIVITY_ID            = stringPreferencesKey("activity_id")
+        private val KEY_ACTIVITY_STARTED_AT    = longPreferencesKey("activity_started_at")
+        private val KEY_ACTIVITY_KIND          = stringPreferencesKey("activity_kind")
 
         // Last sync result (written by UploadWorker after every run)
         private val KEY_LAST_SYNC_TIME    = longPreferencesKey("last_sync_time")
@@ -103,6 +120,18 @@ class UserPreferences @Inject constructor(
     val syncOnMobileData:      Flow<Boolean> = context.dataStore.data.map { it[KEY_SYNC_ON_MOBILE_DATA] ?: true }
     /** Snap wandering GPS fixes to a stable anchor while parked (suppresses stationary drift). */
     val suppressStationaryDrift: Flow<Boolean> = context.dataStore.data.map { it[KEY_SUPPRESS_DRIFT] ?: true }
+
+    /** The activity being recorded, or null when not recording.
+     *
+     *  One flow rather than three so the service can combine it with the four
+     *  capture prefs: `combine` has a five-arity overload and a sixth argument
+     *  would force the vararg form. */
+    val activitySession: Flow<ActivitySession?> = context.dataStore.data.map { p ->
+        val id = p[KEY_ACTIVITY_ID] ?: ""
+        val startedAt = p[KEY_ACTIVITY_STARTED_AT] ?: 0L
+        if (id.isBlank() || startedAt <= 0L) null
+        else ActivitySession(id, startedAt, p[KEY_ACTIVITY_KIND] ?: "other")
+    }
 
     // ── Last sync result ───────────────────────────────────────────────────
 
@@ -212,6 +241,23 @@ class UserPreferences @Inject constructor(
 
     suspend fun setSuppressStationaryDrift(enabled: Boolean) {
         context.dataStore.edit { it[KEY_SUPPRESS_DRIFT] = enabled }
+    }
+
+    suspend fun startActivity(id: String, kind: String, startedAtMs: Long) {
+        context.dataStore.edit {
+            it[KEY_ACTIVITY_ID] = id
+            it[KEY_ACTIVITY_KIND] = kind
+            it[KEY_ACTIVITY_STARTED_AT] = startedAtMs
+        }
+    }
+
+    /** End the recording: one atomic edit that cannot half-apply. */
+    suspend fun clearActivity() {
+        context.dataStore.edit {
+            it.remove(KEY_ACTIVITY_ID)
+            it.remove(KEY_ACTIVITY_KIND)
+            it.remove(KEY_ACTIVITY_STARTED_AT)
+        }
     }
 
     suspend fun setLastUpdateCheck(time: Long) {
