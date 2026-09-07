@@ -11,6 +11,14 @@ This module computes everything once and stores it on the per-user
 from cache_gen on purpose**: snapshots refresh once a night (the scheduler below)
 or on demand (the "recalculate" button), not on every push.
 
+A refresh is **incremental by default**: the expensive streaming work is cached
+per UTC day in ``StatsSnapshot.partials_json`` (see ``stats_partials``), so a run
+only re-reads the days that could have changed — since the last completed run,
+plus an overlap — and rolls the all-time payloads up from the day map. A full
+whole-history pass still happens whenever it must (first run, a version bump, or
+history appearing *before* what the map covers) and can always be asked for
+explicitly from the recalculate menu.
+
 No external scheduler/queue — mirrors ``backup_tasks``: a daemon thread started
 from ``apps.ready()`` loops and runs due work.
 """
@@ -23,6 +31,8 @@ from datetime import timedelta
 
 from django.db import connection, close_old_connections
 from django.utils import timezone
+
+from . import stats_partials
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +223,6 @@ def _stats_scheduler_loop():
             # fresh, healthy connection for each sweep.
             close_old_connections()
 
-            today = timezone.localdate()
             # NOTE the .order_by(): Location has Meta.ordering = ['-timestamp'],
             # and a values_list(...).distinct() inherits it — which forces the
             # ordering column into the SELECT and *breaks* the DISTINCT, so this

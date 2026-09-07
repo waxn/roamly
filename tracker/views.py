@@ -3442,6 +3442,16 @@ def _compute_transport_breakdown_from_qs(qs):
             for _ts, km in _gated_distance_segments(pts, initial_state='MOVING'):
                 bucket['km'] += km
 
+    return _transport_payload(per_mode, unclassified)
+
+
+def _transport_payload(per_mode, unclassified):
+    """Shape ``{mode: {'km','points','seconds'}}`` totals into the API payload.
+
+    Split out so the live whole-history pass above and the snapshot's per-day
+    roll-up (``stats_partials``) produce byte-identical output rather than two
+    hand-copied tails that drift.
+    """
     modes = [
         {
             'mode': m,
@@ -3635,9 +3645,16 @@ def yearly_overview_api(request):
     return JsonResponse(result)
 
 
-def _compute_yearly_payload(user):
+def _compute_yearly_payload(user, place_stats=None):
     """Week/month/year comparison stats, monthly breakdown, and top
-    cities/countries/places (POI visits + custom places). Always all-time."""
+    cities/countries/places (POI visits + custom places). Always all-time.
+
+    Everything here is a DB aggregate except the custom-place loop at the bottom,
+    which streams every point inside each geofence twice (distinct days, then
+    dwell). `place_stats` lets the snapshot's partials cache supply those as
+    ``{place_id: {'days': int, 'dwell': int}}`` and skip both scans. ``None`` —
+    every live call site — behaves exactly as before.
+    """
     # Local, so "this week"/"this month"/"this year" start at the user's own
     # midnight. The .replace(hour=0, ...) boundaries below are only local ones
     # because `now` carries the active zone; on a UTC `now` they'd be UTC.
@@ -3711,14 +3728,20 @@ def _compute_yearly_payload(user):
     # day with points inside the geofence; total_time is the dwell sum. Merged
     # into the same Top Places list and re-ranked.
     for p in CustomPlace.objects.filter(user=user):
-        nearby = _find_nearby_locations(qs, p.latitude, p.longitude, p.radius_m)
-        day_count = len(_group_by_day(nearby))
+        if place_stats is not None:
+            st = place_stats.get(p.id) or {}
+            day_count = st.get('days', 0)
+            total_time = st.get('dwell', 0)
+        else:
+            nearby = _find_nearby_locations(qs, p.latitude, p.longitude, p.radius_m)
+            day_count = len(_group_by_day(nearby))
+            total_time = _calc_dwell_time(nearby) if day_count else 0
         if not day_count:
             continue
         top_places.append({
             'name': p.name,
             'count': day_count,
-            'total_time': _calc_dwell_time(nearby),
+            'total_time': total_time,
             'is_custom': True,
         })
     top_places.sort(key=lambda x: -x['count'])
@@ -4633,9 +4656,17 @@ def visits_api(request):
     return JsonResponse(result)
 
 
-def _compute_visits_from_qs(locations):
+def _compute_visits_from_qs(locations, dwell=None):
     """Build the cities/states/countries visit payload (counts + dwell time)
-    from a prepared, city-excluded Location queryset."""
+    from a prepared, city-excluded Location queryset.
+
+    The three group-bys below are cheap DB aggregates. The dwell walk under them
+    is not — it streams every point in the queryset in time order. `dwell` lets a
+    caller that has already accumulated those totals per day (the snapshot's
+    partials cache) hand them in as ``(time_city, time_state, time_country)``
+    tuple-keyed dicts and skip the scan entirely. Left as ``None`` — every live
+    call site — the behaviour is exactly what it always was.
+    """
     city_stats = locations.values('city', 'state', 'country', 'country_code').annotate(
         count=Count('id'), first_seen=Min('timestamp'), last_seen=Max('timestamp')
     ).order_by('-count')
@@ -4670,30 +4701,33 @@ def _compute_visits_from_qs(locations):
     } for s in state_stats if s['state']]
 
     # Time spent per city/state/country — attribute each gap to the earlier point's place
-    time_city = defaultdict(float)
-    time_state = defaultdict(float)
-    time_country = defaultdict(float)
+    if dwell is not None:
+        time_city, time_state, time_country = dwell
+    else:
+        time_city = defaultdict(float)
+        time_state = defaultdict(float)
+        time_country = defaultdict(float)
 
-    points = locations.order_by('timestamp').values_list(
-        'timestamp', 'city', 'state', 'country', 'country_code', 'latitude', 'longitude',
-    )
-    prev = None
-    for ts, city, state_val, country_val, cc, lat, lon in points.iterator():
-        cur = (ts, city, state_val, country_val, cc, lat, lon)
-        if prev:
-            if prev[1]:
-                gap = _visits_dwell_gap(prev, cur, 'city')
-                if gap > 0:
-                    time_city[(prev[1], prev[2], prev[3], prev[4])] += gap
-            if prev[2]:
-                gap = _visits_dwell_gap(prev, cur, 'state')
-                if gap > 0:
-                    time_state[(prev[2], prev[3])] += gap
-            if prev[3]:
-                gap = _visits_dwell_gap(prev, cur, 'country')
-                if gap > 0:
-                    time_country[prev[3]] += gap
-        prev = cur
+        points = locations.order_by('timestamp').values_list(
+            'timestamp', 'city', 'state', 'country', 'country_code', 'latitude', 'longitude',
+        )
+        prev = None
+        for ts, city, state_val, country_val, cc, lat, lon in points.iterator():
+            cur = (ts, city, state_val, country_val, cc, lat, lon)
+            if prev:
+                if prev[1]:
+                    gap = _visits_dwell_gap(prev, cur, 'city')
+                    if gap > 0:
+                        time_city[(prev[1], prev[2], prev[3], prev[4])] += gap
+                if prev[2]:
+                    gap = _visits_dwell_gap(prev, cur, 'state')
+                    if gap > 0:
+                        time_state[(prev[2], prev[3])] += gap
+                if prev[3]:
+                    gap = _visits_dwell_gap(prev, cur, 'country')
+                    if gap > 0:
+                        time_country[prev[3]] += gap
+            prev = cur
 
     # Attach time_spent to existing result lists
     for c in cities:
@@ -7040,6 +7074,10 @@ def restore_backup(request):
                     logger.warning(f"Backup restore health workout error: {e}")
 
     except Exception as e:
+                    errors += 1
+                    logger.warning(f"Backup restore activity error: {e}")
+
+    except Exception as e:
         logger.error(f"Backup restore failed: {e}")
         return JsonResponse({'error': f'Restore failed: {e}'}, status=500)
 
@@ -8469,16 +8507,26 @@ def places_api(request):
     return JsonResponse(payload)
 
 
-def _compute_places_payload(user):
-    """Custom-places list with per-place point_count + last_seen."""
+def _compute_places_payload(user, place_stats=None):
+    """Custom-places list with per-place point_count + last_seen.
+
+    `place_stats` (``{place_id: {'n': int, 'last': iso-or-None}}``) lets the
+    snapshot's partials cache supply the two aggregates instead of running a
+    radius scan per place. ``None`` computes them live, as before.
+    """
     base = Location.objects.filter(device__user=user)
     places = []
     for p in CustomPlace.objects.filter(user=user):
-        nearby = _find_nearby_locations(base, p.latitude, p.longitude, p.radius_m)
-        agg = nearby.aggregate(n=Count('id'), last=Max('timestamp'))
         item = _serialize_place(p)
-        item['point_count'] = agg['n'] or 0
-        item['last_seen'] = agg['last'].isoformat() if agg['last'] else None
+        if place_stats is not None:
+            st = place_stats.get(p.id) or {}
+            item['point_count'] = st.get('n', 0)
+            item['last_seen'] = st.get('last')
+        else:
+            nearby = _find_nearby_locations(base, p.latitude, p.longitude, p.radius_m)
+            agg = nearby.aggregate(n=Count('id'), last=Max('timestamp'))
+            item['point_count'] = agg['n'] or 0
+            item['last_seen'] = agg['last'].isoformat() if agg['last'] else None
         places.append(item)
     return {'places': places}
 
@@ -12317,3 +12365,4 @@ def health_import_api(request):
     _bust_health_cache(request.user.id)
     return JsonResponse({'status': 'ok', 'created': created, 'updated': len(stale),
                          'rows': len(rows), 'skipped': skipped})
+

@@ -322,6 +322,10 @@ class GeocodingJob(models.Model):
     total = models.IntegerField(default=0)
     started_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # When the last run finished. `updated_at` is auto_now, so it moves on every
+    # progress write and can't answer "when were we last up to date?" — which is
+    # exactly what an incremental re-run measures its window back from.
+    completed_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"Geocoding {self.user.username}: {self.processed}/{self.total}"
@@ -431,6 +435,11 @@ class POIMatchJob(models.Model):
     matched = models.IntegerField(default=0)
     started_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # See GeocodingJob.completed_at. `covered_from` is the earliest instant this
+    # job's labels are known to cover; NULL means it has never run over the whole
+    # history, so an incremental re-run must fall back to a full pass.
+    completed_at = models.DateTimeField(null=True, blank=True)
+    covered_from = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"POI Match {self.user.username}: {self.processed}/{self.total}"
@@ -450,6 +459,9 @@ class TransportJob(models.Model):
     classified = models.IntegerField(default=0)
     started_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # See POIMatchJob — same pair, same meaning.
+    completed_at = models.DateTimeField(null=True, blank=True)
+    covered_from = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"Transport Detection {self.user.username}: {self.processed}/{self.total}"
@@ -1475,10 +1487,26 @@ class StatsSnapshot(models.Model):
     yearly_json = models.JSONField(default=dict, blank=True)   # yearly overview payload
     places_json = models.JSONField(default=dict, blank=True)   # custom-places list payload
     transport_json = models.JSONField(default=dict, blank=True)  # transport-mode breakdown payload
+
+    # Per-UTC-day partial aggregates, so a recalculation only has to re-read the
+    # days that changed instead of streaming the whole history every time. See
+    # tracker/stats_partials.py for the shape and the roll-up rules. Everything
+    # above is derived from this plus a handful of live DB group-bys.
+    partials_json = models.JSONField(default=dict, blank=True)
+    # Earliest instant the partials are known to cover. NULL means they have never
+    # been built over the whole history, so the next run must be a full one no
+    # matter what window was asked for — a windowed run would otherwise roll up an
+    # all-time payload from a partial record of history.
+    covered_from = models.DateTimeField(null=True, blank=True)
+
     status = models.CharField(max_length=20, default='idle')   # idle|running|done|error
     error = models.TextField(blank=True)
     started_at = models.DateTimeField(null=True, blank=True)
     computed_at = models.DateTimeField(null=True, blank=True)
+    # What the last completed run actually did, for the recalculate UI: 'full' or
+    # 'incremental', and the window start it used (NULL for a full run).
+    last_mode = models.CharField(max_length=12, blank=True, default='')
+    last_window_start = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"StatsSnapshot {self.user.username} ({self.status})"
@@ -1690,3 +1718,4 @@ class HealthWorkout(models.Model):
 
     def __str__(self):
         return f"{self.exercise_slug or 'workout'} @ {self.start_time}"
+
