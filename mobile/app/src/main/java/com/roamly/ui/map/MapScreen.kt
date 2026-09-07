@@ -84,8 +84,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.google.android.gms.location.LocationServices
 import com.roamly.data.api.LocationPoint
+import com.roamly.tracking.FixAccuracy
+import com.roamly.tracking.LocationSource
 import kotlinx.coroutines.launch
 import org.osmdroid.config.Configuration
 import org.osmdroid.util.BoundingBox
@@ -1048,24 +1049,23 @@ private fun checkNearHere(
     viewModel: MapViewModel,
     onResult: (NearHereResult?) -> Unit,
 ) {
-    val client = LocationServices.getFusedLocationProviderClient(context)
+    // The same source the tracking service uses, so this answers on a de-Googled build too.
+    // It went straight to Play Services before, which on GrapheneOS meant every check
+    // silently reported "no location" rather than saying it had no provider.
+    val source = LocationSource.get(context)
     val compute = { lat: Double, lng: Double ->
         viewModel.checkHaveIBeenHere(lat, lng) { onResult(it) }
     }
     try {
-        client.lastLocation
-            .addOnSuccessListener { last ->
-                if (last != null) {
-                    compute(last.latitude, last.longitude)
-                } else {
-                    client.getCurrentLocation(
-                        com.google.android.gms.location.Priority.PRIORITY_BALANCED_POWER_ACCURACY, null,
-                    ).addOnSuccessListener { cur ->
-                        if (cur != null) compute(cur.latitude, cur.longitude) else onResult(null)
-                    }.addOnFailureListener { onResult(null) }
+        source.lastKnown { last ->
+            if (last != null) {
+                compute(last.latitude, last.longitude)
+            } else {
+                source.currentFix(FixAccuracy.BALANCED) { cur ->
+                    if (cur != null) compute(cur.latitude, cur.longitude) else onResult(null)
                 }
             }
-            .addOnFailureListener { onResult(null) }
+        }
     } catch (_: SecurityException) {
         onResult(null)
     }

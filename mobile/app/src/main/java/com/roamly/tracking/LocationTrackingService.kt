@@ -10,7 +10,6 @@ import android.os.*
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import com.google.android.gms.location.*
 import com.roamly.MainActivity
 import com.roamly.R
 import com.roamly.RoamlyApp
@@ -124,13 +123,16 @@ class LocationTrackingService : Service() {
     @Inject lateinit var db: TrackingDatabase
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private lateinit var fusedClient: FusedLocationProviderClient
+    /** Where fixes come from: Play Services' fused provider when it is genuinely available,
+     *  the platform LocationManager otherwise (GrapheneOS and other de-Googled builds, where
+     *  the fused client exists but silently answers nothing). See [LocationSource]. */
+    private lateinit var locationSource: LocationSource
     // Dedicated thread for location callbacks so fixes don't wait on the main thread.
     // Some OEM devices throttle the main thread of background services; a HandlerThread
     // ensures callbacks fire promptly regardless.
     private lateinit var callbackThread: HandlerThread
     private val callbackLooper get() = callbackThread.looper
-    private var locationCallback: LocationCallback? = null
+    private var locationStream: FixStream? = null
     private val filter = LocationFilter()
     private val driftAnchor = DriftAnchor()
     private var isPaused = false
@@ -140,7 +142,7 @@ class LocationTrackingService : Service() {
     /** True while the screen is on (interactive). The continuous warm stream runs only
      *  while this is true; screen-off relies entirely on the alarm cadence. */
     @Volatile private var screenOn = true
-    /** True while the continuous FusedLocation stream is currently armed (screen-on). */
+    /** True while the continuous location stream is currently armed (screen-on). */
     @Volatile private var streaming = false
     @Volatile private var fixInProgress = false
     @Volatile private var fixCycleStartedAt = 0L
@@ -162,7 +164,7 @@ class LocationTrackingService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        fusedClient = LocationServices.getFusedLocationProviderClient(this)
+        locationSource = LocationSource.get(this)
         callbackThread = HandlerThread("RoamlyLocCb").also { it.start() }
         CaptureStats.init(this)
     }
@@ -341,9 +343,11 @@ class LocationTrackingService : Service() {
     // ── Provider toggle (multi-provider graceful degradation) ─────────────────
 
     /** Re-arm location capture whenever the set of enabled providers changes (e.g. the
-     *  user toggles GPS, or it flips on entering/leaving a tunnel). FusedLocation already
-     *  fuses GPS + network + passive internally; this makes it recover immediately
-     *  instead of waiting out the next interval. */
+     *  user toggles GPS, or it flips on entering/leaving a tunnel). Both sources cover several
+     *  providers at once — fused internally, the platform one by arming them side by side —
+     *  so this just makes capture recover immediately instead of waiting out the next
+     *  interval. It is also what re-arms a platform source that had to fall back to a
+     *  switched-off GPS because nothing else was enabled. */
     private fun registerProviderChangeReceiver() {
         if (providerReceiver != null) return
         val rcv = object : BroadcastReceiver() {
@@ -556,23 +560,23 @@ class LocationTrackingService : Service() {
         }
     }
 
-    /** Pick the GPS priority for a fix attempt, automatically degrading from HIGH_ACCURACY
-     *  to BALANCED after consecutive misses so network location fills indoor gaps. Only
-     *  degrades the "auto" setting — explicit user choices ("high"/"balanced"/"low") are
-     *  honoured exactly. */
-    private fun priorityForCurrentState(cfg: TrackingConfig): Int {
-        val base = when (cfg.priority) {
-            "high"     -> Priority.PRIORITY_HIGH_ACCURACY
-            "balanced" -> Priority.PRIORITY_BALANCED_POWER_ACCURACY
-            "low"      -> Priority.PRIORITY_LOW_POWER
-            else       -> Priority.PRIORITY_HIGH_ACCURACY
-        }
+    /** Pick the accuracy for a fix attempt, automatically degrading from HIGH to BALANCED
+     *  after consecutive misses so network location fills indoor gaps. Only degrades the
+     *  "auto" setting — explicit user choices ("high"/"balanced"/"low") are honoured exactly. */
+    private fun accuracyForCurrentState(cfg: TrackingConfig): FixAccuracy {
         // Degrade after just a couple of misses so network/Wi-Fi location can supply a coarse
         // fix and keep the cadence rather than letting a slow GPS cold-start become a gap.
-        return if (cfg.priority == "auto" && consecutiveMisses >= 2)
-            Priority.PRIORITY_BALANCED_POWER_ACCURACY
-        else
-            base
+        return if (cfg.priority == "auto" && consecutiveMisses >= 2) FixAccuracy.BALANCED
+        else accuracyFor(cfg.priority)
+    }
+
+    /** The user's GPS-priority setting as a source-neutral accuracy, so the same choice drives
+     *  Play Services' `Priority` and the platform provider selection. */
+    private fun accuracyFor(priority: String): FixAccuracy = when (priority) {
+        "high"     -> FixAccuracy.HIGH
+        "balanced" -> FixAccuracy.BALANCED
+        "low"      -> FixAccuracy.LOW
+        else       -> FixAccuracy.HIGH
     }
 
     /** Acquire the **best fix available this cycle** instead of taking the first one and
@@ -583,51 +587,50 @@ class LocationTrackingService : Service() {
      *     fix) — the hardware can't do better here right now, so stop burning GPS;
      *   - the `budget` elapses (kept below the interval so we never run into the next fix).
      *  Returns the best fix collected (so a stationary indoor cycle logs its ~17m fix rather
-     *  than gapping), or the fused last-known fix if literally nothing arrived. */
+     *  than gapping), or the last-known fix if literally nothing arrived. */
     @Suppress("MissingPermission")
     private suspend fun acquireBestFix(cfg: TrackingConfig): android.location.Location? {
-        val priority = priorityForCurrentState(cfg)
+        val accuracy = accuracyForCurrentState(cfg)
         val target = cfg.maxAccuracyM
         val budget = minOf(alarmIntervalMs(cfg), ACQUIRE_BUDGET_MAX_MS)
         val best = java.util.concurrent.atomic.AtomicReference<android.location.Location?>(null)
         val lastImproveAt = java.util.concurrent.atomic.AtomicLong(SystemClock.elapsedRealtime())
-        var callback: LocationCallback? = null
+        var stream: FixStream? = null
         try {
             withTimeoutOrNull(budget) {
                 suspendCancellableCoroutine<Unit> { cont ->
-                    val request = LocationRequest.Builder(priority, 0L)
-                        .setMinUpdateIntervalMillis(0L)   // let fresh fixes arrive as fast as the chip can
-                        .setMinUpdateDistanceMeters(0f)   // never gate on movement — stationary still updates
-                        .setWaitForAccurateLocation(false)
-                        .build()
-                    val cb = object : LocationCallback() {
-                        override fun onLocationResult(result: LocationResult) {
-                            for (loc in result.locations) {
-                                val cur = best.get()
-                                val better = cur == null ||
-                                    (loc.hasAccuracy() && (!cur.hasAccuracy() || loc.accuracy < cur.accuracy))
-                                if (better) {
-                                    best.set(loc)
-                                    lastImproveAt.set(SystemClock.elapsedRealtime())
-                                }
-                                // Good enough — stop now.
-                                if (loc.hasAccuracy() && loc.accuracy <= target) {
-                                    if (cont.isActive) cont.resume(Unit); return
-                                }
-                                // Plateaued — the hardware isn't improving, don't keep the GPS on.
-                                if (best.get() != null &&
-                                    SystemClock.elapsedRealtime() - lastImproveAt.get() >= ACQUIRE_STALL_MS
-                                ) {
-                                    if (cont.isActive) cont.resume(Unit); return
-                                }
-                            }
+                    // Zeros throughout: take every fix the chip can emit, unbatched. This burst
+                    // wants the *best* fix of the cycle, not one per interval.
+                    val request = FixRequest(
+                        intervalMs = 0L,
+                        minIntervalMs = 0L,
+                        maxDelayMs = 0L,
+                        accuracy = accuracy,
+                    )
+                    val armed = locationSource.requestUpdates(request, callbackLooper) { loc ->
+                        val cur = best.get()
+                        val better = cur == null ||
+                            (loc.hasAccuracy() && (!cur.hasAccuracy() || loc.accuracy < cur.accuracy))
+                        if (better) {
+                            best.set(loc)
+                            lastImproveAt.set(SystemClock.elapsedRealtime())
+                        }
+                        // Good enough — stop now.
+                        if (loc.hasAccuracy() && loc.accuracy <= target) {
+                            if (cont.isActive) cont.resume(Unit)
+                        // Plateaued — the hardware isn't improving, don't keep the GPS on.
+                        } else if (best.get() != null &&
+                            SystemClock.elapsedRealtime() - lastImproveAt.get() >= ACQUIRE_STALL_MS
+                        ) {
+                            if (cont.isActive) cont.resume(Unit)
                         }
                     }
-                    callback = cb
-                    runCatching {
-                        fusedClient.requestLocationUpdates(request, cb, callbackLooper)
-                    }.onFailure {
-                        Log.e(TAG, "requestLocationUpdates failed", it)
+                    // Assigned before the block returns, and suspendCancellableCoroutine always
+                    // runs its block to completion before the coroutine proceeds — so `finally`
+                    // below can never miss an armed stream, even if a fix resumes us mid-block.
+                    stream = armed
+                    if (armed == null) {
+                        Log.e(TAG, "Could not arm ${locationSource.label} for a fix")
                         if (cont.isActive) cont.resume(Unit)
                     }
                     cont.invokeOnCancellation { /* stream stopped in finally */ }
@@ -636,19 +639,17 @@ class LocationTrackingService : Service() {
         } catch (t: Throwable) {
             Log.e(TAG, "Best-fix acquisition failed", t)
         } finally {
-            callback?.let { runCatching { fusedClient.removeLocationUpdates(it) } }
+            stream?.cancel()
         }
         val got = best.get()
         if (got != null) return got
-        // Nothing arrived in the budget (cold GPS). Fall back to the fused last-known fix so a
+        // Nothing arrived in the budget (cold GPS). Fall back to the last-known fix so a
         // recent point still anchors the cadence — the LocationFilter rejects it if it's
         // actually stale or a duplicate, so this can only *help* never *backdate*.
         return runCatching {
             withTimeoutOrNull(2_000L) {
                 suspendCancellableCoroutine<android.location.Location?> { cont ->
-                    fusedClient.lastLocation
-                        .addOnSuccessListener { if (cont.isActive) cont.resume(it) }
-                        .addOnFailureListener { if (cont.isActive) cont.resume(null) }
+                    locationSource.lastKnown { if (cont.isActive) cont.resume(it) }
                 }
             }
         }.getOrNull()
@@ -752,59 +753,48 @@ class LocationTrackingService : Service() {
     @Suppress("MissingPermission")
     private fun startLocationUpdates(cfg: TrackingConfig) {
         stopLocationUpdates()
-        val callback = object : LocationCallback() {
-            override fun onLocationResult(result: LocationResult) {
-                for (loc in result.locations) {
-                    if (!isPaused && filter.accept(loc)) {
-                        scope.launch { saveOrDwell(loc, cfg.maxAccuracyM) }
-                    }
-                }
+        locationStream = locationSource.requestUpdates(buildRequest(cfg), callbackLooper) { loc ->
+            if (!isPaused && filter.accept(loc)) {
+                scope.launch { saveOrDwell(loc, cfg.maxAccuracyM) }
             }
         }
-        locationCallback = callback
-        runCatching {
-            fusedClient.requestLocationUpdates(buildRequest(cfg), callback, callbackLooper)
-        }.onFailure { Log.e(TAG, "Failed to request location updates", it) }
+        if (locationStream == null) {
+            Log.e(TAG, "Could not arm the ${locationSource.label} stream — relying on the alarm cadence")
+        }
     }
 
     private fun stopLocationUpdates() {
-        locationCallback?.let { fusedClient.removeLocationUpdates(it) }
-        locationCallback = null
+        locationStream?.cancel()
+        locationStream = null
     }
 
     /** Grab the last known fix immediately so the first point doesn't wait a full interval. */
     @Suppress("MissingPermission")
     private fun seedLastLocation() {
-        runCatching {
-            fusedClient.lastLocation.addOnSuccessListener { loc ->
-                if (loc != null && !isPaused && filter.accept(loc)) {
-                    val maxAcc = currentConfig?.maxAccuracyM
-                    scope.launch { saveOrDwell(loc, maxAcc) }
-                }
+        locationSource.lastKnown { loc ->
+            if (loc != null && !isPaused && filter.accept(loc)) {
+                val maxAcc = currentConfig?.maxAccuracyM
+                scope.launch { saveOrDwell(loc, maxAcc) }
             }
         }
     }
 
-    private fun buildRequest(cfg: TrackingConfig): LocationRequest {
+    private fun buildRequest(cfg: TrackingConfig): FixRequest {
         val intervalMs = cfg.intervalMs
-        val priority = when (cfg.priority) {
-            "high"     -> Priority.PRIORITY_HIGH_ACCURACY
-            "balanced" -> Priority.PRIORITY_BALANCED_POWER_ACCURACY
-            "low"      -> Priority.PRIORITY_LOW_POWER
-            else       -> Priority.PRIORITY_HIGH_ACCURACY  // "auto" continuous: short interval → high
-        }
         // One fix per interval, on time, regardless of movement:
-        //  - no setMinUpdateIntervalMillis: the floor defaults to the interval, so
-        //    the provider won't deliver (and burn battery on) extra sub-interval fixes.
+        //  - minUpdateInterval == interval: the provider's default floor, so it won't
+        //    deliver (and burn battery on) extra sub-interval fixes.
         //  - maxUpdateDelay == interval: no batching, deliver each fix as produced.
-        //  - minUpdateDistance 0: never gate delivery on displacement — stationary
-        //    still logs every interval (those stacked dots are the dwell feature).
+        //  - minUpdateDistance 0 (applied by the source): never gate delivery on
+        //    displacement — stationary still logs every interval (those stacked dots are
+        //    the dwell feature).
         //  - don't wait for an "accurate" fix; take what comes.
-        return LocationRequest.Builder(priority, intervalMs)
-            .setMaxUpdateDelayMillis(intervalMs)
-            .setMinUpdateDistanceMeters(0f)
-            .setWaitForAccurateLocation(false)
-            .build()
+        return FixRequest(
+            intervalMs = intervalMs,
+            minIntervalMs = intervalMs,
+            maxDelayMs = intervalMs,
+            accuracy = accuracyFor(cfg.priority),  // "auto" continuous: short interval -> high
+        )
     }
 
     /** Continuous-stream watchdog: re-arm the live stream if fixes stall while it's running.
