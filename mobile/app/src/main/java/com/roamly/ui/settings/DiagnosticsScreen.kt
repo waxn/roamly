@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.roamly.data.api.DiagnosticsResponse
 import com.roamly.tracking.CaptureStats
+import com.roamly.tracking.LocationSource
 import com.roamly.ui.theme.Clay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -82,6 +83,9 @@ fun DiagnosticsScreen(
     var diagError by remember { mutableStateOf<String?>(null) }
     var selectedHours by remember { mutableStateOf(24) }
 
+    // Which provider is actually feeding capture. describe() reaches the LocationManager over
+    // binder, and the answer only changes with the provider set, so it is not re-read per frame.
+    val locationSourceLabel = remember { LocationSource.get(context).describe() }
     // Read once per screen open (and after a reset). These are plain counters, not a flow —
     // re-reading on every recomposition would be pointless churn.
     var captureStats by remember { mutableStateOf(CaptureStats.snapshot()) }
@@ -365,6 +369,7 @@ fun DiagnosticsScreen(
                         DiagRow("Battery opt.", if (state.batteryOptimizationDisabled) "Exempt ✓" else "⚠ Not exempt", valueColor = if (state.batteryOptimizationDisabled) Clay.colors.success else MaterialTheme.colorScheme.error)
                         DiagRow("Interval", "${state.trackingIntervalSecs}s")
                         DiagRow("GPS priority", state.locationPriority)
+                        DiagRow("Location source", locationSourceLabel)
                         DiagRow("Accuracy filter", "${state.maxAccuracyM} m")
                         DiagRow("Last upload", if (state.lastSyncTime == 0L) "Never" else relativeTime(state.lastSyncTime))
                         DiagRow("Pending upload", if (state.cachedPointCount == 0) "None" else "${state.cachedPointCount} points")
