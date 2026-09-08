@@ -1180,15 +1180,15 @@
                 <li><a href="{% url 'tracker:journals' %}" class="{% if request.resolver_match.url_name == 'journals' %}active{% endif %}">Journals</a></li>
                 <li><a href="{% url 'tracker:places' %}" class="{% if request.resolver_match.url_name == 'places' %}active{% endif %}">Places</a></li>
                 <li><a href="{% url 'tracker:health' %}" class="{% if request.resolver_match.url_name == 'health' %}active{% endif %}">Health</a></li>
+                <li><a href="{% url 'tracker:activities' %}" class="{% if request.resolver_match.url_name == 'activities' or request.resolver_match.url_name == 'activity_detail' %}active{% endif %}">Activities</a></li>
                 <li><a href="{% url 'tracker:search' %}" class="{% if request.resolver_match.url_name == 'search' %}active{% endif %}">Search</a></li>
                 {% if AI_ASK_ENABLED %}<li><a href="{% url 'tracker:ask' %}" class="{% if request.resolver_match.url_name == 'ask' %}active{% endif %}">Ask</a></li>{% endif %}
                 <li class="nav-dropdown">
-                    <button type="button" class="navbar-nav-toggle {% if request.resolver_match.url_name == 'stats' or request.resolver_match.url_name == 'visits' or request.resolver_match.url_name == 'data' or request.resolver_match.url_name == 'activities' or request.resolver_match.url_name == 'activity_detail' %}active{% endif %}" aria-haspopup="true" aria-expanded="false" aria-controls="insights-menu">
+                    <button type="button" class="navbar-nav-toggle {% if request.resolver_match.url_name == 'stats' or request.resolver_match.url_name == 'visits' or request.resolver_match.url_name == 'data' %}active{% endif %}" aria-haspopup="true" aria-expanded="false" aria-controls="insights-menu">
                         Insights
                         <svg class="nav-caret" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                     </button>
                     <div class="nav-dropdown-menu" id="insights-menu" role="menu">
-                        <a role="menuitem" href="{% url 'tracker:activities' %}" class="{% if request.resolver_match.url_name == 'activities' or request.resolver_match.url_name == 'activity_detail' %}active{% endif %}">Activities</a>
                         <a role="menuitem" href="{% url 'tracker:stats' %}" class="{% if request.resolver_match.url_name == 'stats' %}active{% endif %}">Stats</a>
                         <a role="menuitem" href="{% url 'tracker:visits' %}" class="{% if request.resolver_match.url_name == 'visits' %}active{% endif %}">Visits</a>
                         <a role="menuitem" href="{% url 'tracker:data' %}" class="{% if request.resolver_match.url_name == 'data' %}active{% endif %}">Data</a>
@@ -1295,7 +1295,7 @@
     {% block content %}{% endblock %}
 
     {% if not standalone %}
-    <div style="text-align:center;padding:1.5rem 0 0.5rem;font-size:0.7rem;color:var(--text-dim);opacity:0.6;margin-top:auto;">v0.59.0</div>
+    <div style="text-align:center;padding:1.5rem 0 0.5rem;font-size:0.7rem;color:var(--text-dim);opacity:0.6;margin-top:auto;">v0.60.0</div>
     {% endif %}
 
     <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
