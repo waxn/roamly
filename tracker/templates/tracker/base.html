@@ -555,6 +555,13 @@
             color: #fff;
         }
         [data-theme="light"] .pill-tabs .tab-btn.active { color: #fff; }
+        /* Anchor variant, for a pill-tab group that navigates between pages
+           (see _health_tabs.html) rather than switching client-side panels. */
+        .pill-tabs a.tab-btn {
+            display: inline-flex;
+            align-items: center;
+            text-decoration: none;
+        }
 
         /* ── Cards ── */
         .card {
@@ -1179,8 +1186,7 @@
                 <li><a href="{% url 'tracker:adventures' %}" class="{% if request.resolver_match.url_name == 'adventures' or request.resolver_match.url_name == 'adventure_edit' %}active{% endif %}">Adventures</a></li>
                 <li><a href="{% url 'tracker:journals' %}" class="{% if request.resolver_match.url_name == 'journals' %}active{% endif %}">Journals</a></li>
                 <li><a href="{% url 'tracker:places' %}" class="{% if request.resolver_match.url_name == 'places' %}active{% endif %}">Places</a></li>
-                <li><a href="{% url 'tracker:health' %}" class="{% if request.resolver_match.url_name == 'health' %}active{% endif %}">Health</a></li>
-                <li><a href="{% url 'tracker:activities' %}" class="{% if request.resolver_match.url_name == 'activities' or request.resolver_match.url_name == 'activity_detail' %}active{% endif %}">Activities</a></li>
+                <li><a href="{% url 'tracker:health' %}" class="{% if request.resolver_match.url_name == 'health' or request.resolver_match.url_name == 'activities' or request.resolver_match.url_name == 'activity_detail' %}active{% endif %}">Health</a></li>
                 <li><a href="{% url 'tracker:search' %}" class="{% if request.resolver_match.url_name == 'search' %}active{% endif %}">Search</a></li>
                 {% if AI_ASK_ENABLED %}<li><a href="{% url 'tracker:ask' %}" class="{% if request.resolver_match.url_name == 'ask' %}active{% endif %}">Ask</a></li>{% endif %}
                 <li class="nav-dropdown">
@@ -1254,7 +1260,7 @@
                 <div class="bottom-nav-icon-wrap"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/><line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/></svg></div>
                 places
             </a>
-            <a href="{% url 'tracker:health' %}" class="{% if request.resolver_match.url_name == 'health' %}active{% endif %}">
+            <a href="{% url 'tracker:health' %}" class="{% if request.resolver_match.url_name == 'health' or request.resolver_match.url_name == 'activities' or request.resolver_match.url_name == 'activity_detail' %}active{% endif %}">
                 <div class="bottom-nav-icon-wrap"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
                 health
             </a>

@@ -1,0 +1,12 @@
+{% comment %}
+Switcher between the two halves of the fitness section: passively-synced health
+data, and deliberately-recorded activities. Included by health.html and
+activities.html so the two can never disagree about the set of tabs.
+
+Anchors rather than buttons, because these are separate pages — an activity has a
+permalink worth linking to. `active` is passed in by the including page.
+{% endcomment %}
+<div class="pill-tabs health-tabs">
+    <a class="tab-btn {% if active == 'health' %}active{% endif %}" href="{% url 'tracker:health' %}">Health</a>
+    <a class="tab-btn {% if active == 'activities' %}active{% endif %}" href="{% url 'tracker:activities' %}">Activities</a>
+</div>
