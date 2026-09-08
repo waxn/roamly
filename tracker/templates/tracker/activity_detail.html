@@ -3,65 +3,59 @@
 
 {% block extra_css %}
 <style>
-.ad-back { color:var(--text-muted); text-decoration:none; font-size:0.85rem; }
-.ad-back:hover { color:var(--primary); }
-.ad-head { display:flex; align-items:flex-start; gap:14px; margin:10px 0 4px; }
-.ad-glyph { font-size:2rem; }
-.ad-title { font-family:var(--font-display); font-size:1.7rem; margin:0; }
-.ad-when { color:var(--text-muted); font-size:0.85rem; font-family:var(--font-mono); }
-.ad-actions { margin-left:auto; display:flex; gap:8px; }
-.ad-btn {
-    padding:6px 14px; border:1px solid var(--border); border-radius:8px;
-    background:var(--bg-elevated); color:var(--text); cursor:pointer; font-size:0.85rem;
-    font-family:var(--font-body);
-}
-.ad-btn:hover { border-color:var(--primary); }
-.ad-btn.danger:hover { border-color:var(--danger); color:var(--danger); }
-.ad-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:12px; margin:18px 0; }
-.ad-stat { padding:14px; border:1px solid var(--border); border-radius:10px; background:var(--bg-elevated); }
-.ad-stat .v { font-family:var(--font-mono); font-size:1.4rem; font-weight:600; }
-.ad-stat .l { color:var(--text-muted); font-size:0.75rem; margin-top:2px; }
-.ad-card { border:1px solid var(--border); border-radius:10px; background:var(--bg-elevated); padding:16px; margin-bottom:18px; }
-.ad-card h2 { font-family:var(--font-display); font-size:1.05rem; margin:0 0 12px; }
-#ad-map { height:420px; border-radius:8px; overflow:hidden; }
-#ad-chart-wrap { position:relative; }
-#ad-chart { width:100%; height:200px; display:block; }
-.ad-pending { color:var(--clay-amber); font-size:0.9rem; }
-.ad-note { color:var(--text-muted); font-size:0.8rem; margin-top:10px; }
+.ad-back { color: var(--text-muted); text-decoration: none; font-size: 0.75rem;
+           font-family: var(--font-mono); }
+.ad-back:hover { color: var(--primary); }
+.ad-glyph { font-size: 1.5rem; margin-right: 0.5rem; }
+.ad-when { color: var(--text-muted); font-size: 0.75rem; font-family: var(--font-mono);
+           margin-top: 0.2rem; }
+.ad-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+            gap: 0.75rem; margin-bottom: 1rem; }
+.ad-stat { padding: 1rem 1.1rem; background: var(--bg-card); border: 1px solid var(--border);
+           border-radius: var(--radius); }
+.ad-stat .v { font-family: var(--font-mono); font-size: 1.35rem; font-weight: 600; }
+.ad-stat .l { color: var(--text-muted); font-size: 0.6875rem; margin-top: 0.15rem; }
+#ad-map { height: 26rem; border-radius: var(--radius); overflow: hidden; }
+#ad-chart-wrap { position: relative; }
+#ad-chart { width: 100%; height: 12rem; display: block; }
+.ad-pending { color: var(--clay-amber); font-size: 0.8125rem; font-family: var(--font-mono); }
+.ad-note { color: var(--text-muted); font-size: 0.75rem; margin-top: 0.6rem;
+           font-family: var(--font-mono); }
 </style>
 {% endblock %}
 
 {% block content %}
-<a class="ad-back" href="/activities/">&larr; Activities</a>
+<div class="container">
+    <a class="ad-back" href="{% url 'tracker:activities' %}">&larr; activities</a>
 
-<div class="ad-head">
-    <div class="ad-glyph" id="ad-glyph">📍</div>
-    <div>
-        <h1 class="ad-title" id="ad-title">Loading…</h1>
-        <div class="ad-when" id="ad-when"></div>
+    <div class="page-toolbar">
+        <div>
+            <h1><span class="ad-glyph" id="ad-glyph">📍</span><span id="ad-title">loading…</span></h1>
+            <div class="ad-when" id="ad-when"></div>
+        </div>
+        <div class="toolbar-actions">
+            <button class="btn" id="ad-rename">Rename</button>
+            <button class="btn btn-danger" id="ad-delete">Delete</button>
+        </div>
     </div>
-    <div class="ad-actions">
-        <button class="ad-btn" id="ad-rename">Rename</button>
-        <button class="ad-btn danger" id="ad-delete">Delete</button>
+
+    <div class="ad-stats" id="ad-stats" aria-busy="true">
+        <div class="ad-stat"><div class="v"><span class="skeleton skel-statval"></span></div><div class="l">distance</div></div>
+        <div class="ad-stat"><div class="v"><span class="skeleton skel-statval"></span></div><div class="l">moving</div></div>
+        <div class="ad-stat"><div class="v"><span class="skeleton skel-statval"></span></div><div class="l">elapsed</div></div>
+        <div class="ad-stat"><div class="v"><span class="skeleton skel-statval"></span></div><div class="l">avg</div></div>
     </div>
-</div>
 
-<div class="ad-stats" id="ad-stats" aria-busy="true">
-    <div class="ad-stat"><div class="v"><span class="skeleton skel-statval"></span></div><div class="l">distance</div></div>
-    <div class="ad-stat"><div class="v"><span class="skeleton skel-statval"></span></div><div class="l">moving</div></div>
-    <div class="ad-stat"><div class="v"><span class="skeleton skel-statval"></span></div><div class="l">elapsed</div></div>
-    <div class="ad-stat"><div class="v"><span class="skeleton skel-statval"></span></div><div class="l">avg</div></div>
-</div>
+    <div class="card">
+        <div class="card-header">Route</div>
+        <div id="ad-map"></div>
+        <div class="ad-note" id="ad-note"></div>
+    </div>
 
-<div class="ad-card">
-    <h2>Route</h2>
-    <div id="ad-map"></div>
-    <div class="ad-note" id="ad-note"></div>
-</div>
-
-<div class="ad-card">
-    <h2>Speed</h2>
-    <div id="ad-chart-wrap"><canvas id="ad-chart"></canvas></div>
+    <div class="card">
+        <div class="card-header">Speed</div>
+        <div id="ad-chart-wrap"><canvas id="ad-chart"></canvas></div>
+    </div>
 </div>
 {% endblock %}
 
@@ -110,7 +104,7 @@ function niceAxis(max, ticks) {
 
 function renderActivity(a) {
     document.getElementById('ad-glyph').textContent = GLYPH[a.kind] || GLYPH.other;
-    document.getElementById('ad-title').textContent = a.title || LABEL[a.kind] || 'Activity';
+    document.getElementById('ad-title').textContent = a.title || LABEL[a.kind] || 'activity';
     document.getElementById('ad-when').textContent =
         new Date(a.start).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' });
 
