@@ -119,6 +119,25 @@ urlpatterns = [
     path('api/places/<int:place_id>/update/', views.place_update, name='place_update'),
     path('api/places/<int:place_id>/delete/', views.place_delete, name='place_delete'),
 
+    # Family Circle (mutual location sharing + place enter/exit alerts)
+    path('family/join/<str:token>/', views.family_join_view, name='family_join'),
+    path('api/family/circles/', views.family_circles_api, name='family_circles'),
+    path('api/family/circles/<int:circle_id>/', views.family_circle_detail_api, name='family_circle_detail'),
+    path('api/family/circles/<int:circle_id>/rename/', views.family_circle_rename_api, name='family_circle_rename'),
+    path('api/family/circles/<int:circle_id>/delete/', views.family_circle_delete_api, name='family_circle_delete'),
+    path('api/family/circles/<int:circle_id>/invite/', views.family_circle_invite_api, name='family_circle_invite'),
+    path('api/family/circles/<int:circle_id>/leave/', views.family_circle_leave_api, name='family_circle_leave'),
+    path('api/family/circles/<int:circle_id>/members/<int:user_id>/remove/',
+         views.family_circle_remove_member_api, name='family_circle_remove_member'),
+    path('api/family/circles/<int:circle_id>/places/', views.family_places_api, name='family_places'),
+    path('api/family/circles/<int:circle_id>/locations/', views.family_locations_api, name='family_locations'),
+    path('api/family/places/<int:place_id>/update/', views.family_place_update_api, name='family_place_update'),
+    path('api/family/places/<int:place_id>/delete/', views.family_place_delete_api, name='family_place_delete'),
+    path('api/family/places/<int:place_id>/alerts/', views.family_place_alerts_api, name='family_place_alerts'),
+    path('api/family/share/', views.family_share_api, name='family_share'),
+    path('api/family/push-token/', views.family_push_token_register_api, name='family_push_token_register'),
+    path('api/family/push-token/unregister/', views.family_push_token_unregister_api, name='family_push_token_unregister'),
+
     # Trips pages
     path('adventure/join/<str:token>/', views.trip_join_view, name='trip_join'),
     path('adventure/<slug:slug>/', views.adventure_public_view, name='adventure_public'),

@@ -58,6 +58,12 @@ class AuthViewModel @Inject constructor(
     ) { url, sid -> !url.isNullOrBlank() && !sid.isNullOrBlank() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    /** Drives RoamlyNavHost's bottom-nav item set. Reuses this already-created,
+     *  already-prefs-holding ViewModel rather than adding a second one just for
+     *  one boolean. */
+    val simpleModeEnabled: StateFlow<Boolean> = prefs.simpleModeEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     fun onServerUrlChange(value: String) = _uiState.update { it.copy(serverUrl = value) }
     fun onUsernameChange(value: String) = _uiState.update { it.copy(username = value) }
     fun onPasswordChange(value: String) = _uiState.update { it.copy(password = value) }

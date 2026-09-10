@@ -11,7 +11,9 @@ private const val STILL_SPEED_MPS = 0.7f
 // At/above this Doppler speed we have real-movement evidence (~1.8 mph). Deliberately below
 // walking pace (1.2–1.4 m/s): at the old 1.5 m/s a walk away from a parked anchor never
 // cleared the bar, so departures on foot were snapped back until the hard break 300 m later.
-private const val MOVE_SPEED_MPS = 0.8f
+// Not private: LocationTrackingService's adaptive-interval mode reuses it as its own
+// "is this Doppler reading real movement" bar rather than inventing a third speed constant.
+const val MOVE_SPEED_MPS = 0.8f
 // Displacement-based release, for fixes that carry no Doppler at all. PRIORITY_BALANCED
 // (which the service auto-degrades to after two misses) frequently reports no speed, and
 // without this the only escape left was HARD_BREAK_M.

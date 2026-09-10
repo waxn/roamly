@@ -57,6 +57,16 @@ class UserPreferences @Inject constructor(
         private val KEY_AUTO_START_TRACKING    = booleanPreferencesKey("auto_start_tracking")
         private val KEY_SYNC_ON_MOBILE_DATA    = booleanPreferencesKey("sync_on_mobile_data")
         private val KEY_SUPPRESS_DRIFT         = booleanPreferencesKey("suppress_stationary_drift")
+        // Adaptive interval: swap between a "moving" and a "stationary" cadence
+        // based on recent Doppler speed, instead of one fixed interval. General
+        // capability (any account can opt in), but Simple Mode forces it on with
+        // fixed bounds -- see LocationTrackingService.
+        private val KEY_ADAPTIVE_INTERVAL       = booleanPreferencesKey("adaptive_interval_enabled")
+
+        // Simple Mode: a reduced bottom nav (Map / Family / Settings) for a
+        // non-technical family member. Local-only, per device -- not synced to
+        // the server, so a reinstall resets it, same tier as darkMode.
+        private val KEY_SIMPLE_MODE             = booleanPreferencesKey("simple_mode_enabled")
 
         // Activity recording. A non-blank id IS the "recording right now" state.
         // It lives in DataStore so it survives a process kill — the service resumes
@@ -120,6 +130,12 @@ class UserPreferences @Inject constructor(
     val syncOnMobileData:      Flow<Boolean> = context.dataStore.data.map { it[KEY_SYNC_ON_MOBILE_DATA] ?: true }
     /** Snap wandering GPS fixes to a stable anchor while parked (suppresses stationary drift). */
     val suppressStationaryDrift: Flow<Boolean> = context.dataStore.data.map { it[KEY_SUPPRESS_DRIFT] ?: true }
+    /** Swap interval by recent Doppler speed instead of one fixed value. Simple Mode forces this on. */
+    val adaptiveIntervalEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_ADAPTIVE_INTERVAL] ?: false }
+
+    // ── Simple Mode ────────────────────────────────────────────────────────
+
+    val simpleModeEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_SIMPLE_MODE] ?: false }
 
     /** The activity being recorded, or null when not recording.
      *
@@ -241,6 +257,21 @@ class UserPreferences @Inject constructor(
 
     suspend fun setSuppressStationaryDrift(enabled: Boolean) {
         context.dataStore.edit { it[KEY_SUPPRESS_DRIFT] = enabled }
+    }
+
+    suspend fun setAdaptiveIntervalEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_ADAPTIVE_INTERVAL] = enabled }
+    }
+
+    /** Turning Simple Mode on also forces adaptive interval on at its fixed
+     *  bounds in the same edit -- not a second checkbox the target user has
+     *  to separately discover. Turning it back off leaves adaptive interval
+     *  as the user last set it, since that's a genuinely independent choice. */
+    suspend fun setSimpleModeEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_SIMPLE_MODE] = enabled
+            if (enabled) prefs[KEY_ADAPTIVE_INTERVAL] = true
+        }
     }
 
     suspend fun startActivity(id: String, kind: String, startedAtMs: Long) {

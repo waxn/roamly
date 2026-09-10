@@ -378,4 +378,67 @@ interface RoamlyApi {
 
     @POST("api/health/delete/")
     suspend fun deleteAllHealthData(): Response<ResponseBody>
+
+    // --- Family Circle (mutual location sharing + place enter/exit alerts) ---
+
+    @GET("api/family/circles/")
+    suspend fun getFamilyCircles(): Response<FamilyCirclesListResponse>
+
+    @POST("api/family/circles/")
+    suspend fun createFamilyCircle(@Body body: FamilyCircleCreateRequest): Response<FamilyCircleDetailResponse>
+
+    @GET("api/family/circles/{id}/")
+    suspend fun getFamilyCircle(@Path("id") circleId: Int): Response<FamilyCircleDetailResponse>
+
+    @POST("api/family/circles/{id}/rename/")
+    suspend fun renameFamilyCircle(@Path("id") circleId: Int, @Body body: FamilyCircleRenameRequest): Response<ResponseBody>
+
+    @POST("api/family/circles/{id}/delete/")
+    suspend fun deleteFamilyCircle(@Path("id") circleId: Int): Response<ResponseBody>
+
+    /** Mint (or, with `rotate=true`, replace) the circle's join link. Any accepted member may call this. */
+    @POST("api/family/circles/{id}/invite/")
+    suspend fun inviteFamilyCircle(@Path("id") circleId: Int, @Body body: FamilyCircleInviteRequest): Response<FamilyCircleInviteResponse>
+
+    @POST("api/family/circles/{id}/leave/")
+    suspend fun leaveFamilyCircle(@Path("id") circleId: Int): Response<ResponseBody>
+
+    @POST("api/family/circles/{circleId}/members/{userId}/remove/")
+    suspend fun removeFamilyMember(@Path("circleId") circleId: Int, @Path("userId") userId: Int): Response<ResponseBody>
+
+    /** The caller's own live-location-sharing toggle for one circle. Autosave. */
+    @POST("api/family/share/")
+    suspend fun setFamilyShareLocation(@Body body: FamilyShareRequest): Response<FamilyShareResponse>
+
+    @GET("api/family/circles/{id}/places/")
+    suspend fun getFamilyPlaces(@Path("id") circleId: Int): Response<FamilyPlacesResponse>
+
+    /** Self-serve: any accepted circle member may create a shared place. */
+    @POST("api/family/circles/{id}/places/")
+    suspend fun createFamilyPlace(@Path("id") circleId: Int, @Body body: FamilyPlaceCreateRequest): Response<FamilyPlaceItem>
+
+    @POST("api/family/places/{id}/update/")
+    suspend fun updateFamilyPlace(@Path("id") placeId: Int, @Body body: FamilyPlaceUpdateRequest): Response<FamilyPlaceItem>
+
+    @POST("api/family/places/{id}/delete/")
+    suspend fun deleteFamilyPlace(@Path("id") placeId: Int): Response<ResponseBody>
+
+    /** The caller's own enter/exit subscription for one place — opt-out, not
+     *  opt-in (see tracker/family_tasks.py). GET reports effective settings even
+     *  before the member has ever visited this screen. */
+    @GET("api/family/places/{id}/alerts/")
+    suspend fun getFamilyPlaceAlerts(@Path("id") placeId: Int): Response<FamilyPlaceAlertResponse>
+
+    @POST("api/family/places/{id}/alerts/")
+    suspend fun setFamilyPlaceAlerts(@Path("id") placeId: Int, @Body body: FamilyPlaceAlertRequest): Response<FamilyPlaceAlertResponse>
+
+    /** Latest fix (+ a short recent trail) per accepted, sharing member of one circle. */
+    @GET("api/family/circles/{id}/locations/")
+    suspend fun getFamilyLocations(@Path("id") circleId: Int): Response<FamilyLocationsResponse>
+
+    @POST("api/family/push-token/")
+    suspend fun registerFamilyPushToken(@Body body: FamilyPushTokenRequest): Response<ResponseBody>
+
+    @POST("api/family/push-token/unregister/")
+    suspend fun unregisterFamilyPushToken(@Body body: FamilyPushTokenUnregisterRequest): Response<ResponseBody>
 }

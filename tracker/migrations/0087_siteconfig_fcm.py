@@ -1,7 +1,7 @@
 """Admin-editable Firebase Cloud Messaging credentials.
 
 Powers push notifications for Family Circle place enter/exit alerts (see
-0084_family_circles / tracker/push_tasks.py). Unlike carto_api_key this is a
+0086_family_circles / tracker/push_tasks.py). Unlike carto_api_key this is a
 server-side signing secret (a service-account key file), so
 fcm_service_account_json is masked the same way turnstile_secret_key already
 is, never exposed to a template context. fcm_project_id is parsed out of the
@@ -16,7 +16,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('tracker', '0084_family_circles'),
+        ('tracker', '0086_family_circles'),
     ]
 
     operations = [
