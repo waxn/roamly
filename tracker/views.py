@@ -14328,16 +14328,13 @@ def family_place_alerts_api(request, place_id):
 
 
 @login_required
-def family_locations_api(request):
+def family_locations_api(request, circle_id):
     """Latest fix (+ a short recent trail) per accepted, sharing member of
     one circle. A new query path, not a parameter on /api/track/ — that
     endpoint is scoped to device__user=request.user, a fundamentally
     different authorization axis than circle membership."""
     from .models import FamilyMembership
 
-    circle_id = request.GET.get('circle_id')
-    if not circle_id:
-        return JsonResponse({'error': 'circle_id required'}, status=400)
     _get_family_membership(circle_id, request.user, require_accepted=False)
 
     since = timezone.now() - timedelta(minutes=30)
