@@ -456,7 +456,14 @@ class DownloadedRegion(models.Model):
 
     class Meta:
         unique_together = [('kind', 'key')]
-        indexes = [models.Index(fields=['kind'], name='tracker_downloadedregion_kind_idx')]
+        # Deliberately unnamed: migration 0068's hardcoded index name
+        # ('tracker_downloadedregion_kind_idx') is 34 chars, over Django's
+        # 30-char cap for an explicit name (models.E034) -- fine as an
+        # already-applied Postgres identifier (no such limit there), but not
+        # something Meta.indexes can declare verbatim. Leaving this unnamed
+        # lets Django auto-generate a compliant name for its own checks
+        # without touching the already-applied database index.
+        indexes = [models.Index(fields=['kind'])]
 
     def __str__(self):
         return f"{self.kind}:{self.key}"
