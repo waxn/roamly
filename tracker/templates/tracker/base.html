@@ -390,7 +390,7 @@
         /* Open on hover (pointer devices), in addition to the click toggle below.
            The ::before bridges the gap between the toggle and the menu so moving
            the cursor across it doesn't drop the hover and snap the menu shut. */
-        @media (hover: hover) {
+        @media (hover: hover) and (pointer: fine) {
             .nav-dropdown:hover > .nav-dropdown-menu { display: block; }
             .nav-dropdown:hover .nav-caret { transform: rotate(180deg); }
         }
@@ -895,8 +895,13 @@
             }
             .navbar-center { display: none; }
             .navbar-user { display: none; }
-            .nav-dropdown-end { display: none; }
-            .navbar-logout-mobile { display: inline-flex; }
+            /* Keep the user menu on mobile. It used to be display:none, replaced
+               by a bare Logout button — which made Diagnostics and the Admin
+               Panel completely unreachable on a phone, since neither is in the
+               bottom nav either. The menu already has a click toggle for touch;
+               only the desktop :hover open needed the width guard. */
+            .nav-dropdown-end .navbar-user-name { display: none; }
+            .navbar-logout-mobile { display: none; }
             .container { padding: 1rem; }
             .bottom-nav { display: block; }
         }
@@ -1258,7 +1263,12 @@
                     <div class="nav-dropdown-menu" id="insights-menu" role="menu">
                         <a role="menuitem" href="{% url 'tracker:stats' %}" class="{% if request.resolver_match.url_name == 'stats' %}active{% endif %}">Stats</a>
                         <a role="menuitem" href="{% url 'tracker:visits' %}" class="{% if request.resolver_match.url_name == 'visits' %}active{% endif %}">Visits</a>
+                        <a role="menuitem" href="{% url 'tracker:activities' %}" class="{% if request.resolver_match.url_name == 'activities' or request.resolver_match.url_name == 'activity_detail' %}active{% endif %}">Activities</a>
                         <a role="menuitem" href="{% url 'tracker:data' %}" class="{% if request.resolver_match.url_name == 'data' %}active{% endif %}">Data</a>
+                        {# The map editor was linked only from Diagnostics and a
+                           Settings card, so a whole feature was effectively
+                           undiscoverable. #}
+                        <a role="menuitem" href="{% url 'tracker:editor' %}" class="{% if request.resolver_match.url_name == 'editor' %}active{% endif %}">Map editor</a>
                     </div>
                 </li>
             </ul>
@@ -1364,7 +1374,7 @@
     </main>
 
     {% if not standalone %}
-    <div style="text-align:center;padding:1.5rem 0 0.5rem;font-size:0.7rem;color:var(--text-dim);opacity:0.6;margin-top:auto;">v0.60.0</div>
+    <div style="text-align:center;padding:1.5rem 0 0.5rem;font-size:0.7rem;color:var(--text-dim);opacity:0.6;margin-top:auto;">v{{ APP_VERSION }}</div>
     {% endif %}
 
     {% block map_js %}<script src="{% static 'tracker/vendor/maplibre-gl.js' %}"></script>{% endblock %}

@@ -138,7 +138,9 @@ def custom_js_snippet(request):
     # cache round-trips again, which is the thing the combined key exists to avoid.
     cfg = _site_config_public()
     carto = cfg['carto_api_key']
+    from roamly import __version__ as app_version
     return {
+        'APP_VERSION': app_version,
         'CUSTOM_JS_SNIPPET': cfg['custom_js'],
         'IS_ADMIN': is_admin,
         'AI_ASK_ENABLED': ai_ask_enabled,

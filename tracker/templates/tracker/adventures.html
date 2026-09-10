@@ -502,7 +502,7 @@
     <div class="adv-list-header">
         <div>
             <h1>adventures</h1>
-            <p class="adv-list-lead">time-bounded trips with maps, timeline posts, and sharing.</p>
+            <p class="adv-list-lead">time-bounded adventures with maps, timeline posts, and sharing.</p>
         </div>
     </div>
 
@@ -583,7 +583,7 @@
             <input type="text" id="trip-description" class="form-control" placeholder="A few words about this adventure...">
         </div>
         <div style="display:flex;gap:0.5rem;">
-            <button class="btn btn-primary" onclick="createAdventure()">create</button>
+            <button class="btn btn-primary" onclick="createAdventure(this)">create</button>
             <button class="btn btn-outline" onclick="closeCreateModal()">cancel</button>
         </div>
     </div>
@@ -876,7 +876,10 @@ let currentFilter = 'all';
 function setFilter(filter, btn) {
     currentFilter = filter;
     document.querySelectorAll('.adv-filter-chip').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
+    // btn is optional: the empty state calls this with no event target, and
+    // dereferencing it unconditionally would throw.
+    (btn || document.querySelector(`.adv-filter-chip[data-filter="${filter}"]`)
+         || document.querySelector('.adv-filter-chip'))?.classList.add('active');
     renderAdventureCards();
 }
 
@@ -906,7 +909,24 @@ function renderAdventureCards() {
     else trips.sort((a,b) => new Date(b.start_time) - new Date(a.start_time));
 
     if (!trips.length) {
-        document.getElementById('trips-list').innerHTML = '<div class="adv-empty">no adventures found</div>';
+        // Two genuinely different situations that used to render the identical
+        // string: a brand-new account with nothing to show, and someone with
+        // five adventures whose filter happens to match none of them. The
+        // filter runs above this check, so the second case was indistinguishable
+        // from the first — and the first offered no way to get started.
+        const filtered = (allTrips || []).length > 0;
+        document.getElementById('trips-list').innerHTML = filtered
+            ? `<div class="adv-empty">
+                   <p>No adventures match this filter.</p>
+                   <button class="btn btn-outline btn-sm" onclick="setFilter('all')">Show all adventures</button>
+               </div>`
+            : `<div class="adv-empty">
+                   <div style="font-size:2rem;margin-bottom:0.5rem;">🧭</div>
+                   <p style="font-weight:600;color:var(--text);margin-bottom:0.35rem;">No adventures yet</p>
+                   <p style="margin-bottom:0.9rem;">An adventure pulls the points you already recorded
+                      between two dates into a shareable story — a ride, a hike, a road trip.</p>
+                   <button class="btn btn-primary btn-sm" onclick="openCreateModal()">Create your first adventure</button>
+               </div>`;
         return;
     }
 
@@ -965,12 +985,25 @@ function advSkeletonCards(n) {
     return out;
 }
 
-function loadAdventures() {
-    document.getElementById('trips-list').innerHTML = advSkeletonCards(6);
-    fetch('/api/trips/')
-        .then(r => r.json())
-        .then(data => { document.getElementById('trips-list').removeAttribute('aria-busy'); allTrips = data.trips || []; renderAdventureCards(); })
-        .catch(() => { document.getElementById('trips-list').innerHTML = '<div class="adv-empty" style="color:var(--danger)">Failed to load adventures.</div>'; });
+async function loadAdventures() {
+    const host = document.getElementById('trips-list');
+    host.innerHTML = advSkeletonCards(6);
+    host.setAttribute('aria-busy', 'true');
+    try {
+        // aria-busy was cleared on the success path only, so a failure left the
+        // container permanently announcing itself as loading — and the error
+        // state had no way to retry.
+        const data = await window.roamlyFetch('/api/trips/', {toast: false});
+        allTrips = data.trips || [];
+        renderAdventureCards();
+    } catch (e) {
+        host.innerHTML = `<div class="rly-load-error" role="alert">
+            <span>${e.message || 'Could not load your adventures.'}</span>
+            <button type="button" class="rly-retry-btn" onclick="loadAdventures()">Retry</button>
+        </div>`;
+    } finally {
+        host.removeAttribute('aria-busy');
+    }
 }
 
 // ─── Create modal ─────────────────────────────────────────────
@@ -1002,14 +1035,32 @@ function localDateToUTC(dateStr, endOfDay) {
     return (endOfDay ? new Date(y,m-1,d,23,59,59) : new Date(y,m-1,d,0,0,0)).toISOString();
 }
 
-async function createAdventure() {
+async function createAdventure(btn) {
     const startVal = document.getElementById('trip-start').value;
     if (!startVal) { await roamlyAlert('Please choose a start date.'); return; }
     const endVal = document.getElementById('trip-end').value;
-    fetch('/api/trips/create/', {
-        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},
-        body:JSON.stringify({ name:document.getElementById('trip-name').value||'Untitled Adventure', device_id:document.getElementById('trip-device').value, start_time:localDateToUTC(startVal,false), end_time:endVal?localDateToUTC(endVal,true):'', description:document.getElementById('trip-description').value })
-    }).then(r=>r.json()).then(data => { if(data.status==='ok'){closeCreateModal();loadAdventures();}else roamlyAlert(data.error||'Error creating trip'); });
+    // Disable while in flight. There was no guard and no .catch(), so a
+    // double-click created two adventures and a network failure produced
+    // nothing at all — no error, no dismissal, just an unchanged modal.
+    if (btn) { btn.disabled = true; btn.dataset.label = btn.textContent; btn.textContent = 'creating…'; }
+    try {
+        await window.roamlyFetch('/api/trips/create/', {
+            method: 'POST',
+            json: {
+                name: document.getElementById('trip-name').value || 'Untitled Adventure',
+                device_id: document.getElementById('trip-device').value,
+                start_time: localDateToUTC(startVal, false),
+                end_time: endVal ? localDateToUTC(endVal, true) : '',
+                description: document.getElementById('trip-description').value,
+            },
+            errorMessage: "Couldn't create the adventure",
+        });
+        closeCreateModal();
+        loadAdventures();
+    } catch (e) { /* roamlyFetch has toasted the real reason */ }
+    finally {
+        if (btn) { btn.disabled = false; btn.textContent = btn.dataset.label || 'create'; }
+    }
 }
 
 // ─── Full-screen Trip View ────────────────────────────────────
