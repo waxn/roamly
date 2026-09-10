@@ -13851,3 +13851,492 @@ def activity_detail_view(request, activity_id):
     if not act:
         return redirect('tracker:activities')
     return render(request, 'tracker/activity_detail.html', {'activity_id': act.id})
+
+
+# ---------------------------------------------------------------------------
+# Family Circle (mutual location sharing + place enter/exit alerts)
+# ---------------------------------------------------------------------------
+# See tracker/family_tasks.py for geofence detection and
+# tracker/push_tasks.py for delivery. Invite-by-link only — deliberately no
+# add-by-username endpoint, since that unilateral-add shape is exactly what
+# produced AdventureMember's migration-0082 unbounded-disclosure bug, and
+# this feature has no reason to reintroduce it.
+
+def _ensure_family_invite_token(circle):
+    if not circle.invite_token:
+        import secrets as _secrets
+        circle.invite_token = _secrets.token_urlsafe(18)[:32]
+        circle.save(update_fields=['invite_token'])
+    return circle.invite_token
+
+
+def _get_family_membership(circle_id, user, require_accepted=True):
+    """The caller's own membership row for a circle, or Http404."""
+    from django.http import Http404
+    from .models import FamilyMembership
+    qs = FamilyMembership.objects.select_related('circle').filter(circle_id=circle_id, user=user)
+    if require_accepted:
+        qs = qs.filter(accepted_at__isnull=False)
+    membership = qs.first()
+    if not membership:
+        raise Http404
+    return membership
+
+
+def _get_family_place_for_user(place_id, user):
+    """A FamilyPlace, scoped to a circle the caller is an accepted member of."""
+    from .models import FamilyPlace
+    place = get_object_or_404(FamilyPlace, id=place_id)
+    _get_family_membership(place.circle_id, user)  # raises Http404 if not a member
+    return place
+
+
+def _serialize_family_circle(circle, viewer):
+    from .models import FamilyMembership
+    members = [{
+        'user_id': m.user_id,
+        'username': m.user.username,
+        'display_name': m.user.first_name or m.user.username,
+        'role': m.role,
+        'accepted': m.is_accepted,
+        'share_location': m.share_location,
+        'is_you': m.user_id == viewer.id,
+    } for m in FamilyMembership.objects.filter(circle=circle).select_related('user')]
+    return {
+        'id': circle.id,
+        'name': circle.name,
+        'creator_id': circle.creator_id,
+        'created_at': circle.created_at.isoformat(),
+        'members': members,
+    }
+
+
+def _serialize_family_place(place):
+    return {
+        'id': place.id,
+        'circle_id': place.circle_id,
+        'name': place.name,
+        'lat': place.latitude,
+        'lng': place.longitude,
+        'radius_m': place.radius_m,
+        'color': place.color,
+        'notes': place.notes,
+        'creator_id': place.creator_id,
+    }
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def family_circles_api(request):
+    """List the caller's circles (accepted + pending) or create a new one."""
+    from .models import FamilyCircle, FamilyMembership
+
+    if request.method == "POST":
+        err = _require_api_intent(request)
+        if err:
+            return err
+        try:
+            data = json.loads(request.body or '{}')
+        except (ValueError, TypeError):
+            return JsonResponse({'error': 'Invalid JSON'}, status=400)
+        name = (data.get('name') or '').strip()
+        if not name:
+            return JsonResponse({'error': 'name required'}, status=400)
+        circle = FamilyCircle.objects.create(name=name[:200], creator=request.user)
+        FamilyMembership.objects.create(
+            circle=circle, user=request.user, role='creator',
+            accepted_at=timezone.now(), share_location=True,
+        )
+        return JsonResponse(_serialize_family_circle(circle, request.user))
+
+    memberships = (FamilyMembership.objects.filter(user=request.user)
+                   .select_related('circle').order_by('circle__name'))
+    circles = []
+    for m in memberships:
+        item = _serialize_family_circle(m.circle, request.user)
+        item['accepted'] = m.is_accepted
+        circles.append(item)
+    return JsonResponse({'circles': circles})
+
+
+@login_required
+def family_circle_detail_api(request, circle_id):
+    from .models import FamilyPlace
+    membership = _get_family_membership(circle_id, request.user, require_accepted=False)
+    circle = membership.circle
+    payload = _serialize_family_circle(circle, request.user)
+    payload['places'] = [_serialize_family_place(p) for p in FamilyPlace.objects.filter(circle=circle)]
+    return JsonResponse(payload)
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def family_circle_rename_api(request, circle_id):
+    err = _require_api_intent(request)
+    if err:
+        return err
+    membership = _get_family_membership(circle_id, request.user)
+    if membership.role != 'creator':
+        return JsonResponse({'error': 'Only the circle creator can rename it'}, status=403)
+    try:
+        data = json.loads(request.body or '{}')
+    except (ValueError, TypeError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    name = (data.get('name') or '').strip()
+    if not name:
+        return JsonResponse({'error': 'name required'}, status=400)
+    membership.circle.name = name[:200]
+    membership.circle.save(update_fields=['name'])
+    return JsonResponse({'status': 'ok'})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def family_circle_delete_api(request, circle_id):
+    err = _require_api_intent(request)
+    if err:
+        return err
+    membership = _get_family_membership(circle_id, request.user)
+    if membership.role != 'creator':
+        return JsonResponse({'error': 'Only the circle creator can delete it'}, status=403)
+    membership.circle.delete()
+    return JsonResponse({'status': 'ok'})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def family_circle_invite_api(request, circle_id):
+    """Create (or rotate) the invite link. Any accepted member may share it."""
+    err = _require_api_intent(request)
+    if err:
+        return err
+    membership = _get_family_membership(circle_id, request.user)
+    circle = membership.circle
+    try:
+        data = json.loads(request.body or '{}')
+    except json.JSONDecodeError:
+        data = {}
+    if data.get('rotate'):
+        import secrets as _secrets
+        circle.invite_token = _secrets.token_urlsafe(18)[:32]
+        circle.save(update_fields=['invite_token'])
+    else:
+        _ensure_family_invite_token(circle)
+    url = request.build_absolute_uri(f"/family/join/{circle.invite_token}/")
+    return JsonResponse({'status': 'ok', 'invite_token': circle.invite_token, 'invite_url': url})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def family_circle_leave_api(request, circle_id):
+    from .models import FamilyMemberPlaceState, FamilyPlace, FamilyPlaceAlert
+    err = _require_api_intent(request)
+    if err:
+        return err
+    membership = _get_family_membership(circle_id, request.user, require_accepted=False)
+    # Not FK-cascadable from the membership row: alerts/state key off
+    # place+user, not circle+user directly.
+    place_ids = FamilyPlace.objects.filter(circle_id=circle_id).values_list('id', flat=True)
+    FamilyPlaceAlert.objects.filter(place_id__in=place_ids, user=request.user).delete()
+    FamilyMemberPlaceState.objects.filter(place_id__in=place_ids, user=request.user).delete()
+    membership.delete()
+    return JsonResponse({'status': 'ok'})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def family_circle_remove_member_api(request, circle_id, user_id):
+    from .models import FamilyMembership, FamilyMemberPlaceState, FamilyPlace, FamilyPlaceAlert
+    err = _require_api_intent(request)
+    if err:
+        return err
+    membership = _get_family_membership(circle_id, request.user)
+    if membership.role != 'creator':
+        return JsonResponse({'error': 'Only the circle creator can remove a member'}, status=403)
+    if int(user_id) == request.user.id:
+        return JsonResponse({'error': 'Use leave instead'}, status=400)
+    target = get_object_or_404(FamilyMembership, circle_id=circle_id, user_id=user_id)
+    place_ids = FamilyPlace.objects.filter(circle_id=circle_id).values_list('id', flat=True)
+    FamilyPlaceAlert.objects.filter(place_id__in=place_ids, user_id=user_id).delete()
+    FamilyMemberPlaceState.objects.filter(place_id__in=place_ids, user_id=user_id).delete()
+    target.delete()
+    return JsonResponse({'status': 'ok'})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def family_share_api(request):
+    """The caller's own share_location toggle for one circle. Autosave."""
+    err = _require_api_intent(request)
+    if err:
+        return err
+    try:
+        data = json.loads(request.body or '{}')
+        circle_id = int(data['circle_id'])
+    except (ValueError, TypeError, KeyError):
+        return JsonResponse({'error': 'circle_id required'}, status=400)
+    membership = _get_family_membership(circle_id, request.user)
+    membership.share_location = bool(data.get('share_location'))
+    membership.save(update_fields=['share_location'])
+    return JsonResponse({'status': 'ok', 'share_location': membership.share_location})
+
+
+def family_join_view(request, token):
+    """Open-join landing for a Family Circle invite link."""
+    from .models import FamilyCircle, FamilyMembership
+    circle = FamilyCircle.objects.filter(invite_token=token).first()
+    if not circle:
+        return render(request, 'tracker/family_join.html', {'invalid': True}, status=404)
+    if request.user.is_authenticated:
+        member = FamilyMembership.objects.filter(circle=circle, user=request.user).first()
+        if member and member.is_accepted:
+            return redirect(reverse('tracker:settings'))
+        # Joining decides whether this account's live location becomes
+        # visible to every other circle member, so — same reasoning as
+        # trip_join_view — it needs a POST from a page that says so, not a
+        # bare link visit a prefetcher or a lured click could trigger.
+        if request.method == 'POST':
+            member, _ = FamilyMembership.objects.get_or_create(
+                circle=circle, user=request.user, defaults={'role': 'member'},
+            )
+            member.accepted_at = timezone.now()
+            member.share_location = str(request.POST.get('share_location', '')).lower() in ('1', 'true', 'on')
+            member.save(update_fields=['accepted_at', 'share_location'])
+            _log_action(request, 'family_join',
+                        description=f"circle={circle.id} share_location={member.share_location}")
+            return redirect(reverse('tracker:settings') + '?flash=joined')
+        return render(request, 'tracker/family_join.html', {
+            'circle': circle, 'confirm': True, 'next': f"/family/join/{token}/",
+        })
+    # Anonymous: show a small landing with login/signup carrying ?next back here.
+    return render(request, 'tracker/family_join.html', {
+        'circle': circle, 'next': f"/family/join/{token}/",
+    })
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def family_places_api(request, circle_id):
+    """List a circle's shared places, or create one. Self-serve — any
+    accepted member may create, not just the circle's creator."""
+    from .models import FamilyPlace
+    membership = _get_family_membership(circle_id, request.user)
+    if request.method == "POST":
+        err = _require_api_intent(request)
+        if err:
+            return err
+        try:
+            data = json.loads(request.body or '{}')
+        except (ValueError, TypeError):
+            return JsonResponse({'error': 'Invalid JSON'}, status=400)
+        name = (data.get('name') or '').strip()
+        if not name:
+            return JsonResponse({'error': 'name required'}, status=400)
+        try:
+            lat = float(data['lat'])
+            lng = float(data['lng'])
+            radius_m = float(data.get('radius_m', 150))
+        except (KeyError, ValueError, TypeError):
+            return JsonResponse({'error': 'lat, lng required'}, status=400)
+        radius_m = max(10.0, min(radius_m, 50000.0))
+        count = FamilyPlace.objects.filter(circle=membership.circle).count()
+        place = FamilyPlace.objects.create(
+            circle=membership.circle, creator=request.user, name=name[:200],
+            latitude=lat, longitude=lng, radius_m=radius_m,
+            color=_PLACE_COLORS[count % len(_PLACE_COLORS)],
+            notes=(data.get('notes') or '')[:2000],
+        )
+        return JsonResponse(_serialize_family_place(place))
+
+    places = FamilyPlace.objects.filter(circle=membership.circle)
+    return JsonResponse({'places': [_serialize_family_place(p) for p in places]})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def family_place_update_api(request, place_id):
+    err = _require_api_intent(request)
+    if err:
+        return err
+    place = _get_family_place_for_user(place_id, request.user)
+    try:
+        data = json.loads(request.body or '{}')
+    except (ValueError, TypeError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    fields = []
+    if 'name' in data:
+        name = (data.get('name') or '').strip()
+        if not name:
+            return JsonResponse({'error': 'name required'}, status=400)
+        place.name = name[:200]
+        fields.append('name')
+    if 'lat' in data and 'lng' in data:
+        try:
+            place.latitude = float(data['lat'])
+            place.longitude = float(data['lng'])
+        except (ValueError, TypeError):
+            return JsonResponse({'error': 'Invalid lat/lng'}, status=400)
+        fields += ['latitude', 'longitude']
+    if 'radius_m' in data:
+        try:
+            place.radius_m = max(10.0, min(float(data['radius_m']), 50000.0))
+        except (ValueError, TypeError):
+            return JsonResponse({'error': 'Invalid radius_m'}, status=400)
+        fields.append('radius_m')
+    if 'notes' in data:
+        place.notes = (data.get('notes') or '')[:2000]
+        fields.append('notes')
+    if fields:
+        place.save(update_fields=fields)
+        if 'latitude' in fields or 'radius_m' in fields:
+            # A moved/resized place invalidates what "inside" meant for it —
+            # reseed silently on each member's next check rather than firing
+            # a fake transition off the edit itself.
+            from .models import FamilyMemberPlaceState
+            FamilyMemberPlaceState.objects.filter(place=place).delete()
+    return JsonResponse(_serialize_family_place(place))
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def family_place_delete_api(request, place_id):
+    err = _require_api_intent(request)
+    if err:
+        return err
+    place = _get_family_place_for_user(place_id, request.user)
+    place.delete()
+    return JsonResponse({'status': 'ok'})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def family_place_alerts_api(request, place_id):
+    """The caller's own enter/exit subscription for one place.
+
+    Opt-out, not opt-in — see family_tasks._notify. GET reports the
+    effective settings (model defaults when no row exists yet), so the UI
+    can show "on" without the member having had to visit this screen first.
+    """
+    from .models import FamilyPlaceAlert
+    place = _get_family_place_for_user(place_id, request.user)
+    if request.method == "POST":
+        err = _require_api_intent(request)
+        if err:
+            return err
+        try:
+            data = json.loads(request.body or '{}')
+        except (ValueError, TypeError):
+            return JsonResponse({'error': 'Invalid JSON'}, status=400)
+        alert, _ = FamilyPlaceAlert.objects.get_or_create(place=place, user=request.user)
+        if 'on_enter' in data:
+            alert.on_enter = bool(data['on_enter'])
+        if 'on_exit' in data:
+            alert.on_exit = bool(data['on_exit'])
+        alert.save(update_fields=['on_enter', 'on_exit'])
+        return JsonResponse({'on_enter': alert.on_enter, 'on_exit': alert.on_exit})
+
+    alert = FamilyPlaceAlert.objects.filter(place=place, user=request.user).first()
+    return JsonResponse({
+        'on_enter': alert.on_enter if alert else True,
+        'on_exit': alert.on_exit if alert else True,
+    })
+
+
+@login_required
+def family_locations_api(request):
+    """Latest fix (+ a short recent trail) per accepted, sharing member of
+    one circle. A new query path, not a parameter on /api/track/ — that
+    endpoint is scoped to device__user=request.user, a fundamentally
+    different authorization axis than circle membership."""
+    from .models import FamilyMembership
+
+    circle_id = request.GET.get('circle_id')
+    if not circle_id:
+        return JsonResponse({'error': 'circle_id required'}, status=400)
+    _get_family_membership(circle_id, request.user, require_accepted=False)
+
+    since = timezone.now() - timedelta(minutes=30)
+    members = []
+    for m in (FamilyMembership.objects
+              .filter(circle_id=circle_id, accepted_at__isnull=False, share_location=True)
+              .select_related('user')):
+        latest = (Location.objects.filter(device__user=m.user)
+                  .order_by('-timestamp')
+                  .values('latitude', 'longitude', 'timestamp', 'battery', 'speed')
+                  .first())
+        trail = list(
+            Location.objects.filter(device__user=m.user, timestamp__gte=since)
+            .order_by('timestamp').values_list('longitude', 'latitude')
+        ) if latest else []
+        members.append({
+            'user_id': m.user_id,
+            'username': m.user.username,
+            'display_name': m.user.first_name or m.user.username,
+            'is_you': m.user_id == request.user.id,
+            'latest': {
+                'lat': latest['latitude'], 'lng': latest['longitude'],
+                'timestamp': latest['timestamp'].isoformat(),
+                'battery': latest['battery'], 'speed': latest['speed'],
+            } if latest else None,
+            'trail': trail,
+        })
+    return JsonResponse({'circle_id': int(circle_id), 'members': members})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def family_push_token_register_api(request):
+    """Idempotent register — the app calls this on every launch and on
+    onNewToken(), same shape as app_api_key's idempotent mint."""
+    from .models import FamilyPushToken
+    err = _require_api_intent(request)
+    if err:
+        return err
+    try:
+        data = json.loads(request.body or '{}')
+    except (ValueError, TypeError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    token = (data.get('token') or '').strip()
+    if not token:
+        return JsonResponse({'error': 'token required'}, status=400)
+    device_label = (data.get('device_label') or '')[:100]
+    # An FCM token is globally unique — if it was previously registered to a
+    # different account (a shared/reset device), reassign it rather than
+    # leaving two rows racing to own the same registration. Likewise replace
+    # any older token already on file for this same device label.
+    FamilyPushToken.objects.filter(token=token).exclude(user=request.user).delete()
+    FamilyPushToken.objects.filter(user=request.user, device_label=device_label).exclude(token=token).delete()
+    FamilyPushToken.objects.update_or_create(
+        user=request.user, token=token, defaults={'device_label': device_label, 'last_error': ''},
+    )
+    return JsonResponse({'status': 'ok'})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def family_push_token_unregister_api(request):
+    from .models import FamilyPushToken
+    err = _require_api_intent(request)
+    if err:
+        return err
+    try:
+        data = json.loads(request.body or '{}')
+    except (ValueError, TypeError):
+        data = {}
+    token = (data.get('token') or '').strip()
+    if token:
+        FamilyPushToken.objects.filter(user=request.user, token=token).delete()
+    return JsonResponse({'status': 'ok'})

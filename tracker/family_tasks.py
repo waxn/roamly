@@ -153,22 +153,36 @@ def _apply_transition(user_id, place, is_inside, state):
 
 
 def _notify(place, mover_user_id, entered):
+    """Notify every other accepted circle member subscribed to this direction.
+
+    Opt-out, not opt-in: FamilyPlaceAlert.on_enter/on_exit default True on
+    the model, and every accepted member is treated as subscribed at those
+    defaults unless they've explicitly saved a row turning a direction off.
+    Self-serve alerting is only useful to a non-technical family member if it
+    works without them first finding a settings screen to turn it on.
+    """
     from django.contrib.auth.models import User
 
-    from .models import FamilyPlaceAlert
+    from .models import FamilyMembership, FamilyPlaceAlert
 
     mover = User.objects.filter(id=mover_user_id).only('username', 'first_name').first()
     mover_name = (mover.first_name or mover.username) if mover else 'Someone'
     verb = 'arrived at' if entered else 'left'
+    field = 'on_enter' if entered else 'on_exit'
 
-    direction_filter = {'on_enter': True} if entered else {'on_exit': True}
-    alerts = (FamilyPlaceAlert.objects
-              .filter(place=place, **direction_filter)
-              # No one is notified of their own move.
-              .exclude(user_id=mover_user_id))
-    for alert in alerts:
+    overrides = {
+        a.user_id: getattr(a, field)
+        for a in FamilyPlaceAlert.objects.filter(place=place)
+    }
+    member_ids = (FamilyMembership.objects
+                  .filter(circle_id=place.circle_id, accepted_at__isnull=False)
+                  .exclude(user_id=mover_user_id)  # no one is notified of their own move
+                  .values_list('user_id', flat=True))
+    for user_id in member_ids:
+        if not overrides.get(user_id, True):
+            continue
         push_tasks.send_push_to_user(
-            alert.user_id,
+            user_id,
             title=place.name,
             body=f"{mover_name} {verb} {place.name}",
             data={'type': 'family_place', 'place_id': place.id, 'entered': entered},
