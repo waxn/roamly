@@ -440,7 +440,7 @@ const PLACE_CAT_LABEL = {restaurant:'Restaurant',cafe:'Café',bar:'Bar / Nightli
 function starString(rating){ const n=Math.max(0,Math.min(5,parseInt(rating)||0)); return n ? '★★★★★'.slice(0,n)+'☆☆☆☆☆'.slice(0,5-n) : ''; }
 function placeMetaHtml(p){
     const bits=[];
-    if(p && p.category) bits.push(`<span class="pub-cat-badge">${PLACE_CAT_EMOJI[p.category]||''} ${PLACE_CAT_LABEL[p.category]||p.category}</span>`);
+    if(p && p.category) bits.push(`<span class="pub-cat-badge">${PLACE_CAT_EMOJI[p.category]||''} ${esc(PLACE_CAT_LABEL[p.category]||p.category)}</span>`);
     if(p && p.rating) bits.push(`<span class="pub-rating-stars">${starString(p.rating)}</span>`);
     return bits.length ? `<div class="pub-place-meta">${bits.join('')}</div>` : '';
 }
@@ -453,7 +453,7 @@ let guestName = localStorage.getItem('roamly_guest_name') || '';
 let pinMiniMap = null;
 let embeddedMaps = {};
 
-function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function copyLink(){ navigator.clipboard.writeText(location.href).then(()=>window.roamlyToast('Link copied.', {type:'success'})); }
 
 // ── PIN gate ────────────────────────────────────────────────────────────────
@@ -598,7 +598,7 @@ function renderBlock(block, allPhotos){
     if(block.type === 'map_embed'){
         const height = c.height_px || 360;
         const mapId = 'embed-map-' + Math.random().toString(36).slice(2,8);
-        return `<div class="pub-block pub-map-embed interactive" id="${mapId}-wrap" data-map-id="${mapId}" data-config='${JSON.stringify(c)}'>
+        return `<div class="pub-block pub-map-embed interactive" id="${mapId}-wrap" data-map-id="${mapId}" data-config="${esc(JSON.stringify(c))}">
             <div id="${mapId}" class="pub-map-inner" style="height:${height}px;"></div>
         </div>`;
     }
@@ -935,7 +935,12 @@ async function loadAndRender(){
     const prev = JSON.parse(localStorage.getItem('roamly_guest_names') || '[]');
     const chips = document.getElementById('name-chips');
     if(chips && prev.length){
-        chips.innerHTML = prev.map(n=>`<span class="name-chip" onclick="quickName('${esc(n)}')">${esc(n)}</span>`).join('');
+        chips.innerHTML = prev.map(n=>`<span class="name-chip" role="button" tabindex="0" data-name="${esc(n)}">${esc(n)}</span>`).join('');
+        chips.querySelectorAll('.name-chip').forEach(el=>{
+            const pick = ()=>quickName(el.dataset.name);
+            el.addEventListener('click', pick);
+            el.addEventListener('keydown', ev=>{ if(ev.key==='Enter'||ev.key===' '){ ev.preventDefault(); pick(); } });
+        });
     }
     if(guestName){
         // Already have a name, skip the gate

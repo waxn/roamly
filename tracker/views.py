@@ -4786,6 +4786,64 @@ def _get_trip_for_user(trip_id, user):
     return trip
 
 
+# Story block document (Adventure.body) — the set of block types the editor and
+# the public renderer actually know how to draw. Anything else is dropped rather
+# than stored: `body` is rendered into the public page's DOM, so an unvalidated
+# document is a stored-XSS surface for every visitor, not just its author.
+_BODY_BLOCK_TYPES = {
+    'heading', 'paragraph', 'divider', 'callout', 'photo_grid',
+    'location_card', 'timeline', 'map_embed',
+}
+_BODY_MAX_BLOCKS = 500
+_BODY_MAX_TEXT = 20000
+_BODY_MAX_KEYS = 40
+_BODY_MAX_LIST = 200
+
+
+def _clean_body_value(v, depth=0):
+    """Coerce one block-content value to something safe to store and re-render.
+
+    Strings are length-capped, containers are size- and depth-capped, and
+    anything that is not a JSON scalar/list/dict is dropped. This does not HTML-
+    escape — the renderers do that — it bounds what can be stored at all.
+    """
+    if depth > 4:
+        return None
+    if isinstance(v, str):
+        return v[:_BODY_MAX_TEXT]
+    if isinstance(v, bool) or v is None:
+        return v
+    if isinstance(v, (int, float)):
+        return v
+    if isinstance(v, list):
+        out = [_clean_body_value(x, depth + 1) for x in v[:_BODY_MAX_LIST]]
+        return [x for x in out if x is not None]
+    if isinstance(v, dict):
+        out = {}
+        for k, val in list(v.items())[:_BODY_MAX_KEYS]:
+            if not isinstance(k, str):
+                continue
+            cleaned = _clean_body_value(val, depth + 1)
+            if cleaned is not None:
+                out[k[:100]] = cleaned
+        return out
+    return None
+
+
+def _clean_body(body):
+    """Validate a Story block document against the known block types."""
+    blocks = []
+    for block in body[:_BODY_MAX_BLOCKS]:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get('type')
+        if btype not in _BODY_BLOCK_TYPES:
+            continue
+        content = _clean_body_value(block.get('content'), depth=1)
+        blocks.append({'type': btype, 'content': content if content is not None else {}})
+    return blocks
+
+
 def _body_word_count(body):
     """Count words across all text-bearing blocks in a document body list."""
     words = 0
@@ -5778,10 +5836,11 @@ def trip_update_body(request, trip_id):
     body = data.get('body')
     if not isinstance(body, list):
         return JsonResponse({"error": "body must be a list"}, status=400)
+    body = _clean_body(body)
     if 'name' in data:
-        trip.name = data['name']
+        trip.name = str(data['name'])[:200]
     if 'subtitle' in data:
-        trip.subtitle = data['subtitle'][:400]
+        trip.subtitle = str(data['subtitle'])[:400]
     trip.body = body
     trip.save(update_fields=['body', 'name', 'subtitle'])
     return JsonResponse({"status": "ok", "word_count": _body_word_count(body)})
