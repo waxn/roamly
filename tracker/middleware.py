@@ -77,8 +77,19 @@ class ApiKeyAuthMiddleware:
                         api_key = APIKey.objects.select_related('user').get(
                             key=key, is_active=True
                         )
-                        api_key.last_used = timezone.now()
-                        api_key.save(update_fields=['last_used'])
+                        # Stamp last_used at most once every 5 minutes.
+                        #
+                        # This ran on EVERY Bearer request: a phone pushing GPS
+                        # every 30 seconds is ~2,900 UPDATEs a day per key,
+                        # each a WAL write and a row lock on one hot row, plus
+                        # the autovacuum churn that follows. last_used is a
+                        # "when did we last see this key" display field — it
+                        # does not need second precision.
+                        from django.core.cache import cache
+                        if cache.add(f'apikey_seen:{api_key.id}', 1, 300):
+                            APIKey.objects.filter(pk=api_key.id).update(
+                                last_used=timezone.now()
+                            )
                         request.user = api_key.user
                     except Exception:
                         pass

@@ -4587,6 +4587,18 @@ def _flag_suspicious_locations(user, window_start=None, window_end=None):
     qs.filter(flag='suspect').update(flag='', flag_reason='')
 
     to_update = []
+    flagged_total = 0
+
+    def flush():
+        """Write the pending batch. Called as we go, not once at the end."""
+        nonlocal flagged_total
+        if to_update:
+            Location.objects.bulk_update(
+                [Location(id=r.id, flag=r.flag, flag_reason=r.flag_reason) for r in to_update],
+                ['flag', 'flag_reason'],
+            )
+            flagged_total += len(to_update)
+            to_update.clear()
 
     def finalize(loc):
         """Commit whatever reasons accumulated on `loc` once it can gain no more."""
@@ -4594,22 +4606,41 @@ def _flag_suspicious_locations(user, window_start=None, window_end=None):
             loc.flag        = 'suspect'
             loc.flag_reason = ','.join(loc._reasons)
             to_update.append(loc)
+            if len(to_update) >= 500:
+                flush()
 
     # Sliding window of three consecutive same-device points. The spike rule needs the point
     # *after* the candidate as well as the one before, so a point is only final once its
     # successor has been read — but the stream still has to stay a stream, since a user's
     # whole history does not fit in memory.
+    #
+    # It genuinely has to be .iterator(): without it Django materialises the
+    # entire result set into the queryset cache and builds a model object per
+    # row, which is the opposite of what the comment above promises and what
+    # this scan does nightly for every user. select_related('device') was dead
+    # weight too — only loc.device_id is ever read, and that is on Location
+    # already — so this uses .values() and a lightweight row object instead.
     p0 = p1 = None
 
-    for loc in (
-        qs
-        .select_related('device')
-        .order_by('device_id', 'timestamp')
-        .only('id', 'device_id', 'accuracy', 'altitude', 'speed',
-              'latitude', 'longitude', 'timestamp', 'flag')
-    ):
-        loc._reasons = []
+    class _Row:
+        """Just enough of a Location for the rules below, minus the ORM machinery."""
+        __slots__ = ('id', 'device_id', 'accuracy', 'altitude', 'speed',
+                     'latitude', 'longitude', 'timestamp', 'flag',
+                     'flag_reason', '_reasons')
 
+        def __init__(self, d):
+            for k, v in d.items():
+                setattr(self, k, v)
+            self._reasons = []
+
+    for loc in (
+        _Row(d) for d in
+        qs
+        .order_by('device_id', 'timestamp')
+        .values('id', 'device_id', 'accuracy', 'altitude', 'speed',
+                'latitude', 'longitude', 'timestamp', 'flag')
+        .iterator(chunk_size=5000)
+    ):
         if loc.accuracy is not None and loc.accuracy > _FLAG_BAD_ACCURACY_M:
             loc._reasons.append('accuracy')
 
@@ -4637,13 +4668,9 @@ def _flag_suspicious_locations(user, window_start=None, window_end=None):
         p0, p1 = p1, loc
 
     finalize(p1)
+    flush()
 
-    if to_update:
-        chunk = 500
-        for i in range(0, len(to_update), chunk):
-            Location.objects.bulk_update(to_update[i:i + chunk], ['flag', 'flag_reason'])
-
-    return len(to_update)
+    return flagged_total
 
 
 @login_required
@@ -5142,7 +5169,6 @@ def trip_detail(request, trip_id):
 
 def _trip_detail_inner(request, trip_id):
     trip = _get_trip_for_user(trip_id, request.user)
-    LOCATION_LIMIT = 30000
     location_qs = trip.locations
     total_count = location_qs.count()
     locations = list(location_qs[:LOCATION_LIMIT])
@@ -5280,6 +5306,13 @@ def update_trip(request, trip_id):
         trip.access_pin = raw_pin[:20]
     trip.save()
     return JsonResponse({"status": "ok", "public_slug": trip.public_slug})
+
+
+# Hard cap on how many points any single adventure payload will return. Shared
+# by the authenticated and public payloads — the public one had no cap at all,
+# so an adventure spanning an open-ended date range materialised a whole history
+# into memory on an unauthenticated request.
+LOCATION_LIMIT = 30000
 
 
 def _member_track(member, start, end, limit, with_speed=False):
@@ -6296,12 +6329,12 @@ def trip_verify_pin(request, slug):
 def _adventure_public_payload(trip, request_user=None):
     """The read-only public-page payload for an adventure (shared by the public
     slug endpoint and the members-only preview endpoint)."""
-    locations = list(trip.locations)
     locs = [{
-        "lat": _jf(l.latitude), "lng": _jf(l.longitude),
-        "timestamp": l.timestamp.isoformat(),
-        "city": l.city, "country": l.country,
-    } for l in locations]
+        "lat": _jf(lat), "lng": _jf(lng),
+        "timestamp": ts.isoformat(),
+        "city": city, "country": country,
+    } for lat, lng, ts, city, country in trip.locations.values_list(
+        'latitude', 'longitude', 'timestamp', 'city', 'country')[:LOCATION_LIMIT]]
     members = [{"username": m.user.username, "role": m.role, "avatar": _get_user_avatar(m.user)}
                for m in trip.members.select_related('user') if m.is_accepted]
     # Each member's own track over the window, so the public map shows everyone

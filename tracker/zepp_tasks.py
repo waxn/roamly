@@ -32,9 +32,10 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone as dt_timezone
 
-from django.db import close_old_connections
+from django.db import close_old_connections, connection
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -312,12 +313,53 @@ def _sweep():
         sync_user_safe(profile.user)
 
 
+_scheduler_thread = None
+
+# Advisory-lock namespace (first int4 key). Distinct from stats_tasks ('RAML'),
+# summary_email_tasks ('RAMS'), log_cleanup_tasks ('RAMG'), auto_download_tasks
+# ('RAMD') and alert_tasks ('RAMA') so these sweeps can never collide with any of
+# those in the same database.
+_LOCK_NAMESPACE = 0x52414d5a       # 'RAMZ'
+_LOCK_KEY = 0
+
+
+@contextmanager
+def _sweep_lock():
+    """Yield True iff this worker holds the exclusive Zepp sweep lock.
+
+    This module had neither this nor the usual _scheduler_thread guard, so with
+    three gunicorn workers all three swept the same account at the same time.
+    is_running() only consults a per-PROCESS set, so it could not see the other
+    two: three concurrent calls to Zepp's unofficial API with one apptoken (the
+    fastest way to get it rate-limited or invalidated) and three bulk_create
+    batches racing on unique_together.
+
+    Mirrors log_cleanup_tasks._sweep_lock: a Postgres session advisory lock,
+    auto-released if the holder dies; a no-op on SQLite, which is single-process.
+    """
+    if connection.vendor != 'postgresql':
+        yield True
+        return
+    got = False
+    try:
+        with connection.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_lock(%s, %s)", [_LOCK_NAMESPACE, _LOCK_KEY])
+            got = bool(cur.fetchone()[0])
+        yield got
+    finally:
+        if got:
+            with connection.cursor() as cur:
+                cur.execute("SELECT pg_advisory_unlock(%s, %s)", [_LOCK_NAMESPACE, _LOCK_KEY])
+
+
 def _scheduler():
     """Daemon loop, mirroring alert_tasks/summary_email_tasks."""
     while True:
         try:
             close_old_connections()
-            _sweep()
+            with _sweep_lock() as got:
+                if got:
+                    _sweep()
         except Exception:
             logger.exception("Zepp sweep failed")
         finally:
@@ -326,6 +368,11 @@ def _scheduler():
 
 
 def start_zepp_scheduler():
-    t = threading.Thread(target=_scheduler, daemon=True, name='zepp-sync')
-    t.start()
-    return t
+    """Start the 6-hourly Zepp sync sweep (called once on startup)."""
+    global _scheduler_thread
+    if _scheduler_thread is not None and _scheduler_thread.is_alive():
+        return _scheduler_thread
+    _scheduler_thread = threading.Thread(target=_scheduler, daemon=True, name='zepp-sync')
+    _scheduler_thread.start()
+    logger.info("Zepp sync scheduler started")
+    return _scheduler_thread
