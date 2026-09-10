@@ -62,6 +62,9 @@ MIDDLEWARE = [
     'tracker.middleware.UserTimezoneMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Last, so it sees the final response and can set headers on everything
+    # (including responses short-circuited by the middlewares above it).
+    'tracker.middleware.SecurityHeadersMiddleware',
 ]
 
 ROOT_URLCONF = 'roamly.urls'
@@ -209,6 +212,44 @@ else:
     # No SMTP: keep a harmless backend so any stray send_mail call is a no-op-ish
     # console write rather than an error.
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+# ── Transport / cookie security ─────────────────────────────────────────────
+# All gated on DEBUG so a local run over plain HTTP still works.
+#
+# SECURE_PROXY_SSL_HEADER is the one with visible symptoms: Roamly normally runs
+# behind a reverse proxy that terminates TLS, and without this request.is_secure()
+# is always False and request.scheme is "http" — so every absolute URL built from
+# build_absolute_uri came out as http://, including the canonical link, og:url,
+# the robots.txt Sitemap line and every sitemap.xml entry.
+SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+SESSION_COOKIE_AGE = 60 * 60 * 24 * 30          # 30 days
+SESSION_SAVE_EVERY_REQUEST = True                # sliding expiry, not fixed
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    CSRF_COOKIE_SAMESITE = 'Lax'
+    # HSTS and the HTTPS redirect stay OPT-IN. A self-hoster running on a LAN
+    # over plain http:// would otherwise lock themselves out of their own
+    # instance — and HSTS in particular is remembered by the browser for as long
+    # as it says, so getting it wrong is not something a redeploy undoes.
+    SECURE_HSTS_SECONDS = int(os.environ.get('HSTS_SECONDS', '0'))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = SECURE_HSTS_SECONDS > 0
+    SECURE_HSTS_PRELOAD = SECURE_HSTS_SECONDS > 0
+    SECURE_SSL_REDIRECT = os.environ.get('SSL_REDIRECT', 'False').lower() in ('true', '1')
+
+# ── Content-Security-Policy ─────────────────────────────────────────────────
+# Enforced by tracker.middleware.SecurityHeadersMiddleware.
+#
+# Report-only by default. The app has a great deal of deliberately inline CSS and
+# JS (base.html alone is a 47KB <style> block), so 'unsafe-inline' cannot be
+# dropped without a much larger refactor — the value here is locking down
+# connect-src, img-src, object-src and frame-ancestors, which is what limits
+# what an injected script could actually do. Flip CSP_ENFORCE=1 once you have
+# browsed every page with the console open and seen no violations.
+CSP_ENFORCE = os.environ.get('CSP_ENFORCE', 'False').lower() in ('true', '1')
+CSP_EXTRA_HOSTS = [h for h in re.split(r'[,\s]+', os.environ.get('CSP_EXTRA_HOSTS', '')) if h]
 
 LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/map/'

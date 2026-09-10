@@ -135,3 +135,74 @@ class UserTimezoneMiddleware:
         except Exception:
             timezone.deactivate()
         return self.get_response(request)
+
+
+class SecurityHeadersMiddleware:
+    """Content-Security-Policy and Permissions-Policy on every response.
+
+    Not a package — the policy is short, static and better read inline than
+    configured through a dependency.
+
+    The app injects admin-supplied HTML verbatim (``{{ CUSTOM_JS_SNIPPET|safe }}``)
+    into every template including the public ones, so it needs 'unsafe-inline'
+    for scripts and styles by design; base.html alone is a 47KB inline <style>.
+    That is fine, because the clauses doing the real work here are the ones an
+    injected script cannot talk its way around: ``connect-src`` bounds where data
+    can be sent, ``object-src 'none'`` kills plugin-based escapes, ``base-uri``
+    stops a rewritten <base> retargeting every relative URL, and
+    ``frame-ancestors`` prevents clickjacking.
+
+    Report-only unless ``CSP_ENFORCE``, so an instance can watch its console
+    before switching the policy on for real.
+    """
+
+    # Third parties the app genuinely talks to. Anything else is a bug or an
+    # attack. basemaps.cartocdn.com / arcgisonline / mapbox are basemap tiles,
+    # challenges.cloudflare.com is Turnstile. Note there is no CDN entry: since
+    # MapLibre was vendored, the app loads no third-party script at all.
+    _TILE_HOSTS = (
+        'https://basemaps.cartocdn.com',
+        'https://*.basemaps.cartocdn.com',
+        'https://server.arcgisonline.com',
+        'https://api.mapbox.com',
+    )
+    _TURNSTILE = 'https://challenges.cloudflare.com'
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+        from django.conf import settings
+        extra = ' '.join(getattr(settings, 'CSP_EXTRA_HOSTS', []) or [])
+        tiles = ' '.join(self._TILE_HOSTS)
+        self.policy = '; '.join([
+            "default-src 'self'",
+            # 'unsafe-eval' is required by MapLibre GL, which compiles style
+            # expressions at runtime.
+            f"script-src 'self' 'unsafe-inline' 'unsafe-eval' {self._TURNSTILE} {extra}".strip(),
+            "style-src 'self' 'unsafe-inline'",
+            f"img-src 'self' data: blob: {tiles} {extra}".strip(),
+            "font-src 'self'",
+            # blob: is MapLibre's web workers; the tile hosts are the raster
+            # basemaps; the AI Ask provider is called server-side, never here.
+            f"connect-src 'self' blob: {tiles} {self._TURNSTILE} {extra}".strip(),
+            "worker-src 'self' blob:",
+            "media-src 'self' blob:",
+            f"frame-src {self._TURNSTILE}",
+            "object-src 'none'",
+            "base-uri 'self'",
+            "form-action 'self'",
+            "frame-ancestors 'none'",
+        ])
+        self.enforce = bool(getattr(settings, 'CSP_ENFORCE', False))
+        self.header = ('Content-Security-Policy' if self.enforce
+                       else 'Content-Security-Policy-Report-Only')
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        # Never override a policy a view set for itself, and leave the Django
+        # admin alone — it is a separate app with its own inline assets.
+        if 'Content-Security-Policy' not in response and not request.path.startswith('/admin/'):
+            response[self.header] = self.policy
+        response.setdefault('Permissions-Policy',
+                            'geolocation=(self), camera=(), microphone=(), payment=()')
+        response.setdefault('X-Content-Type-Options', 'nosniff')
+        return response

@@ -91,6 +91,11 @@ services:
       # X-Forwarded-For entry is trusted as the client IP, which is what every
       # auth rate limit keys on. See .env.example.
       - TRUSTED_PROXY_COUNT=${TRUSTED_PROXY_COUNT:-1}
+      # See .env.example — HSTS is remembered by browsers, so it is opt-in.
+      - HSTS_SECONDS=${HSTS_SECONDS:-0}
+      - SSL_REDIRECT=${SSL_REDIRECT:-False}
+      - CSP_ENFORCE=${CSP_ENFORCE:-False}
+      - CSP_EXTRA_HOSTS=${CSP_EXTRA_HOSTS:-}
       - REDIS_URL=redis://redis:6379/1
       # Optional email/SMTP — leave EMAIL_HOST blank to disable all email features.
       - SITE_URL=${SITE_URL:-http://localhost:8001}
