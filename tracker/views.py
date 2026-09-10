@@ -4966,7 +4966,10 @@ def create_trip(request):
         start_time=start,
         end_time=end,
     )
-    AdventureMember.objects.create(adventure=trip, user=request.user, role='creator')
+    AdventureMember.objects.create(
+        adventure=trip, user=request.user, role='creator',
+        accepted_at=timezone.now(), share_track=True,
+    )
 
     return JsonResponse({"status": "ok", "trip_id": trip.id})
 
@@ -5058,21 +5061,14 @@ def _trip_detail_inner(request, trip_id):
             "username": m.user.username,
             "role": m.role,
             "avatar": _get_user_avatar(m.user),
+            "pending": not m.is_accepted,
+            "share_track": m.share_track,
         })
-        if m.user != owner_user:
-            member_locs = list(
-                Location.objects.filter(
-                    device__user=m.user,
-                    timestamp__gte=trip.start_time,
-                    timestamp__lte=trip.end_time,
-                ).order_by('timestamp')[:LOCATION_LIMIT]
-            )
-            if member_locs:
-                member_locations[m.user.username] = [{
-                    "lat": _jf(l.latitude), "lng": _jf(l.longitude),
-                    "timestamp": l.timestamp.isoformat(),
-                    "speed": _jf(l.speed),
-                } for l in member_locs]
+        if m.user_id != owner_user.id:
+            track = _member_track(m, trip.start_time, trip.end_time,
+                                  LOCATION_LIMIT, with_speed=True)
+            if track:
+                member_locations[m.user.username] = track
 
     return JsonResponse({
         "id": trip.id,
@@ -5162,6 +5158,31 @@ def update_trip(request, trip_id):
         trip.access_pin = raw_pin[:20]
     trip.save()
     return JsonResponse({"status": "ok", "public_slug": trip.public_slug})
+
+
+def _member_track(member, start, end, limit, with_speed=False):
+    """One member's own points for an adventure window, or [] if not consented.
+
+    Membership alone is not consent: track_window() returns None until the
+    member has accepted the invitation AND opted into sharing a track, and it
+    clamps the window so nothing before they accepted is ever exposed. Selects
+    only the columns the payload uses rather than building model instances.
+    """
+    window = member.track_window(start, end)
+    if window is None:
+        return []
+    lo, hi = window
+    fields = ['latitude', 'longitude', 'timestamp'] + (['speed'] if with_speed else [])
+    rows = (
+        Location.objects
+        .filter(device__user_id=member.user_id, timestamp__gte=lo, timestamp__lte=hi)
+        .order_by('timestamp')
+        .values_list(*fields)[:limit]
+    )
+    if with_speed:
+        return [{"lat": _jf(r[0]), "lng": _jf(r[1]), "timestamp": r[2].isoformat(),
+                 "speed": _jf(r[3])} for r in rows]
+    return [{"lat": _jf(r[0]), "lng": _jf(r[1]), "timestamp": r[2].isoformat()} for r in rows]
 
 
 def _poi_payload(b):
@@ -5530,13 +5551,30 @@ def trip_join_view(request, token):
     if not trip:
         return render(request, 'tracker/adventure_join.html', {'invalid': True}, status=404)
     if request.user.is_authenticated:
-        _member, created = AdventureMember.objects.get_or_create(
-            adventure=trip, user=request.user, defaults={'role': 'member'},
-        )
-        url = reverse('tracker:adventure_plan', kwargs={'trip_id': trip.id})
-        if created:
-            url += '?flash=joined'
-        return redirect(url)
+        member = AdventureMember.objects.filter(adventure=trip, user=request.user).first()
+        if member and member.is_accepted:
+            return redirect(reverse('tracker:adventure_plan', kwargs={'trip_id': trip.id}))
+        # Joining is a deliberate act, and it decides whether this account's own
+        # GPS track becomes part of a shared (possibly published) adventure — so
+        # it needs a POST from a page that says so, not a bare link visit that a
+        # prefetcher or a lured click could trigger.
+        if request.method == 'POST':
+            member, _ = AdventureMember.objects.get_or_create(
+                adventure=trip, user=request.user, defaults={'role': 'member'},
+            )
+            member.accepted_at = timezone.now()
+            member.share_track = str(request.POST.get('share_track', '')).lower() in ('1', 'true', 'on')
+            member.save(update_fields=['accepted_at', 'share_track'])
+            _log_action(request, 'trip_join',
+                        description=f"adventure={trip.id} share_track={member.share_track}")
+            url = reverse('tracker:adventure_plan', kwargs={'trip_id': trip.id})
+            return redirect(url + '?flash=joined')
+        return render(request, 'tracker/adventure_join.html', {
+            'trip': trip,
+            'confirm': True,
+            'next': f"/adventure/join/{token}/",
+            'cover': trip.cover_image_thumbnail.url if trip.cover_image_thumbnail else (trip.cover_image.url if trip.cover_image else ''),
+        })
     # Anonymous: show a small landing with login/signup carrying ?next back here.
     return render(request, 'tracker/adventure_join.html', {
         'trip': trip,
@@ -5568,10 +5606,22 @@ def trip_add_member(request, trip_id):
         return JsonResponse({"error": "User not found"}, status=404)
     if user == request.user:
         return JsonResponse({"error": "You are already the creator"}, status=400)
-    member, created = AdventureMember.objects.get_or_create(adventure=trip, user=user, defaults={'role': 'member'})
+    # Creates an INVITATION, not a membership. accepted_at stays NULL until the
+    # invitee opens the join link themselves, and _member_track contributes
+    # nothing for an unaccepted member — otherwise adding an arbitrary username
+    # to an adventure spanning 1970..2099 read out their whole location history.
+    member, created = AdventureMember.objects.get_or_create(
+        adventure=trip, user=user,
+        defaults={'role': 'member', 'accepted_at': None},
+    )
     if not created:
         return JsonResponse({"error": "Already a member"}, status=400)
-    return JsonResponse({"status": "ok", "user_id": user.id, "username": user.username})
+    _log_action(request, 'trip_invite',
+                description=f"adventure={trip.id} invited={user.username}")
+    return JsonResponse({
+        "status": "ok", "user_id": user.id, "username": user.username,
+        "pending": True,
+    })
 
 
 @login_required
@@ -6079,26 +6129,17 @@ def _adventure_public_payload(trip, request_user=None):
         "city": l.city, "country": l.country,
     } for l in locations]
     members = [{"username": m.user.username, "role": m.role, "avatar": _get_user_avatar(m.user)}
-               for m in trip.members.select_related('user')]
+               for m in trip.members.select_related('user') if m.is_accepted]
     # Each member's own track over the window, so the public map shows everyone
     # (mirrors _trip_detail_inner). The owner's track is already `locations`.
     owner_user = trip.device.user
     member_locations = {}
     for m in trip.members.select_related('user'):
-        if m.user == owner_user:
+        if m.user_id == owner_user.id:
             continue
-        member_locs = list(
-            Location.objects.filter(
-                device__user=m.user,
-                timestamp__gte=trip.start_time,
-                timestamp__lte=trip.end_time,
-            ).order_by('timestamp')[:30000]
-        )
-        if member_locs:
-            member_locations[m.user.username] = [{
-                "lat": _jf(l.latitude), "lng": _jf(l.longitude),
-                "timestamp": l.timestamp.isoformat(),
-            } for l in member_locs]
+        track = _member_track(m, trip.start_time, trip.end_time, LOCATION_LIMIT)
+        if track:
+            member_locations[m.user.username] = track
     blurbs = []
     places = []
     for b in trip.blurbs.select_related('author').prefetch_related('photos'):
@@ -6439,7 +6480,7 @@ def _write_backup_json(user, f, progress=None):
     loc_total = Location.objects.filter(device__user=user).count()
 
     report('Collecting devices')
-    meta = {'version': 12, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 13, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # Same complete, nested schema as the S3 backup (_build_backup_json) so the
@@ -6967,9 +7008,15 @@ def restore_backup(request):
                     for m in a.get('members', []):
                         member_user = AuthUser.objects.filter(username=m.get('username')).first()
                         if member_user:
+                            is_self = member_user.id == user.id
                             AdventureMember.objects.get_or_create(
                                 adventure=adv, user=member_user,
-                                defaults={'role': m.get('role', 'member')}
+                                defaults={
+                                    'role': m.get('role', 'member'),
+                                    'accepted_at': (_parse_timestamp(m['accepted_at'])
+                                                    if is_self and m.get('accepted_at') else None),
+                                    'share_track': bool(m.get('share_track')) if is_self else False,
+                                }
                             )
 
                     # Blurbs + milestones only on freshly-created adventures (avoid dupes)

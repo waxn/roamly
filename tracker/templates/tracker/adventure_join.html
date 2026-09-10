@@ -38,6 +38,11 @@
         .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
         .btn.primary:hover { background: var(--primary-hover); }
         .btn:hover { border-color: var(--border-bright); }
+        .btn-plain { background: none; border: 1px solid var(--border); font-family: inherit; cursor: pointer; }
+        .consent { display: flex; gap: 0.65rem; align-items: flex-start; padding: 0.85rem; margin-bottom: 1.1rem; background: var(--bg-input); border: 1px solid var(--border); }
+        .consent input { margin-top: 0.2rem; width: 16px; height: 16px; accent-color: var(--primary); flex-shrink: 0; }
+        .consent label { font-size: 0.82rem; line-height: 1.45; color: var(--text-muted); cursor: pointer; }
+        .consent strong { color: var(--text); font-weight: 600; display: block; margin-bottom: 0.15rem; }
     </style>
 </head>
 <body>
@@ -54,9 +59,26 @@
             <div class="logo-wrap"><img src="{% static 'tracker/roamlymark.svg' %}" alt=""><span class="logo-word">Roamly</span></div>
             <div class="eyebrow">you're invited to join</div>
             <div class="trip-name">{{ trip.name }}</div>
+            {% if confirm %}
+            <p class="lede">Joining lets you post to this adventure and see everyone's contributions.</p>
+            <form method="post" action="{{ next }}">
+                {% csrf_token %}
+                <div class="consent">
+                    <input type="checkbox" id="share-track" name="share_track" value="1">
+                    <label for="share-track">
+                        <strong>Also show my location track</strong>
+                        Adds your own recorded points for this adventure's dates to its map. If the
+                        adventure is published, they become public too. You can join without this.
+                    </label>
+                </div>
+                <button type="submit" class="btn primary btn-plain">join adventure →</button>
+            </form>
+            <a class="btn" href="{% url 'tracker:adventures' %}">not now</a>
+            {% else %}
             <p class="lede">Join this trip on Roamly to follow along and add your own track. Log in or create a free account to continue.</p>
             <a class="btn primary" href="{% url 'tracker:signup' %}?next={{ next|urlencode }}">create account &amp; join →</a>
             <a class="btn" href="{% url 'tracker:login' %}?next={{ next|urlencode }}">I already have an account</a>
+            {% endif %}
         </div>
         {% endif %}
     </div>

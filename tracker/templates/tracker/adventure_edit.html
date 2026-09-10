@@ -2141,7 +2141,7 @@ function renderSettingsMembers(){
     list.innerHTML = members.map(m => `<div class="settings-member-item">
         <div class="settings-member-avatar">${esc(m.username.slice(0,2).toUpperCase())}</div>
         <span class="settings-member-name">${esc(m.username)}</span>
-        <span class="settings-member-role">${esc(m.role)}</span>
+        <span class="settings-member-role">${m.pending ? 'invited — not yet accepted' : esc(m.role)}</span>
         ${m.role !== 'creator' ? `<button class="settings-btn danger" style="padding:2px 6px;font-size:0.65rem;" onclick="removeMember(${m.user_id})">remove</button>` : ''}
     </div>`).join('');
 }

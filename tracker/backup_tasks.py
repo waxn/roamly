@@ -92,7 +92,8 @@ def _build_adventures_data(user):
             'cover_image_thumbnail': adv.cover_image_thumbnail.name if adv.cover_image_thumbnail else '',
             'body': adv.body,
             'members': [
-                {'username': m.user.username, 'role': m.role}
+                {'username': m.user.username, 'role': m.role,
+                 'accepted_at': m.accepted_at, 'share_track': m.share_track}
                 for m in adv.members.all()
             ],
             'blurbs': blurbs,
@@ -280,7 +281,7 @@ def _build_backup_json(user):
 
     data = {
         'meta': {
-            'version': 12,
+            'version': 13,
             'exported_at': timezone.now().isoformat(),
             'username': user.username,
         },

@@ -891,9 +891,37 @@ class AdventureMember(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='adventure_memberships')
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='member')
     joined_at = models.DateTimeField(auto_now_add=True)
+    # When this member accepted. NULL = invited but not yet accepted.
+    #
+    # This is load-bearing, not bookkeeping. A shared adventure publishes each
+    # member's own device track for its window, and membership used to be
+    # created unilaterally by the adventure owner from a username — so anyone
+    # could add anyone, set the window to 1970..2099, and read their whole
+    # location history (then publish it). A member contributes no track until
+    # they have accepted, and only for the period since they did.
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    # Whether this member's own GPS track is shown on the adventure. Accepting
+    # an invitation is not by itself consent to share a track.
+    share_track = models.BooleanField(default=False)
 
     class Meta:
         unique_together = ['adventure', 'user']
+
+    @property
+    def is_accepted(self):
+        return self.accepted_at is not None
+
+    def track_window(self, start, end):
+        """Clamp an adventure window to the period this member has consented to.
+
+        Returns (start, end) or None when this member contributes no track.
+        """
+        if not self.accepted_at or not self.share_track:
+            return None
+        lo = max(start, self.accepted_at)
+        if lo >= end:
+            return None
+        return lo, end
 
     def __str__(self):
         return f"{self.user.username} in {self.adventure.name}"
@@ -1563,6 +1591,8 @@ class ActionLog(models.Model):
         ('totp_enable', 'TOTP enabled'),
         ('totp_disable', 'TOTP disabled'),
         ('totp_regen_backup', 'TOTP backup codes regenerated'),
+        ('trip_invite', 'Adventure invitation sent'),
+        ('trip_join', 'Adventure invitation accepted'),
         ('other', 'Other'),
     ]
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='action_logs')
