@@ -6784,7 +6784,7 @@ def _write_backup_json(user, f, progress=None):
     loc_total = Location.objects.filter(device__user=user).count()
 
     report('Collecting devices')
-    meta = {'version': 13, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 14, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # The single backup builder: the scheduled S3 backup calls this too, so the
@@ -6841,6 +6841,7 @@ def _write_backup_json(user, f, progress=None):
         if written % 5000 == 0:
             report('Writing locations', written, loc_total)
     f.write(b'],')
+    counted_locations = loc_count
     report('Writing locations', loc_total, loc_total)
 
     # Health samples are the only health section large enough to matter, so they
@@ -6869,7 +6870,19 @@ def _write_backup_json(user, f, progress=None):
         written += 1
         if written % 5000 == 0:
             report('Writing health', written, health_total)
-    f.write(b']}')
+    f.write(b'],')
+    # Row counts, written last because they are only known once the streams are
+    # done. A truncated download used to restore "successfully" with silently
+    # fewer points; restore_backup compares these and says so.
+    f.write(b'"counts":' + encoder.encode({
+        'locations': counted_locations,
+        'health_samples': written,
+        'devices': len(devices),
+        'adventures': len(adventures),
+        'journals': len(journals),
+        'custom_places': len(custom_places),
+        'activities': len(activities),
+    }).encode() + b'}')
     report('Writing health', health_total, health_total)
 
 
@@ -7793,7 +7806,27 @@ def restore_backup(request):
         from .tz_utils import bust_user_timezone
         bust_user_timezone(user.id)
 
-    return JsonResponse({'status': 'ok', 'restored': counts, 'errors': errors})
+    # Compare against the counts the export recorded. A truncated or partly
+    # corrupted archive used to restore "successfully" with silently fewer
+    # points — the one failure mode a backup must never have.
+    expected = data.get('counts') or {}
+    shortfall = {}
+    for key, got in (('locations', counts['locations']),
+                     ('health_samples', counts['health_samples']),
+                     ('activities', counts['activities'])):
+        want = expected.get(key)
+        # Only flag a SHORTFALL. Restoring into a database that already holds
+        # some of these rows legitimately creates fewer than the file contains,
+        # so a lower count is only meaningful on a fresh restore — but a count
+        # that is lower than the file claims AND had errors is worth saying.
+        if isinstance(want, int) and got < want and errors:
+            shortfall[key] = {'expected': want, 'restored': got}
+
+    return JsonResponse({
+        'status': 'ok', 'restored': counts, 'errors': errors,
+        'expected': expected or None,
+        'incomplete': shortfall or None,
+    })
 
 
 def _safe_float(value):
