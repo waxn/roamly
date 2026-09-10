@@ -1403,6 +1403,14 @@ class SiteConfig(models.Model):
     # client-side key embedded in tile URLs, so it is public by design and
     # deliberately NOT masked the way turnstile_secret_key is.
     carto_api_key = models.CharField(blank=True, default='', max_length=255)
+    # Firebase Cloud Messaging, for Family Circle place-alert push notifications
+    # (see FamilyCircle etc. below). Unlike carto_api_key this is a server-side
+    # signing secret (a full service-account key file), not a client-embedded
+    # key, so it is masked the same way turnstile_secret_key is and must never
+    # reach a template context. fcm_project_id is parsed out of the JSON at
+    # save time so push_tasks.py doesn't need to re-parse it on every send.
+    fcm_project_id = models.CharField(max_length=200, blank=True, default='')
+    fcm_service_account_json = models.TextField(blank=True, default='')
     updated_at = models.DateTimeField(auto_now=True)
 
     @classmethod

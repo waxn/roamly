@@ -2958,12 +2958,54 @@ async function restoreBackup(input) {
     }
 }
 
+// Collects the re-authentication a destructive delete now requires. Returns the
+// values, or null if the user backed out. `phrase` is echoed in the prompt so
+// there is no guessing what to type.
+const TOTP_ON = {% if totp_enabled %}true{% else %}false{% endif %};
+async function askDestructiveConfirm(message, phrase, confirmText) {
+    const fields = [
+        {name: 'confirm_text', label: `Type ${phrase} to confirm`, autocomplete: 'off'},
+        {name: 'password', label: 'Your account password', type: 'password',
+         autocomplete: 'current-password'},
+    ];
+    if (TOTP_ON) {
+        fields.push({name: 'totp_code', label: 'Authenticator code (or a backup code)',
+                     inputmode: 'numeric', autocomplete: 'one-time-code'});
+    }
+    return await roamlyPrompt(message, {
+        title: 'Confirm deletion', danger: true, confirmText: confirmText || 'Delete',
+        fields,
+    });
+}
+
 async function deleteLocationData() {
     const range = document.getElementById('delete-range').value;
     const label = document.getElementById('delete-range').selectedOptions[0].text;
-    if (!await roamlyConfirm(`Delete all location data for "${label}"? This cannot be undone.`, {danger:true})) return;
-
     const statusEl = document.getElementById('delete-data-status');
+
+    // Say what will actually be deleted. "All time" is not something anyone
+    // should have to take on trust before pressing an irreversible button.
+    let detail = `all location data for "${label}"`;
+    try {
+        const pr = await fetch(`/api/account/delete-data/preview/?range=${encodeURIComponent(range)}`);
+        if (pr.ok) {
+            const p = await pr.json();
+            if (!p.count) {
+                await roamlyAlert(`There are no points in "${label}" to delete.`);
+                return;
+            }
+            const from = p.first ? new Date(p.first).toLocaleDateString() : '?';
+            const to = p.last ? new Date(p.last).toLocaleDateString() : '?';
+            detail = `${p.count.toLocaleString()} location point(s) recorded between ${from} and ${to}`;
+        }
+    } catch (e) { /* fall back to the range label */ }
+
+    const answers = await askDestructiveConfirm(
+        `This permanently deletes ${detail}. It cannot be undone and there is no trash — take a backup first if you are unsure.`,
+        'DELETE MY DATA', 'Delete permanently');
+    if (!answers) return;
+
+    statusEl.style.color = '';
     statusEl.innerHTML = '<span class="spinner"></span> Deleting...';
 
     fetch('/api/account/delete-data/', {
@@ -2972,21 +3014,20 @@ async function deleteLocationData() {
             'X-CSRFToken': '{{ csrf_token }}',
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ range: range })
+        body: JSON.stringify(Object.assign({ range: range }, answers))
     })
-    .then(r => r.json())
+    .then(async r => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || data.error) throw new Error(data.error || `Server said ${r.status}`);
+        return data;
+    })
     .then(data => {
-        if (data.error) {
-            statusEl.style.color = 'var(--danger)';
-            statusEl.textContent = data.error;
-        } else {
-            statusEl.style.color = 'var(--success)';
-            statusEl.textContent = `Deleted ${data.deleted} location(s).`;
-        }
+        statusEl.style.color = 'var(--success)';
+        statusEl.textContent = `Deleted ${data.deleted} location(s).`;
     })
-    .catch(() => {
+    .catch(err => {
         statusEl.style.color = 'var(--danger)';
-        statusEl.textContent = 'Something went wrong.';
+        statusEl.textContent = err.message || 'Could not delete that data.';
     });
 }
 
@@ -3245,24 +3286,29 @@ fetch('/api/backup/image/status/')
     .catch(() => {});
 
 async function deleteAccount() {
-    if (!await roamlyConfirm('Are you sure you want to delete your account? All your data will be permanently removed. This cannot be undone.', {danger:true})) return;
-    if (!await roamlyConfirm('This is your last chance. Delete your account?', {danger:true, confirmText:'Delete account'})) return;
+    const answers = await askDestructiveConfirm(
+        'This permanently deletes your account and everything in it — every location point, adventure, journal entry and photo. It cannot be undone.',
+        '{{ user.username|escapejs }}', 'Delete my account');
+    if (!answers) return;
 
     fetch('/api/account/delete/', {
         method: 'POST',
         headers: {
             'X-CSRFToken': '{{ csrf_token }}',
             'Content-Type': 'application/json'
-        }
+        },
+        body: JSON.stringify(answers)
     })
-    .then(r => r.json())
+    .then(async r => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || data.error) throw new Error(data.error || `Server said ${r.status}`);
+        return data;
+    })
     .then(data => {
-        if (data.status === 'ok') {
-            window.location.href = '/';
-        }
+        if (data.status === 'ok') window.location.href = '/';
     })
-    .catch(() => {
-        roamlyAlert('Something went wrong. Please try again.');
+    .catch(err => {
+        roamlyAlert(err.message || 'Could not delete your account.');
     });
 }
 

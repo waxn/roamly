@@ -7136,6 +7136,45 @@ def _restore_media_dest(name):
 
 
 @login_required
+def _open_backup_json(zf):
+    """Read a zip backup's JSON as (everything-except-locations, locations iterator).
+
+    The export was deliberately rewritten to stream row-by-row because holding a
+    whole history in memory OOM-killed the worker — but the RESTORE still did
+    json.loads() on the entire document, so a 400k-point archive (~45MB of JSON,
+    several hundred MB of Python dicts) could not be restored on the same machine
+    that produced it. A backup you cannot restore at the size where it matters is
+    not a backup.
+
+    Only `locations` scales with tracking history; adventures, journals, health
+    and the rest scale with what the user wrote, and are small enough to load
+    normally. So this reads the member twice: once for the small keys, once
+    streaming the big array.
+
+    Falls back to a plain json.loads when ijson is unavailable, so an instance
+    that has not rebuilt yet behaves exactly as before.
+    """
+    try:
+        import ijson
+    except ImportError:
+        with zf.open('backup.json') as jf:
+            data = json.loads(jf.read().decode('utf-8-sig'))
+        return data, data.get('locations', [])
+
+    data = {}
+    with zf.open('backup.json') as jf:
+        for key, value in ijson.kvitems(jf, ''):
+            if key != 'locations':
+                data[key] = value
+
+    def _locations():
+        with zf.open('backup.json') as jf:
+            for row in ijson.items(jf, 'locations.item'):
+                yield row
+
+    return data, _locations()
+
+
 @require_http_methods(["POST"])
 def restore_backup(request):
     """Restore user data from a backup file — either the current .zip format
@@ -7161,19 +7200,20 @@ def restore_backup(request):
             info = zf.getinfo('backup.json')
             if info.file_size > _RESTORE_MAX_JSON_BYTES:
                 return JsonResponse({'error': 'Backup file is too large'}, status=413)
-            with zf.open('backup.json') as jf:
-                raw = jf.read()
             media_entries = [zi for zi in zf.infolist()
                              if zi.filename.startswith('media/') and not zi.is_dir()]
             if sum(zi.file_size for zi in media_entries) > _RESTORE_MAX_TOTAL_BYTES:
                 return JsonResponse({'error': 'Backup media is too large'}, status=413)
+            # locations streams; everything else is loaded normally.
+            data, locations_iter = _open_backup_json(zf)
         else:
             raw = f.read()
             # Old downloads were served gzipped over the wire; a client that
             # saved the compressed bytes without inflating them still restores.
             if raw[:2] == b'\x1f\x8b':
                 raw = gzip.decompress(raw)
-        data = json.loads(raw.decode('utf-8-sig'))
+            data = json.loads(raw.decode('utf-8-sig'))
+            locations_iter = data.get('locations', [])
     except (json.JSONDecodeError, UnicodeDecodeError, OSError, EOFError,
             zipfile.BadZipFile, KeyError) as e:
         return JsonResponse({'error': f'Invalid backup file: {e}'}, status=400)
@@ -7194,8 +7234,11 @@ def restore_backup(request):
             # Restore devices (small count, get_or_create is fine)
             device_map = {}
             all_device_ids = set()
-            for loc in data.get('locations', []):
-                all_device_ids.add(loc.get('device_id', ''))
+            # Deliberately NOT a pass over locations: that array is a streaming
+            # iterator now and can only be consumed once. Every device a location
+            # references is listed in `devices` (both builders write it from
+            # Device.objects.filter(user=...)), and the loop below creates any
+            # device_id seen mid-stream that is somehow missing here.
             for t in data.get('trips', []):
                 all_device_ids.add(t.get('device_id', ''))
             for a in data.get('adventures', []):
@@ -7218,12 +7261,22 @@ def restore_backup(request):
             BATCH_SIZE = 1000
             loc_batch = []
             loc_total = 0
-            for loc in data.get('locations', []):
+            for loc in locations_iter:
                 try:
                     device = device_map.get(loc.get('device_id'))
                     if not device:
-                        errors += 1
-                        continue
+                        # A device_id that was not in `devices`. Create it rather
+                        # than dropping the point — the old code could rely on a
+                        # pre-pass over locations to catch these.
+                        did = (loc.get('device_id') or '').strip()
+                        if not did:
+                            errors += 1
+                            continue
+                        device, created = Device.objects.get_or_create(
+                            user=user, device_id=did, defaults={'name': did})
+                        device_map[did] = device
+                        if created:
+                            counts['devices'] += 1
                     ts = _parse_timestamp(loc['timestamp'])
                     loc_obj = Location(
                         device=device,
@@ -8491,6 +8544,78 @@ def devices_api(request):
 # Account / Danger Zone
 # ---------------------------------------------------------------------------
 
+def _require_destructive_reauth(request, body, phrase):
+    """Gate an irreversible deletion behind password + 2FA + a typed phrase.
+
+    Deleting a location history is not undoable and not recoverable: these rows
+    are the primary record, there is no trash for a bulk delete, and the only
+    copy is whatever backup the user happens to have taken. It was previously
+    one click of a confirm dialog away, with no re-authentication at all — so an
+    unattended session or a stray click was enough.
+
+    Three checks, each catching something the others do not:
+
+    * **the account password**, which re-proves it is the account owner and not
+      whoever walked up to an open laptop. (This is the same reasoning behind
+      totp/disable/ requiring a password rather than a code.)
+    * **a TOTP code when 2FA is on**, via the login path's own
+      _verify_totp_or_backup so a backup code works too and the logic cannot
+      drift. Skipped entirely when 2FA is off — nobody is locked out of their
+      own account.
+    * **a typed phrase**, which is the only one of the three that defends
+      against the actual common case: meaning to delete a week and deleting
+      everything.
+
+    Returns an error response, or None to proceed.
+    """
+    user = request.user
+    typed = str(body.get('confirm_text') or '').strip()
+    if typed != phrase:
+        return JsonResponse(
+            {'error': f'Type "{phrase}" exactly to confirm.', 'need': 'confirm_text'},
+            status=400)
+
+    password = str(body.get('password') or '')
+    if not password or not user.check_password(password):
+        return JsonResponse({'error': 'That password is not correct.', 'need': 'password'},
+                            status=403)
+
+    profile = UserProfile.objects.filter(user=user).first()
+    if profile and profile.totp_enabled:
+        code = str(body.get('totp_code') or '').strip()
+        if not code:
+            return JsonResponse(
+                {'error': 'Enter a code from your authenticator app.', 'need': 'totp_code'},
+                status=403)
+        if not _verify_totp_or_backup(profile, code):
+            return JsonResponse({'error': 'That code is not valid.', 'need': 'totp_code'},
+                                status=403)
+    return None
+
+
+@login_required
+def delete_data_preview_api(request):
+    """How many points a given range would delete, and over what dates.
+
+    So the confirmation can say what will actually happen rather than asking the
+    user to take "all time" on trust.
+    """
+    range_val = request.GET.get('range', 'all')
+    qs = Location.objects.filter(device__user=request.user)
+    if range_val != 'all':
+        try:
+            days = int(range_val)
+        except (ValueError, TypeError):
+            return JsonResponse({'error': 'Invalid range'}, status=400)
+        qs = qs.filter(timestamp__gte=timezone.now() - timedelta(days=days))
+    agg = qs.aggregate(n=Count('id'), first=Min('timestamp'), last=Max('timestamp'))
+    return JsonResponse({
+        'count': agg['n'] or 0,
+        'first': agg['first'].isoformat() if agg['first'] else None,
+        'last': agg['last'].isoformat() if agg['last'] else None,
+    })
+
+
 @login_required
 @require_http_methods(["POST"])
 def delete_location_data(request):
@@ -8501,6 +8626,12 @@ def delete_location_data(request):
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
     range_val = body.get("range", "all")
+    if _rate_limited(request, 'destructive', 5, 900, identifier=str(request.user.id)):
+        return JsonResponse({"error": "Too many attempts. Please wait a few minutes."}, status=429)
+    err = _require_destructive_reauth(request, body, 'DELETE MY DATA')
+    if err:
+        return err
+
     locations = Location.objects.filter(device__user=request.user)
 
     if range_val != "all":
@@ -8538,6 +8669,17 @@ def delete_location(request, location_id):
 def delete_account(request):
     """Delete the user's account and all associated data."""
     user = request.user
+    try:
+        body = json.loads(request.body or b'{}')
+    except (json.JSONDecodeError, ValueError):
+        body = request.POST
+    if _rate_limited(request, 'destructive', 5, 900, identifier=str(user.id)):
+        return JsonResponse({"error": "Too many attempts. Please wait a few minutes."}, status=429)
+    # The phrase is the username: an account deletion should be impossible to
+    # trigger by muscle memory on the wrong tab.
+    err = _require_destructive_reauth(request, body, user.username)
+    if err:
+        return err
     username = user.username
     # Log with user=None (the row must outlive the account) before deletion, so
     # the async writer doesn't insert a now-dangling FK after the user is gone.

@@ -91,6 +91,8 @@ urlpatterns = [
     # TOTP two-factor auth API
     path('api/profile/totp/', views.totp_status_api, name='totp_status'),
     # Trusted devices + active sessions (Settings -> Devices & Sessions).
+    # What a delete-data range would actually remove, for the confirmation.
+    path('api/account/delete-data/preview/', views.delete_data_preview_api, name='delete_data_preview'),
     path('api/profile/devices/', views.profile_devices_api, name='profile_devices'),
     path('api/profile/devices/<int:device_id>/revoke/', views.profile_device_revoke_api, name='profile_device_revoke'),
     path('api/profile/devices/revoke-all/', views.profile_devices_revoke_all_api, name='profile_devices_revoke_all'),

@@ -1086,6 +1086,14 @@
         .rly-dialog-btn-secondary { background: transparent; }
         .rly-dialog-btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
         .rly-dialog-btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+        .rly-dialog-fields { display: flex; flex-direction: column; gap: 0.7rem; margin: 0.9rem 0 0.2rem; }
+        .rly-dialog-fields:empty { display: none; }
+        .rly-dialog-field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; color: var(--text-muted); }
+        .rly-dialog-field input {
+            padding: 0.5rem 0.6rem; background: var(--bg-input); color: var(--text);
+            border: 1px solid var(--border); border-radius: 0; font-family: inherit; font-size: 0.875rem;
+        }
+        .rly-dialog-field input:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
         .rly-dialog-btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
         .rly-dialog-btn-danger:hover { filter: brightness(1.12); }
 
@@ -1697,9 +1705,10 @@
         // RoamlyDialog — alert()/confirm() replacement, styled to match the app.
         // window.roamlyAlert(message, {title}) -> Promise<void>
         // window.roamlyConfirm(message, {title, danger, confirmText, cancelText}) -> Promise<boolean>
+        // window.roamlyPrompt(message, {fields:[{name,label,type,...}], ...}) -> Promise<values|null>
         (function() {
             if (window.RoamlyDialog) return;
-            let overlay, titleEl, msgEl, actionsEl;
+            let overlay, titleEl, msgEl, fieldsEl, actionsEl;
 
             function ensureDom() {
                 if (overlay) return;
@@ -1709,11 +1718,13 @@
                     '<div class="rly-dialog" role="alertdialog" aria-modal="true" aria-labelledby="rlyDialogTitle" aria-describedby="rlyDialogMsg">' +
                         '<h3 class="rly-dialog-title" id="rlyDialogTitle"></h3>' +
                         '<p class="rly-dialog-msg" id="rlyDialogMsg"></p>' +
+                        '<div class="rly-dialog-fields"></div>' +
                         '<div class="rly-dialog-actions"></div>' +
                     '</div>';
                 document.body.appendChild(overlay);
                 titleEl = overlay.querySelector('.rly-dialog-title');
                 msgEl = overlay.querySelector('.rly-dialog-msg');
+                fieldsEl = overlay.querySelector('.rly-dialog-fields');
                 actionsEl = overlay.querySelector('.rly-dialog-actions');
             }
 
@@ -1723,23 +1734,80 @@
                 opts = opts || {};
                 ensureDom();
                 if (active) active.close(isConfirm ? false : undefined);
+                const fields = opts.fields || [];
                 return new Promise(function(resolve) {
                     titleEl.textContent = opts.title || '';
                     titleEl.style.display = opts.title ? '' : 'none';
                     msgEl.textContent = message == null ? '' : String(message);
                     actionsEl.innerHTML = '';
+                    fieldsEl.innerHTML = '';
+
+                    // Restore focus to whatever opened the dialog. Without this,
+                    // dismissing it dropped focus onto <body> and a keyboard user
+                    // had to tab from the top of the page again.
+                    const opener = document.activeElement;
+
+                    const inputs = {};
+                    fields.forEach(function(f, i) {
+                        const wrap = document.createElement('label');
+                        wrap.className = 'rly-dialog-field';
+                        const id = 'rly-dlg-f-' + i;
+                        wrap.htmlFor = id;
+                        const span = document.createElement('span');
+                        span.textContent = f.label || f.name;
+                        const input = document.createElement('input');
+                        input.id = id;
+                        input.type = f.type || 'text';
+                        input.name = f.name;
+                        if (f.placeholder) input.placeholder = f.placeholder;
+                        if (f.autocomplete) input.autocomplete = f.autocomplete;
+                        if (f.inputmode) input.inputMode = f.inputmode;
+                        wrap.appendChild(span);
+                        wrap.appendChild(input);
+                        fieldsEl.appendChild(wrap);
+                        inputs[f.name] = input;
+                    });
+
+                    function values() {
+                        const out = {};
+                        Object.keys(inputs).forEach(function(k) { out[k] = inputs[k].value; });
+                        return out;
+                    }
 
                     function close(result) {
                         overlay.classList.remove('open');
                         document.removeEventListener('keydown', onKey);
                         active = null;
+                        if (opener && opener.focus) { try { opener.focus(); } catch (e) {} }
                         resolve(result);
                     }
                     active = { close };
 
                     function onKey(ev) {
-                        if (ev.key === 'Escape') { ev.preventDefault(); close(isConfirm ? false : undefined); }
-                        else if (ev.key === 'Enter') { ev.preventDefault(); close(isConfirm ? true : undefined); }
+                        if (ev.key === 'Escape') {
+                            ev.preventDefault();
+                            close(isConfirm ? (fields.length ? null : false) : undefined);
+                            return;
+                        }
+                        if (ev.key === 'Tab') {
+                            // Trap focus inside the dialog. Without this, Tab walked
+                            // out into the page behind the scrim, where a keyboard
+                            // user could operate controls the overlay was covering.
+                            const f = overlay.querySelectorAll('input, button, [href], select, textarea');
+                            if (!f.length) return;
+                            const first = f[0], last = f[f.length - 1];
+                            if (ev.shiftKey && document.activeElement === first) {
+                                ev.preventDefault(); last.focus();
+                            } else if (!ev.shiftKey && document.activeElement === last) {
+                                ev.preventDefault(); first.focus();
+                            }
+                            return;
+                        }
+                        // Enter is deliberately NOT handled globally. It used to
+                        // resolve true from anywhere in the dialog, so tabbing to
+                        // Cancel on a destructive confirm and pressing Enter
+                        // performed the deletion. A focused button handles Enter
+                        // natively, which is the correct behaviour.
                     }
 
                     if (isConfirm) {
@@ -1752,11 +1820,21 @@
                         okBtn.type = 'button';
                         okBtn.className = 'rly-dialog-btn ' + (opts.danger ? 'rly-dialog-btn-danger' : 'rly-dialog-btn-primary');
                         okBtn.textContent = opts.confirmText || 'OK';
-                        okBtn.onclick = function() { close(true); };
+                        okBtn.onclick = function() { close(fields.length ? values() : true); };
                         actionsEl.appendChild(cancelBtn);
                         actionsEl.appendChild(okBtn);
-                        overlay.onclick = function(ev) { if (ev.target === overlay) close(false); };
-                        setTimeout(function() { okBtn.focus(); }, 30);
+                        cancelBtn.onclick = function() { close(fields.length ? null : false); };
+                        overlay.onclick = function(ev) {
+                            if (ev.target === overlay) close(fields.length ? null : false);
+                        };
+                        // With fields, focus the first input rather than the button —
+                        // and on a destructive confirm the safe default is Cancel.
+                        setTimeout(function() {
+                            const firstInput = fieldsEl.querySelector('input');
+                            if (firstInput) firstInput.focus();
+                            else if (opts.danger) cancelBtn.focus();
+                            else okBtn.focus();
+                        }, 30);
                     } else {
                         const okBtn = document.createElement('button');
                         okBtn.type = 'button';
@@ -1776,8 +1854,12 @@
                 alert: function(message, opts) { return show(false, message, opts); },
                 confirm: function(message, opts) { return show(true, message, opts); }
             };
+            window.RoamlyDialog.prompt = function(message, opts) {
+                return show(true, message, opts || {});
+            };
             window.roamlyAlert = window.RoamlyDialog.alert;
             window.roamlyConfirm = window.RoamlyDialog.confirm;
+            window.roamlyPrompt = window.RoamlyDialog.prompt;
         })();
     </script>
     <script>
