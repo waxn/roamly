@@ -364,6 +364,27 @@
             </div>
         </div>
 
+
+        <!-- Devices & Sessions — trusted browsers/apps and live sign-ins -->
+        <div class="card settings-span-6" id="devices-sessions-card">
+            <div class="card-header">Devices &amp; Sessions</div>
+            <p style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.75rem;">
+                Browsers and apps you've signed in from. A trusted device skips the emailed
+                sign-in code, so revoke anything you no longer use or recognise.
+            </p>
+            <div id="devsess-body" aria-busy="true">
+                <div class="skeleton skel-line" style="margin-bottom:0.5rem;"></div>
+                <div class="skeleton skel-line sm"></div>
+            </div>
+            <div class="settings-actions" style="margin-top:0.85rem;">
+                <button class="btn btn-outline btn-sm" onclick="loadDevicesSessions()">Refresh</button>
+                <button class="btn btn-danger btn-sm" onclick="revokeAllDevices()">
+                    Sign out everywhere else
+                </button>
+            </div>
+            <div id="devsess-status" style="font-size:0.8125rem;color:var(--text-muted);margin-top:0.5rem;"></div>
+        </div>
+
         <!-- Preferences -->
         <div class="card settings-span-6">
             <div class="card-header">General Preferences</div>
@@ -2597,6 +2618,107 @@ function showDeviceChooser() {
     modal.style.display = 'flex';
     document.getElementById('new-device-name').value = '';
     loadExistingDevices();
+
+// ── Devices & Sessions ───────────────────────────────────────────────────────
+// settings.html had no escape helper because everything else on the page is
+// server-rendered; these rows are the first client-built HTML here, and the
+// user-agent string is attacker-influenced (it is whatever the client sent).
+function escapeHtml(v) {
+    return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+// KnownDevice rows were written and read by the login flow and shown nowhere,
+// so a trust token was effectively permanent: a stolen laptop kept skipping the
+// new-device email code forever with no way to see or revoke it.
+function relTimeShort(iso) {
+    if (!iso) return 'unknown';
+    const d = new Date(iso), mins = Math.round((Date.now() - d.getTime()) / 60000);
+    if (mins < 2) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    if (mins < 1440) return `${Math.round(mins / 60)}h ago`;
+    const days = Math.round(mins / 1440);
+    if (days < 30) return `${days}d ago`;
+    return d.toLocaleDateString();
+}
+
+async function loadDevicesSessions() {
+    const host = document.getElementById('devsess-body');
+    if (!host) return;
+    host.setAttribute('aria-busy', 'true');
+    try {
+        const r = await fetch('/api/profile/devices/');
+        if (!r.ok) throw new Error('Could not load devices');
+        const d = await r.json();
+        const devices = d.devices || [], sessions = d.sessions || [];
+        let html = '';
+        if (!devices.length) {
+            html += '<p style="font-size:0.8125rem;color:var(--text-muted);">No trusted devices yet. One is remembered each time you confirm an emailed sign-in code.</p>';
+        } else {
+            html += '<div class="settings-table-wrap"><table><thead><tr>' +
+                    '<th>Device</th><th>First seen</th><th>Last used</th><th></th>' +
+                    '</tr></thead><tbody>';
+            for (const dev of devices) {
+                const here = dev.current
+                    ? ' <span style="color:var(--success);font-size:0.75rem;">(this device)</span>' : '';
+                html += `<tr>
+                    <td title="${escapeHtml(dev.user_agent || '')}">${escapeHtml(dev.label)}${here}</td>
+                    <td style="color:var(--text-muted);">${escapeHtml(new Date(dev.created_at).toLocaleDateString())}</td>
+                    <td style="color:var(--text-muted);">${escapeHtml(relTimeShort(dev.last_used))}</td>
+                    <td><button class="btn btn-outline btn-sm" onclick="revokeDevice(${dev.id})"
+                        aria-label="Revoke ${escapeHtml(dev.label)}">Revoke</button></td>
+                </tr>`;
+            }
+            html += '</tbody></table></div>';
+        }
+        const others = sessions.filter(x => !x.current).length;
+        html += `<p style="font-size:0.8125rem;color:var(--text-muted);margin-top:0.6rem;">
+            ${sessions.length} active sign-in${sessions.length === 1 ? '' : 's'}` +
+            (others ? ` — ${others} besides this one.` : ' (just this one).') + '</p>';
+        host.innerHTML = html;
+    } catch (e) {
+        host.innerHTML = '<p style="font-size:0.8125rem;color:var(--danger);">' +
+            'Couldn\'t load your devices. <button class="btn btn-outline btn-sm" onclick="loadDevicesSessions()">Retry</button></p>';
+    } finally {
+        host.removeAttribute('aria-busy');
+    }
+}
+
+async function revokeDevice(id) {
+    if (!await roamlyConfirm('Revoke this device? It will need an emailed code next time it signs in.', {danger: true})) return;
+    const st = document.getElementById('devsess-status');
+    try {
+        const r = await fetch(`/api/profile/devices/${id}/revoke/`, {
+            method: 'POST', headers: {'X-CSRFToken': '{{ csrf_token }}'}
+        });
+        if (!r.ok) throw new Error();
+        window.roamlyToast('Device revoked.', {type: 'success'});
+        loadDevicesSessions();
+    } catch (e) {
+        if (st) { st.style.color = 'var(--danger)'; st.textContent = 'Could not revoke that device.'; }
+    }
+}
+
+async function revokeAllDevices() {
+    if (!await roamlyConfirm(
+        'Sign out of every other browser and app, and make them all confirm an emailed code next time?',
+        {danger: true, confirmText: 'Sign out everywhere else'})) return;
+    const st = document.getElementById('devsess-status');
+    try {
+        const r = await fetch('/api/profile/devices/revoke-all/', {
+            method: 'POST', headers: {'X-CSRFToken': '{{ csrf_token }}'}
+        });
+        if (!r.ok) throw new Error();
+        const d = await r.json();
+        window.roamlyToast(`Revoked ${d.devices} device(s) and ended ${d.sessions} session(s).`, {type: 'success'});
+        loadDevicesSessions();
+    } catch (e) {
+        if (st) { st.style.color = 'var(--danger)'; st.textContent = 'Could not sign out the other sessions.'; }
+    }
+}
+
+loadDevicesSessions();
+
 }
 
 function closeDeviceChooser() {
@@ -3154,7 +3276,7 @@ async function deleteAccount() {
         account: {
             label: 'Account & Security',
             description: 'Your profile, sign-in protection, connected devices, and account controls.',
-            cards: ['Profile Picture', 'Two-Factor Authentication', 'Devices', 'Danger Zone']
+            cards: ['Profile Picture', 'Two-Factor Authentication', 'Devices', 'Devices & Sessions', 'Danger Zone']
         },
         maps: {
             label: 'Maps',

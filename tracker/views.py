@@ -517,7 +517,139 @@ def _is_known_device(user, request):
     token = request.COOKIES.get(_DEVICE_COOKIE, '')
     if not token:
         return False
-    return KnownDevice.objects.filter(user=user, token_hash=_hash_token(token)).exists()
+    th = _hash_token(token)
+    known = KnownDevice.objects.filter(user=user, token_hash=th).first()
+    if not known:
+        return False
+    # Stamp last_used (auto_now, so any save() sets it). This used to be an
+    # .exists() check, which never wrote — so every trusted device showed the
+    # date it was created and the "devices" list could not tell a phone in daily
+    # use from a laptop sold two years ago. Throttled: this runs on every login,
+    # and a once-a-day resolution is all the column is read at.
+    if (timezone.now() - known.last_used).total_seconds() > 86400:
+        known.save(update_fields=['last_used'])
+    return True
+
+
+def _device_label(ua):
+    """A short human label for a user-agent string.
+
+    Deliberately coarse — the point is "which of my devices is this", not
+    analytics, and a full UA string in a settings list is unreadable.
+    """
+    ua = ua or ''
+    low = ua.lower()
+    if 'roamly' in low or 'okhttp' in low:
+        return 'Roamly Android app'
+    if 'android' in low:
+        browser = 'Chrome' if 'chrome' in low else 'Browser'
+        return f'{browser} on Android'
+    if 'iphone' in low or 'ipad' in low:
+        return 'Safari on iPhone/iPad' if 'safari' in low else 'iPhone/iPad'
+    os_name = ('Windows' if 'windows' in low else
+               'macOS' if 'mac os' in low or 'macintosh' in low else
+               'Linux' if 'linux' in low else 'Unknown device')
+    browser = ('Firefox' if 'firefox' in low else
+               'Edge' if 'edg/' in low else
+               'Chrome' if 'chrome' in low else
+               'Safari' if 'safari' in low else 'Browser')
+    return f'{browser} on {os_name}'
+
+
+@login_required
+def profile_devices_api(request):
+    """Trusted devices + active sessions for the signed-in user.
+
+    KnownDevice rows were written and read and never shown anywhere: a trust
+    token was effectively permanent, so a stolen laptop kept skipping the
+    new-device email code forever with no way to see or revoke it.
+    """
+    this_hash = _hash_token(request.COOKIES.get(_DEVICE_COOKIE, ''))
+    devices = [{
+        'id': d.id,
+        'label': _device_label(d.label) or 'Unknown device',
+        'user_agent': d.label,
+        'created_at': d.created_at.isoformat(),
+        'last_used': d.last_used.isoformat(),
+        'current': bool(this_hash and d.token_hash == this_hash),
+    } for d in KnownDevice.objects.filter(user=request.user).order_by('-last_used')]
+
+    # Active sessions come from the session store rather than a model of our
+    # own — django_session is the actual source of truth for "am I signed in
+    # here", so anything we mirrored could disagree with it.
+    sessions = []
+    try:
+        from django.contrib.sessions.models import Session
+        now = timezone.now()
+        uid = str(request.user.id)
+        for sess in Session.objects.filter(expire_date__gt=now):
+            try:
+                data = sess.get_decoded()
+            except Exception:
+                continue
+            if str(data.get('_auth_user_id') or '') != uid:
+                continue
+            sessions.append({
+                'key': sess.session_key,
+                'expires': sess.expire_date.isoformat(),
+                'current': sess.session_key == request.session.session_key,
+            })
+    except Exception:
+        logger.exception('Could not enumerate sessions')
+
+    return JsonResponse({'devices': devices, 'sessions': sessions})
+
+
+@login_required
+@require_POST
+def profile_device_revoke_api(request, device_id):
+    """Forget one trusted device — it will need an emailed code again."""
+    deleted, _ = KnownDevice.objects.filter(user=request.user, id=device_id).delete()
+    if not deleted:
+        return JsonResponse({'error': 'Not found'}, status=404)
+    _log_action(request, 'device_revoke', description=f'device={device_id}')
+    return JsonResponse({'status': 'ok'})
+
+
+@login_required
+@require_POST
+def profile_devices_revoke_all_api(request):
+    """Forget every trusted device except this one, and end every other session.
+
+    The two halves are separate concepts and both matter: revoking devices
+    restores the email challenge, ending sessions logs the other browser out
+    right now.
+    """
+    this_hash = _hash_token(request.COOKIES.get(_DEVICE_COOKIE, ''))
+    qs = KnownDevice.objects.filter(user=request.user)
+    if this_hash:
+        qs = qs.exclude(token_hash=this_hash)
+    devices, _ = qs.delete()
+
+    sessions = 0
+    try:
+        from django.contrib.sessions.models import Session
+        uid = str(request.user.id)
+        current = request.session.session_key
+        for sess in Session.objects.filter(expire_date__gt=timezone.now()):
+            if sess.session_key == current:
+                continue
+            try:
+                data = sess.get_decoded()
+            except Exception:
+                continue
+            if str(data.get('_auth_user_id') or '') == uid:
+                sess.delete()
+                sessions += 1
+    except Exception:
+        logger.exception('Could not end other sessions')
+
+    _log_action(request, 'device_revoke',
+                description=f'revoked all: devices={devices} sessions={sessions}')
+    return JsonResponse({'status': 'ok', 'devices': devices, 'sessions': sessions})
+
+
+
 
 
 def _trust_device(user, request, response):

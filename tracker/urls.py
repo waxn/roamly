@@ -91,6 +91,10 @@ urlpatterns = [
 
     # TOTP two-factor auth API
     path('api/profile/totp/', views.totp_status_api, name='totp_status'),
+    # Trusted devices + active sessions (Settings -> Devices & Sessions).
+    path('api/profile/devices/', views.profile_devices_api, name='profile_devices'),
+    path('api/profile/devices/<int:device_id>/revoke/', views.profile_device_revoke_api, name='profile_device_revoke'),
+    path('api/profile/devices/revoke-all/', views.profile_devices_revoke_all_api, name='profile_devices_revoke_all'),
     path('api/profile/totp/setup/', views.totp_setup_api, name='totp_setup'),
     path('api/profile/totp/confirm/', views.totp_confirm_api, name='totp_confirm'),
     path('api/profile/totp/disable/', views.totp_disable_api, name='totp_disable'),

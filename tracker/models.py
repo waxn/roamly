@@ -1634,6 +1634,7 @@ class ActionLog(models.Model):
         ('totp_regen_backup', 'TOTP backup codes regenerated'),
         ('trip_invite', 'Adventure invitation sent'),
         ('trip_join', 'Adventure invitation accepted'),
+        ('device_revoke', 'Trusted device revoked'),
         ('other', 'Other'),
     ]
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='action_logs')
