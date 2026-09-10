@@ -1,5 +1,8 @@
 {% extends "tracker/base.html" %}
 {% block title %}Data - Roamly{% endblock %}
+{# No map on this page — skip MapLibre (~1MB JS + 70KB CSS). #}
+{% block map_css %}{% endblock %}
+{% block map_js %}{% endblock %}
 
 {% block content %}
 <div class="container">

@@ -1,18 +1,28 @@
-const CACHE_NAME = 'roamly-v1';
+// Bumped whenever STATIC_ASSETS changes, so the activate handler below evicts
+// the previous cache instead of leaving stale entries forever.
+const CACHE_NAME = 'roamly-v2';
+
+// Same-origin only. The previous list precached MapLibre 4.1.2 from unpkg while
+// the app loaded 5.24.0 (so ~1MB was downloaded on install and never served),
+// plus a Google Fonts stylesheet for Space Grotesk — a font the app replaced
+// with self-hosted faces, which made this the only third-party request left in
+// an app whose whole pitch is that it makes none.
 const STATIC_ASSETS = [
   '/static/tracker/roamlymark.svg',
   '/static/tracker/roamlymark.ico',
   '/static/tracker/icon-192.png',
   '/static/tracker/icon-512.png',
-  'https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap',
-  'https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css',
-  'https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js',
+  '/offline/',
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
-  );
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    // Individually, not cache.addAll(): addAll is atomic, so one 404 or one
+    // network hiccup rejected the whole install and the service worker never
+    // activated — offline support silently did not exist, with nothing logged.
+    await Promise.allSettled(STATIC_ASSETS.map((url) => cache.add(url)));
+  })());
   self.skipWaiting();
 });
 
@@ -30,31 +40,32 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url);
 
-  // Never re-fetch cross-origin requests through the worker. Doing so returns an
-  // opaque response, which (a) fails SRI `integrity` checks because the body
-  // reads as empty (the SHA-512-of-empty mismatch) and (b) rejects on any
-  // network hiccup, breaking third-party scripts like analytics beacons
-  // (GoatCounter's gc.zgo.at/count.js, the Cloudflare beacon). Only serve our
-  // explicitly precached CDN assets from cache; let everything else cross-origin
-  // load natively (no respondWith) exactly as if no service worker existed.
-  if (url.origin !== self.location.origin) {
-    if (STATIC_ASSETS.includes(url.href)) {
-      event.respondWith(
-        caches.match(event.request).then((cached) => cached || fetch(event.request))
-      );
-    }
-    return;
-  }
+  // Never touch cross-origin requests. Re-fetching them through the worker
+  // returns an opaque response, which fails SRI `integrity` checks (the body
+  // reads as empty) and rejects on any network hiccup, breaking third-party
+  // scripts such as analytics beacons. Letting them through untouched is
+  // exactly as if no service worker existed.
+  if (url.origin !== self.location.origin) return;
 
-  // Network-first for API calls and HTML pages
-  if (url.pathname.startsWith('/api/') || event.request.mode === 'navigate') {
+  // Never cache API responses or anything credentialed. A stale answer here is
+  // worse than no answer: it is someone's location history.
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/media/')) return;
+
+  // Navigations: network first, falling back to the offline page. There is no
+  // point caching the HTML itself — every page is per-user and the data comes
+  // from /api/ anyway — but a blank browser error page is a worse answer than
+  // "you're offline".
+  if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request).catch(() => caches.match(event.request))
+      fetch(event.request).catch(() =>
+        caches.match('/offline/').then((r) => r || Response.error())
+      )
     );
     return;
   }
 
-  // Cache-first for same-origin static assets
+  // Same-origin static assets are content-hashed by WhiteNoise, so cache-first
+  // is safe: a changed file has a different URL.
   event.respondWith(
     caches.match(event.request).then((cached) => cached || fetch(event.request))
   );

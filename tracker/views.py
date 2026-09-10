@@ -178,6 +178,16 @@ def healthz(request):
     return resp
 
 
+def offline_view(request):
+    """Fallback page the service worker serves for a failed navigation.
+
+    Deliberately standalone and dependency-free: it is rendered with no network,
+    so it must reference nothing that is not already in the service worker's
+    precache. No auth — it has to work when the session cannot be checked.
+    """
+    return render(request, 'tracker/_offline.html')
+
+
 # ---------------------------------------------------------------------------
 # Media serving
 # ---------------------------------------------------------------------------

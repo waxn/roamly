@@ -24,7 +24,19 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="apple-touch-icon" href="{% static 'tracker/icon-192.png' %}">
-    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" />
+    {% block map_css %}
+    {# MapLibre is vendored (tracker/static/tracker/vendor/), not pulled from
+       unpkg. A CDN <script> with no integrity attribute on every authenticated
+       page of a location tracker means a CDN compromise reads everyone's
+       history; self-hosting also removes the render-blocking third-party
+       request and lets the app work on an air-gapped network. WhiteNoise serves
+       it hashed and immutable, so it is faster than the CDN was.
+
+       The block DEFAULTS to loading it. Pages with no map opt out by overriding
+       map_css/map_js with an empty block — chosen this way round so that a page
+       someone forgets to classify still works. #}
+    <link rel="stylesheet" href="{% static 'tracker/vendor/maplibre-gl.css' %}" />
+    {% endblock %}
     <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}">
     <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/fraunces-latin-var.woff2' %}">
     <style>
@@ -1304,7 +1316,7 @@
     <div style="text-align:center;padding:1.5rem 0 0.5rem;font-size:0.7rem;color:var(--text-dim);opacity:0.6;margin-top:auto;">v0.60.0</div>
     {% endif %}
 
-    <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+    {% block map_js %}<script src="{% static 'tracker/vendor/maplibre-gl.js' %}"></script>{% endblock %}
     <script>
         // Shared "updated X ago · ↻ recalculate" control for snapshot-backed
         // pages (Stats / Visits / Places). A page includes #snapshot-bar in its
@@ -1858,7 +1870,11 @@
                 if (banner) return banner;
                 banner = document.createElement('div');
                 banner.className = 'rly-banner';
-                banner.textContent = "You're offline. Showing cached data where available.";
+                // Say what is actually true. API responses are deliberately not
+                // cached by the service worker (a stale answer here is someone's
+                // location history), so the old "showing cached data where
+                // available" promised something that never happened.
+                banner.textContent = "You're offline — anything already on screen stays, but nothing new will load.";
                 document.body.appendChild(banner);
                 return banner;
             }

@@ -10,6 +10,8 @@ urlpatterns = [
     # SEO
     # Liveness probe for the container healthcheck. Public and cheap.
     path('healthz/', views.healthz, name='healthz'),
+    # Precached by the service worker as the offline navigation fallback.
+    path('offline/', views.offline_view, name='offline'),
     path('robots.txt', views.robots_txt, name='robots_txt'),
     path('sitemap.xml', views.sitemap_xml, name='sitemap_xml'),
 

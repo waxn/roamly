@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Offline — Roamly</title>
+    {% load static %}
+    <link rel="icon" type="image/x-icon" href="{% static 'tracker/roamlymark.ico' %}">
+    <meta name="theme-color" content="#14160f">
+    <meta name="robots" content="noindex, nofollow">
+    <style>
+        /* Standalone and self-contained on purpose: this page is served by the
+           service worker with no network, so it can reference nothing that is
+           not already precached. No fonts, no CSS file, no images beyond the
+           icon. */
+        :root {
+            --bg: #14160f; --bg-card: #1b1e15; --border: #30352a;
+            --text: #e9e5d8; --text-muted: #a9a794; --primary: #e8763d;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: var(--bg); color: var(--text);
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            -webkit-font-smoothing: antialiased; padding: 1rem;
+        }
+        .card {
+            width: 100%; max-width: 420px; background: var(--bg-card);
+            border: 1px solid var(--border); padding: 2rem 2.25rem; text-align: center;
+        }
+        h1 { font-size: 1.35rem; font-weight: 700; margin-bottom: 0.6rem; }
+        p { color: var(--text-muted); font-size: 0.9rem; line-height: 1.55; margin-bottom: 1.5rem; }
+        .btn {
+            display: inline-block; padding: 0.7rem 1.4rem; background: var(--primary);
+            color: #fff; border: none; font-size: 0.9rem; font-weight: 700;
+            font-family: inherit; cursor: pointer;
+        }
+        .note { margin-top: 1.25rem; font-size: 0.78rem; color: var(--text-muted); }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>You're offline</h1>
+        <p>
+            Roamly needs a connection to show your history — your data lives on your
+            server, not in this browser. Nothing has been lost.
+        </p>
+        <button class="btn" onclick="location.reload()">Try again</button>
+        <p class="note">
+            If you're tracking on your phone, points are still being recorded and will
+            upload once you're back online.
+        </p>
+    </div>
+</body>
+</html>
