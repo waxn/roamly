@@ -73,11 +73,60 @@ from .backup_tasks import (
 logger = logging.getLogger(__name__)
 
 
+_CACHE_GEN_TTL = 86400 * 30
+# How long the coarse generation is allowed to lag the fine one.
+_SLOW_GEN_DEBOUNCE_S = 600
+
+
 def _bust_user_cache(user_id):
-    """Increment the per-user cache generation so all cached API responses are invalidated."""
+    """Invalidate this user's cached API responses.
+
+    Two generations, because one number could not serve both jobs.
+
+    ``cache_gen`` is bumped here on **every** GPS push — a phone tracking at 30s
+    does that ~2,900 times a day — which is right for point-level responses
+    (track, locations, tiles) where a stale answer is a visibly missing dot.
+
+    It was wrong for the aggregates. stats, visits, distance, countries, places,
+    yearly and transport all keyed on the same number, so for anyone actively
+    tracking their cache **never survived long enough to be hit even once**: every
+    request recomputed. StatsSnapshot and fog_api both already sidestep cache_gen
+    for exactly this reason, but only the all-time unfiltered views get a
+    snapshot — pick any date range or device and you fall through to the
+    permanently-cold live path.
+
+    ``cache_gen_slow`` therefore moves at most once every _SLOW_GEN_DEBOUNCE_S.
+    A ten-minute-stale aggregate is fine; a permanently cold one is not.
+
+    The bump is cache.incr under a cache.add, not get-then-set: the old
+    read-modify-write meant two devices pushing at once could read the same value
+    and write the same increment, losing a bump — and a lost bump is a stale
+    response served as fresh. _rate_limited already uses this shape.
+    """
     key = f"cache_gen:{user_id}"
-    val = (cache.get(key) or 0) + 1
-    cache.set(key, val, timeout=86400 * 30)
+    try:
+        cache.add(key, 0, _CACHE_GEN_TTL)
+        cache.incr(key)
+    except ValueError:
+        cache.set(key, 1, _CACHE_GEN_TTL)
+    except Exception:
+        return
+
+    # Coarse generation: bump at most once per debounce window.
+    if cache.add(f"cache_gen_slow_lock:{user_id}", 1, _SLOW_GEN_DEBOUNCE_S):
+        slow = f"cache_gen_slow:{user_id}"
+        try:
+            cache.add(slow, 0, _CACHE_GEN_TTL)
+            cache.incr(slow)
+        except ValueError:
+            cache.set(slow, 1, _CACHE_GEN_TTL)
+        except Exception:
+            pass
+
+
+def _slow_gen(user_id):
+    """Coarse cache generation for whole-history aggregates (see _bust_user_cache)."""
+    return cache.get(f"cache_gen_slow:{user_id}", 0)
 
 
 def _bust_health_cache(user_id):
@@ -261,45 +310,6 @@ def error_500(request):
 # Reverse Geocoding
 # ---------------------------------------------------------------------------
 
-def reverse_geocode(lat, lon):
-    """Reverse geocode coordinates using OpenStreetMap Nominatim."""
-    try:
-        url = (
-            f'https://nominatim.openstreetmap.org/reverse'
-            f'?lat={lat}&lon={lon}&format=json&zoom=10&addressdetails=1'
-        )
-        headers = {
-            'User-Agent': 'Roamly/0.8 (self-hosted location tracker)',
-            'Accept-Language': 'en',
-        }
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode())
-
-        if 'error' in data:
-            return None
-
-        address = data.get('address', {})
-        city = (
-            address.get('city') or address.get('town') or
-            address.get('village') or address.get('municipality') or
-            address.get('county') or address.get('suburb') or ''
-        )
-        state = address.get('state') or address.get('province') or address.get('region') or ''
-        country = address.get('country', '')
-        country_code = address.get('country_code', '').upper()
-        place_name = data.get('display_name', '')
-
-        return {
-            'city': city, 'state': state,
-            'country': country, 'country_code': country_code,
-            'place_name': place_name,
-        }
-    except Exception as e:
-        logger.warning(f"Geocoding failed for {lat},{lon}: {e}")
-        return None
-
-
 # ---------------------------------------------------------------------------
 # API Key Auth
 # ---------------------------------------------------------------------------
@@ -347,15 +357,24 @@ def _refresh_site_stats():
         )
         # PostGIS: per-device LineString from points ordered by timestamp,
         # length on geography returns metres (great-circle). Python sums devices.
+        # A window function, not one geometry per device. ST_MakeLine with an
+        # ordered aggregate materialises a single geometry holding EVERY point of
+        # every device on the instance (a 1M-point device is ~16MB) and then runs
+        # Vincenty per segment over it — a multi-minute Postgres memory spike on a
+        # large instance, triggered by an anonymous landing-page hit. lag()
+        # computes the identical total pairwise, holding two points at a time.
         with connection.cursor() as cur:
             cur.execute("""
-                SELECT ST_Length(ST_MakeLine(location::geometry ORDER BY timestamp)::geography)
-                FROM tracker_location
-                WHERE location IS NOT NULL
-                GROUP BY device_id
-                HAVING COUNT(*) > 1
+                SELECT COALESCE(SUM(seg), 0) FROM (
+                    SELECT ST_Distance(
+                               location,
+                               lag(location) OVER (PARTITION BY device_id ORDER BY timestamp)
+                           ) AS seg
+                    FROM tracker_location
+                    WHERE location IS NOT NULL
+                ) s
             """)
-            total_meters = int(sum(row[0] or 0 for row in cur.fetchall()))
+            total_meters = int(cur.fetchone()[0] or 0)
         SiteStat.objects.update_or_create(
             pk=1,
             defaults={
@@ -3434,69 +3453,6 @@ def _tile_coords(lat, lng, z):
 
 
 @login_required
-@require_POST
-def seed_tiles(request):
-    """Pre-generate and cache all tiles covering the user's data in the background."""
-    if not HAS_POSTGIS:
-        return JsonResponse({'error': 'PostGIS required'}, status=400)
-
-    # Skip seeding for large time ranges — too many tiles, would hammer the DB
-    # and starve real tile requests. Let them warm up on-demand instead.
-    hours_param = request.GET.get('hours')
-    if hours_param and int(hours_param) >= 168:
-        return JsonResponse({'status': 'skipped'})
-
-    qs_params = request.GET.urlencode()
-    user_id = request.user.id
-
-    # Get bounding box of user data
-    from django.db.models import Min, Max
-    agg = Location.objects.filter(device__user=request.user).aggregate(
-        min_lat=Min('latitude'), max_lat=Max('latitude'),
-        min_lng=Min('longitude'), max_lng=Max('longitude'),
-    )
-    if agg['min_lat'] is None:
-        return JsonResponse({'tiles': 0})
-
-    min_lat, max_lat = agg['min_lat'], agg['max_lat']
-    min_lng, max_lng = agg['min_lng'], agg['max_lng']
-
-    def do_seed():
-        # Seed zoom levels 2-8 only — z9/z10 tile counts grow too large even for
-        # moderate bounding boxes and compete with real requests on limited workers
-        tiles_to_seed = []
-        for z in range(2, 9):
-            x0, y1 = _tile_coords(max_lat, min_lng, z)  # top-left
-            x1, y0 = _tile_coords(min_lat, max_lng, z)  # bottom-right
-            for tx in range(max(0, x0 - 1), x1 + 2):
-                for ty in range(max(0, y0 - 1), y1 + 2):
-                    tiles_to_seed.append((z, tx, ty))
-
-        # Hard cap to avoid runaway seeding
-        tiles_to_seed = tiles_to_seed[:500]
-
-        from django.test import RequestFactory
-        from django.contrib.auth.models import User
-        factory = RequestFactory()
-        user = User.objects.get(id=user_id)
-
-        for z, tx, ty in tiles_to_seed:
-            cache_key = f"tile:{user_id}:{z}:{tx}:{ty}:{qs_params}"
-            if cache.get(cache_key) is not None:
-                continue  # already cached
-            # Build a fake request and call the view directly
-            fake_req = factory.get(f'/api/tiles/{z}/{tx}/{ty}.pbf?' + qs_params)
-            fake_req.user = user
-            try:
-                vector_tile(fake_req, z, tx, ty)
-            except Exception:
-                pass
-
-    threading.Thread(target=do_seed, daemon=True).start()
-    return JsonResponse({'status': 'seeding'})
-
-
-@login_required
 def vector_tile(request, z, x, y):
     """Serve Mapbox Vector Tiles generated by PostGIS ST_AsMVT."""
     if not HAS_POSTGIS:
@@ -3836,7 +3792,9 @@ def stats_api(request):
         if snap:
             return _snapshot_response(snap, 'stats_json')
 
-    gen = cache.get(f"cache_gen:{request.user.id}", 0)
+    # Coarse generation: this is a whole-history aggregate, so it must not be
+    # invalidated by every GPS push (see _bust_user_cache).
+    gen = _slow_gen(request.user.id)
     cache_key = f"stats:{request.user.id}:{gen}:{request.GET.urlencode()}"
     cached = cache.get(cache_key)
     if cached is not None:
@@ -3871,7 +3829,9 @@ def stats_api(request):
 @login_required
 def countries_api(request):
     """Distinct visited country (and US state) codes for the scratch map."""
-    gen = cache.get(f"cache_gen:{request.user.id}", 0)
+    # Coarse generation: this is a whole-history aggregate, so it must not be
+    # invalidated by every GPS push (see _bust_user_cache).
+    gen = _slow_gen(request.user.id)
     cache_key = f"countries:{request.user.id}:{gen}"
     cached = cache.get(cache_key)
     if cached is not None:
@@ -3961,7 +3921,9 @@ def yearly_overview_api(request):
     if snap:
         return _snapshot_response(snap, 'yearly_json')
 
-    gen = cache.get(f"cache_gen:{request.user.id}", 0)
+    # Coarse generation: this is a whole-history aggregate, so it must not be
+    # invalidated by every GPS push (see _bust_user_cache).
+    gen = _slow_gen(request.user.id)
     cache_key = f"yearly:{request.user.id}:{gen}"
     cached = cache.get(cache_key)
     if cached is not None:
@@ -4291,7 +4253,9 @@ def distance_api(request):
             dist['source'] = 'snapshot'
             return JsonResponse(dist)
 
-    gen = cache.get(f"cache_gen:{request.user.id}", 0)
+    # Coarse generation: this is a whole-history aggregate, so it must not be
+    # invalidated by every GPS push (see _bust_user_cache).
+    gen = _slow_gen(request.user.id)
     cache_key = f"distance:{request.user.id}:{gen}:{request.GET.urlencode()}"
     cached = cache.get(cache_key)
     if cached is not None:
@@ -4995,7 +4959,9 @@ def visits_api(request):
         if snap:
             return _snapshot_response(snap, 'visits_json')
 
-    gen = cache.get(f"cache_gen:{request.user.id}", 0)
+    # Coarse generation: this is a whole-history aggregate, so it must not be
+    # invalidated by every GPS push (see _bust_user_cache).
+    gen = _slow_gen(request.user.id)
     cache_key = f"visits:{request.user.id}:{gen}:{request.GET.urlencode()}"
     cached = cache.get(cache_key)
     if cached is not None:
@@ -9058,7 +9024,9 @@ def search_api(request):
     mode = request.GET.get('mode', 'text')
     q = request.GET.get('q', '').strip()
     locations = Location.objects.filter(device__user=request.user)
-    gen = cache.get(f"cache_gen:{request.user.id}", 0)
+    # Coarse generation: this is a whole-history aggregate, so it must not be
+    # invalidated by every GPS push (see _bust_user_cache).
+    gen = _slow_gen(request.user.id)
 
     if mode == 'here':
         try:
@@ -9240,7 +9208,9 @@ def places_api(request):
     if snap:
         return _snapshot_response(snap, 'places_json')
 
-    gen = cache.get(f"cache_gen:{request.user.id}", 0)
+    # Coarse generation: this is a whole-history aggregate, so it must not be
+    # invalidated by every GPS push (see _bust_user_cache).
+    gen = _slow_gen(request.user.id)
     cache_key = f"places:{request.user.id}:{gen}"
     cached = cache.get(cache_key)
     if cached is not None:
@@ -9775,7 +9745,9 @@ def transport_breakdown_api(request):
         if snap:
             return _snapshot_response(snap, 'transport_json')
 
-    gen = cache.get(f"cache_gen:{request.user.id}", 0)
+    # Coarse generation: this is a whole-history aggregate, so it must not be
+    # invalidated by every GPS push (see _bust_user_cache).
+    gen = _slow_gen(request.user.id)
     cache_key = f"transport:{request.user.id}:{gen}:{request.GET.urlencode()}"
     cached = cache.get(cache_key)
     if cached is not None:
@@ -10759,6 +10731,10 @@ def _admin_daily_series(since_date):
     return [by_date[d] for d in sorted(by_date)]
 
 
+_ADMIN_MAX_IPS = 500
+_ADMIN_OVERVIEW_TTL = 60
+
+
 @login_required
 def admin_overview_api(request):
     """Monitoring dashboard: stat tiles, a request-volume time series, status /
@@ -10773,6 +10749,17 @@ def admin_overview_api(request):
     rng = request.GET.get('range', '24h')
     if rng not in _ADMIN_RANGES:
         rng = '24h'
+
+    # Cached for a minute. With ?range=all there is no timestamp filter, so the
+    # five COUNT/DISTINCT passes, the Avg, the status GROUP BY and the top-path
+    # GROUP BY (over an unindexed varchar(500)) each scan the whole AccessLog
+    # table — on every dashboard refresh, uncached. A dashboard up to a minute
+    # stale is indistinguishable from a live one; one costing seconds of DB CPU
+    # per look is not.
+    cache_key = f'admin_overview:{rng}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached, encoder=DjangoJSONEncoder)
     delta, gran = _ADMIN_RANGES[rng]
     now = timezone.now()
     since = (now - delta) if delta else None
@@ -10846,9 +10833,14 @@ def admin_overview_api(request):
         acc.exclude(ip_address__isnull=True).values('ip_address')
         .annotate(n=Count('id')).order_by('-n')[:10].values_list('ip_address', 'n')
     )
+    # Capped. This is a GROUP BY over every distinct IP in the range with no
+    # LIMIT, materialised into a Python list and then resolved one at a time by
+    # geoip_utils — on a public instance that is an unbounded list. The country
+    # chart is a proportion, and the tail past a few hundred IPs cannot move it.
     ip_counts = list(
         acc.exclude(ip_address__isnull=True).values('ip_address')
-        .annotate(n=Count('id')).values_list('ip_address', 'n')
+        .annotate(n=Count('id')).order_by('-n')[:_ADMIN_MAX_IPS]
+        .values_list('ip_address', 'n')
     )
     country_breakdown, unknown_country_count = geoip_utils.country_counts(ip_counts)
     recent_actions = list(
@@ -10857,7 +10849,7 @@ def admin_overview_api(request):
         )
     )
 
-    return JsonResponse({
+    payload = {
         'range': rng,
         'granularity': gran,
         'total_requests': total_requests,
@@ -10883,7 +10875,9 @@ def admin_overview_api(request):
             }
             for a in recent_actions
         ],
-    }, encoder=DjangoJSONEncoder)
+    }
+    cache.set(cache_key, payload, _ADMIN_OVERVIEW_TTL)
+    return JsonResponse(payload, encoder=DjangoJSONEncoder)
 
 
 @login_required

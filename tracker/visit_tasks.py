@@ -27,66 +27,6 @@ def _haversine_m(lat1, lon1, lat2, lon2):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
 
-def _find_nearest_poi(lat, lon, radius_m=150):
-    from .models import POI, HAS_POSTGIS
-    
-    if HAS_POSTGIS:
-        from django.contrib.gis.geos import Point
-        from django.contrib.gis.measure import D
-        ref = Point(lon, lat, srid=4326)
-        return POI.objects.filter(
-            latitude__isnull=False,
-            longitude__isnull=False
-        ).annotate(
-            distance=models.functions.Cast(
-                models.F('latitude'), models.FloatField()
-            )  # Not exact PostGIS distance, better to use raw SQL or simple bounding box then haversine
-        ).filter(
-            latitude__gte=lat - (radius_m / 111000.0),
-            latitude__lte=lat + (radius_m / 111000.0),
-            longitude__gte=lon - (radius_m / 111000.0),
-            longitude__lte=lon + (radius_m / 111000.0)
-        )
-    else:
-        # Simplistic box search
-        delta = radius_m / 111000.0
-        pois = POI.objects.filter(
-            latitude__gte=lat - delta, latitude__lte=lat + delta,
-            longitude__gte=lon - delta, longitude__lte=lon + delta,
-        )
-        best_poi = None
-        best_dist = radius_m
-        for p in pois:
-            dist = _haversine_m(lat, lon, p.latitude, p.longitude)
-            if dist <= best_dist:
-                best_dist = dist
-                best_poi = p
-        return best_poi
-
-def _new_visit(device_id, loc):
-    """Start a fresh visit accumulator at `loc`.
-
-    `last_lat`/`last_lon` track the most recent member point (not the running
-    centroid) because that is the fix a tracking gap is measured *from* — see
-    the gap-bridging branch in _visit_worker.
-    """
-    return {
-        'device_id': device_id,
-        'start_time': loc.timestamp,
-        'end_time': loc.timestamp,
-        'lat_sum': loc.latitude,
-        'lon_sum': loc.longitude,
-        'last_lat': loc.latitude,
-        'last_lon': loc.longitude,
-        'point_count': 1,
-        'city': loc.city,
-        'state': loc.state,
-        'country': loc.country,
-        'country_code': loc.country_code,
-        'place_name': loc.place_name,
-    }
-
-
 def _visit_worker(user_id):
     # This worker runs in a thread spawned from a request, which never fires the
     # request_started/request_finished signals that normally enforce

@@ -284,15 +284,19 @@ def snap_points(profile, pts):
 
     out = {}
     todo = []
-    for p, ok in zip(pts, eligible):
-        if not ok:
-            # Deliberately not cached. The gate reads neighbours, so a point at
-            # the edge of one viewport batch sees fewer of them than it will in
-            # another; caching a rejection could pin a genuine driving point
-            # unsnapped for the whole TTL. Re-deciding costs no query.
-            continue
-        key = f"snap:{_SNAP_CACHE_VERSION}:{provider}:{p['id']}"
-        hit = cache.get(key)
+    # One get_many, not one cache.get per point. snap_points is called with up to
+    # _SNAP_MAX_IDS (5000) ids and sits on the map's pre-paint critical path, so
+    # a per-point round-trip was most of a second of pure network latency before
+    # any road query ran. django-redis pipelines get_many/set_many.
+    candidates = [p for p, ok in zip(pts, eligible) if ok]
+    # `ok` is False for points the gate rejected — deliberately never cached,
+    # because the gate reads neighbours, so a point at the edge of one viewport
+    # batch sees fewer of them than it will in another and a cached rejection
+    # could pin a genuine driving point unsnapped for the whole TTL.
+    keys = {p['id']: f"snap:{_SNAP_CACHE_VERSION}:{provider}:{p['id']}" for p in candidates}
+    cached = cache.get_many(list(keys.values())) if keys else {}
+    for p in candidates:
+        hit = cached.get(keys[p['id']])
         if hit is None:
             todo.append(p)
         elif hit:                      # falsy sentinel = known-unsnappable
@@ -316,14 +320,17 @@ def snap_points(profile, pts):
             logger.exception('Road snap failed (provider=%s)', provider)
             return out
 
+        # Cache the misses too, as a falsy sentinel: a point with no road within
+        # tolerance will still have none next time. One set_many rather than a
+        # write per point, for the same reason as the read above.
+        to_cache = {}
         for p in todo:
             coord = fresh.get(p['id'])
-            # Cache the misses too, as a falsy sentinel: a point with no road
-            # within tolerance will still have none next time.
-            cache.set(f"snap:{_SNAP_CACHE_VERSION}:{provider}:{p['id']}",
-                      list(coord) if coord else 0, _SNAP_CACHE_TTL)
+            to_cache[keys[p['id']]] = list(coord) if coord else 0
             if coord:
                 out[p['id']] = coord
+        if to_cache:
+            cache.set_many(to_cache, _SNAP_CACHE_TTL)
 
     return out
 
