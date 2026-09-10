@@ -20,7 +20,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ('tracker', '0083_location_indexes'),
+        ('tracker', '0085_customplace_notify'),
     ]
 
     operations = [
