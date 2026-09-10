@@ -3,8 +3,14 @@
 
 {% block extrahead %}
 {{ block.super }}
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+{# Self-hosted faces, matching the rest of the app. These three tags were the
+   last third-party requests Roamly made, for Space Grotesk — the pre-Field-Journal
+   font the app stopped using — so the Django admin was quietly phoning Google on
+   every page load. #}
+<style>
+    @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:400;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}") format('woff2')}
+    @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:600;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-600.woff2' %}") format('woff2')}
+    @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:700;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-700.woff2' %}") format('woff2')}
+</style>
 <link rel="stylesheet" href="{% static 'admin/css/custom.css' %}">
 {% endblock %}

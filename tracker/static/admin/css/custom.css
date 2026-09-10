@@ -1,8 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+/* Faces are declared in templates/admin/base_site.html via {% static %} —
+   this file cannot use the static tag, and the app self-hosts its fonts. */
 
 :root {
     --font-family-primary:
-        "Space Grotesk",
+        'IBM Plex Sans',
         "Segoe UI",
         system-ui,
         Roboto,
@@ -24,10 +25,10 @@ textarea,
 .deletelink-box a,
 .submit-row a,
 .submit-row input {
-    font-family: 'Space Grotesk', sans-serif !important;
+    font-family: 'IBM Plex Sans', sans-serif !important;
 }
 
 code,
 pre {
-    font-family: 'Space Grotesk', sans-serif !important;
+    font-family: 'IBM Plex Sans', sans-serif !important;
 }

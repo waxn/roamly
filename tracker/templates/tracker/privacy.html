@@ -277,6 +277,12 @@
             .footer { flex-direction: column; text-align: center; }
             .footer-links { justify-content: center; }
         }
+    .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .doc-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.85rem; }
+    .doc-table th, .doc-table td { text-align: left; padding: 0.6rem 0.7rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .doc-table th { color: var(--text); font-weight: 700; white-space: nowrap; }
+    .doc-table td { color: var(--text-muted); }
+    .doc-table .dim { color: var(--text-dim); font-size: 0.8em; }
     </style>
 </head>
 <body>
@@ -327,12 +333,77 @@
         </div>
 
         <div class="doc-card">
-            <h2><span class="section-num">4</span> third-party services</h2>
-            <p>roamly may use the following external services:</p>
-            <ul>
-                <li><strong>map tiles:</strong> map imagery is loaded from tile providers (e.g., openstreetmap). your browser sends requests to these providers, which may log ip addresses.</li>
-                <li><strong>reverse geocoding:</strong> when enabled, coordinates are sent to openstreetmap's nominatim service to resolve place names.</li>
-            </ul>
+            <h2><span class="section-num">4</span> what leaves your server</h2>
+            <p>
+                roamly is self-hosted, so almost everything stays on hardware you control.
+                these are the exceptions — every network request the app can make to somewhere
+                that isn't your own server, and what it carries.
+            </p>
+            <div class="table-responsive">
+            <table class="doc-table">
+                <thead>
+                    <tr><th>goes to</th><th>what is sent</th><th>when</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>map tile providers<br><span class="dim">carto, esri, optionally mapbox</span></td>
+                        <td>the map tiles you are looking at — which implies your approximate
+                            location — plus your browser's ip address</td>
+                        <td><strong>on by default.</strong> every time you open a map</td>
+                    </tr>
+                    <tr>
+                        <td>overpass api mirrors<br><span class="dim">openstreetmap data</span></td>
+                        <td>bounding boxes covering areas users of this instance have travelled
+                            through, and the names of towns they have visited</td>
+                        <td>when road, subway or place data is downloaded (admin-controlled;
+                            enabled by default)</td>
+                    </tr>
+                    <tr>
+                        <td>your chosen ai provider<br><span class="dim">whichever you configure</span></td>
+                        <td><strong>your location history, visits, and — if you allow it —
+                            your journal entries.</strong> this is the largest disclosure the app
+                            can make, and it goes wherever you point it</td>
+                        <td>opt-in, off by default. only if you enable ai ask or summary emails</td>
+                    </tr>
+                    <tr>
+                        <td>cloudflare<br><span class="dim">turnstile captcha</span></td>
+                        <td>your ip address and browser characteristics</td>
+                        <td>only if the instance admin turns on the captcha</td>
+                    </tr>
+                    <tr>
+                        <td>github</td>
+                        <td>your server's ip address (not yours)</td>
+                        <td>when the server checks for an android app update</td>
+                    </tr>
+                    <tr>
+                        <td>zepp / amazfit</td>
+                        <td>your zepp credentials and the health data they return</td>
+                        <td>opt-in, off by default. only if you connect a zepp account</td>
+                    </tr>
+                    <tr>
+                        <td>your s3 provider<br><span class="dim">whichever you configure</span></td>
+                        <td>a complete backup of your data, and optionally your photos</td>
+                        <td>opt-in, off by default. only if you configure automatic backups</td>
+                    </tr>
+                    <tr>
+                        <td>your smtp provider</td>
+                        <td>email addresses and the contents of any mail the app sends you</td>
+                        <td>only if the instance admin has configured email</td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+            <p>
+                <strong>reverse geocoding is fully offline.</strong> turning coordinates into
+                city, state and country names happens entirely on your own server, using bundled
+                us census boundary data and an offline place database. no coordinate is ever sent
+                anywhere to be named. earlier versions of this policy said otherwise; they were
+                describing an approach roamly no longer uses.
+            </p>
+            <p>
+                the web app loads no third-party javascript at all — fonts and the map library
+                are served from your own server, not a cdn.
+            </p>
         </div>
 
         <div class="doc-card">

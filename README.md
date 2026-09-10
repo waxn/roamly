@@ -8,9 +8,19 @@ you control.
 [![Docker Hub](https://img.shields.io/docker/pulls/waxn/roamly)](https://hub.docker.com/r/waxn/roamly)
 
 Roamly is a single Django app. There's no SaaS backend, no telemetry, and no
-account that lives on someone else's server. The only thing it ever talks to on
-the public internet is OpenStreetMap's Nominatim, and only to turn coordinates
-into city names — it never sends who you are.
+account that lives on someone else's server.
+
+Reverse geocoding — turning coordinates into city, state and country names — runs
+**entirely offline** on your own server, from bundled US Census boundary data and
+an offline place database. No coordinate is ever sent anywhere to be named, and
+the web app loads no third-party JavaScript: the fonts and the map library are
+served from your server, not a CDN.
+
+Your browser does fetch map tiles from a tile provider, which is unavoidable for
+a map. Everything else that reaches the outside world — Overpass for road and
+place data, an AI provider for the optional Ask feature, an S3 bucket for
+backups — is either admin-controlled or off until you turn it on. The full list
+is on the instance's own `/privacy/` page.
 
 ---
 
@@ -35,10 +45,10 @@ pins with radius-based dwell time, a timeline of photo posts, milestones with
 emoji, and threaded comments. Publish one at a custom slug, optionally gated by a
 short access pin.
 
-**Pals.** Group trips where each member contributes their *own* device track.
-Everyone's route lands on one shared map with a combined timeline, blurbs,
-milestones, and profile photos — built for friends travelling together rather
-than one person's history.
+**Health & activities.** A read-only bridge from Android's Health Connect —
+steps, distance, calories and workouts — plus deliberately recorded rides, walks
+and runs captured at high frequency, each with its own page, map and speed chart.
+Health works on an account that never enabled GPS tracking at all.
 
 **Visits & stats.** Roamly attributes the gaps between consecutive geocoded
 points to the place you were sitting in, so you get real dwell time per
@@ -59,10 +69,12 @@ complete JSON backup you can restore on another instance.
 photos) to any S3-compatible storage — AWS S3, Backblaze B2, Cloudflare R2,
 MinIO, Wasabi. Daily, weekly, or monthly, with optional retention limits.
 
-**Reverse geocoding.** New points are geocoded the moment they arrive. For bulk
-imports there's a background job that clusters nearby coordinates into a ~111 m
-grid and geocodes one representative per cluster, so 100k points in a handful of
-cities only costs a few thousand Nominatim requests instead of 100k.
+**Reverse geocoding.** Fully offline and never on the push path. US points are
+resolved by point-in-polygon against Census TIGER boundaries, so a point lands in
+the town that actually *contains* it rather than the nearest larger one;
+elsewhere a bundled offline place database is used. A background worker labels
+new points shortly after they arrive, caching one lookup per ~111 m cell — no
+network call, no rate limit, nothing to be blocked from.
 
 **PWA.** Installable, works offline-ish, dark and light themes.
 
@@ -80,7 +92,7 @@ a watchdog coroutine that re-arms location updates if fixes stall). Interval, GP
 priority, minimum movement distance, and max accuracy are all tunable live.
 Points are cached in Room and uploaded offline-first by a WorkManager job, with a
 local CSV mirror written alongside. The app also browses your map, stats,
-adventures, and pals. It's built from source with Android Studio / Gradle (no
+adventures, and health. It's built from source with Android Studio / Gradle (no
 Play Store or F-Droid listing).
 
 ### Anything that speaks HTTP

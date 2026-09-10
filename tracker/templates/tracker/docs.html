@@ -858,7 +858,7 @@
                 <li><strong>adventures</strong> — shared, date-bounded journeys: a day-by-day log, a freeform story, rated places with photos, and every member's own gps track on one map, with a public slug + optional pin for sharing</li>
                 <li><strong>visit analytics</strong> — dwell time per city/state/country, yearly period comparisons</li>
                 <li><strong>stats & search</strong> — distance charts, location data table, place/date search</li>
-                <li><strong>reverse geocoding</strong> — nominatim with spatial clustering (background job in settings)</li>
+                <li><strong>reverse geocoding</strong> — offline, from bundled census boundaries + place data (background job in settings)</li>
                 <li><strong>import & export</strong> — csv, gpx, google takeout json, owntracks json, full backup restore</li>
                 <li><strong>s3 backups</strong> — scheduled data + image backups to any s3-compatible storage</li>
                 <li><strong>native android app</strong> — first-party kotlin client with a reboot-proof background tracker, offline-first uploads, and your map, stats, and adventures on your phone</li>
@@ -1458,16 +1458,22 @@ print(resp.json())</code></pre>
         <!-- Geocoding -->
         <section id="geocoding" class="doc-section">
             <h1>geocoding</h1>
-            <p>reverse geocoding converts coordinates to city, state, and country names. roamly uses <a href="https://nominatim.openstreetmap.org/" target="_blank">openstreetmap nominatim</a> — free, no api key required.</p>
+            <p>reverse geocoding converts coordinates to city, state, and country names. roamly does this <strong>entirely offline, on your own server</strong> — no api, no api key, no rate limit, and no coordinate ever leaves the machine to be named.</p>
 
             <h2>how it works</h2>
             <ul>
-                <li><strong>real-time:</strong> new locations are geocoded immediately on arrival</li>
-                <li><strong>background batch:</strong> for imports or missed geocoding, run the job from settings</li>
+                <li><strong>us points:</strong> point-in-polygon against us census tiger boundaries, so a point resolves to the town that actually <em>contains</em> it rather than the nearest larger one whose centre happens to be closer</li>
+                <li><strong>everywhere else:</strong> nearest city from a bundled offline place database</li>
+                <li><strong>never on the push path:</strong> <code>/api/push/</code> stores the point with a blank city and returns immediately; a background worker labels it moments later, so a slow lookup can never delay an upload</li>
             </ul>
 
-            <h2>spatial clustering</h2>
-            <p>nominatim allows 1 request per second. to work around this, roamly groups nearby points into ~111m grid clusters and geocodes one representative per cluster, then applies the result to all points in it. 100k points in a few cities might need only a few thousand requests.</p>
+            <h2>loading boundary data</h2>
+            <p>the tiger boundaries are a one-off download, not something a migration can do. an admin runs:</p>
+            <pre><code>sudo docker compose exec web python manage.py import_boundaries</code></pre>
+            <p><code>--states ME,VA</code> limits which states are fetched; <code>--regeocode</code> relabels every stored point with the new data. without this, us points fall back to the offline place database, which is coarser.</p>
+
+            <h2>caching</h2>
+            <p>the worker caches one lookup per ~111m grid cell for the duration of a run, so a hundred thousand points across a handful of cities cost a few thousand polygon tests rather than a hundred thousand.</p>
 
             <h2>what gets stored per location</h2>
             <ul>
@@ -1475,7 +1481,7 @@ print(resp.json())</code></pre>
                 <li><code>state</code> — state, province, or region</li>
                 <li><code>country</code> — full country name</li>
                 <li><code>country_code</code> — iso 3166-1 alpha-2 (e.g., <code>us</code>, <code>de</code>)</li>
-                <li><code>place_name</code> — full nominatim display name</li>
+                <li><code>place_name</code> — the fuller place description, when one is available</li>
             </ul>
         </section>
 
@@ -1769,7 +1775,7 @@ roamly web server (django + gunicorn)
             └── spatial filtering with st_intersects
 
 background threads
-    ├── reverse geocoding (nominatim, spatial clustering)
+    ├── reverse geocoding (offline: tiger polygons + place database)
     ├── visit computation (precomputed stays per location)
     ├── osm poi download (overpass, for search)
     ├── s3 backup scheduler (data + images, checks every 15 min)
@@ -1841,9 +1847,11 @@ background threads
             </ul>
 
             <h2>geocoding not working</h2>
+            <p>geocoding is offline, so this is never a network or rate-limit problem.</p>
             <ul>
-                <li>nominatim may be rate-limited — wait a few minutes</li>
-                <li>test connectivity: <code>docker compose exec web curl -s https://nominatim.openstreetmap.org/status</code></li>
+                <li>points stay unlabelled until the background worker runs — start it from settings &rarr; background jobs</li>
+                <li>us towns resolving to the wrong place usually means the tiger boundaries were never loaded: run <code>import_boundaries</code> (see the geocoding section)</li>
+                <li>after loading boundaries, existing points keep their old labels until you re-run with <code>--regeocode</code></li>
             </ul>
 
             <h2>csrf errors behind a reverse proxy</h2>
@@ -1864,7 +1872,7 @@ background threads
             <h1>faq</h1>
 
             <h3>is roamly actually private?</h3>
-            <p>yes. it runs on your server, no telemetry, no data sharing. the only external call is nominatim for geocoding — which only sends coordinates, no user info.</p>
+            <p>yes. it runs on your server, with no telemetry and no data sharing, and geocoding is fully offline. your browser still fetches map tiles from a tile provider, which is unavoidable for a map; everything else that reaches the internet is either admin-controlled or off until you turn it on. the full list is on this instance's <a href="/privacy/">privacy page</a>.</p>
 
             <h3>can multiple people share one instance?</h3>
             <p>yes. each user gets their own account with separate data, devices, adventures, and api keys. no cross-user data access.</p>
