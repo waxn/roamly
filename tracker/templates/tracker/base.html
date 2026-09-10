@@ -1086,6 +1086,31 @@
         .rly-dialog-btn-secondary { background: transparent; }
         .rly-dialog-btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
         .rly-dialog-btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+        /* Skip link: off-screen until focused. */
+        .rly-skip-link {
+            position: absolute; left: -9999px; top: 0; z-index: 10000;
+            padding: 0.6rem 1rem; background: var(--primary); color: #fff;
+            font-weight: 700; text-decoration: none;
+        }
+        .rly-skip-link:focus { left: 0; }
+        #main-content:focus { outline: none; }
+
+        /* One global focus ring. :focus-visible was defined in five scattered
+           places, so most controls in the app showed no keyboard focus at all. */
+        :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+            outline: 2px solid var(--primary);
+            outline-offset: 2px;
+        }
+
+        /* Reset for elements that are semantically buttons but must keep looking
+           like plain content — used when converting onclick-divs to real
+           <button>s, so the conversion changes behaviour, not appearance. */
+        .btn-unstyled {
+            background: none; border: none; padding: 0; margin: 0; font: inherit;
+            color: inherit; text-align: inherit; cursor: pointer; width: 100%;
+            display: block;
+        }
+
         .rly-load-error {
             display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
             padding: 0.75rem 0.9rem; border: 1px solid var(--danger);
@@ -1205,6 +1230,9 @@
     </style>
 </head>
 <body>
+    <!-- Skip link. There was none, so a keyboard or screen-reader user had to
+         tab through the whole navbar on every page to reach the content. -->
+    <a href="#main-content" class="rly-skip-link">Skip to main content</a>
     {% if user.is_authenticated and not standalone %}
     <nav class="navbar">
         <div class="navbar-start">
@@ -1331,7 +1359,9 @@
     </script>
     {% endif %}
 
+    <main id="main-content" tabindex="-1">
     {% block content %}{% endblock %}
+    </main>
 
     {% if not standalone %}
     <div style="text-align:center;padding:1.5rem 0 0.5rem;font-size:0.7rem;color:var(--text-dim);opacity:0.6;margin-top:auto;">v0.60.0</div>
@@ -1414,6 +1444,48 @@
             });
         })();
     </script>
+    <script>
+        // ── Sortable table headers ─────────────────────────────────────────
+        // data_table and visits mark sort columns with <th class="sortable"
+        // onclick=...>, which a keyboard cannot reach and a screen reader does
+        // not announce as a control. Rather than editing 28 tags, make them all
+        // operable here, and keep aria-sort in step with the arrow glyph — the
+        // attribute was previously used nowhere in the app.
+        (function() {
+            function syncAriaSort(root) {
+                (root || document).querySelectorAll('th.sortable').forEach(function(th) {
+                    if (!th.hasAttribute('tabindex')) {
+                        th.tabIndex = 0;
+                        th.setAttribute('role', 'columnheader');
+                        th.setAttribute('aria-label',
+                            (th.textContent || '').trim() + ' — activate to sort');
+                    }
+                    const arrow = th.querySelector('.sort-arrow');
+                    const glyph = arrow ? (arrow.textContent || '').trim() : '';
+                    th.setAttribute('aria-sort',
+                        glyph.includes('▲') ? 'ascending'
+                        : glyph.includes('▼') ? 'descending' : 'none');
+                });
+            }
+            document.addEventListener('keydown', function(ev) {
+                if (ev.key !== 'Enter' && ev.key !== ' ') return;
+                const th = ev.target.closest && ev.target.closest('th.sortable');
+                if (!th) return;
+                ev.preventDefault();
+                th.click();
+                setTimeout(syncAriaSort, 0);
+            });
+            document.addEventListener('click', function(ev) {
+                if (ev.target.closest && ev.target.closest('th.sortable')) {
+                    setTimeout(syncAriaSort, 0);
+                }
+            });
+            // Headers can be re-rendered with the table body.
+            new MutationObserver(function() { syncAriaSort(); })
+                .observe(document.documentElement, {childList: true, subtree: true});
+            syncAriaSort();
+        })();
+    </script>
     {% block extra_js %}{% endblock %}
     <script>
         // ══════════════════════════════════════════════════════════════
@@ -1480,6 +1552,45 @@
             }
 
             // ── <select> ──
+            // Carry the native control's accessible name onto the generated
+            // trigger.
+            //
+            // Both enhancers copied only .title, then hid the native element with
+            // display:none — which removes it, and any <label for> pointing at it,
+            // from the accessibility tree. Since enhance(document) runs globally
+            // plus a MutationObserver, that silently stripped the name from EVERY
+            // select and date input in the app: a screen reader announced "button,
+            // Dark" with no indication of what it controlled.
+            let rlyAutoId = 0;
+            function carryLabel(native, trigger) {
+                if (!native.id) native.id = 'rly-native-' + (++rlyAutoId);
+                if (!trigger.id) trigger.id = native.id + '-trigger';
+
+                // Repoint any real <label for> at the thing now doing the work.
+                const label = document.querySelector(`label[for="${CSS.escape(native.id)}"]`);
+                if (label) {
+                    label.htmlFor = trigger.id;
+                    return;
+                }
+                // Otherwise fall back through the other ways a name can be given.
+                const explicit = native.getAttribute('aria-label');
+                const labelledby = native.getAttribute('aria-labelledby');
+                if (explicit) trigger.setAttribute('aria-label', explicit);
+                else if (labelledby) trigger.setAttribute('aria-labelledby', labelledby);
+                else if (native.title) trigger.setAttribute('aria-label', native.title);
+                else {
+                    // Last resort: a wrapping <label>, or a preceding label-ish
+                    // sibling. settings.html uses <label class="pref-label">Theme
+                    // </label> with the control as a SIBLING and no for=, which is
+                    // how 22 settings controls ended up with no name at all.
+                    const wrapping = native.closest('label');
+                    const prev = native.previousElementSibling;
+                    const src = wrapping || (prev && /^(LABEL|SPAN|H\d)$/.test(prev.tagName) ? prev : null);
+                    const text = src && src.textContent ? src.textContent.trim() : '';
+                    if (text) trigger.setAttribute('aria-label', text.replace(/\s+/g, ' ').slice(0, 120));
+                }
+            }
+
             function enhanceSelect(sel) {
                 if (sel.dataset.rlyEnhanced || sel.multiple || sel.size > 1 || sel.classList.contains('rly-native')) return;
                 sel.dataset.rlyEnhanced = '1';
@@ -1492,6 +1603,7 @@
                 trigger.setAttribute('aria-haspopup', 'listbox');
                 trigger.setAttribute('aria-expanded', 'false');
                 if (sel.title) trigger.title = sel.title;
+                carryLabel(sel, trigger);
                 if (sel.disabled) trigger.disabled = true;
                 copyMetrics(sel, trigger);
                 const label = document.createElement('span');
@@ -1592,6 +1704,7 @@
                 trigger.setAttribute('aria-haspopup', 'dialog');
                 trigger.setAttribute('aria-expanded', 'false');
                 if (inp.title) trigger.title = inp.title;
+                carryLabel(inp, trigger);
                 if (inp.disabled) trigger.disabled = true;
                 copyMetrics(inp, trigger);
                 const icon = document.createElement('span');

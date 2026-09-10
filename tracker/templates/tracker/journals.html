@@ -603,7 +603,7 @@ function loadRecent() {
             if (e.word_count) foot.push(`${e.word_count} words`);
             if (e.photo_count) foot.push(`${e.photo_count} 📷`);
             if (e.location_name) foot.push(`📍 ${e.location_name}`);
-            return `<div class="j-entry-card" onclick="openEntry('${e.date}')">
+            return `<div class="j-entry-card" role="button" tabindex="0" onclick="openEntry('${e.date}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openEntry('${e.date}');}" aria-label="Open journal entry for ${e.date}">
                 ${cover}
                 <div class="j-entry-meta">
                     <div class="j-entry-date">${fmtLong(e.date)}</div>
@@ -634,7 +634,7 @@ function renderEntryCards(entries, container) {
         const foot = [];
         if (e.photo_count) foot.push(`${e.photo_count} 📷`);
         if (e.location_name) foot.push(`📍 ${e.location_name}`);
-        return `<div class="j-entry-card" onclick="openEntry('${e.date}')">
+        return `<div class="j-entry-card" role="button" tabindex="0" onclick="openEntry('${e.date}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openEntry('${e.date}');}" aria-label="Open journal entry for ${e.date}">
             ${cover}
             <div class="j-entry-meta">
                 <div class="j-entry-date">${fmtLong(e.date)}</div>

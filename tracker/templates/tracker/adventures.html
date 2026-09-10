@@ -927,7 +927,10 @@ function renderAdventureCards() {
         if (isActive) badges.push('<span class="adv-badge adv-badge-active">active</span>');
         const readTime = trip.read_time_min ? `${trip.read_time_min} min read` : '';
         const coverHtml = trip.cover_thumbnail ? `<img class="adv-card-cover" src="${escHtml(trip.cover_thumbnail)}" alt="" loading="lazy">` : '';
-        return `<div class="adv-card" onclick="location.href='/adventures/${trip.id}/edit/'">
+        return `<div class="adv-card" role="button" tabindex="0"
+            onclick="location.href='/adventures/${trip.id}/edit/'"
+            onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();location.href='/adventures/${trip.id}/edit/';}"
+            aria-label="Open adventure ${escHtml(trip.name || 'Untitled')}">
             ${coverHtml}
             <div class="adv-card-body">
                 <div class="adv-card-name">${escHtml(trip.name)}</div>

@@ -451,7 +451,10 @@ async function loadPlaces() {
     }
     empty.style.display = 'none';
     grid.innerHTML = placesCache.map(p => `
-        <div class="card place-card" onclick="openDetail(${p.id})">
+        <div class="card place-card" role="button" tabindex="0"
+            onclick="openDetail(${p.id})"
+            onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDetail(${p.id});}"
+            aria-label="Open place ${escHtml(p.name || '')}">
             <div class="pc-top">
                 <span class="pc-dot" style="background:${p.color};"></span>
                 <span class="pc-name">${escHtml(p.name)}</span>

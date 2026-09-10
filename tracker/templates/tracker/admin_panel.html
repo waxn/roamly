@@ -490,6 +490,35 @@
         </div>
 
     </div>
+
+    <!-- ── Push Notifications tab ── -->
+    <div id="tab-push-notifications" style="display:none;">
+        <div class="card" style="transition:none;">
+            <div class="card-header">Firebase Cloud Messaging</div>
+            <p class="settings-section-desc">
+                Powers push notifications for <strong>Family Circle</strong> place enter/exit alerts. Create a Firebase project (free) at the <a href="https://console.firebase.google.com/" target="_blank" rel="noopener">Firebase console</a>, then generate a service-account key under Project Settings → Service Accounts → &ldquo;Generate new private key&rdquo; and paste its full JSON contents below. The mobile app build used to talk to this instance must be built against the <em>same</em> Firebase project (its own <code>google-services.json</code>) — see the mobile release docs.
+            </p>
+            <div class="form-group">
+                <label for="fcm-project-id">Project ID</label>
+                <input type="text" id="fcm-project-id" class="form-control" readonly
+                    value="{{ site_fcm_project_id }}" placeholder="detected automatically from the JSON below"
+                    style="max-width:420px;font-family:var(--font-mono);font-size:0.8125rem;">
+            </div>
+            <div class="form-group">
+                <label for="fcm-service-account-json">Service-account JSON</label>
+                <textarea id="fcm-service-account-json" class="form-control" rows="4"
+                    placeholder="{% if site_fcm_configured %}••••••••{% else %}paste the full JSON key file contents{% endif %}"
+                    style="max-width:620px;font-family:var(--font-mono);font-size:0.75rem;">{% if site_fcm_configured %}••••••••{% endif %}</textarea>
+            </div>
+            <p class="settings-section-desc" style="margin-top:-0.35rem;">
+                Clear the field and save to remove push notifications from this instance entirely.
+            </p>
+            <div class="settings-actions" style="margin-top:0.75rem;">
+                <button class="btn btn-primary btn-sm" onclick="saveFcmConfig()">Save</button>
+                <span id="fcm-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -586,7 +615,7 @@
 {% block extra_js %}
 <script>
 // ── Tab switching ──────────────────────────────────────────────────────────
-const TABS = ['monitoring','access-log','events','retention','users','custom-js','contact','captcha','basemaps','downloads'];
+const TABS = ['monitoring','access-log','events','retention','users','custom-js','contact','captcha','basemaps','downloads','push-notifications'];
 const _loaded = {};
 function showTab(name, btn) {
     TABS.forEach(t => {
@@ -1129,6 +1158,23 @@ async function saveCartoConfig() {
     let d = {}; try { d = await r.json(); } catch(e) {}
     st.textContent = r.ok ? 'Saved. Reload a map page to see the new tiles.' : (d.error || 'Error saving.');
     st.style.color = r.ok ? 'var(--success)' : 'var(--danger)';
+    setTimeout(()=>{ st.textContent=''; }, 4000);
+}
+
+// ── Firebase Cloud Messaging (Family Circle push) ───────────────────────────
+async function saveFcmConfig() {
+    const st = document.getElementById('fcm-status');
+    st.textContent = 'Saving…'; st.style.color = 'var(--text-muted)';
+    const r = await fetch('/api/site/fcm/', {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
+        body: JSON.stringify({
+            fcm_service_account_json: document.getElementById('fcm-service-account-json').value.trim(),
+        }),
+    });
+    let d = {}; try { d = await r.json(); } catch(e) {}
+    st.textContent = r.ok ? 'Saved.' : (d.error || 'Error saving.');
+    st.style.color = r.ok ? 'var(--success)' : 'var(--danger)';
+    if (r.ok) document.getElementById('fcm-project-id').value = d.fcm_project_id || '';
     setTimeout(()=>{ st.textContent=''; }, 4000);
 }
 
