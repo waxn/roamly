@@ -28,6 +28,7 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Min, Max, Avg, Q, Case, When, Value, F, IntegerField, FloatField
 from django.db.models.functions import Coalesce, Cast, Round
 from django.http import FileResponse, JsonResponse, HttpResponse, StreamingHttpResponse
+from django.views.static import serve as static_serve
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
@@ -143,6 +144,36 @@ def service_worker(request):
         response = HttpResponse(f.read(), content_type='application/javascript')
     response['Service-Worker-Allowed'] = '/'
     response['Cache-Control'] = 'no-cache'
+    return response
+
+
+# ---------------------------------------------------------------------------
+# Media serving
+# ---------------------------------------------------------------------------
+
+# Content types we are willing to let a browser render inline from MEDIA_ROOT.
+# Everything else is forced to an opaque type and marked as a download.
+#
+# django.views.static.serve derives Content-Type from the filename extension, so
+# any file that lands in MEDIA_ROOT under an attacker-chosen name is served as
+# whatever that extension implies — from the app's own origin, with the user's
+# session. That was reachable two ways (a spoofed "video" upload, and the media
+# entries of a restored backup); both are now filtered at the write side too,
+# but the read side must not depend on that holding everywhere forever.
+_MEDIA_INLINE_TYPES = {
+    'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+    'video/mp4', 'video/webm', 'video/quicktime', 'video/ogg',
+}
+
+
+def serve_media(request, path):
+    """Serve MEDIA_ROOT with a content type the browser cannot be tricked by."""
+    response = static_serve(request, path, document_root=settings.MEDIA_ROOT)
+    ctype = (response.get('Content-Type') or '').split(';')[0].strip().lower()
+    if ctype not in _MEDIA_INLINE_TYPES:
+        response['Content-Type'] = 'application/octet-stream'
+        response['Content-Disposition'] = 'attachment'
+    response['X-Content-Type-Options'] = 'nosniff'
     return response
 
 
@@ -5171,11 +5202,39 @@ _VIDEO_EXTS = ('.mp4', '.webm', '.mov', '.m4v', '.ogv', '.ogg')
 _VIDEO_MAX_BYTES = 200 * 1024 * 1024   # videos are big; allow more than photos
 _IMAGE_MAX_BYTES = 10 * 1024 * 1024
 
+# Container magic numbers, checked at the offset each format puts them at.
+# ISO-BMFF (mp4/mov/m4v) carries 'ftyp' at byte 4; Matroska/WebM and Ogg start
+# with theirs. This is a sanity check on the bytes, not a full demux — its job
+# is to reject a file that merely *claims* to be a video.
+_VIDEO_MAGIC = (
+    (4, b'ftyp'),                    # mp4 / m4v / mov
+    (0, b'\x1a\x45\xdf\xa3'),      # webm / matroska
+    (0, b'OggS'),                    # ogv / ogg
+)
 
-def _is_video_upload(f):
-    ct = (getattr(f, 'content_type', '') or '').lower()
+
+def _video_ext(f):
+    """The upload's extension when it is a permitted video container, else ''."""
     name = (getattr(f, 'name', '') or '').lower()
-    return ct.startswith('video/') or name.endswith(_VIDEO_EXTS)
+    ext = os.path.splitext(name)[1]
+    return ext if ext in _VIDEO_EXTS else ''
+
+
+def _looks_like_video(f):
+    """True when the first bytes actually match a permitted video container.
+
+    Never trust f.content_type here: it is the client's own multipart header.
+    Taking it as proof let an attacker upload payload.html as a "video/mp4",
+    which was then stored under its own name and served back as text/html from
+    the app's own origin — stored XSS, delivered via public adventure pages.
+    """
+    try:
+        f.seek(0)
+        head = f.read(16)
+        f.seek(0)
+    except Exception:
+        return False
+    return any(head[off:off + len(sig)] == sig for off, sig in _VIDEO_MAGIC)
 
 
 def _media_payload(p):
@@ -5191,9 +5250,10 @@ def _make_media_row(model, order, upload, **fk):
     """Create an image (resized + thumb) or video row from an upload.
 
     Returns the row, or None if the file is over its size cap."""
-    if _is_video_upload(upload):
-        if upload.size > _VIDEO_MAX_BYTES:
+    if _video_ext(upload):
+        if upload.size > _VIDEO_MAX_BYTES or not _looks_like_video(upload):
             return None
+        upload.name = f'{uuid.uuid4().hex}{_video_ext(upload)}'
         return model.objects.create(media_type='video', video=upload, order=order, **fk)
     if upload.size > _IMAGE_MAX_BYTES:
         return None
