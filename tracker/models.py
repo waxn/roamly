@@ -456,7 +456,7 @@ class DownloadedRegion(models.Model):
 
     class Meta:
         unique_together = [('kind', 'key')]
-        indexes = [models.Index(fields=['kind'])]
+        indexes = [models.Index(fields=['kind'], name='tracker_downloadedregion_kind_idx')]
 
     def __str__(self):
         return f"{self.kind}:{self.key}"
@@ -2084,7 +2084,7 @@ class LocationShare(models.Model):
 
     class Meta:
         ordering = ['-created_at']
-        indexes = [models.Index(fields=['user', '-created_at'])]
+        indexes = [models.Index(fields=['user', '-created_at'], name='tracker_share_user_idx')]
 
     def save(self, *args, **kwargs):
         if not self.token:
