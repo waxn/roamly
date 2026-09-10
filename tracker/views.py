@@ -557,12 +557,48 @@ def _is_app_client(request):
 
 
 def _client_ip(request):
-    """Best-effort client IP. Behind the reverse proxy the real address is the
-    first entry of X-Forwarded-For; fall back to REMOTE_ADDR for direct hits."""
+    """The client IP, read from the position our own proxies actually control.
+
+    X-Forwarded-For is append-only: each proxy adds the address it saw, so the
+    LAST entries are the ones our infrastructure wrote and everything before
+    them is whatever the client chose to send. Taking split(',')[0] — the
+    first entry — therefore read a value the client fully controls, and every
+    rate limit in the app keys on this, so rotating one header handed out a
+    fresh bucket on every request: unlimited password, email-code, TOTP and
+    backup-code guessing.
+
+    settings.TRUSTED_PROXY_COUNT says how many proxies sit in front of us (1 for
+    a single nginx/Caddy, 2 when Cloudflare is also in the path). We count that
+    many back from the end. A header shorter than expected was not written by
+    the chain we think we have, so fall back to REMOTE_ADDR rather than trust a
+    client-supplied entry.
+    """
+    n = getattr(settings, 'TRUSTED_PROXY_COUNT', 1)
+    remote = request.META.get('REMOTE_ADDR', '') or 'unknown'
+    if n <= 0:
+        return remote
     xff = request.META.get('HTTP_X_FORWARDED_FOR', '')
-    if xff:
-        return xff.split(',')[0].strip()
-    return request.META.get('REMOTE_ADDR', '') or 'unknown'
+    if not xff:
+        return remote
+    parts = [p.strip() for p in xff.split(',') if p.strip()]
+    if len(parts) < n:
+        return remote
+    return parts[-n]
+
+
+def _rate_limit_ids(request, identifier=''):
+    """The counters an attempt should be charged against.
+
+    An IP alone is not enough even with the header fixed — a botnet has many.
+    Counting the account name too means credential stuffing against one login
+    is throttled wherever it comes from, and that counter is not something a
+    request header can reset.
+    """
+    ids = [f'ip:{_client_ip(request)}']
+    ident = (identifier or '').strip().lower()[:150]
+    if ident:
+        ids.append(f'id:{ident}')
+    return ids
 
 
 def _log_action(request, action, description='', user=None):
@@ -582,22 +618,26 @@ def _log_action(request, action, description='', user=None):
         pass
 
 
-def _rate_limited(request, scope, limit, window_s):
+def _rate_limited(request, scope, limit, window_s, identifier=''):
     """Return True if this client has already made `limit` requests to `scope`
     within the trailing `window_s` seconds. IP-keyed, cache-backed (Redis in
     prod, LocMem in dev). Fails **open** — a cache hiccup must never lock users
     out of signing in. Call once per request that should count toward the limit."""
-    key = f'ratelimit:{scope}:{_client_ip(request)}'
-    try:
-        cache.add(key, 0, window_s)  # arm the window on the first hit (no-op after)
-        count = cache.incr(key)
-    except ValueError:
-        # Key expired between add and incr — treat as the first hit of a new window.
-        cache.set(key, 1, window_s)
-        count = 1
-    except Exception:
-        return False  # cache unavailable: don't block legitimate access
-    return count > limit
+    limited = False
+    for ident in _rate_limit_ids(request, identifier):
+        key = f'ratelimit:{scope}:{ident}'
+        try:
+            cache.add(key, 0, window_s)  # arm the window on the first hit (no-op after)
+            count = cache.incr(key)
+        except ValueError:
+            # Key expired between add and incr — first hit of a new window.
+            cache.set(key, 1, window_s)
+            count = 1
+        except Exception:
+            continue  # cache unavailable: don't block legitimate access
+        if count > limit:
+            limited = True
+    return limited
 
 
 _TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
@@ -614,7 +654,11 @@ def _verify_turnstile(request):
     handling): unlike a rate-limit counter, a captcha whose verifier can't be
     reached isn't proof of anything, and the admin's escape hatch is the
     enabled toggle itself, not a silent bypass."""
-    if _is_app_client(request):
+    # The exemption used to key on X-Roamly-Client alone, a header anyone can
+    # send — so the CAPTCHA could be skipped by typing three words. A valid API
+    # key is something the caller must already hold, and every real app install
+    # has one, so it identifies the app without being forgeable.
+    if _is_app_client(request) and get_api_key_user(request) is not None:
         return True
     from .context_processors import get_turnstile_enabled
     if not get_turnstile_enabled():
@@ -643,7 +687,8 @@ def login_view(request):
     if request.user.is_authenticated and not is_app:
         return redirect('tracker:map')
     if request.method == 'POST':
-        if _rate_limited(request, 'login', 10, 300):
+        if _rate_limited(request, 'login', 10, 300,
+                         identifier=request.POST.get('username', '')):
             msg = 'Too many login attempts. Please wait a few minutes and try again.'
             if is_app:
                 return JsonResponse({'status': 'error', 'message': msg}, status=429)
@@ -717,7 +762,8 @@ def password_reset_request(request):
         return render(request, 'tracker/password_reset_request.html', {'disabled': True})
     sent = False
     if request.method == 'POST':
-        if _rate_limited(request, 'pwreset', 5, 3600):
+        if _rate_limited(request, 'pwreset', 5, 3600,
+                         identifier=request.POST.get('email', '')):
             return render(request, 'tracker/password_reset_request.html', {
                 'rate_limited': True,
             }, status=429)
@@ -846,7 +892,7 @@ def verify_view(request):
         return redirect('tracker:login')
     purpose = pv['purpose']
     if request.method == 'POST':
-        if _rate_limited(request, 'verify', 10, 900):
+        if _rate_limited(request, 'verify', 10, 900, identifier=str(pv.get('user_id', ''))):
             msg = 'Too many attempts. Please wait a few minutes and try again.'
             if is_app:
                 return JsonResponse({'status': 'error', 'message': msg}, status=429)
@@ -913,7 +959,7 @@ def verify_resend(request):
     pv = request.session.get('pending_verify')
     if not pv:
         return redirect('tracker:login')
-    if _rate_limited(request, 'verify_resend', 4, 900):
+    if _rate_limited(request, 'verify_resend', 4, 900, identifier=str(pv.get('user_id', ''))):
         messages.error(request, 'Too many code requests. Please wait a few minutes and try again.')
         return redirect('tracker:verify')
     from django.contrib.auth.models import User as AuthUser
@@ -951,7 +997,7 @@ def totp_verify_view(request):
         'email_masked': _mask_email(user.email),
     }
     if request.method == 'POST':
-        if _rate_limited(request, 'totp', 10, 900):
+        if _rate_limited(request, 'totp', 10, 900, identifier=str(pv.get('user_id', ''))):
             msg = 'Too many attempts. Please wait a few minutes and try again.'
             if is_app:
                 return JsonResponse({'status': 'error', 'message': msg}, status=429)
@@ -996,7 +1042,7 @@ def totp_email_fallback(request):
             return JsonResponse({'status': 'error', 'message': 'Email codes are not available'}, status=400)
         messages.error(request, 'Email codes are not available on this account.')
         return redirect('tracker:totp_verify')
-    if _rate_limited(request, 'verify_resend', 4, 900):
+    if _rate_limited(request, 'verify_resend', 4, 900, identifier=str(pv.get('user_id', ''))):
         msg = 'Too many code requests. Please wait a few minutes and try again.'
         if is_app:
             return JsonResponse({'status': 'error', 'message': msg}, status=429)

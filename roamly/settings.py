@@ -133,6 +133,19 @@ if REDIS_URL:
 else:
     CACHES = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}}
 
+# How many reverse proxies sit in front of this app. X-Forwarded-For is
+# append-only, so the client controls everything BEFORE the entries our own
+# proxies wrote — _client_ip counts this many back from the end of the header
+# and falls back to REMOTE_ADDR when the header is shorter than that.
+#
+#   1  a single nginx / Caddy / Traefik in front of the container (the default)
+#   2  Cloudflare (or another CDN) in front of that proxy
+#   0  the app is exposed directly, trust nothing but REMOTE_ADDR
+#
+# Setting this too HIGH is the dangerous direction: it starts trusting entries
+# the client wrote, which is exactly what defeats every rate limit in the app.
+TRUSTED_PROXY_COUNT = int(os.environ.get('TRUSTED_PROXY_COUNT', '1'))
+
 SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
 
 # GitHub repo (owner/name) whose latest `mobile-v*` release the in-app updater
