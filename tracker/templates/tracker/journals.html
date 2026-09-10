@@ -264,6 +264,7 @@
 }
 .j-save-pill.saving { color: var(--clay-amber); }
 .j-save-pill.saved { color: var(--success); }
+.j-save-pill.failed { color: var(--danger); cursor: pointer; text-decoration: underline; }
 
 .j-title-input {
     width: 100%; background: transparent; border: none; outline: none;
@@ -708,6 +709,7 @@ function openEntry(dateStr) {
     document.getElementById('j-photos').innerHTML = '';
     document.getElementById('j-save-pill').className = 'j-save-pill';
     document.getElementById('j-save-pill').textContent = '';
+    document.getElementById('j-save-pill').onclick = null;
     setFav(false);
 
     fetch(`/api/journals/${dateStr}/?tz=${new Date().getTimezoneOffset()}`).then(r=>r.json()).then(data=>{
@@ -778,12 +780,27 @@ function flushSave() {
         weather: document.getElementById('j-weather').value,
         is_favorite: currentFav,
     };
+    // Check r.ok, not just that a response arrived. Without it a 500 (which
+    // returns the HTML error page) still flipped the pill to "saved" while the
+    // entry was lost, and with no .catch() a network failure left the pill
+    // frozen on whatever it last said. A journal entry is typed prose — telling
+    // someone it is saved when it is not is the worst thing this page can do.
     fetch(`/api/journals/${currentDate}/save/`, {
         method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},
         body: JSON.stringify(body)
-    }).then(r=>r.json()).then(()=>{
+    }).then(r => {
+        if (!r.ok) throw new Error('save failed');
+        return r.json();
+    }).then(()=>{
         pill.className = 'j-save-pill saved';
         pill.textContent = '✓ saved';
+    }).catch(()=>{
+        pill.className = 'j-save-pill failed';
+        pill.textContent = '⚠ not saved — retry';
+        pill.onclick = flushSave;
+        if (window.roamlyToast) {
+            window.roamlyToast('Could not save this entry. Your text is still here — press "not saved" to try again.', {type:'error'});
+        }
     });
 }
 

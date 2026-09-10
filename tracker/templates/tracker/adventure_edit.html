@@ -37,6 +37,15 @@ body.editor-resizing { cursor: col-resize; user-select: none; }
 .save-status.saved  { background: var(--success); }
 .save-status.saving { background: var(--clay-amber); }
 .save-status.error  { background: var(--danger); }
+/* The dot alone encoded four states — including "save failed" — in colour and
+   a hover title. That is invisible on touch, unreadable to a screen reader and
+   indistinguishable to anyone who cannot separate the two reds and greens. The
+   label carries the same state as text. */
+.save-label {
+    font-size: 0.6875rem; color: var(--text-muted); font-family: var(--font-mono);
+    white-space: nowrap; margin-right: 0.25rem;
+}
+.save-label.error { color: var(--danger); font-weight: 600; }
 .save-btn {
     background: var(--primary); color: #fff; border: none;
     border-radius:0; padding: 0.3rem 0.875rem;
@@ -193,6 +202,7 @@ body.editor-resizing { cursor: col-resize; user-select: none; }
 .dn-photo-del { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.6); color: #fff; border: none; border-radius: 0; width: 16px; height: 16px; font-size: 11px; line-height: 1; cursor: pointer; }
 .dn-add-photo { display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 64px; border: 1px dashed var(--border); font-size: 0.66rem; font-weight: 700; color: var(--text-muted); cursor: pointer; }
 .dn-add-photo:hover { border-color: var(--clay-sky); color: var(--clay-sky); }
+.dn-status-failed { color: var(--danger) !important; font-weight: 600; }
 .dn-status { font-size: 0.62rem; color: var(--text-dim); margin-left: 0.4rem; text-transform: none; letter-spacing: 0; font-weight: 400; }
 /* Calendar view */
 .dl-cal { border: 1px solid var(--border); background: var(--bg-card); }
@@ -718,7 +728,8 @@ video.grid-thumb { width: 90px; height: 90px; object-fit: cover; }
                 <button class="editor-tool-btn" id="hero-add-block-btn" title="add a block">
                     <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 </button>
-                <span class="save-status" id="save-status" title="unsaved changes"></span>
+                <span class="save-status" id="save-status" aria-hidden="true"></span>
+                <span class="save-label" id="save-label" role="status" aria-live="polite">unsaved changes</span>
                 <button class="save-btn" id="save-btn">save</button>
             </div>
         </div>
@@ -1130,17 +1141,36 @@ async function doSave(){
             headers: {'Content-Type':'application/json','X-CSRFToken': CSRF},
             body: JSON.stringify({body: serialiseBlocks(), name: title, subtitle})
         });
-        if(!r.ok) throw new Error(await r.text());
+        if(!r.ok){
+            // Not r.text(): on a 500 that is the whole HTML error page, which
+            // would be pasted verbatim into the status label. Prefer the API's
+            // own JSON error, else say what the status code was.
+            let detail = `server said ${r.status}`;
+            try { const d = await r.json(); if(d && d.error) detail = d.error; } catch(_){}
+            throw new Error(detail);
+        }
         setSaveStatus('saved');
     } catch(e){
-        setSaveStatus('error', e.message);
+        setSaveStatus('error', e.message || 'network error');
     }
 }
 
 function setSaveStatus(state, msg=''){
     const el = document.getElementById('save-status');
+    const label = document.getElementById('save-label');
     el.className = 'save-status ' + state;
-    el.title = state === 'saving' ? 'saving…' : state === 'saved' ? 'saved' : state === 'error' ? 'save failed' : 'unsaved changes';
+    const base = state === 'saving' ? 'saving…'
+               : state === 'saved'  ? 'saved'
+               : state === 'error'  ? 'save failed'
+               : 'unsaved changes';
+    // `msg` carries the real reason from the caller's catch and was previously
+    // discarded, so a failure said nothing about what went wrong.
+    const text = (state === 'error' && msg) ? `save failed — ${msg}` : base;
+    el.title = text;
+    if (label) {
+        label.textContent = text;
+        label.classList.toggle('error', state === 'error');
+    }
 }
 
 // ── Block rendering ────────────────────────────────────────────────────────
@@ -2439,6 +2469,12 @@ window.queueDaySave = function(id){
     clearTimeout(daySaveTimers[id]);
     daySaveTimers[id] = setTimeout(() => saveDayNote(id), 700);
 };
+function setDayStatus(id, text, failed){
+    const st = document.getElementById('dn-status-' + id);
+    if(!st) return;
+    st.textContent = text;
+    st.classList.toggle('dn-status-failed', !!failed);
+}
 async function saveDayNote(id, extra){
     const title = (document.getElementById('dn-title-' + id)||{}).value || '';
     const body = (document.getElementById('dn-body-' + id)||{}).value || '';
@@ -2447,18 +2483,27 @@ async function saveDayNote(id, extra){
             method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
             body: JSON.stringify(Object.assign({title, body}, extra||{}))
         });
-        if(r.ok){
-            const d = await r.json();
-            upsertDayNote(d.day_note);
-            const st = document.getElementById('dn-status-' + id); if(st) st.textContent = 'saved';
-            return d.day_note;
-        }
-    } catch(e){ const st = document.getElementById('dn-status-' + id); if(st) st.textContent = 'error'; }
+        // The `if(r.ok)` used to have no else and no throw, so a 4xx/5xx fell
+        // straight past the catch and returned undefined — leaving the row stuck
+        // on "saving…" forever while the text was never stored.
+        if(!r.ok) throw new Error('save failed');
+        const d = await r.json();
+        upsertDayNote(d.day_note);
+        setDayStatus(id, 'saved', false);
+        return d.day_note;
+    } catch(e){
+        setDayStatus(id, 'not saved — retry', true);
+        if(window.roamlyToast) window.roamlyToast('Could not save this day entry.', {type:'error'});
+        return null;
+    }
 }
 window.saveDayPlace = async function(id){
     const sel = document.getElementById('dn-place-' + id);
-    await saveDayNote(id, {place_id: sel ? (sel.value || null) : null});
-    renderDayLog();
+    const saved = await saveDayNote(id, {place_id: sel ? (sel.value || null) : null});
+    // Only re-render on success. Re-rendering after a failed save silently threw
+    // away the selection the user had just made and put the old one back, with
+    // nothing to say why.
+    if(saved) renderDayLog();
 };
 function upsertDayNote(note){
     if(!note) return;
