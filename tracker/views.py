@@ -6363,72 +6363,21 @@ def trip_update_blurb(request, trip_id, blurb_id):
 
 @login_required
 def trip_visits_api(request, trip_id):
-    """Visit stats (cities/states/countries) scoped to this trip's device and time range."""
+    """Visit stats (cities/states/countries) scoped to this adventure's window.
+
+    Delegates to _compute_visits_from_qs rather than repeating it. This function
+    used to hold a character-for-character copy of that helper's body, and the
+    copy had drifted: it only built time_city and time_country, so `states` in
+    the adventure payload had no time_spent key at all while the same field on
+    the Visits page did. It also could not use the snapshot and had no cache.
+    """
     trip = _get_trip_for_user(trip_id, request.user)
     locations = Location.objects.filter(
         device=trip.device,
         timestamp__gte=trip.start_time,
         timestamp__lte=trip.end_time,
     ).exclude(city='')
-
-    city_stats = locations.values('city', 'state', 'country', 'country_code').annotate(
-        count=Count('id'), first_seen=Min('timestamp'), last_seen=Max('timestamp')
-    ).order_by('-count')
-
-    cities = [{
-        "city": s['city'], "state": s['state'],
-        "country": s['country'], "country_code": s['country_code'],
-        "visit_count": s['count'],
-        "first_seen": s['first_seen'].isoformat() if s['first_seen'] else None,
-        "last_seen": s['last_seen'].isoformat() if s['last_seen'] else None,
-    } for s in city_stats]
-
-    country_stats = locations.values('country', 'country_code').annotate(
-        location_count=Count('id'),
-        city_count=Count('city', distinct=True),
-        state_count=Count('state', distinct=True),
-    ).order_by('-location_count')
-
-    countries = [{
-        "country": s['country'], "country_code": s['country_code'],
-        "location_count": s['location_count'],
-        "city_count": s['city_count'], "state_count": s['state_count'],
-    } for s in country_stats]
-
-    state_stats = locations.values('state', 'country').annotate(
-        count=Count('id'), city_count=Count('city', distinct=True)
-    ).order_by('-count')
-
-    states = [{
-        "state": s['state'], "country": s['country'],
-        "location_count": s['count'], "city_count": s['city_count'],
-    } for s in state_stats if s['state']]
-
-    time_city = defaultdict(float)
-    time_country = defaultdict(float)
-    points = locations.order_by('timestamp').values_list(
-        'timestamp', 'city', 'state', 'country', 'country_code', 'latitude', 'longitude')
-    prev = None
-    for ts, city, state_val, country_val, cc, lat, lon in points.iterator():
-        cur = (ts, city, state_val, country_val, cc, lat, lon)
-        if prev:
-            if prev[1]:
-                gap = _visits_dwell_gap(prev, cur, 'city')
-                if gap > 0:
-                    time_city[(prev[1], prev[2], prev[3], prev[4])] += gap
-            if prev[3]:
-                gap = _visits_dwell_gap(prev, cur, 'country')
-                if gap > 0:
-                    time_country[prev[3]] += gap
-        prev = cur
-
-    for c in cities:
-        key = (c['city'], c['state'], c['country'], c['country_code'])
-        c['time_spent'] = round(time_city.get(key, 0))
-    for c in countries:
-        c['time_spent'] = round(time_country.get(c['country'], 0))
-
-    return JsonResponse({"cities": cities, "states": states, "countries": countries})
+    return JsonResponse(_compute_visits_from_qs(locations))
 
 
 # ---------------------------------------------------------------------------
@@ -7917,6 +7866,62 @@ def _reject_oversize_upload(f):
     return None
 
 
+class _ImportDeviceCache:
+    """Memoises Device.get_or_create for one import run.
+
+    The importers called get_or_create per ROW even though the device is almost
+    always constant for a whole file — a SELECT plus a conditional INSERT per
+    point. push_location_batch already keeps a dict for exactly this reason.
+    """
+
+    def __init__(self, user):
+        self.user = user
+        self._cache = {}
+
+    def get(self, device_id):
+        dev = self._cache.get(device_id)
+        if dev is None:
+            dev, _ = Device.objects.get_or_create(
+                user=self.user, device_id=device_id, defaults={'name': device_id})
+            self._cache[device_id] = dev
+        return dev
+
+
+class _ImportBuffer:
+    """Batches Location rows into bulk_create rather than one get_or_create each.
+
+    Location.unique_together is (device, latitude, longitude, timestamp), so
+    bulk_create(ignore_conflicts=True) is exactly equivalent to the per-row
+    get_or_create it replaces — the same strategy push_location_batch uses — but
+    it is one statement per 1000 points instead of two per point. A 1M-point GPX
+    was ~2M round-trips against a 300s worker timeout, so the worker was killed
+    and the import left half-applied.
+
+    bulk_create bypasses Location.save(), which is where the PostGIS `location`
+    column is normally populated, so the Point is built here. That is the trap
+    editor_tasks._make_location exists to avoid, and it has bitten this codebase
+    before: a NULL location column is invisible to every spatial query.
+    """
+
+    CHUNK = 1000
+
+    def __init__(self):
+        self.rows = []
+
+    def add(self, **kwargs):
+        loc = Location(**kwargs)
+        if HAS_POSTGIS and Point is not None:
+            loc.location = Point(kwargs['longitude'], kwargs['latitude'], srid=4326)
+        self.rows.append(loc)
+        if len(self.rows) >= self.CHUNK:
+            self.flush()
+
+    def flush(self):
+        if self.rows:
+            Location.objects.bulk_create(self.rows, ignore_conflicts=True)
+            self.rows = []
+
+
 @login_required
 @require_http_methods(["POST"])
 def import_csv(request):
@@ -7939,16 +7944,15 @@ def import_csv(request):
     errors = 0
     first_error = None
     override_device_id = request.POST.get('device_id', '').strip()
+    devices = _ImportDeviceCache(request.user)
+    buf = _ImportBuffer()
 
     for row in reader:
         try:
             device_id = override_device_id or (
                 _get_csv_field(row, 'device', 'device_id', 'deviceId', 'Device') or 'import'
             )
-            device, _ = Device.objects.get_or_create(
-                user=request.user, device_id=device_id,
-                defaults={'name': device_id}
-            )
+            device = devices.get(device_id)
 
             lat = _safe_float(
                 _get_csv_field(row, 'latitude', 'lat', 'Latitude', 'Lat',
@@ -7978,12 +7982,12 @@ def import_csv(request):
             if ts is None:
                 ts = timezone.now()
 
-            Location.objects.get_or_create(
+            buf.add(
                 device=device,
                 latitude=lat,
                 longitude=lon,
                 timestamp=ts,
-                defaults={
+                **{
                     'altitude': _safe_float(
                         _get_csv_field(row, 'altitude', 'alt', 'elevation', 'ele',
                                        'altitude_m', 'enhanced_altitude', 'gps_altitude')
@@ -8012,6 +8016,7 @@ def import_csv(request):
                 first_error = str(e)
             logger.warning(f"CSV import error on row {count + errors}: {e}")
 
+    buf.flush()
     result = {"status": "ok", "imported": count, "errors": errors}
     if first_error and errors > 0:
         result["first_error"] = first_error
@@ -8053,6 +8058,7 @@ def import_gpx(request):
         user=request.user, device_id=device_id,
         defaults={'name': device_id}
     )
+    buf = _ImportBuffer()
 
     count = 0
     errors = 0
@@ -8099,10 +8105,8 @@ def import_gpx(request):
             ele_el = _find_child(pt, 'ele')
             alt = float(ele_el.text) if ele_el is not None and ele_el.text else None
 
-            Location.objects.get_or_create(
-                device=device, latitude=lat, longitude=lon, timestamp=ts,
-                defaults={'altitude': alt}
-            )
+            buf.add(device=device, latitude=lat, longitude=lon, timestamp=ts,
+                    altitude=alt)
             count += 1
         except Exception as e:
             errors += 1
@@ -8110,6 +8114,7 @@ def import_gpx(request):
                 first_error = str(e)
             logger.warning(f"GPX import error: {e}")
 
+    buf.flush()
     result = {"status": "ok", "imported": count, "errors": errors}
     if first_error and errors > 0:
         result["first_error"] = first_error
@@ -8134,6 +8139,8 @@ def import_json(request):
         return JsonResponse({"error": f"Invalid JSON: {e}"}, status=400)
 
     override_device_id = request.POST.get('device_id', '').strip()
+    devices = _ImportDeviceCache(request.user)
+    buf = _ImportBuffer()
     count = 0
     errors = 0
     first_error = None
@@ -8146,14 +8153,8 @@ def import_json(request):
             if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
                 raise ValueError(f"Coordinates out of range: {lat}, {lon}")
             dev_id = override_device_id or device_id_val or 'json-import'
-            device, _ = Device.objects.get_or_create(
-                user=request.user, device_id=dev_id, defaults={'name': dev_id}
-            )
-            Location.objects.get_or_create(
-                device=device, latitude=lat, longitude=lon,
-                timestamp=ts or timezone.now(),
-                defaults=kwargs,
-            )
+            buf.add(device=devices.get(dev_id), latitude=lat, longitude=lon,
+                    timestamp=ts or timezone.now(), **kwargs)
             count += 1
         except Exception as e:
             errors += 1
@@ -8199,6 +8200,7 @@ def import_json(request):
     else:
         return JsonResponse({"error": "Unrecognized JSON format. Expected Google Takeout {'locations':[...]} or OwnTracks array [{...}]."}, status=400)
 
+    buf.flush()
     result = {"status": "ok", "imported": count, "errors": errors}
     if first_error and errors > 0:
         result["first_error"] = first_error
@@ -8288,6 +8290,7 @@ def import_kml(request):
         user=request.user, device_id=device_id,
         defaults={'name': device_id}
     )
+    buf = _ImportBuffer()
 
     points = []  # list of (lat, lon, alt_or_None, ts_or_None)
 
@@ -8385,11 +8388,8 @@ def import_kml(request):
         # FlightRadar24 leaves as 0 for every point even during cruise.
         alt = desc_alt if desc_alt is not None else coord_alt
         try:
-            Location.objects.get_or_create(
-                device=device, latitude=lat, longitude=lon,
-                timestamp=ts or timezone.now(),
-                defaults={'altitude': alt, 'speed': speed},
-            )
+            buf.add(device=device, latitude=lat, longitude=lon,
+                    timestamp=ts or timezone.now(), altitude=alt, speed=speed)
             count += 1
         except Exception as e:
             errors += 1
@@ -8397,6 +8397,7 @@ def import_kml(request):
                 first_error = str(e)
             logger.warning(f"KML import error: {e}")
 
+    buf.flush()
     if count:
         ensure_auto_geocode(request.user.id)
 
