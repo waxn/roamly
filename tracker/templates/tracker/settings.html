@@ -383,6 +383,52 @@
                 </button>
             </div>
             <div id="devsess-status" style="font-size:0.8125rem;color:var(--text-muted);margin-top:0.5rem;"></div>
+
+            <details style="margin-top:1rem;">
+                <summary style="cursor:pointer;font-size:0.85rem;font-weight:600;">Recent account activity</summary>
+                <p style="font-size:0.8125rem;color:var(--text-muted);margin:0.5rem 0;">
+                    Sign-ins, failed attempts, API key changes and 2FA changes on this account.
+                    If you see something you didn't do, change your password and revoke your devices above.
+                </p>
+                <div id="activity-log" aria-busy="true">
+                    <div class="skeleton skel-line sm"></div>
+                </div>
+            </details>
+        </div>
+
+
+        <!-- Location sharing -->
+        <div class="card settings-span-6" id="sharing-card">
+            <div class="card-header">Location Sharing</div>
+            <p style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.75rem;">
+                Create a link that shows the last few hours of your track to anyone who opens it —
+                no account needed on their side. The link is the key, so treat it like one, and
+                revoke it when you're done.
+            </p>
+            <div class="settings-actions" style="flex-wrap:wrap;gap:0.5rem;">
+                <select id="share-device" class="form-control" style="width:auto;" aria-label="Which device to share">
+                    <option value="">All devices</option>
+                    {% for device in devices %}
+                    <option value="{{ device.device_id }}">{{ device.name|default:device.device_id }}</option>
+                    {% endfor %}
+                </select>
+                <select id="share-window" class="form-control" style="width:auto;" aria-label="How much history to show">
+                    <option value="3">Show last 3 hours</option>
+                    <option value="24" selected>Show last 24 hours</option>
+                    <option value="72">Show last 3 days</option>
+                    <option value="168">Show last week</option>
+                </select>
+                <select id="share-expiry" class="form-control" style="width:auto;" aria-label="When the link stops working">
+                    <option value="4">Expires in 4 hours</option>
+                    <option value="24" selected>Expires in 24 hours</option>
+                    <option value="168">Expires in a week</option>
+                    <option value="never">Never expires</option>
+                </select>
+                <button class="btn btn-primary btn-sm" onclick="createShare(this)">Create link</button>
+            </div>
+            <div id="shares-list" aria-busy="true" style="margin-top:0.9rem;">
+                <div class="skeleton skel-line sm"></div>
+            </div>
         </div>
 
         <!-- Preferences -->
@@ -2719,6 +2765,128 @@ async function revokeAllDevices() {
 
 loadDevicesSessions();
 
+// ── Location sharing ─────────────────────────────────────────────────────────
+async function loadShares() {
+    const host = document.getElementById('shares-list');
+    if (!host) return;
+    try {
+        const d = await window.roamlyFetch('/api/shares/', {toast: false});
+        const shares = d.shares || [];
+        if (!shares.length) {
+            host.innerHTML = '<p style="font-size:0.8125rem;color:var(--text-muted);">No share links yet.</p>';
+            return;
+        }
+        host.innerHTML = '<div class="settings-table-wrap"><table><thead><tr>' +
+            '<th>Link</th><th>Shows</th><th>Expires</th><th>Views</th><th></th>' +
+            '</tr></thead><tbody>' + shares.map(sh => {
+            const state = sh.revoked ? 'revoked' : (sh.active ? '' : 'expired');
+            const expiry = sh.permanent ? 'never'
+                : (sh.expires_at ? new Date(sh.expires_at).toLocaleString() : '—');
+            return `<tr style="${state ? 'opacity:0.55;' : ''}">
+                <td>
+                    ${sh.active
+                        ? `<button class="btn btn-outline btn-sm" onclick="copyShare('${escapeHtml(sh.url)}', this)">Copy link</button>`
+                        : `<span style="color:var(--text-muted);">${escapeHtml(state)}</span>`}
+                    <div style="font-size:0.72rem;color:var(--text-dim);margin-top:0.2rem;">${escapeHtml(sh.device_name)}</div>
+                </td>
+                <td style="color:var(--text-muted);">last ${sh.window_hours}h</td>
+                <td style="color:var(--text-muted);">${escapeHtml(expiry)}</td>
+                <td style="color:var(--text-muted);">${sh.view_count}</td>
+                <td>${sh.revoked ? '' :
+                    `<button class="btn btn-outline btn-sm" onclick="revokeShare(${sh.id})">Revoke</button>`}</td>
+            </tr>`;
+        }).join('') + '</tbody></table></div>';
+    } catch (e) {
+        host.innerHTML = '<p style="font-size:0.8125rem;color:var(--danger);">Could not load your share links.</p>';
+    } finally {
+        host.removeAttribute('aria-busy');
+    }
+}
+
+async function createShare(btn) {
+    const expiry = document.getElementById('share-expiry').value;
+    if (expiry === 'never') {
+        const ok = await roamlyConfirm(
+            'A link that never expires keeps showing your recent location to anyone who has it, '
+            + 'until you revoke it. Create it anyway?',
+            {title: 'Permanent share link', danger: true, confirmText: 'Create it'});
+        if (!ok) return;
+    }
+    // Disable while in flight — almost nothing else in this app does, and a
+    // double-click here mints two links.
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = 'Creating…';
+    try {
+        const d = await window.roamlyFetch('/api/shares/', {
+            method: 'POST',
+            json: {
+                device_id: document.getElementById('share-device').value,
+                window_hours: parseInt(document.getElementById('share-window').value, 10),
+                expires_in_hours: expiry,
+            },
+            errorMessage: "Couldn't create the link",
+        });
+        await loadShares();
+        copyShare(d.share.url);
+    } catch (e) { /* roamlyFetch has toasted */ }
+    finally { btn.disabled = false; btn.textContent = original; }
+}
+
+function copyShare(url, btn) {
+    navigator.clipboard.writeText(url).then(() => {
+        window.roamlyToast('Link copied to your clipboard.', {type: 'success'});
+    }).catch(() => {
+        window.roamlyAlert(url, {title: 'Copy this link'});
+    });
+}
+
+async function revokeShare(id) {
+    if (!await roamlyConfirm('Revoke this link? Anyone holding it will stop seeing your location immediately.',
+                             {danger: true, confirmText: 'Revoke'})) return;
+    try {
+        await window.roamlyFetch(`/api/shares/${id}/revoke/`, {
+            method: 'POST', errorMessage: "Couldn't revoke that link"});
+        window.roamlyToast('Link revoked.', {type: 'success'});
+        loadShares();
+    } catch (e) { /* toasted */ }
+}
+
+loadShares();
+
+// Recent account activity. ActionLog has recorded these events all along and
+// only admins could see them, so the person whose account it is had no way to
+// notice a sign-in they did not make. Loaded on demand, since it sits behind a
+// <details> most people will never open.
+let activityLoaded = false;
+async function loadActivityLog() {
+    const host = document.getElementById('activity-log');
+    if (!host || activityLoaded) return;
+    activityLoaded = true;
+    try {
+        const d = await window.roamlyFetch('/api/profile/activity/', {toast: false});
+        const events = d.events || [];
+        if (!events.length) {
+            host.innerHTML = '<p style="font-size:0.8125rem;color:var(--text-muted);">Nothing recorded yet.</p>';
+        } else {
+            host.innerHTML = '<div class="settings-table-wrap"><table><thead><tr>' +
+                '<th>Event</th><th>When</th><th>From</th></tr></thead><tbody>' +
+                events.map(e => `<tr>
+                    <td>${escapeHtml(e.label)}</td>
+                    <td style="color:var(--text-muted);">${escapeHtml(new Date(e.timestamp).toLocaleString())}</td>
+                    <td style="color:var(--text-muted);font-family:var(--font-mono);font-size:0.75rem;">${escapeHtml(e.ip || '—')}</td>
+                </tr>`).join('') + '</tbody></table></div>';
+        }
+    } catch (e) {
+        activityLoaded = false;
+        host.innerHTML = '<p style="font-size:0.8125rem;color:var(--danger);">Could not load your account activity.</p>';
+    } finally {
+        host.removeAttribute('aria-busy');
+    }
+}
+document.querySelector('#devices-sessions-card details')
+    ?.addEventListener('toggle', function() { if (this.open) loadActivityLog(); });
+
 }
 
 function closeDeviceChooser() {
@@ -3322,7 +3490,7 @@ async function deleteAccount() {
         account: {
             label: 'Account & Security',
             description: 'Your profile, sign-in protection, connected devices, and account controls.',
-            cards: ['Profile Picture', 'Two-Factor Authentication', 'Devices', 'Devices & Sessions', 'Danger Zone']
+            cards: ['Profile Picture', 'Two-Factor Authentication', 'Devices', 'Devices & Sessions', 'Location Sharing', 'Danger Zone']
         },
         maps: {
             label: 'Maps',

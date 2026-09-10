@@ -93,6 +93,13 @@ urlpatterns = [
     # Trusted devices + active sessions (Settings -> Devices & Sessions).
     # What a delete-data range would actually remove, for the confirmation.
     path('api/account/delete-data/preview/', views.delete_data_preview_api, name='delete_data_preview'),
+    # The user's own security events (Settings -> Devices & Sessions).
+    # Location sharing. /share/<token>/ is public — the token is the credential.
+    path('share/<str:token>/', views.share_view, name='share'),
+    path('api/share/<str:token>/track/', views.share_track_api, name='share_track'),
+    path('api/shares/', views.location_shares_api, name='location_shares'),
+    path('api/shares/<int:share_id>/revoke/', views.location_share_revoke_api, name='location_share_revoke'),
+    path('api/profile/activity/', views.profile_activity_api, name='profile_activity'),
     path('api/profile/devices/', views.profile_devices_api, name='profile_devices'),
     path('api/profile/devices/<int:device_id>/revoke/', views.profile_device_revoke_api, name='profile_device_revoke'),
     path('api/profile/devices/revoke-all/', views.profile_devices_revoke_all_api, name='profile_devices_revoke_all'),

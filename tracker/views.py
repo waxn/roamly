@@ -50,6 +50,7 @@ from .models import (
     AdventureDayNote, AdventureDayPhoto,
     SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig, StatsSnapshot,
     DismissedSuggestion, PlannedStop, KnownDevice, TOTPBackupCode,
+    LocationShare,
     InferredLocation, EditBatch, TrashedLocation, RoadSegment, ROADS_AVAILABLE_CACHE_KEY,
     RailSegment, RailStation, DismissedSubwayGap, SUBWAY_AVAILABLE_CACHE_KEY,
     DownloadedRegion, HealthSample, HealthWorkout, HEALTH_KINDS,
@@ -237,6 +238,141 @@ def offline_view(request):
     precache. No auth — it has to work when the session cannot be checked.
     """
     return render(request, 'tracker/_offline.html')
+
+
+# ---------------------------------------------------------------------------
+# Location sharing
+# ---------------------------------------------------------------------------
+
+_SHARE_MAX_WINDOW_H = 24 * 30      # a month of history is the ceiling
+_SHARE_MAX_POINTS = 5000
+
+
+def _share_payload(sh):
+    return {
+        'id': sh.id,
+        'token': sh.token,
+        'url': f"{settings.SITE_URL.rstrip('/')}/share/{sh.token}/",
+        'label': sh.label,
+        'device_id': sh.device.device_id if sh.device else None,
+        'device_name': (sh.device.name or sh.device.device_id) if sh.device else 'All devices',
+        'window_hours': sh.window_hours,
+        'expires_at': sh.expires_at.isoformat() if sh.expires_at else None,
+        'permanent': sh.is_permanent,
+        'revoked': bool(sh.revoked_at),
+        'active': sh.is_active,
+        'created_at': sh.created_at.isoformat(),
+        'last_viewed_at': sh.last_viewed_at.isoformat() if sh.last_viewed_at else None,
+        'view_count': sh.view_count,
+    }
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def location_shares_api(request):
+    """List or create this user's share links."""
+    if request.method == 'GET':
+        shares = (LocationShare.objects.filter(user=request.user)
+                  .select_related('device'))
+        return JsonResponse({'shares': [_share_payload(s) for s in shares]})
+
+    try:
+        data = json.loads(request.body or b'{}')
+    except (json.JSONDecodeError, ValueError):
+        data = request.POST
+
+    try:
+        window = int(data.get('window_hours') or 24)
+    except (TypeError, ValueError):
+        window = 24
+    window = max(1, min(window, _SHARE_MAX_WINDOW_H))
+
+    device = None
+    device_id = (data.get('device_id') or '').strip()
+    if device_id:
+        device = Device.objects.filter(user=request.user, device_id=device_id).first()
+        if not device:
+            return JsonResponse({'error': 'Device not found'}, status=404)
+
+    expires_at = None
+    # expires_in_hours absent or null => permanent. Permanent is a deliberate
+    # choice, not a default, so the client has to say so explicitly.
+    if data.get('expires_in_hours') not in (None, '', 'never'):
+        try:
+            hours = max(1, min(int(data['expires_in_hours']), _SHARE_MAX_WINDOW_H))
+        except (TypeError, ValueError):
+            return JsonResponse({'error': 'Invalid expiry'}, status=400)
+        expires_at = timezone.now() + timedelta(hours=hours)
+
+    sh = LocationShare.objects.create(
+        user=request.user, device=device, window_hours=window,
+        expires_at=expires_at, label=str(data.get('label') or '')[:120],
+    )
+    _log_action(request, 'share_create',
+                description=f"share={sh.id} window={window}h permanent={sh.is_permanent}")
+    return JsonResponse({'status': 'ok', 'share': _share_payload(sh)})
+
+
+@login_required
+@require_POST
+def location_share_revoke_api(request, share_id):
+    """Revoke a share link. Kept rather than deleted, so an accidental revoke is
+    diagnosable and the view history is not silently lost."""
+    sh = LocationShare.objects.filter(user=request.user, id=share_id).first()
+    if not sh:
+        return JsonResponse({'error': 'Not found'}, status=404)
+    if not sh.revoked_at:
+        sh.revoked_at = timezone.now()
+        sh.save(update_fields=['revoked_at'])
+    _log_action(request, 'share_revoke', description=f"share={sh.id}")
+    return JsonResponse({'status': 'ok', 'share': _share_payload(sh)})
+
+
+def _get_active_share(token):
+    sh = (LocationShare.objects.filter(token=(token or '').strip())
+          .select_related('user', 'device').first())
+    return sh if (sh and sh.is_active) else None
+
+
+def share_view(request, token):
+    """Public read-only map for a share link. No login: the token is the credential."""
+    sh = _get_active_share(token)
+    if not sh:
+        return render(request, 'tracker/share.html', {'invalid': True}, status=404)
+    LocationShare.objects.filter(pk=sh.pk).update(
+        last_viewed_at=timezone.now(), view_count=F('view_count') + 1)
+    return render(request, 'tracker/share.html', {
+        'token': sh.token,
+        'window_hours': sh.window_hours,
+        'standalone': True,
+    })
+
+
+def share_track_api(request, token):
+    """The shared slice of track. Public, rate-limited, and deliberately minimal.
+
+    Returns coordinates and timestamps only — no username, no device list, no
+    city labels, nothing that would identify whose track this is or let the
+    holder of one link enumerate anything else.
+    """
+    if _rate_limited(request, 'share_track', 120, 300):
+        return JsonResponse({'error': 'Too many requests.'}, status=429)
+    sh = _get_active_share(token)
+    if not sh:
+        return JsonResponse({'error': 'This link is no longer active.'}, status=404)
+
+    since = timezone.now() - timedelta(hours=sh.window_hours)
+    qs = Location.objects.filter(device__user=sh.user, timestamp__gte=since)
+    if sh.device_id:
+        qs = qs.filter(device_id=sh.device_id)
+    rows = (qs.order_by('timestamp')
+            .values_list('latitude', 'longitude', 'timestamp')[:_SHARE_MAX_POINTS])
+    points = [[_jf(lat), _jf(lng), ts.isoformat()] for lat, lng, ts in rows]
+    return JsonResponse({
+        'points': points,
+        'window_hours': sh.window_hours,
+        'updated': timezone.now().isoformat(),
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -573,6 +709,57 @@ def _device_label(ua):
                'Chrome' if 'chrome' in low else
                'Safari' if 'safari' in low else 'Browser')
     return f'{browser} on {os_name}'
+
+
+# Events a user may see about their own account. Deliberately a subset: admin
+# actions and server errors are operational and belong in the admin panel, and an
+# `error` row carries a traceback.
+_OWN_ACTIVITY_ACTIONS = (
+    'login', 'logout', 'login_fail', 'signup',
+    'api_key_create', 'api_key_delete',
+    'totp_enable', 'totp_disable', 'totp_regen_backup',
+    'device_revoke', 'delete_data', 'import',
+    'trip_invite', 'trip_join',
+)
+
+_ACTIVITY_LABELS = {
+    'login': 'Signed in',
+    'logout': 'Signed out',
+    'login_fail': 'Failed sign-in attempt',
+    'signup': 'Account created',
+    'api_key_create': 'API key created',
+    'api_key_delete': 'API key deleted',
+    'totp_enable': 'Two-factor authentication enabled',
+    'totp_disable': 'Two-factor authentication disabled',
+    'totp_regen_backup': 'Backup codes regenerated',
+    'device_revoke': 'Trusted device revoked',
+    'delete_data': 'Location data deleted',
+    'import': 'Data imported',
+    'trip_invite': 'Invited someone to an adventure',
+    'trip_join': 'Joined an adventure',
+}
+
+
+@login_required
+def profile_activity_api(request):
+    """This user's own security-relevant events.
+
+    ActionLog has recorded these all along — logins, failed sign-ins, key
+    creation, 2FA changes — and only admins could see them, so the person whose
+    account it is had no way to notice a sign-in they did not make.
+    """
+    from .models import ActionLog
+    rows = (ActionLog.objects
+            .filter(user=request.user, action__in=_OWN_ACTIVITY_ACTIONS)
+            .order_by('-timestamp')[:100]
+            .values('action', 'description', 'ip_address', 'timestamp'))
+    return JsonResponse({'events': [{
+        'action': r['action'],
+        'label': _ACTIVITY_LABELS.get(r['action'], r['action']),
+        'description': r['description'][:200],
+        'ip': r['ip_address'],
+        'timestamp': r['timestamp'].isoformat(),
+    } for r in rows]})
 
 
 @login_required

@@ -1643,6 +1643,8 @@ class ActionLog(models.Model):
         ('trip_invite', 'Adventure invitation sent'),
         ('trip_join', 'Adventure invitation accepted'),
         ('device_revoke', 'Trusted device revoked'),
+        ('share_create', 'Location share link created'),
+        ('share_revoke', 'Location share link revoked'),
         ('other', 'Other'),
     ]
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='action_logs')
@@ -2035,3 +2037,59 @@ class FamilyPushToken(models.Model):
 
     def __str__(self):
         return f"{self.user.username} push token"
+
+
+class LocationShare(models.Model):
+    """A link that exposes a slice of one user's track to anyone who has it.
+
+    The token IS the credential — the same trust model as ``Adventure.invite_token``
+    and ``UserProfile.email_unsub_token`` — so there is no login on the viewing
+    side and the page must never expose anything beyond the track itself.
+
+    Temporary and permanent are one code path, not two: a permanent share is
+    simply one with no ``expires_at``. That is only safe because revocation
+    exists, which is why the management UI is not optional here.
+
+    ``window_hours`` is what bounds the disclosure. A link shares "the last N
+    hours", evaluated when it is opened, not a fixed date range — so a permanent
+    "watch me get there" link keeps working for the next trip without ever
+    exposing history from before it.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='location_shares')
+    token = models.CharField(max_length=64, unique=True, db_index=True)
+    label = models.CharField(max_length=120, blank=True)
+    # NULL = every device this user owns.
+    device = models.ForeignKey('Device', on_delete=models.CASCADE, null=True, blank=True,
+                               related_name='location_shares')
+    window_hours = models.IntegerField(default=24)
+    # NULL = permanent (until revoked).
+    expires_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_viewed_at = models.DateTimeField(null=True, blank=True)
+    view_count = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['user', '-created_at'])]
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            self.token = secrets.token_urlsafe(32)
+        super().save(*args, **kwargs)
+
+    @property
+    def is_active(self):
+        if self.revoked_at:
+            return False
+        if self.expires_at and self.expires_at <= timezone.now():
+            return False
+        return True
+
+    @property
+    def is_permanent(self):
+        return self.expires_at is None
+
+    def __str__(self):
+        return f"share {self.token[:8]}… for {self.user.username}"

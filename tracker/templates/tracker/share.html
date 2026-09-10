@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shared location — Roamly</title>
+    {% load static %}
+    <link rel="icon" type="image/x-icon" href="{% static 'tracker/roamlymark.ico' %}">
+    <meta name="theme-color" content="#14160f">
+    {# A share token is a credential in a URL. It must never be crawled, and the
+       referrer must never carry it to a tile provider. #}
+    <meta name="robots" content="noindex, nofollow, noarchive">
+    <meta name="referrer" content="no-referrer">
+    {% if not invalid %}<link rel="stylesheet" href="{% static 'tracker/vendor/maplibre-gl.css' %}">{% endif %}
+    <style>
+        :root {
+            --bg: #14160f; --bg-card: #1b1e15; --border: #30352a;
+            --text: #e9e5d8; --text-muted: #a9a794; --primary: #e8763d;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+        #map { position: absolute; inset: 0; }
+        .bar {
+            position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+            display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+            padding: 0.6rem 1rem; background: rgba(20,22,15,0.92);
+            border-bottom: 1px solid var(--border); font-size: 0.8rem;
+        }
+        .bar strong { color: var(--primary); }
+        .bar .dim { color: var(--text-muted); }
+        .center {
+            height: 100%; display: flex; align-items: center; justify-content: center; padding: 1rem;
+        }
+        .card {
+            max-width: 420px; background: var(--bg-card); border: 1px solid var(--border);
+            padding: 2rem 2.25rem; text-align: center;
+        }
+        .card h1 { font-size: 1.3rem; margin-bottom: 0.6rem; }
+        .card p { color: var(--text-muted); font-size: 0.9rem; line-height: 1.5; }
+    </style>
+</head>
+<body>
+{% if invalid %}
+    <div class="center">
+        <div class="card">
+            <h1>This link isn't active</h1>
+            <p>It may have expired, or the person who shared it has revoked it. Ask them for a new one.</p>
+        </div>
+    </div>
+{% else %}
+    <div class="bar">
+        <strong>Shared location</strong>
+        <span class="dim">last {{ window_hours }} hour{{ window_hours|pluralize }}</span>
+        <span class="dim" id="share-status">loading…</span>
+    </div>
+    <div id="map"></div>
+    <script src="{% static 'tracker/vendor/maplibre-gl.js' %}"></script>
+    <script>
+        const TOKEN = '{{ token|escapejs }}';
+        const map = new maplibregl.Map({
+            container: 'map',
+            style: {
+                version: 8,
+                sources: {carto: {type: 'raster', tiles: ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png{{ CARTO_TILE_QS|escapejs }}'], tileSize: 256}},
+                layers: [{id: 'carto', type: 'raster', source: 'carto'}],
+            },
+            center: [0, 20], zoom: 1.5,
+        });
+        let marker = null;
+
+        async function load() {
+            const status = document.getElementById('share-status');
+            let d;
+            try {
+                const r = await fetch(`/api/share/${encodeURIComponent(TOKEN)}/track/`);
+                if (!r.ok) {
+                    const e = await r.json().catch(() => ({}));
+                    status.textContent = e.error || 'This link is no longer active.';
+                    return;
+                }
+                d = await r.json();
+            } catch (e) {
+                status.textContent = 'Offline — will retry.';
+                return;
+            }
+
+            const pts = d.points || [];
+            if (!pts.length) {
+                status.textContent = 'No recent location to show.';
+                return;
+            }
+            const coords = pts.map(p => [p[1], p[0]]);
+            const line = {type: 'Feature', geometry: {type: 'LineString', coordinates: coords}};
+            if (map.getSource('trk')) {
+                map.getSource('trk').setData(line);
+            } else {
+                map.addSource('trk', {type: 'geojson', data: line});
+                map.addLayer({id: 'trk', type: 'line', source: 'trk',
+                    paint: {'line-color': '#e8763d', 'line-width': 3, 'line-opacity': 0.9}});
+            }
+            const last = coords[coords.length - 1];
+            if (marker) marker.setLngLat(last);
+            else marker = new maplibregl.Marker({color: '#e8763d'}).setLngLat(last).addTo(map);
+
+            const b = coords.reduce((acc, c) => acc.extend(c),
+                new maplibregl.LngLatBounds(coords[0], coords[0]));
+            map.fitBounds(b, {padding: 60, maxZoom: 15, duration: 0});
+
+            const when = new Date(pts[pts.length - 1][2]);
+            status.textContent = `last seen ${when.toLocaleString()}`;
+        }
+
+        map.on('load', () => {
+            load();
+            // Refresh while the tab is open — the whole point of a share link is
+            // watching someone arrive.
+            setInterval(() => { if (!document.hidden) load(); }, 60000);
+        });
+    </script>
+{% endif %}
+</body>
+</html>
