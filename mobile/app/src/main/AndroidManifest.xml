@@ -86,6 +86,18 @@
             android:foregroundServiceType="location"
             android:stopWithTask="false" />
 
+        <!-- Family Circle place-alert push notifications. Harmless to declare
+             even on a build with no google-services.json: FirebaseApp never
+             auto-initializes without it, so this service is simply never
+             invoked (no crash, no registration) -- see build.gradle.kts. -->
+        <service
+            android:name=".family.FamilyPushService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- Restart tracking after reboot -->
         <receiver
             android:name=".receiver.BootReceiver"

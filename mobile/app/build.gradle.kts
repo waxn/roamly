@@ -5,6 +5,17 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// Applied conditionally: com.google.gms.google-services fails the build
+// outright with no google-services.json present, so a self-hoster (or any
+// local dev machine) without Firebase credentials must still get a
+// buildable, push-disabled APK -- the same reasoning hasUploadSigning below
+// already applies to release signing. CI supplies the file from the
+// GOOGLE_SERVICES_JSON_BASE64 secret (see .github/workflows/mobile-release.yml).
+val hasGoogleServices = file("google-services.json").exists()
+if (hasGoogleServices) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "com.roamly"
     compileSdk = 36
@@ -136,6 +147,13 @@ dependencies {
 
     // Health Connect (steps / distance / calories / workouts)
     implementation(libs.health.connect.client)
+
+    // Push notifications (Family Circle place alerts). Safe to declare even
+    // when google-services.json is absent -- FirebaseApp simply never
+    // auto-initializes at runtime without it, and FamilyPushService's own
+    // registration code checks for that before touching the API (see there).
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging.ktx)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

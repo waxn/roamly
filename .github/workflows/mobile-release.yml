@@ -28,6 +28,14 @@ jobs:
       - name: Decode upload keystore
         run: echo "${{ secrets.ROAMLY_UPLOAD_STORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/roamly-upload.jks"
 
+      # Optional: without this secret, app/build.gradle.kts's hasGoogleServices
+      # check simply skips the google-services plugin and the build proceeds
+      # push-disabled -- see the comment there. Written into the :app module
+      # dir, matching where the Firebase-generated file always lives.
+      - name: Decode Firebase google-services.json
+        if: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 != '' }}
+        run: echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 -d > app/google-services.json
+
       - name: Build signed release APK
         env:
           # Absolute path — a relative name would resolve against the :app module
@@ -43,6 +51,10 @@ jobs:
       - name: Clean up keystore
         if: always()
         run: rm -f "$RUNNER_TEMP/roamly-upload.jks"
+
+      - name: Clean up google-services.json
+        if: always()
+        run: rm -f app/google-services.json
 
       - name: Verify APK is signed with the upload key
         run: |
