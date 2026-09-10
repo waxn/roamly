@@ -61,6 +61,7 @@ from .tz_utils import aware_local
 from .image_utils import resize_image, resize_photo
 from . import geoip_utils
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
+from .family_tasks import ensure_family_geofence_check
 from .poi_tasks import start_poi_download, get_poi_status, stop_poi_download
 from .backup_tasks import (
     test_s3_connection, run_backup_now, get_backup_status, stop_backup_now,
@@ -2307,6 +2308,11 @@ def push_location(request):
         # gaps. New points land with city='' and get labelled by the background
         # cluster worker instead — kicked here, fire-and-forget, debounced.
         ensure_auto_geocode(user.id)
+        # Family Circle place enter/exit detection — same fire-and-forget
+        # thread shape as the geocode trigger just above, but not debounced
+        # (see tracker/family_tasks.py for why). No-ops immediately for the
+        # overwhelming majority of pushes, from users in no circle at all.
+        ensure_family_geofence_check(user.id, [(str(device_id), latitude, longitude, timestamp)])
 
     _bust_user_cache(user.id)
     loc_id = location.id if location else None
@@ -2402,6 +2408,16 @@ def push_location_batch(request):
                 except Exception:
                     pass
         ensure_auto_geocode(user.id)
+        # Only the newest point per device — a reconnecting phone draining a
+        # day's offline backlog must not replay a day of enter/exit events.
+        newest_per_device = {}
+        for loc_obj in to_create:
+            prev = newest_per_device.get(loc_obj.device_id)
+            if prev is None or loc_obj.timestamp > prev[3]:
+                newest_per_device[loc_obj.device_id] = (
+                    loc_obj.device.device_id, loc_obj.latitude, loc_obj.longitude, loc_obj.timestamp,
+                )
+        ensure_family_geofence_check(user.id, newest_per_device.values())
         _bust_user_cache(user.id)
 
     return JsonResponse({"status": "ok", "accepted": accepted, "submitted": len(to_create)})

@@ -49,3 +49,8 @@ class TrackerConfig(AppConfig):
                 start_zepp_scheduler()
             except Exception:
                 pass
+            try:
+                from .family_tasks import start_family_scheduler
+                start_family_scheduler()
+            except Exception:
+                pass
