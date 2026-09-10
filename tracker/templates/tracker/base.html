@@ -26,7 +26,7 @@
     <link rel="apple-touch-icon" href="{% static 'tracker/icon-192.png' %}">
     {% block map_css %}
     {# MapLibre is vendored (tracker/static/tracker/vendor/), not pulled from
-       unpkg. A CDN <script> with no integrity attribute on every authenticated
+       unpkg. A CDN script tag with no integrity attribute on every authenticated
        page of a location tracker means a CDN compromise reads everyone's
        history; self-hosting also removes the render-blocking third-party
        request and lets the app work on an air-gapped network. WhiteNoise serves
