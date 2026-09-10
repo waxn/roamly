@@ -147,6 +147,37 @@ def service_worker(request):
     return response
 
 
+def healthz(request):
+    """Liveness probe for the container healthcheck and any external monitor.
+
+    Public and deliberately cheap — one trivial DB round-trip and one cache
+    round-trip, no auth, no queries that scale with anyone's history. Returns
+    503 on failure so `restart: unless-stopped` can act on a wedged worker
+    rather than leaving it accepting connections it cannot serve.
+    """
+    checks = {}
+    ok = True
+    try:
+        with connection.cursor() as cur:
+            cur.execute('SELECT 1')
+            cur.fetchone()
+        checks['db'] = 'ok'
+    except Exception as e:
+        checks['db'] = f'error: {e.__class__.__name__}'
+        ok = False
+    try:
+        cache.set('healthz', 1, 10)
+        checks['cache'] = 'ok' if cache.get('healthz') == 1 else 'error: readback'
+        ok = ok and checks['cache'] == 'ok'
+    except Exception as e:
+        checks['cache'] = f'error: {e.__class__.__name__}'
+        ok = False
+    resp = JsonResponse({'status': 'ok' if ok else 'error', 'checks': checks},
+                        status=200 if ok else 503)
+    resp['Cache-Control'] = 'no-store'
+    return resp
+
+
 # ---------------------------------------------------------------------------
 # Media serving
 # ---------------------------------------------------------------------------
@@ -388,6 +419,10 @@ def robots_txt(request):
         'Disallow: /settings/',
         'Disallow: /login/',
         'Disallow: /signup/',
+        'Disallow: /healthz/',
+        # Share links are per-recipient credentials in the URL; they must never
+        # be crawled or indexed.
+        'Disallow: /share/',
         '',
         f'Sitemap: {site_url}/sitemap.xml',
     ]
@@ -3120,7 +3155,13 @@ def _locations_api_inner(request):
             _max_lng, _max_lat = float(max_lng), float(max_lat)
             if HAS_POSTGIS and Polygon and hasattr(Location, 'location'):
                 bbox = Polygon.from_bbox((_min_lng, _min_lat, _max_lng, _max_lat))
-                locations = locations.filter(location__within=bbox)
+                bbox.srid = 4326
+                # bboverlaps (the && operator), not within: `location` is a
+                # geography column, and ST_Within over geography is not
+                # index-accelerated, so this scanned the user's whole history.
+                # && uses the GiST index directly, and for a rectangle the
+                # bounding-box test *is* the containment test.
+                locations = locations.filter(location__bboverlaps=bbox)
             else:
                 locations = locations.filter(
                     latitude__gte=_min_lat, latitude__lte=_max_lat,
@@ -3397,10 +3438,18 @@ def vector_tile(request, z, x, y):
         FROM tracker_location l
         JOIN tracker_device d ON l.device_id = d.id
         CROSS JOIN bounds
+        -- Geography operators, NOT ::geometry. tracker_location.location is a
+        -- geography column with a geography GiST index; casting it to geometry
+        -- in the predicate makes that index unusable, so every tile seq-scanned
+        -- the whole table and ran ST_Intersects per row. This is the app's most
+        -- requested endpoint (MapLibre fires dozens of tiles per pan) and
+        -- /api/tiles/ is excluded from access logging, so the cost was invisible.
+        -- The ::geometry casts below are fine: they run in `pts`, on rows this
+        -- clause has already narrowed to one tile.
         WHERE d.user_id = %(user_id)s
           AND l.location IS NOT NULL
-          AND l.location::geometry && bounds.geom_4326
-          AND ST_Intersects(l.location::geometry, bounds.geom_4326)
+          AND l.location && bounds.geom_4326::geography
+          AND ST_Intersects(l.location, bounds.geom_4326::geography)
               {filter_clause}
         {order_clause}
         LIMIT 50000
@@ -8450,11 +8499,23 @@ def _search_local_pois(query, user_locations_qs, radius_m=150):
 
 
 def _find_nearby_locations(base_qs, lat, lng, radius_m):
-    """Filter a Location queryset to points within radius_m of (lat, lng)."""
+    """Filter a Location queryset to points within radius_m of (lat, lng).
+
+    __dwithin, not __distance_lte. Django maps distance_lte to
+    ``ST_Distance(a, b) <= x``, and PostGIS cannot use a GiST index for
+    ST_Distance — only ST_DWithin is index-accelerated. So the old form was a
+    sequential scan of the user's whole history computing a spheroid distance
+    per row, and this helper has eight call sites, several of them inside a loop
+    over the user's custom places: the yearly overview alone ran ~20 full-history
+    scans in one request.
+
+    Location.location is a geography column, so ST_DWithin's third argument is
+    already metres — which is exactly what D(m=...) yields.
+    """
     if HAS_POSTGIS and Point:
         from django.contrib.gis.measure import D
         ref = Point(lng, lat, srid=4326)
-        return base_qs.filter(location__distance_lte=(ref, D(m=radius_m)))
+        return base_qs.filter(location__dwithin=(ref, D(m=radius_m)))
     else:
         delta = radius_m / 111000.0
         return base_qs.filter(

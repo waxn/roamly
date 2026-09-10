@@ -8,6 +8,8 @@ urlpatterns = [
     path('sw.js', views.service_worker, name='service_worker'),
 
     # SEO
+    # Liveness probe for the container healthcheck. Public and cheap.
+    path('healthz/', views.healthz, name='healthz'),
     path('robots.txt', views.robots_txt, name='robots_txt'),
     path('sitemap.xml', views.sitemap_xml, name='sitemap_xml'),
 

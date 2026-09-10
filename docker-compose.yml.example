@@ -36,21 +36,51 @@ services:
     container_name: roamly_web
     restart: unless-stopped
     depends_on:
-      - redis
-      - db
+      redis:
+        condition: service_started
+      db:
+        # `db` has a healthcheck; without waiting on it, `manage.py migrate`
+        # below races Postgres startup on a cold boot.
+        condition: service_healthy
     dns:
       - 1.1.1.1
       - 8.8.8.8
     command: >
       sh -c "python manage.py migrate --noinput &&
              python manage.py collectstatic --noinput &&
-             gunicorn roamly.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 300 --max-requests 500 --max-requests-jitter 50"
+             gunicorn roamly.wsgi:application --bind 0.0.0.0:8000 --worker-class gthread --workers 3 --threads 8 --timeout 120 --graceful-timeout 30 --max-requests 10000 --max-requests-jitter 500"
+    # Two deliberate choices here:
+    #
+    #   --max-requests was 500. All background work (geocoding, imports, POI
+    #   matching, visit detection, backup export, the schedulers) runs in daemon
+    #   threads started from apps.ready(), so recycling a worker kills whatever
+    #   it was doing MID-FLIGHT. A phone pushing every 30s plus a browser polling
+    #   a status endpoint reaches 500 requests in minutes, and job recovery only
+    #   fires when someone polls that job's status — so an unattended run just
+    #   died. 10000 keeps the leak protection the flag is for without shredding
+    #   jobs several times an hour.
+    #
+    #   --worker-class gthread. With the default sync worker, 3 workers meant 3
+    #   concurrent requests for the entire app, and a single blocking call took a
+    #   third of it: mobile_download_apk streams a ~40MB APK from GitHub with a
+    #   120s timeout, unauthenticated. Three of those and the site is down.
+    #
+    # Do NOT add --preload. apps.ready() would run in the master pre-fork,
+    # threads do not survive fork(), and each module's `_scheduler_thread` guard
+    # would then see a non-None object in the children and skip starting them —
+    # every background job would silently stop.
     volumes:
       - ./staticfiles:/app/staticfiles
       - ./media:/app/media
       - ./tracker/migrations:/app/tracker/migrations
     ports:
       - "8001:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz/', timeout=5).status==200 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     environment:
       - DEBUG=${DEBUG:-False}
       - SECRET_KEY=${SECRET_KEY}

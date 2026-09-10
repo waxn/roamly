@@ -4,6 +4,9 @@ from django.utils import timezone
 # Paths we never want to log (static assets, tile API, health checks).
 _LOG_SKIP_PREFIXES = (
     '/static/', '/media/', '/favicon', '/sw.js', '/robots.txt',
+    # Polled every 30s by the container healthcheck — pure noise in the
+    # access log, and it would dominate the admin panel's top-paths.
+    '/healthz/',
     '/sitemap', '/api/tiles/',
 )
 

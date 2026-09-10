@@ -1,6 +1,7 @@
 import secrets
 import uuid
 from django.db import models
+from django.db.models import Q
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.utils import timezone
@@ -91,6 +92,26 @@ if HAS_POSTGIS and gis_models:
                 models.Index(fields=['speed'], name='tracker_loc_speed_idx'),
                 models.Index(fields=['battery'], name='tracker_loc_battery_idx'),
                 models.Index(fields=['timestamp'], name='tracker_loc_timesta_idx'),
+                # ASC companion to tracker_loc_device__idx. A btree on
+                # ('device', '-timestamp') can be read forward as
+                # (device ASC, ts DESC) or backward as (device DESC, ts ASC) —
+                # neither of which is the (device ASC, ts ASC) that track_api,
+                # trip_lines_api, _compute_distance_from_qs,
+                # _flag_suspicious_locations (nightly, per user) and
+                # _journal_day_track all order by. Without this, Postgres sorts
+                # the whole filtered set before yielding a row.
+                # road_download_tasks documents this exact trap and works around
+                # it by looping per device; the views never did.
+                models.Index(fields=['device', 'timestamp'], name='tracker_loc_dev_ts_idx'),
+                # Partial index over the visit-worker backlog only.
+                # processed_for_visits had no index at all, so each 5000-row
+                # chunk walked the device's history filtering, and the next
+                # chunk started from the same place — O(n^2) over a full
+                # history. Partial, so it holds only the unprocessed tail and
+                # shrinks to nothing once the worker catches up.
+                models.Index(fields=['device', 'timestamp'],
+                             condition=Q(processed_for_visits=False),
+                             name='tracker_loc_unproc_idx'),
                 GistIndex(fields=['location'], name='tracker_loc_location_gist'),
             ]
             unique_together = ['device', 'latitude', 'longitude', 'timestamp']
@@ -140,6 +161,26 @@ else:
                 models.Index(fields=['speed'], name='tracker_loc_speed_idx'),
                 models.Index(fields=['battery'], name='tracker_loc_battery_idx'),
                 models.Index(fields=['timestamp'], name='tracker_loc_timesta_idx'),
+                # ASC companion to tracker_loc_device__idx. A btree on
+                # ('device', '-timestamp') can be read forward as
+                # (device ASC, ts DESC) or backward as (device DESC, ts ASC) —
+                # neither of which is the (device ASC, ts ASC) that track_api,
+                # trip_lines_api, _compute_distance_from_qs,
+                # _flag_suspicious_locations (nightly, per user) and
+                # _journal_day_track all order by. Without this, Postgres sorts
+                # the whole filtered set before yielding a row.
+                # road_download_tasks documents this exact trap and works around
+                # it by looping per device; the views never did.
+                models.Index(fields=['device', 'timestamp'], name='tracker_loc_dev_ts_idx'),
+                # Partial index over the visit-worker backlog only.
+                # processed_for_visits had no index at all, so each 5000-row
+                # chunk walked the device's history filtering, and the next
+                # chunk started from the same place — O(n^2) over a full
+                # history. Partial, so it holds only the unprocessed tail and
+                # shrinks to nothing once the worker catches up.
+                models.Index(fields=['device', 'timestamp'],
+                             condition=Q(processed_for_visits=False),
+                             name='tracker_loc_unproc_idx'),
             ]
             unique_together = ['device', 'latitude', 'longitude', 'timestamp']
 
