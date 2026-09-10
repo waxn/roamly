@@ -6853,7 +6853,7 @@ def _write_backup_json(user, f, progress=None):
     meta = {'version': 13, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
-    # Same complete, nested schema as the S3 backup (_build_backup_json) so the
+    # The single backup builder: the scheduled S3 backup calls this too, so the
     # downloaded file and the automatic S3 backup contain identical data.
     report('Collecting adventures')
     adventures = _build_adventures_data(user)

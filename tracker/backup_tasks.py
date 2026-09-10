@@ -1,6 +1,6 @@
-import io
 import json
 import os
+import tempfile
 import threading
 import logging
 import time
@@ -8,7 +8,6 @@ from datetime import timedelta
 
 from django.db import close_old_connections
 from django.utils import timezone
-from django.core.serializers.json import DjangoJSONEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -271,72 +270,6 @@ def _build_activities_data(user):
     ]
 
 
-def _build_backup_json(user):
-    """Build the backup JSON data dict for a user (same format as export_backup view)."""
-    from .models import Device, Location, APIKey, HealthSample
-
-    devices = Device.objects.filter(user=user)
-    locations = Location.objects.filter(device__user=user).select_related('device').order_by('timestamp')
-    api_keys = APIKey.objects.filter(user=user)
-
-    data = {
-        'meta': {
-            'version': 13,
-            'exported_at': timezone.now().isoformat(),
-            'username': user.username,
-        },
-        'devices': [
-            {'device_id': d.device_id, 'name': d.name}
-            for d in devices
-        ],
-        'locations': [
-            {
-                'device_id': loc.device.device_id,
-                'latitude': loc.latitude,
-                'longitude': loc.longitude,
-                'altitude': loc.altitude,
-                'accuracy': loc.accuracy,
-                'speed': loc.speed,
-                'battery': loc.battery,
-                'timestamp': loc.timestamp,
-                'city': loc.city,
-                'state': loc.state,
-                'country': loc.country,
-                'country_code': loc.country_code,
-                'place_name': loc.place_name,
-            }
-            for loc in locations
-        ],
-        'adventures': _build_adventures_data(user),
-        # The raw key is deliberately NOT exported — it is a live credential and
-        # this document is uploaded to S3. restore_backup mints a new one under
-        # the same name. Kept identical to views._write_backup_json.
-        'api_keys': [
-            {
-                'name': k.name,
-                'is_active': k.is_active,
-                'created_at': k.created_at,
-            }
-            for k in api_keys
-        ],
-        'journals': _build_journals_data(user),
-        'custom_places': _build_custom_places_data(user),
-        # Health Connect data. Genuinely irreplaceable rather than a cache of
-        # something re-derivable: Health Connect only serves the trailing 30 days
-        # without READ_HEALTH_DATA_HISTORY, and a source app can retract records
-        # at any time, so this copy is the long-term archive.
-        'health_workouts': _build_health_workouts_data(user),
-        'activities': _build_activities_data(user),
-        'health_samples': list(
-            HealthSample.objects.filter(user=user).order_by('start_time').values(
-                'kind', 'value', 'start_time', 'end_time', 'zone_offset_seconds',
-                'source', 'device_id', 'external_id', 'last_modified',
-            )
-        ),
-    }
-    return json.dumps(data, cls=DjangoJSONEncoder)
-
-
 def _get_s3_client(config):
     """Create a boto3 S3 client from a BackupConfig."""
     import boto3
@@ -414,13 +347,25 @@ def _run_backup(user_id):
         'last_backup_bytes_uploaded', 'last_backup_size',
     ])
 
+    tmp_json = None
     try:
         user = config.user
 
-        # Phase 1: build JSON
-        backup_json = _build_backup_json(user)
-        backup_bytes = backup_json.encode('utf-8')
-        total = len(backup_bytes)
+        # Phase 1: build the JSON to a temp file, streaming.
+        #
+        # This used to be _build_backup_json(user), which held the whole history
+        # three times over — every Location as a model instance (select_related,
+        # no iterator), the full list of dicts, and the json.dumps string — inside
+        # a gunicorn worker. views._write_backup_json was rewritten to stream
+        # row-by-row for exactly that reason and this path was never converted,
+        # so the OOM it fixed still lived here. Reusing that one implementation
+        # also removes the "two builders that must stay identical" hazard.
+        from .views import _write_backup_json
+        tmp_fd, tmp_json = tempfile.mkstemp(prefix='roamly_s3_backup_', suffix='.json')
+        os.chmod(tmp_json, 0o600)   # a complete location history, on a shared host
+        with os.fdopen(tmp_fd, 'wb') as _out:
+            _write_backup_json(user, _out)
+        total = os.path.getsize(tmp_json)
 
         # Store total so the UI can show X / Y progress
         config.last_backup_error = 'uploading'
@@ -447,13 +392,15 @@ def _run_backup(user_id):
                     pass
 
         client = _get_s3_client(config)
-        client.upload_fileobj(
-            io.BytesIO(backup_bytes),
-            config.bucket_name,
-            filename,
-            ExtraArgs={'ContentType': 'application/json'},
-            Callback=_progress,
-        )
+        # From the file, not an in-memory BytesIO of the whole thing.
+        with open(tmp_json, 'rb') as fh:
+            client.upload_fileobj(
+                fh,
+                config.bucket_name,
+                filename,
+                ExtraArgs={'ContentType': 'application/json'},
+                Callback=_progress,
+            )
 
         config.last_backup_at = timezone.now()
         config.last_backup_status = 'success'
@@ -465,7 +412,7 @@ def _run_backup(user_id):
             'last_backup_size', 'last_backup_bytes_uploaded',
         ])
 
-        logger.info(f"Backup completed for {user.username}: {len(backup_bytes)} bytes -> {filename}")
+        logger.info(f"Backup completed for {user.username}: {total} bytes -> {filename}")
 
         # Prune old backups if max_backups is set
         if config.max_backups > 0:
@@ -481,6 +428,13 @@ def _run_backup(user_id):
             pass
     finally:
         _backup_threads.pop(user_id, None)
+        # Always remove the intermediate file — it is the user's whole history
+        # sitting unencrypted on disk.
+        if tmp_json:
+            try:
+                os.unlink(tmp_json)
+            except OSError:
+                pass
 
 
 def run_backup_now(user_id):
