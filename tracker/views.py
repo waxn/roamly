@@ -9562,6 +9562,8 @@ def _serialize_place(place):
         'radius_m': _jf(place.radius_m),
         'color': place.color or _PLACE_COLORS[0],
         'notes': place.notes or '',
+        'notify_arrive': place.notify_arrive,
+        'notify_leave': place.notify_leave,
     }
 
 
@@ -9856,6 +9858,16 @@ def place_update(request, place_id):
             return JsonResponse({'error': 'invalid radius'}, status=400)
     if 'notes' in data:
         place.notes = (data.get('notes') or '')[:10000]
+    # Arrival/departure notifications. Changing either resets last_inside to
+    # NULL — "never evaluated" — so switching one on while already standing at
+    # the place does not immediately claim you just arrived.
+    if 'notify_arrive' in data or 'notify_leave' in data:
+        if 'notify_arrive' in data:
+            place.notify_arrive = bool(data.get('notify_arrive'))
+        if 'notify_leave' in data:
+            place.notify_leave = bool(data.get('notify_leave'))
+        place.last_inside = None
+        place.last_notified_at = None
     place.save()
     _bust_user_cache(request.user.id)
     # Only the geometry/name affect the cards + snapshot list; a notes-only

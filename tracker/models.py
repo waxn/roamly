@@ -1493,6 +1493,18 @@ class CustomPlace(models.Model):
     notes = models.TextField(blank=True, default='')  # free-text details, editable on the detail panel
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # Arrival / departure email notifications. Off by default — a geofence is a
+    # map convenience first, and turning every place into a notification source
+    # by default would be the wrong surprise.
+    notify_arrive = models.BooleanField(default=False)
+    notify_leave = models.BooleanField(default=False)
+    # The last state the sweep observed, so it can notify on the TRANSITION
+    # rather than on every pass. NULL = never evaluated, which deliberately
+    # sends nothing: switching a notification on while already at the place
+    # should not immediately claim you just arrived.
+    last_inside = models.BooleanField(null=True, blank=True)
+    last_notified_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         ordering = ['name']
         indexes = [models.Index(fields=['user'], name='tracker_custplace_user_idx')]

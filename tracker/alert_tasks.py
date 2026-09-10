@@ -249,6 +249,92 @@ def send_alert_now(user_id):
     return 'started'
 
 
+# ── Geofence arrival / departure ────────────────────────────────────────────
+# Runs inside this module's existing 15-minute sweep rather than starting a
+# daemon of its own. CustomPlace already stores the geometry and
+# _find_nearby_locations already does the containment test, so this is a state
+# machine over data the app has, not new machinery.
+#
+# Deliberately edge-triggered: `last_inside` records what the previous pass saw
+# and a notification is sent only on a TRANSITION. NULL means "never evaluated"
+# and sends nothing — switching a notification on while already standing at the
+# place must not immediately claim you just arrived.
+_GEOFENCE_STALE_S = 3600      # a fix older than this says nothing about "now"
+_GEOFENCE_MIN_GAP_S = 900     # never two notices for one place inside this
+
+
+def _process_geofences(profile):
+    from django.db.models import Q
+    from .models import CustomPlace, Location
+    from .views import _find_nearby_locations
+
+    user = profile.user
+
+    places = list(CustomPlace.objects.filter(user=user).filter(
+        Q(notify_arrive=True) | Q(notify_leave=True)))
+    if not places:
+        return
+
+    ts, device_name = latest_fix(user)
+    if ts is None:
+        return
+    now = timezone.now()
+    # A stale fix cannot tell us where someone is now. Leaving last_inside
+    # untouched means the next real fix is compared against the last real one,
+    # rather than manufacturing a departure out of the tracker going quiet.
+    if (now - ts).total_seconds() > _GEOFENCE_STALE_S:
+        return
+
+    latest = (Location.objects
+              .filter(device__user=user, timestamp=ts)
+              .values('id', 'latitude', 'longitude').first())
+    if not latest:
+        return
+
+    for place in places:
+        inside = _find_nearby_locations(
+            Location.objects.filter(id=latest['id']),
+            place.latitude, place.longitude, place.radius_m).exists()
+        was = place.last_inside
+
+        if was is None:
+            # First evaluation: record, notify nothing.
+            place.last_inside = inside
+            place.save(update_fields=['last_inside'])
+            continue
+        if inside == was:
+            continue
+
+        should = (inside and place.notify_arrive) or (not inside and place.notify_leave)
+        recent = (place.last_notified_at
+                  and (now - place.last_notified_at).total_seconds() < _GEOFENCE_MIN_GAP_S)
+        place.last_inside = inside
+        fields = ['last_inside']
+        if should and not recent:
+            try:
+                site = settings.SITE_URL.rstrip('/')
+                email_utils.send_geofence_email(
+                    user.email,
+                    place_name=place.name, arrived=inside,
+                    when_label=timezone.localtime(ts).strftime('%b %d, %Y at %H:%M'),
+                    device_name=device_name,
+                    map_url=f'{site}/map/',
+                    settings_url=f'{site}/places/',
+                    unsubscribe_url=(
+                        f"{settings.SITE_URL.rstrip('/')}/email/unsubscribe/"
+                        f"{email_utils._ensure_unsub_token(profile)}/"
+                    ),
+                )
+                place.last_notified_at = now
+                fields.append('last_notified_at')
+            except Exception:
+                # A send failure must not stamp: leave last_inside updated (the
+                # transition really happened) but let the next genuine
+                # transition try again.
+                logger.exception('Geofence email failed for place %s', place.id)
+        place.save(update_fields=fields)
+
+
 def _alert_scheduler_loop():
     from .models import UserProfile
     while True:
@@ -268,6 +354,28 @@ def _alert_scheduler_loop():
                         _process_user(uid)
                     except Exception:
                         logger.exception("No-data alert failed for user %s", uid)
+
+                # Geofence notifications ride the same sweep. Separate user list:
+                # a place notification is independent of the no-data alert, and
+                # requiring both to be enabled would be surprising.
+                from .models import CustomPlace
+                from django.db.models import Q as _Q
+                geo_user_ids = set(
+                    CustomPlace.objects
+                    .filter(_Q(notify_arrive=True) | _Q(notify_leave=True))
+                    .values_list('user_id', flat=True)
+                )
+                for uid in geo_user_ids:
+                    try:
+                        with _user_alert_lock(uid) as got:
+                            if not got:
+                                continue
+                            profile = (UserProfile.objects.filter(user_id=uid)
+                                       .select_related('user').first())
+                            if profile and profile.user.email:
+                                _process_geofences(profile)
+                    except Exception:
+                        logger.exception("Geofence sweep failed for user %s", uid)
         except Exception:
             logger.exception("Tracking alert scheduler error")
         time.sleep(SCHEDULER_CHECK_INTERVAL)

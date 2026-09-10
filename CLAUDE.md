@@ -373,6 +373,12 @@ The triage is driven by `mobile/app/src/main/java/com/roamly/data/api/RoamlyApi.
 
 `share_view` (`/share/<token>/`, `share.html`, standalone) and `share_track_api` (`/api/share/<token>/track/`) are **public and rate-limited**. The payload is deliberately minimal — coordinates and timestamps only, no username, no device list, no city labels — so a link cannot identify whose track it is or be used to enumerate anything else. The page carries `noindex, nofollow, noarchive` and `referrer: no-referrer` (a token in a URL must not travel to a tile provider in a `Referer` header), and `/share/` is `Disallow`ed in `robots.txt`. Revoking sets `revoked_at` rather than deleting, so an accidental revoke is diagnosable and the view history survives. **New model ⇒ build + migrate.**
 
+**Geofence arrival / departure notifications** (migration `0085`). `CustomPlace` gains `notify_arrive`/`notify_leave` (both default **False** — a geofence is a map convenience first, and turning every place into a notification source by default is the wrong surprise) plus `last_inside`/`last_notified_at`.
+
+**It rides `alert_tasks`' existing 15-minute sweep rather than starting a daemon of its own** — `CustomPlace` already stores the geometry and `_find_nearby_locations` already does the containment test, so this is a state machine over data the app has, not new machinery. It reuses that module's per-user advisory lock, and iterates its **own** user list: a place notification is independent of the no-data alert, and requiring both to be enabled would be surprising.
+
+**Edge-triggered, and the nullable `last_inside` is the load-bearing part.** A notification fires only on a *transition*; `NULL` means "never evaluated" and sends nothing, so switching a notification on while already standing at the place does not immediately claim you just arrived — and `place_update` resets it to `NULL` whenever either flag changes, for the same reason. A fix older than `_GEOFENCE_STALE_S` (1h) is ignored rather than treated as a departure: a tracker going quiet is not the same as leaving, and `latest_fix` is reused so the "where are they now" question has one answer across both alert types. `_GEOFENCE_MIN_GAP_S` (15m) stops a device hovering on the boundary from mailing repeatedly. A send failure updates `last_inside` (the transition really did happen) but does **not** stamp `last_notified_at`. Toggles autosave from the Places detail panel. **New fields ⇒ build + migrate.**
+
 ## Key files
 
 | File | Purpose |

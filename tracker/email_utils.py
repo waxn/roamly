@@ -455,6 +455,52 @@ def send_no_data_alert_email(to_email, *, silent_for, last_point_at=None,
     return _send(subject, text, html, to_email)
 
 
+def send_geofence_email(to_email, *, place_name, arrived, when_label,
+                        device_name='', map_url=None, settings_url=None,
+                        unsubscribe_url=None):
+    """Notify that a tracked device arrived at or left a named place.
+
+    Like the no-data alert this carries no AI narrative and no stats — the
+    useful content is entirely "which place, which direction, when".
+    """
+    verb = 'arrived at' if arrived else 'left'
+    subject = f"Roamly: {verb} {place_name}"
+    heading = f"{'Arrived at' if arrived else 'Left'} {place_name}"
+    lead = (f'Roamly saw a tracked device <b style="color:{_TEXT};">{escape(verb)}</b> '
+            f'<b style="color:{_TEXT};">{escape(place_name)}</b>.')
+    text_lead = f"Roamly saw a tracked device {verb} {place_name}."
+
+    rows = [("Place", place_name), ("When", when_label)]
+    if device_name:
+        rows.append(("Device", device_name))
+
+    body = _p(lead) + _stat_grid(rows)
+    if map_url:
+        body += _button('Open your map', map_url)
+    if settings_url:
+        body += (
+            f'<p style="margin:{"-10px" if map_url else "18px"} 0 4px 0;">'
+            f'{_link("Change place notifications \u2192", settings_url)}</p>'
+        )
+    if unsubscribe_url:
+        body += (
+            f'<p style="margin:18px 0 0 0;font-family:{_SANS};font-size:12px;color:{_DIM};">'
+            f'Don\'t want these? <a href="{escape(unsubscribe_url)}" target="_blank" '
+            f'style="color:{_DIM};text-decoration:underline;">Manage email preferences</a></p>'
+        )
+
+    text_lines = [heading, '', text_lead, '']
+    text_lines += [f'{label}: {value}' for label, value in rows]
+    if map_url:
+        text_lines += ['', f'Open your map: {map_url}']
+    if settings_url:
+        text_lines += ['', f'Change place notifications: {settings_url}']
+    if unsubscribe_url:
+        text_lines += ['', f'Manage email preferences: {unsubscribe_url}']
+    return _send(subject, '\n'.join(text_lines),
+                 _shell(heading, body, preheader=f'{verb} {place_name}'), to_email)
+
+
 def send_password_reset_email(to_email, reset_url, username=''):
     """Email a password-reset link."""
     subject = 'Reset your Roamly password'
