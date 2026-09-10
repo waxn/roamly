@@ -707,26 +707,30 @@ def login_view(request):
             return render(request, 'tracker/login.html', {'email_enabled': email_enabled()})
         username = request.POST.get('username')
         password = request.POST.get('password')
-        user = authenticate(request, username=username, password=password)
-        if user is None and username and '@' in username:
-            # Allow signing in with an email address. Resolve to a username only
-            # when it maps to exactly one active account (legacy duplicate emails
-            # stay username-only — never ambiguously logged in). Everything below
-            # keys off the returned user, so no other change is needed.
+        # Allow signing in with an email address. Resolve it to a username
+        # BEFORE authenticating, and authenticate exactly once either way.
+        #
+        # Doing it the other way round — try, fail, resolve, try again — ran the
+        # password hasher twice for a registered address and once for an
+        # unregistered one. At PBKDF2's default work factor that is a 100-300ms
+        # difference, i.e. a timing oracle for "does this email have an account",
+        # which is precisely what password_reset_request goes out of its way not
+        # to reveal.
+        if username and '@' in username:
             from django.contrib.auth.models import User as AuthUser
+            # Only when it maps to exactly one active account — legacy duplicate
+            # emails stay username-only, never ambiguously logged in.
             matches = list(AuthUser.objects.filter(email__iexact=username.strip(), is_active=True)[:2])
             if len(matches) == 1:
                 username = matches[0].username
-                user = authenticate(request, username=username, password=password)
+        user = authenticate(request, username=username, password=password)
         if user:
             next_url = _safe_next(request)
             profile, _ = UserProfile.objects.get_or_create(user=user)
-            if email_enabled() and user.email and not profile.email_verified:
-                # Signed up but never verified — resume signup verification.
-                _start_verification(request, user, 'signup', next_url)
-                if is_app:
-                    return JsonResponse({'status': 'verify', 'purpose': 'signup', 'email': _mask_email(user.email)})
-                return redirect('tracker:verify')
+            # TOTP first. It is the stronger factor and, unlike the emailed
+            # code, is required on every login rather than only a new device —
+            # so an account with 2FA on and an unverified email address must not
+            # be able to complete sign-in on the email code alone.
             if profile.totp_enabled:
                 # Authenticator-app 2FA — independent of email_enabled(), and
                 # checked on every login rather than only new devices. The
@@ -740,6 +744,14 @@ def login_view(request):
                         'email': _mask_email(user.email) if email_enabled() else '',
                     })
                 return redirect('tracker:totp_verify')
+            if email_enabled() and user.email and not profile.email_verified:
+                # Signed up but never verified — resume signup verification.
+                # Ordered after TOTP so 2FA cannot be sidestepped by an account
+                # that simply never confirmed its address.
+                _start_verification(request, user, 'signup', next_url)
+                if is_app:
+                    return JsonResponse({'status': 'verify', 'purpose': 'signup', 'email': _mask_email(user.email)})
+                return redirect('tracker:verify')
             if email_enabled() and user.email and not _is_known_device(user, request):
                 # New/unrecognized device — challenge with an emailed code.
                 _start_verification(request, user, 'login', next_url)
@@ -1548,21 +1560,20 @@ def email_unsubscribe_view(request, token):
         profile.save(update_fields=[f'summary_{p}' for p in _SUMMARY_PERIODS]
                      + ['alert_no_data_enabled'])
         saved = True
-    else:
-        one_click = request.GET.get('period')
-        if one_click == _ALERTS_PERIOD and profile.alert_no_data_enabled:
-            profile.alert_no_data_enabled = False
-            profile.save(update_fields=['alert_no_data_enabled'])
-            saved = True
-        elif one_click in _SUMMARY_PERIODS and getattr(profile, f'summary_{one_click}'):
-            setattr(profile, f'summary_{one_click}', False)
-            profile.save(update_fields=[f'summary_{one_click}'])
-            saved = True
+    # A GET no longer changes anything. ?period= used to switch a cadence off on
+    # the spot, which meant a mail client's link prefetcher, a corporate URL
+    # scanner or a spam filter following the link silently unsubscribed the
+    # recipient — they would simply stop receiving mail with no idea why. The
+    # cadence is now pre-selected in the form and confirmed with one button,
+    # which is also what RFC 8058 one-click unsubscribe expects (a POST).
+    one_click = request.GET.get('period') if request.method == 'GET' else None
+    if one_click not in _SUMMARY_PERIODS and one_click != _ALERTS_PERIOD:
+        one_click = None
 
     return render(request, 'tracker/email_unsubscribe.html', {
         'profile': profile,
         'saved': saved,
-        'one_click_period': request.GET.get('period') if request.method == 'GET' else None,
+        'one_click_period': one_click,
     })
 
 
