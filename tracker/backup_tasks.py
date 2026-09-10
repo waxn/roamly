@@ -308,10 +308,12 @@ def _build_backup_json(user):
             for loc in locations
         ],
         'adventures': _build_adventures_data(user),
+        # The raw key is deliberately NOT exported — it is a live credential and
+        # this document is uploaded to S3. restore_backup mints a new one under
+        # the same name. Kept identical to views._write_backup_json.
         'api_keys': [
             {
                 'name': k.name,
-                'key': k.key,
                 'is_active': k.is_active,
                 'created_at': k.created_at,
             }

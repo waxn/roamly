@@ -6545,8 +6545,11 @@ def _write_backup_json(user, f, progress=None):
     # downloaded file and the automatic S3 backup contain identical data.
     report('Collecting adventures')
     adventures = _build_adventures_data(user)
+    # The raw key is deliberately NOT exported. It is a live credential, and the
+    # archive is written to disk and copied to S3; restore mints a new one under
+    # the same name instead.
     api_keys = [
-        {'name': k.name, 'key': k.key, 'is_active': k.is_active, 'created_at': k.created_at}
+        {'name': k.name, 'is_active': k.is_active, 'created_at': k.created_at}
         for k in APIKey.objects.filter(user=user)
     ]
     report('Collecting journals')
@@ -6822,6 +6825,47 @@ def _remap_story_body_ids(body, blurb_id_map, photo_id_map):
     return body
 
 
+# Backup archives are attacker-authored input: a "restore" is just a file upload.
+# Media entries are therefore filtered on the way out of the zip, not trusted.
+_RESTORE_MEDIA_EXTS = {'.jpg', '.jpeg', '.png', '.webp', '.gif',
+                       '.mp4', '.webm', '.mov', '.m4v', '.ogv', '.ogg'}
+_RESTORE_MAX_TOTAL_BYTES = 4 * 1024 * 1024 * 1024   # 4 GiB uncompressed, all entries
+_RESTORE_MAX_RATIO = 100                            # per-entry compression ratio
+_RESTORE_MAX_JSON_BYTES = 2 * 1024 * 1024 * 1024    # 2 GiB of backup.json
+
+
+def _restore_media_dest(name):
+    """Where a `media/...` zip entry may be written, or None to skip it.
+
+    Three checks, each blocking a different attack:
+
+    * **Extension allow-list.** Without it a `media/x.html` entry lands in
+      MEDIA_ROOT and comes back as HTML on this origin — the same stored-XSS
+      hole as a spoofed video upload, reached through the restore instead.
+    * **Zip-slip.** The normalized, resolved path must stay inside MEDIA_ROOT.
+    * **No overwriting.** Entry paths are absolute *within* MEDIA_ROOT (the
+      restored DB rows reference them verbatim, so they cannot be re-rooted per
+      user), which means a crafted archive could otherwise clobber another
+      account's profile picture or adventure cover. Refusing to replace an
+      existing file closes that without breaking anything: the disaster-recovery
+      case writes into an empty MEDIA_ROOT, and a name that is already present
+      is uuid4-derived, so it is already the same file.
+    """
+    rel = name[len('media/'):]
+    if not rel or os.path.splitext(rel)[1].lower() not in _RESTORE_MEDIA_EXTS:
+        return None
+    norm = os.path.normpath(rel)
+    if norm.startswith('..') or os.path.isabs(norm) or os.path.isabs(rel):
+        return None
+    root = os.path.realpath(settings.MEDIA_ROOT)
+    dest = os.path.realpath(os.path.join(root, norm))
+    if not (dest == root or dest.startswith(root + os.sep)):
+        return None
+    if os.path.exists(dest):
+        return None
+    return dest
+
+
 @login_required
 @csrf_exempt
 @require_http_methods(["POST"])
@@ -6840,9 +6884,18 @@ def restore_backup(request):
         f.seek(0)
         if header in (b'PK\x03\x04', b'PK\x05\x06'):  # zip (incl. empty-archive magic)
             zf = zipfile.ZipFile(f)
+            # Both reads below are unbounded decompression, so check the
+            # declared sizes first — a ~1 MB zip can otherwise fill the disk or
+            # exhaust RAM.
+            info = zf.getinfo('backup.json')
+            if info.file_size > _RESTORE_MAX_JSON_BYTES:
+                return JsonResponse({'error': 'Backup file is too large'}, status=413)
             with zf.open('backup.json') as jf:
                 raw = jf.read()
-            media_entries = [n for n in zf.namelist() if n.startswith('media/') and not n.endswith('/')]
+            media_entries = [zi for zi in zf.infolist()
+                             if zi.filename.startswith('media/') and not zi.is_dir()]
+            if sum(zi.file_size for zi in media_entries) > _RESTORE_MAX_TOTAL_BYTES:
+                return JsonResponse({'error': 'Backup media is too large'}, status=413)
         else:
             raw = f.read()
             # Old downloads were served gzipped over the wire; a client that
@@ -6982,18 +7035,25 @@ def restore_backup(request):
                     errors += 1
                     logger.warning(f"Backup restore trip place error: {e}")
 
-            # Restore API keys
+            # Restore API keys — by NAME, with a freshly minted secret.
+            #
+            # Taking the key value from the file was an existence oracle: `key`
+            # is unique across all users, so get_or_create raised IntegrityError
+            # when another account already held that value, and the returned
+            # `errors` count distinguished "exists elsewhere" from "created".
+            # It also let a crafted backup pin a chosen secret. APIKey.save()
+            # generates a token when key is blank, so a restore recreates the
+            # *set* of keys and the user re-pairs their devices.
             for k in data.get('api_keys', []):
                 try:
-                    _, created = APIKey.objects.get_or_create(
-                        user=user, key=k['key'],
-                        defaults={
-                            'name': k.get('name', 'Restored Key'),
-                            'is_active': k.get('is_active', True),
-                        }
+                    name = k.get('name', 'Restored Key')
+                    if APIKey.objects.filter(user=user, name=name).exists():
+                        continue
+                    APIKey.objects.create(
+                        user=user, name=name,
+                        is_active=k.get('is_active', True),
                     )
-                    if created:
-                        counts['api_keys'] += 1
+                    counts['api_keys'] += 1
                 except Exception as e:
                     errors += 1
                     logger.warning(f"Backup restore API key error: {e}")
@@ -7369,16 +7429,18 @@ def restore_backup(request):
     # would land outside MEDIA_ROOT is skipped rather than followed.
     if zf and media_entries:
         try:
-            for name in media_entries:
-                rel_path = name[len('media/'):]
-                norm = os.path.normpath(rel_path)
-                if norm.startswith('..') or os.path.isabs(norm):
+            for zi in media_entries:
+                # A wildly compressible entry is a zip bomb, not a photo.
+                if zi.compress_size and zi.file_size / zi.compress_size > _RESTORE_MAX_RATIO:
                     errors += 1
                     continue
-                dest = os.path.join(settings.MEDIA_ROOT, norm)
+                dest = _restore_media_dest(zi.filename)
+                if dest is None:
+                    errors += 1
+                    continue
                 try:
                     os.makedirs(os.path.dirname(dest), exist_ok=True)
-                    with zf.open(name) as src, open(dest, 'wb') as out:
+                    with zf.open(zi) as src, open(dest, 'wb') as out:
                         shutil.copyfileobj(src, out)
                     counts['media_files'] += 1
                 except OSError as e:
