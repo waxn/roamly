@@ -54,6 +54,7 @@ from .models import (
     RailSegment, RailStation, DismissedSubwayGap, SUBWAY_AVAILABLE_CACHE_KEY,
     DownloadedRegion, HealthSample, HealthWorkout, HEALTH_KINDS,
     Activity, ACTIVITY_KINDS,
+    FamilyCircle, FamilyMembership, FamilyPlace, FamilyPlaceAlert,
 )
 from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email, send_contact_email
 from .dwell_utils import bridges_gap, GAP_BRIDGE_RADIUS_M, GAP_BRIDGE_MAX_S
@@ -69,6 +70,7 @@ from .backup_tasks import (
     _build_adventures_data, _build_journals_data, _build_custom_places_data,
     _build_health_workouts_data,
     _build_activities_data,
+    _build_family_data,
 )
 
 logger = logging.getLogger(__name__)
@@ -6846,7 +6848,7 @@ def _write_backup_json(user, f, progress=None):
     loc_total = Location.objects.filter(device__user=user).count()
 
     report('Collecting devices')
-    meta = {'version': 14, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 15, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # The single backup builder: the scheduled S3 backup calls this too, so the
@@ -6868,6 +6870,8 @@ def _write_backup_json(user, f, progress=None):
     health_workouts = _build_health_workouts_data(user)
     report('Collecting activities')
     activities = _build_activities_data(user)
+    report('Collecting family circles')
+    family_circles = _build_family_data(user)
     health_total = HealthSample.objects.filter(user=user).count()
 
     f.write(b'{"meta":' + encoder.encode(meta).encode() + b',')
@@ -6878,6 +6882,7 @@ def _write_backup_json(user, f, progress=None):
     f.write(b'"custom_places":' + encoder.encode(custom_places).encode() + b',')
     f.write(b'"health_workouts":' + encoder.encode(health_workouts).encode() + b',')
     f.write(b'"activities":' + encoder.encode(activities).encode() + b',')
+    f.write(b'"family_circles":' + encoder.encode(family_circles).encode() + b',')
 
     report('Writing locations', 0, loc_total)
     f.write(b'"locations":[')
@@ -6944,6 +6949,7 @@ def _write_backup_json(user, f, progress=None):
         'journals': len(journals),
         'custom_places': len(custom_places),
         'activities': len(activities),
+        'family_circles': len(family_circles),
     }).encode() + b'}')
     report('Writing health', health_total, health_total)
 
@@ -6955,7 +6961,7 @@ _BACKUP_PREP_PCT = 8
 _DATA_PHASE_PCT = 55
 _BACKUP_STAGES = ['Counting locations', 'Collecting devices', 'Collecting adventures',
                   'Collecting journals', 'Collecting places', 'Collecting health',
-                  'Collecting activities',
+                  'Collecting activities', 'Collecting family circles',
                   'Writing locations', 'Writing health']
 
 
@@ -7301,7 +7307,8 @@ def restore_backup(request):
     counts = {'devices': 0, 'locations': 0, 'trips': 0, 'trip_places': 0,
               'adventures': 0, 'api_keys': 0, 'journals': 0,
               'custom_places': 0, 'media_files': 0,
-              'health_samples': 0, 'health_workouts': 0, 'activities': 0}
+              'health_samples': 0, 'health_workouts': 0, 'activities': 0,
+              'family_circles': 0}
     errors = 0
 
     try:
@@ -7815,6 +7822,73 @@ def restore_backup(request):
                 except Exception as e:
                     errors += 1
                     logger.warning(f"Backup restore activity error: {e}")
+
+            # Family Circles (v15+). Older backups simply lack the key and
+            # restore exactly as before. Idempotent on (creator, name) — a
+            # user only ever backs up circles they created (see
+            # _build_family_data), so that pair is a stable natural key for
+            # their own account.
+            #
+            # Membership consent follows the exact rule migration 0082 set
+            # for AdventureMember, for the same reason: a backup is
+            # attacker-authored input from the restoring user's point of
+            # view, so only THEIR OWN membership may restore as accepted —
+            # every other member restores pending regardless of what the
+            # backup file claims.
+            for fc in data.get('family_circles', []):
+                try:
+                    name = (fc.get('name') or '').strip()
+                    if not name:
+                        errors += 1
+                        continue
+                    circle, circle_created = FamilyCircle.objects.get_or_create(
+                        creator=user, name=name[:200],
+                    )
+                    if circle_created:
+                        counts['family_circles'] += 1
+
+                    for m in fc.get('members', []):
+                        member_user = AuthUser.objects.filter(username=m.get('username')).first()
+                        if not member_user:
+                            continue
+                        is_self = member_user.id == user.id
+                        FamilyMembership.objects.get_or_create(
+                            circle=circle, user=member_user,
+                            defaults={
+                                'role': m.get('role', 'member'),
+                                'accepted_at': (_parse_timestamp(m['accepted_at'])
+                                                if is_self and m.get('accepted_at') else None),
+                                'share_location': bool(m.get('share_location')) if is_self else False,
+                            }
+                        )
+
+                    for p in fc.get('places', []):
+                        place_creator = (AuthUser.objects.filter(username=p.get('creator_username')).first()
+                                         or user)
+                        place, _ = FamilyPlace.objects.get_or_create(
+                            circle=circle, name=(p.get('name') or '')[:200],
+                            latitude=p['latitude'], longitude=p['longitude'],
+                            defaults={
+                                'creator': place_creator,
+                                'radius_m': p.get('radius_m', 150),
+                                'color': p.get('color') or _PLACE_COLORS[0],
+                                'notes': p.get('notes', ''),
+                            }
+                        )
+                        for al in p.get('alerts', []):
+                            alert_user = AuthUser.objects.filter(username=al.get('username')).first()
+                            if not alert_user:
+                                continue
+                            FamilyPlaceAlert.objects.get_or_create(
+                                place=place, user=alert_user,
+                                defaults={
+                                    'on_enter': bool(al.get('on_enter', True)),
+                                    'on_exit': bool(al.get('on_exit', True)),
+                                }
+                            )
+                except Exception as e:
+                    errors += 1
+                    logger.warning(f"Backup restore family circle error: {e}")
 
     except Exception as e:
         logger.error(f"Backup restore failed: {e}")

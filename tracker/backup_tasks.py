@@ -270,6 +270,54 @@ def _build_activities_data(user):
     ]
 
 
+def _build_family_data(user):
+    """Build serializable Family Circles for a user's backup.
+
+    Mirrors _build_adventures_data's shape: only circles this user *created*
+    are exported, each with its full member/place/alert set — the same "you
+    back up what you own" limitation Adventure backups already have. A
+    member's own backup does not carry their membership in a circle someone
+    else created, exactly like a shared Adventure they didn't create.
+
+    Shared with views._write_backup_json, like every other list-built
+    section here, so the download and the S3 backup stay identical.
+    """
+    from .models import FamilyCircle
+
+    circles = FamilyCircle.objects.filter(creator=user).prefetch_related(
+        'members__user', 'places__alerts__user',
+    )
+    result = []
+    for circle in circles:
+        result.append({
+            'name': circle.name,
+            'created_at': circle.created_at,
+            'members': [
+                {'username': m.user.username, 'role': m.role,
+                 'accepted_at': m.accepted_at, 'share_location': m.share_location}
+                for m in circle.members.all()
+            ],
+            'places': [
+                {
+                    'creator_username': p.creator.username if p.creator_id else None,
+                    'name': p.name,
+                    'latitude': p.latitude,
+                    'longitude': p.longitude,
+                    'radius_m': p.radius_m,
+                    'color': p.color,
+                    'notes': p.notes,
+                    'created_at': p.created_at,
+                    'alerts': [
+                        {'username': al.user.username, 'on_enter': al.on_enter, 'on_exit': al.on_exit}
+                        for al in p.alerts.all()
+                    ],
+                }
+                for p in circle.places.all()
+            ],
+        })
+    return result
+
+
 def _get_s3_client(config):
     """Create a boto3 S3 client from a BackupConfig."""
     import boto3
