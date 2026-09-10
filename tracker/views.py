@@ -6818,14 +6818,36 @@ _BACKUP_STAGES = ['Counting locations', 'Collecting devices', 'Collecting advent
                   'Writing locations', 'Writing health']
 
 
+def _backup_tmp_dir():
+    """Private directory for in-progress backups.
+
+    Not bare gettempdir(): these files are the user's complete location history,
+    and open(path, 'wb') creates them 0644 under the default umask — so on any
+    shared host every local user could read them. A 0700 directory inside the
+    temp dir keeps that off the table without needing a writable path elsewhere.
+    """
+    d = os.path.join(tempfile.gettempdir(), 'roamly_backups')
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    try:
+        os.chmod(d, 0o700)   # makedirs won't tighten an existing directory
+    except OSError:
+        pass
+    return d
+
+
+def _open_private(path):
+    """open(path, 'wb') that is 0600 from the moment it exists, not after."""
+    return os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 'wb')
+
+
 def _backup_tmp_path(job_id):
-    return os.path.join(tempfile.gettempdir(), f'roamly_backup_{job_id}.zip')
+    return os.path.join(_backup_tmp_dir(), f'roamly_backup_{job_id}.zip')
 
 
 def _backup_json_tmp_path(job_id):
     # Intermediate plain-JSON file, zipped into the final archive and then
     # discarded — the zip's own deflate handles compression.
-    return os.path.join(tempfile.gettempdir(), f'roamly_backup_{job_id}.json')
+    return os.path.join(_backup_tmp_dir(), f'roamly_backup_{job_id}.json')
 
 
 @login_required
@@ -6869,7 +6891,7 @@ def export_backup_start(request):
                 put({'status': 'running', 'stage': stage, 'pct': round(pct, 1),
                      'done': done, 'total': total, 'started': started})
 
-            with open(json_tmp_path, 'wb') as f:
+            with _open_private(json_tmp_path) as f:
                 _write_backup_json(user, f, progress=progress)
 
             put({'status': 'running', 'stage': 'Collecting media', 'pct': _DATA_PHASE_PCT,
@@ -6879,7 +6901,8 @@ def export_backup_start(request):
 
             # ZIP_STORED for media: jpg/mp4 are already compressed, so deflating
             # them again just burns CPU. backup.json (text) still deflates well.
-            with zipfile.ZipFile(tmp_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            with _open_private(tmp_path) as _zf_fh, \
+                    zipfile.ZipFile(_zf_fh, 'w', zipfile.ZIP_DEFLATED) as zf:
                 zf.write(json_tmp_path, arcname='backup.json')
                 written = 0
                 for relative_path in media_files:
@@ -7055,6 +7078,9 @@ def restore_backup(request):
     f = request.FILES.get('file')
     if not f:
         return JsonResponse({'error': 'No file uploaded'}, status=400)
+    err = _reject_oversize_upload(f)
+    if err:
+        return err
 
     zf = None
     media_entries = []
@@ -7757,6 +7783,23 @@ def _parse_timestamp(value):
     return None
 
 
+def _reject_oversize_upload(f):
+    """413 when an uploaded file is larger than we are willing to hold in memory.
+
+    Every importer does ``f.read()`` and then decodes or json.loads the result,
+    which is roughly 2-4x the file size as live Python objects. Django spills
+    the upload to a temp file past FILE_UPLOAD_MAX_MEMORY_SIZE, but read() pulls
+    it straight back, so the spill saves nothing here. There was no size check
+    at all: a multi-gigabyte upload simply OOM-killed the worker.
+    """
+    cap = getattr(settings, 'MAX_IMPORT_BYTES', 2 * 1024 * 1024 * 1024)
+    size = getattr(f, 'size', None)
+    if size is not None and size > cap:
+        return JsonResponse(
+            {'error': f'File too large (max {cap // (1024 * 1024)} MB).'}, status=413)
+    return None
+
+
 @login_required
 @require_http_methods(["POST"])
 def import_csv(request):
@@ -7764,6 +7807,9 @@ def import_csv(request):
     f = request.FILES.get('file')
     if not f:
         return JsonResponse({"error": "No file uploaded"}, status=400)
+    err = _reject_oversize_upload(f)
+    if err:
+        return err
 
     try:
         decoded = f.read().decode('utf-8-sig')  # utf-8-sig handles BOM
@@ -7862,6 +7908,9 @@ def import_gpx(request):
     f = request.FILES.get('file')
     if not f:
         return JsonResponse({"error": "No file uploaded"}, status=400)
+    err = _reject_oversize_upload(f)
+    if err:
+        return err
 
     import xml.etree.ElementTree as ET
 
@@ -7957,6 +8006,9 @@ def import_json(request):
     f = request.FILES.get('file')
     if not f:
         return JsonResponse({"error": "No file uploaded"}, status=400)
+    err = _reject_oversize_upload(f)
+    if err:
+        return err
 
     try:
         content = f.read().decode('utf-8-sig')
@@ -8043,6 +8095,9 @@ def import_kml(request):
     f = request.FILES.get('file')
     if not f:
         return JsonResponse({"error": "No file uploaded"}, status=400)
+    err = _reject_oversize_upload(f)
+    if err:
+        return err
 
     import xml.etree.ElementTree as ET
     import re as _re
@@ -8050,7 +8105,9 @@ def import_kml(request):
     import io as _io
 
     raw = f.read()
-    # KMZ is a zip archive containing doc.kml (or the first *.kml entry)
+    # KMZ is a zip archive containing doc.kml (or the first *.kml entry).
+    # zf.read() below is unbounded decompression, so the declared size is
+    # checked first — a small .kmz can otherwise expand without limit.
     if f.name.lower().endswith('.kmz') or raw[:2] == b'PK':
         try:
             with _zipfile.ZipFile(_io.BytesIO(raw)) as zf:
@@ -8059,6 +8116,9 @@ def import_kml(request):
                     return JsonResponse({"error": "No .kml file found inside KMZ archive"}, status=400)
                 # Prefer doc.kml; otherwise take the first one
                 entry = next((n for n in kml_names if n.lower() == 'doc.kml'), kml_names[0])
+                _info = zf.getinfo(entry)
+                if _info.file_size > getattr(settings, 'MAX_IMPORT_BYTES', 2 * 1024 * 1024 * 1024):
+                    return JsonResponse({"error": "KMZ contents too large"}, status=413)
                 raw = zf.read(entry)
         except _zipfile.BadZipFile as e:
             return JsonResponse({"error": f"Invalid KMZ archive: {e}"}, status=400)

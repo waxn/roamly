@@ -4,10 +4,35 @@ from PIL import Image
 from django.core.files.uploadedfile import InMemoryUploadedFile
 
 
+# Pillow's decompression-bomb guard, set explicitly.
+#
+# A crafted PNG a few hundred KB on the wire can declare 20000x20000 pixels and
+# expand to well over a gigabyte the moment Image.open(...).convert('RGB') runs —
+# enough to OOM-kill a gunicorn worker from an ordinary authenticated upload.
+# Pillow only warns below 2x its limit, so the limit has to be a size we would
+# actually accept: 50MP is comfortably above any real phone camera.
+Image.MAX_IMAGE_PIXELS = 50_000_000
+
+
+class ImageTooLarge(ValueError):
+    """Raised for an image whose declared dimensions are implausible."""
+
+
+def _open_guarded(image_field):
+    """Image.open + convert('RGB'), refusing decompression bombs."""
+    try:
+        img = Image.open(image_field)
+        img.load()
+        return img.convert('RGB')
+    except Image.DecompressionBombError as exc:
+        raise ImageTooLarge('That image is too large to process.') from exc
+    except Image.DecompressionBombWarning as exc:
+        raise ImageTooLarge('That image is too large to process.') from exc
+
+
 def resize_image(image_field, max_size, quality=85):
     """Resize an image to fit within max_size x max_size square, return InMemoryUploadedFile."""
-    img = Image.open(image_field)
-    img = img.convert('RGB')
+    img = _open_guarded(image_field)
 
     # Center-crop to square
     w, h = img.size
@@ -32,8 +57,7 @@ def resize_image(image_field, max_size, quality=85):
 
 def resize_photo(image_field, max_width=1200, thumb_size=300, quality=85):
     """Resize a photo for display and generate thumbnail. Returns (full, thumb)."""
-    img = Image.open(image_field)
-    img = img.convert('RGB')
+    img = _open_guarded(image_field)
 
     # Full size
     if img.width > max_width:

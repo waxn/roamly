@@ -261,8 +261,21 @@ CSP_EXTRA_HOSTS = [h for h in re.split(r'[,\s]+', os.environ.get('CSP_EXTRA_HOST
 LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/map/'
 
-# File uploads (for GPX/CSV import)
-DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100MB
+# File uploads.
+#
+# DATA_UPLOAD_MAX_MEMORY_SIZE explicitly EXCLUDES file uploads — it caps the
+# non-file request body, which Django reads fully into memory. It was set to
+# 100MB with a comment about GPX/CSV import, which is not what it does: the
+# effect was to permit a 100MB in-memory JSON parse on every API endpoint.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024        # 10MB of non-file body
+# THIS is the file-upload knob: anything larger spills to a temp file instead of
+# being held in RAM. The default is already right; it is stated explicitly so the
+# distinction above is not lost again.
+FILE_UPLOAD_MAX_MEMORY_SIZE = 2621440                 # 2.5MB, then spill to disk
+# Bound on how many form fields one request may carry (default 1000).
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 1000
+# Largest file any import/restore endpoint will accept, checked per view.
+MAX_IMPORT_BYTES = int(os.environ.get('MAX_IMPORT_BYTES', str(2 * 1024 * 1024 * 1024)))
 
 # Logging: capture unhandled 500s into the admin panel's ActionLog (with
 # traceback) via a custom handler on Django's 'django.request' logger, which
