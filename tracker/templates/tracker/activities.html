@@ -37,7 +37,7 @@
 
     <div class="page-toolbar">
         <div>
-            <h1>activities</h1>
+            <h1>Activities</h1>
             <p class="page-lead" style="margin-bottom:0;">rides, walks and runs you recorded deliberately.</p>
         </div>
         <div class="act-filters toolbar-actions" id="act-filters"></div>
@@ -85,7 +85,7 @@ function escapeHtml(s) {
 
 function renderFilters() {
     document.getElementById('act-filters').innerHTML = KINDS.map(([slug, label]) =>
-        `<button class="btn${slug === activeKind ? ' btn-primary' : ''}" data-kind="${slug}">${label}</button>`
+        `<button class="btn btn-sm ${slug === activeKind ? 'btn-primary' : 'btn-outline'}" data-kind="${slug}">${label}</button>`
     ).join('');
     document.querySelectorAll('#act-filters .btn').forEach(btn => {
         btn.addEventListener('click', () => { activeKind = btn.dataset.kind; renderFilters(); load(); });
