@@ -1344,7 +1344,7 @@
                 polling = true;
                 btn.disabled = true;
                 btn.innerHTML = '<span class="spinner" style="width:0.85rem;height:0.85rem;border-width:2px;"></span> recalculating…';
-                try { await fetch('/api/stats/recompute/', { method: 'POST' }); } catch (e) {}
+                try { await fetch('/api/stats/recompute/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } }); } catch (e) {}
                 setTimeout(poll, 1200);
             });
         })();

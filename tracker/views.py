@@ -644,7 +644,7 @@ _TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteveri
 _TURNSTILE_TIMEOUT = 10
 
 
-def _verify_turnstile(request):
+def _verify_turnstile(request, allow_app=True):
     """Check the Cloudflare Turnstile CAPTCHA on a login/signup POST, when the
     admin has one configured. Returns True when the request may proceed.
 
@@ -654,11 +654,17 @@ def _verify_turnstile(request):
     handling): unlike a rate-limit counter, a captcha whose verifier can't be
     reached isn't proof of anything, and the admin's escape hatch is the
     enabled toggle itself, not a silent bypass."""
-    # The exemption used to key on X-Roamly-Client alone, a header anyone can
-    # send — so the CAPTCHA could be skipped by typing three words. A valid API
-    # key is something the caller must already hold, and every real app install
-    # has one, so it identifies the app without being forgeable.
-    if _is_app_client(request) and get_api_key_user(request) is not None:
+    # The app exemption keys on X-Roamly-Client, a header anyone can send, so it
+    # is not proof of anything — but at LOGIN the app genuinely has no credential
+    # to prove itself with (the API key is minted after a session exists), and
+    # requiring one would lock every app build out of a Turnstile-enabled
+    # instance. That case is instead covered by the rate limits, which are now
+    # keyed on a trustworthy IP *and* a per-account counter no header can reset.
+    #
+    # allow_app=False is passed on signup, which has no app path at all
+    # (mobile's RoamlyApi declares only login/), so nothing legitimate needs the
+    # exemption there and bot signups cannot claim it.
+    if allow_app and _is_app_client(request):
         return True
     from .context_processors import get_turnstile_enabled
     if not get_turnstile_enabled():
@@ -844,9 +850,10 @@ def signup_view(request):
         form = SignUpForm(request.POST)
         if email_required and not request.POST.get('email', '').strip():
             form.add_error('email', 'An email address is required.')
-        if not _verify_turnstile(request):
-            # Mobile app clients are exempt inside _verify_turnstile itself, so
-            # reaching here always means a web submission with no/bad token.
+        if not _verify_turnstile(request, allow_app=False):
+            # No app exemption here: signup has no mobile path (RoamlyApi
+            # declares only login/), so nothing legitimate needs one and a bot
+            # cannot claim it by sending a header.
             form.add_error(None, 'Please complete the CAPTCHA challenge.')
         if form.is_valid():
             user = form.save()
@@ -1887,6 +1894,9 @@ def ask_api(request):
 
     CSRF-exempt so the mobile app (session cookie, no CSRF token) can POST here,
     matching the other mobile-hit endpoints. Session auth still required."""
+    err = _require_api_intent(request)
+    if err:
+        return err
     from . import ai_tasks
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
     if not profile.ai_ask_enabled:
@@ -4969,6 +4979,9 @@ def trips_api(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 def create_trip(request):
+    err = _require_api_intent(request)
+    if err:
+        return err
     try:
         data = json.loads(request.body)
     except json.JSONDecodeError:
@@ -5150,13 +5163,15 @@ def _trip_detail_inner(request, trip_id):
 @csrf_exempt
 @require_http_methods(["POST", "DELETE"])
 def delete_trip(request, trip_id):
+    err = _require_api_intent(request)
+    if err:
+        return err
     trip = get_object_or_404(Adventure, id=trip_id, device__user=request.user)
     trip.delete()
     return JsonResponse({"status": "ok"})
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def update_trip(request, trip_id):
     trip = _get_trip_for_user(trip_id, request.user)
@@ -5362,7 +5377,6 @@ def _adventure_day_notes(trip, request_user=None):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def create_trip_place(request, trip_id):
     """Create a POI (a located AdventureBlurb) on an adventure."""
@@ -5391,7 +5405,6 @@ def create_trip_place(request, trip_id):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def update_trip_place(request, trip_id, place_id):
     """Update a POI (AdventureBlurb identified by place_id)."""
@@ -5419,7 +5432,6 @@ def update_trip_place(request, trip_id, place_id):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST", "DELETE"])
 def delete_trip_place(request, trip_id, place_id):
     trip = _get_trip_for_user(trip_id, request.user)
@@ -5492,6 +5504,9 @@ def trip_plan_list(request, trip_id):
 @require_http_methods(["POST"])
 def create_trip_plan_stop(request, trip_id):
     """Create a planned itinerary stop on an adventure."""
+    err = _require_api_intent(request)
+    if err:
+        return err
     trip = _get_trip_for_user(trip_id, request.user)
     try:
         data = json.loads(request.body)
@@ -5515,6 +5530,9 @@ def create_trip_plan_stop(request, trip_id):
 @require_http_methods(["POST"])
 def update_trip_plan_stop(request, trip_id, stop_id):
     """Update a planned itinerary stop (also handles reorder via `order`)."""
+    err = _require_api_intent(request)
+    if err:
+        return err
     trip = _get_trip_for_user(trip_id, request.user)
     stop = get_object_or_404(PlannedStop, id=stop_id, adventure=trip)
     try:
@@ -5530,6 +5548,9 @@ def update_trip_plan_stop(request, trip_id, stop_id):
 @csrf_exempt
 @require_http_methods(["POST", "DELETE"])
 def delete_trip_plan_stop(request, trip_id, stop_id):
+    err = _require_api_intent(request)
+    if err:
+        return err
     trip = _get_trip_for_user(trip_id, request.user)
     stop = get_object_or_404(PlannedStop, id=stop_id, adventure=trip)
     stop.delete()
@@ -5554,6 +5575,9 @@ def _ensure_invite_token(trip):
 @require_http_methods(["POST"])
 def trip_invite_api(request, trip_id):
     """Create (or rotate) the invite link. Any member may share it."""
+    err = _require_api_intent(request)
+    if err:
+        return err
     trip = _get_trip_for_user(trip_id, request.user)
     try:
         data = json.loads(request.body or '{}')
@@ -5570,7 +5594,6 @@ def trip_invite_api(request, trip_id):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def trip_invite_email_api(request, trip_id):
     """Email the invite link to an address (requires SMTP configured)."""
@@ -5638,6 +5661,9 @@ def trip_join_view(request, token):
 @csrf_exempt
 @require_http_methods(["POST"])
 def trip_add_member(request, trip_id):
+    err = _require_api_intent(request)
+    if err:
+        return err
     trip = get_object_or_404(Adventure, id=trip_id, device__user=request.user)
     try:
         data = json.loads(request.body)
@@ -5675,6 +5701,9 @@ def trip_add_member(request, trip_id):
 @csrf_exempt
 @require_http_methods(["POST"])
 def trip_remove_member(request, trip_id, user_id):
+    err = _require_api_intent(request)
+    if err:
+        return err
     trip = get_object_or_404(Adventure, id=trip_id, device__user=request.user)
     from django.contrib.auth.models import User as AuthUser
     user = get_object_or_404(AuthUser, id=user_id)
@@ -5686,6 +5715,9 @@ def trip_remove_member(request, trip_id, user_id):
 @csrf_exempt
 @require_http_methods(["POST"])
 def trip_toggle_public(request, trip_id):
+    err = _require_api_intent(request)
+    if err:
+        return err
     trip = get_object_or_404(Adventure, id=trip_id, device__user=request.user)
     if trip.public_slug:
         trip.public_slug = None
@@ -5746,6 +5778,9 @@ def trip_timeline_api(request, trip_id):
 @csrf_exempt
 @require_http_methods(["POST"])
 def trip_create_blurb(request, trip_id):
+    err = _require_api_intent(request)
+    if err:
+        return err
     trip = _get_trip_for_user(trip_id, request.user)
     text = request.POST.get('text', '').strip()
     title = request.POST.get('title', '').strip()
@@ -5775,6 +5810,9 @@ def trip_create_blurb(request, trip_id):
 @csrf_exempt
 @require_http_methods(["POST"])
 def trip_delete_blurb(request, trip_id, blurb_id):
+    err = _require_api_intent(request)
+    if err:
+        return err
     trip = _get_trip_for_user(trip_id, request.user)
     blurb = get_object_or_404(AdventureBlurb, id=blurb_id, adventure=trip)
     if blurb.author != request.user and trip.device.user != request.user:
@@ -5825,6 +5863,9 @@ def trip_day_note_create(request, trip_id, date_str):
     A member may hold several entries per day, so this always makes a new row
     rather than upserting; the editor then edits it by id.
     """
+    err = _require_api_intent(request)
+    if err:
+        return err
     trip = _get_trip_for_user(trip_id, request.user)
     d = _parse_iso_date(date_str)
     if not d:
@@ -5838,6 +5879,9 @@ def trip_day_note_create(request, trip_id, date_str):
 @require_http_methods(["POST"])
 def trip_day_note_save(request, trip_id, note_id):
     """Update one of the requesting member's own day-log entries (author-scoped)."""
+    err = _require_api_intent(request)
+    if err:
+        return err
     trip = _get_trip_for_user(trip_id, request.user)
     note = _own_day_note(trip, request.user, note_id)
     try:
@@ -5859,6 +5903,9 @@ def trip_day_note_save(request, trip_id, note_id):
 @require_http_methods(["POST"])
 def trip_day_note_photos(request, trip_id, note_id):
     """Attach photos or videos (multipart) to one of the member's own entries. Max 10."""
+    err = _require_api_intent(request)
+    if err:
+        return err
     trip = _get_trip_for_user(trip_id, request.user)
     note = _own_day_note(trip, request.user, note_id)
     existing = note.photos.count()
@@ -5874,6 +5921,9 @@ def trip_day_note_photos(request, trip_id, note_id):
 @require_http_methods(["POST"])
 def trip_day_note_photo_delete(request, trip_id, photo_id):
     """Delete one day-note photo (author or adventure owner only)."""
+    err = _require_api_intent(request)
+    if err:
+        return err
     trip = _get_trip_for_user(trip_id, request.user)
     photo = get_object_or_404(AdventureDayPhoto, id=photo_id, day_note__adventure=trip)
     if photo.day_note.author != request.user and trip.device.user != request.user:
@@ -5887,6 +5937,9 @@ def trip_day_note_photo_delete(request, trip_id, photo_id):
 @require_http_methods(["POST", "DELETE"])
 def trip_day_note_delete(request, trip_id, note_id):
     """Delete one of the requesting member's own day-log entries."""
+    err = _require_api_intent(request)
+    if err:
+        return err
     trip = _get_trip_for_user(trip_id, request.user)
     note = _own_day_note(trip, request.user, note_id)
     note.delete()
@@ -5915,6 +5968,9 @@ def trip_blurb_comments(request, trip_id, blurb_id):
 @csrf_exempt
 @require_http_methods(["POST"])
 def trip_create_comment(request, trip_id, blurb_id):
+    err = _require_api_intent(request)
+    if err:
+        return err
     trip = _get_trip_for_user(trip_id, request.user)
     blurb = get_object_or_404(AdventureBlurb, id=blurb_id, adventure=trip)
     try:
@@ -5932,6 +5988,9 @@ def trip_create_comment(request, trip_id, blurb_id):
 @csrf_exempt
 @require_http_methods(["POST"])
 def trip_delete_comment(request, trip_id, comment_id):
+    err = _require_api_intent(request)
+    if err:
+        return err
     trip = _get_trip_for_user(trip_id, request.user)
     comment = get_object_or_404(AdventureComment, id=comment_id, blurb__adventure=trip)
     if comment.author != request.user and trip.device.user != request.user:
@@ -5944,6 +6003,9 @@ def trip_delete_comment(request, trip_id, comment_id):
 @csrf_exempt
 @require_http_methods(["POST"])
 def trip_create_milestone(request, trip_id):
+    err = _require_api_intent(request)
+    if err:
+        return err
     trip = _get_trip_for_user(trip_id, request.user)
     try:
         data = json.loads(request.body)
@@ -5973,6 +6035,9 @@ def trip_create_milestone(request, trip_id):
 @csrf_exempt
 @require_http_methods(["POST"])
 def trip_delete_milestone(request, trip_id, milestone_id):
+    err = _require_api_intent(request)
+    if err:
+        return err
     trip = _get_trip_for_user(trip_id, request.user)
     milestone = get_object_or_404(AdventureMilestone, id=milestone_id, adventure=trip)
     if milestone.author != request.user and trip.device.user != request.user:
@@ -5982,7 +6047,6 @@ def trip_delete_milestone(request, trip_id, milestone_id):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["PATCH", "POST"])
 def trip_update_body(request, trip_id):
     trip = _get_trip_for_user(trip_id, request.user)
@@ -6028,7 +6092,6 @@ def trip_upload_cover(request, trip_id):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def trip_delete_cover(request, trip_id):
     trip = _get_trip_for_user(trip_id, request.user)
@@ -6043,7 +6106,6 @@ def trip_delete_cover(request, trip_id):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def trip_update_blurb(request, trip_id, blurb_id):
     trip = _get_trip_for_user(trip_id, request.user)
@@ -6371,7 +6433,6 @@ def adventure_preview_view(request, trip_id):
 # ---------------------------------------------------------------------------
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def geocode_api(request):
     """Start batch geocoding of all un-geocoded locations."""
@@ -6395,7 +6456,6 @@ def geocode_status(request):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def geocode_stop(request):
     """Stop a running geocoding task."""
@@ -6867,7 +6927,6 @@ def _restore_media_dest(name):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def restore_backup(request):
     """Restore user data from a backup file — either the current .zip format
@@ -7579,7 +7638,6 @@ def _parse_timestamp(value):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def import_csv(request):
     """Import locations from CSV."""
@@ -7678,7 +7736,6 @@ def import_csv(request):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def import_gpx(request):
     """Import locations from GPX file."""
@@ -7774,7 +7831,6 @@ def import_gpx(request):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def import_json(request):
     """Import locations from JSON (Google Takeout Location History or OwnTracks export)."""
@@ -7861,7 +7917,6 @@ def import_json(request):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def import_kml(request):
     """Import locations from KML file (FlightRadar24, Google Earth, etc.)."""
@@ -8059,7 +8114,6 @@ def import_kml(request):
 # ---------------------------------------------------------------------------
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def create_api_key(request):
     name = request.POST.get('name', 'My Device')
@@ -8079,6 +8133,9 @@ def app_api_key(request):
     key it pushes locations with. Logging in repeatedly therefore never spawns
     duplicate keys — there is just one, and it works forever (keys don't expire).
     Reuses the oldest active key if any already exist (e.g. created via the web)."""
+    err = _require_api_intent(request)
+    if err:
+        return err
     api_key = (
         APIKey.objects.filter(user=request.user, is_active=True)
         .order_by('created_at')
@@ -8091,7 +8148,6 @@ def app_api_key(request):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST", "DELETE"])
 def delete_api_key(request, key_id):
     api_key = get_object_or_404(APIKey, id=key_id, user=request.user)
@@ -8102,7 +8158,6 @@ def delete_api_key(request, key_id):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def rename_api_key(request, key_id):
     api_key = get_object_or_404(APIKey, id=key_id, user=request.user)
@@ -8168,6 +8223,9 @@ def delete_location_data(request):
 @require_http_methods(["DELETE"])
 def delete_location(request, location_id):
     """Delete a single location point."""
+    err = _require_api_intent(request)
+    if err:
+        return err
     deleted, _ = Location.objects.filter(
         id=location_id, device__user=request.user
     ).delete()
@@ -8804,7 +8862,6 @@ def _place_membership(places, lat, lng):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 def places_api(request):
     """List the user's custom places (with light stats) or create a new one."""
@@ -8886,7 +8943,6 @@ def _refresh_places_snapshot(user):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def stats_recompute_api(request):
     """Kick an on-demand recompute of the user's stats snapshot (the per-page
@@ -9053,7 +9109,6 @@ def place_points_api(request, place_id):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def place_update(request, place_id):
     place = get_object_or_404(CustomPlace, id=place_id, user=request.user)
@@ -9091,7 +9146,6 @@ def place_update(request, place_id):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def place_delete(request, place_id):
     place = get_object_or_404(CustomPlace, id=place_id, user=request.user)
@@ -10040,6 +10094,9 @@ def journal_detail_api(request, date_str):
 @require_http_methods(["POST"])
 def journal_save_api(request, date_str):
     """Create or update the entry for a day (idempotent upsert)."""
+    err = _require_api_intent(request)
+    if err:
+        return err
     d = _journal_parse_date(date_str)
     if d is None:
         return JsonResponse({'error': 'Invalid date'}, status=400)
@@ -10077,6 +10134,9 @@ def journal_save_api(request, date_str):
 @csrf_exempt
 @require_http_methods(["POST", "DELETE"])
 def journal_delete_api(request, date_str):
+    err = _require_api_intent(request)
+    if err:
+        return err
     d = _journal_parse_date(date_str)
     if d is None:
         return JsonResponse({'error': 'Invalid date'}, status=400)
@@ -10089,6 +10149,9 @@ def journal_delete_api(request, date_str):
 @require_http_methods(["POST"])
 def journal_photos_api(request, date_str):
     """Upload one or more photos to a day's entry (creates the entry if needed)."""
+    err = _require_api_intent(request)
+    if err:
+        return err
     d = _journal_parse_date(date_str)
     if d is None:
         return JsonResponse({'error': 'Invalid date'}, status=400)
@@ -10118,6 +10181,9 @@ def journal_photos_api(request, date_str):
 @csrf_exempt
 @require_http_methods(["POST", "DELETE"])
 def journal_photo_delete_api(request, photo_id):
+    err = _require_api_intent(request)
+    if err:
+        return err
     photo = get_object_or_404(JournalPhoto, id=photo_id, entry__user=request.user)
     photo.delete()
     return JsonResponse({'status': 'ok'})
@@ -11740,6 +11806,44 @@ def _health_gen(user_id):
     return cache.get(f"health_gen:{user_id}", 0)
 
 
+def _require_api_intent(request):
+    """Stand in for the CSRF token on endpoints that must stay @csrf_exempt.
+
+    The mobile app authenticates with a session cookie plus a Bearer key and has
+    no CSRF token, so those endpoints cannot use the token — but leaving them
+    with no check at all meant a plain auto-submitting form on any page the user
+    visited could fire them. Several read no body whatsoever
+    (health_delete_api wipes every health record), which is precisely the shape
+    a cross-origin form can send.
+
+    Accept only requests that could not have been forged that way. Each clause
+    is something a *simple* cross-origin request cannot produce, so any of them
+    forces a preflight the app never answers:
+
+      * Content-Type: application/json — Retrofit sets this for any @Body call.
+      * Authorization: Bearer — the app always sends its API key; a form cannot
+        set this header. This is what covers the app's bodiless POSTs.
+      * X-Roamly-Client — sent by app builds after v1.21.0.
+      * X-CSRFToken — the browser path, for anything the web UI also calls.
+
+    Returns an error response, or None to proceed.
+    """
+    ctype = (request.META.get('CONTENT_TYPE') or '').split(';')[0].strip().lower()
+    if ctype == 'application/json':
+        return None
+    if (request.META.get('HTTP_AUTHORIZATION') or '').lower().startswith('bearer '):
+        return None
+    if request.META.get('HTTP_X_ROAMLY_CLIENT'):
+        return None
+    if request.META.get('HTTP_X_CSRFTOKEN'):
+        return None
+    return JsonResponse(
+        {'error': 'This endpoint requires an API client (missing Authorization, '
+                  'X-CSRFToken or application/json body).'},
+        status=403,
+    )
+
+
 def _require_json(request):
     """415 unless the body is declared as JSON.
 
@@ -12099,6 +12203,9 @@ def health_samples_push(request):
     Point(lng, lat, srid=4326) assignment that push_location_batch needs before
     its bulk_create does NOT apply here — do not add it by pattern-matching.
     """
+    err = _require_api_intent(request)
+    if err:
+        return err
     err = _require_json(request)
     if err:
         return err
@@ -12218,6 +12325,9 @@ def health_workouts_import(request):
     granted every metric permission, and a session can predate the sample sync
     window — so recomputing here would quietly report zeros.
     """
+    err = _require_api_intent(request)
+    if err:
+        return err
     err = _require_json(request)
     if err:
         return err
@@ -12301,6 +12411,9 @@ def health_imported_workouts_api(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 def health_workout_delete(request, workout_id):
+    err = _require_api_intent(request)
+    if err:
+        return err
     deleted, _ = HealthWorkout.objects.filter(user=request.user, id=workout_id).delete()
     if deleted:
         _bust_health_cache(request.user.id)
@@ -12317,6 +12430,9 @@ def health_delete_api(request):
     incremental sync will report only what changed since the deletion and the
     history will not come back.
     """
+    err = _require_api_intent(request)
+    if err:
+        return err
     samples, _ = HealthSample.objects.filter(user=request.user).delete()
     workouts, _ = HealthWorkout.objects.filter(user=request.user).delete()
     _bust_health_cache(request.user.id)
@@ -12511,7 +12627,6 @@ def health_status_api(request):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 def health_source_api(request):
     """Get/set the preferred writing app, mirroring profile_mapbox_token_api's split."""
@@ -12537,7 +12652,6 @@ def health_source_api(request):
 # rather than left to look like an empty account. See tracker/zepp_tasks.py.
 
 @login_required
-@csrf_exempt
 @require_http_methods(["GET", "POST"])
 def health_zepp_config_api(request):
     """Get/set Zepp sync config. Token masked on read, like the AI API key."""
@@ -12585,7 +12699,6 @@ def health_zepp_config_api(request):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def health_zepp_sync_api(request):
     """Kick a Zepp sync now. Returns immediately; poll the config endpoint."""
@@ -12613,7 +12726,6 @@ _HEALTH_IMPORT_MAX_ROWS = 200000
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def health_import_api(request):
     """Import health data from an uploaded CSV.
@@ -12878,6 +12990,9 @@ def activities_api(request):
     _require_json stands in for the missing CSRF token, exactly as the health
     ingest endpoints do.
     """
+    err = _require_api_intent(request)
+    if err:
+        return err
     user = request.user
 
     if request.method == 'GET':
@@ -13032,7 +13147,6 @@ def activity_track_api(request, activity_id):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def activity_update_api(request, activity_id):
     """Rename / re-categorise. Never touches the window, so stats stay valid."""
@@ -13075,6 +13189,9 @@ def activity_delete_api(request, activity_id):
     track rather than owning it: discarding a ride you didn't mean to record
     should not punch a hole in your location history.
     """
+    err = _require_api_intent(request)
+    if err:
+        return err
     act = _get_activity(request, activity_id)
     if not act:
         return JsonResponse({'error': 'Not found'}, status=404)
@@ -13084,7 +13201,6 @@ def activity_delete_api(request, activity_id):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["POST"])
 def activity_recompute_api(request, activity_id):
     """Force a stats recompute, bypassing the settle window."""

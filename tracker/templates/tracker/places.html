@@ -723,7 +723,7 @@ async function savePlace() {
     const payload = { name, lat: editCenter[1], lng: editCenter[0], radius_m: editRadius };
     const url = editId ? `/api/places/${editId}/update/` : '/api/places/';
     try {
-        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' }, body: JSON.stringify(payload) });
         if (!res.ok) { const e = await res.json().catch(() => ({})); await roamlyAlert(e.error || 'save failed'); return; }
         closeEdit();
         // The saved place may cover a suggested cluster, which is what retires
@@ -776,7 +776,8 @@ function setupDetailNotes(d) {
 async function saveNotes(id, notes, status) {
     try {
         const res = await fetch(`/api/places/${id}/update/`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
             body: JSON.stringify({ notes }),
         });
         status.textContent = res.ok ? 'saved ✓' : 'save failed';
@@ -948,7 +949,7 @@ async function streamDetailPoints(id, token) {
 
 async function deletePlace(id, name) {
     if (!await roamlyConfirm(`delete "${name}"? this only removes the place, not your location data.`, {danger:true})) return;
-    const res = await fetch(`/api/places/${id}/delete/`, { method: 'POST' });
+    const res = await fetch(`/api/places/${id}/delete/`, { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } });
     // Deleting a place can re-expose the cluster it was covering as a suggestion.
     if (res.ok) { closeDetail(); await Promise.all([loadPlaces(), loadSuggestions()]); }
 }

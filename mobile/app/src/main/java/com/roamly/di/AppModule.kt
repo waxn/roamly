@@ -58,6 +58,12 @@ object AppModule {
             val req = chain.request().newBuilder().apply {
                 if (!sid.isNullOrBlank()) header("Cookie", "sessionid=$sid")
                 if (!key.isNullOrBlank()) header("Authorization", "Bearer $key")
+                // Sent on EVERY request, not just the auth ones. The server's
+                // csrf-exempt endpoints accept a request only when it carries
+                // something a cross-origin form cannot set; this is that marker
+                // for the app, so bodiless POSTs no longer depend on an API key
+                // having been minted yet.
+                header("X-Roamly-Client", "app")
             }.build()
             chain.proceed(req)
         }

@@ -2107,7 +2107,7 @@ function pollStatsRecalc() {
 }
 function startStatsRecalc() {
     _renderStatsRecalc(null, true);
-    fetch('/api/stats/recompute/', { method: 'POST' })
+    fetch('/api/stats/recompute/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
         .then(r => r.json())
         .then(() => pollStatsRecalc());
 }
