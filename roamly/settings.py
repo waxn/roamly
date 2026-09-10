@@ -4,8 +4,28 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-change-me-in-production')
-DEBUG = os.environ.get('DEBUG', 'True').lower() in ('true', '1')
+# DEBUG defaults OFF. This image is published to Docker Hub and deployed by
+# copying .env.example, so the *code* default is what a self-hoster who misses a
+# variable actually gets — and a debug default means full tracebacks (with
+# settings and SQL) on every 500, plus ALLOWED_HOSTS being ignored entirely.
+# It is also what makes the custom error pages in tracker/views.py reachable.
+DEBUG = os.environ.get('DEBUG', 'False').lower() in ('true', '1')
+
+# No fallback SECRET_KEY in production. The old default was a hardcoded literal
+# in a public image, so every instance whose operator missed the variable shared
+# one publicly-known key — enough to forge session cookies and password-reset
+# tokens. Fail loudly at boot instead of silently running forgeable.
+SECRET_KEY = os.environ.get('SECRET_KEY', '')
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = 'django-insecure-dev-only-not-for-production'
+    else:
+        from django.core.exceptions import ImproperlyConfigured
+        raise ImproperlyConfigured(
+            'SECRET_KEY must be set when DEBUG is off. Generate one with:\n'
+            '  python -c "import secrets; print(secrets.token_urlsafe(64))"'
+        )
+
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 CSRF_TRUSTED_ORIGINS = os.environ.get('CSRF_TRUSTED_ORIGINS', 'http://localhost,http://127.0.0.1').split(',')
 
