@@ -1,0 +1,35 @@
+# Tooling config. There is deliberately no build-system section — Roamly is a
+# Django app that runs from a container, not a distributable package.
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120          # matches the existing style; not a reformat mandate
+exclude = ["tracker/migrations", "staticfiles", "media", "mobile"]
+
+[tool.ruff.lint]
+# A deliberately narrow starting set. The point of adding a linter to a codebase
+# with no tests is to catch things that are *silently wrong* — an undefined name,
+# a shadowed import, an unused variable that means a line does nothing — not to
+# start an argument about style. Widen it once there is a test suite to catch the
+# regressions a bigger sweep would introduce.
+select = [
+    "F",      # pyflakes: undefined names, unused imports/variables
+    "E9",     # syntax errors
+    "B",      # bugbear: mutable default args, silently-wrong comparisons
+    "UP032",  # f-string over .format
+]
+ignore = [
+    "B008",   # function call in an argument default — Django does this everywhere
+    "B904",   # raise ... from err inside except — noisy on a large existing codebase
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Django settings legitimately define names conditionally and reference them later.
+"roamly/settings.py" = ["F401"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "roamly.settings"
+python_files = ["test_*.py"]
+testpaths = ["tracker/tests"]
+# --reuse-db is the difference between a 2-second run and a 40-second one.
+addopts = "--reuse-db"

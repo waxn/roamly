@@ -27,6 +27,30 @@ def _haversine_m(lat1, lon1, lat2, lon2):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
 
+def _new_visit(device_id, loc):
+    """Start a fresh visit accumulator at `loc`.
+
+    `last_lat`/`last_lon` track the most recent member point (not the running
+    centroid) because that is the fix a tracking gap is measured *from* — see
+    the gap-bridging branch in _visit_worker.
+    """
+    return {
+        'device_id': device_id,
+        'start_time': loc.timestamp,
+        'end_time': loc.timestamp,
+        'lat_sum': loc.latitude,
+        'lon_sum': loc.longitude,
+        'last_lat': loc.latitude,
+        'last_lon': loc.longitude,
+        'point_count': 1,
+        'city': loc.city,
+        'state': loc.state,
+        'country': loc.country,
+        'country_code': loc.country_code,
+        'place_name': loc.place_name,
+    }
+
+
 def _visit_worker(user_id):
     # This worker runs in a thread spawned from a request, which never fires the
     # request_started/request_finished signals that normally enforce

@@ -51,3 +51,6 @@ Thumbs.db
 
 # Local agent briefs
 adventure-rewrite-1.md
+
+# Agent worktrees — not part of the project.
+.claude/worktrees/

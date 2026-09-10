@@ -1,0 +1,8 @@
+# Development-only. Not installed in the runtime image — see Dockerfile, which
+# installs requirements.txt alone.
+#
+# Nothing here is wired into CI yet; TESTING.md describes the plan.
+pytest>=8.0
+pytest-django>=4.8
+factory-boy>=3.3
+ruff>=0.6
