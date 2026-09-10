@@ -422,6 +422,7 @@ def sitemap_xml(request):
     published = (Adventure.objects
                  .filter(public_slug__isnull=False)
                  .exclude(public_slug='')
+                 .exclude(access_pin__gt='')
                  .values('public_slug', 'updated_at'))
     for adv in published:
         loc = f"{site_url}/adventure/{adv['public_slug']}/"
@@ -6113,7 +6114,12 @@ def trip_verify_pin(request, slug):
         data = json.loads(request.body)
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
-    if data.get('pin', '').strip() == trip.access_pin:
+    # Unauthenticated and unthrottled, this was a 4-digit secret anyone could
+    # walk in seconds. compare_digest keeps the check off the timing channel.
+    if _rate_limited(request, f'advpin:{slug}', 5, 900):
+        return JsonResponse({"error": "Too many attempts. Try again later."}, status=429)
+    submitted = str(data.get('pin', '')).strip()
+    if secrets.compare_digest(submitted, trip.access_pin):
         request.session[f'adv_pin_ok_{slug}'] = True
         return JsonResponse({"status": "ok"})
     return JsonResponse({"error": "Incorrect PIN"}, status=403)
@@ -6252,13 +6258,19 @@ def trip_public_blurb_comments(request, slug, blurb_id):
 @require_http_methods(["POST"])
 def trip_public_create_comment(request, slug, blurb_id):
     trip = get_object_or_404(Adventure, public_slug=slug)
+    # Every other public endpoint gates on the PIN; this one did not, so
+    # anonymous visitors could post into a PIN-protected adventure.
+    if not _check_public_pin(request, trip):
+        return JsonResponse({"error": "PIN required"}, status=403)
+    if _rate_limited(request, 'advcomment', 20, 900):
+        return JsonResponse({"error": "Too many comments. Try again later."}, status=429)
     blurb = get_object_or_404(AdventureBlurb, id=blurb_id, adventure=trip)
     try:
         data = json.loads(request.body)
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
-    text = data.get('text', '').strip()
-    name = data.get('guest_name', '').strip()
+    text = str(data.get('text', '')).strip()[:2000]
+    name = str(data.get('guest_name', '')).strip()
     if not text:
         return JsonResponse({"error": "Text required"}, status=400)
     if not name:

@@ -1,11 +1,14 @@
 {% extends "tracker/base.html" %}
-{% block title %}{{ trip.name }} — Roamly{% endblock %}
-{% block meta_description %}{{ seo_description }}{% endblock %}
-{% block og_title %}{{ trip.name }} — Roamly{% endblock %}
-{% block og_description %}{{ seo_description }}{% endblock %}
-{% block twitter_title %}{{ trip.name }} — Roamly{% endblock %}
-{% block twitter_description %}{{ seo_description }}{% endblock %}
-{% block robots_meta %}index, follow{% endblock %}
+{# A PIN-protected adventure must not leak its name or description through the
+   page metadata before the PIN is entered — that metadata is what a link
+   preview, a search crawler and the browser tab all read. #}
+{% block title %}{% if requires_pin %}Protected adventure — Roamly{% else %}{{ trip.name }} — Roamly{% endif %}{% endblock %}
+{% block meta_description %}{% if requires_pin %}This adventure is protected. Enter its PIN to view it.{% else %}{{ seo_description }}{% endif %}{% endblock %}
+{% block og_title %}{% if requires_pin %}Protected adventure — Roamly{% else %}{{ trip.name }} — Roamly{% endif %}{% endblock %}
+{% block og_description %}{% if requires_pin %}This adventure is protected. Enter its PIN to view it.{% else %}{{ seo_description }}{% endif %}{% endblock %}
+{% block twitter_title %}{% if requires_pin %}Protected adventure — Roamly{% else %}{{ trip.name }} — Roamly{% endif %}{% endblock %}
+{% block twitter_description %}{% if requires_pin %}This adventure is protected. Enter its PIN to view it.{% else %}{{ seo_description }}{% endif %}{% endblock %}
+{% block robots_meta %}{% if requires_pin %}noindex, nofollow{% else %}index, follow{% endif %}{% endblock %}
 
 {% block extra_css %}
 /* Preview banner (members-only preview of the public page) */
@@ -463,8 +466,16 @@ async function verifyPin(){
         method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
         body: JSON.stringify({pin})
     });
-    if(r.ok){ location.reload(); }
-    else { document.getElementById('pin-error').textContent = 'incorrect pin'; }
+    const err = document.getElementById('pin-error');
+    if(r.ok){ location.reload(); return; }
+    // The endpoint is now throttled, so say which of the two happened rather
+    // than reporting a lockout as a wrong PIN.
+    let msg = 'incorrect pin';
+    if(r.status === 429) msg = 'too many attempts — try again later';
+    else {
+        try { const d = await r.json(); if(d && d.error) msg = d.error.toLowerCase(); } catch(e){}
+    }
+    err.textContent = msg;
 }
 
 // ── Name gate ───────────────────────────────────────────────────────────────

@@ -19,7 +19,12 @@ class AdventureSitemap(Sitemap):
     priority = 0.6
 
     def items(self):
-        return Adventure.objects.filter(public_slug__isnull=False).exclude(public_slug='')
+        # PIN-protected adventures are deliberately not for the open internet,
+        # so their URLs stay out of the sitemap.
+        return (Adventure.objects
+                .filter(public_slug__isnull=False)
+                .exclude(public_slug='')
+                .exclude(access_pin__gt=''))
 
     def location(self, obj):
         return reverse('tracker:adventure_public', kwargs={'slug': obj.public_slug})
