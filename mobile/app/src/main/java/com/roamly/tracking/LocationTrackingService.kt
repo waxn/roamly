@@ -111,6 +111,18 @@ private const val SPEED_SPIKE_MIN_DELTA_MPS = 3.0f  // ≈ 6.7 mph
 // by ACTIVITY_MAX_MS so a forgotten recording cannot flatten the battery overnight.
 private const val ACTIVITY_INTERVAL_MS = 2_000L
 private const val ACTIVITY_MAX_MS = 12 * 60 * 60_000L
+
+// Adaptive interval (Settings, forced on by Simple Mode): swap between these
+// two fixed cadences by recent Doppler speed instead of one flat interval —
+// "1-5 minutes, faster when moving". Fixed rather than user-tunable for v1,
+// to avoid a second knob interacting with the ordinary trackingIntervalSecs
+// setting. ADAPTIVE_MOVE_THRESHOLD_MPS reuses DriftAnchor.MOVE_SPEED_MPS's
+// own "is this Doppler reading real movement" bar rather than inventing a
+// third speed constant.
+private const val ADAPTIVE_MOVING_INTERVAL_MS = 60_000L
+private const val ADAPTIVE_STATIONARY_INTERVAL_MS = 300_000L
+// MOVE_SPEED_MPS is a top-level constant in DriftAnchor.kt, same package.
+private const val ADAPTIVE_MOVE_THRESHOLD_MPS = MOVE_SPEED_MPS
 // updateNotification() runs once per saved point. At 2s that is 15x more often
 // than the shortest interval the app otherwise allows, so it gets a floor —
 // which is a no-op at every one of those intervals.
@@ -131,6 +143,13 @@ private data class TrackingConfig(
     val suppressDrift: Boolean,
     /** The activity being recorded, or null for ordinary background tracking. */
     val activity: ActivitySession? = null,
+    /** Swap the alarm cadence between ADAPTIVE_MOVING/STATIONARY_INTERVAL_MS by
+     *  recent Doppler speed instead of using [intervalMs] flat. Read at the point
+     *  the cadence is actually computed (alarmIntervalMs), since the input — a
+     *  live speed reading — isn't known at config-build time the way every other
+     *  field here is. Always false while recording; a live ride's fixed 2s
+     *  cadence is a stronger, more deliberate override. */
+    val adaptiveInterval: Boolean = false,
 ) {
     val recording: Boolean get() = activity != null
 }
@@ -172,6 +191,11 @@ class LocationTrackingService : Service() {
     /** When a genuine fix last landed. Unlike [lastAcceptedAtMs] this is never advanced by a
      *  dwell point, so the dwell window in `saveOrDwell` can actually expire. */
     @Volatile private var lastRealFixAtMs: Long = 0L
+    /** The cleaned (jitter-dropped, spike-corrected) speed of the last real fix —
+     *  what adaptive-interval mode reads to pick the next cadence. Never updated
+     *  from a dwell point, whose synthetic speed is always 0 regardless of
+     *  whether the device is actually moving. */
+    @Volatile private var lastFixSpeedMps: Float = 0f
     /** Cached battery level + notification throttle. Both exist only because a
      *  recording saves a point every ~2s, 15x more often than the shortest
      *  interval the app otherwise allows; both are no-ops at those intervals. */
@@ -435,13 +459,22 @@ class LocationTrackingService : Service() {
     private fun observeConfig() {
         configJob?.cancel()
         configJob = scope.launch {
+            // Folded into one Pair-valued flow to keep the outer combine below at
+            // 5-arity — kotlinx.coroutines has no typed 6-arg combine, and its
+            // vararg form requires every flow to share one element type, which
+            // these six prefs don't. Same trick the original activitySession-only
+            // version of this comment already used, just widened to a pair.
+            val activityAndAdaptive = combine(
+                prefs.activitySession, prefs.adaptiveIntervalEnabled,
+            ) { activity, adaptiveInterval -> activity to adaptiveInterval }
+
             combine(
                 prefs.trackingIntervalSecs,
                 prefs.locationPriority,
                 prefs.maxAccuracyM,
                 prefs.suppressStationaryDrift,
-                prefs.activitySession,
-            ) { interval, priority, maxAcc, suppressDrift, activity ->
+                activityAndAdaptive,
+            ) { interval, priority, maxAcc, suppressDrift, (activity, adaptiveInterval) ->
                 // A live session replaces the user's interval with the recording
                 // constant rather than overwriting their preference — which is why
                 // stopping restores nothing: clearing the session *is* the restore.
@@ -455,6 +488,9 @@ class LocationTrackingService : Service() {
                     maxAccuracyM = maxAcc.coerceAtLeast(1).toFloat(),
                     suppressDrift = suppressDrift,
                     activity = act,
+                    // Recording always wins — a live ride's fixed 2s cadence is a
+                    // stronger, more deliberate override than ambient adaptive mode.
+                    adaptiveInterval = adaptiveInterval && act == null,
                 )
             }.distinctUntilChanged().collect { cfg ->
                 // The interval can change 15x when a recording starts or stops, so a
@@ -483,7 +519,18 @@ class LocationTrackingService : Service() {
     /** The cadence the exact-alarm floor actually runs at — never faster than the GPS can
      *  cold-acquire, so a short interval doesn't schedule guaranteed misses. The screen-on
      *  stream provides any finer rate. */
-    private fun alarmIntervalMs(cfg: TrackingConfig): Long = maxOf(cfg.intervalMs, MIN_ALARM_FLOOR_MS)
+    /** The interval that currently governs capture cadence, before the alarm floor
+     *  below is applied. Ordinarily [TrackingConfig.intervalMs]; under adaptive-
+     *  interval mode, swapped for the moving/stationary constant by the last real
+     *  fix's speed instead — the one input that can't be known at config-build
+     *  time the way every other TrackingConfig field is. */
+    private fun effectiveIntervalMs(cfg: TrackingConfig): Long =
+        if (cfg.adaptiveInterval) {
+            if (lastFixSpeedMps >= ADAPTIVE_MOVE_THRESHOLD_MPS) ADAPTIVE_MOVING_INTERVAL_MS
+            else ADAPTIVE_STATIONARY_INTERVAL_MS
+        } else cfg.intervalMs
+
+    private fun alarmIntervalMs(cfg: TrackingConfig): Long = maxOf(effectiveIntervalMs(cfg), MIN_ALARM_FLOOR_MS)
 
     /** (Re)establish capture with two layers that cover each other:
      *   - The **continuous stream + pinned wake lock** is the *primary* source. It delivers a
@@ -560,7 +607,7 @@ class LocationTrackingService : Service() {
         // stream, which is the single worst thing this mode could do to the battery.
         // Still evidence-based: if the stream really is suspended, lastAcceptedAtMs
         // goes stale within the window and the alarm takes over regardless.
-        val freshWindow = if (cfg.recording) alarmIntervalMs(cfg) else cfg.intervalMs
+        val freshWindow = if (cfg.recording) alarmIntervalMs(cfg) else effectiveIntervalMs(cfg)
         if (streaming && lastAcceptedAtMs != 0L && now - lastAcceptedAtMs < freshWindow) {
             scheduleNextFix(alarmIntervalMs(cfg))
             return
@@ -956,7 +1003,13 @@ class LocationTrackingService : Service() {
         CaptureStats.bump(if (isDwell) CaptureStats.Counter.DWELL else CaptureStats.Counter.SAVED)
         lastAcceptedLocation = loc
         lastAcceptedAtMs = System.currentTimeMillis()
-        if (!isDwell) lastRealFixAtMs = lastAcceptedAtMs
+        if (!isDwell) {
+            lastRealFixAtMs = lastAcceptedAtMs
+            // point.speed is already cleaned (jitter-dropped, spike-corrected)
+            // above — exactly the value adaptive-interval mode should trust,
+            // not the raw Doppler reading.
+            lastFixSpeedMps = point.speed ?: 0f
+        }
         // Skipped while recording: it mkdirs + opens + closes under a global lock per
         // point, which is thousands of file operations across a ride for a Diagnostics
         // debugging aid.

@@ -69,6 +69,11 @@ fun SettingsScreen(
         com.roamly.ui.health.HealthScreen(onBack = { showHealth = false })
         return
     }
+    var showFamily by remember { mutableStateOf(false) }
+    if (showFamily) {
+        com.roamly.ui.family.FamilyScreen(onBack = { showFamily = false })
+        return
+    }
     val state by viewModel.uiState.collectAsState()
     val updateState by updateViewModel.state.collectAsState()
     val context = LocalContext.current
@@ -364,6 +369,14 @@ fun SettingsScreen(
                 subtitle = "Keeps you pinned in place when parked instead of letting GPS wander",
                 checked = state.suppressStationaryDrift,
                 onCheckedChange = viewModel::setSuppressStationaryDrift,
+            )
+
+            Spacer(Modifier.height(16.dp))
+            ToggleRow(
+                title = "Adaptive interval",
+                subtitle = "Record every 1 min while moving, every 5 min while still — instead of the fixed interval above",
+                checked = state.adaptiveIntervalEnabled,
+                onCheckedChange = viewModel::setAdaptiveIntervalEnabled,
             )
 
             Spacer(Modifier.height(16.dp))
@@ -673,6 +686,35 @@ fun SettingsScreen(
                 Spacer(Modifier.width(8.dp))
                 Text("Health", fontWeight = FontWeight.Bold)
             }
+        }
+
+        // ── Family Circle / Simple Mode ─────────────────────────────────────
+        ClayCard {
+            ClaySectionHeader("Family Circle", Icons.Rounded.People, gradient = clay.secondaryGradient)
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "See where family members are and get notified when someone arrives at or leaves a place.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(14.dp))
+            ClayButton(
+                onClick = { showFamily = true },
+                gradient = clay.secondaryGradient,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Rounded.People, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Family Circle", fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(14.dp))
+            ToggleRow(
+                title = "Simple Mode",
+                subtitle = "Show just Map, Family and Settings — hides Trips, Search, Journal and Stats. Switch back any time, right here.",
+                checked = state.simpleModeEnabled,
+                onCheckedChange = viewModel::setSimpleModeEnabled,
+            )
         }
 
         ClayButton(

@@ -57,9 +57,22 @@ class RoamlyApp : Application(), Configuration.Provider {
                 setShowBadge(false)
             }
         )
+        // High importance, unlike the persistent tracking notification above --
+        // "someone arrived at / left a place" is exactly the kind of alert a
+        // user expects to actually notice.
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_FAMILY_ALERTS,
+                "Family Circle Alerts",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "When someone in a Family Circle arrives at or leaves a place"
+            }
+        )
     }
 
     companion object {
         const val CHANNEL_TRACKING = "roamly_tracking"
+        const val CHANNEL_FAMILY_ALERTS = "roamly_family_alerts"
     }
 }

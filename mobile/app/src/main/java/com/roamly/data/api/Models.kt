@@ -797,3 +797,120 @@ data class ActivityTrackResponse(
     val start: List<Double>? = null,
     val end: List<Double>? = null,
 )
+
+// --- Family Circle (mutual location sharing + place enter/exit alerts) ---
+
+data class FamilyMemberInfo(
+    @SerializedName("user_id") val userId: Int,
+    val username: String,
+    @SerializedName("display_name") val displayName: String,
+    val role: String,
+    val accepted: Boolean,
+    @SerializedName("share_location") val shareLocation: Boolean,
+    @SerializedName("is_you") val isYou: Boolean,
+)
+
+data class FamilyCircleDetailResponse(
+    val id: Int = 0,
+    val name: String = "",
+    @SerializedName("creator_id") val creatorId: Int = 0,
+    @SerializedName("created_at") val createdAt: String = "",
+    val members: List<FamilyMemberInfo> = emptyList(),
+    /** Only populated by getFamilyCircle, not the plain create/list shape. */
+    val places: List<FamilyPlaceItem> = emptyList(),
+    /** Only populated by getFamilyCircles — the caller's own acceptance status. */
+    val accepted: Boolean = true,
+)
+
+data class FamilyCirclesListResponse(val circles: List<FamilyCircleDetailResponse> = emptyList())
+
+data class FamilyCircleCreateRequest(val name: String)
+data class FamilyCircleRenameRequest(val name: String)
+data class FamilyCircleInviteRequest(val rotate: Boolean = false)
+data class FamilyCircleInviteResponse(
+    val status: String = "",
+    @SerializedName("invite_token") val inviteToken: String = "",
+    @SerializedName("invite_url") val inviteUrl: String = "",
+)
+
+data class FamilyShareRequest(
+    @SerializedName("circle_id") val circleId: Int,
+    @SerializedName("share_location") val shareLocation: Boolean,
+)
+data class FamilyShareResponse(
+    val status: String = "",
+    @SerializedName("share_location") val shareLocation: Boolean = false,
+)
+
+data class FamilyPlaceItem(
+    val id: Int = 0,
+    @SerializedName("circle_id") val circleId: Int = 0,
+    val name: String = "",
+    val lat: Double = 0.0,
+    val lng: Double = 0.0,
+    @SerializedName("radius_m") val radiusM: Double = 150.0,
+    val color: String = "",
+    val notes: String = "",
+    @SerializedName("creator_id") val creatorId: Int = 0,
+)
+
+data class FamilyPlacesResponse(val places: List<FamilyPlaceItem> = emptyList())
+
+data class FamilyPlaceCreateRequest(
+    val name: String,
+    val lat: Double,
+    val lng: Double,
+    @SerializedName("radius_m") val radiusM: Double = 150.0,
+    val notes: String = "",
+)
+
+/** Every field optional — the server only updates whichever keys are present. */
+data class FamilyPlaceUpdateRequest(
+    val name: String? = null,
+    val lat: Double? = null,
+    val lng: Double? = null,
+    @SerializedName("radius_m") val radiusM: Double? = null,
+    val notes: String? = null,
+)
+
+/** Opt-out, not opt-in (see tracker/family_tasks.py._notify) — GET reports
+ *  the effective True/True defaults even before the member has ever saved
+ *  a preference for this place. */
+data class FamilyPlaceAlertResponse(
+    @SerializedName("on_enter") val onEnter: Boolean = true,
+    @SerializedName("on_exit") val onExit: Boolean = true,
+)
+data class FamilyPlaceAlertRequest(
+    @SerializedName("on_enter") val onEnter: Boolean? = null,
+    @SerializedName("on_exit") val onExit: Boolean? = null,
+)
+
+data class FamilyLatestFix(
+    val lat: Double,
+    val lng: Double,
+    val timestamp: String,
+    val battery: Double? = null,
+    val speed: Double? = null,
+)
+
+data class FamilyMemberLocation(
+    @SerializedName("user_id") val userId: Int,
+    val username: String,
+    @SerializedName("display_name") val displayName: String,
+    @SerializedName("is_you") val isYou: Boolean,
+    val latest: FamilyLatestFix? = null,
+    /** [[lng, lat], ...] over the last ~30 minutes — same coordinate order as
+     *  every other GeoJSON-flavoured payload in this app. */
+    val trail: List<List<Double>> = emptyList(),
+)
+
+data class FamilyLocationsResponse(
+    @SerializedName("circle_id") val circleId: Int = 0,
+    val members: List<FamilyMemberLocation> = emptyList(),
+)
+
+data class FamilyPushTokenRequest(
+    val token: String,
+    @SerializedName("device_label") val deviceLabel: String = "",
+)
+data class FamilyPushTokenUnregisterRequest(val token: String)

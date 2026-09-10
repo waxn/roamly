@@ -76,8 +76,16 @@ sealed class Screen(val route: String, val label: String) {
 
 // Search sits in the middle slot always — it hosts history search, plus the AI
 // Ask chat when the user has a provider configured (see SearchTabScreen).
-private val bottomNavItems: List<Screen> =
+private val advancedNavItems: List<Screen> =
     listOf(Screen.Map, Screen.Adventures, Screen.Search, Screen.Journal, Screen.Stats, Screen.Settings)
+
+// Simple Mode: a non-technical family member gets just enough to see the
+// family map and reach Settings (where Family Circle itself lives, alongside
+// the toggle back to Advanced Mode) — none of Trips/Search/Journal/Stats.
+// Family Circle has no bottom-nav slot of its own even here, the same
+// reasoning Screen.Record already uses: it's reached from Settings instead.
+private val simpleNavItems: List<Screen> =
+    listOf(Screen.Map, Screen.Settings)
 
 private fun iconFor(screen: Screen): ImageVector = when (screen) {
     Screen.Map        -> Icons.Rounded.Map
@@ -96,6 +104,8 @@ fun RoamlyNavHost() {
     val updateViewModel: UpdateViewModel = hiltViewModel()
     val askViewModel: AskViewModel = hiltViewModel()
     val isLoggedIn by authViewModel.isLoggedIn.collectAsState()
+    val simpleMode by authViewModel.simpleModeEnabled.collectAsState()
+    val bottomNavItems = if (simpleMode) simpleNavItems else advancedNavItems
 
     // Check for a newer sideloaded build once logged in (throttled to ~24h).
     LaunchedEffect(isLoggedIn) {

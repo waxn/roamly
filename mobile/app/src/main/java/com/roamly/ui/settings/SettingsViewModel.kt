@@ -36,6 +36,8 @@ data class SettingsUiState(
     val autoStartTracking: Boolean = true,
     val syncOnMobileData: Boolean = true,
     val suppressStationaryDrift: Boolean = true,
+    val adaptiveIntervalEnabled: Boolean = false,
+    val simpleModeEnabled: Boolean = false,
     val batteryOptimizationDisabled: Boolean = false,
     val csvPath: String = "",
     // Sync status
@@ -80,6 +82,8 @@ class SettingsViewModel @Inject constructor(
         collect(prefs.autoStartTracking)     { v -> _state.update { it.copy(autoStartTracking = v) } }
         collect(prefs.syncOnMobileData)      { v -> _state.update { it.copy(syncOnMobileData = v) } }
         collect(prefs.suppressStationaryDrift) { v -> _state.update { it.copy(suppressStationaryDrift = v) } }
+        collect(prefs.adaptiveIntervalEnabled) { v -> _state.update { it.copy(adaptiveIntervalEnabled = v) } }
+        collect(prefs.simpleModeEnabled)       { v -> _state.update { it.copy(simpleModeEnabled = v) } }
         collect(prefs.lastSyncTime)          { v -> _state.update { it.copy(lastSyncTime = v) } }
         collect(prefs.lastSyncSuccess)       { v -> _state.update { it.copy(lastSyncSuccess = v) } }
         collect(prefs.lastSyncCount)         { v -> _state.update { it.copy(lastSyncCount = v) } }
@@ -228,6 +232,22 @@ class SettingsViewModel @Inject constructor(
 
     fun setSuppressStationaryDrift(enabled: Boolean) {
         viewModelScope.launch { prefs.setSuppressStationaryDrift(enabled) }
+    }
+
+    fun setAdaptiveIntervalEnabled(enabled: Boolean) {
+        viewModelScope.launch { prefs.setAdaptiveIntervalEnabled(enabled) }
+    }
+
+    /** Turning Simple Mode on also forces adaptive interval on (prefs.setSimpleModeEnabled
+     *  does both in one edit) -- refresh both here so the two switches agree immediately
+     *  rather than waiting for the adaptive-interval collector's next emission. */
+    fun setSimpleModeEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            prefs.setSimpleModeEnabled(enabled)
+            _state.update {
+                it.copy(simpleModeEnabled = enabled, adaptiveIntervalEnabled = it.adaptiveIntervalEnabled || enabled)
+            }
+        }
     }
 
     fun refreshBatteryOptimizationState() {
