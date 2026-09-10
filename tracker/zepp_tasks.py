@@ -38,6 +38,8 @@ from datetime import datetime, timedelta, timezone as dt_timezone
 from django.db import close_old_connections, connection
 from django.utils import timezone
 
+from .net_utils import validate_outbound_host, OutboundURLError
+
 logger = logging.getLogger(__name__)
 
 # Zepp shards accounts by region; the wrong host authenticates but returns no
@@ -76,6 +78,13 @@ def _fetch_band_data(host, token, user_id, from_date, to_date):
         'from_date': from_date.strftime('%Y-%m-%d'),
         'to_date': to_date.strftime('%Y-%m-%d'),
     })
+    # Re-checked immediately before connecting: `host` is user-supplied (Zepp
+    # shards accounts by region, so it has to be configurable) and DNS is not
+    # stable between the save and this call.
+    try:
+        validate_outbound_host(host, label='Zepp host')
+    except OutboundURLError as exc:
+        raise ZeppError(str(exc))
     url = f"https://{host}{BAND_DATA_PATH}?{params}"
     req = urllib.request.Request(url, headers={
         'apptoken': token,

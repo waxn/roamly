@@ -29,6 +29,8 @@ from django.db.models import Count, Min, Max, Avg, Q, Case, When, Value, F, Inte
 from django.db.models.functions import Coalesce, Cast, Round
 from django.http import FileResponse, JsonResponse, HttpResponse, StreamingHttpResponse
 from django.views.static import serve as static_serve
+
+from .net_utils import validate_outbound_url, validate_outbound_host, OutboundURLError
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
@@ -1492,6 +1494,12 @@ def contact_api(request):
     if request.method != 'POST':
         return JsonResponse({'error': 'Method not allowed.'}, status=405)
 
+    # Unauthenticated and it sends mail, so an unthrottled one is an
+    # admin-mailbox flood and a fast way to burn the instance's SMTP
+    # reputation. The honeypot alone only stops naive bots.
+    if _rate_limited(request, 'contact', 5, 3600):
+        return JsonResponse({'error': 'Too many messages. Please try again later.'}, status=429)
+
     from .context_processors import get_contact_email
     contact_to = get_contact_email()
     if not (email_enabled() and contact_to):
@@ -1549,7 +1557,13 @@ def profile_ai_config_api(request):
         return JsonResponse({'error': 'Invalid request.'}, status=400)
 
     profile.ai_ask_enabled = bool(data.get('ai_ask_enabled'))
-    profile.ai_base_url = (data.get('ai_base_url') or '').strip().rstrip('/')[:500]
+    _ai_url = (data.get('ai_base_url') or '').strip().rstrip('/')[:500]
+    if _ai_url:
+        try:
+            validate_outbound_url(_ai_url, label='AI base URL')
+        except OutboundURLError as exc:
+            return JsonResponse({'error': str(exc)}, status=400)
+    profile.ai_base_url = _ai_url
     profile.ai_model = (data.get('ai_model') or '').strip()[:200]
     profile.ai_system_prompt = (data.get('ai_system_prompt') or '').strip()
     profile.ai_allow_journals = bool(data.get('ai_allow_journals'))
@@ -6407,6 +6421,9 @@ def trip_public_detail_api(request, slug):
     trip = get_object_or_404(Adventure, public_slug=slug)
     if not _check_public_pin(request, trip):
         return JsonResponse({"error": "PIN required"}, status=403)
+    # Unauthenticated, and it assembles up to LOCATION_LIMIT points per member.
+    if _rate_limited(request, 'trip_public', 60, 300):
+        return JsonResponse({"error": "Too many requests."}, status=429)
     return JsonResponse(_adventure_public_payload(trip, request.user))
 
 
@@ -9705,6 +9722,14 @@ def backup_test_api(request):
 
     # Build a temporary config-like object for testing
     config = BackupConfig(user=request.user)
+    for _field, _label in (('endpoint_url', 'S3 endpoint URL'),
+                           ('image_endpoint_url', 'Image backup endpoint URL')):
+        _val = (data.get(_field) or '').strip()
+        if _val:
+            try:
+                validate_outbound_url(_val, label=_label)
+            except OutboundURLError as exc:
+                return JsonResponse({'error': str(exc)}, status=400)
     config.endpoint_url = data.get('endpoint_url', '').strip()
     config.bucket_name = data.get('bucket_name', '').strip()
     config.access_key = data.get('access_key', '').strip()
@@ -10848,7 +10873,13 @@ def mobile_version_check(request):
     ``?refresh=1`` forces a fresh GitHub fetch (bypassing the read cache) so a
     just-published release shows up immediately instead of after the TTL.
     """
+    if _rate_limited(request, 'mobile_version', 60, 300):
+        return JsonResponse({'error': 'Too many requests.'}, status=429)
+    # ?refresh=1 skips the read cache, so it is a public lever on GitHub's
+    # 60-per-hour unauthenticated quota. Throttle it harder than the cached path.
     force = request.GET.get('refresh') in ('1', 'true', 'yes')
+    if force and _rate_limited(request, 'mobile_version_refresh', 5, 3600):
+        force = False
     release = _fetch_latest_mobile_release(force=force)
     if release is None:
         return JsonResponse({'error': 'No release information available'}, status=503)
@@ -10860,28 +10891,54 @@ def mobile_version_check(request):
     })
 
 
+_APK_MAX_BYTES = 300 * 1024 * 1024
+
+
 def mobile_download_apk(request):
     """Stream the latest signed APK, cached to disk to avoid re-hitting GitHub."""
+    if _rate_limited(request, 'mobile_apk', 10, 3600):
+        return HttpResponse('Too many requests', status=429)
     release = _fetch_latest_mobile_release()
     if release is None or not release.get('asset_url'):
         return HttpResponse('APK not available', status=503)
 
+    # The asset URL comes from the GitHub API for settings.MOBILE_UPDATE_REPO,
+    # which a fork — or a compromised release — controls. urlopen honours any
+    # scheme urllib knows, file:// included, so pin it to GitHub's own hosts.
+    asset_url = release['asset_url']
+    if not asset_url.startswith(('https://github.com/',
+                                 'https://api.github.com/',
+                                 'https://objects.githubusercontent.com/',
+                                 'https://release-assets.githubusercontent.com/')):
+        logger.warning('Refusing APK asset from unexpected host: %s', asset_url)
+        return HttpResponse('APK not available', status=503)
+
     apk_dir = os.path.join(settings.MEDIA_ROOT, 'apk')
     os.makedirs(apk_dir, exist_ok=True)
-    # Sanitise the asset name into a safe local filename.
-    safe_name = os.path.basename(release['asset_name'] or f"Roamly{release['version_name']}.apk")
+    # Name the file ourselves rather than sanitising theirs. os.path.basename
+    # blocks traversal but not the EXTENSION, and this lands under MEDIA_ROOT —
+    # so a release asset called "x.html" was written somewhere the media route
+    # would serve as HTML on our own origin.
+    version = re.sub(r'[^A-Za-z0-9._-]', '', str(release.get('version_name') or 'latest'))[:40]
+    safe_name = f'roamly-{version or "latest"}.apk'
     apk_path = os.path.join(apk_dir, safe_name)
 
     if not os.path.exists(apk_path):
         # First request for this version — pull it from GitHub to disk once.
         tmp_path = apk_path + '.part'
         try:
-            req = urllib.request.Request(release['asset_url'], headers={'User-Agent': 'Roamly-update-check'})
+            req = urllib.request.Request(asset_url, headers={'User-Agent': 'Roamly-update-check'})
+            written = 0
             with urllib.request.urlopen(req, timeout=120) as resp, open(tmp_path, 'wb') as out:
                 while True:
                     chunk = resp.read(65536)
                     if not chunk:
                         break
+                    written += len(chunk)
+                    # An APK is tens of megabytes; anything past this is not one,
+                    # and the endpoint is public, so the disk is not ours to fill.
+                    if written > _APK_MAX_BYTES:
+                        raise ValueError('APK asset exceeds the size limit')
                     out.write(chunk)
             os.replace(tmp_path, apk_path)
         except Exception:
@@ -10945,7 +11002,13 @@ def profile_roads_config_api(request):
     if provider not in ('', 'local', 'mapbox', 'osrm'):
         return JsonResponse({'error': 'Unknown road provider.'}, status=400)
     profile.road_provider = provider
-    profile.osrm_url = (data.get('osrm_url') or '').strip().rstrip('/')[:300]
+    _osrm = (data.get('osrm_url') or '').strip().rstrip('/')[:300]
+    if _osrm:
+        try:
+            validate_outbound_url(_osrm, label='OSRM URL')
+        except OutboundURLError as exc:
+            return JsonResponse({'error': str(exc)}, status=400)
+    profile.osrm_url = _osrm
     profile.snap_to_roads = bool(data.get('snap_to_roads'))
 
     profile.save(update_fields=[
@@ -12795,6 +12858,11 @@ def health_zepp_config_api(request):
     profile.zepp_enabled = bool(data.get('enabled'))
     profile.zepp_user_id = str(data.get('user_id') or '').strip()[:64]
     host = str(data.get('host') or '').strip()[:128]
+    if host:
+        try:
+            validate_outbound_host(host, label='Zepp host')
+        except OutboundURLError as exc:
+            return JsonResponse({'error': str(exc)}, status=400)
     profile.zepp_host = host or zepp_tasks.DEFAULT_HOST
 
     # Only overwrite the stored token when the submitted value isn't the mask —

@@ -132,6 +132,9 @@ _HIGHWAY_WEIGHT = {
 _DEFAULT_HIGHWAY_WEIGHT = 1.15
 
 
+from .net_utils import validate_outbound_url, OutboundURLError
+
+
 class RoadProviderError(Exception):
     """A road provider failed in a way worth showing the user."""
 
@@ -1032,8 +1035,15 @@ def _get_json(url, params):
     Settings status line or an audit row, so it has to read as English rather
     than as a stack trace.
     """
+    # Re-checked immediately before connecting (DNS rebinding), and redirects
+    # are refused so an allowed host cannot bounce us onto a private one.
     try:
-        resp = requests.get(url, params=params, timeout=_REQUEST_TIMEOUT)
+        validate_outbound_url(url, label='Routing URL')
+    except OutboundURLError as exc:
+        raise RoadProviderError(str(exc))
+    try:
+        resp = requests.get(url, params=params, timeout=_REQUEST_TIMEOUT,
+                            allow_redirects=False)
     except requests.exceptions.Timeout:
         raise RoadProviderError('The road service timed out.')
     except requests.exceptions.RequestException:

@@ -239,6 +239,13 @@ if not DEBUG:
     SECURE_HSTS_PRELOAD = SECURE_HSTS_SECONDS > 0
     SECURE_SSL_REDIRECT = os.environ.get('SSL_REDIRECT', 'False').lower() in ('true', '1')
 
+# Allow the server to make outbound requests to private/LAN addresses. OFF by
+# default: without it, any account could point its AI base URL at
+# http://169.254.169.254/ (cloud instance metadata) or a service on the Docker
+# network and read the response back through the Ask tab. Turn it on if you
+# genuinely run OSRM, Ollama or MinIO on your own network — see tracker/net_utils.py.
+ALLOW_PRIVATE_OUTBOUND = os.environ.get('ALLOW_PRIVATE_OUTBOUND', 'False').lower() in ('true', '1')
+
 # ── Content-Security-Policy ─────────────────────────────────────────────────
 # Enforced by tracker.middleware.SecurityHeadersMiddleware.
 #

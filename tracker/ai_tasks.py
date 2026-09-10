@@ -26,6 +26,9 @@ _MAX_CLIENT_TURNS = 20
 _REQUEST_TIMEOUT = 45
 
 
+from .net_utils import validate_outbound_url, OutboundURLError
+
+
 class AIProviderError(Exception):
     """A user-facing failure talking to the configured AI provider."""
 
@@ -400,6 +403,13 @@ def _provider_chat(profile, messages, tools=None):
     """POST to {base_url}/chat/completions and return the parsed JSON, translating
     failures into AIProviderError with a user-facing message."""
     base = (profile.ai_base_url or "").rstrip("/")
+    # Re-checked here, not just at save time: DNS is not stable, so a hostname
+    # that resolved publicly when it was saved can resolve to 127.0.0.1 on the
+    # next lookup. Only a check immediately before connecting catches that.
+    try:
+        validate_outbound_url(base, label="AI base URL")
+    except OutboundURLError as exc:
+        raise AIProviderError(str(exc))
     url = f"{base}/chat/completions"
     body = {"model": profile.ai_model, "messages": messages}
     if tools:
@@ -414,6 +424,10 @@ def _provider_chat(profile, messages, tools=None):
             },
             json=body,
             timeout=_REQUEST_TIMEOUT,
+            # Without this an allow-listed host can 302 to a private address and
+            # requests will follow it, defeating the check above. No
+            # OpenAI-compatible provider needs a redirect here.
+            allow_redirects=False,
         )
     except requests.exceptions.Timeout:
         raise AIProviderError("The AI provider timed out. Try again.")
