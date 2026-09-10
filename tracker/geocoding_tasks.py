@@ -4,6 +4,7 @@ import logging
 from collections import defaultdict
 
 from django.utils import timezone
+from django.db import close_old_connections
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,12 @@ def _geocode_worker(user_id):
     place is a single UPDATE, and the user's cache is busted after each chunk so
     labels surface in the UI promptly.
     """
+    # This worker runs in a thread spawned from a request, which never fires the
+    # request_started/request_finished signals that normally enforce
+    # CONN_MAX_AGE — so a connection opened here is held for the life of the
+    # worker process unless it is closed explicitly. log_writer.py documents
+    # the same hazard: under real traffic this leaks until max_connections.
+    close_old_connections()
     from .models import Location, GeocodingJob
     from .offline_geocode import local_reverse_geocode
     from .views import _bust_user_cache
@@ -135,6 +142,8 @@ def _geocode_worker(user_id):
         logger.info(
             f"Geocoding done for user {user_id}: {points_done} points, {errors} errors"
         )
+        # Return the connection this thread opened — nothing else will.
+        close_old_connections()
 
 
 # Per-user debounce for the auto-trigger fired from the location push path.

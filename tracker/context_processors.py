@@ -8,81 +8,87 @@ TURNSTILE_ENABLED_CACHE_KEY = 'site_turnstile_enabled'
 TURNSTILE_SITE_KEY_CACHE_KEY = 'site_turnstile_site_key'
 CARTO_API_KEY_CACHE_KEY = 'site_carto_api_key'
 
+# One key holding every public SiteConfig value, instead of five.
+#
+# custom_js_snippet runs on every template render and used to make five separate
+# cache.get calls — five Redis round-trips per page, before the profile query and
+# the road-provider lookup. They all read the same singleton row and all have the
+# same TTL and the same invalidation, so there was never a reason for them to be
+# separate keys.
+#
+# The individual getters below stay as thin readers of this dict so no caller has
+# to change, and each save endpoint keeps busting its own key: those deletes are
+# harmless now, and _bust_site_config() is what actually clears this.
+SITE_CONFIG_CACHE_KEY = 'site_config_public'
+_SITE_CONFIG_TTL = 3600
 
-def get_custom_js():
-    """Instance-wide custom JS (admin-editable), cached to avoid a per-request DB hit."""
-    js = cache.get(CUSTOM_JS_CACHE_KEY)
-    if js is None:
+# Every key the old per-value getters used. Deleting these alongside the combined
+# one keeps a mid-deploy mix of old and new code from serving stale values.
+_LEGACY_SITE_KEYS = (
+    CUSTOM_JS_CACHE_KEY, CONTACT_EMAIL_CACHE_KEY, TURNSTILE_ENABLED_CACHE_KEY,
+    TURNSTILE_SITE_KEY_CACHE_KEY, CARTO_API_KEY_CACHE_KEY,
+)
+
+
+def _site_config_public():
+    """The admin-editable SiteConfig values templates need, cached as one dict.
+
+    Never includes turnstile_secret_key — that is read server-side only, inside
+    _verify_turnstile.
+    """
+    data = cache.get(SITE_CONFIG_CACHE_KEY)
+    if data is None:
         from .models import SiteConfig
         try:
-            js = SiteConfig.load().custom_js or ''
+            cfg = SiteConfig.load()
+            data = {
+                'custom_js': cfg.custom_js or '',
+                'contact_email': cfg.contact_email or '',
+                'turnstile_enabled': bool(cfg.turnstile_enabled),
+                'turnstile_site_key': cfg.turnstile_site_key or '',
+                'carto_api_key': cfg.carto_api_key or '',
+            }
         except Exception:
-            js = ''
-        cache.set(CUSTOM_JS_CACHE_KEY, js, 3600)
-    return js
+            data = {'custom_js': '', 'contact_email': '', 'turnstile_enabled': False,
+                    'turnstile_site_key': '', 'carto_api_key': ''}
+        cache.set(SITE_CONFIG_CACHE_KEY, data, _SITE_CONFIG_TTL)
+    return data
+
+
+def bust_site_config():
+    """Clear the combined cache (and the legacy per-value keys)."""
+    cache.delete(SITE_CONFIG_CACHE_KEY)
+    cache.delete_many(list(_LEGACY_SITE_KEYS))
+
+
+def get_custom_js():
+    """Instance-wide custom JS (admin-editable)."""
+    return _site_config_public()['custom_js']
 
 
 def get_contact_email():
-    """Instance contact address (admin-editable), cached like the custom JS.
-
-    Empty string means no contact address is configured, in which case the
-    footer contact link is hidden entirely. The cache stores the empty string,
-    and ``cache.get`` returning None means "not looked up yet".
-    """
-    email = cache.get(CONTACT_EMAIL_CACHE_KEY)
-    if email is None:
-        from .models import SiteConfig
-        try:
-            email = SiteConfig.load().contact_email or ''
-        except Exception:
-            email = ''
-        cache.set(CONTACT_EMAIL_CACHE_KEY, email, 3600)
-    return email
+    """Instance contact address. '' means no address configured, in which case
+    the footer contact link is hidden entirely."""
+    return _site_config_public()['contact_email']
 
 
 def get_turnstile_enabled():
-    """Whether the admin has switched on the Turnstile CAPTCHA, cached like the
-    other admin-editable SiteConfig flags."""
-    enabled = cache.get(TURNSTILE_ENABLED_CACHE_KEY)
-    if enabled is None:
-        from .models import SiteConfig
-        try:
-            enabled = SiteConfig.load().turnstile_enabled
-        except Exception:
-            enabled = False
-        cache.set(TURNSTILE_ENABLED_CACHE_KEY, enabled, 3600)
-    return bool(enabled)
+    """Whether the admin has switched on the Turnstile CAPTCHA."""
+    return _site_config_public()['turnstile_enabled']
 
 
 def get_turnstile_site_key():
     """Turnstile public site key — safe to expose to templates. The secret key
-    is never cached or exposed here; it's only read server-side at verification
-    time via SiteConfig.load()."""
-    key = cache.get(TURNSTILE_SITE_KEY_CACHE_KEY)
-    if key is None:
-        from .models import SiteConfig
-        try:
-            key = SiteConfig.load().turnstile_site_key or ''
-        except Exception:
-            key = ''
-        cache.set(TURNSTILE_SITE_KEY_CACHE_KEY, key, 3600)
-    return key
+    is never cached or exposed here; it is read server-side at verification time
+    via SiteConfig.load()."""
+    return _site_config_public()['turnstile_site_key']
 
 
 def get_carto_api_key():
-    """CARTO basemap API key (admin-editable), cached like the other SiteConfig
-    values. Public by design — it rides in the tile URL of every map the app
-    draws, so unlike the Turnstile secret there is nothing to keep from a
-    template."""
-    key = cache.get(CARTO_API_KEY_CACHE_KEY)
-    if key is None:
-        from .models import SiteConfig
-        try:
-            key = SiteConfig.load().carto_api_key or ''
-        except Exception:
-            key = ''
-        cache.set(CARTO_API_KEY_CACHE_KEY, key, 3600)
-    return key
+    """CARTO basemap API key (admin-editable). Public by design — it rides in the
+    tile URL of every map the app draws, so unlike the Turnstile secret there is
+    nothing to keep from a template."""
+    return _site_config_public()['carto_api_key']
 
 
 def get_carto_tile_qs():
@@ -128,8 +134,12 @@ def custom_js_snippet(request):
         if profile:
             road_provider = profile.road_provider_resolved
             road_snap = bool(profile.snap_to_roads and road_provider)
+    # Read the SiteConfig cache ONCE. Calling the five getters here would be five
+    # cache round-trips again, which is the thing the combined key exists to avoid.
+    cfg = _site_config_public()
+    carto = cfg['carto_api_key']
     return {
-        'CUSTOM_JS_SNIPPET': get_custom_js(),
+        'CUSTOM_JS_SNIPPET': cfg['custom_js'],
         'IS_ADMIN': is_admin,
         'AI_ASK_ENABLED': ai_ask_enabled,
         'MAPBOX_TOKEN': mapbox_token,
@@ -138,11 +148,11 @@ def custom_js_snippet(request):
         'INTRO_PENDING': intro_pending,
         # Footer contact link + form (landing + settings). The form only renders
         # when SMTP is configured; otherwise the link falls back to a mailto:.
-        'CONTACT_EMAIL': get_contact_email(),
+        'CONTACT_EMAIL': cfg['contact_email'],
         'EMAIL_ENABLED': bool(getattr(settings, 'EMAIL_ENABLED', False)),
-        'TURNSTILE_ENABLED': get_turnstile_enabled(),
-        'TURNSTILE_SITE_KEY': get_turnstile_site_key(),
+        'TURNSTILE_ENABLED': cfg['turnstile_enabled'],
+        'TURNSTILE_SITE_KEY': cfg['turnstile_site_key'],
         # Appended to every basemaps.cartocdn.com tile URL in the templates and
         # handed to map-core.js via ROAMLY_MAP_CFG. '' when no key is set.
-        'CARTO_TILE_QS': get_carto_tile_qs(),
+        'CARTO_TILE_QS': ('?key=' + quote(carto, safe='')) if carto else '',
     }

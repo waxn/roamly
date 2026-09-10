@@ -6,6 +6,7 @@ from datetime import timedelta
 from collections import defaultdict
 
 from django.utils import timezone
+from django.db import close_old_connections
 from django.db import transaction
 
 from .dwell_utils import bridges_gap
@@ -87,6 +88,12 @@ def _new_visit(device_id, loc):
 
 
 def _visit_worker(user_id):
+    # This worker runs in a thread spawned from a request, which never fires the
+    # request_started/request_finished signals that normally enforce
+    # CONN_MAX_AGE — so a connection opened here is held for the life of the
+    # worker process unless it is closed explicitly. log_writer.py documents
+    # the same hazard: under real traffic this leaks until max_connections.
+    close_old_connections()
     from .models import Location, Visit, VisitJob, POI
     
     MIN_DURATION_S = 300  # 5 minutes
@@ -251,6 +258,8 @@ def _visit_worker(user_id):
             f"Visit computation done for user {user_id}: {points_done} points processed, "
             f"{visits_added} visits added"
         )
+        # Return the connection this thread opened — nothing else will.
+        close_old_connections()
 
 
 _last_auto_trigger = {}

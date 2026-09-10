@@ -207,7 +207,7 @@ def _stats_scheduler_loop():
     """Refresh every user's snapshot once per local day. The first sweep after
     midnight recomputes everyone; later sweeps skip users already done today, so
     it's restart-safe (no missed-cron, no duplicate runs)."""
-    from .models import StatsSnapshot, Location
+    from .models import StatsSnapshot, Device
     from .tz_utils import user_timezone
 
     while True:
@@ -223,17 +223,22 @@ def _stats_scheduler_loop():
             # fresh, healthy connection for each sweep.
             close_old_connections()
 
-            # NOTE the .order_by(): Location has Meta.ordering = ['-timestamp'],
-            # and a values_list(...).distinct() inherits it — which forces the
-            # ordering column into the SELECT and *breaks* the DISTINCT, so this
-            # returned one row per timestamp (~700k rows, almost all the same
-            # user) instead of one row per user. The sweep then looped hundreds of
-            # thousands of times per pass, never reaching the sleep below, pinning
-            # CPU across every worker and streaming the whole table over the wire.
-            # order_by() clears the inherited ordering so DISTINCT is real.
+            # Ask Device, not Location. This was
+            #   SELECT DISTINCT d.user_id FROM tracker_location JOIN tracker_device
+            # — a full scan of the largest table in the app plus a hash aggregate,
+            # to answer a question a table with a handful of rows already holds.
+            # And with no sweep-level lock it ran once per gunicorn worker every
+            # 15 minutes: ~288 full-table scans a day on a 3-worker instance.
+            #
+            # Keep the .order_by(): a values_list(...).distinct() inherits the
+            # model's Meta.ordering, which forces the ordering column into the
+            # SELECT and breaks the DISTINCT. That bug once made this return one
+            # row per timestamp rather than one per user. Device has no
+            # Meta.ordering today, but the call is cheap and the failure is
+            # silent, so it stays.
             user_ids = list(
-                Location.objects.order_by()
-                .values_list('device__user_id', flat=True)
+                Device.objects.order_by()
+                .values_list('user_id', flat=True)
                 .distinct()
             )
             for uid in user_ids:

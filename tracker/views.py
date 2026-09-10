@@ -1393,7 +1393,7 @@ def settings_view(request):
 @require_POST
 def site_custom_js_api(request):
     """Save the instance-wide custom JS snippet. Admins only."""
-    from .context_processors import CUSTOM_JS_CACHE_KEY
+    from .context_processors import bust_site_config
     from django.core.cache import cache
 
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
@@ -1408,7 +1408,7 @@ def site_custom_js_api(request):
     config = SiteConfig.load()
     config.custom_js = custom_js or ''
     config.save(update_fields=['custom_js', 'updated_at'])
-    cache.delete(CUSTOM_JS_CACHE_KEY)
+    bust_site_config()
     _log_action(request, 'custom_js_save')
     return JsonResponse({'ok': True})
 
@@ -1417,7 +1417,7 @@ def site_custom_js_api(request):
 @require_POST
 def site_contact_email_api(request):
     """Save the instance contact address (shown in footers). Admins only."""
-    from .context_processors import CONTACT_EMAIL_CACHE_KEY
+    from .context_processors import bust_site_config
     from django.core.cache import cache
     from django.core.validators import validate_email
     from django.core.exceptions import ValidationError
@@ -1440,7 +1440,7 @@ def site_contact_email_api(request):
     config = SiteConfig.load()
     config.contact_email = contact_email
     config.save(update_fields=['contact_email', 'updated_at'])
-    cache.delete(CONTACT_EMAIL_CACHE_KEY)
+    bust_site_config()
     return JsonResponse({'ok': True, 'contact_email': contact_email})
 
 
@@ -1451,7 +1451,7 @@ def site_turnstile_api(request):
     Admins only. The secret key is masked on GET/render and only overwritten
     here when the submitted value is non-empty and not the mask — same
     pattern as UserProfile.ai_api_key (see _AI_KEY_MASK)."""
-    from .context_processors import TURNSTILE_ENABLED_CACHE_KEY, TURNSTILE_SITE_KEY_CACHE_KEY
+    from .context_processors import bust_site_config
 
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
     if not profile.is_admin:
@@ -1473,8 +1473,7 @@ def site_turnstile_api(request):
     config.save(update_fields=[
         'turnstile_enabled', 'turnstile_site_key', 'turnstile_secret_key', 'updated_at',
     ])
-    cache.delete(TURNSTILE_ENABLED_CACHE_KEY)
-    cache.delete(TURNSTILE_SITE_KEY_CACHE_KEY)
+    bust_site_config()
     return JsonResponse({'ok': True})
 
 
@@ -1488,7 +1487,7 @@ def site_carto_api(request):
     public to anyone who opens devtools — exactly like UserProfile.mapbox_token.
     Masking it would only stop the admin from checking what they had typed.
     """
-    from .context_processors import CARTO_API_KEY_CACHE_KEY
+    from .context_processors import bust_site_config
 
     err = _require_admin(request)
     if err:
@@ -1503,7 +1502,7 @@ def site_carto_api(request):
     config = SiteConfig.load()
     config.carto_api_key = carto_api_key
     config.save(update_fields=['carto_api_key', 'updated_at'])
-    cache.delete(CARTO_API_KEY_CACHE_KEY)
+    bust_site_config()
     return JsonResponse({'ok': True, 'carto_api_key': carto_api_key})
 
 
@@ -5191,11 +5190,23 @@ def trips_api(request):
     owned_ids = Adventure.objects.filter(device__user=request.user).values_list('id', flat=True)
     member_ids = AdventureMember.objects.filter(user=request.user).values_list('adventure_id', flat=True)
     all_ids = set(list(owned_ids) + list(member_ids))
-    trips = Adventure.objects.filter(id__in=all_ids).select_related('device').order_by('-start_time')
+    # select_related('device__user') and 'creator', not just 'device': the loop
+    # reads trip.device.user and trip.creator, which were a query each per trip.
+    # member_count is annotated for the same reason — .count() per row.
+    trips = (Adventure.objects
+             .filter(id__in=all_ids)
+             .select_related('device__user', 'creator')
+             .annotate(member_count=Count('members', distinct=True))
+             .order_by('-start_time'))
     data = []
     for trip in trips:
-        loc_count = trip.locations.count()
-        member_count = trip.members.count()
+        # trip.locations.count() was an unbounded COUNT(*) over the adventure's
+        # whole date range, per trip, every time the list loaded — a month-long
+        # adventure is six figures of rows counted to render a card. The list
+        # only ever showed it as a rough size, so it is capped: past the cap the
+        # client renders "30,000+" rather than paying for an exact figure.
+        loc_count = trip.locations.values_list('id', flat=True)[:LOCATION_LIMIT].count()
+        member_count = trip.member_count
         is_creator = trip.device.user == request.user or (trip.creator == request.user)
         word_count = _body_word_count(trip.body or [])
         read_time_min = max(1, round(word_count / 200)) if word_count else 0
@@ -5357,7 +5368,7 @@ def _trip_detail_inner(request, trip_id):
     owner_user = trip.device.user
     members = []
     member_locations = {}
-    for m in trip.members.select_related('user'):
+    for m in trip.members.select_related('user__profile'):
         members.append({
             "user_id": m.user.id,
             "username": m.user.username,
@@ -5619,7 +5630,9 @@ def _day_note_payload(note, request_user=None):
 def _adventure_day_notes(trip, request_user=None):
     """All members' day-log entries for an adventure, ordered by date then time."""
     notes = (trip.day_notes
-             .select_related('author', 'place')
+             # author__profile: _day_note_payload calls _get_user_avatar, which
+             # reads author.profile — one query per note without this.
+             .select_related('author__profile', 'place')
              .prefetch_related('photos')
              .order_by('date', 'created_at', 'id'))
     return [_day_note_payload(n, request_user) for n in notes]
@@ -5982,7 +5995,7 @@ def trip_timeline_api(request, trip_id):
     page = int(request.GET.get('page', 1))
     per_page = 50
     events = []
-    for b in trip.blurbs.select_related('author').prefetch_related('photos', 'comments'):
+    for b in trip.blurbs.select_related('author__profile').prefetch_related('photos', 'comments'):
         events.append({
             'type': 'blurb',
             'id': b.id,
@@ -5997,12 +6010,15 @@ def trip_timeline_api(request, trip_id):
             'rating': b.rating,
             'category': b.category,
             'photos': [_media_payload(p) for p in b.photos.all()],
-            'comment_count': b.comments.count(),
+            # len() of the prefetched list, not .count(): .count() on a related
+            # manager ignores prefetch_related and issues a fresh COUNT per row,
+            # which made the prefetch pure overhead AND cost N queries.
+            'comment_count': len(b.comments.all()),
             'created_at': b.created_at.isoformat(),
             'sort_key': b.created_at.isoformat(),
             'can_delete': b.author == request.user or trip.device.user == request.user,
         })
-    for m in trip.milestones.select_related('author'):
+    for m in trip.milestones.select_related('author__profile'):
         events.append({
             'type': 'milestone',
             'id': m.id,
@@ -6200,7 +6216,7 @@ def trip_blurb_comments(request, trip_id, blurb_id):
     trip = _get_trip_for_user(trip_id, request.user)
     blurb = get_object_or_404(AdventureBlurb, id=blurb_id, adventure=trip)
     comments = []
-    for c in blurb.comments.select_related('author'):
+    for c in blurb.comments.select_related('author__profile'):
         comments.append({
             'id': c.id,
             'author': c.author.username if c.author else c.guest_name,
@@ -6492,12 +6508,12 @@ def _adventure_public_payload(trip, request_user=None):
     } for lat, lng, ts, city, country in trip.locations.values_list(
         'latitude', 'longitude', 'timestamp', 'city', 'country')[:LOCATION_LIMIT]]
     members = [{"username": m.user.username, "role": m.role, "avatar": _get_user_avatar(m.user)}
-               for m in trip.members.select_related('user') if m.is_accepted]
+               for m in trip.members.select_related('user__profile') if m.is_accepted]
     # Each member's own track over the window, so the public map shows everyone
     # (mirrors _trip_detail_inner). The owner's track is already `locations`.
     owner_user = trip.device.user
     member_locations = {}
-    for m in trip.members.select_related('user'):
+    for m in trip.members.select_related('user__profile'):
         if m.user_id == owner_user.id:
             continue
         track = _member_track(m, trip.start_time, trip.end_time, LOCATION_LIMIT)
@@ -6505,7 +6521,7 @@ def _adventure_public_payload(trip, request_user=None):
             member_locations[m.user.username] = track
     blurbs = []
     places = []
-    for b in trip.blurbs.select_related('author').prefetch_related('photos'):
+    for b in trip.blurbs.select_related('author__profile').prefetch_related('photos'):
         blurbs.append({
             "id": b.id,
             "author": b.author.username,
@@ -6564,7 +6580,7 @@ def trip_public_timeline_api(request, slug):
     if not _check_public_pin(request, trip):
         return JsonResponse({"error": "PIN required"}, status=403)
     events = []
-    for b in trip.blurbs.select_related('author').prefetch_related('photos', 'comments'):
+    for b in trip.blurbs.select_related('author__profile').prefetch_related('photos', 'comments'):
         events.append({
             'type': 'blurb',
             'id': b.id,
@@ -6577,11 +6593,14 @@ def trip_public_timeline_api(request, slug):
             'rating': b.rating,
             'category': b.category,
             'photos': [_media_payload(p) for p in b.photos.all()],
-            'comment_count': b.comments.count(),
+            # len() of the prefetched list, not .count(): .count() on a related
+            # manager ignores prefetch_related and issues a fresh COUNT per row,
+            # which made the prefetch pure overhead AND cost N queries.
+            'comment_count': len(b.comments.all()),
             'created_at': b.created_at.isoformat(),
             'sort_key': b.created_at.isoformat(),
         })
-    for m in trip.milestones.select_related('author'):
+    for m in trip.milestones.select_related('author__profile'):
         events.append({
             'type': 'milestone',
             'id': m.id,
@@ -6602,7 +6621,7 @@ def trip_public_blurb_comments(request, slug, blurb_id):
         return JsonResponse({"error": "PIN required"}, status=403)
     blurb = get_object_or_404(AdventureBlurb, id=blurb_id, adventure=trip)
     comments = []
-    for c in blurb.comments.select_related('author').order_by('created_at'):
+    for c in blurb.comments.select_related('author__profile').order_by('created_at'):
         author = c.author.username if c.author else (c.guest_name or 'guest')
         comments.append({
             'id': c.id,

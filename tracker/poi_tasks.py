@@ -21,6 +21,7 @@ import threading
 import time
 
 from django.db.models import Avg, Count
+from django.db import close_old_connections
 from django.utils import timezone
 
 from . import overpass
@@ -156,6 +157,12 @@ def _download_city_pois(lat, lng, radius=SEARCH_RADIUS, attempt=1, beat=None):
 def _poi_download_worker(token):
     """Worker that downloads POIs for every distinct city anyone on the
     instance has visited. Exits the moment the job stops naming it."""
+    # These workers run in threads spawned from a request, which never fire the
+    # request_started/request_finished signals that normally enforce
+    # CONN_MAX_AGE — so a connection opened here is held for the life of the
+    # worker process unless it is closed explicitly. log_writer.py documents
+    # the same hazard: under real traffic this leaks until max_connections.
+    close_old_connections()
     from .models import DownloadedRegion, Location, POI, POIDownloadJob
 
     processed = 0
@@ -279,6 +286,9 @@ def _poi_download_worker(token):
         global _running_thread
         _running_thread = None
         logger.info(f"POI download done: {processed} cities, {pois_added} POIs added, {failed} failed")
+
+        # Return the connection this thread opened — nothing else will.
+        close_old_connections()
 
 
 def _is_thread_alive():
