@@ -213,6 +213,7 @@ urlpatterns = [
     path('api/site/contact-email/', views.site_contact_email_api, name='site_contact_email'),
     path('api/site/turnstile/', views.site_turnstile_api, name='site_turnstile'),
     path('api/site/carto/', views.site_carto_api, name='site_carto'),
+    path('api/site/fcm/', views.site_fcm_api, name='site_fcm'),
     path('api/site/auto-download/', views.site_auto_download_api, name='site_auto_download'),
     path('api/site/overpass/', views.site_overpass_config_api, name='site_overpass_config'),
     path('api/site/overpass-test/', views.overpass_test_api, name='overpass_test'),

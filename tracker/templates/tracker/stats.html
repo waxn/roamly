@@ -1132,37 +1132,51 @@ function deltaHtml(curr, prev) {
     return `<span style="color:${color};font-weight:600;">${sign}${p}%</span> vs previous`;
 }
 
-function loadYearlyOverview() {
-    fetch('/api/stats/yearly/')
-        .then(r => r.json())
-        .then(data => {
-            yearlyData = data;
-            if (window.setSnapshotUpdated) window.setSnapshotUpdated(data.computed_at);
-            document.getElementById('yearly-heading').textContent = `${data.year} Overview`;
-            document.getElementById('year-label').textContent = `${data.year}`;
-            document.getElementById('monthly-chart-title').textContent = `${data.year} — Monthly Activity`;
-
-            // Week
-            document.getElementById('week-pts').textContent = data.this_week.points.toLocaleString();
-            document.getElementById('week-delta').innerHTML = deltaHtml(data.this_week.points, data.last_week.points);
-            document.getElementById('week-places').textContent =
-                `${data.this_week.countries} countr${data.this_week.countries !== 1 ? 'ies' : 'y'} · ${data.this_week.cities} cit${data.this_week.cities !== 1 ? 'ies' : 'y'}`;
-
-            // Month
-            document.getElementById('month-pts').textContent = data.this_month.points.toLocaleString();
-            document.getElementById('month-delta').innerHTML = deltaHtml(data.this_month.points, data.last_month.points);
-            document.getElementById('month-places').textContent =
-                `${data.this_month.countries} countr${data.this_month.countries !== 1 ? 'ies' : 'y'} · ${data.this_month.cities} cit${data.this_month.cities !== 1 ? 'ies' : 'y'}`;
-
-            // Year
-            document.getElementById('year-pts').textContent = data.this_year.points.toLocaleString();
-            document.getElementById('year-delta').innerHTML = deltaHtml(data.this_year.points, data.last_year.points);
-            document.getElementById('year-places').textContent =
-                `${data.this_year.countries} countr${data.this_year.countries !== 1 ? 'ies' : 'y'} · ${data.this_year.cities} cit${data.this_year.cities !== 1 ? 'ies' : 'y'}`;
-
-            drawYearlyChart(data.monthly_breakdown, data.year);
-            renderMostVisited(data);
+async function loadYearlyOverview() {
+    // loadStats() in this same file already checked r.ok, cleared its skeleton
+    // and offered a Retry; this one did none of it, so the three yearly tiles
+    // shimmered permanently on any failure.
+    let data;
+    try {
+        data = await window.roamlyFetch('/api/stats/yearly/',
+                                        {errorMessage: "Couldn't load the yearly overview"});
+    } catch (e) {
+        ['week', 'month', 'year'].forEach(k => {
+            ['pts', 'delta', 'places'].forEach(part => {
+                const el = document.getElementById(`${k}-${part}`);
+                if (el) { el.textContent = part === 'pts' ? '—' : ''; el.classList.remove('skeleton', 'skel-statval'); }
+            });
         });
+        const host = document.getElementById('yearly-heading');
+        if (host) host.textContent = 'Overview unavailable';
+        return;
+    }
+    yearlyData = data;
+    if (window.setSnapshotUpdated) window.setSnapshotUpdated(data.computed_at);
+    document.getElementById('yearly-heading').textContent = `${data.year} Overview`;
+    document.getElementById('year-label').textContent = `${data.year}`;
+    document.getElementById('monthly-chart-title').textContent = `${data.year} — Monthly Activity`;
+
+    // Week
+    document.getElementById('week-pts').textContent = data.this_week.points.toLocaleString();
+    document.getElementById('week-delta').innerHTML = deltaHtml(data.this_week.points, data.last_week.points);
+    document.getElementById('week-places').textContent =
+        `${data.this_week.countries} countr${data.this_week.countries !== 1 ? 'ies' : 'y'} · ${data.this_week.cities} cit${data.this_week.cities !== 1 ? 'ies' : 'y'}`;
+
+    // Month
+    document.getElementById('month-pts').textContent = data.this_month.points.toLocaleString();
+    document.getElementById('month-delta').innerHTML = deltaHtml(data.this_month.points, data.last_month.points);
+    document.getElementById('month-places').textContent =
+        `${data.this_month.countries} countr${data.this_month.countries !== 1 ? 'ies' : 'y'} · ${data.this_month.cities} cit${data.this_month.cities !== 1 ? 'ies' : 'y'}`;
+
+    // Year
+    document.getElementById('year-pts').textContent = data.this_year.points.toLocaleString();
+    document.getElementById('year-delta').innerHTML = deltaHtml(data.this_year.points, data.last_year.points);
+    document.getElementById('year-places').textContent =
+        `${data.this_year.countries} countr${data.this_year.countries !== 1 ? 'ies' : 'y'} · ${data.this_year.cities} cit${data.this_year.cities !== 1 ? 'ies' : 'y'}`;
+
+    drawYearlyChart(data.monthly_breakdown, data.year);
+    renderMostVisited(data);
 }
 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];

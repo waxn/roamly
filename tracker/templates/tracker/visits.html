@@ -239,25 +239,49 @@ function showVisitsSkeleton() {
     });
 }
 
-function loadVisits() {
+async function loadVisits() {
     showVisitsSkeleton();
-    fetch('/api/visits/')
-        .then(r => r.json())
-        .then(data => {
-            tableData.countries = data.countries;
-            tableData.states = data.states;
-            // Add numeric timestamps for sorting dates
-            tableData.cities = data.cities.map(c => ({
-                ...c,
-                first_seen: c.first_seen || '',
-                last_seen: c.last_seen || '',
-            }));
-            renderTable('countries');
-            renderTable('states');
-            renderTable('cities');
-            if (window.setSnapshotUpdated) window.setSnapshotUpdated(data.computed_at);
-        });
+    // roamlyFetch, not bare fetch: this had no .catch() and no r.ok check, so a
+    // 500 or a dropped connection left all three tabs shimmering forever with no
+    // error and no way to retry. toast:false because the inline row below says
+    // it, in place, with a Retry — a corner toast would just repeat it.
+    let data;
+    try {
+        data = await window.roamlyFetch('/api/visits/', {toast: false});
+    } catch (e) {
+        showVisitsError(e.message);
+        return;
+    }
+    tableData.countries = data.countries;
+    tableData.states = data.states;
+    // Add numeric timestamps for sorting dates
+    tableData.cities = data.cities.map(c => ({
+        ...c,
+        first_seen: c.first_seen || '',
+        last_seen: c.last_seen || '',
+    }));
+    renderTable('countries');
+    renderTable('states');
+    renderTable('cities');
+    if (window.setSnapshotUpdated) window.setSnapshotUpdated(data.computed_at);
 }
+
+// A <tbody> cannot hold roamlyFetch's generic error block, so each table gets a
+// single spanning row instead — with the Retry it previously had no way to offer.
+function showVisitsError(message) {
+    Object.keys(colSpans).forEach(table => {
+        const tbody = document.getElementById(`${table}-table`);
+        if (!tbody) return;
+        tbody.innerHTML =
+            `<tr><td colspan="${colSpans[table]}">
+                <div class="rly-load-error" role="alert">
+                    <span>${message || "Couldn't load your visits."}</span>
+                    <button type="button" class="rly-retry-btn" onclick="loadVisits()">Retry</button>
+                </div>
+            </td></tr>`;
+    });
+}
+
 window.onSnapshotReady = loadVisits;
 loadVisits();
 </script>

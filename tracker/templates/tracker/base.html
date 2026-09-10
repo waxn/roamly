@@ -1086,6 +1086,19 @@
         .rly-dialog-btn-secondary { background: transparent; }
         .rly-dialog-btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
         .rly-dialog-btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+        .rly-load-error {
+            display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+            padding: 0.75rem 0.9rem; border: 1px solid var(--danger);
+            background: color-mix(in srgb, var(--danger) 8%, transparent);
+            color: var(--text); font-size: 0.85rem;
+        }
+        .rly-retry-btn {
+            padding: 0.3rem 0.7rem; background: none; color: var(--text);
+            border: 1px solid var(--border); font-family: inherit; font-size: 0.8rem;
+            cursor: pointer;
+        }
+        .rly-retry-btn:hover { border-color: var(--primary); color: var(--primary); }
+        .rly-retry-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
         .rly-dialog-fields { display: flex; flex-direction: column; gap: 0.7rem; margin: 0.9rem 0 0.2rem; }
         .rly-dialog-fields:empty { display: none; }
         .rly-dialog-field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; color: var(--text-muted); }
@@ -1348,14 +1361,37 @@
             const btn = document.getElementById('snapshot-recalc');
             if (!btn) return;
             let polling = false;
-            async function poll() {
-                let s;
-                try { s = await fetch('/api/stats/recompute/status/').then(r => r.json()); }
-                catch (e) { s = { status: 'error' }; }
-                if (s.status === 'running') { setTimeout(poll, 2000); return; }
+            function finish() {
                 polling = false;
                 btn.disabled = false;
                 btn.innerHTML = '↻ recalculate';
+            }
+            async function poll() {
+                let s;
+                try {
+                    s = await window.roamlyFetch('/api/stats/recompute/status/', {toast: false});
+                } catch (e) {
+                    // A failed status poll used to be treated as COMPLETION: the
+                    // button reset and setSnapshotUpdated(undefined) overwrote a
+                    // perfectly good "updated 5m ago" with "not computed yet",
+                    // which is actively wrong. Leave the displayed timestamp
+                    // alone and say the check failed.
+                    finish();
+                    if (window.roamlyToast) {
+                        window.roamlyToast("Couldn't check whether the recalculation finished. "
+                            + 'It may still be running — reload in a minute.', {type: 'error'});
+                    }
+                    return;
+                }
+                if (s.status === 'running') { setTimeout(poll, 2000); return; }
+                finish();
+                if (s.status === 'error') {
+                    if (window.roamlyToast) {
+                        window.roamlyToast('The recalculation failed. Your existing stats are unchanged.',
+                                           {type: 'error'});
+                    }
+                    return;   // again: do NOT blank the timestamp
+                }
                 window.setSnapshotUpdated(s.computed_at);
                 if (typeof window.onSnapshotReady === 'function') window.onSnapshotReady();
             }
@@ -1364,7 +1400,16 @@
                 polling = true;
                 btn.disabled = true;
                 btn.innerHTML = '<span class="spinner" style="width:0.85rem;height:0.85rem;border-width:2px;"></span> recalculating…';
-                try { await fetch('/api/stats/recompute/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } }); } catch (e) {}
+                try {
+                    // The POST's failure used to be swallowed by an empty catch
+                    // and the poll started anyway, so a rejected request looked
+                    // exactly like a running one.
+                    await window.roamlyFetch('/api/stats/recompute/', {
+                        method: 'POST', errorMessage: "Couldn't start the recalculation"});
+                } catch (e) {
+                    finish();
+                    return;
+                }
                 setTimeout(poll, 1200);
             });
         })();
@@ -1860,6 +1905,138 @@
             window.roamlyAlert = window.RoamlyDialog.alert;
             window.roamlyConfirm = window.RoamlyDialog.confirm;
             window.roamlyPrompt = window.RoamlyDialog.prompt;
+        })();
+    </script>
+    <script>
+        // ── roamlyFetch ────────────────────────────────────────────────────────
+        // One wrapper for the ~228 fetch() calls in this app. Roughly half had no
+        // .catch() and half never checked response.ok, and because the error pages
+        // return HTML a 500 made r.json() throw a parse error that either vanished
+        // or reached the unhandledrejection net below — surfacing as the generic
+        // "Something went wrong on this page." while the skeleton (still
+        // aria-busy="true") stayed up forever.
+        //
+        //   roamlyFetch(url, {                 // everything fetch() takes, plus:
+        //     csrf: true,                      // inject X-CSRFToken (default for
+        //                                      // any non-GET)
+        //     json: {...},                     // body + Content-Type in one
+        //     busy: '#el' | Element,           // clears aria-busy, and on failure
+        //                                      // replaces the contents with an
+        //                                      // error + Retry
+        //     retry: fn,                       // what Retry calls
+        //     toast: false,                    // suppress the error toast
+        //     errorMessage: 'Custom prefix',
+        //   }) -> parsed JSON (or the Response for non-JSON replies)
+        //
+        // Throws RoamlyHttpError carrying the server's own `error` string, so call
+        // sites can say what actually happened instead of guessing.
+        (function() {
+            if (window.roamlyFetch) return;
+
+            function csrfToken() {
+                const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]*)/);
+                if (m) return decodeURIComponent(m[1]);
+                const el = document.querySelector('input[name=csrfmiddlewaretoken]');
+                return el ? el.value : '';
+            }
+
+            class RoamlyHttpError extends Error {
+                constructor(message, status, payload) {
+                    super(message);
+                    this.name = 'RoamlyHttpError';
+                    this.status = status;
+                    this.payload = payload;
+                }
+            }
+            window.RoamlyHttpError = RoamlyHttpError;
+
+            function resolveEl(x) {
+                if (!x) return null;
+                return typeof x === 'string' ? document.querySelector(x) : x;
+            }
+
+            function showBusyError(el, message, retry) {
+                if (!el) return;
+                el.removeAttribute('aria-busy');
+                const wrap = document.createElement('div');
+                wrap.className = 'rly-load-error';
+                wrap.setAttribute('role', 'alert');
+                const text = document.createElement('span');
+                text.textContent = message;
+                wrap.appendChild(text);
+                if (retry) {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'rly-retry-btn';
+                    btn.textContent = 'Retry';
+                    btn.onclick = function() { wrap.remove(); retry(); };
+                    wrap.appendChild(btn);
+                }
+                el.innerHTML = '';
+                el.appendChild(wrap);
+            }
+
+            window.roamlyFetch = async function(url, opts) {
+                opts = Object.assign({}, opts || {});
+                const busyEl = resolveEl(opts.busy);
+                const method = (opts.method || 'GET').toUpperCase();
+                const headers = Object.assign({}, opts.headers || {});
+
+                if (opts.json !== undefined) {
+                    opts.body = JSON.stringify(opts.json);
+                    headers['Content-Type'] = headers['Content-Type'] || 'application/json';
+                }
+                const wantCsrf = opts.csrf !== undefined ? opts.csrf : method !== 'GET';
+                if (wantCsrf && !headers['X-CSRFToken']) headers['X-CSRFToken'] = csrfToken();
+
+                delete opts.json; delete opts.busy; delete opts.csrf;
+                delete opts.retry; delete opts.toast; delete opts.errorMessage;
+                opts.headers = headers;
+                opts.method = method;
+
+                const o = arguments[1] || {};
+                let response;
+                try {
+                    response = await fetch(url, opts);
+                } catch (e) {
+                    const err = new RoamlyHttpError(
+                        navigator.onLine ? 'Could not reach the server.'
+                                         : "You're offline — this needs a connection.", 0, null);
+                    fail(err);
+                    throw err;
+                }
+
+                if (!response.ok) {
+                    let payload = null, detail = '';
+                    try {
+                        payload = await response.json();
+                        detail = (payload && (payload.error || payload.message)) || '';
+                    } catch (e) { /* an HTML error page, not JSON */ }
+                    if (!detail) {
+                        detail = response.status === 403 ? 'You are not allowed to do that.'
+                               : response.status === 404 ? 'That was not found.'
+                               : response.status === 429 ? 'Too many requests — wait a moment and try again.'
+                               : response.status >= 500 ? 'The server had a problem.'
+                               : `Request failed (${response.status}).`;
+                    }
+                    const err = new RoamlyHttpError(detail, response.status, payload);
+                    fail(err);
+                    throw err;
+                }
+
+                if (busyEl) busyEl.removeAttribute('aria-busy');
+                const ctype = response.headers.get('Content-Type') || '';
+                if (ctype.includes('application/json')) return response.json();
+                return response;
+
+                function fail(err) {
+                    const msg = o.errorMessage ? `${o.errorMessage}: ${err.message}` : err.message;
+                    if (busyEl) showBusyError(busyEl, msg, o.retry);
+                    if (o.toast !== false && window.roamlyToast) {
+                        window.roamlyToast(msg, {type: 'error'});
+                    }
+                }
+            };
         })();
     </script>
     <script>

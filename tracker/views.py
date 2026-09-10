@@ -1527,6 +1527,52 @@ def site_carto_api(request):
 
 @login_required
 @require_http_methods(["POST"])
+def site_fcm_api(request):
+    """Save the instance's Firebase Cloud Messaging service-account credentials
+    (Family Circle place-alert push notifications). Admins only.
+
+    The JSON blob is a server-signing secret, not a client-embedded key, so
+    it's masked on render and only overwritten here when the submitted value
+    is non-empty and not the mask — same pattern as turnstile_secret_key.
+    """
+    from .push_tasks import bust_token_cache
+
+    err = _require_admin(request)
+    if err:
+        return err
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+
+    config = SiteConfig.load()
+    raw = (data.get('fcm_service_account_json') or '').strip()
+    if raw and raw != _AI_KEY_MASK:
+        try:
+            info = json.loads(raw)
+            project_id = info['project_id']
+        except (ValueError, KeyError):
+            return JsonResponse(
+                {'error': 'Not a valid Firebase service-account JSON file '
+                          '(missing or malformed project_id).'}, status=400)
+        config.fcm_service_account_json = raw
+        config.fcm_project_id = project_id
+        config.save(update_fields=['fcm_service_account_json', 'fcm_project_id', 'updated_at'])
+        bust_token_cache()
+    elif not raw:
+        # Explicit clear: an empty submission (not the mask) removes the
+        # credential outright rather than being ignored like an unchanged one.
+        config.fcm_service_account_json = ''
+        config.fcm_project_id = ''
+        config.save(update_fields=['fcm_service_account_json', 'fcm_project_id', 'updated_at'])
+        bust_token_cache()
+
+    return JsonResponse({'ok': True, 'fcm_project_id': config.fcm_project_id,
+                          'fcm_configured': bool(config.fcm_service_account_json)})
+
+
+@login_required
+@require_http_methods(["POST"])
 def site_auto_download_api(request):
     """Toggle auto-download of new regions for road/subway/POI data.
 
@@ -10717,6 +10763,8 @@ def admin_panel_view(request):
         'site_turnstile_site_key': site_config.turnstile_site_key,
         'site_turnstile_secret_set': bool(site_config.turnstile_secret_key),
         'site_carto_api_key': site_config.carto_api_key,
+        'site_fcm_project_id': site_config.fcm_project_id,
+        'site_fcm_configured': bool(site_config.fcm_service_account_json),
         'auto_download_roads': site_config.auto_download_roads,
         'auto_download_subway': site_config.auto_download_subway,
         'auto_download_pois': site_config.auto_download_pois,

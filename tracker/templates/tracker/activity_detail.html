@@ -237,18 +237,22 @@ function drawSpeedChart(speeds) {
 
 async function rename() {
     const current = document.getElementById('ad-title').textContent;
-    const next = window.prompt('Activity name', current);
-    if (next === null) return;
-    const r = await fetch(`/api/activities/${ACTIVITY_ID}/update/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-        body: JSON.stringify({ title: next }),
+    // roamlyPrompt, not window.prompt — this was the last native browser dialog
+    // left in the app, on a page already using roamlyConfirm and roamlyToast.
+    const answers = await window.roamlyPrompt('What should this activity be called?', {
+        title: 'Rename activity', confirmText: 'Save',
+        fields: [{name: 'title', label: 'Activity name', placeholder: current}],
     });
-    if (r.ok) {
+    if (!answers) return;
+    const next = (answers.title || '').trim();
+    try {
+        await window.roamlyFetch(`/api/activities/${ACTIVITY_ID}/update/`, {
+            method: 'POST', json: { title: next }, toast: false,
+        });
         document.getElementById('ad-title').textContent = next || 'Activity';
         window.roamlyToast('Renamed', { type: 'success' });
-    } else {
-        window.roamlyToast('Could not rename', { type: 'error' });
+    } catch (e) {
+        window.roamlyToast(e.message || 'Could not rename', { type: 'error' });
     }
 }
 
@@ -258,22 +262,36 @@ async function remove() {
         'activity record is removed.',
         { title: 'Delete activity', danger: true, confirmText: 'Delete' });
     if (!ok) return;
-    const r = await fetch(`/api/activities/${ACTIVITY_ID}/delete/`, {
-        method: 'POST', headers: { 'X-CSRFToken': csrfToken },
-    });
-    if (r.ok) window.location.href = '/activities/';
-    else window.roamlyToast('Could not delete', { type: 'error' });
+    try {
+        await window.roamlyFetch(`/api/activities/${ACTIVITY_ID}/delete/`, {
+            method: 'POST', toast: false,
+        });
+        window.location.href = '/activities/';
+    } catch (e) {
+        window.roamlyToast(e.message || 'Could not delete', { type: 'error' });
+    }
 }
 
 document.getElementById('ad-rename').addEventListener('click', rename);
 document.getElementById('ad-delete').addEventListener('click', remove);
 
-fetch(`/api/activities/${ACTIVITY_ID}/`)
-    .then(r => r.json())
-    .then(d => { if (d.activity) renderActivity(d.activity); });
+// Both on-load fetches had no .catch() and no r.ok check, so any failure left
+// the page rendered empty with nothing to explain it.
+(async function loadDetail() {
+    try {
+        const d = await window.roamlyFetch(`/api/activities/${ACTIVITY_ID}/`,
+                                           {errorMessage: "Couldn't load this activity"});
+        if (d.activity) renderActivity(d.activity);
+    } catch (e) { /* roamlyFetch has already toasted */ }
+})();
 
-fetch(`/api/activities/${ACTIVITY_ID}/track/`)
-    .then(r => r.json())
-    .then(d => { renderTrack(d); drawSpeedChart(d.speeds || []); });
+(async function loadTrack() {
+    try {
+        const d = await window.roamlyFetch(`/api/activities/${ACTIVITY_ID}/track/`,
+                                           {errorMessage: "Couldn't load the track"});
+        renderTrack(d);
+        drawSpeedChart(d.speeds || []);
+    } catch (e) { /* roamlyFetch has already toasted */ }
+})();
 </script>
 {% endblock %}

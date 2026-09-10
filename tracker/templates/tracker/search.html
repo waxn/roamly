@@ -138,10 +138,25 @@ const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value
 // --- POI download banner ---
 let poiPollTimer = null;
 
-function checkPoiStatus() {
-    fetch('/api/poi/status/')
-        .then(r => r.json())
-        .then(data => {
+async function checkPoiStatus() {
+    // Silent failure here was the worst kind: #poi-banner never appeared, so a
+    // user with no POI data got a search box that returned nothing, with no hint
+    // that place data has to be downloaded first. toast:false — the banner is
+    // supplementary, and a toast on every page load would be noise.
+    let data;
+    try {
+        data = await window.roamlyFetch('/api/poi/status/', {toast: false});
+    } catch (e) {
+        const banner = document.getElementById('poi-banner');
+        const info = document.getElementById('poi-info');
+        if (banner && info) {
+            banner.style.display = '';
+            info.textContent = "Couldn't check whether place data is available.";
+        }
+        return;
+    }
+    {
+        {
             const banner = document.getElementById('poi-banner');
             const info = document.getElementById('poi-info');
             const btn = document.getElementById('poi-btn');
@@ -174,21 +189,24 @@ function checkPoiStatus() {
                     btn.onclick = startPoiDownload;
                 }
             }
-        });
+        }
+    }
 }
 
-function startPoiDownload() {
-    fetch('/api/poi/download/', {
-        method: 'POST',
-        headers: { 'X-CSRFToken': csrfToken },
-    }).then(() => checkPoiStatus());
+// Both used to swallow every failure, so pressing "download places" on a
+// non-admin account (these endpoints are admin-only) did nothing visible at all.
+async function startPoiDownload() {
+    try {
+        await window.roamlyFetch('/api/poi/download/', {
+            method: 'POST', errorMessage: "Couldn't start the download"});
+    } finally { checkPoiStatus(); }
 }
 
-function stopPoiDownload() {
-    fetch('/api/poi/stop/', {
-        method: 'POST',
-        headers: { 'X-CSRFToken': csrfToken },
-    }).then(() => checkPoiStatus());
+async function stopPoiDownload() {
+    try {
+        await window.roamlyFetch('/api/poi/stop/', {
+            method: 'POST', errorMessage: "Couldn't stop the download"});
+    } finally { checkPoiStatus(); }
 }
 
 checkPoiStatus();
