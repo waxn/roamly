@@ -19,3 +19,9 @@ timezonefinder>=6.5
 # array never has to be materialised — the export already streams, and a backup
 # you cannot restore at the size where it matters is not a backup.
 ijson>=3.2
+# Signs Firebase Cloud Messaging HTTP v1 requests from a service-account key
+# (tracker/push_tasks.py). Deliberately not firebase-admin, which pulls in
+# Firestore/Storage/Auth client libraries this app never touches for what is
+# really just "mint an OAuth2 token, POST it" — requests (already a dep)
+# does the POST, google-auth's Request transport works with it directly.
+google-auth>=2.28

@@ -1886,3 +1886,152 @@ class Activity(models.Model):
             timestamp__gte=self.start_time,
             timestamp__lte=self.end_time,
         ).order_by('timestamp', 'id')
+
+
+class FamilyCircle(models.Model):
+    """A mutual location-sharing group ("Family Circle") — the self-hosted
+    answer to Life360/Paralino. Every accepted member with share_location on
+    sees every other's live location (see FamilyMembership), and any accepted
+    member can create shared FamilyPlace geofences and their own enter/exit
+    FamilyPlaceAlert subscriptions.
+
+    Deliberately not built on Adventure/AdventureMember: an Adventure is a
+    time-bounded journey with an owner-chosen window, while a circle is
+    open-ended and every member is a peer. It does reuse that model's
+    hard-won consent shape — see FamilyMembership.
+    """
+    name = models.CharField(max_length=200)
+    creator = models.ForeignKey(User, on_delete=models.CASCADE, related_name='family_circles_created')
+    # Lazily minted, same shape as Adventure.invite_token — join is by link
+    # only, never by unilateral username-add (see FamilyMembership).
+    invite_token = models.CharField(max_length=32, unique=True, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+
+class FamilyMembership(models.Model):
+    """Membership in a FamilyCircle — a direct structural copy of
+    AdventureMember's consent model (migration 0082), for the same reason
+    that one exists: a circle publishes every member's live location, so
+    membership must never be creatable unilaterally by another member, and
+    accepting an invite must not by itself mean "broadcast my location".
+
+    There is deliberately no "add by username" path (mirroring the fact that
+    one is exactly what AdventureMember's old unbounded-disclosure bug was
+    built on) — the only way in is FamilyCircle.invite_token.
+    """
+    ROLE_CHOICES = [('creator', 'Creator'), ('member', 'Member')]
+    circle = models.ForeignKey(FamilyCircle, on_delete=models.CASCADE, related_name='members')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='family_memberships')
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='member')
+    joined_at = models.DateTimeField(auto_now_add=True)
+    # NULL = invited, not yet accepted. Nothing about this member — location,
+    # membership listing beyond "pending" — is visible to the rest of the
+    # circle until this is set, via a POST-gated join page that explains what
+    # accepting means (never a state-changing GET).
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    # Accepting an invite is not by itself consent to broadcast a live
+    # position — a separate, always-revisable switch. Also gates whether the
+    # geofence checker evaluates this member at all (tracker/family_tasks.py).
+    share_location = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = ['circle', 'user']
+
+    @property
+    def is_accepted(self):
+        return self.accepted_at is not None
+
+    def __str__(self):
+        return f"{self.user.username} in {self.circle.name}"
+
+
+class FamilyPlace(models.Model):
+    """A named geofence shared across a FamilyCircle — e.g. "School", "Home".
+
+    Deliberately not CustomPlace: that model is private/per-user and every
+    existing consumer (_find_nearby_locations, _place_membership, search,
+    the data table) assumes single-owner semantics. Self-serve circle
+    membership (any accepted member may create/edit) makes a shared,
+    circle-scoped place a different enough shape to warrant its own model
+    rather than threading a nullable circle FK through code that was never
+    written to expect shared visibility.
+    """
+    circle = models.ForeignKey(FamilyCircle, on_delete=models.CASCADE, related_name='places')
+    # Attribution only — the place persists if its creator later leaves the
+    # circle, exactly as AdventureBlurb.author persists past a departed member.
+    creator = models.ForeignKey(User, on_delete=models.CASCADE, related_name='family_places_created')
+    name = models.CharField(max_length=200)
+    latitude = models.FloatField()
+    longitude = models.FloatField()
+    radius_m = models.FloatField(default=150)
+    color = models.CharField(max_length=20, blank=True)  # auto-assigned from the clay palette
+    notes = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+        indexes = [models.Index(fields=['circle'], name='tracker_famplace_circle_idx')]
+
+    def __str__(self):
+        return f"{self.name} ({self.circle.name})"
+
+
+class FamilyPlaceAlert(models.Model):
+    """One member's own subscription to be notified when someone enters or
+    exits a FamilyPlace. Self-serve, per requirement: any accepted circle
+    member configures their own alerts, independent of who created the place.
+    """
+    place = models.ForeignKey(FamilyPlace, on_delete=models.CASCADE, related_name='alerts')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='family_place_alerts')
+    on_enter = models.BooleanField(default=True)
+    on_exit = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['place', 'user']
+
+    def __str__(self):
+        return f"{self.user.username} <- {self.place.name}"
+
+
+class FamilyMemberPlaceState(models.Model):
+    """Was this member last seen inside this place? The transition-state
+    cache tracker/family_tasks.py compares each new fix against, so an
+    enter/exit can be told apart from "still inside" / "still outside".
+
+    A derived cache, not user content it can't reconstruct from Location —
+    excluded from backups (like StatsSnapshot/fog:{user}); a restore simply
+    lets the next push reseed it silently, the same "first observation is not
+    a transition" rule a brand-new row gets.
+    """
+    place = models.ForeignKey(FamilyPlace, on_delete=models.CASCADE, related_name='member_states')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='family_place_states')
+    is_inside = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ['place', 'user']
+
+
+class FamilyPushToken(models.Model):
+    """One registered Firebase Cloud Messaging token for one app install.
+
+    Not an FK to Device: token registration (on app launch) can race ahead of
+    the first location push that lazily creates a Device row, and a
+    family-only member may never enable GPS tracking at all.
+
+    A live per-device credential, not user content — excluded from backups,
+    the same tier as APIKey.key.
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='family_push_tokens')
+    token = models.CharField(max_length=255, unique=True)
+    device_label = models.CharField(max_length=100, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=200, blank=True, default='')
+
+    def __str__(self):
+        return f"{self.user.username} push token"
