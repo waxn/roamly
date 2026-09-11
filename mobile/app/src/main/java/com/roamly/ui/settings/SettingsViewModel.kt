@@ -63,6 +63,7 @@ class SettingsViewModel @Inject constructor(
     private val authRepository: com.roamly.data.repository.AuthRepository,
     private val locationRepository: LocationRepository,
     private val db: com.roamly.tracking.TrackingDatabase,
+    private val statsCache: com.roamly.ui.stats.StatsCache,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -280,6 +281,10 @@ class SettingsViewModel @Inject constructor(
             LocationTrackingService.stop(context)
             disk.clearAll()
             store.clear()
+            // Process-lived and therefore NOT covered by disk.clearAll() — without
+            // this the next account to sign in on this device sees the previous
+            // one's figures until its first refresh lands.
+            statsCache.clear()
             prefs.clear()
             onLoggedOut()
         }
