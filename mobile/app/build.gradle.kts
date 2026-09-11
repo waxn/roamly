@@ -24,8 +24,8 @@ android {
         applicationId = "com.roamly"
         minSdk = 26
         targetSdk = 36
-        versionCode = 37
-        versionName = "1.24.1"
+        versionCode = 38
+        versionName = "1.24.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
