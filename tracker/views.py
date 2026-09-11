@@ -7416,7 +7416,6 @@ def _restore_media_dest(name):
     return dest
 
 
-@login_required
 def _open_backup_json(zf):
     """Read a zip backup's JSON as (everything-except-locations, locations iterator).
 
@@ -7456,6 +7455,7 @@ def _open_backup_json(zf):
     return data, _locations()
 
 
+@login_required
 @require_http_methods(["POST"])
 def restore_backup(request):
     """Restore user data from a backup file — either the current .zip format
