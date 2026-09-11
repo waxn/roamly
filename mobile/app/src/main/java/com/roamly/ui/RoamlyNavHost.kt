@@ -299,8 +299,19 @@ fun RoamlyNavHost() {
                 StatsScreen(viewModel = vm, onNavigateToMap = { dateStr -> mapViewModel.navigateToDate(dateStr); navController.navigate(Screen.Map.route) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true } })
             }
             composable(Screen.Settings.route) {
+                val vm = hiltViewModel<SettingsViewModel>(activityOwner)
+                // Almost everything SettingsViewModel shows is flow-collected and
+                // stays live now that the VM outlives the tab. batteryOptimizationDisabled
+                // is the exception — a one-shot read in init, which used to be
+                // re-read by the VM being rebuilt on each visit. Starting tracking
+                // is NOT affected (startTrackingGated() queries the system directly,
+                // and the in-app exemption dialogs call refreshBatteryOptimizationState
+                // on return), but the warning banner would otherwise go stale if the
+                // exemption were changed from Android's own settings rather than from
+                // here — and that banner is the make-or-break one.
+                LaunchedEffect(Unit) { vm.refreshBatteryOptimizationState() }
                 SettingsScreen(
-                    viewModel = hiltViewModel<SettingsViewModel>(activityOwner),
+                    viewModel = vm,
                     onLoggedOut = {
                         // Recreate rather than navigate. The tab ViewModels are
                         // scoped to the Activity (see activityOwner above), so
