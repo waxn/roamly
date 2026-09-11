@@ -53,7 +53,6 @@ import com.roamly.ui.journals.JournalsViewModel
 import com.roamly.ui.map.MapScreen
 import com.roamly.ui.map.MapViewModel
 import com.roamly.ui.settings.SettingsScreen
-import com.roamly.ui.settings.SettingsViewModel
 import com.roamly.ui.search.SearchTabScreen
 import com.roamly.ui.stats.StatsScreen
 import com.roamly.ui.stats.StatsViewModel
@@ -299,19 +298,29 @@ fun RoamlyNavHost() {
                 StatsScreen(viewModel = vm, onNavigateToMap = { dateStr -> mapViewModel.navigateToDate(dateStr); navController.navigate(Screen.Map.route) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true } })
             }
             composable(Screen.Settings.route) {
-                val vm = hiltViewModel<SettingsViewModel>(activityOwner)
-                // Almost everything SettingsViewModel shows is flow-collected and
-                // stays live now that the VM outlives the tab. batteryOptimizationDisabled
-                // is the exception — a one-shot read in init, which used to be
-                // re-read by the VM being rebuilt on each visit. Starting tracking
-                // is NOT affected (startTrackingGated() queries the system directly,
-                // and the in-app exemption dialogs call refreshBatteryOptimizationState
-                // on return), but the warning banner would otherwise go stale if the
-                // exemption were changed from Android's own settings rather than from
-                // here — and that banner is the make-or-break one.
-                LaunchedEffect(Unit) { vm.refreshBatteryOptimizationState() }
+                // DELIBERATELY NOT activity-scoped, unlike the three tabs above.
+                // SettingsViewModel is the only one of them with *continuous*
+                // collectors, and two of those run against exactly the
+                // infrastructure tracking depends on: a Room Flow on the tracking
+                // database (pointDao().unsyncedCountFlow(), re-queried on every
+                // fix the service inserts) and a WorkManager getWorkInfosByTagFlow,
+                // on top of eighteen file-backed DataStore flows.
+                //
+                // Scoped to the Activity those ran for the whole time the app was
+                // alive -- including a whole drive with the screen off, since
+                // backgrounding does not destroy the Activity -- in the same
+                // process as LocationTrackingService (the manifest declares no
+                // android:process), contending on the same SQLite database
+                // savePoint() writes into. That starved the capture loop: fix
+                // gaps stretched from the configured 10s towards the 45s
+                // MIN_ALARM_FLOOR_MS x CATCHUP_MULTIPLIER backstop.
+                //
+                // Tied to the back stack entry these live only while the tab does,
+                // exactly as before. The tab loses nothing by it: its state is
+                // DataStore-backed toggles that repaint instantly anyway, which is
+                // why this was the least valuable of the four hoists.
                 SettingsScreen(
-                    viewModel = vm,
+                    viewModel = hiltViewModel(),
                     onLoggedOut = {
                         // Recreate rather than navigate. The tab ViewModels are
                         // scoped to the Activity (see activityOwner above), so
