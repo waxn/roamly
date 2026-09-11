@@ -920,9 +920,74 @@ internal class MapHolder(
     fun detach() { runCatching { mapView.onDetach() } }
 }
 
+/**
+ * Per-frame culling in geographic space, recomputed once per draw.
+ *
+ * Both overlays are drawn on every pan/zoom frame over the *whole* accumulated
+ * point set — [MapViewModel] keeps adding viewport detail without ever pruning,
+ * so after a bit of panning that list is tens of thousands of rows. Projecting
+ * every one of them and *then* discarding the off-screen ones meant ~50k
+ * throwaway [GeoPoint] allocations plus ~50k pixel transforms per frame; the GC
+ * churn alone is what made the map feel like it was dragging.
+ *
+ * Two double comparisons per point up front is orders of magnitude cheaper than
+ * a projection, and allocates nothing — so the per-frame cost now scales with
+ * what is actually on screen rather than with everything ever loaded.
+ */
+private class ViewportCull(mapView: MapView, padDegrees: Double) {
+    private val minLat: Double
+    private val maxLat: Double
+    private val minLng: Double
+    private val maxLng: Double
+    /** True when the viewport straddles the antimeridian (lonWest > lonEast). */
+    private val wraps: Boolean
+    val valid: Boolean
+
+    init {
+        val bbox = runCatching { mapView.boundingBox }.getOrNull()
+        if (bbox == null) {
+            minLat = 0.0; maxLat = 0.0; minLng = 0.0; maxLng = 0.0
+            wraps = false; valid = false
+        } else {
+            minLat = bbox.latSouth - padDegrees
+            maxLat = bbox.latNorth + padDegrees
+            minLng = bbox.lonWest - padDegrees
+            maxLng = bbox.lonEast + padDegrees
+            wraps = bbox.lonWest > bbox.lonEast
+            valid = true
+        }
+    }
+
+    /**
+     * Whether the point is on (or just off) screen. Answers `true` for
+     * everything when the viewport could not be read, so a bad frame falls back
+     * to the old draw-it-all behaviour rather than to a blank map.
+     */
+    fun contains(lat: Double, lng: Double): Boolean {
+        if (!valid) return true
+        if (lat < minLat || lat > maxLat) return false
+        // Straddling the antimeridian, the visible span is the OUTSIDE of
+        // [minLng, maxLng] — hence the `or` rather than an `and`.
+        return if (wraps) lng >= minLng || lng <= maxLng else lng >= minLng && lng <= maxLng
+    }
+}
+
+/** Rough degrees-of-latitude for a pixel count at the given zoom. */
+private fun pixelsToDegrees(px: Float, zoom: Double): Double {
+    val worldPx = 256.0 * Math.pow(2.0, zoom)
+    return (px / worldPx) * 360.0
+}
+
 internal class HeatmapOverlay : Overlay() {
     private var points: List<LocationPoint> = emptyList()
     private var sprite: android.graphics.Bitmap? = null
+
+    // Hoisted out of draw(): these were reallocated on every frame.
+    private val paint = Paint(Paint.FILTER_BITMAP_FLAG)
+    private val src = android.graphics.Rect()
+    private val dst = android.graphics.RectF()
+    private val out = android.graphics.Point()
+    private val scratch = GeoPoint(0.0, 0.0)
 
     fun setPoints(p: List<LocationPoint>) { points = p }
 
@@ -961,15 +1026,15 @@ internal class HeatmapOverlay : Overlay() {
             else -> 80f
         }
         val half = spriteSize / 2f
-        val paint = Paint(Paint.FILTER_BITMAP_FLAG).apply { alpha = (alphaFrac * 255).toInt() }
-        val src = android.graphics.Rect(0, 0, s.width, s.height)
-        val dst = android.graphics.RectF()
+        val cull = ViewportCull(mapView, pixelsToDegrees(spriteSize, zoom))
+        paint.alpha = (alphaFrac * 255).toInt()
+        src.set(0, 0, s.width, s.height)
         val projection: Projection = mapView.projection
-        val out = android.graphics.Point()
-        val viewW = mapView.width; val viewH = mapView.height
-        for (pt in points) {
-            projection.toPixels(GeoPoint(pt.lat, pt.lng), out)
-            if (out.x < -spriteSize || out.x > viewW + spriteSize || out.y < -spriteSize || out.y > viewH + spriteSize) continue
+        for (i in points.indices) {
+            val pt = points[i]
+            if (!cull.contains(pt.lat, pt.lng)) continue
+            scratch.setCoords(pt.lat, pt.lng)
+            projection.toPixels(scratch, out)
             dst.set(out.x - half, out.y - half, out.x + half, out.y + half)
             canvas.drawBitmap(s, src, dst, paint)
         }
@@ -985,6 +1050,8 @@ internal class PointsOverlay : Overlay() {
         style = Paint.Style.STROKE
         color = Color.argb(200, 255, 255, 255)
     }
+    private val out = android.graphics.Point()
+    private val scratch = GeoPoint(0.0, 0.0)
     var onPointTapped: ((LocationPoint) -> Unit)? = null
 
     fun setPoints(p: List<LocationPoint>) { points = p }
@@ -994,12 +1061,16 @@ internal class PointsOverlay : Overlay() {
         val projection = mapView.projection
         val tapX = e.x; val tapY = e.y
         val tapRadiusPx = 40f  // generous tap target
+        val cull = ViewportCull(mapView, pixelsToDegrees(tapRadiusPx, mapView.zoomLevelDouble))
         var bestDist = Float.MAX_VALUE
         var bestPt: LocationPoint? = null
-        val out = android.graphics.Point()
-        for (pt in points) {
-            projection.toPixels(GeoPoint(pt.lat, pt.lng), out)
-            val dx = out.x - tapX; val dy = out.y - tapY
+        val hit = android.graphics.Point()
+        for (i in points.indices) {
+            val pt = points[i]
+            if (!cull.contains(pt.lat, pt.lng)) continue
+            scratch.setCoords(pt.lat, pt.lng)
+            projection.toPixels(scratch, hit)
+            val dx = hit.x - tapX; val dy = hit.y - tapY
             val dist = dx * dx + dy * dy
             if (dist < tapRadiusPx * tapRadiusPx && dist < bestDist) {
                 bestDist = dist
@@ -1027,15 +1098,17 @@ internal class PointsOverlay : Overlay() {
             else -> 9.0f
         }
         strokePaint.strokeWidth = (radius * 0.35f).coerceAtLeast(1.5f)
-        val out = android.graphics.Point()
-        val viewW = mapView.width; val viewH = mapView.height
-        for (p in points) {
-            projection.toPixels(GeoPoint(p.lat, p.lng), out)
-            if (out.x < -20 || out.x > viewW + 20 || out.y < -20 || out.y > viewH + 20) continue
+        val cull = ViewportCull(mapView, pixelsToDegrees(radius + 20f, zoom))
+        for (i in points.indices) {
+            val p = points[i]
+            if (!cull.contains(p.lat, p.lng)) continue
+            scratch.setCoords(p.lat, p.lng)
+            projection.toPixels(scratch, out)
             val c = speedColor(p.speed)
             fillPaint.color = Color.argb((Color.alpha(c) * alphaFrac).toInt(), Color.red(c), Color.green(c), Color.blue(c))
-            canvas.drawCircle(out.x.toFloat(), out.y.toFloat(), radius, fillPaint)
-            canvas.drawCircle(out.x.toFloat(), out.y.toFloat(), radius, strokePaint)
+            val x = out.x.toFloat(); val y = out.y.toFloat()
+            canvas.drawCircle(x, y, radius, fillPaint)
+            canvas.drawCircle(x, y, radius, strokePaint)
         }
     }
 }
