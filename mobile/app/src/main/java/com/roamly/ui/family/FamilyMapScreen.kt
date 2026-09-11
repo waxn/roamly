@@ -70,8 +70,11 @@ fun FamilyMapContent(state: FamilyUiState, onRefresh: () -> Unit) {
             val sizePx = with(density) { 22.dp.toPx() }.toInt()
             val dot = ShapeDrawable(OvalShape()).apply {
                 paint.color = color
-                intrinsicWidth = sizePx
-                intrinsicHeight = sizePx
+                // Explicit setters: the getters are inherited from Drawable while
+                // only ShapeDrawable declares the setters, which is exactly the
+                // shape Kotlin synthetic properties are finicky about.
+                setIntrinsicWidth(sizePx)
+                setIntrinsicHeight(sizePx)
                 setBounds(0, 0, sizePx, sizePx)
             }
             mapView.overlays.add(Marker(mapView).apply {

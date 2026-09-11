@@ -35,19 +35,16 @@ fun FamilyScreen(onBack: () -> Unit, viewModel: FamilyViewModel = hiltViewModel(
     var showCirclePicker by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text(state.selectedCircle?.name ?: "Family Circle") },
-            navigationIcon = {
-                IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "Back") }
-            },
-            actions = {
-                if (state.circles.size > 1) {
-                    IconButton(onClick = { showCirclePicker = true }) {
-                        Icon(Icons.Rounded.SwapHoriz, "Switch circle")
-                    }
+        FamilyTopBar(
+            title = state.selectedCircle?.name ?: "Family Circle",
+            onBack = onBack,
+        ) {
+            if (state.circles.size > 1) {
+                IconButton(onClick = { showCirclePicker = true }) {
+                    Icon(Icons.Rounded.SwapHoriz, "Switch circle")
                 }
-            },
-        )
+            }
+        }
 
         when {
             state.loading && state.circles.isEmpty() -> {
@@ -96,6 +93,32 @@ fun FamilyScreen(onBack: () -> Unit, viewModel: FamilyViewModel = hiltViewModel(
             onPick = { id -> viewModel.selectCircle(id); showCirclePicker = false },
             onCreateNew = { showCirclePicker = false; showCreateDialog = true },
         )
+    }
+}
+
+/** Back arrow + title, matching HealthScreen/HealthWorkoutsScreen's header row.
+ *  Deliberately not Material3's TopAppBar: nothing else in this app uses it,
+ *  and it's still an experimental API that would need an opt-in at every call
+ *  site for a row this simple. */
+@Composable
+internal fun FamilyTopBar(
+    title: String,
+    onBack: () -> Unit,
+    actions: @Composable RowScope.() -> Unit = {},
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().statusBarsPadding()
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "Back") }
+        Text(
+            title,
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.weight(1f),
+        )
+        actions()
     }
 }
 

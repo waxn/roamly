@@ -22,12 +22,11 @@ import com.roamly.ui.theme.ClayButton
 import com.roamly.ui.theme.ClayCard
 import kotlinx.coroutines.launch
 import org.osmdroid.config.Configuration
-import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
-import org.osmdroid.views.overlay.MapEventsOverlay
+import org.osmdroid.views.overlay.Overlay
 
 /** Self-serve shared places: any accepted circle member can create one and
  *  configure their own enter/exit alerts. CustomPlace has no mobile UI at
@@ -123,10 +122,7 @@ private fun PlaceDetailScreen(place: FamilyPlaceItem, viewModel: FamilyViewModel
     }
 
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text(place.name) },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "Back") } },
-        )
+        FamilyTopBar(title = place.name, onBack = onBack)
         Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             ClayCard {
                 Text("My alerts", style = MaterialTheme.typography.titleSmall)
@@ -225,10 +221,16 @@ private fun AddPlaceScreen(
     }
 
     LaunchedEffect(mapView) {
-        mapView.overlays.add(0, MapEventsOverlay(object : MapEventsReceiver {
-            override fun singleTapConfirmedHelper(p: GeoPoint): Boolean { placeMarker(p); return true }
-            override fun longPressHelper(p: GeoPoint): Boolean = false
-        }))
+        // A plain Overlay + onSingleTapConfirmed, the same way MapScreen's
+        // PointsOverlay reads taps, rather than MapEventsOverlay — one tap
+        // mechanism in the app, and this one is already proven here.
+        mapView.overlays.add(0, object : Overlay() {
+            override fun onSingleTapConfirmed(e: android.view.MotionEvent, mv: MapView): Boolean {
+                val gp = mv.projection.fromPixels(e.x.toInt(), e.y.toInt())
+                placeMarker(GeoPoint(gp.latitude, gp.longitude))
+                return true
+            }
+        })
         picked?.let { placeMarker(it) }
     }
 
@@ -238,10 +240,7 @@ private fun AddPlaceScreen(
     }
 
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text("Add place") },
-            navigationIcon = { IconButton(onClick = onCancel) { Icon(Icons.Rounded.Close, "Cancel") } },
-        )
+        FamilyTopBar(title = "Add place", onBack = onCancel)
         Box(Modifier.weight(1f)) {
             AndroidView(
                 factory = { (mapView.parent as? android.view.ViewGroup)?.removeView(mapView); mapView },
