@@ -1256,13 +1256,26 @@ def signup_view(request):
             # cannot claim it by sending a header.
             form.add_error(None, 'Please complete the CAPTCHA challenge.')
         if form.is_valid():
+            # The very first account on an instance is always an admin. Without
+            # this a fresh install has no admin at all and no way to make one:
+            # ADMIN_SIGNUP_KEY is the only other route and it is an env var that
+            # docker-compose.yml has to enumerate explicitly, so an admin who
+            # never set it before the first signup was locked out of
+            # /admin-panel/ permanently. Counted before form.save() so the
+            # account being created is not itself in the count.
+            from django.contrib.auth.models import User as AuthUser
+            first_account = not AuthUser.objects.exists()
             user = form.save()
             # A valid admin key (validated in the form) makes this an admin account.
             # intro_seen=False so the welcome tour auto-triggers once for this
             # brand new profile (the field defaults True everywhere else, so
             # existing accounts are never retroactively interrupted).
             UserProfile.objects.update_or_create(
-                user=user, defaults={'is_admin': form.is_admin_signup, 'intro_seen': False},
+                user=user,
+                defaults={
+                    'is_admin': form.is_admin_signup or first_account,
+                    'intro_seen': False,
+                },
             )
             next_url = _safe_next(request)
             if email_enabled() and user.email:
