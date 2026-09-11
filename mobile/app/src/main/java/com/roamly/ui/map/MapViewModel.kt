@@ -87,6 +87,14 @@ class MapViewModel @Inject constructor(
     // new one. Reusing one instance sidesteps that.
     internal var mapHolder: MapHolder? = null
 
+    // Whether the camera has already been fitted to the current dataset. Held
+    // here rather than in a MapScreen `remember` because a remember dies with
+    // the composable: every bottom-nav tab switch away and back re-ran the fit,
+    // which both cost a full pass over the accumulated points on the main
+    // thread and yanked the camera away from wherever the user had panned.
+    // Reset wherever the dataset itself changes (below).
+    internal var didAutoFit: Boolean = false
+
     override fun onCleared() {
         super.onCleared()
         mapHolder?.detach()
@@ -170,6 +178,7 @@ class MapViewModel @Inject constructor(
             return
         }
         accumulator.clear()
+        didAutoFit = false
         // Clear any existing focus so the auto-fit in MapScreen fires on the new dataset
         _uiState.update { it.copy(timePeriod = period, customDateRange = null, focus = null) }
         loadData(showSpinnerIfEmpty = true)
@@ -178,6 +187,7 @@ class MapViewModel @Inject constructor(
 
     fun setCustomDateRange(range: DateRange) {
         accumulator.clear()
+        didAutoFit = false
         // Clear focus so MapScreen's LaunchedEffect auto-fits the viewport to the new data
         _uiState.update { it.copy(timePeriod = TimePeriod.CUSTOM, customDateRange = range, showDateRangePicker = false, focus = null) }
         loadData(showSpinnerIfEmpty = true)

@@ -208,27 +208,42 @@ fun MapScreen(
         if (granted) startNearHere()
     }
 
-    var didAutoFit by remember { mutableStateOf(false) }
+    // didAutoFit lives on the (activity-scoped) ViewModel, not in a remember.
+    // A remember is reset every time the composable leaves the back stack, so
+    // switching to another tab and back re-ran the whole fit: a GeoPoint
+    // allocated per point across the full accumulated set, a bbox over all of
+    // them, and a camera jump undoing wherever the user had panned to. It is a
+    // property of the loaded data, so it belongs with the data.
     LaunchedEffect(state.locations) {
         heatmapOverlay.setPoints(state.locations)
         pointsOverlay.setPoints(state.locations)
-        if (!didAutoFit && state.focus == null && state.locations.isNotEmpty()) {
-            val geoPoints = state.locations.map { GeoPoint(it.lat, it.lng) }
+        if (!viewModel.didAutoFit && state.focus == null && state.locations.isNotEmpty()) {
+            // Min/max in one pass rather than materialising a GeoPoint list just
+            // to hand it to BoundingBox.fromGeoPoints.
+            val pts = state.locations
+            val single = pts.size == 1
+            var minLat = Double.MAX_VALUE; var maxLat = -Double.MAX_VALUE
+            var minLng = Double.MAX_VALUE; var maxLng = -Double.MAX_VALUE
+            for (i in pts.indices) {
+                val la = pts[i].lat; val lo = pts[i].lng
+                if (la < minLat) minLat = la
+                if (la > maxLat) maxLat = la
+                if (lo < minLng) minLng = lo
+                if (lo > maxLng) maxLng = lo
+            }
             val fit = {
-                if (geoPoints.size == 1) {
-                    mapView.controller.animateTo(geoPoints.first())
+                if (single) {
+                    mapView.controller.animateTo(GeoPoint(minLat, minLng))
                     mapView.controller.setZoom(13.0)
                 } else {
-                    val bbox = BoundingBox.fromGeoPoints(geoPoints)
-                    mapView.zoomToBoundingBox(bbox, false, 96)
+                    mapView.zoomToBoundingBox(BoundingBox(maxLat, maxLng, minLat, minLng), false, 96)
                 }
             }
             if (mapView.width > 0 && mapView.height > 0) fit() else mapView.post { fit() }
-            didAutoFit = true
+            viewModel.didAutoFit = true
         }
         mapView.invalidate()
     }
-    LaunchedEffect(state.timePeriod, state.customDateRange) { didAutoFit = false }
 
     LaunchedEffect(state.focus?.key) {
         state.focus?.let {
