@@ -32,9 +32,18 @@ jobs:
       # check simply skips the google-services plugin and the build proceeds
       # push-disabled -- see the comment there. Written into the :app module
       # dir, matching where the Firebase-generated file always lives.
+      #
+      # The empty-check has to live in the shell, not a step `if:` -- GitHub
+      # Actions rejects the `secrets` context inside a step-level `if:`
+      # expression outright ("Unrecognized named-value: 'secrets'"), so the
+      # secret is passed in as an env var and tested with plain shell `-n`.
       - name: Decode Firebase google-services.json
-        if: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 != '' }}
-        run: echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 -d > app/google-services.json
+        env:
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON_BASE64" ]; then
+            echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > app/google-services.json
+          fi
 
       - name: Build signed release APK
         env:
