@@ -31,9 +31,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -47,13 +49,17 @@ import com.roamly.ui.auth.AuthViewModel
 import com.roamly.ui.auth.LoginScreen
 import com.roamly.ui.groups.GroupsScreen
 import com.roamly.ui.journals.JournalsScreen
+import com.roamly.ui.journals.JournalsViewModel
 import com.roamly.ui.map.MapScreen
 import com.roamly.ui.map.MapViewModel
 import com.roamly.ui.settings.SettingsScreen
+import com.roamly.ui.settings.SettingsViewModel
 import com.roamly.ui.search.SearchTabScreen
 import com.roamly.ui.stats.StatsScreen
+import com.roamly.ui.stats.StatsViewModel
 import com.roamly.ui.record.RecordScreen
 import com.roamly.ui.trips.TripDetailScreen
+import com.roamly.ui.trips.TripsViewModel
 import com.roamly.ui.update.UpdateBanner
 import com.roamly.ui.update.UpdateViewModel
 
@@ -99,10 +105,34 @@ private fun iconFor(screen: Screen): ImageVector = when (screen) {
 @Composable
 fun RoamlyNavHost() {
     val navController = rememberNavController()
+    val context = LocalContext.current
     val authViewModel: AuthViewModel = hiltViewModel()
     val mapViewModel: MapViewModel   = hiltViewModel()
     val updateViewModel: UpdateViewModel = hiltViewModel()
     val askViewModel: AskViewModel = hiltViewModel()
+
+    // The Activity's ViewModelStoreOwner, captured out here where
+    // LocalViewModelStoreOwner still resolves to the Activity rather than to a
+    // NavBackStackEntry. Each bottom-nav tab below passes this to
+    // hiltViewModel() instead of taking the default.
+    //
+    // Why: a destination's default owner is its NavBackStackEntry, and the tab
+    // navigation pops with saveState=true, which clears that entry's
+    // ViewModelStore. So every tab switch destroyed the tab's ViewModel and the
+    // next visit re-ran its init from scratch — a synchronous Gson read off disk
+    // on the main thread plus a fresh round of network calls, with a spinner in
+    // between. Against the Activity's store they survive the switch and a
+    // revisit paints what it already had.
+    //
+    // Resolving them here rather than constructing them here is deliberate:
+    // hiltViewModel() builds the ViewModel on the spot, and these inits fire
+    // network calls immediately — during the splash that means hitting the
+    // placeholder base URL before login resolves, the same trap MapViewModel's
+    // init comments describe. Passing the owner down keeps construction lazy
+    // (first visit to that tab) while keeping the scope wide.
+    val activityOwner = checkNotNull(LocalViewModelStoreOwner.current) {
+        "No ViewModelStoreOwner — RoamlyNavHost must be hosted by the Activity"
+    }
     val isLoggedIn by authViewModel.isLoggedIn.collectAsState()
     val simpleMode by authViewModel.simpleModeEnabled.collectAsState()
     val bottomNavItems = if (simpleMode) simpleNavItems else advancedNavItems
@@ -215,7 +245,16 @@ fun RoamlyNavHost() {
                 RecordScreen(onBack = { navController.popBackStack() })
             }
             composable(Screen.Adventures.route) {
+                val vm = hiltViewModel<TripsViewModel>(activityOwner)
+                // The ViewModel now outlives the tab, so its init no longer runs
+                // per visit — refresh explicitly instead. This composable IS
+                // recreated each visit, so LaunchedEffect(Unit) is once per
+                // visit. It repaints in place without a spinner (the loaders
+                // only show one when there is nothing cached to show), so the
+                // switch stays instant and the data still catches up.
+                LaunchedEffect(Unit) { vm.loadTrips() }
                 GroupsScreen(
+                    tripsViewModel = vm,
                     onTripClick = { id -> navController.navigate("trips/$id") },
                 )
             }
@@ -240,7 +279,10 @@ fun RoamlyNavHost() {
                 )
             }
             composable(Screen.Journal.route) {
+                val vm = hiltViewModel<JournalsViewModel>(activityOwner)
+                LaunchedEffect(Unit) { vm.refresh() }
                 JournalsScreen(
+                    viewModel = vm,
                     onOpenMap = { dateStr ->
                         mapViewModel.navigateToDate(dateStr)
                         navController.navigate(Screen.Map.route) {
@@ -251,11 +293,27 @@ fun RoamlyNavHost() {
                     }
                 )
             }
-            composable(Screen.Stats.route)    { StatsScreen(onNavigateToMap = { dateStr -> mapViewModel.navigateToDate(dateStr); navController.navigate(Screen.Map.route) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true } }) }
+            composable(Screen.Stats.route)    {
+                val vm = hiltViewModel<StatsViewModel>(activityOwner)
+                LaunchedEffect(Unit) { vm.load() }
+                StatsScreen(viewModel = vm, onNavigateToMap = { dateStr -> mapViewModel.navigateToDate(dateStr); navController.navigate(Screen.Map.route) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true } })
+            }
             composable(Screen.Settings.route) {
                 SettingsScreen(
+                    viewModel = hiltViewModel<SettingsViewModel>(activityOwner),
                     onLoggedOut = {
-                        navController.navigate(Screen.Login.route) { popUpTo(0) { inclusive = true } }
+                        // Recreate rather than navigate. The tab ViewModels are
+                        // scoped to the Activity (see activityOwner above), so
+                        // merely routing to Login would leave the previous
+                        // account's trips/journals/stats sitting in memory for
+                        // whoever signs in next. Recreation drops that store
+                        // wholesale, and lands on Login by itself since
+                        // logout() has already cleared prefs and isLoggedIn is
+                        // false. splashDone is rememberSaveable, so the splash
+                        // does not replay.
+                        val activity = context.findActivity()
+                        if (activity != null) activity.recreate()
+                        else navController.navigate(Screen.Login.route) { popUpTo(0) { inclusive = true } }
                     },
                     updateViewModel = updateViewModel,
                 )
@@ -272,4 +330,14 @@ fun RoamlyNavHost() {
         }
       }
     }
+}
+
+/** Walk the ContextWrapper chain to the hosting Activity, if there is one. */
+private fun android.content.Context.findActivity(): android.app.Activity? {
+    var ctx: android.content.Context? = this
+    while (ctx is android.content.ContextWrapper) {
+        if (ctx is android.app.Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
 }
