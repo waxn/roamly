@@ -2664,6 +2664,7 @@ function showDeviceChooser() {
     modal.style.display = 'flex';
     document.getElementById('new-device-name').value = '';
     loadExistingDevices();
+}
 
 // ── Devices & Sessions ───────────────────────────────────────────────────────
 // settings.html had no escape helper because everything else on the page is
@@ -2887,7 +2888,7 @@ async function loadActivityLog() {
 document.querySelector('#devices-sessions-card details')
     ?.addEventListener('toggle', function() { if (this.open) loadActivityLog(); });
 
-}
+
 
 function closeDeviceChooser() {
     const modal = document.getElementById('device-chooser-modal');
