@@ -3,10 +3,10 @@
 {% block title %}Map Editor - Roamly{% endblock %}
 
 {% block extra_css %}
-{# Same floating-glass chrome as /map/ — the editor is meant to look like the
+{% comment %} Same floating-glass chrome as /map/ — the editor is meant to look like the
    map with tools bolted on, not like a different application. These classes
    live in map.html too; they are duplicated rather than shared because moving
-   them into base.html would load 200 lines of map CSS on every page. #}
+   them into base.html would load 200 lines of map CSS on every page. {% endcomment %}
 #map-container { position: relative; height: calc(100vh - var(--bottom-nav-height)); width: 100%; z-index: 1; }
 #map { width: 100%; height: 100%; }
 

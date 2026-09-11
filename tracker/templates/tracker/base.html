@@ -25,7 +25,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="apple-touch-icon" href="{% static 'tracker/icon-192.png' %}">
     {% block map_css %}
-    {# MapLibre is vendored (tracker/static/tracker/vendor/), not pulled from
+    {% comment %} MapLibre is vendored (tracker/static/tracker/vendor/), not pulled from
        unpkg. A CDN script tag with no integrity attribute on every authenticated
        page of a location tracker means a CDN compromise reads everyone's
        history; self-hosting also removes the render-blocking third-party
@@ -34,7 +34,7 @@
 
        The block DEFAULTS to loading it. Pages with no map opt out by overriding
        map_css/map_js with an empty block — chosen this way round so that a page
-       someone forgets to classify still works. #}
+       someone forgets to classify still works. {% endcomment %}
     <link rel="stylesheet" href="{% static 'tracker/vendor/maplibre-gl.css' %}" />
     {% endblock %}
     <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}">
@@ -1264,9 +1264,9 @@
                         <a role="menuitem" href="{% url 'tracker:stats' %}" class="{% if request.resolver_match.url_name == 'stats' %}active{% endif %}">Stats</a>
                         <a role="menuitem" href="{% url 'tracker:visits' %}" class="{% if request.resolver_match.url_name == 'visits' %}active{% endif %}">Visits</a>
                         <a role="menuitem" href="{% url 'tracker:data' %}" class="{% if request.resolver_match.url_name == 'data' %}active{% endif %}">Data</a>
-                        {# The map editor was linked only from Diagnostics and a
+                        {% comment %} The map editor was linked only from Diagnostics and a
                            Settings card, so a whole feature was effectively
-                           undiscoverable. #}
+                           undiscoverable. {% endcomment %}
                         <a role="menuitem" href="{% url 'tracker:editor' %}" class="{% if request.resolver_match.url_name == 'editor' %}active{% endif %}">Map editor</a>
                     </div>
                 </li>

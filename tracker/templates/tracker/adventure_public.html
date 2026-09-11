@@ -1,7 +1,7 @@
 {% extends "tracker/base.html" %}
-{# A PIN-protected adventure must not leak its name or description through the
+{% comment %} A PIN-protected adventure must not leak its name or description through the
    page metadata before the PIN is entered — that metadata is what a link
-   preview, a search crawler and the browser tab all read. #}
+   preview, a search crawler and the browser tab all read. {% endcomment %}
 {% block title %}{% if requires_pin %}Protected adventure — Roamly{% else %}{{ trip.name }} — Roamly{% endif %}{% endblock %}
 {% block meta_description %}{% if requires_pin %}This adventure is protected. Enter its PIN to view it.{% else %}{{ seo_description }}{% endif %}{% endblock %}
 {% block og_title %}{% if requires_pin %}Protected adventure — Roamly{% else %}{{ trip.name }} — Roamly{% endif %}{% endblock %}

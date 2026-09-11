@@ -7,8 +7,8 @@
     {% load static %}
     <link rel="icon" type="image/x-icon" href="{% static 'tracker/roamlymark.ico' %}">
     <meta name="theme-color" content="#14160f">
-    {# A share token is a credential in a URL. It must never be crawled, and the
-       referrer must never carry it to a tile provider. #}
+    {% comment %} A share token is a credential in a URL. It must never be crawled, and the
+       referrer must never carry it to a tile provider. {% endcomment %}
     <meta name="robots" content="noindex, nofollow, noarchive">
     <meta name="referrer" content="no-referrer">
     {% if not invalid %}<link rel="stylesheet" href="{% static 'tracker/vendor/maplibre-gl.css' %}">{% endif %}

@@ -3,10 +3,10 @@
 
 {% block extrahead %}
 {{ block.super }}
-{# Self-hosted faces, matching the rest of the app. These three tags were the
+{% comment %} Self-hosted faces, matching the rest of the app. These three tags were the
    last third-party requests Roamly made, for Space Grotesk — the pre-Field-Journal
    font the app stopped using — so the Django admin was quietly phoning Google on
-   every page load. #}
+   every page load. {% endcomment %}
 <style>
     @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:400;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}") format('woff2')}
     @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:600;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-600.woff2' %}") format('woff2')}
