@@ -7428,8 +7428,8 @@ def _open_backup_json(zf):
 
     Only `locations` scales with tracking history; adventures, journals, health
     and the rest scale with what the user wrote, and are small enough to load
-    normally. So this reads the member twice: once for the small keys, once
-    streaming the big array.
+    normally. So the big array is streamed and every other key is built the
+    ordinary way (see the comment below for why that is not one single pass).
 
     Falls back to a plain json.loads when ijson is unavailable, so an instance
     that has not rebuilt yet behaves exactly as before.
@@ -7441,11 +7441,27 @@ def _open_backup_json(zf):
             data = json.loads(jf.read().decode('utf-8-sig'))
         return data, data.get('locations', [])
 
-    data = {}
+    # NOT ijson.kvitems(jf, ''): it builds each value in full before yielding
+    # it, so `locations` would be materialised in RAM and only then discarded by
+    # the filter — peak memory identical to the json.loads this replaces, which
+    # defeats the whole point. parse() emits raw events and builds nothing, so
+    # scanning it for the top-level key names costs constant memory; each small
+    # key is then extracted on its own pass. That re-reads the member once per
+    # key, but every key except `locations` is tiny and a restore is rare.
+    keys = []
     with zf.open('backup.json') as jf:
-        for key, value in ijson.kvitems(jf, ''):
-            if key != 'locations':
+        for prefix, event, value in ijson.parse(jf):
+            if prefix == '' and event == 'map_key':
+                keys.append(value)
+
+    data = {}
+    for key in keys:
+        if key == 'locations':
+            continue
+        with zf.open('backup.json') as jf:
+            for value in ijson.items(jf, key):
                 data[key] = value
+                break
 
     def _locations():
         with zf.open('backup.json') as jf:
