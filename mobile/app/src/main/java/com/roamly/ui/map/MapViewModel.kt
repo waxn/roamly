@@ -37,8 +37,22 @@ private const val PERIOD_LOAD_LIMIT = 20_000
 private const val BBOX_LOAD_LIMIT = 8_000
 /** zoom level above which we start fetching detailed dots */
 internal const val DETAIL_ZOOM = 12.0
-/** debounce for viewport-change-triggered queries */
-private const val VIEWPORT_DEBOUNCE_MS = 120L
+/**
+ * Debounce for viewport-change-triggered queries.
+ *
+ * osmdroid emits onScroll per touch-move frame and the job is cancelled and
+ * restarted on each, so 120ms did not mean "one query per 120ms" -- it meant a
+ * query fired in every micro-pause *during* a drag, each one a BBOX_LOAD_LIMIT
+ * read. 350ms issues none mid-gesture and costs a fifth of a second after the
+ * pan settles. These reads no longer share a database with GPS capture either
+ * (see MapCacheDatabase), but there is still no reason to do them 8x a second.
+ */
+private const val VIEWPORT_DEBOUNCE_MS = 350L
+
+/** Below this zoom a viewport covers enough ground that most of a full-size
+ *  batch is culled off-screen before it is ever drawn. */
+private const val BBOX_LOAD_LIMIT_WIDE = 3_000
+private const val BBOX_WIDE_ZOOM = 15.0
 
 data class MapFocus(
     val lat: Double,
@@ -105,6 +119,10 @@ class MapViewModel @Inject constructor(
     // higher-resolution dots pulled in as the user zooms.
     private val accumulator: HashMap<Int, LocationPoint> = HashMap()
     private var viewportJob: Job? = null
+    /** The viewport the last detail query covered, so panning back and forth across
+     *  already-loaded ground re-queries nothing. Cleared whenever the dataset changes. */
+    private var lastQueried: DoubleArray? = null
+    private var lastQueriedZoom = 0.0
     private var lastKnownSyncMs = 0L
 
     init {
@@ -178,6 +196,7 @@ class MapViewModel @Inject constructor(
             return
         }
         accumulator.clear()
+        lastQueried = null
         didAutoFit = false
         // Clear any existing focus so the auto-fit in MapScreen fires on the new dataset
         _uiState.update { it.copy(timePeriod = period, customDateRange = null, focus = null) }
@@ -187,6 +206,7 @@ class MapViewModel @Inject constructor(
 
     fun setCustomDateRange(range: DateRange) {
         accumulator.clear()
+        lastQueried = null
         didAutoFit = false
         // Clear focus so MapScreen's LaunchedEffect auto-fits the viewport to the new data
         _uiState.update { it.copy(timePeriod = TimePeriod.CUSTOM, customDateRange = range, showDateRangePicker = false, focus = null) }
@@ -205,6 +225,7 @@ class MapViewModel @Inject constructor(
         viewModelScope.launch {
             store.sync()
             accumulator.clear()
+            lastQueried = null
             loadDataNow(showSpinnerIfEmpty = false)
             loadStats()
             _uiState.update { it.copy(isRefreshing = false) }
@@ -284,10 +305,21 @@ class MapViewModel @Inject constructor(
      */
     fun onViewportChanged(zoom: Double, minLat: Double, maxLat: Double, minLng: Double, maxLng: Double) {
         if (zoom < DETAIL_ZOOM) return
+        // Already covered: the new viewport sits inside the one we last queried and
+        // the zoom hasn't moved much, so every point in it is already in the
+        // accumulator. This is what stops a re-entry to the Map tab, or a pan back
+        // over ground just visited, from re-issuing a full-size read.
+        lastQueried?.let { q ->
+            if (minLat >= q[0] && maxLat <= q[1] && minLng >= q[2] && maxLng <= q[3] &&
+                kotlin.math.abs(zoom - lastQueriedZoom) < 0.5
+            ) return
+        }
         viewportJob?.cancel()
         viewportJob = viewModelScope.launch {
             delay(VIEWPORT_DEBOUNCE_MS)
-            val detail = loadDetailForViewport(minLat, maxLat, minLng, maxLng)
+            val detail = loadDetailForViewport(minLat, maxLat, minLng, maxLng, zoom)
+            lastQueried = doubleArrayOf(minLat, maxLat, minLng, maxLng)
+            lastQueriedZoom = zoom
             if (detail.isEmpty()) return@launch
             var added = 0
             detail.forEach { pt -> if (accumulator.put(pt.id, pt) == null) added++ }
@@ -296,18 +328,19 @@ class MapViewModel @Inject constructor(
     }
 
     private suspend fun loadDetailForViewport(
-        minLat: Double, maxLat: Double, minLng: Double, maxLng: Double,
+        minLat: Double, maxLat: Double, minLng: Double, maxLng: Double, zoom: Double,
     ): List<LocationPoint> {
         val state = _uiState.value
+        val limit = if (zoom >= BBOX_WIDE_ZOOM) BBOX_LOAD_LIMIT else BBOX_LOAD_LIMIT_WIDE
         return if (state.timePeriod == TimePeriod.CUSTOM && state.customDateRange != null) {
             val range = state.customDateRange
             val zone = ZoneId.systemDefault()
             val startMs = range.start.atStartOfDay(zone).toInstant().toEpochMilli()
             val endMs = range.end.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
-            store.timeRange(startMs, endMs, BBOX_LOAD_LIMIT)
+            store.timeRange(startMs, endMs, limit)
                 .filter { it.lat in minLat..maxLat && it.lng in minLng..maxLng }
         } else {
-            store.bbox(minLat, maxLat, minLng, maxLng, hours = state.timePeriod.hours, limit = BBOX_LOAD_LIMIT)
+            store.bbox(minLat, maxLat, minLng, maxLng, hours = state.timePeriod.hours, limit = limit)
         }
     }
 
@@ -359,6 +392,7 @@ class MapViewModel @Inject constructor(
 
     private fun setLocations(points: List<LocationPoint>) {
         accumulator.clear()
+        lastQueried = null
         points.forEach { accumulator[it.id] = it }
         _uiState.update { it.copy(locations = accumulator.values.toList(), isLoading = false, error = null) }
     }

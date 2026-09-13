@@ -256,7 +256,11 @@ fun MapScreen(
         mapView.onResume()
         mapView.post {
             mapView.invalidate()
-            mapView.controller.setZoom(mapView.zoomLevelDouble)
+            // Was controller.setZoom(zoomLevelDouble) — setting the zoom to the value
+            // it already holds. A no-op with one side effect: a ZoomEvent into the
+            // listener above, i.e. a full detail query on every return to the Map tab.
+            // requestLayout() forces the relayout this was here for without the event.
+            mapView.requestLayout()
         }
         onDispose { mapView.onPause() }
     }
