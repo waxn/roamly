@@ -81,3 +81,8 @@ jobs:
         with:
           files: mobile/app/build/outputs/apk/release/Roamly*.apk
           generate_release_notes: true
+          # A -rc tag is a compile/smoke check, not something to push to every
+          # install. GitHub's releases/latest endpoint — which the in-app updater
+          # reads via /api/mobile/version/ — skips prereleases, so marking them
+          # keeps an RC off everyone's phone while still building a real APK.
+          prerelease: ${{ contains(github.ref_name, '-rc') }}
