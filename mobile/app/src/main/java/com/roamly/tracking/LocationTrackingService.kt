@@ -761,7 +761,14 @@ class LocationTrackingService : Service() {
         val target = cfg.maxAccuracyM
         val budget = minOf(alarmIntervalMs(cfg), ACQUIRE_BUDGET_MAX_MS)
         val best = java.util.concurrent.atomic.AtomicReference<android.location.Location?>(null)
-        val lastImproveAt = java.util.concurrent.atomic.AtomicLong(SystemClock.elapsedRealtime())
+        // Seeded at 0, NOT at entry. Seeded at entry, the ACQUIRE_STALL_MS plateau
+        // check below was already satisfied by the time the *first* fix arrived
+        // whenever acquisition took longer than 3.5s (a cold chip, or a cycle that
+        // waited behind main-thread work), so exactly the slowest cycles kept a
+        // single fix -- usually the worst one -- and the burst's whole purpose was
+        // defeated. "No improvement for 3.5s" can only be meaningful once there has
+        // been an improvement to measure from, which is what the KDoc already claims.
+        val lastImproveAt = java.util.concurrent.atomic.AtomicLong(0L)
         var stream: FixStream? = null
         try {
             withTimeoutOrNull(budget) {
@@ -786,7 +793,7 @@ class LocationTrackingService : Service() {
                         if (loc.hasAccuracy() && loc.accuracy <= target) {
                             if (cont.isActive) cont.resume(Unit)
                         // Plateaued — the hardware isn't improving, don't keep the GPS on.
-                        } else if (best.get() != null &&
+                        } else if (best.get() != null && lastImproveAt.get() != 0L &&
                             SystemClock.elapsedRealtime() - lastImproveAt.get() >= ACQUIRE_STALL_MS
                         ) {
                             if (cont.isActive) cont.resume(Unit)
