@@ -206,6 +206,11 @@ class LocationTrackingService : Service() {
     @Volatile private var fixInProgress = false
     @Volatile private var fixCycleStartedAt = 0L
     @Volatile private var consecutiveMisses = 0
+    /** How many fixes the last acquireBestFix burst actually collected, and at which
+     *  accuracy. Recorded so the CSV can show whether a cycle kept a best-of or a
+     *  lone first fix — the difference the plateau-timer fix is meant to make. */
+    @Volatile private var lastCycleFixCount = 0
+    @Volatile private var lastCycleAccuracy: FixAccuracy? = null
     @Volatile private var currentConfig: TrackingConfig? = null
     @Volatile private var lastAcceptedLocation: android.location.Location? = null
     @Volatile private var lastAcceptedAtMs: Long = 0L
@@ -242,7 +247,11 @@ class LocationTrackingService : Service() {
     private val captureLock = Any()
 
     /** One point on its way to disk. See [pointWrites]. */
-    private data class PendingWrite(val point: CachedPoint, val recording: Boolean)
+    private data class PendingWrite(
+        val point: CachedPoint,
+        val recording: Boolean,
+        val csv: CsvPointLogger.SaveContext,
+    )
 
     /**
      * Persisted points, drained by a single consumer off the capture path.
@@ -718,7 +727,7 @@ class LocationTrackingService : Service() {
                 hadRawFix = loc != null
                 val accepted = loc?.takeIf { !isPaused && filter.accept(it) }
                 if (!isPaused) {
-                    got = saveOrDwell(accepted, cfg.maxAccuracyM)
+                    got = saveOrDwell(accepted, cfg.maxAccuracyM, SaveSource.CYCLE)
                     if (!got) {
                         Log.d(TAG, "Fix cycle produced no usable point (null/filtered/imprecise)")
                         CaptureStats.bump(CaptureStats.Counter.CYCLE_MISS)
@@ -814,6 +823,9 @@ class LocationTrackingService : Service() {
     @Suppress("MissingPermission")
     private suspend fun acquireBestFix(cfg: TrackingConfig): android.location.Location? {
         val accuracy = accuracyForCurrentState(cfg)
+        lastCycleAccuracy = accuracy
+        val fixCount = java.util.concurrent.atomic.AtomicInteger(0)
+        lastCycleFixCount = 0
         val target = cfg.maxAccuracyM
         val budget = minOf(alarmIntervalMs(cfg), ACQUIRE_BUDGET_MAX_MS)
         val best = java.util.concurrent.atomic.AtomicReference<android.location.Location?>(null)
@@ -838,6 +850,7 @@ class LocationTrackingService : Service() {
                         accuracy = accuracy,
                     )
                     val armed = locationSource.requestUpdates(request, callbackLooper) { loc ->
+                        lastCycleFixCount = fixCount.incrementAndGet()
                         val cur = best.get()
                         val better = cur == null ||
                             (loc.hasAccuracy() && (!cur.hasAccuracy() || loc.accuracy < cur.accuracy))
@@ -907,12 +920,16 @@ class LocationTrackingService : Service() {
      *  known position, re-stamped now) when one is recent enough, so discarding a bad fix
      *  doesn't open a gap whenever a fallback is available. Returns whether a point was
      *  saved. */
-    private fun saveOrDwell(loc: android.location.Location?, maxAccuracyM: Float?): Boolean {
+    private fun saveOrDwell(
+        loc: android.location.Location?,
+        maxAccuracyM: Float?,
+        source: SaveSource,
+    ): Boolean {
         if (loc != null && (maxAccuracyM == null || !loc.hasAccuracy() || loc.accuracy <= maxAccuracyM)) {
             // savePoint can now decline: it re-checks the filter under captureLock, so a
             // fix another thread beat us to is reported as not-saved rather than counted
             // as a success it never was.
-            return savePoint(loc)
+            return savePoint(loc, source)
         }
         if (loc != null) {
             Log.d(TAG, "Discarded fix acc=${loc.accuracy}m > ${maxAccuracyM}m target")
@@ -924,7 +941,7 @@ class LocationTrackingService : Service() {
         val last = lastAcceptedLocation
         if (last != null && System.currentTimeMillis() - lastRealFixAtMs < DWELL_MAX_AGE_MS) {
             val dwell = dwellPointFrom(last)
-            if (filter.accept(dwell) && savePoint(dwell, isDwell = true)) {
+            if (filter.accept(dwell) && savePoint(dwell, SaveSource.DWELL)) {
                 Log.d(TAG, "Logged dwell point (no usable fresh fix this cycle)")
                 return true
             }
@@ -986,7 +1003,7 @@ class LocationTrackingService : Service() {
         stopLocationUpdates()
         locationStream = locationSource.requestUpdates(buildRequest(cfg), callbackLooper) { loc ->
             if (!isPaused && filter.accept(loc)) {
-                scope.launch { saveOrDwell(loc, cfg.maxAccuracyM) }
+                scope.launch { saveOrDwell(loc, cfg.maxAccuracyM, SaveSource.STREAM) }
             }
         }
         streamArmed = locationStream != null
@@ -1007,7 +1024,7 @@ class LocationTrackingService : Service() {
         locationSource.lastKnown { loc ->
             if (loc != null && !isPaused && filter.accept(loc)) {
                 val maxAcc = currentConfig?.maxAccuracyM
-                scope.launch { saveOrDwell(loc, maxAcc) }
+                scope.launch { saveOrDwell(loc, maxAcc, SaveSource.SEED) }
             }
         }
     }
@@ -1088,7 +1105,7 @@ class LocationTrackingService : Service() {
         // point, which is thousands of file operations across a ride for a Diagnostics
         // debugging aid.
         if (!w.recording) {
-            runCatching { CsvPointLogger.appendPoint(applicationContext, w.point) }
+            runCatching { CsvPointLogger.appendPoint(applicationContext, w.point, w.csv) }
                 .onFailure { Log.e(TAG, "Failed to append point CSV", it) }
         }
         maybeScheduleUpload(w.recording)
@@ -1133,7 +1150,8 @@ class LocationTrackingService : Service() {
      * synthetic `speed = 0f` would otherwise let an outage *while moving* plant a false
      * stationary anchor.
      */
-    private fun savePoint(rawLoc: android.location.Location, isDwell: Boolean = false): Boolean {
+    private fun savePoint(rawLoc: android.location.Location, source: SaveSource): Boolean {
+        val isDwell = source == SaveSource.DWELL
         val recording = currentConfig?.recording == true
 
         // Battery is a binder call, so it stays outside captureLock. Throttled to
@@ -1209,7 +1227,20 @@ class LocationTrackingService : Service() {
                 // A real point is proof the chip is healthy, wherever it came from.
                 consecutiveMisses = 0
             }
-            pointWrites.trySend(PendingWrite(point, recording))
+                pointWrites.trySend(
+                PendingWrite(
+                    point, recording,
+                    CsvPointLogger.SaveContext(
+                        source = source.csv,
+                        fixAccuracy = if (source == SaveSource.CYCLE) lastCycleAccuracy?.name?.lowercase().orEmpty() else "",
+                        consecutiveMisses = consecutiveMisses,
+                        streaming = streamArmed,
+                        screenOn = screenOn,
+                        recording = recording,
+                        fixCount = if (source == SaveSource.CYCLE) lastCycleFixCount else 0,
+                    ),
+                )
+            )
             Log.d(TAG, "Saved ${loc.latitude},${loc.longitude} acc=${loc.accuracy}m")
         }
         updateNotification()
