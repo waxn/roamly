@@ -228,6 +228,7 @@ class UserPreferences @Inject constructor(
     }
 
     suspend fun setTrackingEnabled(enabled: Boolean) {
+        TrackingEnabledMirror.set(context, enabled)
         context.dataStore.edit { it[KEY_TRACKING_ENABLED] = enabled }
     }
 
