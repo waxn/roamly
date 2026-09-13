@@ -38,6 +38,9 @@ object CaptureStats {
         CYCLE_MISS("cycle_miss", "Fix cycles with no point"),
         UPLOAD_DROPPED("upload_dropped", "Points rejected by server"),
         RACE_DROP("race_drop", "Rejected: lost a save race"),
+        CYCLE_SKIPPED_FRESH("cycle_skipped", "Fix cycles skipped (stream fresh)"),
+        CYCLE_NO_FIX("cycle_no_fix", "Fix cycles: chip gave nothing"),
+        CYCLE_FIX_FILTERED("cycle_filtered", "Fix cycles: fix arrived, filtered out"),
     }
 
     private const val PREFS = "roamly_capture_stats"

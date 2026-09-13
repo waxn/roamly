@@ -42,6 +42,24 @@ class LocationFilter(
      *  interval). 0 disables de-dup. Purely time-based — no displacement check. */
     var minTimeBetweenMs: Long = 0L,
 ) {
+    /**
+     * The actual rejection window, as a fraction of [minTimeBetweenMs].
+     *
+     * Was 80%. The continuous stream is requested at exactly the interval, so any
+     * stream fix arriving even slightly early — 7.9s into a 10s interval — was
+     * thrown away for no benefit, inflating the gap percentiles. Worse, the service's
+     * retry tiers sat inside the window, so a retry could not produce an accepted fix
+     * however healthy the GPS was. 60% still blocks what de-dup exists for (two
+     * sources saving the same instant) without punishing honest early fixes.
+     */
+    private val dedupSlackPercent = 60
+
+    /** The window [accept] rejects inside, so the service can keep its retry cadence
+     *  outside it rather than scheduling retries that cannot possibly succeed. */
+    @Synchronized
+    fun dedupWindowMs(): Long =
+        if (minTimeBetweenMs > 0L) minTimeBetweenMs * dedupSlackPercent / 100 else 0L
+
     private var lastAcceptedTimeMs: Long = 0L
     private var lastAccepted: Location? = null
 
@@ -79,10 +97,10 @@ class LocationFilter(
                 }
             }
         }
-        // Time-based de-dup only (with 80% slack so an early fire doesn't skip a
-        // cycle). Never a distance check — stationary points are kept by design.
+        // Time-based de-dup only (see dedupSlackPercent). Never a distance check —
+        // stationary points are kept by design.
         if (minTimeBetweenMs > 0L && lastAcceptedTimeMs > 0L &&
-            (loc.time - lastAcceptedTimeMs) < minTimeBetweenMs * 8 / 10
+            (loc.time - lastAcceptedTimeMs) < minTimeBetweenMs * dedupSlackPercent / 100
         ) {
             Log.d(TAG, "Rejected fix arriving faster than the interval")
             CaptureStats.bump(CaptureStats.Counter.DEDUP)

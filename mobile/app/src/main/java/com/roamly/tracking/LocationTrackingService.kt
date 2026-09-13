@@ -62,6 +62,10 @@ private const val MIN_ALARM_FLOOR_MS = 15_000L
 // The catch-up backstop alarm fires at this multiple of the interval, re-armed on every fix,
 // so a dropped primary fix alarm / wedged cycle / hard kill recovers within 3× — not 15 min.
 private const val CATCHUP_MULTIPLIER = 3
+/** Rollback lever for the freshness skip becoming reachable screen-off (streamArmed). */
+private const val SKIP_ON_STREAM_FRESHNESS = true
+/** Consecutive genuine misses before the "auto" priority drops to BALANCED. */
+private const val DEGRADE_AFTER_MISSES = 4
 // How long a single fix request may run before we give up on this cycle and reschedule.
 private const val FIX_ACQUISITION_TIMEOUT_MS = 25_000L
 private const val FIX_WAKELOCK_MARGIN_MS = 5_000L
@@ -179,11 +183,26 @@ class LocationTrackingService : Service() {
     private var initialized = false
     private var lastUploadScheduleAt = System.currentTimeMillis()
     private var syncOnMobileData = true
-    /** True while the screen is on (interactive). The continuous warm stream runs only
-     *  while this is true; screen-off relies entirely on the alarm cadence. */
+    /** True while the screen is on (interactive). */
     @Volatile private var screenOn = true
-    /** True while the continuous location stream is currently armed (screen-on). */
-    @Volatile private var streaming = false
+    /**
+     * Whether a continuous location stream is actually armed right now.
+     *
+     * This used to be one field, `streaming`, carrying three different meanings. It
+     * was *assigned* "should the wake lock be pinned" (screenOn || recording) but
+     * *read* as "is a stream armed". Since `startLocationUpdates` is unconditional,
+     * screen-off the stream stays alive while that flag reads false -- so the
+     * freshness skip in runFixCycle could never fire there, and every alarm launched
+     * a full acquireBestFix burst on top of a perfectly healthy stream. That burst's
+     * result then landed inside LocationFilter's de-dup window and was rejected,
+     * which is the origin of the miss -> BALANCED -> no-Doppler cascade.
+     */
+    @Volatile private var streamArmed = false
+    /**
+     * Whether the CPU wake lock should stay pinned. Exactly the old `streaming`
+     * assignment, so battery behaviour is unchanged.
+     */
+    @Volatile private var pinWakeLock = false
     @Volatile private var fixInProgress = false
     @Volatile private var fixCycleStartedAt = 0L
     @Volatile private var consecutiveMisses = 0
@@ -274,7 +293,7 @@ class LocationTrackingService : Service() {
             }
             ACTION_PAUSE  -> {
                 isPaused = true; filter.reset(); driftAnchor.reset(); cancelNextFix()
-                stopLocationUpdates(); streaming = false; releaseWakeLock()
+                stopLocationUpdates(); streamArmed = false; pinWakeLock = false; releaseWakeLock()
                 updateNotification(force = true)
                 return START_STICKY
             }
@@ -604,22 +623,21 @@ class LocationTrackingService : Service() {
     private fun applyCapture(cfg: TrackingConfig) {
         if (!isPaused) {
             startLocationUpdates(cfg)    // primary: smooth warm stream whenever not deep-Doze
-            // `streaming` means "the warm stream is genuinely carrying the cadence", which is
-            // only true screen-on — the screen receiver re-runs applyCapture on every toggle.
-            // Hard-coding it true made the screen-off no-skip guard in runFixCycle unreachable
-            // (so alarm cycles skipped the GPS request in Doze, the one place they must not),
-            // never released the pinned wake lock, and left the watchdog re-arming a stream
-            // the OS had already suspended.
-            // Recording keeps the stream armed screen-off, which is the whole
-            // point: MIN_ALARM_FLOOR_MS caps the alarm path at one fix per 15s, so a
-            // pocketed phone would otherwise draw a polygon instead of a ride.
-            streaming = screenOn || cfg.recording
-            if (streaming) acquireWakeLock()  // pin the CPU so stream + watchdog stay alive
+            // pinWakeLock carries exactly the old `streaming` assignment, so wake-lock
+            // and battery behaviour are unchanged. Whether a stream is actually armed
+            // is now streamArmed, set by startLocationUpdates from what it got back.
+            // The stream is NOT stopped screen-off: MIN_ALARM_FLOOR_MS caps the alarm
+            // path at one fix per 15s, and the measured 10s cadence this app has always
+            // produced comes from the stream running through screen-off. Deep Doze
+            // suspends it and ignores the wake lock anyway, so it is self-limiting.
+            pinWakeLock = screenOn || cfg.recording
+            if (pinWakeLock) acquireWakeLock()  // pin the CPU so stream + watchdog stay alive
             else releaseWakeLock()
             seedLastLocation()           // immediate first point
         } else {
             stopLocationUpdates()
-            streaming = false
+            streamArmed = false
+            pinWakeLock = false
             releaseWakeLock()
         }
         updateNotification(force = true)
@@ -655,11 +673,14 @@ class LocationTrackingService : Service() {
             Log.w(TAG, "Fix cycle wedged for ${wedgedFor}ms — forcing reset")
             fixInProgress = false
         }
-        // Only while the screen-on continuous stream is running does a recent point mean the
-        // interval is already covered — then skip the redundant (cold, battery-costly) GPS
-        // request but still re-arm the alarm. Screen-off there is no stream, so never skip:
-        // skipping there would halve the cadence (the acquisition itself takes a few seconds,
-        // so the save lands mid-interval and the next on-time alarm would wrongly skip it).
+        // A recent point means this interval is already covered, so skip the redundant
+        // (cold, battery-costly) GPS request and just re-arm the alarm. Gated on a
+        // stream being genuinely armed, which is the whole point of streamArmed: the
+        // old flag was false screen-off even though the stream was still running, so
+        // this could never fire there and every alarm burst on top of a healthy stream
+        // -- landing inside the de-dup window, counting as a miss, and degrading the
+        // fix priority. Still evidence-based: if Doze really has suspended the stream,
+        // lastAcceptedAtMs goes stale within one window and the alarm takes over.
         val now = System.currentTimeMillis()
         // While recording, freshness is judged against the *alarm* cadence, not the
         // 2s capture interval — otherwise this skip could never fire and every alarm
@@ -667,9 +688,16 @@ class LocationTrackingService : Service() {
         // stream, which is the single worst thing this mode could do to the battery.
         // Still evidence-based: if the stream really is suspended, lastAcceptedAtMs
         // goes stale within the window and the alarm takes over regardless.
-        val freshWindow = if (cfg.recording) alarmIntervalMs(cfg) else effectiveIntervalMs(cfg)
-        if (streaming && lastAcceptedAtMs != 0L && now - lastAcceptedAtMs < freshWindow) {
-            scheduleNextFix(alarmIntervalMs(cfg))
+        // Computed ONCE for this prologue. effectiveIntervalMs reads the volatile
+        // lastFixSpeedMps, so calling it twice here could compare against one window
+        // and then schedule against another. (The finally block below deliberately
+        // re-reads from currentConfig instead, so a mid-cycle interval change lands.)
+        val floorMs = alarmIntervalMs(cfg)
+        val freshWindow = if (cfg.recording) floorMs else effectiveIntervalMs(cfg)
+        if (SKIP_ON_STREAM_FRESHNESS && streamArmed &&
+            lastAcceptedAtMs != 0L && now - lastAcceptedAtMs < freshWindow) {
+            CaptureStats.bump(CaptureStats.Counter.CYCLE_SKIPPED_FRESH)
+            scheduleNextFix(floorMs)
             return
         }
         fixInProgress = true
@@ -680,22 +708,38 @@ class LocationTrackingService : Service() {
         acquireWakeLock(timeoutMs = FIX_ACQUISITION_TIMEOUT_MS + FIX_WAKELOCK_MARGIN_MS)
         scope.launch {
             var got = false
+            var hadRawFix = false
             try {
                 val loc = acquireBestFix(cfg)
+                // Whether the CHIP produced anything, as distinct from whether we kept
+                // it. Conflating the two is what drove the degrade: a fix rejected by
+                // our own de-dup window says nothing about GPS health, but counted as a
+                // miss all the same.
+                hadRawFix = loc != null
                 val accepted = loc?.takeIf { !isPaused && filter.accept(it) }
                 if (!isPaused) {
                     got = saveOrDwell(accepted, cfg.maxAccuracyM)
                     if (!got) {
                         Log.d(TAG, "Fix cycle produced no usable point (null/filtered/imprecise)")
                         CaptureStats.bump(CaptureStats.Counter.CYCLE_MISS)
+                        CaptureStats.bump(
+                            if (hadRawFix) CaptureStats.Counter.CYCLE_FIX_FILTERED
+                            else CaptureStats.Counter.CYCLE_NO_FIX
+                        )
                     }
                 }
             } catch (t: Throwable) {
                 Log.e(TAG, "Fix cycle failed", t)
             } finally {
-                if (!streaming) releaseWakeLock()  // keep the pinned lock while streaming
+                if (!pinWakeLock) releaseWakeLock()  // keep the pinned lock while pinned
                 fixInProgress = false
-                consecutiveMisses = if (got) 0 else consecutiveMisses + 1
+                // Only the chip returning nothing is a miss. A real save resets the
+                // counter in savePoint (so points the *stream* delivers count too --
+                // previously a phone capturing perfectly via the stream could sit
+                // pinned at a high miss count forever, permanently degraded), and a
+                // fabricated dwell point is neutral: it used to reset the counter,
+                // which is what made the priority oscillate and the damage intermittent.
+                if (!hadRawFix && !got) consecutiveMisses += 1
                 // Re-arm from the *current* config so an interval change mid-cycle takes
                 // effect on the next wake.
                 if (!isPaused) currentConfig?.let { c ->
@@ -706,16 +750,22 @@ class LocationTrackingService : Service() {
                         // toward the interval and points land every ~interval, not interval+budget.
                         val elapsed = System.currentTimeMillis() - fixCycleStartedAt
                         maxOf(floor - elapsed, MIN_NEXT_FIX_MS)
-                    } else when {
+                    } else {
                         // No fix at all (cold GPS / no signal): retry sooner through the tiers.
                         //  1. Quick (4 s × 3): a brief GPS stall.
-                        //  2. Medium (10 s × 3): chip warming up after Doze; BALANCED kicks in.
+                        //  2. Medium (10 s × 3): chip warming up after Doze.
                         //  3. Floor: persistently unavailable; stop hammering the chip.
-                        consecutiveMisses in 1..MAX_FAST_RETRIES ->
-                            minOf(floor, FIX_RETRY_DELAY_MS)
-                        consecutiveMisses in (MAX_FAST_RETRIES + 1)..(MAX_FAST_RETRIES + MAX_MEDIUM_RETRIES) ->
-                            minOf(floor, MEDIUM_RETRY_DELAY_MS)
-                        else -> floor
+                        val base = when {
+                            consecutiveMisses in 1..MAX_FAST_RETRIES -> FIX_RETRY_DELAY_MS
+                            consecutiveMisses in (MAX_FAST_RETRIES + 1)..(MAX_FAST_RETRIES + MAX_MEDIUM_RETRIES) ->
+                                MEDIUM_RETRY_DELAY_MS
+                            else -> floor
+                        }
+                        // Never retry inside LocationFilter's de-dup window: such a retry
+                        // is structurally incapable of producing an accepted fix, so it
+                        // burned a GPS burst and incremented the miss counter again. At a
+                        // 10s interval the window is 6s, which the 4s tier sat inside.
+                        minOf(floor, maxOf(base, filter.dedupWindowMs() + 500L))
                     }
                     scheduleNextFix(nextMs)
                 }
@@ -731,9 +781,15 @@ class LocationTrackingService : Service() {
         // Never degrade during a recording: BALANCED frequently reports no Doppler,
         // and live speed, max speed and the track's shape all depend on having it.
         if (cfg.recording) return FixAccuracy.HIGH
-        // Degrade after just a couple of misses so network/Wi-Fi location can supply a coarse
-        // fix and keep the cadence rather than letting a slow GPS cold-start become a gap.
-        return if (cfg.priority == "auto" && consecutiveMisses >= 2) FixAccuracy.BALANCED
+        // Degrade so network/Wi-Fi location can supply a coarse fix and keep the cadence
+        // rather than letting a slow GPS cold-start become a gap — but corroborated, and
+        // not on a hair trigger. BALANCED frequently reports no Doppler at all, which
+        // also disables DriftAnchor's speed-based release and freezes the adaptive-mode
+        // speed, so dropping into it on two misses was expensive. Requiring that no real
+        // fix has landed for a couple of cadences means a single cold start can't do it.
+        val starved = System.currentTimeMillis() - lastRealFixAtMs > 2 * alarmIntervalMs(cfg)
+        return if (cfg.priority == "auto" && consecutiveMisses >= DEGRADE_AFTER_MISSES && starved)
+            FixAccuracy.BALANCED
         else accuracyFor(cfg.priority)
     }
 
@@ -933,12 +989,14 @@ class LocationTrackingService : Service() {
                 scope.launch { saveOrDwell(loc, cfg.maxAccuracyM) }
             }
         }
+        streamArmed = locationStream != null
         if (locationStream == null) {
             Log.e(TAG, "Could not arm the ${locationSource.label} stream — relying on the alarm cadence")
         }
     }
 
     private fun stopLocationUpdates() {
+        streamArmed = false
         locationStream?.cancel()
         locationStream = null
     }
@@ -974,7 +1032,7 @@ class LocationTrackingService : Service() {
     }
 
     /** Continuous-stream watchdog: re-arm the live stream if fixes stall while it's running.
-     *  It only applies while [streaming] (screen-on) — screen-off the exact-alarm cadence
+     *  It only applies while [pinWakeLock] (screen-on) — screen-off the exact-alarm cadence
      *  carries everything, and coroutine delay() is frozen in Doze anyway. The interval-scaled
      *  catch-up alarm + the 15-min heartbeat are the deep-Doze liveness checks. */
     private fun startWatchdog() {
@@ -995,7 +1053,7 @@ class LocationTrackingService : Service() {
                     }
                 }
                 updateNotification()
-                if (!streaming) continue
+                if (!pinWakeLock) continue
                 val cfg = currentConfig ?: continue
                 val staleThreshold = maxOf(cfg.intervalMs * 4, 90_000L)
                 val sinceLast = System.currentTimeMillis() - lastAcceptedAtMs
@@ -1148,6 +1206,8 @@ class LocationTrackingService : Service() {
                 // above — exactly the value adaptive-interval mode should trust,
                 // not the raw Doppler reading.
                 lastFixSpeedMps = point.speed ?: 0f
+                // A real point is proof the chip is healthy, wherever it came from.
+                consecutiveMisses = 0
             }
             pointWrites.trySend(PendingWrite(point, recording))
             Log.d(TAG, "Saved ${loc.latitude},${loc.longitude} acc=${loc.accuracy}m")
