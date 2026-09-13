@@ -8,18 +8,26 @@ import androidx.room3.migration.Migration
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.execSQL
 
-@Database(entities = [CachedPoint::class, SyncedLocation::class], version = 2, exportSchema = false)
+/**
+ * The capture queue, and **only** the capture queue.
+ *
+ * [CachedPoint] rows are GPS fixes that exist nowhere else until they upload, so
+ * this database never gets a destructive fallback — every version step has a real
+ * migration. (`synced_locations`, the map's rebuildable mirror, used to live here
+ * too; it moved to [com.roamly.data.local.MapCacheDatabase] in v3 so that map
+ * queries can no longer take the write lock GPS capture needs. See that file.)
+ */
+@Database(entities = [CachedPoint::class], version = 3, exportSchema = false)
 abstract class TrackingDatabase : RoomDatabase() {
     abstract fun pointDao(): PointDao
-    abstract fun syncedLocationDao(): SyncedLocationDao
 
     companion object {
         @Volatile private var INSTANCE: TrackingDatabase? = null
 
         /**
-         * v1 → v2 adds the [SyncedLocation] read store. A real migration (rather
-         * than destructive) is used so the [CachedPoint] upload queue — which may
-         * hold points not yet pushed to the server — is never wiped.
+         * v1 → v2 added the SyncedLocation read store. Kept verbatim even though
+         * v3 drops that table again: a device still on v1 has to be able to reach
+         * v3, and Room composes the steps rather than skipping to the newest.
          */
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override suspend fun migrate(connection: SQLiteConnection) {
@@ -42,12 +50,32 @@ abstract class TrackingDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v2 → v3 evicts the map mirror from this file so the map and GPS capture
+         * stop sharing a write lock.
+         *
+         * Dropping rather than copying is deliberate: every row is keyed by server
+         * id and `LocationStore.sync()` rebuilds the whole table from the server
+         * when it finds it empty, so the only cost is one re-sync — into the new
+         * file, where it can no longer stall a fix. SQLite drops a table's indices
+         * with the table, so there is nothing else to clean up.
+         */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override suspend fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("DROP TABLE IF EXISTS `synced_locations`")
+            }
+        }
+
         fun getInstance(context: Context): TrackingDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder<TrackingDatabase>(
                     context.applicationContext, "roamly_tracking.db"
-                ).addMigrations(MIGRATION_1_2)
-                    .fallbackToDestructiveMigration(true)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    // NO fallbackToDestructiveMigration. It was set here, directly
+                    // contradicting the KDoc above it, and would silently wipe
+                    // un-uploaded fixes the first time a version bump shipped
+                    // without a matching migration. A crash on an unexpected
+                    // schema is recoverable; a lost queue is not.
                     .build().also { INSTANCE = it }
             }
     }

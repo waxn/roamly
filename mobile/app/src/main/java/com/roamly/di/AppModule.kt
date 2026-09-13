@@ -200,8 +200,20 @@ object AppModule {
     fun provideTrackingDatabase(@ApplicationContext context: Context): TrackingDatabase =
         TrackingDatabase.getInstance(context)
 
+    // The map mirror lives in its own database file, NOT in TrackingDatabase, so
+    // map reads and LocationStore's bulk writes cannot take the write lock that
+    // GPS capture needs. See MapCacheDatabase's KDoc.
     @Provides
     @Singleton
-    fun provideSyncedLocationDao(db: TrackingDatabase): com.roamly.tracking.SyncedLocationDao =
+    fun provideMapCacheDatabase(
+        @ApplicationContext context: Context,
+    ): com.roamly.data.local.MapCacheDatabase =
+        com.roamly.data.local.MapCacheDatabase.getInstance(context)
+
+    @Provides
+    @Singleton
+    fun provideSyncedLocationDao(
+        db: com.roamly.data.local.MapCacheDatabase,
+    ): com.roamly.tracking.SyncedLocationDao =
         db.syncedLocationDao()
 }
