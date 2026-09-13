@@ -37,6 +37,7 @@ object CaptureStats {
         SPIKE_SUPPRESSED("spike", "Spikes suppressed"),
         CYCLE_MISS("cycle_miss", "Fix cycles with no point"),
         UPLOAD_DROPPED("upload_dropped", "Points rejected by server"),
+        RACE_DROP("race_drop", "Rejected: lost a save race"),
     }
 
     private const val PREFS = "roamly_capture_stats"

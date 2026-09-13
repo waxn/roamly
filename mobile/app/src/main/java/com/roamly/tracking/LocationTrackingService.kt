@@ -14,11 +14,13 @@ import com.roamly.MainActivity
 import com.roamly.R
 import com.roamly.RoamlyApp
 import com.roamly.data.prefs.ActivitySession
+import com.roamly.data.prefs.TrackingEnabledMirror
 import com.roamly.data.prefs.UserPreferences
 import com.roamly.receiver.RestarterReceiver
 import com.roamly.receiver.TrackingAlarmReceiver
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -209,6 +211,36 @@ class LocationTrackingService : Service() {
     private var screenReceiver: BroadcastReceiver? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
+    /**
+     * Serialises the accept -> commit -> enqueue sequence in [savePoint].
+     *
+     * [LocationFilter.accept] is pure and [LocationFilter.commit] is what advances
+     * the de-dup window, so between a caller's accept() and savePoint()'s commit()
+     * another thread could slip a second fix through: the stream callback runs on
+     * the RoamlyLocCb HandlerThread while a fix cycle runs on IO, and both reach
+     * here. Holding this across the re-check makes the pair atomic.
+     */
+    private val captureLock = Any()
+
+    /** One point on its way to disk. See [pointWrites]. */
+    private data class PendingWrite(val point: CachedPoint, val recording: Boolean)
+
+    /**
+     * Persisted points, drained by a single consumer off the capture path.
+     *
+     * The Room insert, the CSV append (which mkdirs + opens + closes under a global
+     * lock) and the upload check (a COUNT plus two DataStore reads) all used to run
+     * inline in [savePoint], *before* it advanced the filter and the cadence stamps.
+     * So anything that slowed the database — for most of this app's life, the map
+     * sharing one SQLite file with the capture queue — did not merely delay a point:
+     * fixes arriving meanwhile were measured against a stale de-dup window and
+     * rejected outright, and the resulting missed cycles degraded the fix priority.
+     * Unbounded on purpose: dropping a captured fix is worse than the memory, and
+     * the depth is ~1 at any interval the app allows.
+     */
+    private val pointWrites = Channel<PendingWrite>(Channel.UNLIMITED)
+    private var writerJob: Job? = null
+
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
     override fun onCreate() {
@@ -253,20 +285,33 @@ class LocationTrackingService : Service() {
                 return START_STICKY
             }
             ACTION_TAKE_FIX -> {
-                // The per-point exact alarm fired. Take one fix and re-arm the next.
-                val enabled = runBlocking { prefs.trackingEnabled.first() }
-                if (!enabled) { cancelNextFix(); stopSelf(); return START_NOT_STICKY }
+                // The per-point exact alarm fired. This runs on the MAIN thread, so
+                // everything here is either cheap or dispatched. It used to do a
+                // blocking DataStore read per fix, which coupled the capture cadence
+                // to whatever the UI was doing in this same process.
                 if (!initialized) {
                     // The OS killed us and the alarm is recreating us cold — full init
                     // re-establishes config/observers and kicks the first fix itself.
                     initTracking()
                 } else if (!isPaused) {
-                    // The per-point (or catch-up) exact alarm fired: take a fix and re-arm.
                     // runFixCycle skips the GPS request if the stream already covered this
-                    // interval, but always reschedules so the cadence never dies.
-                    runFixCycle()
+                    // interval, but always reschedules so the cadence never dies. Off the
+                    // main thread: its prologue makes several AlarmManager binder calls.
+                    scope.launch { runFixCycle() }
                 }
-                goForeground()
+                // The mirror is authoritative only for *continuing*. To actually stop we
+                // confirm against DataStore off-thread, so a stale or absent mirror can
+                // never silently kill tracking.
+                if (!TrackingEnabledMirror.get(this)) {
+                    scope.launch {
+                        if (!prefs.trackingEnabled.first()) {
+                            cancelNextFix()
+                            stopSelf()
+                        }
+                    }
+                }
+                // goForeground() already ran at the top of onStartCommand; calling it
+                // again here rebuilt the whole notification on every single fix.
                 return START_STICKY
             }
         }
@@ -295,7 +340,7 @@ class LocationTrackingService : Service() {
             // healthy tracker isn't perturbed into extra fixes.
             val cfg = currentConfig
             val stale = cfg != null && (System.currentTimeMillis() - lastAcceptedAtMs) > alarmIntervalMs(cfg) * 2
-            if (lastAcceptedAtMs == 0L || stale) runFixCycle()
+            if (lastAcceptedAtMs == 0L || stale) scope.launch { runFixCycle() }
         }
 
         // Defensive #3: startForeground is idempotent — a final call guarantees the
@@ -316,6 +361,7 @@ class LocationTrackingService : Service() {
         screenOn = runCatching {
             (getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
         }.getOrDefault(true)
+        startPointWriter()
         observeRuntimePreferences()
         observeConfig()  // first emit → applyCapture(): starts the cadence (+ stream if screen-on)
         startWatchdog()
@@ -361,6 +407,17 @@ class LocationTrackingService : Service() {
         configJob?.cancel()
         watchdogJob?.cancel()
         syncPrefJob?.cancel()
+        // Flush anything still queued for disk before the scope (and with it the
+        // writer) goes away — otherwise a teardown mid-interval silently drops the
+        // most recent fix or two. Bounded so it can never hold up onDestroy.
+        runCatching {
+            runBlocking {
+                withTimeoutOrNull(2_000L) {
+                    pointWrites.close()
+                    for (w in pointWrites) { runCatching { persistPoint(w) } }
+                }
+            }
+        }
         scope.cancel()
         callbackThread.quitSafely()
         // scope is cancelled, so use runBlocking to make sure the flags actually land.
@@ -568,7 +625,10 @@ class LocationTrackingService : Service() {
         updateNotification(force = true)
         // Always (re)anchor the Doze-proof alarm cadence.
         cancelNextFix()
-        if (!isPaused) runFixCycle()     // take one now; it schedules the next + the catch-up
+        // Dispatched: applyCapture is reached from the screen-on/off and
+        // PROVIDERS_CHANGED receivers, whose onReceive runs on the main thread, and
+        // runFixCycle's prologue makes several AlarmManager binder calls.
+        if (!isPaused) scope.launch { runFixCycle() }  // take one now; it schedules the next + catch-up
     }
 
     private fun observeRuntimePreferences() {
@@ -784,10 +844,12 @@ class LocationTrackingService : Service() {
      *  known position, re-stamped now) when one is recent enough, so discarding a bad fix
      *  doesn't open a gap whenever a fallback is available. Returns whether a point was
      *  saved. */
-    private suspend fun saveOrDwell(loc: android.location.Location?, maxAccuracyM: Float?): Boolean {
+    private fun saveOrDwell(loc: android.location.Location?, maxAccuracyM: Float?): Boolean {
         if (loc != null && (maxAccuracyM == null || !loc.hasAccuracy() || loc.accuracy <= maxAccuracyM)) {
-            savePoint(loc)
-            return true
+            // savePoint can now decline: it re-checks the filter under captureLock, so a
+            // fix another thread beat us to is reported as not-saved rather than counted
+            // as a success it never was.
+            return savePoint(loc)
         }
         if (loc != null) {
             Log.d(TAG, "Discarded fix acc=${loc.accuracy}m > ${maxAccuracyM}m target")
@@ -799,8 +861,7 @@ class LocationTrackingService : Service() {
         val last = lastAcceptedLocation
         if (last != null && System.currentTimeMillis() - lastRealFixAtMs < DWELL_MAX_AGE_MS) {
             val dwell = dwellPointFrom(last)
-            if (filter.accept(dwell)) {
-                savePoint(dwell, isDwell = true)
+            if (filter.accept(dwell) && savePoint(dwell, isDwell = true)) {
                 Log.d(TAG, "Logged dwell point (no usable fresh fix this cycle)")
                 return true
             }
@@ -941,6 +1002,65 @@ class LocationTrackingService : Service() {
     }
 
     /**
+     * The single consumer of [pointWrites]: everything that touches disk or the
+     * network scheduler, moved off the capture path. One consumer keeps insertion
+     * order, so PointDao's monotonic-id cursor (used by the recording screen) is
+     * unaffected.
+     */
+    private fun startPointWriter() {
+        if (writerJob != null) return
+        writerJob = scope.launch {
+            for (w in pointWrites) {
+                runCatching { persistPoint(w) }
+                    .onFailure { Log.e(TAG, "Point write failed", it) }
+            }
+        }
+    }
+
+    private suspend fun persistPoint(w: PendingWrite) {
+        db.pointDao().insert(w.point)
+        // Skipped while recording: it mkdirs + opens + closes under a global lock per
+        // point, which is thousands of file operations across a ride for a Diagnostics
+        // debugging aid.
+        if (!w.recording) {
+            runCatching { CsvPointLogger.appendPoint(applicationContext, w.point) }
+                .onFailure { Log.e(TAG, "Failed to append point CSV", it) }
+        }
+        maybeScheduleUpload(w.recording)
+    }
+
+    /** Upload scheduling, formerly the tail of [savePoint]. */
+    private suspend fun maybeScheduleUpload(recording: Boolean) {
+        val now = System.currentTimeMillis()
+        val reachedTimeThreshold = now - lastUploadScheduleAt >= UPLOAD_SCHEDULE_MIN_INTERVAL_MS
+        // While recording, uploads go purely on the clock. The count trigger would fire
+        // every ~20s at a 2s interval; on the clock it is one batch a minute of ~30
+        // points, comfortably inside the 500-point cap. Checking the threshold first
+        // also skips the per-point COUNT query below.
+        if (recording && !reachedTimeThreshold) return
+        val unsynced = db.pointDao().unsyncedCount()
+        val shouldSchedule = reachedTimeThreshold || unsynced >= UPLOAD_BATCH_TRIGGER_COUNT
+        if (!shouldSchedule) return
+        lastUploadScheduleAt = now
+        // Detect a wedged uploader and break it with REPLACE; a KEEP enqueue is
+        // silently dropped while a prior job sleeps in WorkManager's exponential
+        // backoff, which strands captured points for many minutes after signal
+        // returns (the "nothing uploaded for ages while driving" gap). The primary
+        // signal is time-based — a non-empty backlog plus no *successful* delivery
+        // for UPLOAD_STUCK_AGE_MS — so recovery fires in ~2 min at any interval,
+        // not after ~20 min of points pile up. The point count stays as a backstop.
+        // Gated on the time threshold so REPLACE recurs at most once per cycle and
+        // never interrupts a healthy in-flight flush (which clears in well under it).
+        val lastSyncAt = prefs.lastSyncTime.first()
+        val lastSyncOk = prefs.lastSyncSuccess.first()
+        val deliveryStale = unsynced > 0 &&
+            (lastSyncAt == 0L || (!lastSyncOk && now - lastSyncAt >= UPLOAD_STUCK_AGE_MS))
+        val backloggedStuck = reachedTimeThreshold &&
+            (deliveryStale || unsynced >= UPLOAD_STUCK_THRESHOLD)
+        UploadWorker.scheduleNow(applicationContext, syncOnMobileData, replace = backloggedStuck)
+    }
+
+    /**
      * Persist one point. [isDwell] marks a synthetic re-stamp of the last known position
      * rather than a real fix — it must not refresh [lastRealFixAtMs] (or the dwell window
      * below could never expire and an outage would fabricate a parked track forever), and it
@@ -948,13 +1068,11 @@ class LocationTrackingService : Service() {
      * synthetic `speed = 0f` would otherwise let an outage *while moving* plant a false
      * stationary anchor.
      */
-    private suspend fun savePoint(rawLoc: android.location.Location, isDwell: Boolean = false) {
-        // Suppress stationary GPS drift: while parked, snap the wandering fix back onto a
-        // stable anchor (speed 0). Pass-through when disabled or genuinely moving.
-        val loc = if (driftAnchor.enabled && !isDwell) driftAnchor.resolve(rawLoc) else rawLoc
-
+    private fun savePoint(rawLoc: android.location.Location, isDwell: Boolean = false): Boolean {
         val recording = currentConfig?.recording == true
 
+        // Battery is a binder call, so it stays outside captureLock. Throttled to
+        // BATTERY_READ_MAX_AGE_MS, so this is a no-op on almost every point.
         val nowMs = System.currentTimeMillis()
         if (lastBatteryAtMs == 0L || nowMs - lastBatteryAtMs >= BATTERY_READ_MAX_AGE_MS) {
             val bm = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
@@ -964,92 +1082,71 @@ class LocationTrackingService : Service() {
         }
         val battery = lastBatteryPct
 
-        // Speed implied by how far we actually moved since the last accepted fix —
-        // a sanity check against GPS speed glitches. lastAcceptedLocation is still
-        // the *previous* fix here (it's advanced to `loc` after this point is built).
-        val movedSpeed: Float? = lastAcceptedLocation?.let { prev ->
-            val dtSec = (loc.time - prev.time) / 1000.0
-            if (dtSec > 0) (loc.distanceTo(prev) / dtSec).toFloat() else null
-        }
-        val point = CachedPoint(
-            latitude  = loc.latitude,
-            longitude = loc.longitude,
-            accuracy  = if (loc.hasAccuracy()) loc.accuracy else null,
-            altitude  = if (loc.hasAltitude()) loc.altitude else null,
-            speed     = when {
-                !loc.hasSpeed()                    -> null
-                loc.speed < MIN_LOGGED_SPEED_MPS   -> 0f   // stationary: drop GPS jitter speed
-                // Reported speed dwarfs what our displacement supports → sensor
-                // glitch (e.g. "walking but 20 mph"); use the displacement speed.
-                // Skipped while recording: this pair was tuned for 30s deltas, and at
-                // 2s the displacement-derived movedSpeed is noise-dominated — position
-                // smoothing can make it ~0 for a genuinely moving rider, at which point
-                // a correct 8 m/s Doppler reading satisfies both clauses and gets
-                // overwritten with nonsense.
-                !recording && movedSpeed != null &&
-                    loc.speed > movedSpeed * SPEED_SPIKE_FACTOR &&
-                    loc.speed - movedSpeed > SPEED_SPIKE_MIN_DELTA_MPS -> movedSpeed
-                else                               -> loc.speed
-            },
-            battery   = battery,
-            timestamp = loc.time,
-            provider  = loc.provider,
-        )
-        db.pointDao().insert(point)
-        // Advance the filter only now that the row exists. Doing it inside accept() meant a
-        // fix discarded by the accuracy gate below still moved the de-dup window forward,
-        // which silently blocked the dwell substitute and every fast retry after it.
-        filter.commit(loc)
-        CaptureStats.bump(if (isDwell) CaptureStats.Counter.DWELL else CaptureStats.Counter.SAVED)
-        lastAcceptedLocation = loc
-        lastAcceptedAtMs = System.currentTimeMillis()
-        if (!isDwell) {
-            lastRealFixAtMs = lastAcceptedAtMs
-            // point.speed is already cleaned (jitter-dropped, spike-corrected)
-            // above — exactly the value adaptive-interval mode should trust,
-            // not the raw Doppler reading.
-            lastFixSpeedMps = point.speed ?: 0f
-        }
-        // Skipped while recording: it mkdirs + opens + closes under a global lock per
-        // point, which is thousands of file operations across a ride for a Diagnostics
-        // debugging aid.
-        if (!recording) {
-            runCatching { CsvPointLogger.appendPoint(applicationContext, point) }
-                .onFailure { Log.e(TAG, "Failed to append point CSV", it) }
-        }
-        Log.d(TAG, "Saved ${loc.latitude},${loc.longitude} acc=${loc.accuracy}m")
-        val now = System.currentTimeMillis()
-        val reachedTimeThreshold = now - lastUploadScheduleAt >= UPLOAD_SCHEDULE_MIN_INTERVAL_MS
-        // While recording, uploads go purely on the clock. The count trigger would fire
-        // every ~20s at a 2s interval; on the clock it is one batch a minute of ~30
-        // points, comfortably inside the 500-point cap. Checking the threshold first
-        // also skips the per-point COUNT query below.
-        if (recording && !reachedTimeThreshold) {
-            updateNotification()
-            return
-        }
-        val unsynced = db.pointDao().unsyncedCount()
-        val shouldSchedule = reachedTimeThreshold || unsynced >= UPLOAD_BATCH_TRIGGER_COUNT
-        if (shouldSchedule) {
-            lastUploadScheduleAt = now
-            // Detect a wedged uploader and break it with REPLACE; a KEEP enqueue is
-            // silently dropped while a prior job sleeps in WorkManager's exponential
-            // backoff, which strands captured points for many minutes after signal
-            // returns (the "nothing uploaded for ages while driving" gap). The primary
-            // signal is time-based — a non-empty backlog plus no *successful* delivery
-            // for UPLOAD_STUCK_AGE_MS — so recovery fires in ~2 min at any interval,
-            // not after ~20 min of points pile up. The point count stays as a backstop.
-            // Gated on the time threshold so REPLACE recurs at most once per cycle and
-            // never interrupts a healthy in-flight flush (which clears in well under it).
-            val lastSyncAt = prefs.lastSyncTime.first()
-            val lastSyncOk = prefs.lastSyncSuccess.first()
-            val deliveryStale = unsynced > 0 &&
-                (lastSyncAt == 0L || (!lastSyncOk && now - lastSyncAt >= UPLOAD_STUCK_AGE_MS))
-            val backloggedStuck = reachedTimeThreshold &&
-                (deliveryStale || unsynced >= UPLOAD_STUCK_THRESHOLD)
-            UploadWorker.scheduleNow(applicationContext, syncOnMobileData, replace = backloggedStuck)
+        synchronized(captureLock) {
+            // Re-check under the lock. The caller's accept() happened outside it, so a
+            // concurrent save may have committed in between; without this the de-dup
+            // window could be bypassed and two points land for one instant.
+            if (!filter.accept(rawLoc)) {
+                CaptureStats.bump(CaptureStats.Counter.RACE_DROP)
+                return false
+            }
+            // Suppress stationary GPS drift: while parked, snap the wandering fix back onto a
+            // stable anchor (speed 0). Pass-through when disabled or genuinely moving.
+            val loc = if (driftAnchor.enabled && !isDwell) driftAnchor.resolve(rawLoc) else rawLoc
+
+            // Speed implied by how far we actually moved since the last accepted fix —
+            // a sanity check against GPS speed glitches. lastAcceptedLocation is still
+            // the *previous* fix here (it's advanced to `loc` after this point is built).
+            val movedSpeed: Float? = lastAcceptedLocation?.let { prev ->
+                val dtSec = (loc.time - prev.time) / 1000.0
+                if (dtSec > 0) (loc.distanceTo(prev) / dtSec).toFloat() else null
+            }
+            val point = CachedPoint(
+                latitude  = loc.latitude,
+                longitude = loc.longitude,
+                accuracy  = if (loc.hasAccuracy()) loc.accuracy else null,
+                altitude  = if (loc.hasAltitude()) loc.altitude else null,
+                speed     = when {
+                    !loc.hasSpeed()                    -> null
+                    loc.speed < MIN_LOGGED_SPEED_MPS   -> 0f   // stationary: drop GPS jitter speed
+                    // Reported speed dwarfs what our displacement supports → sensor
+                    // glitch (e.g. "walking but 20 mph"); use the displacement speed.
+                    // Skipped while recording: this pair was tuned for 30s deltas, and at
+                    // 2s the displacement-derived movedSpeed is noise-dominated — position
+                    // smoothing can make it ~0 for a genuinely moving rider, at which point
+                    // a correct 8 m/s Doppler reading satisfies both clauses and gets
+                    // overwritten with nonsense.
+                    !recording && movedSpeed != null &&
+                        loc.speed > movedSpeed * SPEED_SPIKE_FACTOR &&
+                        loc.speed - movedSpeed > SPEED_SPIKE_MIN_DELTA_MPS -> movedSpeed
+                    else                               -> loc.speed
+                },
+                battery   = battery,
+                timestamp = loc.time,
+                provider  = loc.provider,
+            )
+            // Advance the filter and the cadence stamps FIRST, then hand the row to the
+            // writer. Committing after the insert meant a slow database widened the
+            // window in which arriving fixes were judged against stale state and thrown
+            // away. Commit still happens only for points we keep: there is no early
+            // return between here and the trySend below, so every commit is matched by
+            // exactly one enqueued write.
+            filter.commit(loc)
+            CaptureStats.bump(if (isDwell) CaptureStats.Counter.DWELL else CaptureStats.Counter.SAVED)
+            lastAcceptedLocation = loc
+            lastAcceptedAtMs = System.currentTimeMillis()
+            if (!isDwell) {
+                lastRealFixAtMs = lastAcceptedAtMs
+                // point.speed is already cleaned (jitter-dropped, spike-corrected)
+                // above — exactly the value adaptive-interval mode should trust,
+                // not the raw Doppler reading.
+                lastFixSpeedMps = point.speed ?: 0f
+            }
+            pointWrites.trySend(PendingWrite(point, recording))
+            Log.d(TAG, "Saved ${loc.latitude},${loc.longitude} acc=${loc.accuracy}m")
         }
         updateNotification()
+        return true
     }
 
     // ── Notification ───────────────────────────────────────────────────────
