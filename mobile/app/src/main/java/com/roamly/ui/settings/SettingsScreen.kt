@@ -83,6 +83,15 @@ fun SettingsScreen(
     // ── Permission handling ────────────────────────────────────────────────
     var showBgLocationRationale by remember { mutableStateOf(false) }
     var showPhoneStateRationale by remember { mutableStateOf(false) }
+    // Held in state rather than re-checked inline: checkSelfPermission() is not
+    // a snapshot value, so a row reading it directly never updates when the
+    // permission is actually granted.
+    var phoneStatePermitted by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE)
+                == PermissionChecker.PERMISSION_GRANTED
+        )
+    }
     // Block-until-granted battery-exemption gate, shown before tracking actually starts.
     var showExemptionGate by remember { mutableStateOf(false) }
     // True while we're mid-flow waiting for the system exemption dialog to return, so
@@ -119,7 +128,7 @@ fun SettingsScreen(
     // upgrade, so refusing it degrades the feature to the default SIM.
     val phoneStateLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { }
+    ) { granted -> phoneStatePermitted = granted }
     val batteryOptLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
@@ -413,20 +422,23 @@ fun SettingsScreen(
             Spacer(Modifier.height(16.dp))
             ToggleRow(
                 title = "Log cell towers",
-                subtitle = if (state.cellLoggingEnabled &&
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE)
-                        != PermissionChecker.PERMISSION_GRANTED
-                ) "Recording your default SIM only — grant Phone permission to log both SIMs"
+                subtitle = if (state.cellLoggingEnabled && !phoneStatePermitted)
+                    "Recording your default SIM only"
                 else "Record which towers you connect to, with signal strength and band",
                 checked = state.cellLoggingEnabled,
                 onCheckedChange = { enabled ->
                     viewModel.setCellLoggingEnabled(enabled)
-                    if (enabled &&
-                        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE)
-                            != PermissionChecker.PERMISSION_GRANTED
-                    ) showPhoneStateRationale = true
+                    if (enabled && !phoneStatePermitted) showPhoneStateRationale = true
                 },
             )
+            // The subtitle above used to say "grant Phone permission" with
+            // nothing to press: the rationale fires once, on the way in, so
+            // anyone who skipped it had no route back. This is that route.
+            if (state.cellLoggingEnabled && !phoneStatePermitted) {
+                TextButton(onClick = { showPhoneStateRationale = true }) {
+                    Text("Grant Phone permission to log both SIMs")
+                }
+            }
 
             Spacer(Modifier.height(16.dp))
             ToggleRow(
