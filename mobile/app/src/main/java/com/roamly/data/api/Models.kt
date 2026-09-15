@@ -513,7 +513,11 @@ data class CellPushRequest(
 data class CellPushResponse(
     val status: String?,
     val submitted: Int?,
+    /** How many rows the server actually stored. The uploader reads this rather
+     *  than trusting the 2xx: the server skips rows it cannot parse and still
+     *  answers 200, so a status code alone is not proof the batch landed. */
     val accepted: Int?,
+    val skipped: Int?,
 )
 
 data class LocationPushResponse(

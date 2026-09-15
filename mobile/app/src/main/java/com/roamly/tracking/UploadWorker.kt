@@ -44,6 +44,8 @@ class UploadWorker @AssistedInject constructor(
         }
 
         var uploaded = 0
+        var authFailed = false
+        var pointsOutcome: Result? = null
 
         while (true) {
             val batch = db.pointDao().getUnsynced(BATCH)
@@ -53,25 +55,38 @@ class UploadWorker @AssistedInject constructor(
                 is UploadResult.Success    -> uploaded += result.count
                 is UploadResult.AuthFailed -> {
                     writeSyncResult(false, uploaded, result.message)
-                    return Result.success()
+                    authFailed = true
+                    pointsOutcome = Result.success()
                 }
                 is UploadResult.RetriableError -> {
                     writeSyncResult(false, uploaded, result.message)
-                    return Result.retry()
+                    pointsOutcome = Result.retry()
                 }
             }
-
+            if (pointsOutcome != null) break
             if (batch.size < BATCH) break
         }
 
-        db.pointDao().pruneOldSynced(System.currentTimeMillis() - 7 * 86_400_000L)
+        if (pointsOutcome == null) {
+            db.pointDao().pruneOldSynced(System.currentTimeMillis() - 7 * 86_400_000L)
+        }
 
         // Cell samples ride the same worker, and therefore the same radio
         // wake-up, rather than getting a second periodic job of their own.
         // Failures here never fail the points upload: points are the product,
         // cell coverage is an extra.
-        runCatching { uploadCellSamples(deviceId) }
-            .onFailure { Log.w(TAG, "Cell upload failed", it) }
+        //
+        // Reached even when the points drain bailed out, which it did not used
+        // to be: both early returns sat above this line, so one transient point
+        // error also skipped every cell batch and the backlog just grew. Auth
+        // is the exception — nothing will upload without it, so there is no
+        // point burning a request to prove it.
+        if (!authFailed) {
+            runCatching { uploadCellSamples(deviceId) }
+                .onFailure { Log.w(TAG, "Cell upload failed", it) }
+        }
+
+        pointsOutcome?.let { return it }
 
         Log.i(TAG, "Uploaded $uploaded points")
         writeSyncResult(true, uploaded, "")
@@ -96,9 +111,29 @@ class UploadWorker @AssistedInject constructor(
                 CellPushRequest(batch.map { it.toCellPayload(deviceId) })
             )
             when {
-                resp.isSuccessful -> db.cellDao().markSynced(batch.map { it.id })
+                resp.isSuccessful -> {
+                    // A 2xx is NOT proof the rows landed. The server skips rows
+                    // it cannot parse and still answers 200, so marking the
+                    // batch synced on the status code alone deleted readings it
+                    // had silently dropped — which is how a phone holding
+                    // thousands ended up facing a server holding hundreds.
+                    val accepted = resp.body()?.accepted ?: batch.size
+                    val lost = batch.size - accepted
+                    if (lost > 0) {
+                        CaptureStats.bump(CaptureStats.Counter.CELL_UPLOAD_REJECTED, lost)
+                        Log.w(TAG, "Server kept $accepted of ${batch.size} cell samples")
+                    }
+                    // Still marked synced even when some were rejected: the
+                    // server rejected them for being malformed, so re-sending
+                    // the same bytes forever would wedge the queue behind rows
+                    // that can never land. The counter is what makes the loss
+                    // visible instead of silent.
+                    db.cellDao().markSynced(batch.map { it.id })
+                    CaptureStats.lastCellUploadError = ""
+                }
                 resp.code() == 404 || resp.code() == 405 -> {
-                    CaptureStats.bump(CaptureStats.Counter.CELL_UPLOAD_UNSUPPORTED)
+                    CaptureStats.bump(CaptureStats.Counter.CELL_UPLOAD_UNSUPPORTED, batch.size)
+                    CaptureStats.lastCellUploadError = "server has no /api/cells/push/"
                     db.cellDao().markSynced(batch.map { it.id })
                     Log.w(TAG, "Server has no cell endpoint; dropping ${batch.size} samples")
                 }
@@ -107,6 +142,10 @@ class UploadWorker @AssistedInject constructor(
                 // bounded by the capture gate, so there is nothing to protect
                 // against by dropping them here.
                 else -> {
+                    // Left unsynced on purpose — a 5xx, an auth failure or a
+                    // rejected batch all mean "try again", never "throw away".
+                    CaptureStats.bump(CaptureStats.Counter.CELL_UPLOAD_FAILED)
+                    CaptureStats.lastCellUploadError = "HTTP ${resp.code()}"
                     Log.w(TAG, "Cell upload rejected (${resp.code()})")
                     return
                 }

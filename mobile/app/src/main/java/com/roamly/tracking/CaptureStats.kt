@@ -48,12 +48,15 @@ object CaptureStats {
         CELL_RECORDED("cell_recorded", "Cell readings saved"),
         CELL_GATED("cell_gated", "Cell readings skipped by the gate"),
         CELL_NO_IDENTITY("cell_no_id", "Cell readings with no global id"),
-        CELL_UPLOAD_UNSUPPORTED("cell_unsupported", "Cell batches dropped: server too old"),
+        CELL_UPLOAD_UNSUPPORTED("cell_unsupported", "Cell readings dropped: server too old"),
+        CELL_UPLOAD_REJECTED("cell_rejected", "Cell readings the server didn't keep"),
+        CELL_UPLOAD_FAILED("cell_upload_failed", "Cell uploads that failed"),
     }
 
     private const val PREFS = "roamly_capture_stats"
     private const val KEY_SINCE = "since"
     private const val KEY_EXACT_ALARMS_DENIED = "exact_alarms_denied"
+    private const val KEY_CELL_UPLOAD_ERROR = "cell_upload_error"
 
     @Volatile private var prefs: SharedPreferences? = null
 
@@ -85,6 +88,18 @@ object CaptureStats {
             }
         }
 
+    /** Why the last cell upload failed, or "" if the last one worked. A counter
+     *  alone cannot distinguish "server is down" from "server is too old" from
+     *  "auth is wrong", and those need different fixes. */
+    var lastCellUploadError: String
+        get() = prefs?.getString(KEY_CELL_UPLOAD_ERROR, "").orEmpty()
+        set(value) {
+            val p = prefs ?: return
+            if (p.getString(KEY_CELL_UPLOAD_ERROR, "") != value) {
+                p.edit().putString(KEY_CELL_UPLOAD_ERROR, value).apply()
+            }
+        }
+
     /** Epoch millis the counters were last cleared — Diagnostics shows totals "since" this. */
     val since: Long get() = prefs?.getLong(KEY_SINCE, 0L) ?: 0L
 
@@ -98,6 +113,7 @@ object CaptureStats {
         val p = prefs ?: return
         val e = p.edit()
         Counter.entries.forEach { e.remove(it.key) }
+        e.remove(KEY_CELL_UPLOAD_ERROR)
         e.putLong(KEY_SINCE, System.currentTimeMillis())
         e.apply()
     }

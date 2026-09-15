@@ -92,6 +92,9 @@ fun DiagnosticsScreen(
     // somewhere with no towers in range. describe() existed for this row from
     // the start and was never actually wired to it.
     val cellSourceLabel = remember { CellScanner.describe(context) }
+    // Read alongside the counters: "thousands on the phone, hundreds on the
+    // server" is only diagnosable if the reason the uploads stopped is visible.
+    var cellUploadError by remember { mutableStateOf(CaptureStats.lastCellUploadError) }
     // Read once per screen open (and after a reset). These are plain counters, not a flow —
     // re-reading on every recomposition would be pointless churn.
     var captureStats by remember { mutableStateOf(CaptureStats.snapshot()) }
@@ -100,6 +103,7 @@ fun DiagnosticsScreen(
     // Auto-load on first open
     LaunchedEffect(Unit) {
         captureStats = CaptureStats.snapshot()
+        cellUploadError = CaptureStats.lastCellUploadError
         captureSince = CaptureStats.since
         viewModel.refreshBatteryOptimizationState()
         if (state.serverUrl.isNotBlank() && state.deviceId.isNotBlank()) {
@@ -340,6 +344,7 @@ fun DiagnosticsScreen(
                             TextButton(onClick = {
                                 CaptureStats.reset()
                                 captureStats = CaptureStats.snapshot()
+                                cellUploadError = CaptureStats.lastCellUploadError
                                 captureSince = CaptureStats.since
                             }) { Text("Reset") }
                         }
@@ -377,6 +382,10 @@ fun DiagnosticsScreen(
                         DiagRow("GPS priority", state.locationPriority)
                         DiagRow("Location source", locationSourceLabel)
                         DiagRow("Cell logging", if (state.cellLoggingEnabled) cellSourceLabel else "Off")
+                        if (cellUploadError.isNotBlank()) {
+                            DiagRow("Cell upload", cellUploadError,
+                                valueColor = MaterialTheme.colorScheme.error)
+                        }
                         DiagRow("Accuracy filter", "${state.maxAccuracyM} m")
                         DiagRow("Last upload", if (state.lastSyncTime == 0L) "Never" else relativeTime(state.lastSyncTime))
                         DiagRow("Pending upload", if (state.cachedPointCount == 0) "None" else "${state.cachedPointCount} points")
