@@ -14049,10 +14049,14 @@ def activities_api(request):
     header when no session is present, so save-on-stop survives session expiry.
     _require_json stands in for the missing CSRF token, exactly as the health
     ingest endpoints do.
+
+    That stand-in guards the POST branch **only**. It is a CSRF substitute, and
+    CSRF does not apply to a safe method — applying it to the GET as well 403'd
+    the web list, since a plain browser fetch sends no Authorization, no
+    Content-Type and (by roamlyFetch's own rule) no X-CSRFToken on a GET. The
+    page then rendered `d.activities || []` and looked as though nothing the
+    phone had recorded ever reached the server.
     """
-    err = _require_api_intent(request)
-    if err:
-        return err
     user = request.user
 
     if request.method == 'GET':
@@ -14087,7 +14091,7 @@ def activities_api(request):
         cache.set(key, payload, _ACT_CACHE_TTL)
         return JsonResponse(payload)
 
-    err = _require_json(request)
+    err = _require_api_intent(request) or _require_json(request)
     if err:
         return err
     try:
