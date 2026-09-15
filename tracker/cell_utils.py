@@ -126,6 +126,38 @@ def distance_from_dbm(dbm):
     return None
 
 
+# ── Sites vs cells ──────────────────────────────────────────────────────────
+#
+# A CELL IS NOT A TOWER, and treating one row per cell as one tower is what
+# turned four visible sites into twenty-six map markers. A physical site
+# normally carries three sectors, each on several bands, and every one of those
+# is a separate cell with its own identity — so one mast legitimately produces
+# a dozen cell ids.
+#
+# For LTE the split is exact and standards-backed rather than a heuristic: the
+# 28-bit E-UTRAN Cell Identifier is an eNodeB ID in the top 20 bits and a Cell
+# ID in the bottom 8 (3GPP 36.413), and an eNodeB ID is unique within a PLMN.
+# So every sector and band of one site shares `cid >> 8`, and grouping on it
+# both fixes the count and pools every sector's readings into one position
+# estimate — which is the other half of why the placed ones were poor.
+#
+# There is deliberately no NR equivalent. The 36-bit NCI splits into gNB ID and
+# Cell ID at a boundary that is *configurable* (22-32 bits) and broadcast in
+# SIB1, which we do not have — so any shift here would be a guess that silently
+# merges unrelated sites or fails to merge one. NR cells stay ungrouped, as do
+# GSM and WCDMA, whose identifiers carry no dependable site structure either.
+
+_LTE_SECTOR_BITS = 8
+
+
+def site_key(rat, mcc, mnc, tac, cid):
+    """Group key for the physical site a cell belongs to, and a display id."""
+    if rat == 'lte' and cid is not None:
+        enb = int(cid) >> _LTE_SECTOR_BITS
+        return (mcc, mnc, 'enb', enb), f"{mcc}-{mnc}-eNB{enb}"
+    return (mcc, mnc, rat, tac, cid), f"{mcc}-{mnc}-{tac}-{cid}"
+
+
 # ── Tower position ──────────────────────────────────────────────────────────
 
 # Below this, every observation of the cell came from effectively one spot and
@@ -136,6 +168,13 @@ MIN_SPREAD_M = 250.0
 # centroid against the distance estimates is worth doing.
 GOOD_SPREAD_M = 1200.0
 MIN_SAMPLES_FOR_REFINE = 8
+# Spread alone is not constraint. Driving past a mast on one road produces a
+# kilometre of spread and two opposite bearings, and the centroid lands on the
+# road while the tower sits off to one side — a confident-looking dot that is
+# wrong in the one direction the data never sampled. Requiring the readings to
+# come from several directions is what separates "far apart" from "around it".
+_BEARING_SECTORS = 8
+MIN_ARCS_FOR_GOOD = 3
 
 EARTH_R = 6_371_000.0
 
@@ -146,6 +185,21 @@ def haversine_m(lat1, lon1, lat2, lon2):
     a = (math.sin(d_lat / 2) ** 2 +
          math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(d_lon / 2) ** 2)
     return EARTH_R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def bearing_arcs(lat, lng, points):
+    """How many of 8 compass sectors the observations fall into, seen from
+    (lat, lng). A proxy for whether they surround the point or merely stretch
+    past it."""
+    seen = set()
+    for plat, plng, _dbm in points:
+        dx = (plng - lng) * math.cos(math.radians(lat))
+        dy = plat - lat
+        if abs(dx) < 1e-9 and abs(dy) < 1e-9:
+            continue
+        ang = math.degrees(math.atan2(dx, dy)) % 360.0
+        seen.add(int(ang // (360 / _BEARING_SECTORS)))
+    return len(seen)
 
 
 def estimate_tower(points, spread_m=None):
@@ -191,19 +245,24 @@ def estimate_tower(points, spread_m=None):
     # Distance implied by the STRONGEST reading — the closest you ever got.
     range_m = distance_from_dbm(best_dbm if best_dbm > -999 else None)
 
+    arcs = bearing_arcs(lat, lng, points)
     if spread < MIN_SPREAD_M:
         return {'lat': round(lat, 6), 'lng': round(lng, 6),
                 'spread_m': round(spread), 'range_m': round(range_m) if range_m else None,
-                'confidence': 'unconstrained'}
+                'arcs': arcs, 'confidence': 'unconstrained'}
 
-    if spread >= GOOD_SPREAD_M and len(points) >= MIN_SAMPLES_FOR_REFINE:
+    if (spread >= GOOD_SPREAD_M and arcs >= MIN_ARCS_FOR_GOOD
+            and len(points) >= MIN_SAMPLES_FOR_REFINE):
         lat, lng = _refine(lat, lng, points)
         conf = 'good'
     else:
+        # Spread without surrounding bearings means the position is pinned along
+        # one axis and free along the other. Refining it would sharpen a number
+        # that is wrong sideways, so it is left at the centroid and labelled.
         conf = 'rough'
     return {'lat': round(lat, 6), 'lng': round(lng, 6),
             'spread_m': round(spread), 'range_m': round(range_m) if range_m else None,
-            'confidence': conf}
+            'arcs': arcs, 'confidence': conf}
 
 
 def _refine(lat, lng, points, iterations=12):

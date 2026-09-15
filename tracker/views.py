@@ -15004,6 +15004,7 @@ def cell_samples_api(request):
     role_idx = {v: i for i, v in enumerate(roles)}
     key_for = _cell_carrier_resolver()
     cells, cell_idx, samples = [], {}, []
+    sites, site_idx = [], {}
     carrier_idx, carrier_counts = {}, Counter()
 
     rows = (qs.order_by('timestamp')
@@ -15020,13 +15021,23 @@ def cell_samples_api(request):
         if ci is None:
             ci = cell_idx[ckey] = len(cells)
             cells.append(ckey)
+        # The site a cell belongs to, so "show this tower's readings" can filter
+        # the dense layer — a tower is a site now, not a single cell.
+        if cid is None:
+            si = -1
+        else:
+            _k, sname = cell_utils.site_key(rat, mcc, mnc, tac, cid)
+            si = site_idx.get(sname)
+            if si is None:
+                si = site_idx[sname] = len(sites)
+                sites.append(sname)
         ck = key_for(carrier, mcc, mnc)
         carrier_counts[ck] += 1
         ai = carrier_idx.setdefault(ck, len(carrier_idx))
         samples.append([
             round(lng, 6), round(lat, 6), dbm,
             rat_idx.get(rat, 0), role_idx.get(role, 0), ci, ai,
-            int(ts.timestamp()), level, band, sim_slot, pci, earfcn, rsrq,
+            int(ts.timestamp()), level, band, sim_slot, pci, earfcn, rsrq, si,
         ])
 
     # The legend is ordered by count, but the samples reference carriers by
@@ -15039,8 +15050,9 @@ def cell_samples_api(request):
 
     payload = {
         'fields': ['lng', 'lat', 'dbm', 'rat', 'role', 'cell', 'carrier',
-                   'ts', 'level', 'band', 'sim', 'pci', 'earfcn', 'rsrq'],
-        'rats': rats, 'roles': roles, 'cells': cells, 'carriers': legend,
+                   'ts', 'level', 'band', 'sim', 'pci', 'earfcn', 'rsrq', 'site'],
+        'rats': rats, 'roles': roles, 'cells': cells, 'sites': sites,
+        'carriers': legend,
         'samples': samples,
         'count': total, 'returned': len(samples), 'stride': stride,
     }
@@ -15130,6 +15142,12 @@ def cell_towers_api(request):
     scoping this to the map's range would make towers blink out of existence
     for a reason that has nothing to do with them.
 
+    A CELL IS NOT A TOWER. Rows are grouped by *site* (cell_utils.site_key),
+    not by cell: one mast carries three sectors on several bands each, so a
+    per-cell grouping turned four visible masts into twenty-six markers — and
+    split one site's readings across a dozen separate, weaker position
+    estimates. Grouping by eNodeB fixes the count and pools the readings.
+
     THE CENTROID OF YOUR OBSERVATIONS IS NOT THE TOWER, and this used to draw
     it as though it were — which is why a tower only ever seen from one house
     appeared to be in that house. What the readings actually constrain is
@@ -15157,16 +15175,22 @@ def cell_towers_api(request):
                        'dbm', 'carrier', 'band', 'sim_slot', 'timestamp')
           .iterator(chunk_size=5000)
     ):
-        k = (mcc, mnc, tac, cid, rat)
+        k, display = cell_utils.site_key(rat, mcc, mnc, tac, cid)
         a = acc.get(k)
         if a is None:
             a = acc[k] = {
+                'id': display, 'mcc': mcc, 'mnc': mnc,
                 'n': 0, 'pts': [], 'best': dbm, 'worst': dbm,
-                'first': ts, 'last': ts, 'band': band, 'sim': sim_slot,
+                'first': ts, 'last': ts, 'sim': sim_slot,
                 'carrier': key_for(carrier, mcc, mnc),
+                'cells': set(), 'bands': set(), 'rats': set(),
                 'minlat': lat, 'maxlat': lat, 'minlng': lng, 'maxlng': lng,
             }
         a['n'] += 1
+        a['cells'].add(cid)
+        a['rats'].add(rat)
+        if band:
+            a['bands'].add(band)
         carrier_counts[a['carrier']] += 1
         if dbm > a['best']:
             a['best'] = dbm
@@ -15176,8 +15200,6 @@ def cell_towers_api(request):
             a['first'] = ts
         if ts > a['last']:
             a['last'] = ts
-        if band and not a['band']:
-            a['band'] = band
         a['minlat'] = min(a['minlat'], lat); a['maxlat'] = max(a['maxlat'], lat)
         a['minlng'] = min(a['minlng'], lng); a['maxlng'] = max(a['maxlng'], lng)
         # Strided so a cell seen 50,000 times doesn't hold 50,000 tuples.
@@ -15189,7 +15211,7 @@ def cell_towers_api(request):
     legend = cell_utils.build_carrier_legend(carrier_counts)
     order = {e['key']: n for n, e in enumerate(legend)}
     towers = []
-    for (mcc, mnc, tac, cid, rat), a in acc.items():
+    for a in acc.values():
         # Exact spread from the running bbox: half its diagonal is the radius
         # of the smallest circle round every reading, so it bounds the true max
         # distance from the centroid without keeping the points to measure it.
@@ -15198,13 +15220,16 @@ def cell_towers_api(request):
         if not est:
             continue
         towers.append({
-            'id': f"{mcc}-{mnc}-{tac}-{cid}",
-            'mcc': mcc, 'mnc': mnc, 'tac': tac, 'cid': cid, 'rat': rat,
-            'band': a['band'], 'carrier': order.get(a['carrier'], 0),
+            'id': a['id'], 'mcc': a['mcc'], 'mnc': a['mnc'],
+            'rat': sorted(a['rats'])[0] if a['rats'] else '',
+            'rats': sorted(a['rats']),
+            'sectors': len(a['cells']),
+            'bands': sorted(a['bands']),
+            'carrier': order.get(a['carrier'], 0),
             'sim_slot': a['sim'],
             'lat': est['lat'], 'lng': est['lng'],
             'spread_m': est['spread_m'], 'range_m': est['range_m'],
-            'confidence': est['confidence'],
+            'arcs': est.get('arcs', 0), 'confidence': est['confidence'],
             'samples': a['n'], 'best_dbm': a['best'], 'worst_dbm': a['worst'],
             'first_seen': a['first'].isoformat(), 'last_seen': a['last'].isoformat(),
         })

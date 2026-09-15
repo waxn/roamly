@@ -1058,6 +1058,7 @@ async function loadCellSignal(force) {
     try {
         const d = await fetch(`/api/cells/?${buildFilterParams()}`).then(r => r.json());
         const rats = d.rats || [], roles = d.roles || [], cells = d.cells || [];
+        const sites = d.sites || [];
         const car = d.carriers || [];
         cellMergeCarriers(car);
         cellSigData = (d.samples || []).map(s => ({
@@ -1069,6 +1070,7 @@ async function loadCellSignal(force) {
                 dbm: s[2] === null ? -121 : s[2],
                 rat: rats[s[3]] || '', role: roles[s[4]] || '',
                 cell: cells[s[5]] || '',
+                site: s[14] >= 0 ? (sites[s[14]] || '') : '',
                 color: (car[s[6]] || {}).color || '#8a8f98',
                 carrier: (car[s[6]] || {}).name || 'Unknown',
                 ts: s[7], level: s[8], band: s[9], sim: s[10],
@@ -1206,7 +1208,7 @@ function addCellTowerLayers() {
         } });
     map.addLayer({ id: 'celltower-label', type: 'symbol', source: 'celltower-src',
         minzoom: 12,
-        layout: { 'text-field': ['upcase', ['get', 'rat']], 'text-size': 10,
+        layout: { 'text-field': ['upcase', ['get', 'rat']], 'text-size': 10,  // strongest RAT at the site
                   'text-offset': [0, 1.3], 'text-allow-overlap': false },
         paint: { 'text-color': ['get', 'color'], 'text-halo-color': '#000', 'text-halo-width': 1 } });
 }
@@ -1334,21 +1336,31 @@ map.on('mouseleave', 'cellcov-layer', () => map.getCanvas().style.cursor = '');
 
 map.on('click', 'celltower-layer', e => {
     const t = e.features[0].properties;
-    const band = t.band ? `Band ${t.band}` : 'band unknown — needs Android 11+';
+    const bands = (t.bands && t.bands.length)
+        ? `Band${t.bands.length > 1 ? 's' : ''} ${t.bands.join(', ')}`
+        : 'bands unknown';
+    const rats = (t.rats && t.rats.length ? t.rats : [t.rat]).join('/').toUpperCase();
     const seen = d => d ? new Date(d).toLocaleDateString() : '?';
     // The honest part. An unconstrained tower was only ever seen from one spot,
     // so its marker is where YOU were, and the ring is the only thing the data
     // actually says about where the tower is.
+    // Three verdicts, and they mean genuinely different things — see
+    // cell_utils.estimate_tower. 'rough' is the subtle one: plenty of spread,
+    // but all from one line, so the position is pinned lengthways and free
+    // sideways.
     const place = t.confidence === 'unconstrained'
         ? `<em style="color:var(--clay-amber)">Position unknown — only ever seen from one spot.
            The ring is roughly how far away it is (~${t.range_m} m), in some direction.</em>`
-        : `<em style="color:var(--text-muted)">Estimated from readings spread over
-           ${t.spread_m} m${t.confidence === 'rough' ? ' — rough, drive past it from more sides to sharpen it' : ''}.</em>`;
+        : t.confidence === 'rough'
+        ? `<em style="color:var(--clay-amber)">Rough — ${t.spread_m} m of readings but only from
+           ${t.arcs} direction${t.arcs === 1 ? '' : 's'}, so it could be off to one side.
+           Pass it from another angle to sharpen it.</em>`
+        : `<em style="color:var(--text-muted)">Estimated from ${t.spread_m} m of readings
+           taken from ${t.arcs} directions.</em>`;
     cellPopup(e.features[0].geometry.coordinates.slice(), `
-        <strong style="color:${t.color}">${t.carrierName}</strong>
-        · ${(t.rat || '').toUpperCase()}<br>
+        <strong style="color:${t.color}">${t.carrierName}</strong> · ${rats}<br>
         <span style="font-family:var(--font-mono);font-size:11px">${t.id}</span><br>
-        ${band} · ${cellSimLabel(t.sim_slot)}<br>
+        ${t.sectors} cell${t.sectors === 1 ? '' : 's'} · ${bands} · ${cellSimLabel(t.sim_slot)}<br>
         ${t.samples} reading${t.samples === 1 ? '' : 's'} ·
         ${t.best_dbm} to ${t.worst_dbm} dBm<br>
         ${seen(t.first_seen)} – ${seen(t.last_seen)}<br>
@@ -1361,7 +1373,9 @@ map.on('click', 'celltower-layer', e => {
         if (a) a.addEventListener('click', ev => {
             ev.preventDefault();
             if (map.getLayer('cellsig-layer')) {
-                map.setFilter('cellsig-layer', ['==', ['get', 'cell'], t.id]);
+                // Matches on SITE, not cell: a tower is a mast now, so this
+                // shows every sector and band of it rather than one of twelve.
+                map.setFilter('cellsig-layer', ['==', ['get', 'site'], t.id]);
                 cellSigBadge.textContent = `filtered to ${t.id}`;
             } else {
                 roamlyToast('Turn on the "cell signal" layer first.', { type: 'error' });
