@@ -128,8 +128,14 @@ function load() {
     const el = document.getElementById('act-list');
     el.setAttribute('aria-busy', 'true');
     const qs = activeKind ? `?kind=${encodeURIComponent(activeKind)}` : '';
+    // Check r.ok before reading the body: an error response is still JSON, so
+    // `d.activities || []` quietly rendered "no activities yet" for a 403 or a
+    // 500 — a failing request looked exactly like an empty account.
     fetch(`/api/activities/${qs}`)
-        .then(r => r.json())
+        .then(r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+        })
         .then(d => render(d.activities || []))
         .catch(() => {
             el.setAttribute('aria-busy', 'false');
