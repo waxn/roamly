@@ -17,9 +17,10 @@ import androidx.sqlite.execSQL
  * too; it moved to [com.roamly.data.local.MapCacheDatabase] in v3 so that map
  * queries can no longer take the write lock GPS capture needs. See that file.)
  */
-@Database(entities = [CachedPoint::class], version = 3, exportSchema = false)
+@Database(entities = [CachedPoint::class, CellSample::class], version = 4, exportSchema = false)
 abstract class TrackingDatabase : RoomDatabase() {
     abstract fun pointDao(): PointDao
+    abstract fun cellDao(): CellSampleDao
 
     companion object {
         @Volatile private var INSTANCE: TrackingDatabase? = null
@@ -66,11 +67,51 @@ abstract class TrackingDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v3 → v4 adds the cell-coverage capture queue.
+         *
+         * Additive: `cached_points` is untouched, so an in-flight backlog of
+         * un-uploaded fixes survives the upgrade. That is the whole reason this
+         * file has no destructive fallback, and this is the first migration
+         * written since that guarantee was documented — so the column list,
+         * nullability and index names below must match what Room generates for
+         * [CellSample] exactly, or Room aborts on the identity-hash check.
+         */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override suspend fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `cell_samples` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`clientId` TEXT NOT NULL, " +
+                        "`timestamp` INTEGER NOT NULL, " +
+                        "`latitude` REAL NOT NULL, " +
+                        "`longitude` REAL NOT NULL, " +
+                        "`accuracy` REAL, " +
+                        "`rat` TEXT NOT NULL, " +
+                        "`role` TEXT NOT NULL, " +
+                        "`simSlot` INTEGER NOT NULL, " +
+                        "`carrier` TEXT, `mcc` TEXT, `mnc` TEXT, " +
+                        "`tac` INTEGER, `cid` INTEGER, `pci` INTEGER, " +
+                        "`earfcn` INTEGER, `band` INTEGER, " +
+                        "`dbm` INTEGER, `asu` INTEGER, `level` INTEGER, `rsrq` INTEGER, " +
+                        "`synced` INTEGER NOT NULL DEFAULT 0)"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_cell_samples_synced_timestamp` " +
+                        "ON `cell_samples` (`synced`, `timestamp`)"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_cell_samples_timestamp` " +
+                        "ON `cell_samples` (`timestamp`)"
+                )
+            }
+        }
+
         fun getInstance(context: Context): TrackingDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder<TrackingDatabase>(
                     context.applicationContext, "roamly_tracking.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     // NO fallbackToDestructiveMigration. It was set here, directly
                     // contradicting the KDoc above it, and would silently wipe
                     // un-uploaded fixes the first time a version bump shipped
