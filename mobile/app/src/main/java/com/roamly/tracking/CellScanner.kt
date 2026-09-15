@@ -383,12 +383,13 @@ object CellScanner {
     private fun lteReading(info: CellInfoLte, role: String): Reading {
         val id: CellIdentityLte = info.cellIdentity
         val ss: CellSignalStrengthLte = info.cellSignalStrength
+        val earfcn = id.earfcn.orNull()
         return Reading(
             rat = "lte", role = role,
             mcc = mccOf(id), mnc = mncOf(id),
             tac = id.tac.orNull(), cid = id.ci.orNull()?.toLong(), pci = id.pci.orNull(),
-            earfcn = id.earfcn.orNull(),
-            band = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) id.bands.firstOrNull() else null,
+            earfcn = earfcn,
+            band = lteBand(id, earfcn),
             dbm = ss.dbm.orNull(), asu = ss.asuLevel.orNull(), level = ss.level,
             rsrq = ss.rsrq.orNull(),
         )
@@ -432,6 +433,62 @@ object CellScanner {
             earfcn = id.arfcn.orNull(), band = null,
             dbm = ss.dbm.orNull(), asu = ss.asuLevel.orNull(), level = ss.level, rsrq = null,
         )
+    }
+
+    // ── Band ─────────────────────────────────────────────────────────────────
+    //
+    // CellIdentityLte.getBands() is API 30+, AND on plenty of API 30+ devices it
+    // returns an EMPTY array because the modem never reports it — which is why
+    // "no band info" was the common case rather than the old-phone case.
+    //
+    // For LTE the fallback is exact rather than a guess: 3GPP 36.101 assigns each
+    // band a fixed, non-overlapping block of downlink EARFCNs, so the channel
+    // number determines the band with no ambiguity. New bands get appended; the
+    // existing ranges do not move, which is what makes this table safe to ship
+    // (the earlier call not to was about a band *name* table, and was wrong about
+    // this one).
+    //
+    // There is deliberately NO equivalent for NR: 38.104 lets several n-bands
+    // share NRARFCN ranges (n77/n78, n2/n25), so a channel number genuinely does
+    // not determine the band and a lookup would be inventing an answer. NR band
+    // stays null unless getBands() gives us one.
+    private val LTE_BANDS = arrayOf(
+        intArrayOf(1, 0, 599), intArrayOf(2, 600, 1199), intArrayOf(3, 1200, 1949),
+        intArrayOf(4, 1950, 2399), intArrayOf(5, 2400, 2649), intArrayOf(6, 2650, 2749),
+        intArrayOf(7, 2750, 3449), intArrayOf(8, 3450, 3799), intArrayOf(9, 3800, 4149),
+        intArrayOf(10, 4150, 4749), intArrayOf(11, 4750, 4949), intArrayOf(12, 5010, 5179),
+        intArrayOf(13, 5180, 5279), intArrayOf(14, 5280, 5379), intArrayOf(17, 5730, 5849),
+        intArrayOf(18, 5850, 5999), intArrayOf(19, 6000, 6149), intArrayOf(20, 6150, 6449),
+        intArrayOf(21, 6450, 6599), intArrayOf(22, 6600, 7399), intArrayOf(24, 7700, 8039),
+        intArrayOf(25, 8040, 8689), intArrayOf(26, 8690, 9039), intArrayOf(27, 9040, 9209),
+        intArrayOf(28, 9210, 9659), intArrayOf(29, 9660, 9769), intArrayOf(30, 9770, 9869),
+        intArrayOf(31, 9870, 9919), intArrayOf(32, 9920, 10359), intArrayOf(33, 36000, 36199),
+        intArrayOf(34, 36200, 36349), intArrayOf(35, 36350, 36949), intArrayOf(36, 36950, 37549),
+        intArrayOf(37, 37550, 37749), intArrayOf(38, 37750, 38249), intArrayOf(39, 38250, 38649),
+        intArrayOf(40, 38650, 39649), intArrayOf(41, 39650, 41589), intArrayOf(42, 41590, 43589),
+        intArrayOf(43, 43590, 45589), intArrayOf(44, 45590, 46589), intArrayOf(45, 46590, 46789),
+        intArrayOf(46, 46790, 54539), intArrayOf(47, 54540, 55239), intArrayOf(48, 55240, 56739),
+        intArrayOf(49, 56740, 58239), intArrayOf(50, 58240, 59089), intArrayOf(51, 59090, 59139),
+        intArrayOf(52, 59140, 60139), intArrayOf(53, 60140, 60254), intArrayOf(65, 65536, 66435),
+        intArrayOf(66, 66436, 67335), intArrayOf(67, 67336, 67535), intArrayOf(68, 67536, 67835),
+        intArrayOf(69, 67836, 68335), intArrayOf(70, 68336, 68585), intArrayOf(71, 68586, 68935),
+        intArrayOf(72, 68936, 68985), intArrayOf(73, 68986, 69035), intArrayOf(74, 69036, 69465),
+        intArrayOf(75, 69466, 70315), intArrayOf(76, 70316, 70365), intArrayOf(85, 70366, 70545),
+        intArrayOf(87, 70546, 70595), intArrayOf(88, 70596, 70645),
+    )
+
+    private fun lteBandFromEarfcn(earfcn: Int?): Int? {
+        if (earfcn == null) return null
+        for (b in LTE_BANDS) if (earfcn >= b[1] && earfcn <= b[2]) return b[0]
+        return null
+    }
+
+    /** getBands() where the modem offers it, EARFCN arithmetic where it doesn't. */
+    private fun lteBand(id: CellIdentityLte, earfcn: Int?): Int? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            id.bands.firstOrNull()?.let { return it }
+        }
+        return lteBandFromEarfcn(earfcn)
     }
 
     // ── MCC / MNC ────────────────────────────────────────────────────────────
