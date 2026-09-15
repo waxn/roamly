@@ -37,6 +37,7 @@ data class SettingsUiState(
     val syncOnMobileData: Boolean = true,
     val suppressStationaryDrift: Boolean = true,
     val adaptiveIntervalEnabled: Boolean = false,
+    val cellLoggingEnabled: Boolean = false,
     val simpleModeEnabled: Boolean = false,
     val batteryOptimizationDisabled: Boolean = false,
     val csvPath: String = "",
@@ -84,6 +85,7 @@ class SettingsViewModel @Inject constructor(
         collect(prefs.syncOnMobileData)      { v -> _state.update { it.copy(syncOnMobileData = v) } }
         collect(prefs.suppressStationaryDrift) { v -> _state.update { it.copy(suppressStationaryDrift = v) } }
         collect(prefs.adaptiveIntervalEnabled) { v -> _state.update { it.copy(adaptiveIntervalEnabled = v) } }
+        collect(prefs.cellLoggingEnabled) { v -> _state.update { it.copy(cellLoggingEnabled = v) } }
         collect(prefs.simpleModeEnabled)       { v -> _state.update { it.copy(simpleModeEnabled = v) } }
         collect(prefs.lastSyncTime)          { v -> _state.update { it.copy(lastSyncTime = v) } }
         collect(prefs.lastSyncSuccess)       { v -> _state.update { it.copy(lastSyncSuccess = v) } }
@@ -229,6 +231,10 @@ class SettingsViewModel @Inject constructor(
             UploadWorker.reschedulePeriodic(context, enabled)
             if (_state.value.isTracking) UploadWorker.scheduleNow(context, enabled)
         }
+    }
+
+    fun setCellLoggingEnabled(enabled: Boolean) {
+        viewModelScope.launch { prefs.setCellLoggingEnabled(enabled) }
     }
 
     fun setSuppressStationaryDrift(enabled: Boolean) {

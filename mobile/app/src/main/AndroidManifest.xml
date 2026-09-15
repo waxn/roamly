@@ -36,6 +36,18 @@
     <!-- Wake lock for upload worker -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- Cell-tower coverage logging. OPTIONAL and requested separately at
+         runtime (the Health Connect pattern), because scanning itself needs
+         only ACCESS_FINE_LOCATION, which tracking already holds. This is
+         purely the multi-SIM upgrade: SubscriptionManager will not enumerate
+         subscriptions without it, so declining degrades the feature to the
+         default SIM rather than breaking it.
+
+         Roamly never reads IMSI, ICCID or IMEI — they are PII the app has no
+         business keeping, and on API 29+ they need READ_PRIVILEGED_PHONE_STATE
+         anyway, which a sideloaded app cannot hold. Do not add them. -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
     <!-- Health Connect (read-only; Roamly never writes back).
          READ_HEALTH_DATA_HISTORY is load-bearing: without it Health Connect only
          ever returns the trailing 30 days, so a deeper backfill silently comes

@@ -82,6 +82,7 @@ fun SettingsScreen(
 
     // ── Permission handling ────────────────────────────────────────────────
     var showBgLocationRationale by remember { mutableStateOf(false) }
+    var showPhoneStateRationale by remember { mutableStateOf(false) }
     // Block-until-granted battery-exemption gate, shown before tracking actually starts.
     var showExemptionGate by remember { mutableStateOf(false) }
     // True while we're mid-flow waiting for the system exemption dialog to return, so
@@ -111,6 +112,12 @@ fun SettingsScreen(
     }
 
     val notifLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+    // Declining leaves cell logging ON — scanning needs only ACCESS_FINE_LOCATION,
+    // which tracking already holds. This permission is purely the multi-SIM
+    // upgrade, so refusing it degrades the feature to the default SIM.
+    val phoneStateLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
     val batteryOptLauncher = rememberLauncherForActivityResult(
@@ -181,6 +188,30 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showBgLocationRationale = false; startTrackingGated() }) { Text("Skip") }
+            }
+        )
+    }
+
+    if (showPhoneStateRationale) {
+        AlertDialog(
+            onDismissRequest = { showPhoneStateRationale = false },
+            title = { Text("Phone permission (optional)") },
+            text = {
+                Text(
+                    "Roamly uses this only to tell your SIMs apart when logging cell towers. " +
+                        "It never reads your phone number, IMEI, SIM serial number or call " +
+                        "history, and never places calls.\n\nIf you skip it, tower logging " +
+                        "still works — it just records your default SIM only."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showPhoneStateRationale = false
+                    phoneStateLauncher.launch(Manifest.permission.READ_PHONE_STATE)
+                }) { Text("Continue") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPhoneStateRationale = false }) { Text("Skip") }
             }
         )
     }
@@ -377,6 +408,24 @@ fun SettingsScreen(
                 subtitle = "Record every 1 min while moving, every 5 min while still — instead of the fixed interval above",
                 checked = state.adaptiveIntervalEnabled,
                 onCheckedChange = viewModel::setAdaptiveIntervalEnabled,
+            )
+
+            Spacer(Modifier.height(16.dp))
+            ToggleRow(
+                title = "Log cell towers",
+                subtitle = if (state.cellLoggingEnabled &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE)
+                        != PermissionChecker.PERMISSION_GRANTED
+                ) "Recording your default SIM only — grant Phone permission to log both SIMs"
+                else "Record which towers you connect to, with signal strength and band",
+                checked = state.cellLoggingEnabled,
+                onCheckedChange = { enabled ->
+                    viewModel.setCellLoggingEnabled(enabled)
+                    if (enabled &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE)
+                            != PermissionChecker.PERMISSION_GRANTED
+                    ) showPhoneStateRationale = true
+                },
             )
 
             Spacer(Modifier.height(16.dp))
