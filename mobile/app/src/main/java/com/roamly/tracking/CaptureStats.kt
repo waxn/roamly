@@ -41,6 +41,10 @@ object CaptureStats {
         CYCLE_SKIPPED_FRESH("cycle_skipped", "Fix cycles skipped (stream fresh)"),
         CYCLE_NO_FIX("cycle_no_fix", "Fix cycles: chip gave nothing"),
         CYCLE_FIX_FILTERED("cycle_filtered", "Fix cycles: fix arrived, filtered out"),
+        CELL_SCANNED("cell_scanned", "Cell readings taken"),
+        CELL_GATED("cell_gated", "Cell readings skipped by the gate"),
+        CELL_NO_IDENTITY("cell_no_id", "Cell readings with no global id"),
+        CELL_UPLOAD_UNSUPPORTED("cell_unsupported", "Cell batches dropped: server too old"),
     }
 
     private const val PREFS = "roamly_capture_stats"
