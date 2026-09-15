@@ -156,6 +156,10 @@ private data class TrackingConfig(
      *  field here is. Always false while recording; a live ride's fixed 2s
      *  cadence is a stronger, more deliberate override. */
     val adaptiveInterval: Boolean = false,
+    /** Log which cell towers each SIM sees alongside each fix. Off by default,
+     *  and gated again inside [CellScanner] by its own scan floor — this flag
+     *  only decides whether a position is offered to the scanner at all. */
+    val cellLogging: Boolean = false,
 ) {
     val recording: Boolean get() = activity != null
 }
@@ -269,6 +273,27 @@ class LocationTrackingService : Service() {
     private val pointWrites = Channel<PendingWrite>(Channel.UNLIMITED)
     private var writerJob: Job? = null
 
+    /** A position waiting for a cell reading. See [cellScans]. */
+    private data class CellScanRequest(
+        val latitude: Double,
+        val longitude: Double,
+        val accuracy: Float?,
+        val timestampMs: Long,
+    )
+
+    /**
+     * Positions to take a cell reading at, drained by their own consumer.
+     *
+     * CONFLATED, which is deliberately the opposite choice from [pointWrites]:
+     * every captured fix must land, but a backed-up scan queue only wants the
+     * *freshest* position — scanning against a stale one would attribute a tower
+     * to somewhere the phone no longer is. Most requests are dropped anyway by
+     * [CellScanner]'s own 60s floor, so the consumer idles at zero cost while
+     * the feature is switched off and nothing is ever sent.
+     */
+    private val cellScans = Channel<CellScanRequest>(Channel.CONFLATED)
+    private var cellScanJob: Job? = null
+
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
     override fun onCreate() {
@@ -301,7 +326,7 @@ class LocationTrackingService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_PAUSE  -> {
-                isPaused = true; filter.reset(); driftAnchor.reset(); cancelNextFix()
+                isPaused = true; filter.reset(); driftAnchor.reset(); CellScanner.reset(); cancelNextFix()
                 stopLocationUpdates(); streamArmed = false; pinWakeLock = false; releaseWakeLock()
                 updateNotification(force = true)
                 return START_STICKY
@@ -390,6 +415,7 @@ class LocationTrackingService : Service() {
             (getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
         }.getOrDefault(true)
         startPointWriter()
+        startCellScanner()
         observeRuntimePreferences()
         observeConfig()  // first emit → applyCapture(): starts the cadence (+ stream if screen-on)
         startWatchdog()
@@ -443,6 +469,11 @@ class LocationTrackingService : Service() {
                 withTimeoutOrNull(2_000L) {
                     pointWrites.close()
                     for (w in pointWrites) { runCatching { persistPoint(w) } }
+                    // Nothing to flush for cell scans — a conflated queue holds at
+                    // most one *request*, and taking a reading now would be a
+                    // reading of wherever the phone is at teardown. Just close it
+                    // so the consumer's loop ends rather than leaking the job.
+                    cellScans.close()
                 }
             }
         }
@@ -544,22 +575,25 @@ class LocationTrackingService : Service() {
     private fun observeConfig() {
         configJob?.cancel()
         configJob = scope.launch {
-            // Folded into one Pair-valued flow to keep the outer combine below at
-            // 5-arity — kotlinx.coroutines has no typed 6-arg combine, and its
+            // Folded into one Triple-valued flow to keep the outer combine below
+            // at 5-arity — kotlinx.coroutines has no typed 6-arg combine, and its
             // vararg form requires every flow to share one element type, which
-            // these six prefs don't. Same trick the original activitySession-only
-            // version of this comment already used, just widened to a pair.
-            val activityAndAdaptive = combine(
-                prefs.activitySession, prefs.adaptiveIntervalEnabled,
-            ) { activity, adaptiveInterval -> activity to adaptiveInterval }
+            // these seven prefs don't. Same trick the original activitySession-only
+            // version of this comment already used, widened once to a pair when
+            // adaptive interval arrived and again here for cell logging.
+            val activityAdaptiveCell = combine(
+                prefs.activitySession, prefs.adaptiveIntervalEnabled, prefs.cellLoggingEnabled,
+            ) { activity, adaptiveInterval, cellLogging ->
+                Triple(activity, adaptiveInterval, cellLogging)
+            }
 
             combine(
                 prefs.trackingIntervalSecs,
                 prefs.locationPriority,
                 prefs.maxAccuracyM,
                 prefs.suppressStationaryDrift,
-                activityAndAdaptive,
-            ) { interval, priority, maxAcc, suppressDrift, (activity, adaptiveInterval) ->
+                activityAdaptiveCell,
+            ) { interval, priority, maxAcc, suppressDrift, (activity, adaptiveInterval, cellLogging) ->
                 // A live session replaces the user's interval with the recording
                 // constant rather than overwriting their preference — which is why
                 // stopping restores nothing: clearing the session *is* the restore.
@@ -576,6 +610,7 @@ class LocationTrackingService : Service() {
                     // Recording always wins — a live ride's fixed 2s cadence is a
                     // stronger, more deliberate override than ambient adaptive mode.
                     adaptiveInterval = adaptiveInterval && act == null,
+                    cellLogging = cellLogging,
                 )
             }.distinctUntilChanged().collect { cfg ->
                 // The interval can change 15x when a recording starts or stops, so a
@@ -585,6 +620,11 @@ class LocationTrackingService : Service() {
                     filter.reset()
                     driftAnchor.reset()
                 }
+                // Read before currentConfig is replaced below — turning cell
+                // logging off forgets the gate, so switching it back on records
+                // the current cells once rather than silently holding them back
+                // until a stale heartbeat expires.
+                if (currentConfig?.cellLogging == true && !cfg.cellLogging) CellScanner.reset()
                 currentConfig = cfg
                 filter.minTimeBetweenMs = cfg.intervalMs
                 // DriftAnchor's thresholds are fix *counts*, not durations: at 2s an
@@ -1099,6 +1139,31 @@ class LocationTrackingService : Service() {
         }
     }
 
+    /**
+     * The single consumer of [cellScans].
+     *
+     * A cell scan is several binder calls plus, on API 29+, an async callback with
+     * a timeout — strictly more expensive than the battery read that already sits
+     * outside [captureLock] for exactly this reason. Running it on the capture path
+     * would reproduce the failure the point writer exists to prevent: slow work
+     * widening the window in which arriving fixes are judged against stale filter
+     * state and rejected outright.
+     */
+    private fun startCellScanner() {
+        if (cellScanJob != null) return
+        cellScanJob = scope.launch {
+            for (req in cellScans) {
+                runCatching {
+                    val samples = CellScanner.scan(
+                        applicationContext, req.latitude, req.longitude,
+                        req.accuracy, req.timestampMs,
+                    )
+                    if (samples.isNotEmpty()) db.cellDao().insertAll(samples)
+                }.onFailure { Log.e(TAG, "Cell scan failed", it) }
+            }
+        }
+    }
+
     private suspend fun persistPoint(w: PendingWrite) {
         db.pointDao().insert(w.point)
         // Skipped while recording: it mkdirs + opens + closes under a global lock per
@@ -1241,6 +1306,14 @@ class LocationTrackingService : Service() {
                     ),
                 )
             )
+            // Offered, not taken: trySend on a conflated channel is non-blocking
+            // and allocation-light, and the scanner decides on its own clock
+            // whether this position is worth a reading.
+            if (currentConfig?.cellLogging == true && !isDwell) {
+                cellScans.trySend(
+                    CellScanRequest(loc.latitude, loc.longitude, loc.accuracy, loc.time)
+                )
+            }
             Log.d(TAG, "Saved ${loc.latitude},${loc.longitude} acc=${loc.accuracy}m")
         }
         updateNotification()

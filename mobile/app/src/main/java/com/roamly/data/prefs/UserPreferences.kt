@@ -62,6 +62,7 @@ class UserPreferences @Inject constructor(
         // capability (any account can opt in), but Simple Mode forces it on with
         // fixed bounds -- see LocationTrackingService.
         private val KEY_ADAPTIVE_INTERVAL       = booleanPreferencesKey("adaptive_interval_enabled")
+        private val KEY_CELL_LOGGING            = booleanPreferencesKey("cell_logging_enabled")
 
         // Simple Mode: a reduced bottom nav (Map / Family / Settings) for a
         // non-technical family member. Local-only, per device -- not synced to
@@ -132,6 +133,10 @@ class UserPreferences @Inject constructor(
     val suppressStationaryDrift: Flow<Boolean> = context.dataStore.data.map { it[KEY_SUPPRESS_DRIFT] ?: true }
     /** Swap interval by recent Doppler speed instead of one fixed value. Simple Mode forces this on. */
     val adaptiveIntervalEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_ADAPTIVE_INTERVAL] ?: false }
+    /** Log which cell towers each SIM sees alongside each fix. Off by default —
+     *  it is an extra data stream most people have no use for, and the multi-SIM
+     *  half of it wants a permission tracking does not otherwise need. */
+    val cellLoggingEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_CELL_LOGGING] ?: false }
 
     // ── Simple Mode ────────────────────────────────────────────────────────
 
@@ -262,6 +267,10 @@ class UserPreferences @Inject constructor(
 
     suspend fun setAdaptiveIntervalEnabled(enabled: Boolean) {
         context.dataStore.edit { it[KEY_ADAPTIVE_INTERVAL] = enabled }
+    }
+
+    suspend fun setCellLoggingEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_CELL_LOGGING] = enabled }
     }
 
     /** Turning Simple Mode on also forces adaptive interval on at its fixed
