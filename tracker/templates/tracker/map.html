@@ -294,6 +294,30 @@
    normal flow, where a display:flex box stretched the full viewport width and
    the transform positioned them from the wrong origin. Absolute also gives the
    tail's pseudo-elements their containing block. */
+.cell-legend {
+    display: none;
+    padding: 8px 2px 2px;
+}
+.cell-legend.on { display: block; }
+.cell-legend-bar {
+    height: 8px;
+    border: 1px solid var(--border);
+    /* The 3GPP-meaningful RSRP thresholds, mapped onto the -120..-75 dBm span
+       the ramp covers. A functional encoding like the speed gradient, NOT the
+       categorical clay tokens — five clay colours would read as five kinds of
+       tower rather than one scale. */
+    background: linear-gradient(90deg,
+        #5b2c6f 0%, #2c6fa8 22%, #2e8b57 56%, #e8a33d 78%, #e8763d 100%);
+}
+.cell-legend-labels {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-muted);
+    margin-top: 3px;
+}
+
 .place-tag {
     position: absolute;
     display: flex;
@@ -627,6 +651,21 @@
                         fog of war
                         <span class="tool-btn-badge" id="fog-badge"></span>
                     </button>
+                    {% comment %}Two toggles rather than one, because they obey
+                       different clocks: the signal layer follows the range
+                       picker above, while towers are always all-time — a tower
+                       you once saw stays one, the same argument fog of war
+                       makes for its own layer.{% endcomment %}
+                    <button class="tool-btn" id="cellsig-btn" type="button"
+                            title="Signal strength at each place a reading was taken. Follows the time range above.">
+                        cell signal
+                        <span class="tool-btn-badge" id="cellsig-badge"></span>
+                    </button>
+                    <button class="tool-btn" id="celltower-btn" type="button"
+                            title="Estimated tower positions, from all time regardless of the range above.">
+                        cell towers
+                        <span class="tool-btn-badge" id="celltower-badge"></span>
+                    </button>
                     {% if ROAD_SNAP_ENABLED %}
                     {% comment %}Display-only, this-browser-only. Deliberately NOT called
                        "snap to roads": that is the name of the account-wide
@@ -650,6 +689,15 @@
                         replay day
                         <span class="tool-btn-badge" id="replay-badge"></span>
                     </button>
+                </div>
+                {% comment %}The speed gradient gets away without a legend
+                   because "fast is red" is intuitive; "-95 dBm is green" is
+                   not.{% endcomment %}
+                <div class="cell-legend" id="cell-legend">
+                    <div class="cell-legend-bar"></div>
+                    <div class="cell-legend-labels">
+                        <span>-120 dBm</span><span>weak</span><span>strong</span><span>-75</span>
+                    </div>
                 </div>
             </div>
 
@@ -928,6 +976,228 @@ placesBtn.addEventListener('click', async () => {
 });
 
 if (placesOn) applyPlacesToggle();
+
+// ═══════════════════════════════════════════════════════════════════
+// Cell coverage — signal readings and derived tower positions
+//
+// Two independent toggles on purpose. The signal layer answers "how good was
+// the connection where I stood" and follows the range picker; the tower layer
+// answers "which towers have I ever used" and is deliberately all-time, the
+// same reasoning fog of war applies to itself. Folding them into one control
+// would force one of those behaviours onto the other.
+// ═══════════════════════════════════════════════════════════════════
+const cellSigBtn = document.getElementById('cellsig-btn');
+const cellSigBadge = document.getElementById('cellsig-badge');
+const cellTowerBtn = document.getElementById('celltower-btn');
+const cellTowerBadge = document.getElementById('celltower-badge');
+const cellLegend = document.getElementById('cell-legend');
+let cellSigOn = localStorage.getItem('roamly_cell_signal') === 'on';
+let cellTowersOn = localStorage.getItem('roamly_cell_towers') === 'on';
+let cellSigData = null;
+let cellTowerData = null;
+
+// A functional encoding on the real dBm scale, so the breakpoints carry
+// information to anyone who knows the units — not the categorical clay tokens,
+// which encode kind rather than magnitude. Same class of thing as the speed
+// gradient and the heatmap ramp, which are deliberately left unrestyled.
+const CELL_SIGNAL_RAMP = [
+    'interpolate', ['linear'], ['get', 'dbm'],
+    -120, '#5b2c6f',
+    -110, '#2c6fa8',
+     -95, '#2e8b57',
+     -85, '#e8a33d',
+     -75, '#e8763d',
+];
+
+// The range picker is read at fetch time, so this layer re-fetches whenever the
+// range changes (see loadCurrentMode). The tower layer never does.
+async function loadCellSignal(force) {
+    if (cellSigData && !force) return;
+    try {
+        const qs = buildFilterParams();
+        const d = await fetch(`/api/cells/?${qs}`).then(r => r.json());
+        const rats = d.rats || [], roles = d.roles || [], cells = d.cells || [];
+        cellSigData = (d.samples || []).map(s => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [s[0], s[1]] },
+            properties: {
+                // dbm can be null when the modem reported no signal figure.
+                // -121 keeps it on the ramp's cold end rather than dropping it
+                // out of the interpolate entirely, which paints black.
+                dbm: s[2] === null ? -121 : s[2],
+                rat: rats[s[3]] || '', role: roles[s[4]] || '',
+                cell: cells[s[5]] || '',
+            },
+        }));
+        cellSigData.total = d.count || 0;
+        cellSigData.stride = d.stride || 1;
+    } catch (e) { cellSigData = []; }
+}
+
+async function loadCellTowers() {
+    if (cellTowerData) return;
+    try {
+        const d = await fetch('/api/cells/towers/').then(r => r.json());
+        cellTowerData = (d.towers || []).map(t => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [t.lng, t.lat] },
+            properties: t,
+        }));
+    } catch (e) { cellTowerData = []; }
+}
+
+// Both add* functions guard internally rather than at the call sites, so the
+// styledata retry below can call them blind — the my-places pattern.
+function addCellSignalLayers() {
+    if (!cellSigOn || !cellSigData || !cellSigData.length) return;
+    if (!map.isStyleLoaded() || map.getSource('cellsig-src')) return;
+    map.addSource('cellsig-src', { type: 'geojson',
+        data: { type: 'FeatureCollection', features: cellSigData } });
+    map.addLayer({ id: 'cellsig-layer', type: 'circle', source: 'cellsig-src',
+        paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 2, 12, 4, 16, 7],
+            'circle-color': CELL_SIGNAL_RAMP,
+            'circle-opacity': 0.75,
+        } });
+}
+
+function removeCellSignalLayers() {
+    if (map.getLayer('cellsig-layer')) map.removeLayer('cellsig-layer');
+    if (map.getSource('cellsig-src')) map.removeSource('cellsig-src');
+}
+
+function addCellTowerLayers() {
+    if (!cellTowersOn || !cellTowerData || !cellTowerData.length) return;
+    if (!map.isStyleLoaded() || map.getSource('celltower-src')) return;
+    map.addSource('celltower-src', { type: 'geojson',
+        data: { type: 'FeatureCollection', features: cellTowerData } });
+    // Sized by log(samples) with a pixel floor, so a tower seen once is still
+    // visible and one seen ten thousand times doesn't swallow the map.
+    map.addLayer({ id: 'celltower-layer', type: 'circle', source: 'celltower-src',
+        paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'],
+                6, ['max', 3, ['*', 1.4, ['ln', ['max', 1, ['get', 'samples']]]]],
+                14, ['max', 6, ['*', 2.6, ['ln', ['max', 1, ['get', 'samples']]]]]],
+            'circle-color': '#8e6fbf',
+            'circle-opacity': 0.55,
+            'circle-stroke-width': 1.5,
+            'circle-stroke-color': '#c9a9ff',
+        } });
+    map.addLayer({ id: 'celltower-label', type: 'symbol', source: 'celltower-src',
+        minzoom: 12,
+        layout: {
+            'text-field': ['upcase', ['get', 'rat']],
+            'text-size': 10,
+            'text-offset': [0, 1.3],
+            'text-allow-overlap': false,
+        },
+        paint: { 'text-color': '#c9a9ff', 'text-halo-color': '#000', 'text-halo-width': 1 } });
+}
+
+function removeCellTowerLayers() {
+    ['celltower-label', 'celltower-layer'].forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
+    if (map.getSource('celltower-src')) map.removeSource('celltower-src');
+}
+
+async function applyCellSignalToggle(force) {
+    cellSigBtn.classList.toggle('active', cellSigOn);
+    cellLegend.classList.toggle('on', cellSigOn);
+    if (cellSigOn) {
+        cellSigBadge.textContent = 'loading…';
+        await loadCellSignal(force);
+        if (!cellSigOn) return;  // toggled back off while the fetch was in flight
+        removeCellSignalLayers();
+        addCellSignalLayers();   // no-ops if the style isn't ready; styledata retries
+        const n = cellSigData.length, total = cellSigData.total || n;
+        cellSigBadge.textContent = n
+            ? (cellSigData.stride > 1 ? `${n} of ${total}` : `${n} readings`)
+            : 'none yet';
+    } else {
+        removeCellSignalLayers();
+        cellSigBadge.textContent = '';
+    }
+}
+
+async function applyCellTowerToggle() {
+    cellTowerBtn.classList.toggle('active', cellTowersOn);
+    if (cellTowersOn) {
+        cellTowerBadge.textContent = 'loading…';
+        await loadCellTowers();
+        if (!cellTowersOn) return;
+        addCellTowerLayers();
+        const n = cellTowerData.length;
+        cellTowerBadge.textContent = n ? `${n} ${n === 1 ? 'tower' : 'towers'}` : 'none yet';
+    } else {
+        removeCellTowerLayers();
+        cellTowerBadge.textContent = '';
+    }
+}
+
+cellSigBtn.addEventListener('click', async () => {
+    cellSigOn = !cellSigOn;
+    localStorage.setItem('roamly_cell_signal', cellSigOn ? 'on' : 'off');
+    await applyCellSignalToggle();
+});
+
+cellTowerBtn.addEventListener('click', async () => {
+    cellTowersOn = !cellTowersOn;
+    localStorage.setItem('roamly_cell_towers', cellTowersOn ? 'on' : 'off');
+    await applyCellTowerToggle();
+});
+
+// Registered once, unconditionally. MapLibre's delegated layer listeners don't
+// dedupe, so registering these inside the add* functions would stack a firing
+// per past style swap.
+map.on('click', 'celltower-layer', e => {
+    const t = e.features[0].properties;
+    const band = t.band ? `Band ${t.band}` : 'band unknown — needs Android 11+';
+    const sim = (t.sim_slot === undefined || t.sim_slot < 0) ? 'default SIM' : `SIM ${t.sim_slot + 1}`;
+    const seen = d => d ? new Date(d).toLocaleDateString() : '?';
+    new maplibregl.Popup({ closeButton: true })
+        .setLngLat(e.features[0].geometry.coordinates.slice())
+        .setHTML(
+            `<div style="font-family:var(--font-body);font-size:12px;line-height:1.5">
+               <strong>${(t.rat || '').toUpperCase()} · ${t.carrier || 'unknown carrier'}</strong><br>
+               <span style="font-family:var(--font-mono);font-size:11px">${t.id}</span><br>
+               ${band} · ${sim}<br>
+               ${t.samples} reading${t.samples === 1 ? '' : 's'} ·
+               ${t.best_dbm} to ${t.worst_dbm} dBm<br>
+               ${seen(t.first_seen)} – ${seen(t.last_seen)}<br>
+               <em style="color:var(--text-muted)">Position estimated from your own readings,
+               not surveyed.</em><br>
+               <a href="#" id="cell-isolate">show this tower's readings</a>
+             </div>`)
+        .addTo(map);
+    // Filters the already-loaded dense source rather than asking the server
+    // again — which is also what links the sparse layer to the dense one.
+    setTimeout(() => {
+        const a = document.getElementById('cell-isolate');
+        if (a) a.addEventListener('click', ev => {
+            ev.preventDefault();
+            if (map.getLayer('cellsig-layer')) {
+                map.setFilter('cellsig-layer', ['==', ['get', 'cell'], t.id]);
+                cellSigBadge.textContent = `filtered to ${t.id}`;
+            }
+        });
+    }, 0);
+});
+map.on('mouseenter', 'celltower-layer', () => map.getCanvas().style.cursor = 'pointer');
+map.on('mouseleave', 'celltower-layer', () => map.getCanvas().style.cursor = '');
+
+// The signal layer follows the range picker, so it re-fetches when the range
+// changes. Hooked to the controls directly rather than to loadCurrentMode():
+// that lives in the shared map-core.js, which /editor/ also loads and where
+// none of these functions exist. The tower layer is all-time and never
+// re-fetches, which is the whole reason the two are separate toggles.
+['time-range', 'start-date', 'end-date', 'device-filter'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => {
+        if (cellSigOn) applyCellSignalToggle(true);
+    });
+});
+
+if (cellSigOn) applyCellSignalToggle();
+if (cellTowersOn) applyCellTowerToggle();
 
 // ═══════════════════════════════════════════════════════════════════
 // Filled gaps — points the map editor generated.
@@ -1273,6 +1543,8 @@ map.on('style.load', () => {
     if (scratchOn) addScratchLayers();
     addPlacesLayers();
     addInferredLayers();
+    addCellSignalLayers();
+    addCellTowerLayers();
 });
 
 // Places-circle retry. isStyleLoaded() can still be false at the instant
@@ -1282,6 +1554,8 @@ map.on('style.load', () => {
 // so the layer reliably lands on whichever tick is ready.
 map.on('styledata', addPlacesLayers);
 map.on('styledata', addInferredLayers);
+map.on('styledata', addCellSignalLayers);
+map.on('styledata', addCellTowerLayers);
 
 // ═══════════════════════════════════════════════════════════════════
 // Daily replay — scrub/animate a single day's track
