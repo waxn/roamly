@@ -7108,7 +7108,8 @@ def _write_backup_json(user, f, progress=None):
         if written % 5000 == 0:
             report('Writing locations', written, loc_total)
     f.write(b'],')
-    counted_locations = loc_count
+    # Held aside because `written` is reused as the health-sample counter below.
+    counted_locations = written
     report('Writing locations', loc_total, loc_total)
 
     # Health samples are the only health section large enough to matter, so they
