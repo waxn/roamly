@@ -87,11 +87,16 @@ object CellScanner {
     /** Distance from a cell's last stored sample that re-qualifies it. */
     private const val CELL_MIN_MOVE_M = 150.0
 
-    private const val CELL_HEARTBEAT_MS = 10 * 60_000L
-    private const val CELL_NEIGHBOUR_HEARTBEAT_MS = 30 * 60_000L
+    // Heartbeats. These were 10 and 30 minutes, which is where "4 readings in
+    // 20 minutes" came from: a phone sitting still recorded its serving cell
+    // twice an hour per SIM and nothing else. The point of the gate is to stop
+    // an ungated scan writing 29,000 rows a day, not to make a stationary
+    // evening invisible.
+    private const val CELL_HEARTBEAT_MS = 3 * 60_000L
+    private const val CELL_NEIGHBOUR_HEARTBEAT_MS = 10 * 60_000L
 
-    /** Per SIM per scan. Bounds the worst case at 6x the serving volume. */
-    private const val CELL_MAX_NEIGHBOURS = 6
+    /** Per SIM per scan. */
+    private const val CELL_MAX_NEIGHBOURS = 8
 
     private const val CELL_GATE_CACHE_SIZE = 256
 
@@ -206,40 +211,33 @@ object CellScanner {
         val neighbours = readings.filter { it.role == ROLE_NEIGHBOUR }
 
         val kept = mutableListOf<Reading>()
-        var servingQualified = false
         for (r in serving) {
-            if (qualifies(r, slot, lat, lon, nowMs, CELL_HEARTBEAT_MS)) {
+            if (qualifies(r, slot, lat, lon, nowMs, CELL_HEARTBEAT_MS)) kept += r
+            else CaptureStats.bump(CaptureStats.Counter.CELL_GATED)
+        }
+
+        // Neighbours are gated on their OWN heartbeat and nothing else. They
+        // used to ride along only in a scan where this SIM's serving cell also
+        // qualified, which sounded like a volume bound and was really a mute
+        // button: the serving cell is exactly what a stationary phone holds
+        // back, so neighbours were almost never recorded at all.
+        var taken = 0
+        for (r in neighbours.sortedByDescending { it.dbm ?: Int.MIN_VALUE }) {
+            if (taken >= CELL_MAX_NEIGHBOURS) break
+            // A neighbour with no global identity is still a real signal
+            // reading at a real place, and the signal and coverage layers are
+            // most of the point of this feature. It cannot become a *tower* —
+            // there is no global id to aggregate on and a PCI is reused two
+            // towns over — but cell_towers_api already filters on cid, so
+            // dropping these here threw the reading away for nothing. Counted,
+            // not discarded.
+            if (r.cid == null) CaptureStats.bump(CaptureStats.Counter.CELL_NO_IDENTITY)
+            if (qualifies(r, slot, lat, lon, nowMs, CELL_NEIGHBOUR_HEARTBEAT_MS)) {
                 kept += r
-                servingQualified = true
+                taken++
             } else {
                 CaptureStats.bump(CaptureStats.Counter.CELL_GATED)
             }
-        }
-
-        // Neighbours only ride along in a scan where this SIM's serving cell also
-        // qualified. Without that clause a stationary phone whose serving cell is
-        // held back by its heartbeat would still write neighbour rows every scan,
-        // which is most of the volume this gate exists to remove.
-        if (servingQualified) {
-            var taken = 0
-            for (r in neighbours.sortedByDescending { it.dbm ?: Int.MIN_VALUE }) {
-                if (taken >= CELL_MAX_NEIGHBOURS) break
-                // A neighbour with no global identity cannot become a tower and
-                // cannot be told apart from a different cell reusing that PCI two
-                // towns over. It is noise with a row cost.
-                if (r.cid == null) {
-                    CaptureStats.bump(CaptureStats.Counter.CELL_NO_IDENTITY)
-                    continue
-                }
-                if (qualifies(r, slot, lat, lon, nowMs, CELL_NEIGHBOUR_HEARTBEAT_MS)) {
-                    kept += r
-                    taken++
-                } else {
-                    CaptureStats.bump(CaptureStats.Counter.CELL_GATED)
-                }
-            }
-        } else {
-            CaptureStats.bump(CaptureStats.Counter.CELL_GATED, neighbours.size)
         }
 
         return kept.map { r ->
