@@ -2112,3 +2112,111 @@ class LocationShare(models.Model):
 
     def __str__(self):
         return f"share {self.token[:8]}… for {self.user.username}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Cell coverage
+#
+# Which cell towers the phone camps on, per SIM, with signal strength and band.
+# Roamly otherwise knows where you were but nothing about how you were
+# connected. Structurally this is Health Connect, not a Location extension: an
+# optional, separately-permissioned, off-by-default stream with its own table,
+# endpoint, cache generation, upload path and backup section.
+#
+# ONE TABLE, AND NO DERIVED-TOWER TABLE. A tower is a GROUP BY over these rows
+# (signal-weighted centroid, first/last seen, sample count) — see
+# views.cell_towers_api — so it can never drift from the samples and needs no
+# rebuild job. A second table would be a cache with no invalidation story.
+#
+# Non-spatial, and therefore defined once rather than behind the HAS_POSTGIS
+# branch: that split exists only to keep a geometry column and its GiST index
+# off SQLite, and nothing here queries spatially — the tower layer is all-time
+# and sparse, the sample layer is date-ranged like track_api, not viewport
+# driven. If a viewport-driven cell layer is ever wanted, THAT is the moment a
+# geography column and the dual definition earn their cost.
+#
+# VOLUME IS BY DESIGN. An ungated scan (serving + neighbours, dual SIM, at the
+# 30s capture interval) is ~29,000 rows/day — 10x Location itself, for a
+# feature that is off by default. The phone gates hard before writing anything:
+# a 60s scan floor decoupled from the capture interval, then per-cell "the
+# identity changed, OR you moved 150m, OR a heartbeat elapsed" (see
+# tracking/CellScanner.kt). That lands at ~1,500-2,300 rows/day, under what
+# Location already produces. Do not read the size of this table as a bug.
+
+CELL_RATS = [
+    ('lte', 'LTE'),
+    ('nr', '5G NR'),
+    ('wcdma', 'WCDMA'),
+    ('gsm', 'GSM'),
+]
+
+CELL_ROLES = [
+    ('serving', 'Serving'),
+    ('secondary', 'Secondary serving'),
+    ('neighbour', 'Neighbour'),
+]
+
+
+class CellSample(models.Model):
+    """One observation of one cell tower from one position."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='cell_samples')
+    # A plain CharField, not a Device FK — same reasoning as HealthSample's:
+    # the identifier is whatever the phone reported, and a cell sample must not
+    # depend on a Device row existing.
+    device_id = models.CharField(max_length=100, blank=True, default='')
+    # Phone-minted idempotency key (Activity's client_id pattern). The uploader
+    # re-sends routinely — the 4xx single-point fallback and the replace=true
+    # wedged-backlog recovery both do — and retrofitting uniqueness onto a
+    # table that already has duplicates is far worse than paying for it now.
+    client_id = models.CharField(max_length=32)
+    timestamp = models.DateTimeField()
+    # Position of the GPS fix this reading was taken alongside.
+    latitude = models.FloatField()
+    longitude = models.FloatField()
+    accuracy = models.FloatField(null=True, blank=True)
+    rat = models.CharField(max_length=8, choices=CELL_RATS)
+    role = models.CharField(max_length=10, choices=CELL_ROLES)
+    # -1 = unknown, which is what a phone reports when READ_PHONE_STATE was
+    # declined: the feature degrades to the default subscription rather than
+    # breaking. Subscription id is deliberately NOT stored — it is unstable
+    # across SIM re-insertion and eSIM reprovisioning, so it would fragment a
+    # tower's history. IMSI/ICCID/IMEI are never read at all.
+    sim_slot = models.SmallIntegerField(default=-1)
+    carrier = models.CharField(max_length=64, blank=True, default='')
+    mcc = models.CharField(max_length=3, blank=True, default='')
+    mnc = models.CharField(max_length=3, blank=True, default='')
+    tac = models.IntegerField(null=True, blank=True)      # TAC / LAC
+    cid = models.BigIntegerField(null=True, blank=True)   # CI / NCI / CID — the global id
+    pci = models.IntegerField(null=True, blank=True)      # PCI / PSC / BSIC
+    earfcn = models.IntegerField(null=True, blank=True)   # EARFCN / NRARFCN / UARFCN / ARFCN
+    # API 30+ only (CellIdentityLte.getBands()). NULL on 26-29, where earfcn is
+    # kept instead — an ARFCN->band lookup table is ~50 rows of hand
+    # transcribed 3GPP data that goes stale with every new allocation, for a
+    # cosmetic label. Honest beats fabricated.
+    band = models.SmallIntegerField(null=True, blank=True)
+    dbm = models.SmallIntegerField(null=True, blank=True)   # RSRP / SS-RSRP / RSCP / RSSI
+    asu = models.SmallIntegerField(null=True, blank=True)
+    level = models.SmallIntegerField(null=True, blank=True)  # 0-4 bars; always available
+    rsrq = models.SmallIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Deliberately NO `ordering`, for the reason HealthSample.Meta
+        # documents — and it bites harder here, because the tower view IS a
+        # .values().annotate(): Django appends Meta.ordering columns to the
+        # GROUP BY, which would shatter the aggregation into one group per row.
+        unique_together = ['user', 'client_id']
+        indexes = [
+            # ASCENDING, matching how the sample layer reads it. A btree on
+            # ('user', '-timestamp') serves neither (user ASC, ts ASC) nor
+            # (user ASC, ts DESC) — the tracker_loc_dev_ts_idx lesson from
+            # migration 0083.
+            models.Index(fields=['user', 'timestamp'], name='tracker_cs_user_ts_idx'),
+            # The tower aggregation's grouping key, in the same column order.
+            # That is what makes the GROUP BY a grouped index scan rather than
+            # a hash aggregate over the user's whole history.
+            models.Index(fields=['user', 'mcc', 'mnc', 'tac', 'cid'], name='tracker_cs_user_cell_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.rat} {self.mcc}-{self.mnc}/{self.tac}/{self.cid} @ {self.timestamp}"
