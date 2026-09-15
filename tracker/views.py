@@ -7072,7 +7072,7 @@ def _write_backup_json(user, f, progress=None):
     loc_total = Location.objects.filter(device__user=user).count()
 
     report('Collecting devices')
-    meta = {'version': 15, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 16, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # The single backup builder: the scheduled S3 backup calls this too, so the
@@ -7097,6 +7097,7 @@ def _write_backup_json(user, f, progress=None):
     report('Collecting family circles')
     family_circles = _build_family_data(user)
     health_total = HealthSample.objects.filter(user=user).count()
+    cell_total = CellSample.objects.filter(user=user).count()
 
     f.write(b'{"meta":' + encoder.encode(meta).encode() + b',')
     f.write(b'"devices":' + encoder.encode(devices).encode() + b',')
@@ -7163,12 +7164,46 @@ def _write_backup_json(user, f, progress=None):
         if written % 5000 == 0:
             report('Writing health', written, health_total)
     f.write(b'],')
+    counted_health = written
+    report('Writing health', health_total, health_total)
+
+    # Streamed row-by-row like locations and health samples rather than going
+    # through a list-builder in backup_tasks: with the phone-side gate this is
+    # roughly the size of the locations section, and materialising it as Python
+    # dicts is exactly the OOM the streaming path exists to prevent.
+    report('Writing cell samples', 0, cell_total)
+    f.write(b'"cell_samples":[')
+    first = True
+    written = 0
+    cqs = (CellSample.objects.filter(user=user).order_by('timestamp')
+           .values_list('device_id', 'client_id', 'timestamp', 'latitude', 'longitude',
+                        'accuracy', 'rat', 'role', 'sim_slot', 'carrier', 'mcc', 'mnc',
+                        'tac', 'cid', 'pci', 'earfcn', 'band', 'dbm', 'asu', 'level', 'rsrq')
+           .iterator(chunk_size=5000))
+    for (device_id, client_id, ts, lat, lng, acc, rat, role, sim_slot, carrier,
+         mcc, mnc, tac, cid, pci, earfcn, band, dbm, asu, level, rsrq) in cqs:
+        if not first:
+            f.write(b',')
+        first = False
+        f.write(encoder.encode({
+            'device_id': device_id, 'client_id': client_id, 'timestamp': ts,
+            'latitude': _jf(lat), 'longitude': _jf(lng), 'accuracy': _jf(acc),
+            'rat': rat, 'role': role, 'sim_slot': sim_slot, 'carrier': carrier,
+            'mcc': mcc, 'mnc': mnc, 'tac': tac, 'cid': cid, 'pci': pci,
+            'earfcn': earfcn, 'band': band, 'dbm': dbm, 'asu': asu,
+            'level': level, 'rsrq': rsrq,
+        }).encode())
+        written += 1
+        if written % 5000 == 0:
+            report('Writing cell samples', written, cell_total)
+    f.write(b'],')
     # Row counts, written last because they are only known once the streams are
     # done. A truncated download used to restore "successfully" with silently
     # fewer points; restore_backup compares these and says so.
     f.write(b'"counts":' + encoder.encode({
         'locations': counted_locations,
-        'health_samples': written,
+        'health_samples': counted_health,
+        'cell_samples': written,
         'devices': len(devices),
         'adventures': len(adventures),
         'journals': len(journals),
@@ -7176,7 +7211,7 @@ def _write_backup_json(user, f, progress=None):
         'activities': len(activities),
         'family_circles': len(family_circles),
     }).encode() + b'}')
-    report('Writing health', health_total, health_total)
+    report('Writing cell samples', cell_total, cell_total)
 
 
 # Share of the progress bar given to the small sections before the locations
@@ -7187,7 +7222,7 @@ _DATA_PHASE_PCT = 55
 _BACKUP_STAGES = ['Counting locations', 'Collecting devices', 'Collecting adventures',
                   'Collecting journals', 'Collecting places', 'Collecting health',
                   'Collecting activities', 'Collecting family circles',
-                  'Writing locations', 'Writing health']
+                  'Writing locations', 'Writing health', 'Writing cell samples']
 
 
 def _backup_tmp_dir():
@@ -7441,8 +7476,14 @@ def _restore_media_dest(name):
     return dest
 
 
+# Sections streamed out of a zip backup rather than loaded whole. These are the
+# only two that scale with tracking history; everything else scales with what
+# the user wrote and is small enough to build normally.
+_STREAMED_BACKUP_KEYS = ('locations', 'cell_samples')
+
+
 def _open_backup_json(zf):
-    """Read a zip backup's JSON as (everything-except-locations, locations iterator).
+    """Read a zip backup's JSON as (small keys, locations iter, cell-samples iter).
 
     The export was deliberately rewritten to stream row-by-row because holding a
     whole history in memory OOM-killed the worker — but the RESTORE still did
@@ -7451,10 +7492,16 @@ def _open_backup_json(zf):
     that produced it. A backup you cannot restore at the size where it matters is
     not a backup.
 
-    Only `locations` scales with tracking history; adventures, journals, health
-    and the rest scale with what the user wrote, and are small enough to load
-    normally. So the big array is streamed and every other key is built the
-    ordinary way (see the comment below for why that is not one single pass).
+    Only the [_STREAMED_BACKUP_KEYS] arrays scale with tracking history;
+    adventures, journals, health and the rest scale with what the user wrote,
+    and are small enough to load normally. So the big arrays are streamed and
+    every other key is built the ordinary way (see the comment below for why
+    that is not one single pass).
+
+    `cell_samples` has to be in that set for the same reason `locations` is: the
+    phone's capture gate keeps it to roughly the size of the locations section,
+    so loading it whole would restore exactly the OOM this function exists to
+    avoid — on the one path nobody exercises until a real restore.
 
     Falls back to a plain json.loads when ijson is unavailable, so an instance
     that has not rebuilt yet behaves exactly as before.
@@ -7464,7 +7511,7 @@ def _open_backup_json(zf):
     except ImportError:
         with zf.open('backup.json') as jf:
             data = json.loads(jf.read().decode('utf-8-sig'))
-        return data, data.get('locations', [])
+        return data, data.get('locations', []), data.get('cell_samples', [])
 
     # NOT ijson.kvitems(jf, ''): it builds each value in full before yielding
     # it, so `locations` would be materialised in RAM and only then discarded by
@@ -7481,19 +7528,24 @@ def _open_backup_json(zf):
 
     data = {}
     for key in keys:
-        if key == 'locations':
+        if key in _STREAMED_BACKUP_KEYS:
             continue
         with zf.open('backup.json') as jf:
             for value in ijson.items(jf, key):
                 data[key] = value
                 break
 
-    def _locations():
-        with zf.open('backup.json') as jf:
-            for row in ijson.items(jf, 'locations.item'):
-                yield row
+    # One handle per stream. ZipFile supports concurrent open() calls on the
+    # same member, and restore_backup consumes locations fully before it starts
+    # on cell samples, so the two never interleave.
+    def _stream(key):
+        def gen():
+            with zf.open('backup.json') as jf:
+                for row in ijson.items(jf, f'{key}.item'):
+                    yield row
+        return gen()
 
-    return data, _locations()
+    return data, _stream('locations'), _stream('cell_samples')
 
 
 @login_required
@@ -7526,8 +7578,8 @@ def restore_backup(request):
                              if zi.filename.startswith('media/') and not zi.is_dir()]
             if sum(zi.file_size for zi in media_entries) > _RESTORE_MAX_TOTAL_BYTES:
                 return JsonResponse({'error': 'Backup media is too large'}, status=413)
-            # locations streams; everything else is loaded normally.
-            data, locations_iter = _open_backup_json(zf)
+            # locations and cell samples stream; everything else loads normally.
+            data, locations_iter, cell_iter = _open_backup_json(zf)
         else:
             raw = f.read()
             # Old downloads were served gzipped over the wire; a client that
@@ -7536,6 +7588,7 @@ def restore_backup(request):
                 raw = gzip.decompress(raw)
             data = json.loads(raw.decode('utf-8-sig'))
             locations_iter = data.get('locations', [])
+            cell_iter = data.get('cell_samples', [])
     except (json.JSONDecodeError, UnicodeDecodeError, OSError, EOFError,
             zipfile.BadZipFile, KeyError) as e:
         return JsonResponse({'error': f'Invalid backup file: {e}'}, status=400)
@@ -7549,7 +7602,7 @@ def restore_backup(request):
               'adventures': 0, 'api_keys': 0, 'journals': 0,
               'custom_places': 0, 'media_files': 0,
               'health_samples': 0, 'health_workouts': 0, 'activities': 0,
-              'family_circles': 0}
+              'family_circles': 0, 'cell_samples': 0}
     errors = 0
 
     try:
@@ -8000,6 +8053,57 @@ def restore_backup(request):
                 health_total += len(created)
             counts['health_samples'] = health_total
 
+            # Cell samples. Consumed from the streaming iterator, not from
+            # `data` — the section is roughly the size of the locations one, so
+            # this is the whole reason _open_backup_json returns it separately.
+            # Idempotent on (user, client_id) via ignore_conflicts, and there is
+            # no geometry column, so unlike the locations loop above nothing
+            # needs a manual Point() before the insert.
+            #
+            # Backups older than v16 simply lack the key and restore exactly as
+            # before — no version branch needed.
+            cell_batch = []
+            cell_total = 0
+            for cs in cell_iter:
+                try:
+                    ts = _parse_timestamp(cs.get('timestamp'))
+                    client_id = cs.get('client_id')
+                    lat, lng = cs.get('latitude'), cs.get('longitude')
+                    if not ts or not client_id or lat is None or lng is None:
+                        errors += 1
+                        continue
+                    cell_batch.append(CellSample(
+                        user=user,
+                        device_id=cs.get('device_id', '') or '',
+                        client_id=str(client_id)[:32],
+                        timestamp=ts,
+                        latitude=float(lat), longitude=float(lng),
+                        accuracy=cs.get('accuracy'),
+                        rat=cs.get('rat', '') or '',
+                        role=cs.get('role', '') or '',
+                        sim_slot=cs.get('sim_slot', -1),
+                        carrier=cs.get('carrier', '') or '',
+                        mcc=cs.get('mcc', '') or '', mnc=cs.get('mnc', '') or '',
+                        tac=cs.get('tac'), cid=cs.get('cid'), pci=cs.get('pci'),
+                        earfcn=cs.get('earfcn'), band=cs.get('band'),
+                        dbm=cs.get('dbm'), asu=cs.get('asu'),
+                        level=cs.get('level'), rsrq=cs.get('rsrq'),
+                    ))
+                    if len(cell_batch) >= BATCH_SIZE:
+                        created = CellSample.objects.bulk_create(
+                            cell_batch, ignore_conflicts=True)
+                        cell_total += len(created)
+                        cell_batch = []
+                except Exception as e:
+                    errors += 1
+                    logger.warning(f"Backup restore cell sample error: {e}")
+            if cell_batch:
+                created = CellSample.objects.bulk_create(cell_batch, ignore_conflicts=True)
+                cell_total += len(created)
+            counts['cell_samples'] = cell_total
+            if cell_total:
+                _bust_cell_cache(user.id)
+
             for hw in data.get('health_workouts', []):
                 try:
                     start = _parse_timestamp(hw.get('start_time'))
@@ -8190,6 +8294,7 @@ def restore_backup(request):
     shortfall = {}
     for key, got in (('locations', counts['locations']),
                      ('health_samples', counts['health_samples']),
+                     ('cell_samples', counts['cell_samples']),
                      ('activities', counts['activities'])):
         want = expected.get(key)
         # Only flag a SHORTFALL. Restoring into a database that already holds
