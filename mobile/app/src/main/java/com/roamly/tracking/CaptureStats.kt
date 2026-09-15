@@ -41,7 +41,11 @@ object CaptureStats {
         CYCLE_SKIPPED_FRESH("cycle_skipped", "Fix cycles skipped (stream fresh)"),
         CYCLE_NO_FIX("cycle_no_fix", "Fix cycles: chip gave nothing"),
         CYCLE_FIX_FILTERED("cycle_filtered", "Fix cycles: fix arrived, filtered out"),
-        CELL_SCANNED("cell_scanned", "Cell readings taken"),
+        // Counts SCANS (one per SIM per pass), not rows — the two differ by
+        // the gate, and labelling this "readings" made a working phone look
+        // like it was losing data on the way to the server.
+        CELL_SCANNED("cell_scanned", "Cell scans"),
+        CELL_RECORDED("cell_recorded", "Cell readings saved"),
         CELL_GATED("cell_gated", "Cell readings skipped by the gate"),
         CELL_NO_IDENTITY("cell_no_id", "Cell readings with no global id"),
         CELL_UPLOAD_UNSUPPORTED("cell_unsupported", "Cell batches dropped: server too old"),

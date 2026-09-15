@@ -1158,7 +1158,12 @@ class LocationTrackingService : Service() {
                         applicationContext, req.latitude, req.longitude,
                         req.accuracy, req.timestampMs,
                     )
-                    if (samples.isNotEmpty()) db.cellDao().insertAll(samples)
+                    if (samples.isNotEmpty()) {
+                        db.cellDao().insertAll(samples)
+                        // Bumped where the rows actually land, so this counter
+                        // is directly comparable to what the server reports.
+                        CaptureStats.bump(CaptureStats.Counter.CELL_RECORDED, samples.size)
+                    }
                 }.onFailure { Log.e(TAG, "Cell scan failed", it) }
             }
         }
