@@ -69,6 +69,15 @@ interface RoamlyApi {
     @POST("api/push/batch/")
     suspend fun pushLocationBatch(@Body payload: List<LocationPushPayload>): Response<LocationBatchPushResponse>
 
+    // --- Cell coverage ---
+
+    /** Upload a batch of cell-tower observations. There is deliberately no
+     *  single-sample fallback: an older server simply does not have this
+     *  endpoint, and the uploader treats that as "drop the batch" rather than
+     *  letting the phone's table grow without bound. */
+    @POST("api/cells/push/")
+    suspend fun pushCellSamples(@Body body: CellPushRequest): Response<CellPushResponse>
+
     // --- Locations ---
 
     @GET("api/locations/")

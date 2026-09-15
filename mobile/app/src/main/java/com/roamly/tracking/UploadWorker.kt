@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
+import com.roamly.data.api.CellPushRequest
+import com.roamly.data.api.CellSamplePayload
 import com.roamly.data.api.LocationPushPayload
 import com.roamly.data.api.RoamlyApi
 import com.roamly.data.prefs.UserPreferences
@@ -17,6 +19,7 @@ import java.util.concurrent.TimeUnit
 
 private const val TAG = "UploadWorker"
 private const val BATCH = 100
+private const val CELL_BATCH = 300
 private val ISO = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'").withZone(ZoneOffset.UTC)
 
 /**
@@ -62,9 +65,55 @@ class UploadWorker @AssistedInject constructor(
         }
 
         db.pointDao().pruneOldSynced(System.currentTimeMillis() - 7 * 86_400_000L)
+
+        // Cell samples ride the same worker, and therefore the same radio
+        // wake-up, rather than getting a second periodic job of their own.
+        // Failures here never fail the points upload: points are the product,
+        // cell coverage is an extra.
+        runCatching { uploadCellSamples(deviceId) }
+            .onFailure { Log.w(TAG, "Cell upload failed", it) }
+
         Log.i(TAG, "Uploaded $uploaded points")
         writeSyncResult(true, uploaded, "")
         return Result.success()
+    }
+
+    /**
+     * Drain the cell-sample queue.
+     *
+     * There is no single-sample fallback, so a 404/405 — an older server with no
+     * such endpoint — marks the batch synced **without uploading it**. Dropping
+     * the data is deliberate: the alternative is a table on the phone that grows
+     * forever against a server that will never accept it. The loss is counted so
+     * Diagnostics shows it rather than it looking like a clean upload.
+     */
+    private suspend fun uploadCellSamples(deviceId: String) {
+        while (true) {
+            val batch = db.cellDao().getUnsynced(CELL_BATCH)
+            if (batch.isEmpty()) break
+
+            val resp = api.pushCellSamples(
+                CellPushRequest(batch.map { it.toCellPayload(deviceId) })
+            )
+            when {
+                resp.isSuccessful -> db.cellDao().markSynced(batch.map { it.id })
+                resp.code() == 404 || resp.code() == 405 -> {
+                    CaptureStats.bump(CaptureStats.Counter.CELL_UPLOAD_UNSUPPORTED)
+                    db.cellDao().markSynced(batch.map { it.id })
+                    Log.w(TAG, "Server has no cell endpoint; dropping ${batch.size} samples")
+                }
+                // Anything else — auth, a malformed batch, a 5xx — leaves the rows
+                // unsynced for the next run. They are small and the queue is
+                // bounded by the capture gate, so there is nothing to protect
+                // against by dropping them here.
+                else -> {
+                    Log.w(TAG, "Cell upload rejected (${resp.code()})")
+                    return
+                }
+            }
+            if (batch.size < CELL_BATCH) break
+        }
+        db.cellDao().pruneOldSynced(System.currentTimeMillis() - 7 * 86_400_000L)
     }
 
     /**
@@ -193,6 +242,30 @@ class UploadWorker @AssistedInject constructor(
         }
     }
 }
+
+private fun CellSample.toCellPayload(deviceId: String) = CellSamplePayload(
+    clientId  = clientId,
+    deviceId  = deviceId,
+    timestamp = ISO.format(Instant.ofEpochMilli(timestamp)),
+    latitude  = latitude,
+    longitude = longitude,
+    accuracy  = accuracy,
+    rat       = rat,
+    role      = role,
+    simSlot   = simSlot,
+    carrier   = carrier,
+    mcc       = mcc,
+    mnc       = mnc,
+    tac       = tac,
+    cid       = cid,
+    pci       = pci,
+    earfcn    = earfcn,
+    band      = band,
+    dbm       = dbm,
+    asu       = asu,
+    level     = level,
+    rsrq      = rsrq,
+)
 
 private fun CachedPoint.toPayload(deviceId: String) = LocationPushPayload(
     deviceId  = deviceId,

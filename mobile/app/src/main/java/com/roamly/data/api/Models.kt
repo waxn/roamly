@@ -480,6 +480,42 @@ data class LocationPushPayload(
     @SerializedName("battery")    val battery: Int?,
 )
 
+// --- Cell coverage ---
+
+data class CellSamplePayload(
+    @SerializedName("client_id")  val clientId: String,
+    @SerializedName("device_id")  val deviceId: String,
+    @SerializedName("timestamp")  val timestamp: String,   // ISO-8601 UTC
+    @SerializedName("latitude")   val latitude: Double,
+    @SerializedName("longitude")  val longitude: Double,
+    @SerializedName("accuracy")   val accuracy: Float?,
+    @SerializedName("rat")        val rat: String,
+    @SerializedName("role")       val role: String,
+    @SerializedName("sim_slot")   val simSlot: Int,
+    @SerializedName("carrier")    val carrier: String?,
+    @SerializedName("mcc")        val mcc: String?,
+    @SerializedName("mnc")        val mnc: String?,
+    @SerializedName("tac")        val tac: Int?,
+    @SerializedName("cid")        val cid: Long?,
+    @SerializedName("pci")        val pci: Int?,
+    @SerializedName("earfcn")     val earfcn: Int?,
+    @SerializedName("band")       val band: Int?,
+    @SerializedName("dbm")        val dbm: Int?,
+    @SerializedName("asu")        val asu: Int?,
+    @SerializedName("level")      val level: Int?,
+    @SerializedName("rsrq")       val rsrq: Int?,
+)
+
+data class CellPushRequest(
+    @SerializedName("samples") val samples: List<CellSamplePayload>,
+)
+
+data class CellPushResponse(
+    val status: String?,
+    val submitted: Int?,
+    val accepted: Int?,
+)
+
 data class LocationPushResponse(
     val status: String,
     @SerializedName("location_id") val locationId: Long?,
