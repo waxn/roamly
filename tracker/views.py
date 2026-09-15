@@ -27,9 +27,9 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.db.models import (
     Count, Min, Max, Avg, Sum, Q, Case, When, Value, F,
-    IntegerField, FloatField, ExpressionWrapper,
+    IntegerField, FloatField,
 )
-from django.db.models.functions import Coalesce, Cast, Round, Greatest
+from django.db.models.functions import Coalesce, Cast, Round
 from django.http import FileResponse, JsonResponse, HttpResponse, StreamingHttpResponse
 from django.views.static import serve as static_serve
 
@@ -64,6 +64,7 @@ from .models import (
 from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email, send_contact_email
 from .dwell_utils import bridges_gap, GAP_BRIDGE_RADIUS_M, GAP_BRIDGE_MAX_S
 from .tz_utils import aware_local
+from . import cell_utils
 from .image_utils import resize_image, resize_photo
 from . import geoip_utils
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
@@ -14791,21 +14792,6 @@ _CELL_MAX_POINTS = 50_000      # returned by the dense sample read, strided beyo
 _CELL_CACHE_TTL = 3600
 _CELL_RAT_SET = {c[0] for c in CELL_RATS}
 _CELL_ROLE_SET = {c[0] for c in CELL_ROLES}
-# Weight for the tower centroid: metres above the LTE noise floor. Floored at 1
-# because a pathological -145 dBm reading would otherwise produce a zero or
-# negative weight and *invert* the centroid — pulling the tower away from where
-# the signal was strongest, the exact opposite of what this computes.
-_CELL_NOISE_FLOOR_DBM = 140.0
-
-
-def _cell_weight():
-    """Fresh weight expression per use — Django expressions are not reusable
-    across annotations once resolved."""
-    return Greatest(
-        ExpressionWrapper(F('dbm') + Value(_CELL_NOISE_FLOOR_DBM), output_field=FloatField()),
-        Value(1.0),
-        output_field=FloatField(),
-    )
 
 
 def _cell_range_filter(request, qs):
@@ -14965,14 +14951,36 @@ def cell_samples_push(request):
     return JsonResponse({'status': 'ok', 'submitted': submitted, 'accepted': accepted})
 
 
+
+def _cell_carrier_resolver():
+    """A memoised carrier_key(carrier, mcc, mnc).
+
+    carrier_key does string matching, so calling it per row over a whole
+    history is wasteful when a user realistically has two or three carriers and
+    the same (carrier, mcc, mnc) triple repeats for every one of their samples.
+    """
+    memo = {}
+
+    def key_for(carrier, mcc, mnc):
+        k = (carrier, mcc, mnc)
+        if k not in memo:
+            memo[k] = cell_utils.carrier_key(carrier, mcc, mnc)
+        return memo[k]
+    return key_for
+
+
 @login_required
 def cell_samples_api(request):
     """Per-sample signal readings for the map's dense cell layer.
 
     Returns parallel flat arrays with legends rather than an array of objects:
     per-row JSON keys would roughly triple the payload at this row count, the
-    same reasoning fog_api's flat int array uses. The repeated cell identity is
-    interned into a `cells` legend for the same reason.
+    same reasoning fog_api's flat int array uses. Repeated cell identities and
+    carriers are interned into legends for the same reason.
+
+    The carrier legend carries the COLOURS, assigned server-side, so the map
+    layer and the insights page cannot disagree about which hue means which
+    network.
     """
     user = request.user
     cache_key = f"cell:samples:{user.id}:{_cell_gen(user.id)}:{request.META.get('QUERY_STRING', '')}"
@@ -14994,31 +15002,123 @@ def cell_samples_api(request):
     roles = [c[0] for c in CELL_ROLES]
     rat_idx = {v: i for i, v in enumerate(rats)}
     role_idx = {v: i for i, v in enumerate(roles)}
+    key_for = _cell_carrier_resolver()
     cells, cell_idx, samples = [], {}, []
+    carrier_idx, carrier_counts = {}, Counter()
 
     rows = (qs.order_by('timestamp')
               .values_list('longitude', 'latitude', 'dbm', 'rat', 'role',
-                           'mcc', 'mnc', 'tac', 'cid')
+                           'mcc', 'mnc', 'tac', 'cid', 'carrier', 'timestamp',
+                           'level', 'band', 'sim_slot', 'pci', 'earfcn', 'rsrq')
               .iterator(chunk_size=5000))
-    for i, (lng, lat, dbm, rat, role, mcc, mnc, tac, cid) in enumerate(rows):
+    for i, (lng, lat, dbm, rat, role, mcc, mnc, tac, cid, carrier, ts,
+            level, band, sim_slot, pci, earfcn, rsrq) in enumerate(rows):
         if i % stride:
             continue
-        key = f"{mcc}-{mnc}-{tac}-{cid}" if cid is not None else ''
-        ci = cell_idx.get(key)
+        ckey = f"{mcc}-{mnc}-{tac}-{cid}" if cid is not None else ''
+        ci = cell_idx.get(ckey)
         if ci is None:
-            ci = cell_idx[key] = len(cells)
-            cells.append(key)
-        samples.append([round(lng, 6), round(lat, 6), dbm,
-                        rat_idx.get(rat, 0), role_idx.get(role, 0), ci])
+            ci = cell_idx[ckey] = len(cells)
+            cells.append(ckey)
+        ck = key_for(carrier, mcc, mnc)
+        carrier_counts[ck] += 1
+        ai = carrier_idx.setdefault(ck, len(carrier_idx))
+        samples.append([
+            round(lng, 6), round(lat, 6), dbm,
+            rat_idx.get(rat, 0), role_idx.get(role, 0), ci, ai,
+            int(ts.timestamp()), level, band, sim_slot, pci, earfcn, rsrq,
+        ])
+
+    # The legend is ordered by count, but the samples reference carriers by
+    # first-seen index — so remap rather than reorder 50k rows.
+    legend = cell_utils.build_carrier_legend(carrier_counts)
+    order = {e['key']: n for n, e in enumerate(legend)}
+    remap = {old: order[k] for k, old in carrier_idx.items()}
+    for row in samples:
+        row[6] = remap[row[6]]
 
     payload = {
-        'fields': ['lng', 'lat', 'dbm', 'rat', 'role', 'cell'],
-        'rats': rats, 'roles': roles, 'cells': cells,
+        'fields': ['lng', 'lat', 'dbm', 'rat', 'role', 'cell', 'carrier',
+                   'ts', 'level', 'band', 'sim', 'pci', 'earfcn', 'rsrq'],
+        'rats': rats, 'roles': roles, 'cells': cells, 'carriers': legend,
         'samples': samples,
         'count': total, 'returned': len(samples), 'stride': stride,
     }
     cache.set(cache_key, payload, _CELL_CACHE_TTL)
     return JsonResponse(payload)
+
+
+# ~139m at the equator, matching the order of the fog-of-war grid. Small enough
+# that a square reads as "here", large enough that a drive doesn't become a
+# thousand separate tiles.
+_COVERAGE_CELLS_PER_DEG = 800
+
+
+@login_required
+def cell_coverage_api(request):
+    """Where each carrier actually had signal, as a grid of measured squares.
+
+    Deliberately a grid of *observed* cells rather than a hull or an
+    interpolated surface. A convex hull over a drive claims coverage across
+    everything inside it, most of which was never measured; this only ever
+    paints ground a reading was actually taken on, which is the honest answer
+    to "where do I have service".
+
+    One row per (grid square, carrier) — not per square — because a dual-SIM
+    user's whole question is how the two networks differ, and collapsing to a
+    dominant carrier would hide exactly that.
+    """
+    user = request.user
+    cache_key = f"cell:coverage:{user.id}:{_cell_gen(user.id)}:{request.META.get('QUERY_STRING', '')}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached)
+
+    qs = _cell_range_filter(request, CellSample.objects.filter(user=user))
+    key_for = _cell_carrier_resolver()
+    g = _COVERAGE_CELLS_PER_DEG
+    # (gy, gx, carrier) -> [best_dbm, count]
+    grid = {}
+    carrier_counts = Counter()
+    for lat, lng, dbm, carrier, mcc, mnc in (
+        qs.exclude(role='neighbour')
+          .values_list('latitude', 'longitude', 'dbm', 'carrier', 'mcc', 'mnc')
+          .iterator(chunk_size=5000)
+    ):
+        if dbm is None:
+            continue
+        ck = key_for(carrier, mcc, mnc)
+        carrier_counts[ck] += 1
+        k = (int(math.floor(lat * g)), int(math.floor(lng * g)), ck)
+        cur = grid.get(k)
+        if cur is None:
+            grid[k] = [dbm, 1]
+        else:
+            if dbm > cur[0]:
+                cur[0] = dbm
+            cur[1] += 1
+
+    legend = cell_utils.build_carrier_legend(carrier_counts)
+    order = {e['key']: n for n, e in enumerate(legend)}
+    # Best signal last, so a strong square paints over a weak one where two
+    # readings of different carriers share ground.
+    out = sorted(
+        ([gy, gx, order[ck], best, n] for (gy, gx, ck), (best, n) in grid.items()),
+        key=lambda r: r[3])
+
+    payload = {
+        'fields': ['gy', 'gx', 'carrier', 'best_dbm', 'samples'],
+        'cells_per_deg': g, 'carriers': legend,
+        'cells': out, 'count': len(out),
+    }
+    cache.set(cache_key, payload, _CELL_CACHE_TTL)
+    return JsonResponse(payload)
+
+
+# Points kept per tower for the refinement step. The centroid is a running sum
+# and the spread comes from a running bounding box, so this only bounds the
+# cost of _refine on a cell seen tens of thousands of times.
+_CELL_TOWER_MAX_POINTS = 400
 
 
 @login_required
@@ -15030,10 +15130,17 @@ def cell_towers_api(request):
     scoping this to the map's range would make towers blink out of existence
     for a reason that has nothing to do with them.
 
-    Each tower's position is the signal-weighted centroid of its observations —
-    strong readings pull harder, since you were closer. This is an estimate
-    from where the *phone* was and not a surveyed location; a tower only ever
-    observed from one side will sit off to that side.
+    THE CENTROID OF YOUR OBSERVATIONS IS NOT THE TOWER, and this used to draw
+    it as though it were — which is why a tower only ever seen from one house
+    appeared to be in that house. What the readings actually constrain is
+    *distance* (weakly, from signal strength), and they say nothing whatever
+    about direction until you have observed the cell from more than one place.
+    So `confidence` is part of the answer: an 'unconstrained' tower carries a
+    `range_m` and the map draws a ring, not a dot. See cell_utils.estimate_tower.
+
+    Scanned in Python rather than aggregated in SQL because the spread test and
+    the refinement both need the individual readings. Cached for an hour behind
+    cell_gen, like the rest of this feature.
     """
     user = request.user
     cache_key = f"cell:towers:{user.id}:{_cell_gen(user.id)}"
@@ -15041,53 +15148,207 @@ def cell_towers_api(request):
     if cached is not None:
         return JsonResponse(cached)
 
-    rows = (CellSample.objects
-            .filter(user=user, cid__isnull=False, dbm__isnull=False)
-            .values('mcc', 'mnc', 'tac', 'cid', 'rat')
-            .annotate(
-                samples=Count('id'),
-                first_seen=Min('timestamp'),
-                last_seen=Max('timestamp'),
-                best_dbm=Max('dbm'),
-                worst_dbm=Min('dbm'),
-                band=Max('band'),
-                carrier=Max('carrier'),
-                sim_slot=Max('sim_slot'),
-                wsum=Sum(_cell_weight()),
-                wlat=Sum(ExpressionWrapper(_cell_weight() * F('latitude'),
-                                           output_field=FloatField())),
-                wlng=Sum(ExpressionWrapper(_cell_weight() * F('longitude'),
-                                           output_field=FloatField())),
-            )
-            # Empty order_by() is MANDATORY. The model has no Meta.ordering,
-            # which is what makes this aggregation correct in the first place;
-            # this also protects against a future pre-ordered queryset arriving
-            # here, which would append its columns to the GROUP BY and shatter
-            # the result into one group per row.
-            .order_by())
+    qs = CellSample.objects.filter(user=user, cid__isnull=False, dbm__isnull=False)
+    key_for = _cell_carrier_resolver()
+    acc = {}
+    carrier_counts = Counter()
+    for (mcc, mnc, tac, cid, rat, lat, lng, dbm, carrier, band, sim_slot, ts) in (
+        qs.values_list('mcc', 'mnc', 'tac', 'cid', 'rat', 'latitude', 'longitude',
+                       'dbm', 'carrier', 'band', 'sim_slot', 'timestamp')
+          .iterator(chunk_size=5000)
+    ):
+        k = (mcc, mnc, tac, cid, rat)
+        a = acc.get(k)
+        if a is None:
+            a = acc[k] = {
+                'n': 0, 'pts': [], 'best': dbm, 'worst': dbm,
+                'first': ts, 'last': ts, 'band': band, 'sim': sim_slot,
+                'carrier': key_for(carrier, mcc, mnc),
+                'minlat': lat, 'maxlat': lat, 'minlng': lng, 'maxlng': lng,
+            }
+        a['n'] += 1
+        carrier_counts[a['carrier']] += 1
+        if dbm > a['best']:
+            a['best'] = dbm
+        if dbm < a['worst']:
+            a['worst'] = dbm
+        if ts < a['first']:
+            a['first'] = ts
+        if ts > a['last']:
+            a['last'] = ts
+        if band and not a['band']:
+            a['band'] = band
+        a['minlat'] = min(a['minlat'], lat); a['maxlat'] = max(a['maxlat'], lat)
+        a['minlng'] = min(a['minlng'], lng); a['maxlng'] = max(a['maxlng'], lng)
+        # Strided so a cell seen 50,000 times doesn't hold 50,000 tuples.
+        if len(a['pts']) < _CELL_TOWER_MAX_POINTS:
+            a['pts'].append((lat, lng, dbm))
+        elif a['n'] % 37 == 0:
+            a['pts'][(a['n'] // 37) % _CELL_TOWER_MAX_POINTS] = (lat, lng, dbm)
 
+    legend = cell_utils.build_carrier_legend(carrier_counts)
+    order = {e['key']: n for n, e in enumerate(legend)}
     towers = []
-    for r in rows:
-        wsum = r['wsum'] or 0
-        if not wsum:
+    for (mcc, mnc, tac, cid, rat), a in acc.items():
+        # Exact spread from the running bbox: half its diagonal is the radius
+        # of the smallest circle round every reading, so it bounds the true max
+        # distance from the centroid without keeping the points to measure it.
+        spread = cell_utils.haversine_m(a['minlat'], a['minlng'], a['maxlat'], a['maxlng']) / 2
+        est = cell_utils.estimate_tower(a['pts'], spread_m=spread)
+        if not est:
             continue
-        # Divided in Python rather than in a second annotate: the tower list is
-        # sparse (thousands at most), so this costs nothing and avoids two more
-        # expressions whose output_field inference could trip.
         towers.append({
-            'id': f"{r['mcc']}-{r['mnc']}-{r['tac']}-{r['cid']}",
-            'mcc': r['mcc'], 'mnc': r['mnc'], 'tac': r['tac'], 'cid': r['cid'],
-            'rat': r['rat'], 'band': r['band'],
-            'carrier': r['carrier'], 'sim_slot': r['sim_slot'],
-            'lat': round(r['wlat'] / wsum, 6),
-            'lng': round(r['wlng'] / wsum, 6),
-            'samples': r['samples'],
-            'best_dbm': r['best_dbm'], 'worst_dbm': r['worst_dbm'],
-            'first_seen': r['first_seen'].isoformat() if r['first_seen'] else None,
-            'last_seen': r['last_seen'].isoformat() if r['last_seen'] else None,
+            'id': f"{mcc}-{mnc}-{tac}-{cid}",
+            'mcc': mcc, 'mnc': mnc, 'tac': tac, 'cid': cid, 'rat': rat,
+            'band': a['band'], 'carrier': order.get(a['carrier'], 0),
+            'sim_slot': a['sim'],
+            'lat': est['lat'], 'lng': est['lng'],
+            'spread_m': est['spread_m'], 'range_m': est['range_m'],
+            'confidence': est['confidence'],
+            'samples': a['n'], 'best_dbm': a['best'], 'worst_dbm': a['worst'],
+            'first_seen': a['first'].isoformat(), 'last_seen': a['last'].isoformat(),
         })
     towers.sort(key=lambda t: -t['samples'])
 
-    payload = {'towers': towers, 'count': len(towers)}
+    payload = {'towers': towers, 'count': len(towers), 'carriers': legend}
     cache.set(cache_key, payload, _CELL_CACHE_TTL)
     return JsonResponse(payload)
+
+
+# dBm buckets for the quality histogram, coarse enough to read at a glance and
+# aligned to the thresholds the map's ramp uses.
+_CELL_QUALITY_BUCKETS = (
+    ('excellent', -85, 0, 'Excellent'),
+    ('good', -95, -85, 'Good'),
+    ('fair', -105, -95, 'Fair'),
+    ('poor', -115, -105, 'Poor'),
+    ('unusable', -999, -115, 'Unusable'),
+)
+_CELL_WEAK_SPOTS = 12
+
+
+@login_required
+def cell_insights_api(request):
+    """Everything the Cell page shows, in one pass over the range.
+
+    One endpoint rather than five, because every figure here comes from the
+    same scan and splitting them would mean walking the history five times for
+    one page load.
+    """
+    user = request.user
+    cache_key = f"cell:insights:{user.id}:{_cell_gen(user.id)}:{request.META.get('QUERY_STRING', '')}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached)
+
+    qs = _cell_range_filter(request, CellSample.objects.filter(user=user))
+    key_for = _cell_carrier_resolver()
+
+    carrier_counts = Counter()
+    carrier_dbm = {}          # key -> [sum, n, best, worst]
+    rat_counts = Counter()
+    rat_by_carrier = {}
+    band_counts = Counter()
+    quality = Counter()
+    cells_seen = set()
+    first_ts = last_ts = None
+    g = _COVERAGE_CELLS_PER_DEG
+    weak = {}                 # grid -> [best_dbm, n, carrier_key]
+    total = 0
+
+    for (lat, lng, dbm, rat, role, mcc, mnc, tac, cid, carrier, band, ts) in (
+        qs.values_list('latitude', 'longitude', 'dbm', 'rat', 'role',
+                       'mcc', 'mnc', 'tac', 'cid', 'carrier', 'band', 'timestamp')
+          .iterator(chunk_size=5000)
+    ):
+        total += 1
+        ck = key_for(carrier, mcc, mnc)
+        carrier_counts[ck] += 1
+        if first_ts is None or ts < first_ts:
+            first_ts = ts
+        if last_ts is None or ts > last_ts:
+            last_ts = ts
+        if cid is not None:
+            cells_seen.add((mcc, mnc, tac, cid))
+        if role != 'neighbour':
+            rat_counts[rat] += 1
+            rat_by_carrier.setdefault(ck, Counter())[rat] += 1
+            if band:
+                band_counts[(rat, band)] += 1
+        if dbm is None:
+            continue
+        d = carrier_dbm.get(ck)
+        if d is None:
+            carrier_dbm[ck] = [dbm, 1, dbm, dbm]
+        else:
+            d[0] += dbm; d[1] += 1
+            d[2] = max(d[2], dbm); d[3] = min(d[3], dbm)
+        for key, lo, hi, _label in _CELL_QUALITY_BUCKETS:
+            if lo <= dbm < hi:
+                quality[key] += 1
+                break
+        # Weak spots are per grid square, scored on the BEST reading there:
+        # somewhere you once got a good signal is not a dead zone, however many
+        # bad readings you also took while walking around indoors.
+        if role != 'neighbour':
+            k = (int(math.floor(lat * g)), int(math.floor(lng * g)))
+            w = weak.get(k)
+            if w is None:
+                weak[k] = [dbm, 1, ck]
+            else:
+                if dbm > w[0]:
+                    w[0] = dbm
+                w[1] += 1
+
+    legend = cell_utils.build_carrier_legend(carrier_counts)
+    names = {e['key']: e['name'] for e in legend}
+    colors = {e['key']: e['color'] for e in legend}
+
+    carriers = []
+    for e in legend:
+        k = e['key']
+        d = carrier_dbm.get(k)
+        n = carrier_counts[k]
+        carriers.append({
+            'key': k, 'name': e['name'], 'color': e['color'],
+            'samples': n,
+            'pct': round(100.0 * n / total, 1) if total else 0,
+            'avg_dbm': round(d[0] / d[1]) if d and d[1] else None,
+            'best_dbm': d[2] if d else None,
+            'worst_dbm': d[3] if d else None,
+            'rats': [{'rat': r, 'samples': c}
+                     for r, c in rat_by_carrier.get(k, Counter()).most_common()],
+        })
+
+    # Only squares with enough readings to mean something, weakest first.
+    weak_spots = sorted(
+        ([gy, gx, best, n, ck] for (gy, gx), (best, n, ck) in weak.items() if n >= 3),
+        key=lambda r: r[2])[:_CELL_WEAK_SPOTS]
+
+    payload = {
+        'total_samples': total,
+        'distinct_cells': len(cells_seen),
+        'first_seen': first_ts.isoformat() if first_ts else None,
+        'last_seen': last_ts.isoformat() if last_ts else None,
+        'carriers': carriers,
+        'rats': [{'rat': r, 'samples': c,
+                  'pct': round(100.0 * c / max(1, sum(rat_counts.values())), 1)}
+                 for r, c in rat_counts.most_common()],
+        'bands': [{'rat': r, 'band': b, 'samples': c}
+                  for (r, b), c in band_counts.most_common(14)],
+        'quality': [{'key': k, 'label': lbl, 'samples': quality.get(k, 0),
+                     'pct': round(100.0 * quality.get(k, 0) / total, 1) if total else 0}
+                    for k, _lo, _hi, lbl in _CELL_QUALITY_BUCKETS],
+        'weak_spots': [{
+            'lat': round((gy + 0.5) / g, 5), 'lng': round((gx + 0.5) / g, 5),
+            'best_dbm': best, 'samples': n,
+            'carrier': names.get(ck, ck), 'color': colors.get(ck, cell_utils.UNKNOWN_COLOR),
+        } for gy, gx, best, n, ck in weak_spots],
+    }
+    cache.set(cache_key, payload, _CELL_CACHE_TTL)
+    return JsonResponse(payload)
+
+
+@login_required
+def cells_view(request):
+    return render(request, 'tracker/cells.html')

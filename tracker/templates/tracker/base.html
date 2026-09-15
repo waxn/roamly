@@ -1264,6 +1264,7 @@
                         <a role="menuitem" href="{% url 'tracker:stats' %}" class="{% if request.resolver_match.url_name == 'stats' %}active{% endif %}">Stats</a>
                         <a role="menuitem" href="{% url 'tracker:visits' %}" class="{% if request.resolver_match.url_name == 'visits' %}active{% endif %}">Visits</a>
                         <a role="menuitem" href="{% url 'tracker:data' %}" class="{% if request.resolver_match.url_name == 'data' %}active{% endif %}">Data</a>
+                        <a role="menuitem" href="{% url 'tracker:cells' %}" class="{% if request.resolver_match.url_name == 'cells' %}active{% endif %}">Cell signal</a>
                         {% comment %} The map editor was linked only from Diagnostics and a
                            Settings card, so a whole feature was effectively
                            undiscoverable. {% endcomment %}

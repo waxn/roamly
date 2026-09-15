@@ -1,0 +1,285 @@
+{% extends "tracker/base.html" %}
+{% block title %}Cell signal - Roamly{% endblock %}
+{# No map on this page — skip MapLibre (~1MB JS + 70KB CSS). Weak spots link
+   out to /map/ rather than embedding a second map to show a dozen squares. #}
+{% block map_css %}{% endblock %}
+{% block map_js %}{% endblock %}
+
+{% block extra_css %}
+.cs-bars { display: flex; flex-direction: column; gap: 0.6rem; }
+.cs-bar-row { display: grid; grid-template-columns: 1fr auto; gap: 0.35rem 0.75rem; align-items: baseline; }
+.cs-bar-name { font-weight: 600; font-size: 0.85rem; }
+.cs-bar-val { font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-muted); white-space: nowrap; }
+.cs-bar-track { grid-column: 1 / -1; height: 7px; background: var(--bg-elevated); border: 1px solid var(--border); }
+.cs-bar-fill { height: 100%; }
+.cs-swatch { display: inline-block; width: 10px; height: 10px; border: 1px solid var(--border); margin-right: 6px; vertical-align: baseline; }
+.cs-sub { font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); }
+.cs-empty { padding: 2rem 1rem; text-align: center; color: var(--text-muted); }
+.cs-note { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.75rem; line-height: 1.5; }
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-toolbar">
+        <div>
+            <h1>Cell signal</h1>
+            <p class="page-lead" style="margin-bottom:0;">which networks you were on, how strong they were, and where they weren't.</p>
+        </div>
+        <div class="stats-filters toolbar-actions">
+            <select id="cs-range">
+                <option value="24">Last 24 hours</option>
+                <option value="168">Last week</option>
+                <option value="720" selected>Last 30 days</option>
+                <option value="2160">Last 90 days</option>
+                <option value="8760">Last year</option>
+                <option value="all">All time</option>
+            </select>
+            <input type="date" id="cs-start" title="Start date">
+            <input type="date" id="cs-end" title="End date">
+        </div>
+    </div>
+
+    <div class="grid grid-4" aria-busy="true" id="cs-tiles">
+        <div class="card stat-card">
+            <div class="stat-value" id="cs-samples"><span class="skeleton skel-statval"></span></div>
+            <div class="stat-label">readings</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-value" id="cs-cells"><span class="skeleton skel-statval"></span></div>
+            <div class="stat-label">distinct cells</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-value" id="cs-carriers"><span class="skeleton skel-statval"></span></div>
+            <div class="stat-label">networks</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-value" id="cs-avg"><span class="skeleton skel-statval"></span></div>
+            <div class="stat-label">median signal</div>
+        </div>
+    </div>
+
+    <div class="grid grid-2">
+        <div class="card">
+            <div class="card-header">Networks</div>
+            <div class="cs-bars" id="cs-carrier-bars" aria-busy="true">
+                <span class="skeleton skel-line"></span>
+                <span class="skeleton skel-line"></span>
+            </div>
+            <div class="cs-note" id="cs-carrier-note"></div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">Signal quality</div>
+            <div class="cs-bars" id="cs-quality-bars" aria-busy="true">
+                <span class="skeleton skel-line"></span>
+                <span class="skeleton skel-line"></span>
+            </div>
+            <div class="cs-note">
+                Share of readings in each band. Thresholds are the standard RSRP
+                ones, so &ldquo;poor&rdquo; really is the range where calls drop
+                and pages stall.
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">Network generation</div>
+            <div class="cs-bars" id="cs-rat-bars" aria-busy="true">
+                <span class="skeleton skel-line"></span>
+            </div>
+            <div class="cs-note">
+                Serving cells only — neighbour readings are what the modem can
+                see, not what it was using.
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">Bands</div>
+            <div class="cs-bars" id="cs-band-bars" aria-busy="true">
+                <span class="skeleton skel-line"></span>
+            </div>
+            <div class="cs-note">
+                Band numbers need Android 11 or newer. On older phones this stays
+                empty even though the readings themselves are fine.
+            </div>
+        </div>
+
+        <div class="card" style="grid-column: 1 / -1;">
+            <div class="card-header">Weakest spots</div>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Network</th>
+                            <th>Best signal here</th>
+                            <th>Readings</th>
+                            <th>Location</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="cs-weak"></tbody>
+                </table>
+            </div>
+            <div class="cs-note">
+                Scored on the <em>best</em> reading in each ~140&nbsp;m square, not
+                the average: somewhere you once got a good signal is not a dead
+                zone, however many bad readings you also took indoors. Squares with
+                fewer than three readings are left out.
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const csRange = document.getElementById('cs-range');
+const csStart = document.getElementById('cs-start');
+const csEnd = document.getElementById('cs-end');
+
+function csParams() {
+    const p = new URLSearchParams();
+    if (csStart.value && csEnd.value) {
+        p.set('start_date', csStart.value);
+        p.set('end_date', csEnd.value);
+    } else if (csRange.value === 'all') {
+        p.set('all', '1');
+    } else {
+        p.set('hours', csRange.value);
+    }
+    return p.toString();
+}
+
+function bar(name, valueText, pct, color, sub) {
+    const row = document.createElement('div');
+    row.className = 'cs-bar-row';
+    const nm = document.createElement('div');
+    nm.className = 'cs-bar-name';
+    if (color) {
+        const sw = document.createElement('span');
+        sw.className = 'cs-swatch';
+        sw.style.background = color;
+        nm.appendChild(sw);
+    }
+    nm.appendChild(document.createTextNode(name));
+    if (sub) {
+        const s = document.createElement('div');
+        s.className = 'cs-sub';
+        s.textContent = sub;
+        nm.appendChild(s);
+    }
+    const val = document.createElement('div');
+    val.className = 'cs-bar-val';
+    val.textContent = valueText;
+    const track = document.createElement('div');
+    track.className = 'cs-bar-track';
+    const fill = document.createElement('div');
+    fill.className = 'cs-bar-fill';
+    fill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+    fill.style.background = color || 'var(--primary)';
+    track.appendChild(fill);
+    row.append(nm, val, track);
+    return row;
+}
+
+function fill(el, rows) {
+    el.innerHTML = '';
+    el.setAttribute('aria-busy', 'false');
+    if (!rows.length) {
+        const e = document.createElement('div');
+        e.className = 'cs-empty';
+        e.textContent = 'Nothing recorded in this range.';
+        el.appendChild(e);
+        return;
+    }
+    rows.forEach(r => el.appendChild(r));
+}
+
+// Quality bands reuse the map's ramp end-for-end so the two agree.
+const QUALITY_COLORS = {
+    excellent: '#e8763d', good: '#e8a33d', fair: '#2e8b57',
+    poor: '#2c6fa8', unusable: '#5b2c6f',
+};
+
+async function loadCellInsights() {
+    ['cs-carrier-bars', 'cs-quality-bars', 'cs-rat-bars', 'cs-band-bars']
+        .forEach(id => document.getElementById(id).setAttribute('aria-busy', 'true'));
+    let d;
+    try {
+        d = await fetch(`/api/cells/insights/?${csParams()}`).then(r => r.json());
+    } catch (e) {
+        roamlyToast('Could not load cell insights.', { type: 'error' });
+        return;
+    }
+
+    document.getElementById('cs-samples').textContent = (d.total_samples || 0).toLocaleString();
+    document.getElementById('cs-cells').textContent = (d.distinct_cells || 0).toLocaleString();
+    document.getElementById('cs-carriers').textContent = (d.carriers || []).length;
+    // The median of the per-network averages is a poor summary when one network
+    // dominates, so weight it by how many readings each contributed.
+    const withDbm = (d.carriers || []).filter(c => c.avg_dbm !== null);
+    const wsum = withDbm.reduce((a, c) => a + c.samples, 0);
+    document.getElementById('cs-avg').textContent = wsum
+        ? Math.round(withDbm.reduce((a, c) => a + c.avg_dbm * c.samples, 0) / wsum) + ' dBm'
+        : '—';
+    document.getElementById('cs-tiles').setAttribute('aria-busy', 'false');
+
+    const maxC = Math.max(1, ...(d.carriers || []).map(c => c.samples));
+    fill(document.getElementById('cs-carrier-bars'), (d.carriers || []).map(c =>
+        bar(c.name,
+            `${c.pct}% · ${c.avg_dbm === null ? '—' : c.avg_dbm + ' dBm avg'}`,
+            100 * c.samples / maxC, c.color,
+            c.best_dbm === null ? '' :
+                `best ${c.best_dbm} / worst ${c.worst_dbm} dBm · ${c.samples.toLocaleString()} readings`)));
+    document.getElementById('cs-carrier-note').textContent =
+        d.first_seen ? `Readings from ${new Date(d.first_seen).toLocaleDateString()} to ${new Date(d.last_seen).toLocaleDateString()}.` : '';
+
+    fill(document.getElementById('cs-quality-bars'), (d.quality || [])
+        .filter(q => q.samples)
+        .map(q => bar(q.label, `${q.pct}%`, q.pct, QUALITY_COLORS[q.key])));
+
+    const maxR = Math.max(1, ...(d.rats || []).map(r => r.samples));
+    fill(document.getElementById('cs-rat-bars'), (d.rats || []).map(r =>
+        bar(r.rat.toUpperCase(), `${r.pct}%`, 100 * r.samples / maxR, null,
+            `${r.samples.toLocaleString()} readings`)));
+
+    const maxB = Math.max(1, ...(d.bands || []).map(b => b.samples));
+    fill(document.getElementById('cs-band-bars'), (d.bands || []).map(b =>
+        bar(`${b.rat.toUpperCase()} band ${b.band}`, b.samples.toLocaleString(),
+            100 * b.samples / maxB)));
+
+    const tb = document.getElementById('cs-weak');
+    tb.innerHTML = '';
+    if (!(d.weak_spots || []).length) {
+        tb.innerHTML = '<tr><td colspan="5" class="cs-empty">No weak spots with enough readings yet.</td></tr>';
+    } else {
+        d.weak_spots.forEach(w => {
+            const tr = document.createElement('tr');
+            const net = document.createElement('td');
+            const sw = document.createElement('span');
+            sw.className = 'cs-swatch';
+            sw.style.background = w.color;
+            net.append(sw, document.createTextNode(w.carrier));
+            const best = document.createElement('td');
+            best.style.fontFamily = 'var(--font-mono)';
+            best.textContent = `${w.best_dbm} dBm`;
+            const n = document.createElement('td');
+            n.textContent = w.samples;
+            const loc = document.createElement('td');
+            loc.style.fontFamily = 'var(--font-mono)';
+            loc.style.fontSize = '0.75rem';
+            loc.textContent = `${w.lat.toFixed(4)}, ${w.lng.toFixed(4)}`;
+            const link = document.createElement('td');
+            const a = document.createElement('a');
+            a.href = `/map/?lat=${w.lat}&lng=${w.lng}&zoom=15`;
+            a.textContent = 'show on map';
+            link.appendChild(a);
+            tr.append(net, best, n, loc, link);
+            tb.appendChild(tr);
+        });
+    }
+}
+
+[csRange, csStart, csEnd].forEach(el => el.addEventListener('change', loadCellInsights));
+loadCellInsights();
+</script>
+{% endblock %}

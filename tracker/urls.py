@@ -23,6 +23,7 @@ urlpatterns = [
     path('map/', views.map_view, name='map'),
     path('data/', views.data_table, name='data'),
     path('stats/', views.stats_view, name='stats'),
+    path('cells/', views.cells_view, name='cells'),
     path('visits/', views.visits_view, name='visits'),
     path('search/', views.search_view, name='search'),
     path('adventures/', views.adventures_view, name='adventures'),
@@ -230,6 +231,8 @@ urlpatterns = [
     # journals blocks above, so ordering here carries no trap.
     path('api/cells/push/', views.cell_samples_push, name='cell_samples_push'),
     path('api/cells/towers/', views.cell_towers_api, name='cell_towers_api'),
+    path('api/cells/coverage/', views.cell_coverage_api, name='cell_coverage_api'),
+    path('api/cells/insights/', views.cell_insights_api, name='cell_insights_api'),
     path('api/cells/', views.cell_samples_api, name='cell_samples_api'),
 
     # Geocoding
