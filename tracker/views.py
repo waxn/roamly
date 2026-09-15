@@ -14884,24 +14884,38 @@ def cell_samples_push(request):
     user = request.user
     submitted = len(samples)
     to_create = []
+    # Why rows were dropped, so a phone uploading thousands into a server that
+    # stores hundreds is diagnosable from one log line instead of guesswork.
+    skips = Counter()
 
     for row in samples:
         if not isinstance(row, dict):
+            skips['not-an-object'] += 1
             continue
         client_id = str(row.get('client_id') or '').strip()[:32]
         rat = str(row.get('rat') or '').strip()
         role = str(row.get('role') or '').strip()
-        if not client_id or rat not in _CELL_RAT_SET or role not in _CELL_ROLE_SET:
+        if not client_id:
+            skips['no-client-id'] += 1
+            continue
+        if rat not in _CELL_RAT_SET:
+            skips[f'bad-rat:{rat[:12]}'] += 1
+            continue
+        if role not in _CELL_ROLE_SET:
+            skips[f'bad-role:{role[:12]}'] += 1
             continue
         ts = _parse_timestamp(row.get('timestamp'))
         if not ts:
+            skips['bad-timestamp'] += 1
             continue
         try:
             lat = float(row.get('latitude'))
             lng = float(row.get('longitude'))
         except (TypeError, ValueError):
+            skips['bad-latlng'] += 1
             continue
         if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
+            skips['latlng-out-of-range'] += 1
             continue
         try:
             accuracy = float(row.get('accuracy')) if row.get('accuracy') is not None else None
@@ -14930,25 +14944,49 @@ def cell_samples_push(request):
         ))
 
     before = CellSample.objects.filter(user=user).count() if to_create else 0
+    wholesale_failure = False
     if to_create:
         try:
             CellSample.objects.bulk_create(to_create, ignore_conflicts=True)
-        except Exception:
+        except Exception as e:
+            # The fallback used to swallow every per-row failure and still
+            # answer 200, so a systematic problem (one NOT NULL column, one bad
+            # coercion) made the phone mark the batch synced and delete it. Now
+            # it is counted, logged, and — if nothing at all landed — reported
+            # as a server error so the phone retries instead of discarding.
+            logger.warning("Cell bulk_create failed, falling back per row: %s", e)
+            saved = 0
             for obj in to_create:
                 try:
                     obj.save()
-                except Exception:
-                    pass
+                    saved += 1
+                except Exception as row_err:
+                    logger.warning("Cell sample rejected: %s", row_err)
+            wholesale_failure = saved == 0
     after = CellSample.objects.filter(user=user).count() if to_create else 0
     # Counted by difference rather than len(bulk_create(...)): on PostgreSQL the
     # returned list includes rows skipped by ignore_conflicts, so len()
     # overcounts (the same pre-existing bug health ingest documents).
     accepted = max(0, after - before)
 
+    if skips:
+        logger.warning("Cell push from %s: %d submitted, %d accepted, skipped %s",
+                       user.username, submitted, accepted, dict(skips))
+
+    if wholesale_failure:
+        return JsonResponse(
+            {'error': 'Could not store any samples', 'submitted': submitted},
+            status=500)
+
     if accepted:
         _bust_cell_cache(user.id)
 
-    return JsonResponse({'status': 'ok', 'submitted': submitted, 'accepted': accepted})
+    # `accepted` is load-bearing on the wire, not decoration: the uploader reads
+    # it and refuses to mark a batch synced when the server kept less than it
+    # sent, which is the only thing standing between a silent server-side skip
+    # and permanently deleted readings.
+    return JsonResponse({'status': 'ok', 'submitted': submitted,
+                         'accepted': accepted, 'skipped': submitted - len(to_create)})
 
 
 
