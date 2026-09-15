@@ -225,6 +225,13 @@ urlpatterns = [
     path('api/activities/<int:activity_id>/delete/', views.activity_delete_api, name='activity_delete_api'),
     path('api/activities/<int:activity_id>/recompute/', views.activity_recompute_api, name='activity_recompute_api'),
 
+    # Cell coverage (tower logging from the mobile app)
+    # All literal — no <str:...> capture to shadow, unlike the health and
+    # journals blocks above, so ordering here carries no trap.
+    path('api/cells/push/', views.cell_samples_push, name='cell_samples_push'),
+    path('api/cells/towers/', views.cell_towers_api, name='cell_towers_api'),
+    path('api/cells/', views.cell_samples_api, name='cell_samples_api'),
+
     # Geocoding
     path('api/geocode/', views.geocode_api, name='geocode_api'),
     path('api/geocode/status/', views.geocode_status, name='geocode_status'),

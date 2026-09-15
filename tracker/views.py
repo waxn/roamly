@@ -25,8 +25,11 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, Min, Max, Avg, Q, Case, When, Value, F, IntegerField, FloatField
-from django.db.models.functions import Coalesce, Cast, Round
+from django.db.models import (
+    Count, Min, Max, Avg, Sum, Q, Case, When, Value, F,
+    IntegerField, FloatField, ExpressionWrapper,
+)
+from django.db.models.functions import Coalesce, Cast, Round, Greatest
 from django.http import FileResponse, JsonResponse, HttpResponse, StreamingHttpResponse
 from django.views.static import serve as static_serve
 
@@ -56,6 +59,7 @@ from .models import (
     DownloadedRegion, HealthSample, HealthWorkout, HEALTH_KINDS,
     Activity, ACTIVITY_KINDS,
     FamilyCircle, FamilyMembership, FamilyPlace, FamilyPlaceAlert,
+    CellSample, CELL_RATS, CELL_ROLES,
 )
 from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email, send_contact_email
 from .dwell_utils import bridges_gap, GAP_BRIDGE_RADIUS_M, GAP_BRIDGE_MAX_S
@@ -170,6 +174,26 @@ def _bust_activity_cache(user_id):
 
 def _activity_gen(user_id):
     return cache.get(f"activity_gen:{user_id}", 0)
+
+
+def _bust_cell_cache(user_id):
+    """Increment the per-user *cell coverage* cache generation.
+
+    A fourth counter, for exactly the reasons health and activities have their
+    own. Cell samples ride along with GPS fixes, so sharing cache_gen looks
+    defensible right up until you notice a tracking phone bumps it every 30
+    seconds — the tower aggregation, which is cached for an hour precisely
+    because it reads the user's whole cell history, would never survive long
+    enough to be hit. And the converse: a cell push must not evict every cached
+    track, tile and distance response, none of which it changed.
+    """
+    key = f"cell_gen:{user_id}"
+    val = (cache.get(key) or 0) + 1
+    cache.set(key, val, timeout=86400 * 30)
+
+
+def _cell_gen(user_id):
+    return cache.get(f"cell_gen:{user_id}", 0)
 
 
 def _jf(value):
@@ -14640,3 +14664,321 @@ def family_push_token_unregister_api(request):
     if token:
         FamilyPushToken.objects.filter(user=request.user, token=token).delete()
     return JsonResponse({'status': 'ok'})
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Cell coverage
+#
+# Which towers the phone camps on, per SIM. The phone does the hard part — a
+# 60s scan floor plus a per-cell change/move/heartbeat gate (see
+# tracking/CellScanner.kt) — so what arrives here is already ~12x smaller than
+# a raw scan would be. The server's job is to store it and to answer two
+# questions the raw rows cannot: where is each tower, and how good was the
+# signal where I stood.
+# ═════════════════════════════════════════════════════════════════════════════
+
+_CELL_MAX_SAMPLES = 500        # per push
+_CELL_MAX_POINTS = 50_000      # returned by the dense sample read, strided beyond
+_CELL_CACHE_TTL = 3600
+_CELL_RAT_SET = {c[0] for c in CELL_RATS}
+_CELL_ROLE_SET = {c[0] for c in CELL_ROLES}
+# Weight for the tower centroid: metres above the LTE noise floor. Floored at 1
+# because a pathological -145 dBm reading would otherwise produce a zero or
+# negative weight and *invert* the centroid — pulling the tower away from where
+# the signal was strongest, the exact opposite of what this computes.
+_CELL_NOISE_FLOOR_DBM = 140.0
+
+
+def _cell_weight():
+    """Fresh weight expression per use — Django expressions are not reusable
+    across annotations once resolved."""
+    return Greatest(
+        ExpressionWrapper(F('dbm') + Value(_CELL_NOISE_FLOOR_DBM), output_field=FloatField()),
+        Value(1.0),
+        output_field=FloatField(),
+    )
+
+
+def _cell_range_filter(request, qs):
+    """Apply track_api's date-range params to a CellSample queryset.
+
+    Mirrors track_api rather than sharing a helper with it, because that one is
+    inlined and reaches for Location-specific fields; the parsing rules (and
+    aware_local's DST handling of a local midnight) are what matter here.
+    """
+    if request.GET.get('all'):
+        return qs
+    start_date = request.GET.get('start_date')
+    end_date = request.GET.get('end_date')
+    if start_date and end_date:
+        try:
+            start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
+            end_dt = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
+            if timezone.is_naive(start):
+                start = aware_local(start)
+            if timezone.is_naive(end_dt):
+                end_dt = aware_local(end_dt, end_of_day=True)
+            return qs.filter(timestamp__gte=start, timestamp__lte=end_dt)
+        except (ValueError, TypeError):
+            return qs
+    try:
+        hours = int(request.GET.get('hours', '24'))
+    except (TypeError, ValueError):
+        hours = 24
+    return qs.filter(timestamp__gte=timezone.now() - timedelta(hours=hours))
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def cell_samples_push(request):
+    """Ingest a batch of cell-tower observations from the Android app.
+
+    Body: {"samples": [{client_id, timestamp, latitude, longitude, rat, role,
+                        sim_slot, carrier, mcc, mnc, tac, cid, pci, earfcn,
+                        band, dbm, asu, level, rsrq, accuracy, device_id}, ...]}
+
+    @login_required alone is correct for both the browser and the app:
+    ApiKeyAuthMiddleware already resolves request.user from an
+    "Authorization: Bearer <key>" header. Deliberately NOT get_api_key_user —
+    that dance exists for push_location because GPSLogger and OwnTracks put the
+    key in a query param or JSON body, which does not apply here.
+
+    Note there is no geometry column on CellSample, so the manual
+    Point(lng, lat, srid=4326) assignment that push_location_batch needs before
+    its bulk_create does NOT apply here — do not add it by pattern-matching.
+    """
+    err = _require_api_intent(request)
+    if err:
+        return err
+    err = _require_json(request)
+    if err:
+        return err
+    try:
+        data = json.loads(request.body.decode('utf-8') or '{}')
+    except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    if not isinstance(data, dict):
+        return JsonResponse({'error': 'Expected an object'}, status=400)
+
+    samples = data.get('samples') or []
+    if not isinstance(samples, list):
+        return JsonResponse({'error': 'samples must be a list'}, status=400)
+    if len(samples) > _CELL_MAX_SAMPLES:
+        return JsonResponse(
+            {'error': f'Batch too large (max {_CELL_MAX_SAMPLES})'}, status=400)
+
+    def _int(value, lo=None, hi=None):
+        """Coerce to int, or None. Also rejects the CellInfo.UNAVAILABLE
+        sentinel (Integer.MAX_VALUE) should one slip past the phone — it would
+        otherwise land in the column looking like real data."""
+        if value is None:
+            return None
+        try:
+            n = int(value)
+        except (TypeError, ValueError):
+            return None
+        if n in (2147483647, 9223372036854775807):
+            return None
+        if lo is not None and n < lo:
+            return None
+        if hi is not None and n > hi:
+            return None
+        return n
+
+    user = request.user
+    submitted = len(samples)
+    to_create = []
+
+    for row in samples:
+        if not isinstance(row, dict):
+            continue
+        client_id = str(row.get('client_id') or '').strip()[:32]
+        rat = str(row.get('rat') or '').strip()
+        role = str(row.get('role') or '').strip()
+        if not client_id or rat not in _CELL_RAT_SET or role not in _CELL_ROLE_SET:
+            continue
+        ts = _parse_timestamp(row.get('timestamp'))
+        if not ts:
+            continue
+        try:
+            lat = float(row.get('latitude'))
+            lng = float(row.get('longitude'))
+        except (TypeError, ValueError):
+            continue
+        if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
+            continue
+        try:
+            accuracy = float(row.get('accuracy')) if row.get('accuracy') is not None else None
+        except (TypeError, ValueError):
+            accuracy = None
+        to_create.append(CellSample(
+            user=user,
+            device_id=str(row.get('device_id') or '')[:100],
+            client_id=client_id,
+            timestamp=ts,
+            latitude=lat, longitude=lng, accuracy=accuracy,
+            rat=rat, role=role,
+            sim_slot=_int(row.get('sim_slot'), -1, 31) if row.get('sim_slot') is not None else -1,
+            carrier=str(row.get('carrier') or '')[:64],
+            mcc=str(row.get('mcc') or '')[:3],
+            mnc=str(row.get('mnc') or '')[:3],
+            tac=_int(row.get('tac')),
+            cid=_int(row.get('cid')),
+            pci=_int(row.get('pci')),
+            earfcn=_int(row.get('earfcn')),
+            band=_int(row.get('band'), 1, 512),
+            dbm=_int(row.get('dbm'), -200, 0),
+            asu=_int(row.get('asu'), 0, 255),
+            level=_int(row.get('level'), 0, 4),
+            rsrq=_int(row.get('rsrq'), -50, 50),
+        ))
+
+    before = CellSample.objects.filter(user=user).count() if to_create else 0
+    if to_create:
+        try:
+            CellSample.objects.bulk_create(to_create, ignore_conflicts=True)
+        except Exception:
+            for obj in to_create:
+                try:
+                    obj.save()
+                except Exception:
+                    pass
+    after = CellSample.objects.filter(user=user).count() if to_create else 0
+    # Counted by difference rather than len(bulk_create(...)): on PostgreSQL the
+    # returned list includes rows skipped by ignore_conflicts, so len()
+    # overcounts (the same pre-existing bug health ingest documents).
+    accepted = max(0, after - before)
+
+    if accepted:
+        _bust_cell_cache(user.id)
+
+    return JsonResponse({'status': 'ok', 'submitted': submitted, 'accepted': accepted})
+
+
+@login_required
+def cell_samples_api(request):
+    """Per-sample signal readings for the map's dense cell layer.
+
+    Returns parallel flat arrays with legends rather than an array of objects:
+    per-row JSON keys would roughly triple the payload at this row count, the
+    same reasoning fog_api's flat int array uses. The repeated cell identity is
+    interned into a `cells` legend for the same reason.
+    """
+    user = request.user
+    cache_key = f"cell:samples:{user.id}:{_cell_gen(user.id)}:{request.META.get('QUERY_STRING', '')}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached)
+
+    qs = _cell_range_filter(request, CellSample.objects.filter(user=user))
+    if request.GET.get('role') == 'serving':
+        qs = qs.exclude(role='neighbour')
+
+    total = qs.count()
+    # Strided rather than truncated: a cut-off would silently show only the
+    # oldest slice of the range, which reads as a coverage hole rather than as
+    # a cap being hit.
+    stride = max(1, -(-total // _CELL_MAX_POINTS))
+
+    rats = [c[0] for c in CELL_RATS]
+    roles = [c[0] for c in CELL_ROLES]
+    rat_idx = {v: i for i, v in enumerate(rats)}
+    role_idx = {v: i for i, v in enumerate(roles)}
+    cells, cell_idx, samples = [], {}, []
+
+    rows = (qs.order_by('timestamp')
+              .values_list('longitude', 'latitude', 'dbm', 'rat', 'role',
+                           'mcc', 'mnc', 'tac', 'cid')
+              .iterator(chunk_size=5000))
+    for i, (lng, lat, dbm, rat, role, mcc, mnc, tac, cid) in enumerate(rows):
+        if i % stride:
+            continue
+        key = f"{mcc}-{mnc}-{tac}-{cid}" if cid is not None else ''
+        ci = cell_idx.get(key)
+        if ci is None:
+            ci = cell_idx[key] = len(cells)
+            cells.append(key)
+        samples.append([round(lng, 6), round(lat, 6), dbm,
+                        rat_idx.get(rat, 0), role_idx.get(role, 0), ci])
+
+    payload = {
+        'fields': ['lng', 'lat', 'dbm', 'rat', 'role', 'cell'],
+        'rats': rats, 'roles': roles, 'cells': cells,
+        'samples': samples,
+        'count': total, 'returned': len(samples), 'stride': stride,
+    }
+    cache.set(cache_key, payload, _CELL_CACHE_TTL)
+    return JsonResponse(payload)
+
+
+@login_required
+def cell_towers_api(request):
+    """Estimated tower positions, aggregated from the samples.
+
+    Deliberately ALL-TIME and not date-filtered, the argument fog-of-war makes
+    for its own layer: a tower you once saw stays a tower you once saw, so
+    scoping this to the map's range would make towers blink out of existence
+    for a reason that has nothing to do with them.
+
+    Each tower's position is the signal-weighted centroid of its observations —
+    strong readings pull harder, since you were closer. This is an estimate
+    from where the *phone* was and not a surveyed location; a tower only ever
+    observed from one side will sit off to that side.
+    """
+    user = request.user
+    cache_key = f"cell:towers:{user.id}:{_cell_gen(user.id)}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse(cached)
+
+    rows = (CellSample.objects
+            .filter(user=user, cid__isnull=False, dbm__isnull=False)
+            .values('mcc', 'mnc', 'tac', 'cid', 'rat')
+            .annotate(
+                samples=Count('id'),
+                first_seen=Min('timestamp'),
+                last_seen=Max('timestamp'),
+                best_dbm=Max('dbm'),
+                worst_dbm=Min('dbm'),
+                band=Max('band'),
+                carrier=Max('carrier'),
+                sim_slot=Max('sim_slot'),
+                wsum=Sum(_cell_weight()),
+                wlat=Sum(ExpressionWrapper(_cell_weight() * F('latitude'),
+                                           output_field=FloatField())),
+                wlng=Sum(ExpressionWrapper(_cell_weight() * F('longitude'),
+                                           output_field=FloatField())),
+            )
+            # Empty order_by() is MANDATORY. The model has no Meta.ordering,
+            # which is what makes this aggregation correct in the first place;
+            # this also protects against a future pre-ordered queryset arriving
+            # here, which would append its columns to the GROUP BY and shatter
+            # the result into one group per row.
+            .order_by())
+
+    towers = []
+    for r in rows:
+        wsum = r['wsum'] or 0
+        if not wsum:
+            continue
+        # Divided in Python rather than in a second annotate: the tower list is
+        # sparse (thousands at most), so this costs nothing and avoids two more
+        # expressions whose output_field inference could trip.
+        towers.append({
+            'id': f"{r['mcc']}-{r['mnc']}-{r['tac']}-{r['cid']}",
+            'mcc': r['mcc'], 'mnc': r['mnc'], 'tac': r['tac'], 'cid': r['cid'],
+            'rat': r['rat'], 'band': r['band'],
+            'carrier': r['carrier'], 'sim_slot': r['sim_slot'],
+            'lat': round(r['wlat'] / wsum, 6),
+            'lng': round(r['wlng'] / wsum, 6),
+            'samples': r['samples'],
+            'best_dbm': r['best_dbm'], 'worst_dbm': r['worst_dbm'],
+            'first_seen': r['first_seen'].isoformat() if r['first_seen'] else None,
+            'last_seen': r['last_seen'].isoformat() if r['last_seen'] else None,
+        })
+    towers.sort(key=lambda t: -t['samples'])
+
+    payload = {'towers': towers, 'count': len(towers)}
+    cache.set(cache_key, payload, _CELL_CACHE_TTL)
+    return JsonResponse(payload)
