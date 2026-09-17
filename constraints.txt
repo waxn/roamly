@@ -1,0 +1,38 @@
+# Explicit resolution for requirements.txt.
+#
+# requirements.txt expresses INTENT (Django>=6.0,<7.0). This file freezes what
+# that intent resolves to, so a rebuild is reproducible and an upgrade is a
+# reviewable diff with a revert path. Before this existed there was no lockfile
+# of any kind, which meant two rebuilds of the same commit could produce
+# different images and several majors could land silently on a `--build`.
+#
+# To upgrade: edit a version here, rebuild, verify, commit. To roll back:
+# git revert that commit and rebuild.
+#
+# DIRECT dependencies only. Transitive deps deliberately float — pinning a full
+# dependency tree would need a real resolver (pip-tools/uv), and a partial file
+# that claims to be complete is worse than one that says what it covers.
+#
+# Verified against PyPI 2026-09-15.
+
+Django==6.1.1
+gunicorn==26.2.0
+whitenoise==6.12.0
+psycopg2-binary==2.9.13
+dj-database-url==3.1.2
+django-cors-headers==4.9.0
+Pillow==12.3.0
+boto3==1.43.95
+django-redis==7.0.0
+# Held below 2.4.0 on purpose — see the note in requirements.txt (commit ba00fdb).
+numpy==2.3.5
+reverse-geocode==1.6.6
+rapidfuzz==3.14.6
+requests==2.34.2
+pyotp==2.10.0
+qrcode==8.2
+# Upstream is abandoned (final release 1.2.2, June 2024). See CLAUDE.md.
+geoip2fast==1.2.2
+timezonefinder==9.0.0
+ijson==3.5.1
+google-auth==2.58.0

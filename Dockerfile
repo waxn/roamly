@@ -12,8 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV CPLUS_INCLUDE_PATH=/usr/include/gdal
 ENV C_INCLUDE_PATH=/usr/include/gdal
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# constraints.txt pins what requirements.txt's specifiers resolve to, so the
+# image is reproducible across rebuilds. See the header in that file.
+COPY requirements.txt constraints.txt ./
+RUN pip install --no-cache-dir -c constraints.txt -r requirements.txt
 
 COPY . .
 RUN mkdir -p /app/staticfiles /app/media
