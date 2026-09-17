@@ -7,7 +7,16 @@ services:
       - ./data/redis:/data
 
   db:
-    image: postgis/postgis:16-3.4
+    # PostGIS minor upgrades within the same PG major need no dump/restore,
+    # but they DO need `ALTER EXTENSION postgis UPDATE;` run once after the
+    # container comes up — otherwise the installed extension and the server
+    # binary disagree about ST_* signatures and GiST behaviour.
+    #
+    # Changing the PG major (16 -> 17/18) is a different thing entirely: the
+    # ./data/postgres volume is bound to the major, so the new server refuses
+    # to start against the old data directory. That needs pg_dumpall, a wiped
+    # volume and a restore. PG 16 is supported until Nov 2028.
+    image: postgis/postgis:16-3.5
     container_name: roamly_db
     restart: unless-stopped
     environment:
