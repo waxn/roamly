@@ -1,3 +1,9 @@
+# Runtime dependencies — INTENT, not resolution.
+#
+# The specifiers here say what the app needs; constraints.txt says which exact
+# versions that resolves to, and the Dockerfile installs with -c against it.
+# Add a package here AND pin it there, or the build is unreproducible again.
+
 Django>=6.0,<7.0
 gunicorn>=21.0.0
 whitenoise>=6.6.0
@@ -7,6 +13,9 @@ django-cors-headers>=4.3.0
 Pillow>=10.0.0
 boto3>=1.34.0
 django-redis>=5.0.0
+# Capped deliberately: NumPy 2.4.0 made x86-64-v2 (SSE4.2/POPCNT) a mandatory
+# runtime baseline with no fallback, so it crashes on VPS/hypervisor default
+# vCPU models (e.g. QEMU's qemu64) even on real x86_64 hardware. See ba00fdb.
 numpy<2.4.0
 reverse-geocode>=1.4
 rapidfuzz>=3.0
