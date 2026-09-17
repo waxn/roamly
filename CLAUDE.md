@@ -56,6 +56,51 @@ sudo docker compose exec web python manage.py shell
 
 **Templates are not volume-mounted** — a template edit needs `up -d --build` to reach the container. Python file changes need at least a `restart web`; a new model/migration needs `up -d --build` so the fresh migration file and any new dependency are both picked up.
 
+## Dependencies
+
+**`requirements.txt` is intent; `constraints.txt` is resolution.** The
+specifiers in `requirements.txt` say what the app needs (`Django>=6.0,<7.0`);
+`constraints.txt` pins exactly what that resolves to, and the `Dockerfile`
+installs with `-c constraints.txt`. Before this split existed there was no
+lockfile of any kind, so nobody could say what was installed — it was whatever
+PyPI's latest was at the last `up -d --build` — two rebuilds of one commit
+could differ, and a stack of majors (gunicorn 21→26, Pillow 10→12,
+django-redis 5→7, qrcode 7→8, timezonefinder 6→9) sat reachable behind
+unbounded `>=` specifiers, able to land silently on any rebuild.
+
+**Adding a package means editing both files.** Upgrading means editing a
+version in `constraints.txt`, rebuilding, verifying, committing — which is
+also the rollback: `git revert` and rebuild. Only **direct** dependencies are
+pinned; transitives float, because pinning a full tree needs a real resolver
+(pip-tools/uv) and a partial file claiming completeness is worse than one that
+states its scope.
+
+**Three dependencies are deliberately not at their newest published version**,
+each of which reads as an oversight unless the reason travels with it:
+
+- **`numpy<2.4.0`** — NumPy 2.4.0 made x86-64-v2 (SSE4.2/POPCNT) a mandatory
+  runtime baseline **with no fallback**, so it crashes on VPS/hypervisor
+  default vCPU models (QEMU's `qemu64`) even on real x86_64 hardware. The cap
+  restores the SSE2-baseline wheel with runtime dispatch. Lifting it breaks
+  deployment on exactly the virtualised hardware this self-hosts on. (`scipy`,
+  pulled in by `reverse-geocode`, accepts `numpy>=2.0,<2.8`, so the cap costs
+  nothing there.)
+- **`geoip2fast`** — **upstream is abandoned.** 1.2.2 (June 2024) is the final
+  release, and the bundled `geoip2fast-ipv6.dat.gz` country database ages with
+  it, so the Monitoring country breakdown will slowly misattribute reallocated
+  IP ranges. Not an error — a decay, and a known dead end: replacing it means
+  picking a different offline country DB, not upgrading this one.
+- **MapLibre GL JS stays on v5** (vendored, 5.24.0 — the *final* 5.x, not a
+  stale pin). See the Globe entry under Map tools for why v6 is not a bump.
+
+**Android:** `kotlin` is pinned to the 2.3 line by **KSP**, which has no 2.4.x
+release and which both Hilt and Room run through. `okhttp` stays on 4.x
+because 5.x is only reachable together with Retrofit 3, which changes API
+surface exactly where `SessionGuardInterceptor` and the `X-Roamly-Client` auth
+interceptor sit. `coil` 2.7.0 is **terminal** for that artifact — Coil 3 moved
+to `io.coil-kt.coil3` with a package rename, so "updating" means migrating
+every `AsyncImage` call site.
+
 ## Architecture
 
 Single Django app (`tracker/`) inside the `roamly` project. No separate services — background work (geocoding, backups, POI download) runs in Python threads launched from views.
@@ -115,7 +160,7 @@ Boundaries are loaded by **`import_boundaries`** (`tracker/management/commands/`
 
 **Admin log endpoints** (all `_require_admin`): `GET /api/admin/overview/?range=24h|7d|30d|all` (`admin_overview_api` — stat tiles, a request-volume time series + logins/signups/errors series, status/top-path/top-IP/top-country breakdowns, recent events; hourly buckets for 24h/7d, daily from rollups+live tail for 30d/all via `_admin_daily_series`), `GET /api/admin/access-logs/` (paginated, ip/path/user/hours filters), `GET /api/admin/action-logs/` (paginated; `action=auth|admin` group filters + per-action), `GET/POST /api/admin/log-config/`. The template's charts reuse the app's **hand-rolled Canvas helpers** (`monotoneSpline`/`hexA`/`attachChartHover` + a generic `drawLineChart`, reading CSS vars at draw time for light/dark) — no charting library — and CSS width-% bars.
 
-**Country breakdown (Monitoring tab).** `admin_overview_api` additionally aggregates every distinct `AccessLog.ip_address` in the selected range (not just the top-10 `top_ips` list) and resolves each to a country via `tracker/geoip_utils.py`, returning `top_countries` (`[{code, name, count}]`, sorted desc) + `unknown_country_count` (private/invalid/unresolvable IPs, bucketed separately rather than dropped). Resolution is **offline** — `geoip2fast` (the bundled `geoip2fast-ipv6.dat.gz` country database, IPv4+IPv6, ~41 MiB resident once loaded) — no external geolocation API call, consistent with the app's offline-first stance elsewhere (`offline_geocode.py`). The `GeoIP2Fast` instance is a **lazy module-level singleton** loaded on first lookup, not at import time, so a gunicorn worker that never serves an admin request never pays the load cost. The template renders it two ways from the same `top_countries` payload: a **MapLibre GL choropleth** (`tracker/static/tracker/data/world-countries.json`, the same dataset the map's "Scratch" feature uses, joined on the `cc` ISO-alpha-2 property — a blank `{version:8,sources:{},layers:[]}` style with no basemap tiles, just country fill/line layers, so the widget makes no third-party tile requests) shaded by a log-scaled opacity ramp on `--primary`, plus a `renderBars` bar-list card (`#country-bars`) for exact counts, matching the existing top-paths/top-IPs pattern. **New Python dependency (`geoip2fast`) ⇒ `docker compose up -d --build`** (no migration — no schema change, resolution happens at query time only).
+**Country breakdown (Monitoring tab).** `admin_overview_api` additionally aggregates every distinct `AccessLog.ip_address` in the selected range (not just the top-10 `top_ips` list) and resolves each to a country via `tracker/geoip_utils.py`, returning `top_countries` (`[{code, name, count}]`, sorted desc) + `unknown_country_count` (private/invalid/unresolvable IPs, bucketed separately rather than dropped). Resolution is **offline** — `geoip2fast` (the bundled `geoip2fast-ipv6.dat.gz` country database, IPv4+IPv6, ~41 MiB resident once loaded) — no external geolocation API call, consistent with the app's offline-first stance elsewhere (`offline_geocode.py`). The `GeoIP2Fast` instance is a **lazy module-level singleton** loaded on first lookup, not at import time, so a gunicorn worker that never serves an admin request never pays the load cost. The template renders it two ways from the same `top_countries` payload: a **MapLibre GL choropleth** (`tracker/static/tracker/data/world-countries.json`, the same dataset the map's "Scratch" feature uses, joined on the `cc` ISO-alpha-2 property — a blank `{version:8,sources:{},layers:[]}` style with no basemap tiles, just country fill/line layers, so the widget makes no third-party tile requests) shaded by a log-scaled opacity ramp on `--primary`, plus a `renderBars` bar-list card (`#country-bars`) for exact counts, matching the existing top-paths/top-IPs pattern. **New Python dependency (`geoip2fast`) ⇒ `docker compose up -d --build`** (no migration — no schema change, resolution happens at query time only). **`geoip2fast` upstream is abandoned** — 1.2.2 (June 2024) is its final release, so the bundled country DB ages and this breakdown slowly misattributes reallocated IP ranges; see Dependencies.
 
 **Analytics / custom JS:** Instance-wide HTML injected verbatim before `</body>` via `{{ CUSTOM_JS_SNIPPET|safe }}` (paste snippets as-given, including their `<script>` tags). Lives in the `SiteConfig` singleton (`SiteConfig.load()`, pk=1), edited from **Admin Panel → Custom JS** (admin-only, `POST /api/site/custom-js/`). The `custom_js_snippet` context processor exposes `CUSTOM_JS_SNIPPET` to **every** template, but the injection line must exist in each top-level template: `base.html` (all app pages) **and** the standalone public templates that don't extend it — `landing.html`, `login.html`, `signup.html`, `docs.html`, `privacy.html`, `terms.html`. Analytics must reach the public pages, so any new standalone template needs the injection line too. `context_processors.get_custom_js()` reads it cached (`site_custom_js`, 1h TTL); the save endpoint busts that key.
 
@@ -664,6 +709,8 @@ The basemap buttons live in a **3-column grid** (`.sidebar-btn-group`) so the ex
 
 **Map tools (`map.html` only):**
 - **Globe** — `map.setProjection({type:'globe'|'mercator'})`. Requires **MapLibre GL v5** (globally in `base.html`, v5.24.0). Persists in `roamly_globe`; re-applied on `style.load`.
+
+  **MapLibre stays on v5, and v6 is not a version bump.** 5.24.0 is the *final* 5.x release, so this is current, not stale. The API this app actually uses — `Map`, `Marker`, `Popup`, `NavigationControl`, `LngLatBounds`, `setProjection` — survives v6 intact, and none of v6's removals (`map.transform`, `styleimagemissing`-as-resolver, `MapDataEvent`) appear anywhere here. The blocker is the **module format**: v6 dropped the UMD bundles entirely and ships only `maplibre-gl.mjs`, so **no v6 artifact defines a `window.maplibregl` global** — which is what `base.html` (and `share.html`, being standalone) loads via a classic `<script src>`, what `map-core.js` reads at top level, and what 11 templates' classic inline `<script>` blocks call `new maplibregl.Map(...)` on synchronously. A shim cannot rescue it: module scripts are deferred by spec, so `import * as m; window.maplibregl = m` assigns the global strictly *after* every classic script has already run and thrown. Migrating means converting `map-core.js` and all 11 inline blocks to modules, reordering initialisation across the `style.load`/`styledata` double-registration, the fog canvas, the dwell-blob zoom-stop expressions and the cell layers. Revisit only if a v5 security advisory forces it.
 - **Scratch** — highlights visited countries, with the US broken out to state-level detail. `/api/countries/` returns visited `country_code`s (uppercase ISO-2) plus a `states` list (full names, matching TIGER `STATE_NAME`/GeoNames formatting, e.g. "California"). Client fills `tracker/static/tracker/data/world-countries.json` (Natural Earth 110m, ~170KB) for every visited country **except** `US` — that one's whole-country polygon is deliberately excluded from the fill so it doesn't paint a flat blob underneath the per-state layer — and separately fills `tracker/static/tracker/data/us-states.json` (PublicaMundi US states, 50 + DC + Puerto Rico, ~90KB, joined on `properties.name`) for whichever states are in the visited list. Same styling (`#d0694a`, two layers each: fill + line) for both. **New static files need `collectstatic` — `--build` runs it on container start.** `tracker/static/tracker/map-core.js` is the app's only `{% static %}`-loaded application script (`sw.js` is served by a view instead), and it is what both `/map/` and `/editor/` render from — a deploy that skips `collectstatic` breaks both pages, not just a font.
 - **Fog of War** — dims everywhere the user has never been. **Always all-time, never date-filtered** (explored territory stays explored), so it can't be fed by the map's own points — those are viewport- and date-scoped. `GET /api/fog/` (`fog_api`) returns the DISTINCT ~110m grid cells (`_FOG_CELLS_PER_DEG` = 1000, i.e. lat/lon rounded to 3dp) over the user's whole history, as a flat `[gy, gx, …]` int array. **Deliberately not keyed on `cache_gen`** — every push bumps the gen and a full-history DISTINCT is far too expensive to redo per push, so it uses a plain `fog:{user_id}` key with a 1h TTL (same reasoning as `StatsSnapshot`). Client renders a 2D `#fog-canvas` over the map (**not** a MapLibre layer — a world polygon with tens of thousands of holes can't be tessellated) and punches holes with `destination-out` at `FOG_REVEAL_M` (200m) per cell, `FOG_ALPHA` 0.75. Redrawn on `map.on('render')` to stay glued during pan/zoom. Cells are bucketed by whole degree (`fogBucketsInView`) and the frame scans whichever is smaller — viewport buckets or the whole index — since at world zoom the viewport spans ~65k buckets. **Fog and Globe are mutually exclusive** (a flat mask can't wrap a sphere); each toggle turns the other off. Persists in `roamly_fog`.
 - **Snapped view** — the sidebar's `snapped view` toggle (`roamly_snap_roads`, default on, rendered only when `ROAD_SNAP_ENABLED`). **Display-only and browser-only**: it decides whether the detail layer paints points at their snapped road positions, nothing more. It was called `snap to roads` — the same words as the account-wide master switch in Settings (`UserProfile.snap_to_roads`) — and two controls sharing one name is precisely why people flipped the sidebar button, saw nothing change, and concluded snapping was broken while the real switch sat off. The button carries a `title` saying which is which, and `loadTripLines`'s map-info note now names the control that fixes each case (`roads: off (Settings → Road Snapping)` / `roads: no data (ask an admin to download road data)`) rather than a bare `roads: off`.
