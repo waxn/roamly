@@ -1,30 +1,38 @@
 [versions]
-agp = "9.2.0"
-kotlin = "2.3.20"
-coreKtx = "1.18.0"
+agp = "9.4.0"
+# Pinned to the 2.3 line by KSP, which has no 2.4.x release. Hilt and Room
+# both run through KSP, so Kotlin cannot move ahead of it.
+kotlin = "2.3.21"
+coreKtx = "1.19.0"
 junit = "4.13.2"
 junitVersion = "1.3.0"
 espressoCore = "3.7.0"
-lifecycleRuntimeKtx = "2.8.6"
-activityCompose = "1.11.0"
-composeBom = "2026.05.00"
-hilt = "2.59"
-ksp = "2.3.9"
-retrofit = "2.9.0"
+lifecycleRuntimeKtx = "2.11.0"
+activityCompose = "1.13.0"
+composeBom = "2026.09.00"
+hilt = "2.60.1"
+ksp = "2.3.12"
+retrofit = "2.12.0"
+# Held at 4.x on purpose. OkHttp 5 is only reachable together with Retrofit 3,
+# which changes package/API surface right where SessionGuardInterceptor and the
+# X-Roamly-Client auth interceptor sit. Retrofit 2.12.0 floors OkHttp at 3.14.9,
+# so this explicit version still wins.
 okhttp = "4.12.0"
 datastore = "1.2.1"
-navigationCompose = "2.9.8"
-osmdroid = "6.1.18"
-gson = "2.10.1"
+navigationCompose = "2.10.1"
+osmdroid = "6.1.20"
+gson = "2.14.0"
 coroutines = "1.11.0"
 room = "3.0.3"
-playServicesLocation = "21.3.0"
+playServicesLocation = "21.4.0"
 workManager = "2.11.2"
-hiltWork = "1.2.0"
+hiltWork = "1.4.0"
+# Terminal version of this artifact. Coil 3 moved to io.coil-kt.coil3 with a
+# package rename, so "updating" means migrating every AsyncImage call site.
 coil = "2.7.0"
 healthConnect = "1.1.0"
-googleServices = "4.4.2"
-firebaseBom = "33.7.0"
+googleServices = "4.5.0"
+firebaseBom = "34.19.0"
 
 [libraries]
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
@@ -46,7 +54,7 @@ androidx-material3 = { group = "androidx.compose.material3", name = "material3" 
 androidx-material-icons = { group = "androidx.compose.material", name = "material-icons-extended" }
 hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
 hilt-compiler = { group = "com.google.dagger", name = "hilt-android-compiler", version.ref = "hilt" }
-hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version = "1.2.0" }
+hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version = "1.4.0" }
 retrofit-core = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
 retrofit-gson = { group = "com.squareup.retrofit2", name = "converter-gson", version.ref = "retrofit" }
 okhttp-core = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
