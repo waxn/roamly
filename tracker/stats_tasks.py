@@ -210,6 +210,11 @@ def _stats_scheduler_loop():
     from .models import StatsSnapshot, Device
     from .tz_utils import user_timezone
 
+    # Started from apps.ready(), i.e. during apps.populate() — so the first
+    # sweep below would otherwise race the tail of startup. See the helper.
+    from .scheduler_utils import wait_for_app_registry
+    wait_for_app_registry()
+
     while True:
         try:
             # This daemon thread has no request/response cycle, so Django never

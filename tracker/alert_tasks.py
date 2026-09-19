@@ -337,6 +337,11 @@ def _process_geofences(profile):
 
 def _alert_scheduler_loop():
     from .models import UserProfile
+    # Started from apps.ready(), i.e. during apps.populate() — so the first
+    # sweep below would otherwise race the tail of startup. See the helper.
+    from .scheduler_utils import wait_for_app_registry
+    wait_for_app_registry()
+
     while True:
         try:
             # Long-lived daemon thread: force a fresh DB connection each sweep so
