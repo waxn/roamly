@@ -62,7 +62,7 @@ from .models import (
     CellSample, CELL_RATS, CELL_ROLES,
 )
 from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email, send_contact_email
-from .dwell_utils import bridges_gap, GAP_BRIDGE_RADIUS_M, GAP_BRIDGE_MAX_S
+from .dwell_utils import bridges_gap, credit_gap, credit_gap_in_place
 from .tz_utils import aware_local
 from . import cell_utils
 from .image_utils import resize_image, resize_photo
@@ -4312,7 +4312,7 @@ def _compute_yearly_payload(user, place_stats=None):
             total_time = st.get('dwell', 0)
         else:
             nearby = _find_nearby_locations(qs, p.latitude, p.longitude, p.radius_m)
-            day_count = len(_group_by_day(nearby))
+            day_count = len(_group_by_day(nearby, in_place=True))
             total_time = _calc_dwell_time(nearby) if day_count else 0
         if not day_count:
             continue
@@ -5557,9 +5557,10 @@ def _calculate_time_spent(trip_locations, place_lat, place_lng, place_radius_m):
     nearby_timestamps.sort()
     total_seconds = 0
     for i in range(1, len(nearby_timestamps)):
-        gap = (nearby_timestamps[i] - nearby_timestamps[i - 1]).total_seconds()
-        if gap <= 7200:  # skip gaps > 2 hours
-            total_seconds += gap
+        # Place-scoped by the radius filter above, so a hole longer than the 2h
+        # cap is still time here as long as it is under the bridge ceiling.
+        total_seconds += credit_gap_in_place(
+            (nearby_timestamps[i] - nearby_timestamps[i - 1]).total_seconds(), 7200)
     return int(total_seconds)
 
 
@@ -9420,32 +9421,45 @@ def _find_nearby_locations(base_qs, lat, lng, radius_m):
         )
 
 
-def _calc_dwell_time(qs, max_gap=600):
-    """Calculate dwell time from a queryset, only summing gaps under max_gap seconds.
+_DAY_GAP_CAP_S = 600  # below this a gap is ordinary sampling, not a tracking hole
 
-    If consecutive points are more than max_gap apart, that gap is excluded
-    (the user likely left and came back). Default max_gap is 10 minutes.
+
+def _calc_dwell_time(qs, max_gap=_DAY_GAP_CAP_S):
+    """Dwell time from a queryset already scoped to one place's radius.
+
+    A gap under `max_gap` is ordinary sampling and counts in full. A longer one
+    used to be dropped outright on the assumption the user left and came back —
+    but every point here is inside the place, so a hole between two of them is
+    tracking that stopped and resumed on the spot, not a departure. That is
+    `credit_gap_in_place`'s job; the caller must keep this queryset
+    place-scoped for it to hold.
     """
     timestamps = list(qs.order_by('timestamp').values_list('timestamp', flat=True))
     if len(timestamps) < 2:
         return 0
     total = 0
     for i in range(1, len(timestamps)):
-        gap = (timestamps[i] - timestamps[i - 1]).total_seconds()
-        if gap <= max_gap:
-            total += gap
+        total += credit_gap_in_place(
+            (timestamps[i] - timestamps[i - 1]).total_seconds(), max_gap)
     return int(total)
 
 
-def _group_by_day(qs):
-    """Group a Location queryset by date, returning summary dicts."""
+def _group_by_day(qs, in_place=False):
+    """Group a Location queryset by date, returning summary dicts.
+
+    `in_place` says the queryset is already scoped to one place's radius, so a
+    long hole between two of its points is a phone that was off rather than a
+    trip away — see `credit_gap_in_place`. Left false (a text or date search,
+    where the day's points can be anywhere) the two ends of a long gap have to
+    earn the credit on distance.
+    """
     by_day = {}
 
     rows = qs.order_by('timestamp').values_list(
-        'timestamp', 'city', 'state', 'device__name'
+        'timestamp', 'city', 'state', 'device__name', 'latitude', 'longitude'
     )
 
-    for ts, city, state, device_name in rows.iterator(chunk_size=5000):
+    for ts, city, state, device_name, lat, lon in rows.iterator(chunk_size=5000):
         day_str = ts.date().isoformat()
         day = by_day.get(day_str)
         if day is None:
@@ -9460,6 +9474,7 @@ def _group_by_day(qs):
                 'devices_set': set(),
                 'devices': [],
                 'prev_ts': None,
+                'prev_pos': None,
             }
             by_day[day_str] = day
 
@@ -9468,9 +9483,15 @@ def _group_by_day(qs):
 
         if day['prev_ts'] is not None:
             gap = (ts - day['prev_ts']).total_seconds()
-            if gap <= 600:
-                day['time_spent'] += int(gap)
+            if in_place:
+                day['time_spent'] += credit_gap_in_place(gap, _DAY_GAP_CAP_S)
+            else:
+                pl = day['prev_pos']
+                day['time_spent'] += credit_gap(
+                    gap, _DAY_GAP_CAP_S, pl[0] if pl else None,
+                    pl[1] if pl else None, lat, lon)
         day['prev_ts'] = ts
+        day['prev_pos'] = (lat, lon)
 
         city_key = (city or '', state or '')
         if city and city_key not in day['cities_set'] and len(day['cities']) < 5:
@@ -9550,7 +9571,9 @@ def _compute_day_detail(user, date_str, tz_offset=0):
 def _group_by_day_dicts(locs):
     """Like _group_by_day but takes a pre-fetched list of dicts (sorted by timestamp).
 
-    Used by _search_local_pois so no extra DB query is needed per POI.
+    Used by _search_local_pois so no extra DB query is needed per POI — and
+    therefore always place-scoped, so it credits a hole the way `in_place`
+    does.
     """
     by_day = {}
     for loc in locs:
@@ -9576,9 +9599,8 @@ def _group_by_day_dicts(locs):
         day['last_ts'] = ts
 
         if day['prev_ts'] is not None:
-            gap = (ts - day['prev_ts']).total_seconds()
-            if gap <= 600:
-                day['time_spent'] += int(gap)
+            day['time_spent'] += credit_gap_in_place(
+                (ts - day['prev_ts']).total_seconds(), _DAY_GAP_CAP_S)
         day['prev_ts'] = ts
 
         city = loc.get('city') or ''
@@ -9704,7 +9726,7 @@ def search_api(request):
             return JsonResponse(cached)
 
         nearby = _find_nearby_locations(locations, lat, lng, radius_m)
-        days = _group_by_day(nearby)
+        days = _group_by_day(nearby, in_place=True)
         payload = {
             'mode': 'here',
             'results': days,
@@ -9769,7 +9791,7 @@ def _run_history_search(user, q):
         custom_matches = []
         for p in CustomPlace.objects.filter(user=user, name__icontains=q):
             nearby = _find_nearby_locations(locations, p.latitude, p.longitude, p.radius_m)
-            p_days = _group_by_day(nearby)
+            p_days = _group_by_day(nearby, in_place=True)
             if not p_days:
                 continue
             custom_matches.append({
@@ -9956,14 +9978,6 @@ def _compute_place_detail(user, place):
     base = Location.objects.filter(device__user=user)
     nearby = _find_nearby_locations(base, place.latitude, place.longitude, place.radius_m)
 
-    # Every point here is already inside the place circle, so when the circle is
-    # small enough that any two members are necessarily within
-    # GAP_BRIDGE_RADIUS_M of each other, bridges_gap's distance test is satisfied
-    # by construction and the scan can stay timestamps-only as documented above.
-    # Only a place wider than that has to pay for the coordinates.
-    needs_coords = place.radius_m * 2 > GAP_BRIDGE_RADIUS_M
-    fields = ('timestamp', 'latitude', 'longitude') if needs_coords else ('timestamp',)
-
     # Cities: aggregate in the DB — only the top 12 rows come back, no Python
     # pass over every inside point.
     cities = [
@@ -9982,32 +9996,22 @@ def _compute_place_detail(user, place):
     total_dwell = 0
     first_ts = last_ts = None
     prev_ts = None
-    prev_pos = None
 
-    def _credit(gap_s, pos):
+    def _credit(gap_s):
         """Seconds of `gap_s` to count as time inside the place.
 
         A gap under _PLACE_GAP_CAP_S is normal sampling and counts in full.
         Anything longer used to count as nothing at all — which is why a stay
         with tracking off for an afternoon reported only the tracked minutes
-        either side of the hole. If tracking resumed in the same spot the person
-        never left, so bridges_gap credits the whole thing.
+        either side of the hole. Every point this scan reads is inside the
+        place, so membership is the proof the person never left and only the
+        ceiling applies; see `credit_gap_in_place`, which is also why the scan
+        can stay timestamps-only however wide the geofence is.
         """
-        if gap_s <= 0:
-            return 0
-        if gap_s <= _PLACE_GAP_CAP_S:
-            return int(gap_s)
-        if not needs_coords:
-            # Distance already satisfied by construction; only the ceiling is left.
-            return int(gap_s) if gap_s <= GAP_BRIDGE_MAX_S else 0
-        if prev_pos is None or pos is None:
-            return 0
-        return int(gap_s) if bridges_gap(prev_pos[0], prev_pos[1], pos[0], pos[1],
-                                         gap_s, _PLACE_GAP_CAP_S) else 0
+        return credit_gap_in_place(gap_s, _PLACE_GAP_CAP_S)
 
-    for row in nearby.order_by('timestamp').values_list(*fields).iterator(chunk_size=10000):
+    for row in nearby.order_by('timestamp').values_list('timestamp').iterator(chunk_size=10000):
         ts = row[0]
-        pos = (row[1], row[2]) if needs_coords else None
         total += 1
         if first_ts is None:
             first_ts = ts
@@ -10019,12 +10023,11 @@ def _compute_place_detail(user, place):
             by_day[d] = day
         day['count'] += 1
         if day['prev'] is not None:
-            day['time_spent'] += _credit((ts - day['prev']).total_seconds(), pos)
+            day['time_spent'] += _credit((ts - day['prev']).total_seconds())
         day['prev'] = ts
         if prev_ts is not None:
-            total_dwell += _credit((ts - prev_ts).total_seconds(), pos)
+            total_dwell += _credit((ts - prev_ts).total_seconds())
         prev_ts = ts
-        prev_pos = pos
 
     days = sorted(
         ({'date': v['date'], 'count': v['count'], 'time_spent': v['time_spent']} for v in by_day.values()),
