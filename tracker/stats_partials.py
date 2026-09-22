@@ -45,10 +45,12 @@ from collections import defaultdict
 from datetime import timedelta, timezone as dt_timezone
 from itertools import groupby
 
+from .dwell_utils import credit_gap_in_place
+
 logger = logging.getLogger(__name__)
 
 # Bump to force every snapshot to rebuild its map from scratch on the next run.
-PARTIALS_VERSION = 1
+PARTIALS_VERSION = 2
 
 # Key separator inside a composite day-map key. \x1f (ASCII unit separator) can't
 # occur in a geocoded place name, so split() round-trips the tuple exactly.
@@ -66,8 +68,10 @@ SEED_S = 6 * 3600
 # backdated into yesterday all land inside it.
 DEFAULT_OVERLAP_DAYS = 2
 
-# Matches _calc_dwell_time's max_gap: a longer hole means the user left and came
-# back, so it isn't time spent in the place.
+# Matches _calc_dwell_time's max_gap: below this a gap is ordinary sampling.
+# A longer one is not automatically a departure — these points are all inside
+# one place, so `credit_gap_in_place` still credits a tracking hole between two
+# of them, up to the bridge ceiling.
 PLACE_DWELL_MAX_GAP_S = 600
 
 # A day entry. Sub-maps are omitted entirely when empty to keep the blob small.
@@ -304,9 +308,10 @@ def _scan_places(user, partials, start, days):
             entry[0] += 1
             entry[1] = ts.isoformat()      # time-ordered, so the last write wins
             if prev is not None:
-                gap = (ts - prev).total_seconds()
-                if gap <= PLACE_DWELL_MAX_GAP_S:
-                    _place_entry(days, day_key(prev), pid)[2] += gap
+                credited = credit_gap_in_place(
+                    (ts - prev).total_seconds(), PLACE_DWELL_MAX_GAP_S)
+                if credited:
+                    _place_entry(days, day_key(prev), pid)[2] += credited
             prev = ts
 
     # A deleted place leaves counts behind in every day it appeared in.
