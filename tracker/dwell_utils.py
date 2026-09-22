@@ -10,7 +10,11 @@ the tracked minutes either side of the hole.
 `bridges_gap` is the single decision all of them now share: a gap counts as
 time in place when the last fix before it and the first fix after it are
 within `GAP_BRIDGE_RADIUS_M`, and the gap is no longer than
-`GAP_BRIDGE_MAX_S`.
+`GAP_BRIDGE_MAX_S`. `credit_gap` / `credit_gap_in_place` wrap it into the
+"how many of these seconds do I add up?" question every dwell scan actually
+asks, so a new one cannot quietly reintroduce a bare `if gap <= cap` and drop
+the hole again — which is how four separate surfaces ended up disagreeing
+about the same afternoon.
 
 The ceiling is the load-bearing part. Two points a few hundred metres apart
 prove nothing about the interval between them — the phone could have been off
@@ -60,3 +64,40 @@ def bridges_gap(lat1, lon1, lat2, lon2, gap_s, min_gap_s):
     if None in (lat1, lon1, lat2, lon2):
         return False
     return haversine_m(lat1, lon1, lat2, lon2) <= GAP_BRIDGE_RADIUS_M
+
+
+def credit_gap(gap_s, cap_s, lat1, lon1, lat2, lon2):
+    """Seconds of a gap between two consecutive fixes to count as time in place.
+
+    The general form, for scans where the two fixes are not already known to be
+    in the same place: a gap within the caller's own cap is ordinary sampling
+    and counts in full, and a longer one counts only if `bridges_gap` says
+    tracking stopped and resumed on the same spot.
+    """
+    if gap_s <= 0:
+        return 0
+    if gap_s <= cap_s:
+        return int(gap_s)
+    return int(gap_s) if bridges_gap(lat1, lon1, lat2, lon2, gap_s, cap_s) else 0
+
+
+def credit_gap_in_place(gap_s, cap_s):
+    """As `credit_gap`, for a scan whose points are all inside one place.
+
+    Every point a place/POI radius scan yields is inside that place by
+    definition, so *membership itself* is the proof that nobody went anywhere —
+    which is a stronger statement than `GAP_BRIDGE_RADIUS_M` makes, and the
+    reason the distance test must not be applied on top of it. A campus with a
+    400m geofence routinely has two in-place fixes more than 300m apart, so
+    running the coordinate check there rejected exactly the stay it was written
+    to credit: a phone switched off at one end of a site and back on at the
+    other reported only the tracked minutes either side of the hole.
+
+    Only the ceiling is left, and it still is: two fixes inside a place prove
+    nothing about a hole long enough to have flown somewhere and come back.
+    """
+    if gap_s <= 0:
+        return 0
+    if gap_s <= cap_s:
+        return int(gap_s)
+    return int(gap_s) if gap_s <= GAP_BRIDGE_MAX_S else 0
