@@ -1195,6 +1195,7 @@
             <div id="backup-status" style="font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.75rem;">
                 {% if backup_config.last_backup_status == 'success' %}
                     Last backup: {{ backup_config.last_backup_at }} ({{ backup_config.last_backup_size|filesizeformat }}{% if backup_config.last_backup_file_count %} · {{ backup_config.last_backup_file_count }} media file{{ backup_config.last_backup_file_count|pluralize }}{% elif backup_config.last_backup_file_count == 0 %} · data only{% endif %})
+                    {% if backup_config.last_backup_warning %}<span style="display:block;color: var(--warning);">{{ backup_config.last_backup_warning }}</span>{% endif %}
                 {% elif backup_config.last_backup_status == 'failed' %}
                     <span style="color: var(--danger);">Last backup failed: {{ backup_config.last_backup_error }}</span>
                 {% elif backup_config.last_backup_status == 'running' %}
@@ -3002,6 +3003,10 @@ async function startBackupDownload() {
                 fillEl.style.width = '100%';
                 detailEl.textContent = formatBytes(s.size || 0)
                     + (s.file_count ? ` · ${s.file_count.toLocaleString()} media files` : '');
+                if (s.warning) {
+                    status.style.color = 'var(--warning)';
+                    status.textContent = s.warning;
+                }
                 window.location.href = `/api/export/backup/download/${job_id}/`;
                 reset();
                 setTimeout(() => { box.hidden = true; }, 10000);
@@ -3304,6 +3309,12 @@ function pollBackupStatus() {
                 const time = data.last_backup_at ? new Date(data.last_backup_at).toLocaleString() : '';
                 statusEl.style.color = 'var(--success)';
                 statusEl.textContent = `Backup completed${time ? ' at ' + time : ''}${size}`;
+                if (data.last_backup_warning) {
+                    const warn = document.createElement('span');
+                    warn.style.cssText = 'display:block;color:var(--warning);';
+                    warn.textContent = data.last_backup_warning;
+                    statusEl.appendChild(warn);
+                }
                 clearInterval(interval);
             } else if (data.last_backup_status === 'failed') {
                 statusEl.style.color = 'var(--danger)';

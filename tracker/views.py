@@ -7253,7 +7253,8 @@ def export_backup_start(request):
 
             result = build_backup_zip(user, tmp_path, include_media=True, progress=progress)
             put({'status': 'ready', 'stage': 'Ready', 'pct': 100, 'started': started,
-                 'size': result['size'], 'file_count': result['file_count']})
+                 'size': result['size'], 'file_count': result['file_count'],
+                 'warning': result['warning']})
         except Exception as e:
             logger.error(f'Backup generation failed: {e}')
             put({'status': 'error', 'message': str(e)})

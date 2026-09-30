@@ -468,9 +468,11 @@ def _run_backup(user_id):
         config.last_backup_size = total
         config.last_backup_bytes_uploaded = total
         config.last_backup_file_count = result['file_count']
+        config.last_backup_warning = result['warning']
         config.save(update_fields=[
             'last_backup_at', 'last_backup_status', 'last_backup_error',
             'last_backup_size', 'last_backup_bytes_uploaded', 'last_backup_file_count',
+            'last_backup_warning',
         ])
 
         logger.info(f"Backup completed for {user.username}: {total} bytes -> {filename}")
@@ -670,7 +672,8 @@ def build_backup_zip(user, out_path, *, include_media=True, progress=None):
     (backup.json alone), which restore_backup reads exactly the same way.
 
     progress(stage, pct, done, total) is called as the run advances; pct is
-    0-100 across both phases. Returns {'size', 'file_count'}.
+    0-100 across both phases. Returns {'size', 'file_count', 'warning'};
+    warning is '' unless the archive exceeds what restore_backup accepts.
     """
     from django.conf import settings
     from .views import _write_backup_json
@@ -697,6 +700,7 @@ def build_backup_zip(user, out_path, *, include_media=True, progress=None):
     try:
         with os.fdopen(json_fd, 'wb') as f:   # mkstemp creates it 0600
             _write_backup_json(user, f, progress=data_progress)
+        json_bytes = os.path.getsize(json_tmp_path)
 
         media_files = []
         if include_media:
@@ -710,11 +714,13 @@ def build_backup_zip(user, out_path, *, include_media=True, progress=None):
                 zipfile.ZipFile(_zf_fh, 'w', zipfile.ZIP_DEFLATED) as zf:
             zf.write(json_tmp_path, arcname='backup.json')
             written = 0
+            media_bytes = 0
             for relative_path in media_files:
                 abs_path = os.path.join(settings.MEDIA_ROOT, relative_path)
                 if os.path.exists(abs_path):
                     zf.write(abs_path, arcname=f'media/{relative_path}',
                              compress_type=zipfile.ZIP_STORED)
+                    media_bytes += os.path.getsize(abs_path)
                 written += 1
                 if written % 20 == 0 or written == media_total:
                     report('Zipping media',
@@ -726,7 +732,30 @@ def build_backup_zip(user, out_path, *, include_media=True, progress=None):
         except OSError:
             pass
 
-    return {'size': os.path.getsize(out_path), 'file_count': media_total}
+    return {'size': os.path.getsize(out_path), 'file_count': media_total,
+            'warning': restore_limit_warning(json_bytes, media_bytes)}
+
+
+def restore_limit_warning(json_bytes, media_bytes):
+    """Say so when an archive is bigger than restore_backup will accept.
+
+    restore_backup refuses a zip whose backup.json or media total exceeds its
+    decompression caps (a zip-bomb guard). A backup that can't be restored
+    from Settings is worth knowing about when it's made, not on the day it's
+    needed — the archive is still complete and extractable by hand.
+    """
+    from .views import _RESTORE_MAX_JSON_BYTES, _RESTORE_MAX_TOTAL_BYTES
+
+    def gib(n):
+        return f'{n / 1024 ** 3:g} GiB'
+
+    if media_bytes > _RESTORE_MAX_TOTAL_BYTES:
+        return (f'Media exceeds the {gib(_RESTORE_MAX_TOTAL_BYTES)} restore limit — '
+                'this backup can\'t be restored from Settings as-is.')
+    if json_bytes > _RESTORE_MAX_JSON_BYTES:
+        return (f'Data exceeds the {gib(_RESTORE_MAX_JSON_BYTES)} restore limit — '
+                'this backup can\'t be restored from Settings as-is.')
+    return ''
 
 
 def get_backup_status(user_id):
@@ -768,5 +797,6 @@ def get_backup_status(user_id):
         'last_backup_size': config.last_backup_size,
         'last_backup_error': config.last_backup_error if not is_running else '',
         'last_backup_file_count': config.last_backup_file_count,
+        'last_backup_warning': config.last_backup_warning,
         'include_media': config.include_media,
     }

@@ -923,6 +923,8 @@ class BackupConfig(models.Model):
     # Settings download unless the user asks for a data-only one.
     include_media = models.BooleanField(default=True)
     last_backup_file_count = models.IntegerField(null=True, blank=True)
+    # Set when the last archive is larger than restore_backup accepts.
+    last_backup_warning = models.TextField(blank=True, default='')
 
     def __str__(self):
         return f"Backup config for {self.user.username}"
