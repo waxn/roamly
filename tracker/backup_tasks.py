@@ -4,6 +4,7 @@ import tempfile
 import threading
 import logging
 import time
+import zipfile
 from datetime import timedelta
 
 from django.db import close_old_connections
@@ -650,6 +651,107 @@ def _get_user_media_files(user):
             files.append(photo.thumbnail.name)
 
     return files
+
+
+# Share of the progress bar given to the small sections before the locations
+# scan. The data (JSON) phase fills up to _DATA_PHASE_PCT; the media-zipping
+# phase fills the rest, so one bar covers both halves of a single backup.
+_BACKUP_PREP_PCT = 8
+_DATA_PHASE_PCT = 55
+_BACKUP_STAGES = ['Counting locations', 'Collecting devices', 'Collecting adventures',
+                  'Collecting journals', 'Collecting places', 'Collecting health',
+                  'Collecting activities', 'Collecting family circles',
+                  'Writing locations', 'Writing health', 'Writing cell samples']
+
+
+def _backup_tmp_dir():
+    """Private directory for in-progress backups.
+
+    Not bare gettempdir(): these files are the user's complete location history,
+    and open(path, 'wb') creates them 0644 under the default umask — so on any
+    shared host every local user could read them. A 0700 directory inside the
+    temp dir keeps that off the table without needing a writable path elsewhere.
+    """
+    d = os.path.join(tempfile.gettempdir(), 'roamly_backups')
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    try:
+        os.chmod(d, 0o700)   # makedirs won't tighten an existing directory
+    except OSError:
+        pass
+    return d
+
+
+def _open_private(path):
+    """open(path, 'wb') that is 0600 from the moment it exists, not after."""
+    return os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 'wb')
+
+
+def build_backup_zip(user, out_path, *, include_media=True, progress=None):
+    """Write the full backup archive to out_path: backup.json + media/<path>.
+
+    The one builder behind both the Settings download and the S3 auto-backup,
+    so the file a user downloads and the file that lands in their bucket are
+    the same by construction. include_media=False writes a data-only zip
+    (backup.json alone), which restore_backup reads exactly the same way.
+
+    progress(stage, pct, done, total) is called as the run advances; pct is
+    0-100 across both phases. Returns {'size', 'file_count'}.
+    """
+    from django.conf import settings
+    from .views import _write_backup_json
+
+    def report(stage, pct, done=None, total=None):
+        if progress:
+            progress(stage, pct, done, total)
+
+    def data_progress(stage, done, total):
+        try:
+            idx = _BACKUP_STAGES.index(stage)
+        except ValueError:
+            idx = 0
+        if total:
+            pct = _BACKUP_PREP_PCT + (_DATA_PHASE_PCT - _BACKUP_PREP_PCT) * done / total
+        else:
+            pct = _BACKUP_PREP_PCT * idx / len(_BACKUP_STAGES)
+        report(stage, pct, done, total)
+
+    # Intermediate plain-JSON file, zipped into the final archive and then
+    # discarded — the zip's own deflate handles compression.
+    json_fd, json_tmp_path = tempfile.mkstemp(
+        prefix='roamly_backup_', suffix='.json', dir=_backup_tmp_dir())
+    try:
+        with os.fdopen(json_fd, 'wb') as f:   # mkstemp creates it 0600
+            _write_backup_json(user, f, progress=data_progress)
+
+        media_files = []
+        if include_media:
+            report('Collecting media', _DATA_PHASE_PCT)
+            media_files = _get_user_media_files(user)
+        media_total = len(media_files)
+
+        # ZIP_STORED for media: jpg/mp4 are already compressed, so deflating
+        # them again just burns CPU. backup.json (text) still deflates well.
+        with _open_private(out_path) as _zf_fh, \
+                zipfile.ZipFile(_zf_fh, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.write(json_tmp_path, arcname='backup.json')
+            written = 0
+            for relative_path in media_files:
+                abs_path = os.path.join(settings.MEDIA_ROOT, relative_path)
+                if os.path.exists(abs_path):
+                    zf.write(abs_path, arcname=f'media/{relative_path}',
+                             compress_type=zipfile.ZIP_STORED)
+                written += 1
+                if written % 20 == 0 or written == media_total:
+                    report('Zipping media',
+                           _DATA_PHASE_PCT + (100 - _DATA_PHASE_PCT) * written / media_total,
+                           written, media_total)
+    finally:
+        try:
+            os.unlink(json_tmp_path)
+        except OSError:
+            pass
+
+    return {'size': os.path.getsize(out_path), 'file_count': media_total}
 
 
 def _run_image_backup(user_id):

@@ -72,7 +72,8 @@ from .family_tasks import ensure_family_geofence_check
 from .poi_tasks import start_poi_download, get_poi_status, stop_poi_download
 from .backup_tasks import (
     test_s3_connection, run_backup_now, get_backup_status, stop_backup_now,
-    run_image_backup_now, get_image_backup_status, _get_user_media_files,
+    run_image_backup_now, get_image_backup_status,
+    build_backup_zip, _backup_tmp_dir,
     _build_adventures_data, _build_journals_data, _build_custom_places_data,
     _build_health_workouts_data,
     _build_activities_data,
@@ -7216,47 +7217,8 @@ def _write_backup_json(user, f, progress=None):
     report('Writing cell samples', cell_total, cell_total)
 
 
-# Share of the progress bar given to the small sections before the locations
-# scan. The data (JSON) phase fills up to _DATA_PHASE_PCT; the media-zipping
-# phase fills the rest, so one bar covers both halves of a single download.
-_BACKUP_PREP_PCT = 8
-_DATA_PHASE_PCT = 55
-_BACKUP_STAGES = ['Counting locations', 'Collecting devices', 'Collecting adventures',
-                  'Collecting journals', 'Collecting places', 'Collecting health',
-                  'Collecting activities', 'Collecting family circles',
-                  'Writing locations', 'Writing health', 'Writing cell samples']
-
-
-def _backup_tmp_dir():
-    """Private directory for in-progress backups.
-
-    Not bare gettempdir(): these files are the user's complete location history,
-    and open(path, 'wb') creates them 0644 under the default umask — so on any
-    shared host every local user could read them. A 0700 directory inside the
-    temp dir keeps that off the table without needing a writable path elsewhere.
-    """
-    d = os.path.join(tempfile.gettempdir(), 'roamly_backups')
-    os.makedirs(d, mode=0o700, exist_ok=True)
-    try:
-        os.chmod(d, 0o700)   # makedirs won't tighten an existing directory
-    except OSError:
-        pass
-    return d
-
-
-def _open_private(path):
-    """open(path, 'wb') that is 0600 from the moment it exists, not after."""
-    return os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 'wb')
-
-
 def _backup_tmp_path(job_id):
     return os.path.join(_backup_tmp_dir(), f'roamly_backup_{job_id}.zip')
-
-
-def _backup_json_tmp_path(job_id):
-    # Intermediate plain-JSON file, zipped into the final archive and then
-    # discarded — the zip's own deflate handles compression.
-    return os.path.join(_backup_tmp_dir(), f'roamly_backup_{job_id}.json')
 
 
 @login_required
@@ -7267,13 +7229,11 @@ def export_backup_start(request):
     Produces a single .zip containing backup.json (all data) plus every media
     file under media/ (adventure covers, blurb/day-note photos & videos,
     journal photos, profile picture) — restore_backup reads both back out of
-    it. This is the manual/on-demand download; the separate S3 auto-backup
-    (BackupConfig) is unrelated and unchanged, still JSON-only with its own
-    optional image backup.
+    it. Built by backup_tasks.build_backup_zip, the same function the S3
+    auto-backup uploads from, so the two files are identical by construction.
     """
     job_id = str(uuid.uuid4())
     tmp_path = _backup_tmp_path(job_id)
-    json_tmp_path = _backup_json_tmp_path(job_id)
     key = f'backup_job:{request.user.id}:{job_id}'
     started = time.time()
 
@@ -7288,54 +7248,16 @@ def export_backup_start(request):
 
     def generate():
         try:
-            def progress(stage, done, total):
-                try:
-                    idx = _BACKUP_STAGES.index(stage)
-                except ValueError:
-                    idx = 0
-                if total:
-                    pct = _BACKUP_PREP_PCT + (_DATA_PHASE_PCT - _BACKUP_PREP_PCT) * done / total
-                else:
-                    pct = _BACKUP_PREP_PCT * idx / len(_BACKUP_STAGES)
+            def progress(stage, pct, done, total):
                 put({'status': 'running', 'stage': stage, 'pct': round(pct, 1),
                      'done': done, 'total': total, 'started': started})
 
-            with _open_private(json_tmp_path) as f:
-                _write_backup_json(user, f, progress=progress)
-
-            put({'status': 'running', 'stage': 'Collecting media', 'pct': _DATA_PHASE_PCT,
-                 'started': started})
-            media_files = _get_user_media_files(user)
-            media_total = len(media_files)
-
-            # ZIP_STORED for media: jpg/mp4 are already compressed, so deflating
-            # them again just burns CPU. backup.json (text) still deflates well.
-            with _open_private(tmp_path) as _zf_fh, \
-                    zipfile.ZipFile(_zf_fh, 'w', zipfile.ZIP_DEFLATED) as zf:
-                zf.write(json_tmp_path, arcname='backup.json')
-                written = 0
-                for relative_path in media_files:
-                    abs_path = os.path.join(settings.MEDIA_ROOT, relative_path)
-                    if os.path.exists(abs_path):
-                        zf.write(abs_path, arcname=f'media/{relative_path}',
-                                 compress_type=zipfile.ZIP_STORED)
-                    written += 1
-                    if written % 20 == 0 or written == media_total:
-                        pct = (_DATA_PHASE_PCT + (100 - _DATA_PHASE_PCT) * written / media_total
-                               if media_total else 100)
-                        put({'status': 'running', 'stage': 'Zipping media', 'pct': round(pct, 1),
-                             'done': written, 'total': media_total, 'started': started})
-
+            result = build_backup_zip(user, tmp_path, include_media=True, progress=progress)
             put({'status': 'ready', 'stage': 'Ready', 'pct': 100, 'started': started,
-                 'size': os.path.getsize(tmp_path), 'file_count': media_total})
+                 'size': result['size'], 'file_count': result['file_count']})
         except Exception as e:
             logger.error(f'Backup generation failed: {e}')
             put({'status': 'error', 'message': str(e)})
-        finally:
-            try:
-                os.unlink(json_tmp_path)
-            except OSError:
-                pass
 
     threading.Thread(target=generate, daemon=True).start()
     return JsonResponse({'job_id': job_id})
