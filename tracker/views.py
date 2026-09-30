@@ -10399,6 +10399,7 @@ def backup_config_api(request):
                 'region': config.region,
                 'interval': config.interval,
                 'max_backups': config.max_backups,
+                'include_media': config.include_media,
                 'image_backup_enabled': config.image_backup_enabled,
                 'image_use_same_creds': config.image_use_same_creds,
                 'image_endpoint_url': config.image_endpoint_url,
@@ -10415,6 +10416,20 @@ def backup_config_api(request):
         data = json.loads(request.body)
     except json.JSONDecodeError:
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    # The media toggle autosaves on its own. Saving it alone, rather than
+    # re-posting the whole form, keeps half-edited credentials in the fields
+    # above from being saved as a side effect of flipping a switch.
+    if set(data) == {'include_media'}:
+        updated = BackupConfig.objects.filter(user=request.user).update(
+            include_media=bool(data['include_media']))
+        if not updated:
+            return JsonResponse({'error': 'Save your S3 settings first.'}, status=400)
+        return JsonResponse({'status': 'ok'})
+
+    # Missing means True, so a page from before this toggle existed can't
+    # silently switch media off by omission.
+    include_media = bool(data.get('include_media', True))
 
     endpoint_url = data.get('endpoint_url', '').strip()
     bucket_name = data.get('bucket_name', '').strip()
@@ -10442,6 +10457,7 @@ def backup_config_api(request):
             'region': region,
             'interval': interval,
             'max_backups': max_backups,
+            'include_media': include_media,
         }
     )
 
@@ -10466,6 +10482,7 @@ def backup_config_api(request):
         config.region = region
         config.interval = interval
         config.max_backups = max_backups
+        config.include_media = include_media
         config.image_backup_enabled = image_backup_enabled
         config.image_use_same_creds = image_use_same_creds
         config.image_endpoint_url = image_endpoint_url

@@ -918,6 +918,11 @@ class BackupConfig(models.Model):
     last_backup_size = models.BigIntegerField(null=True, blank=True)
     last_backup_bytes_uploaded = models.BigIntegerField(null=True, blank=True)
     max_backups = models.IntegerField(default=0, help_text="Max backups to keep (0 = unlimited)")
+    # Whether the uploaded zip carries media/ (photos & videos) alongside
+    # backup.json. On by default: the S3 backup is the same archive as the
+    # Settings download unless the user asks for a data-only one.
+    include_media = models.BooleanField(default=True)
+    last_backup_file_count = models.IntegerField(null=True, blank=True)
 
     # Image backup
     image_backup_enabled = models.BooleanField(default=False)

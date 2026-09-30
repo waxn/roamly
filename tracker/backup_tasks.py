@@ -429,7 +429,7 @@ def _run_backup(user_id):
         tmp_fd, tmp_zip = tempfile.mkstemp(
             prefix='roamly_s3_backup_', suffix='.zip', dir=_backup_tmp_dir())
         os.close(tmp_fd)   # build_backup_zip reopens it 0600
-        result = build_backup_zip(user, tmp_zip, include_media=True,
+        result = build_backup_zip(user, tmp_zip, include_media=config.include_media,
                                   progress=lambda *_a: _beat())
         total = result['size']
 
@@ -468,9 +468,10 @@ def _run_backup(user_id):
         config.last_backup_error = ''
         config.last_backup_size = total
         config.last_backup_bytes_uploaded = total
+        config.last_backup_file_count = result['file_count']
         config.save(update_fields=[
             'last_backup_at', 'last_backup_status', 'last_backup_error',
-            'last_backup_size', 'last_backup_bytes_uploaded',
+            'last_backup_size', 'last_backup_bytes_uploaded', 'last_backup_file_count',
         ])
 
         logger.info(f"Backup completed for {user.username}: {total} bytes -> {filename}")
@@ -873,4 +874,6 @@ def get_backup_status(user_id):
         'last_backup_bytes_uploaded': config.last_backup_bytes_uploaded,
         'last_backup_size': config.last_backup_size,
         'last_backup_error': config.last_backup_error if not is_running else '',
+        'last_backup_file_count': config.last_backup_file_count,
+        'include_media': config.include_media,
     }
