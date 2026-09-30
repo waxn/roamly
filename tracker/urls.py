@@ -314,6 +314,7 @@ urlpatterns = [
     path('api/import/json/', views.import_json, name='import_json'),
     path('api/import/kml/', views.import_kml, name='import_kml'),
     path('api/import/backup/', views.restore_backup, name='restore_backup'),
+    path('api/import/backup/status/<str:job_id>/', views.restore_backup_status, name='restore_backup_status'),
 
     # API Keys
     path('api/keys/app/', views.app_api_key, name='app_api_key'),

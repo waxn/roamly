@@ -7477,6 +7477,90 @@ def _open_backup_json(zf):
 
     return data, _stream('locations'), _stream('cell_samples')
 
+_RESTORE_JOB_RE = re.compile(r'^[A-Za-z0-9_-]{8,64}$')
+
+
+class _RestoreProgress:
+    """Progress record for a running restore, polled by restore_backup_status.
+
+    The restore itself stays a synchronous request — its response is still what
+    carries the result or the error — so this only has to report how far along
+    it is. The browser mints the job id and sends it with the upload, which is
+    what lets it start polling before the (possibly long) request returns; the
+    status view runs in another gthread concurrently. Cache writes are not part
+    of the DB transaction, so they are visible mid-restore.
+
+    Each stage owns a [lo, hi) slice of the bar; `tick` maps done/total into it
+    and is throttled so a 400k-row restore does not do 400 cache round trips a
+    second.
+    """
+    _MIN_INTERVAL_S = 0.5
+
+    def __init__(self, user_id, job_id):
+        self.key = f'restore_job:{user_id}:{job_id}' if job_id else None
+        self.started = time.time()
+        self._last = 0.0
+        self.stage_name, self.lo, self.hi, self.total, self.unit = 'Reading backup', 0.0, 0.0, 0, ''
+        self._write(0.0, 0)
+
+    def _write(self, pct, done, status='running'):
+        if not self.key:
+            return
+        try:
+            cache.set(self.key, {
+                'status': status, 'stage': self.stage_name, 'pct': round(pct, 1),
+                'done': done, 'total': self.total, 'unit': self.unit,
+                'started': self.started,
+            }, 3600)
+        except Exception:
+            pass  # progress is best-effort; never fail a restore over it
+
+    def stage(self, name, lo, hi, total=0, unit=''):
+        self.stage_name, self.lo, self.hi = name, lo, hi
+        self.total, self.unit = int(total or 0), unit
+        self._last = time.time()
+        self._write(lo, 0)
+
+    def tick(self, done):
+        now = time.time()
+        if now - self._last < self._MIN_INTERVAL_S:
+            return
+        self._last = now
+        frac = min(1.0, done / self.total) if self.total else 0.0
+        self._write(self.lo + (self.hi - self.lo) * frac, done)
+
+    def finish(self):
+        self.stage_name = 'Done'
+        self._write(100.0, self.total, status='done')
+
+
+def _restore_row_total(expected, data, key):
+    """Row count for a streamed section: the export's recorded count, or the
+    list length when the section was loaded whole (legacy plain JSON)."""
+    n = (expected or {}).get(key)
+    if isinstance(n, int) and n >= 0:
+        return n
+    rows = data.get(key)
+    return len(rows) if isinstance(rows, list) else 0
+
+
+@login_required
+def restore_backup_status(request, job_id):
+    """Poll a running restore's progress (see _RestoreProgress)."""
+    if not _RESTORE_JOB_RE.match(job_id):
+        return JsonResponse({'status': 'not_found'}, status=404)
+    job = cache.get(f'restore_job:{request.user.id}:{job_id}')
+    if not isinstance(job, dict):
+        # Normal while the upload is still in flight: the view has not run yet.
+        return JsonResponse({'status': 'pending'})
+    out = dict(job)
+    pct = out.get('pct') or 0
+    if out['status'] == 'running' and pct > 1:
+        elapsed = time.time() - out.get('started', time.time())
+        out['eta'] = max(0, round(elapsed * (100 - pct) / pct))
+    out.pop('started', None)
+    return JsonResponse(out)
+
 
 @login_required
 @require_http_methods(["POST"])
@@ -7490,6 +7574,10 @@ def restore_backup(request):
     err = _reject_oversize_upload(f)
     if err:
         return err
+
+    job_id = request.POST.get('job_id') or ''
+    progress = _RestoreProgress(request.user.id,
+                                job_id if _RESTORE_JOB_RE.match(job_id) else None)
 
     zf = None
     media_entries = []
@@ -7535,8 +7623,21 @@ def restore_backup(request):
               'family_circles': 0, 'cell_samples': 0}
     errors = 0
 
+    # Split the bar by rough cost: one unit per streamed row, the small
+    # user-content sections together as a tenth of that, media a fixed share.
+    expected_counts = data.get('counts') or {}
+    n_loc = _restore_row_total(expected_counts, data, 'locations')
+    n_cell = _restore_row_total(expected_counts, data, 'cell_samples')
+    data_end = 75.0 if media_entries else 100.0
+    w_other = max(0.1 * (n_loc + n_cell), 1)
+    unit_pct = data_end / (n_loc + n_cell + 2 * w_other)
+    loc_end = n_loc * unit_pct
+    cell_lo = loc_end + w_other * unit_pct
+    cell_hi = cell_lo + n_cell * unit_pct
+
     try:
         with transaction.atomic():
+            progress.stage('Restoring devices', 0, 0)
             # Restore devices (small count, get_or_create is fine)
             device_map = {}
             all_device_ids = set()
@@ -7567,7 +7668,11 @@ def restore_backup(request):
             BATCH_SIZE = 1000
             loc_batch = []
             loc_total = 0
+            loc_seen = 0
+            progress.stage('Restoring locations', 0, loc_end, n_loc, 'locations')
             for loc in locations_iter:
+                loc_seen += 1
+                progress.tick(loc_seen)
                 try:
                     device = device_map.get(loc.get('device_id'))
                     if not device:
@@ -7613,6 +7718,8 @@ def restore_backup(request):
                 created = Location.objects.bulk_create(loc_batch, ignore_conflicts=True)
                 loc_total += len(created)
             counts['locations'] = loc_total
+
+            progress.stage('Restoring adventures, journals & health', loc_end, cell_lo)
 
             # Restore trips (small count, get_or_create is fine)
             trip_map = {}
@@ -7994,7 +8101,11 @@ def restore_backup(request):
             # before — no version branch needed.
             cell_batch = []
             cell_total = 0
+            cell_seen = 0
+            progress.stage('Restoring cell samples', cell_lo, cell_hi, n_cell, 'samples')
             for cs in cell_iter:
+                cell_seen += 1
+                progress.tick(cell_seen)
                 try:
                     ts = _parse_timestamp(cs.get('timestamp'))
                     client_id = cs.get('client_id')
@@ -8033,6 +8144,8 @@ def restore_backup(request):
             counts['cell_samples'] = cell_total
             if cell_total:
                 _bust_cell_cache(user.id)
+
+            progress.stage('Restoring workouts & activities', cell_hi, data_end)
 
             for hw in data.get('health_workouts', []):
                 try:
@@ -8176,8 +8289,10 @@ def restore_backup(request):
     # further linking. Guards against zip-slip: an entry whose normalized path
     # would land outside MEDIA_ROOT is skipped rather than followed.
     if zf and media_entries:
+        progress.stage('Restoring media', data_end, 100, len(media_entries), 'files')
         try:
-            for zi in media_entries:
+            for media_i, zi in enumerate(media_entries, 1):
+                progress.tick(media_i)
                 # A wildly compressible entry is a zip bomb, not a photo.
                 if zi.compress_size and zi.file_size / zi.compress_size > _RESTORE_MAX_RATIO:
                     errors += 1
@@ -8234,6 +8349,7 @@ def restore_backup(request):
         if isinstance(want, int) and got < want and errors:
             shortfall[key] = {'expected': want, 'restored': got}
 
+    progress.finish()
     return JsonResponse({
         'status': 'ok', 'restored': counts, 'errors': errors,
         'expected': expected or None,

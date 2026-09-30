@@ -694,6 +694,14 @@
                     <div id="backup-progress-detail" class="bk-progress-detail"></div>
                 </div>
                 <div id="backup-download-status" style="font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.5rem;"></div>
+                <div id="restore-progress" class="bk-progress" hidden>
+                    <div class="bk-progress-head">
+                        <span id="restore-progress-stage">Uploading</span>
+                        <span id="restore-progress-eta" class="bk-progress-eta"></span>
+                    </div>
+                    <div class="bk-progress-track"><div id="restore-progress-fill" class="bk-progress-fill"></div></div>
+                    <div id="restore-progress-detail" class="bk-progress-detail"></div>
+                </div>
                 <div id="restore-status" style="font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.5rem;"></div>
             </div>
 
@@ -3026,6 +3034,9 @@ async function startBackupDownload() {
     }
 }
 
+// Upload share of the restore bar; the server's own percentage fills the rest.
+const RESTORE_UPLOAD_PCT = 20;
+
 async function restoreBackup(input) {
     const file = input.files[0];
     if (!file) return;
@@ -3034,30 +3045,98 @@ async function restoreBackup(input) {
     if (!await roamlyConfirm('Restore from backup? Existing data will not be deleted — only missing items will be added.')) return;
 
     const statusEl = document.getElementById('restore-status');
-    statusEl.innerHTML = '<span class="spinner"></span> Restoring backup...';
+    const box = document.getElementById('restore-progress');
+    const stageEl = document.getElementById('restore-progress-stage');
+    const etaEl = document.getElementById('restore-progress-eta');
+    const fillEl = document.getElementById('restore-progress-fill');
+    const detailEl = document.getElementById('restore-progress-detail');
+    statusEl.textContent = '';
     statusEl.style.color = 'var(--text-muted)';
+    box.hidden = false;
+    stageEl.textContent = 'Uploading';
+    etaEl.textContent = '';
+    detailEl.textContent = '';
+    fillEl.style.width = '0%';
 
+    // Minted here rather than by the server so polling can start the moment
+    // the upload finishes, while the restore request itself is still running.
+    const jobId = Array.from(crypto.getRandomValues(new Uint8Array(12)),
+                             b => b.toString(16).padStart(2, '0')).join('');
     const formData = new FormData();
+    formData.append('job_id', jobId);
     formData.append('file', file);
 
+    let poll = null;
+    const stopPolling = () => { if (poll) { clearInterval(poll); poll = null; } };
+    const pollStatus = async () => {
+        let s;
+        try {
+            s = await fetch(`/api/import/backup/status/${jobId}/`).then(r => r.json());
+        } catch (e) {
+            return;  // transient; keep polling
+        }
+        if (!poll || s.status !== 'running') return;
+        const pct = s.pct || 0;
+        stageEl.textContent = s.stage || 'Restoring';
+        etaEl.textContent = formatEta(s.eta);
+        fillEl.style.width = `${RESTORE_UPLOAD_PCT + pct * (100 - RESTORE_UPLOAD_PCT) / 100}%`;
+        detailEl.textContent = s.total
+            ? `${(s.done || 0).toLocaleString()} / ${s.total.toLocaleString()} ${s.unit || ''} · ${Math.round(pct)}%`
+            : `${Math.round(pct)}%`;
+    };
+
+    let data;
     try {
-        const resp = await fetch('/api/import/backup/', {
-            method: 'POST',
-            headers: { 'X-CSRFToken': '{{ csrf_token }}' },
-            body: formData
+        // XHR rather than fetch: fetch has no upload-progress event, and a
+        // multi-gigabyte zip can take minutes to send before the server starts.
+        const {status, text} = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/api/import/backup/');
+            xhr.setRequestHeader('X-CSRFToken', '{{ csrf_token }}');
+            xhr.upload.onprogress = (e) => {
+                if (!e.lengthComputable) return;
+                fillEl.style.width = `${(e.loaded / e.total) * RESTORE_UPLOAD_PCT}%`;
+                detailEl.textContent = `${formatBytes(e.loaded)} / ${formatBytes(e.total)}`;
+            };
+            xhr.upload.onload = () => {
+                stageEl.textContent = 'Reading backup';
+                fillEl.style.width = `${RESTORE_UPLOAD_PCT}%`;
+                detailEl.textContent = '';
+                poll = setInterval(pollStatus, 1000);
+            };
+            xhr.onload = () => resolve({status: xhr.status, text: xhr.responseText});
+            xhr.onerror = () => reject(new Error('network error'));
+            xhr.send(formData);
         });
-        if (!resp.ok) {
-            const text = await resp.text();
+        stopPolling();
+        if (status < 200 || status >= 300) {
+            let msg;
+            try { msg = JSON.parse(text).error; } catch (e) { /* not JSON */ }
+            box.hidden = true;
             statusEl.style.color = 'var(--danger)';
-            statusEl.textContent = `Server error (${resp.status}): ${text.substring(0, 200)}`;
+            statusEl.textContent = msg || `Server error (${status}): ${text.substring(0, 200)}`;
             return;
         }
-        const data = await resp.json();
+        data = JSON.parse(text);
+    } catch (err) {
+        stopPolling();
+        box.hidden = true;
+        statusEl.style.color = 'var(--danger)';
+        statusEl.textContent = 'Error: ' + err.message;
+        return;
+    }
+    try {
         if (data.error) {
+            box.hidden = true;
             statusEl.style.color = 'var(--danger)';
             statusEl.textContent = data.error;
             return;
         }
+        stageEl.textContent = 'Done';
+        etaEl.textContent = '';
+        fillEl.style.width = '100%';
+        detailEl.textContent = '';
+        setTimeout(() => { box.hidden = true; }, 5000);
         const r = data.restored;
         const parts = [];
         if (r.devices) parts.push(`${r.devices} device(s)`);
