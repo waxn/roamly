@@ -366,8 +366,10 @@ def _prune_old_backups(client, config, username):
         prefix = f"{config.prefix}{username}/"
         response = client.list_objects_v2(Bucket=config.bucket_name, Prefix=prefix)
         objects = response.get('Contents', [])
-        # Only consider .json backup files
-        backups = [o for o in objects if o['Key'].endswith('.json')]
+        # Backup archives only: .zip since S3 started uploading the same file
+        # as the Settings download, .json for runs from before that — which
+        # must keep counting toward max_backups or they'd never rotate out.
+        backups = [o for o in objects if o['Key'].endswith(('.zip', '.json'))]
         if len(backups) <= config.max_backups:
             return
         # Sort by last modified, oldest first
@@ -417,25 +419,19 @@ def _run_backup(user_id):
         except Exception:
             pass
 
-    tmp_json = None
+    tmp_zip = None
     try:
         user = config.user
 
-        # Phase 1: build the JSON to a temp file, streaming.
-        #
-        # This used to be _build_backup_json(user), which held the whole history
-        # three times over — every Location as a model instance (select_related,
-        # no iterator), the full list of dicts, and the json.dumps string — inside
-        # a gunicorn worker. views._write_backup_json was rewritten to stream
-        # row-by-row for exactly that reason and this path was never converted,
-        # so the OOM it fixed still lived here. Reusing that one implementation
-        # also removes the "two builders that must stay identical" hazard.
-        from .views import _write_backup_json
-        tmp_fd, tmp_json = tempfile.mkstemp(prefix='roamly_s3_backup_', suffix='.json')
-        os.chmod(tmp_json, 0o600)   # a complete location history, on a shared host
-        with os.fdopen(tmp_fd, 'wb') as _out:
-            _write_backup_json(user, _out, progress=lambda *_a: _beat())
-        total = os.path.getsize(tmp_json)
+        # Phase 1: build the archive to a private temp file — the same zip the
+        # Settings download produces (build_backup_zip is shared), streamed
+        # row-by-row so a large history never has to fit in memory.
+        tmp_fd, tmp_zip = tempfile.mkstemp(
+            prefix='roamly_s3_backup_', suffix='.zip', dir=_backup_tmp_dir())
+        os.close(tmp_fd)   # build_backup_zip reopens it 0600
+        result = build_backup_zip(user, tmp_zip, include_media=True,
+                                  progress=lambda *_a: _beat())
+        total = result['size']
 
         # Store total so the UI can show X / Y progress
         config.last_backup_error = 'uploading'
@@ -443,7 +439,7 @@ def _run_backup(user_id):
         config.last_backup_bytes_uploaded = 0
         config.save(update_fields=['last_backup_error', 'last_backup_size', 'last_backup_bytes_uploaded'])
 
-        filename = f"{config.prefix}{user.username}/backup_{timezone.now().strftime('%Y-%m-%d_%H%M%S')}.json"
+        filename = f"{config.prefix}{user.username}/backup_{timezone.now().strftime('%Y-%m-%d_%H%M%S')}.zip"
 
         # Phase 2: upload with progress callback (updates DB every ~2 MB)
         _uploaded = [0]
@@ -458,12 +454,12 @@ def _run_backup(user_id):
 
         client = _get_s3_client(config)
         # From the file, not an in-memory BytesIO of the whole thing.
-        with open(tmp_json, 'rb') as fh:
+        with open(tmp_zip, 'rb') as fh:
             client.upload_fileobj(
                 fh,
                 config.bucket_name,
                 filename,
-                ExtraArgs={'ContentType': 'application/json'},
+                ExtraArgs={'ContentType': 'application/zip'},
                 Callback=_progress,
             )
 
@@ -495,9 +491,9 @@ def _run_backup(user_id):
         _backup_threads.pop(user_id, None)
         # Always remove the intermediate file — it is the user's whole history
         # sitting unencrypted on disk.
-        if tmp_json:
+        if tmp_zip:
             try:
-                os.unlink(tmp_json)
+                os.unlink(tmp_zip)
             except OSError:
                 pass
 
