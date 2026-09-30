@@ -17,6 +17,12 @@ _image_backup_threads = {}  # user_id -> thread
 
 SCHEDULER_CHECK_INTERVAL = 900  # 15 minutes
 
+# How often a running backup refreshes its heartbeat, and how long without one
+# before a status poll calls the run dead. The gap between them is the slack
+# for one slow step (a large media file, a stalled multipart part).
+HEARTBEAT_EVERY_S = 30
+STALE_AFTER_S = 600
+
 INTERVAL_DELTAS = {
     'daily': timedelta(days=1),
     'weekly': timedelta(weeks=1),
@@ -388,12 +394,27 @@ def _run_backup(user_id):
     config.last_backup_status = 'running'
     config.last_backup_error = 'building'
     config.last_backup_started_at = timezone.now()
+    config.last_backup_heartbeat_at = config.last_backup_started_at
     config.last_backup_bytes_uploaded = 0
     config.last_backup_size = None
     config.save(update_fields=[
         'last_backup_status', 'last_backup_error', 'last_backup_started_at',
-        'last_backup_bytes_uploaded', 'last_backup_size',
+        'last_backup_heartbeat_at', 'last_backup_bytes_uploaded', 'last_backup_size',
     ])
+
+    # Throttled liveness stamp; see BackupConfig.last_backup_heartbeat_at.
+    _last_beat = [time.monotonic()]
+
+    def _beat(**fields):
+        now = time.monotonic()
+        if not fields and now - _last_beat[0] < HEARTBEAT_EVERY_S:
+            return
+        _last_beat[0] = now
+        try:
+            BackupConfig.objects.filter(pk=config.pk).update(
+                last_backup_heartbeat_at=timezone.now(), **fields)
+        except Exception:
+            pass
 
     tmp_json = None
     try:
@@ -412,7 +433,7 @@ def _run_backup(user_id):
         tmp_fd, tmp_json = tempfile.mkstemp(prefix='roamly_s3_backup_', suffix='.json')
         os.chmod(tmp_json, 0o600)   # a complete location history, on a shared host
         with os.fdopen(tmp_fd, 'wb') as _out:
-            _write_backup_json(user, _out)
+            _write_backup_json(user, _out, progress=lambda *_a: _beat())
         total = os.path.getsize(tmp_json)
 
         # Store total so the UI can show X / Y progress
@@ -432,12 +453,7 @@ def _run_backup(user_id):
             _uploaded[0] += bytes_transferred
             if _uploaded[0] - _last_saved[0] >= UPDATE_EVERY:
                 _last_saved[0] = _uploaded[0]
-                try:
-                    BackupConfig.objects.filter(pk=config.pk).update(
-                        last_backup_bytes_uploaded=_uploaded[0]
-                    )
-                except Exception:
-                    pass
+                _beat(last_backup_bytes_uploaded=_uploaded[0])
 
         client = _get_s3_client(config)
         # From the file, not an in-memory BytesIO of the whole thing.
@@ -732,12 +748,15 @@ def get_backup_status(user_id):
 
     is_running = user_id in _backup_threads and _backup_threads[user_id].is_alive()
 
-    # Auto-clear stale "running" status: if no thread is alive and it's been
-    # more than 10 minutes since the backup started, mark it as failed.
+    # Auto-clear stale "running" status: no thread alive *in this process* and
+    # no heartbeat for STALE_AFTER_S. Judged on the heartbeat, not the start
+    # time — the run's thread usually lives in another gunicorn worker, and a
+    # long, healthy backup would otherwise be failed ten minutes in.
     if config.last_backup_status == 'running' and not is_running:
+        last_sign = config.last_backup_heartbeat_at or config.last_backup_started_at
         stale = (
-            config.last_backup_started_at is None or
-            (timezone.now() - config.last_backup_started_at).total_seconds() > 600
+            last_sign is None or
+            (timezone.now() - last_sign).total_seconds() > STALE_AFTER_S
         )
         if stale:
             config.last_backup_status = 'failed'

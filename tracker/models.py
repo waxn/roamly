@@ -907,6 +907,11 @@ class BackupConfig(models.Model):
     region = models.CharField(max_length=100, default='auto', blank=True)
     interval = models.CharField(max_length=20, choices=INTERVAL_CHOICES, default='disabled')
     last_backup_started_at = models.DateTimeField(null=True, blank=True)
+    # Refreshed while a run makes progress (build + upload). A status poll in a
+    # different gunicorn worker can't see this run's thread, so staleness is
+    # judged on this rather than on the start time — a long, healthy backup
+    # would otherwise be declared interrupted ten minutes in.
+    last_backup_heartbeat_at = models.DateTimeField(null=True, blank=True)
     last_backup_at = models.DateTimeField(null=True, blank=True)
     last_backup_status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='never')
     last_backup_error = models.TextField(blank=True)
