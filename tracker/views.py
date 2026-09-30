@@ -34,7 +34,7 @@ from django.http import FileResponse, JsonResponse, HttpResponse, StreamingHttpR
 from django.views.static import serve as static_serve
 
 from .net_utils import validate_outbound_url, validate_outbound_host, OutboundURLError
-from django.shortcuts import render, redirect, get_object_or_404
+from django.shortcuts import render, redirect, get_object_or_404, resolve_url
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -1253,8 +1253,14 @@ def password_reset_confirm(request, uidb64, token):
 
 
 def _append_flash(url, key):
-    """Append ?flash=<key> to a redirect target, preserving any existing query string."""
-    parts = urllib.parse.urlsplit(url)
+    """Append ?flash=<key> to a redirect target, preserving any existing query string.
+
+    The target may be a URL pattern name rather than a path — _safe_next falls
+    back to 'tracker:map' — so resolve it first. Appending to the bare name
+    produced 'tracker:map?flash=welcome', which redirect() then tried (and
+    failed) to reverse as a view name: every signup without ?next= 500'd.
+    """
+    parts = urllib.parse.urlsplit(resolve_url(url))
     query = urllib.parse.parse_qsl(parts.query)
     query.append(('flash', key))
     return urllib.parse.urlunsplit(parts._replace(query=urllib.parse.urlencode(query)))
