@@ -860,7 +860,7 @@
                 <li><strong>stats & search</strong> — distance charts, location data table, place/date search</li>
                 <li><strong>reverse geocoding</strong> — offline, from bundled census boundaries + place data (background job in settings)</li>
                 <li><strong>import & export</strong> — csv, gpx, google takeout json, owntracks json, full backup restore</li>
-                <li><strong>s3 backups</strong> — scheduled data + image backups to any s3-compatible storage</li>
+                <li><strong>s3 backups</strong> — scheduled data + media backups to any s3-compatible storage</li>
                 <li><strong>native android app</strong> — first-party kotlin client with a reboot-proof background tracker, offline-first uploads, and your map, stats, and adventures on your phone</li>
                 <li><strong>gpslogger & owntracks</strong> — or any client that can post json to <code>/api/push/</code></li>
                 <li><strong>pwa</strong> — installable; dark and light themes</li>
@@ -1537,12 +1537,12 @@ print(resp.json())</code></pre>
             </div>
 
             <h2>backup format</h2>
-            <p>data backups are json files containing all your devices, locations, adventures, places, and api keys:</p>
-            <pre><code>{prefix}{username}/backup_{YYYY-MM-DD_HHmmss}.json
-# e.g.: roamly-backups/alice/backup_2026-02-17_143022.json</code></pre>
+            <p>each backup is the same <code>.zip</code> you get from <strong>download backup</strong> in settings: a <code>backup.json</code> with all your data (devices, locations, adventures, journals, places, and more) plus a <code>media/</code> folder with your photos and videos. restore it from settings → restore backup in one step.</p>
+            <pre><code>{prefix}{username}/backup_{YYYY-MM-DD_HHmmss}.zip
+# e.g.: roamly-backups/alice/backup_2026-02-17_143022.zip</code></pre>
 
-            <h2>image backups</h2>
-            <p>your uploaded photos (adventure covers, blurb photos, profile pictures) are backed up separately from the json data, since they're much larger. enable <strong>image backups</strong> in the same settings panel and either reuse your data-backup credentials or point images at a different bucket, prefix, or even a different provider entirely.</p>
+            <h2>photos &amp; videos</h2>
+            <p>media is included by default. turn off <strong>include photos &amp; videos</strong> in the same settings panel for a smaller, data-only backup.</p>
 
             <h2>retention</h2>
             <p>set a <strong>max backups to keep</strong> value to have roamly prune the oldest data backups automatically. leave it at <code>0</code> to keep everything.</p>
