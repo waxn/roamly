@@ -459,19 +459,19 @@ static void drawPair() {
   if (!cfg.server[0] || !cfg.wifiCount) {
     txt(6, 50, "Set up Wi-Fi and the server", C_WARN);
     txt(6, 70, "first: Menu > Wi-Fi setup.", C_WARN);
-    txt(6, 128, "hold mid: back", C_MUTED);
+    txt(6, 128, "mid: Wi-Fi setup", C_PRIMARY);
+    txtR(XR, 128, "hold: back", C_MUTED);
     return;
   }
   txt(6, 42, "Enter the code from Roamly", C_MUTED);
-  txt(6, 60, "Settings > Hardware Trackers", C_MUTED);
+  txt(6, 60, "Settings > HW Trackers", C_MUTED);
   const int bw = 26, gap = 3, x0 = (W - (8 * bw + 7 * gap)) / 2, y = 70;
   for (int i = 0; i < 8; i++) {
     int x = x0 + i * (bw + gap);
     cv->drawRect(x, y, bw, 30, i == pairLen ? C_PRIMARY : C_DIM);
     if (i < pairLen) symbolShape(x + bw / 2, y + 15, pairBuf[i], C_TEXT);
   }
-  txt(6, 128, "top / mid / bottom", C_MUTED);
-  txtR(XR, 128, "hold mid: delete", C_MUTED);
+  txt(6, 128, "hold mid: delete last", C_MUTED);
 }
 
 static void drawPortal() {
@@ -704,7 +704,12 @@ static void handle(Ev e) {
         pairLen = 0;
         break;
       }
-      if (!cfg.server[0] || !cfg.wifiCount) { if (e == EV_SEL_LONG || e == EV_SEL) enterScreen(SCR_MENU); break; }
+      if (!cfg.server[0] || !cfg.wifiCount) {
+        // Pairing needs Wi-Fi: a press goes straight to setting it up.
+        if (e == EV_SEL) { netPortalStart(); enterScreen(SCR_PORTAL); }
+        else if (e == EV_SEL_LONG) enterScreen(SCR_MENU);
+        break;
+      }
       if (e == EV_SEL_LONG) {
         if (pairLen == 0) enterScreen(SCR_MENU);
         else pairBuf[--pairLen] = 0;
