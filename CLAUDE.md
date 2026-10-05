@@ -537,6 +537,7 @@ The triage is driven by `mobile/app/src/main/java/com/roamly/data/api/RoamlyApi.
 | `tracker/models.py` → `HealthSample`/`HealthWorkout` | Health Connect data (see Health Connect above) |
 | `tracker/cell_utils.py` | Carrier identification (name-first, MCC/MNC fallback) + tower-position estimation with a confidence verdict |
 | `mobile/.../tracking/CellScanner.kt` | The only file in the app that touches telephony — reads cells per SIM and gates what is stored |
+| `trackerhw/` | Hardware tracker (ESP32-S3 + NEO-6M) firmware and docs — see Hardware tracker below |
 
 ## Models
 
@@ -653,6 +654,16 @@ Every mutation calls `_bust_user_cache`. Custom places also appear in:
 - **Data table** — `locations_api` resolves via `_place_membership` (bbox+haversine), sets `custom_place`; template prefers it over `poi_name`, renders in coral.
 - **Search** — `search_api` matches `CustomPlace.name__icontains`, prepends results above OSM POIs.
 - **Map layer** — optional "my places" toggle, persisted in `roamly_show_places`. Draws two things: the radius **circles** as GL layers (`myplaces-fill`/`myplaces-line`), and the **name tags** as DOM `maplibregl.Marker`s (`.place-tag` — a bordered plate in the place's colour with a wedge tail whose tip sits on the exact centre). Tags are markers rather than a `symbol` layer because the design fonts have no SDF glyph PBFs, so a symbol layer could only ever render the stock demotiles font — and being outside the style, markers also survive basemap swaps untouched. Only the circles need re-adding after a style swap: `addPlacesLayers` is idempotent and guards internally, called from both `style.load` **and `styledata`** — `isStyleLoaded()` can still be false at the instant `style.load` fires and `style.load` never fires again, which is why the layer used to go missing at random.
+
+## Hardware tracker (`trackerhw/`)
+
+A pocket GPS logger (Adafruit ESP32-S3 Reverse TFT Feather + NEO-6M) for days without the phone. Firmware is a PlatformIO project in `trackerhw/firmware/`; its README, `PROTOCOL.md` and `POWER.md` are the reference for the device side. It logs to LittleFS and uploads **only while charging**.
+
+**Server side is a pairing record, not a new location source.** Points land in `Location` under an ordinary `Device` (`hw-<mac>`), so map/stats/backups need nothing new. `HardwareTracker` (migration `0094`) holds the pairing: its **own** `APIKey` (OneToOne), `hw_id`, and the last status the tracker reported (display-only JSON). Unpairing deletes the key and the row; the `Device` and its points stay. Pairing state is **excluded from backups**, and tracker keys are left out of the backup's `api_keys` too (a restored copy would belong to no tracker). **`app_api_key` excludes tracker keys** (`hardware_tracker__isnull=True`): it hands the phone the account's *oldest* active key, and a phone that adopted a tracker's key would stop tracking when the tracker was unpaired.
+
+**Pairing is a device-auth flow run backwards:** Settings → Data & Tracking → **Hardware Trackers** → `POST /api/hw/pair/start/` mints an 8-press code over the tracker's three buttons (`T`/`M`/`B`, cache-only, 10 min, single-use, unique via `cache.add`); the user presses it on the tracker, which `POST`s it to the public `hw_pair_claim` and gets a key back. 3⁸ codes is small on purpose (it has to be typed on three buttons), so it's bounded by rate limits: 20/IP/10 min **plus a global 60 failed claims/10 min** that IP rotation can't reset. Settings polls `/api/hw/pair/status/`.
+
+**Upload confirms by read-back.** `POST /api/hw/upload/` (Bearer, `_require_json`) inserts with `bulk_create(ignore_conflicts=True)` and then **queries the rows back** (device + timestamps, matched on ts/lat/lon to 7 dp) to build `confirmed` — `bulk_create`'s return value can't be used, since with `ignore_conflicts` it returns every object whether or not it was written. The tracker deletes a point from flash only when its `seq` is in `confirmed`; anything unaccounted for is retried, then left on flash. Impossible points (`bad_coords`, `bad_time`: pre-2020 or >1 day ahead) come back in `rejected` and the tracker quarantines rather than deletes them. `GET /api/hw/hello/` is the pre-flight (401 = unpaired, 404 = old server) and also returns the user's zone as a **POSIX TZ string** read from the TZif footer (`_posix_tz`), plus `utc_offset_s` as a fallback. The tracker sends course/satellites/HDOP too, but `Location` has no columns for them, so they are dropped server-side for now. **New model ⇒ build + migrate; firmware change ⇒ reflash (not part of the Docker image).**
 
 ## Family Circle
 
