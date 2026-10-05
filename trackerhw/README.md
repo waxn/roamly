@@ -92,12 +92,32 @@ which):
 | About | Firmware, tracker ID, GPS port + module version, boot count. |
 | Restart | |
 
+### Adaptive interval
+
+The default. The tracker classifies each fix by the GPS's Doppler speed and
+picks the interval from it:
+
+| You are | Speed | Point every |
+|---|---|---|
+| still | < 0.8 m/s (and within 40 m of the last point) | 60 s |
+| walking / jogging | 0.8 – 4 m/s | 30 s |
+| cycling / driving | ≥ 4 m/s (~14 km/h) | 10 s |
+
+Speed is the *slowest* reading across the fixes in a window (at least two),
+so a single noisy Doppler spike from a stationary receiver can't register as
+movement. Speeding up then switches immediately; slowing down needs two slower readings in a
+row, so a red light or a pause doesn't drop you to one point a minute. While
+still, Accurate and Balanced *peek* every 20 s — one fix, not stored — so
+setting off is recorded within ~20 s rather than a minute late. Low power
+doesn't peek (a peek would cost a full GPS wake-up), so there a start can lag
+by up to 60 s. Thresholds live in `firmware/src/config.h` (`ADAPT_*`).
+
 ### Settings
 
 | Setting | Options | Default |
 |---|---|---|
 | Screen timeout | 3 s – 2 min | 5 s |
-| Log interval | 10 s – 5 min | 30 s |
+| Log interval | **Adaptive**, or fixed 10 s – 5 min | Adaptive |
 | GPS mode | Accurate / Balanced / Low power — see [POWER.md](POWER.md) | Balanced |
 | Min accuracy | keep all, 15/25/50/100 m (worse fixes are not stored) | keep all |
 | Units | metric / imperial | metric |

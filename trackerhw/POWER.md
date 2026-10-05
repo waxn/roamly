@@ -36,6 +36,16 @@ sleeps the receiver after a *successful* fix: with no fix it stays on, because
 a receiver whose ephemeris has gone stale has to stay on long enough to
 download a new one or it would never get a fix again.
 
+## Adaptive interval
+
+Adaptive (the default) only changes how often a point is *stored*, so in
+Accurate and Balanced its battery effect is small — the receiver runs either
+way; a still period trades one stored point per 30 s for one per 60 s plus two
+cheap peeks. In Low power it matters more, because the receiver sleeps between
+points: a mostly-still day behaves like a fixed 1-minute interval,
+roughly 8 mA, about a week, while a day spent driving holds the receiver
+awake at 10 s points (too short to sleep it at all), about Accurate's draw.
+
 ## The ESP32 side
 
 Between fix windows — screen off, on battery, no sync or hotspot running —
