@@ -60,6 +60,7 @@ from .models import (
     Activity, ACTIVITY_KINDS,
     FamilyCircle, FamilyMembership, FamilyPlace, FamilyPlaceAlert,
     CellSample, CELL_RATS, CELL_ROLES,
+    HardwareTracker,
 )
 from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email, send_contact_email
 from .dwell_utils import bridges_gap, credit_gap, credit_gap_in_place
@@ -7089,10 +7090,12 @@ def _write_backup_json(user, f, progress=None):
     adventures = _build_adventures_data(user)
     # The raw key is deliberately NOT exported. It is a live credential, and the
     # archive is written to disk and copied to S3; restore mints a new one under
-    # the same name instead.
+    # the same name instead. Hardware tracker keys are left out entirely: a
+    # restored copy would belong to no tracker (the tracker re-pairs anyway),
+    # and app_api_key could then hand that orphan to the phone.
     api_keys = [
         {'name': k.name, 'is_active': k.is_active, 'created_at': k.created_at}
-        for k in APIKey.objects.filter(user=user)
+        for k in APIKey.objects.filter(user=user, hardware_tracker__isnull=True)
     ]
     report('Collecting journals')
     journals = _build_journals_data(user)
@@ -9048,8 +9051,10 @@ def app_api_key(request):
     err = _require_api_intent(request)
     if err:
         return err
+    # Never a hardware tracker's key: unpairing the tracker deletes its key,
+    # which would silently stop a phone that had adopted it from tracking.
     api_key = (
-        APIKey.objects.filter(user=request.user, is_active=True)
+        APIKey.objects.filter(user=request.user, is_active=True, hardware_tracker__isnull=True)
         .order_by('created_at')
         .first()
     )
@@ -15424,3 +15429,452 @@ def cell_insights_api(request):
 @login_required
 def cells_view(request):
     return render(request, 'tracker/cells.html')
+
+
+# ---------------------------------------------------------------------------
+# Hardware tracker (the ESP32 + GPS device in /trackerhw)
+# ---------------------------------------------------------------------------
+#
+# Pairing is a device-authorisation flow with the code travelling the other way
+# round: Settings (where the user is already signed in) shows a short sequence
+# of the tracker's three buttons, the user presses it on the tracker, and the
+# tracker submits it to `hw_pair_claim`. Whoever can press that sequence was
+# looking at the signed-in Settings page, which is the whole proof needed.
+#
+# 3 buttons x 8 presses = 6,561 codes. That is small, so it is defended by
+# what surrounds it rather than by its length: a code lives 10 minutes, a
+# claim is rate-limited per IP, and failed claims share a *global* budget
+# (_HW_PAIR_FAIL_LIMIT) that no amount of IP rotation resets. The prize for
+# guessing one is also small — a device of the guesser's that can add points
+# to the victim's account, which the victim sees appear in Settings.
+
+_HW_PAIR_SYMBOLS = 'TMB'        # top (D0) / middle (D1) / bottom (D2)
+_HW_PAIR_LEN = 8
+_HW_PAIR_TTL_S = 600
+_HW_PAIR_FAIL_LIMIT = 60        # failed claims instance-wide per window
+_HW_PAIR_FAIL_WINDOW_S = 600
+_HW_MAX_BATCH = 200             # the tracker sends 100; headroom for a future build
+_HW_STATUS_KEYS = {
+    'battery': (int, float), 'voltage': (int, float), 'charging': (bool,),
+    'stored': (int,), 'quarantined': (int,), 'uptime_s': (int,),
+    'gps_mode': (str,), 'interval_s': (int,), 'rssi': (int,),
+    'free_kb': (int,), 'boots': (int,), 'fw': (str,),
+}
+_HW_ID_RE = re.compile(r'^[0-9A-F]{12}$')
+
+
+def _posix_tz(zone_name):
+    """POSIX TZ string (``EST5EDT,M3.2.0,M11.1.0``) for an IANA zone name.
+
+    The tracker's C library understands POSIX TZ strings, not IANA names, and
+    every TZif file ends with exactly that string as its footer — so read it
+    rather than maintain a translation table. Returns '' when no zoneinfo
+    source has the zone; the tracker then falls back to ``utc_offset_s``.
+    """
+    if not zone_name:
+        return 'UTC0'
+    data = None
+    try:
+        import importlib.resources as ir
+        data = ir.files('tzdata').joinpath('zoneinfo', *zone_name.split('/')).read_bytes()
+    except Exception:
+        data = None
+    if data is None:
+        import zoneinfo
+        for base in zoneinfo.TZPATH:
+            try:
+                with open(os.path.join(base, *zone_name.split('/')), 'rb') as f:
+                    data = f.read()
+                break
+            except OSError:
+                continue
+    if not data or not data.startswith(b'TZif'):
+        return ''
+    footer = data.rstrip(b'\n').rsplit(b'\n', 1)[-1].decode('ascii', 'ignore').strip()
+    return footer if footer and len(footer) < 64 else ''
+
+
+def _hw_time_payload(user):
+    """Server time + the user's local zone, for the tracker's clock display."""
+    from .tz_utils import zone_name_for_user, timezone_for_user
+    now = timezone.now()
+    zone = zone_name_for_user(user)
+    offset = timezone_for_user(user).utcoffset(now.replace(tzinfo=None)) or timedelta(0)
+    return {
+        'server_time': int(now.timestamp()),
+        'tz_name': zone or 'UTC',
+        'tz': _posix_tz(zone),
+        'utc_offset_s': int(offset.total_seconds()),
+    }
+
+
+def _hw_tracker_from_request(request):
+    """The HardwareTracker whose key is in the Bearer header, or None.
+
+    Deliberately not ``get_api_key_user``: that resolves a *user*, and an
+    upload has to land on this tracker's own Device no matter which other keys
+    the account holds.
+    """
+    auth = request.META.get('HTTP_AUTHORIZATION') or ''
+    if not auth.lower().startswith('bearer '):
+        return None
+    key = auth[7:].strip()
+    if not key:
+        return None
+    tracker = (
+        HardwareTracker.objects.select_related('device', 'api_key', 'user')
+        .filter(api_key__key=key, api_key__is_active=True, user__is_active=True)
+        .first()
+    )
+    if tracker:
+        now = timezone.now()
+        APIKey.objects.filter(pk=tracker.api_key_id).update(last_used=now)
+        tracker.last_seen_at = now
+    return tracker
+
+
+def _hw_tracker_payload(t):
+    return {
+        'id': t.id,
+        'name': t.device.name or t.device.device_id,
+        'device_id': t.device.device_id,
+        'hw_id': t.hw_id,
+        'model': t.model,
+        'firmware': t.firmware,
+        'paired_at': t.paired_at.isoformat() if t.paired_at else None,
+        'last_seen_at': t.last_seen_at.isoformat() if t.last_seen_at else None,
+        'last_upload_at': t.last_upload_at.isoformat() if t.last_upload_at else None,
+        'points_uploaded': t.points_uploaded,
+        'status': t.last_status or {},
+        'key_active': bool(t.api_key_id and t.api_key and t.api_key.is_active),
+    }
+
+
+@login_required
+@require_POST
+def hw_pair_start(request):
+    """Mint a button sequence for pairing a tracker to the signed-in account."""
+    uid = request.user.id
+    old = cache.get(f'hwpair:user:{uid}')
+    if old:
+        cache.delete(f'hwpair:code:{old}')
+    cache.delete(f'hwpair:done:{uid}')
+    for _ in range(20):
+        code = ''.join(secrets.choice(_HW_PAIR_SYMBOLS) for _ in range(_HW_PAIR_LEN))
+        # cache.add is the uniqueness check: two accounts pairing at once must
+        # never share a code, or one claim would bind to the wrong account.
+        if cache.add(f'hwpair:code:{code}', uid, _HW_PAIR_TTL_S):
+            cache.set(f'hwpair:user:{uid}', code, _HW_PAIR_TTL_S)
+            return JsonResponse({'status': 'ok', 'code': code, 'expires_in': _HW_PAIR_TTL_S})
+    return JsonResponse({'error': 'Could not allocate a pairing code, try again.'}, status=503)
+
+
+@login_required
+def hw_pair_status(request):
+    """Polled by Settings while the user presses the sequence on the tracker."""
+    uid = request.user.id
+    done = cache.get(f'hwpair:done:{uid}')
+    if done:
+        t = (HardwareTracker.objects.select_related('device', 'api_key')
+             .filter(id=done, user=request.user).first())
+        if t:
+            return JsonResponse({'state': 'paired', 'tracker': _hw_tracker_payload(t)})
+    if cache.get(f'hwpair:user:{uid}'):
+        return JsonResponse({'state': 'waiting'})
+    return JsonResponse({'state': 'expired'})
+
+
+@login_required
+@require_POST
+def hw_pair_cancel(request):
+    uid = request.user.id
+    code = cache.get(f'hwpair:user:{uid}')
+    if code:
+        cache.delete(f'hwpair:code:{code}')
+    cache.delete(f'hwpair:user:{uid}')
+    return JsonResponse({'status': 'ok'})
+
+
+@csrf_exempt
+@require_POST
+def hw_pair_claim(request):
+    """The tracker submits the sequence it was given; on a match, it gets a key.
+
+    Public by necessity (the tracker has no credential yet). Re-pairing a board
+    that was already paired to this account reuses its Device — so its history
+    stays one track — and rotates its key.
+    """
+    err = _require_json(request)
+    if err:
+        return err
+    if _rate_limited(request, 'hwpair', 20, _HW_PAIR_FAIL_WINDOW_S):
+        return JsonResponse({'status': 'error', 'error': 'rate_limited'}, status=429)
+    fail_key = 'hwpair:fail:global'
+    try:
+        if (cache.get(fail_key) or 0) >= _HW_PAIR_FAIL_LIMIT:
+            return JsonResponse({'status': 'error', 'error': 'rate_limited'}, status=429)
+    except Exception:
+        pass
+    try:
+        data = json.loads(request.body.decode('utf-8'))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({'status': 'error', 'error': 'bad_json'}, status=400)
+
+    code = str(data.get('code') or '').strip().upper()
+    hw_id = re.sub(r'[^0-9A-Fa-f]', '', str(data.get('hw_id') or '')).upper()
+    if not _HW_ID_RE.match(hw_id):
+        return JsonResponse({'status': 'error', 'error': 'bad_hw_id'}, status=400)
+    uid = None
+    if len(code) == _HW_PAIR_LEN and all(c in _HW_PAIR_SYMBOLS for c in code):
+        uid = cache.get(f'hwpair:code:{code}')
+    if not uid:
+        try:
+            cache.add(fail_key, 0, _HW_PAIR_FAIL_WINDOW_S)
+            cache.incr(fail_key)
+        except Exception:
+            pass
+        return JsonResponse({'status': 'error', 'error': 'bad_code'}, status=404)
+    # Single use: burn the code before doing anything else.
+    cache.delete(f'hwpair:code:{code}')
+    cache.delete(f'hwpair:user:{uid}')
+
+    from django.contrib.auth import get_user_model
+    user = get_user_model().objects.filter(id=uid, is_active=True).first()
+    if not user:
+        return JsonResponse({'status': 'error', 'error': 'bad_code'}, status=404)
+
+    model = str(data.get('model') or '')[:64]
+    fw = str(data.get('fw') or '')[:32]
+    with transaction.atomic():
+        device, _ = Device.objects.get_or_create(
+            user=user, device_id=f'hw-{hw_id.lower()}',
+            defaults={'name': f'Roamly Tracker {hw_id[-4:]}'},
+        )
+        tracker = HardwareTracker.objects.filter(user=user, hw_id=hw_id).first()
+        if tracker and tracker.api_key_id:
+            APIKey.objects.filter(pk=tracker.api_key_id).delete()
+        key = APIKey(user=user, name=f'Hardware tracker {hw_id[-4:]}')
+        key.save()
+        if tracker is None:
+            tracker = HardwareTracker(user=user, hw_id=hw_id, device=device)
+        tracker.api_key = key
+        tracker.model = model
+        tracker.firmware = fw
+        tracker.last_seen_at = timezone.now()
+        tracker.save()
+    cache.set(f'hwpair:done:{uid}', tracker.id, _HW_PAIR_TTL_S)
+    _log_action(request, 'api_key_create', description=f'Hardware tracker {hw_id[-4:]} paired', user=user)
+    return JsonResponse({
+        'status': 'ok',
+        'api_key': key.key,
+        'device_id': device.device_id,
+        'name': device.name,
+        'max_batch': 100,
+        **_hw_time_payload(user),
+    })
+
+
+@csrf_exempt
+@require_http_methods(['GET'])
+def hw_hello(request):
+    """Pre-flight before an upload: is the server up, and does it still know me?
+
+    The tracker calls this before sending anything, so an unpaired key (401) or
+    an older server without these endpoints (404) is found out *before* a batch
+    is read off flash — never by a failed upload halfway through a backlog.
+    """
+    tracker = _hw_tracker_from_request(request)
+    if not tracker:
+        return JsonResponse({'status': 'error', 'error': 'unpaired'}, status=401)
+    tracker.save(update_fields=['last_seen_at'])
+    return JsonResponse({
+        'status': 'ok',
+        'device_id': tracker.device.device_id,
+        'name': tracker.device.name,
+        'max_batch': 100,
+        **_hw_time_payload(tracker.user),
+    })
+
+
+def _hw_clean_status(raw):
+    out = {}
+    if not isinstance(raw, dict):
+        return out
+    for k, types in _HW_STATUS_KEYS.items():
+        v = raw.get(k)
+        if isinstance(v, bool) and bool not in types:
+            continue
+        if isinstance(v, types):
+            out[k] = v[:32] if isinstance(v, str) else v
+    return out
+
+
+def _hw_parse_point(raw, now_ts):
+    """Validate one point. Returns (Location kwargs, None) or (None, reason)."""
+    if not isinstance(raw, dict):
+        return None, 'not_object'
+    try:
+        t = int(raw['t'])
+        lat = float(raw['lat'])
+        lon = float(raw['lon'])
+    except (KeyError, TypeError, ValueError):
+        return None, 'missing_field'
+    if not (math.isfinite(lat) and math.isfinite(lon)):
+        return None, 'bad_coords'
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+        return None, 'bad_coords'
+    # 2020-01-01 .. one day ahead. A GPS that has not yet decoded the date (or
+    # a NEO-6 hitting a week-number rollover) reports years like 1999 or 2079;
+    # storing those would put a point decades off the timeline for good.
+    if t < 1577836800 or t > now_ts + 86400:
+        return None, 'bad_time'
+    def num(name, lo, hi):
+        v = _safe_float(raw.get(name))
+        return v if v is not None and math.isfinite(v) and lo <= v <= hi else None
+    return {
+        'latitude': lat,
+        'longitude': lon,
+        'timestamp': datetime.fromtimestamp(t, tz=dt_timezone.utc),
+        'altitude': num('alt', -1000, 20000),
+        'accuracy': num('acc', 0, 100000),
+        'speed': num('spd', 0, 400),
+        'battery': num('batt', 0, 100),
+    }, None
+
+
+@csrf_exempt
+@require_POST
+def hw_upload(request):
+    """Accept a batch of stored points and say exactly which ones are now safe.
+
+    The tracker deletes a point from its flash only when its ``seq`` comes back
+    in ``confirmed`` — and ``confirmed`` is built by reading rows back out of
+    the database after the insert, not from ``bulk_create``'s return value,
+    which with ``ignore_conflicts`` returns every object whether or not it was
+    written. A re-sent point (the tracker lost the previous response) is
+    confirmed by the same read-back, so retries are idempotent.
+
+    ``rejected`` points are ones no retry can fix (impossible coordinates or
+    time); the tracker moves those to a quarantine file rather than deleting
+    them, so nothing is silently lost on either side.
+    """
+    err = _require_json(request)
+    if err:
+        return err
+    tracker = _hw_tracker_from_request(request)
+    if not tracker:
+        return JsonResponse({'status': 'error', 'error': 'unpaired'}, status=401)
+    try:
+        data = json.loads(request.body.decode('utf-8'))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({'status': 'error', 'error': 'bad_json'}, status=400)
+    if not isinstance(data, dict):
+        return JsonResponse({'status': 'error', 'error': 'bad_json'}, status=400)
+    points = data.get('points') or []
+    if not isinstance(points, list):
+        return JsonResponse({'status': 'error', 'error': 'bad_points'}, status=400)
+    if len(points) > _HW_MAX_BATCH:
+        return JsonResponse({'status': 'error', 'error': 'batch_too_large', 'max_batch': _HW_MAX_BATCH}, status=413)
+
+    device = tracker.device
+    now_ts = int(time.time())
+    rejected = []
+    wanted = {}          # seq -> (timestamp, lat, lon)
+    to_create = []
+    for raw in points:
+        seq = raw.get('seq') if isinstance(raw, dict) else None
+        if not isinstance(seq, int):
+            continue     # without a seq the tracker could not act on any answer
+        fields, reason = _hw_parse_point(raw, now_ts)
+        if reason:
+            rejected.append({'seq': seq, 'reason': reason})
+            continue
+        wanted[seq] = (fields['timestamp'], round(fields['latitude'], 7), round(fields['longitude'], 7))
+        loc = Location(device=device, **fields)
+        # bulk_create bypasses Location.save(), which is what fills the PostGIS
+        # column — see push_location_batch.
+        if HAS_POSTGIS and Point:
+            loc.location = Point(fields['longitude'], fields['latitude'], srid=4326)
+        to_create.append(loc)
+
+    if to_create:
+        try:
+            Location.objects.bulk_create(to_create, ignore_conflicts=True)
+        except Exception:
+            logger.exception('hw_upload bulk_create failed; falling back to per-row')
+            for loc in to_create:
+                try:
+                    with transaction.atomic():
+                        loc.save()
+                except Exception:
+                    pass   # the read-back below decides; an unsaved row is simply not confirmed
+
+    confirmed = []
+    if wanted:
+        present = {
+            (ts, round(lat, 7), round(lon, 7))
+            for ts, lat, lon in Location.objects.filter(
+                device=device, timestamp__in={v[0] for v in wanted.values()},
+            ).values_list('timestamp', 'latitude', 'longitude')
+        }
+        confirmed = sorted(seq for seq, key in wanted.items() if key in present)
+
+    if to_create:
+        ensure_auto_geocode(tracker.user_id)
+        newest = max(to_create, key=lambda l: l.timestamp)
+        ensure_family_geofence_check(
+            tracker.user_id, [(device.device_id, newest.latitude, newest.longitude, newest.timestamp)])
+        _bust_user_cache(tracker.user_id)
+
+    status = _hw_clean_status(data.get('status'))
+    if status:
+        tracker.last_status = status
+        if status.get('fw'):
+            tracker.firmware = status['fw']
+    tracker.last_upload_at = timezone.now()
+    tracker.points_uploaded = (tracker.points_uploaded or 0) + len(confirmed)
+    tracker.save(update_fields=['last_status', 'firmware', 'last_upload_at',
+                                'points_uploaded', 'last_seen_at'])
+    return JsonResponse({
+        'status': 'ok',
+        'batch_id': data.get('batch_id'),
+        'received': len(points),
+        'confirmed': confirmed,
+        'rejected': rejected,
+    })
+
+
+@login_required
+def hw_trackers_api(request):
+    trackers = (HardwareTracker.objects.filter(user=request.user)
+                .select_related('device', 'api_key'))
+    return JsonResponse({'trackers': [_hw_tracker_payload(t) for t in trackers]})
+
+
+@login_required
+@require_POST
+def hw_tracker_rename(request, tracker_id):
+    t = get_object_or_404(HardwareTracker.objects.select_related('device'), id=tracker_id, user=request.user)
+    try:
+        name = str(json.loads(request.body.decode('utf-8')).get('name') or '').strip()[:100]
+    except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    if not name:
+        return JsonResponse({'error': 'Name required'}, status=400)
+    t.device.name = name
+    t.device.save(update_fields=['name'])
+    _bust_user_cache(request.user.id)
+    return JsonResponse({'status': 'ok'})
+
+
+@login_required
+@require_POST
+def hw_tracker_unpair(request, tracker_id):
+    """Revoke the tracker's key. Its Device and every point it uploaded stay."""
+    t = get_object_or_404(HardwareTracker, id=tracker_id, user=request.user)
+    if t.api_key_id:
+        APIKey.objects.filter(pk=t.api_key_id).delete()
+    hw = t.hw_id
+    t.delete()
+    _log_action(request, 'api_key_delete', description=f'Hardware tracker {hw[-4:]} unpaired')
+    return JsonResponse({'status': 'ok'})

@@ -2218,3 +2218,46 @@ class CellSample(models.Model):
 
     def __str__(self):
         return f"{self.rat} {self.mcc}-{self.mnc}/{self.tac}/{self.cid} @ {self.timestamp}"
+
+
+class HardwareTracker(models.Model):
+    """A paired Roamly hardware tracker (the ESP32 + GPS device in /trackerhw).
+
+    Not a new kind of location source: its points land in ``Location`` under an
+    ordinary ``Device``, so the map, stats and backups need nothing new. This row
+    is only the *pairing* — which key the tracker authenticates with, and the
+    last status it reported, for Settings to show.
+
+    It owns its own ``APIKey`` rather than sharing the account's app key, so
+    unpairing one tracker revokes exactly that tracker and nothing else.
+    ``app_api_key`` excludes these keys for the same reason: it hands the phone
+    the account's *oldest* key, and a phone that adopted a tracker's key would
+    stop tracking the moment the tracker was unpaired.
+
+    Operational/pairing state ⇒ excluded from backups (a restore re-mints API
+    keys anyway, so a tracker re-pairs after one regardless).
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='hardware_trackers')
+    device = models.OneToOneField(Device, on_delete=models.CASCADE, related_name='hardware_tracker')
+    api_key = models.OneToOneField(APIKey, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='hardware_tracker')
+    # The ESP32's factory MAC, upper-case hex without separators. Stable across
+    # reflashes, so re-pairing the same board reuses this row and its Device.
+    hw_id = models.CharField(max_length=32)
+    model = models.CharField(max_length=64, blank=True)
+    firmware = models.CharField(max_length=32, blank=True)
+    paired_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    last_upload_at = models.DateTimeField(null=True, blank=True)
+    # Whatever the tracker last reported about itself (battery, points still
+    # stored on it, uptime...). Display-only; nothing reads it for logic.
+    last_status = models.JSONField(default=dict, blank=True)
+    points_uploaded = models.PositiveBigIntegerField(default=0)
+
+    class Meta:
+        unique_together = ['user', 'hw_id']
+        ordering = ['-paired_at']
+
+    def __str__(self):
+        return f"{self.device} ({self.hw_id})"

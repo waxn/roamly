@@ -53,6 +53,17 @@ urlpatterns = [
     # Location API
     path('api/push/', views.push_location, name='push_location'),
     path('api/push/batch/', views.push_location_batch, name='push_location_batch'),
+    # Hardware tracker (/trackerhw): pairing from Settings, then device-side
+    # pre-flight + verified batch upload.
+    path('api/hw/pair/start/', views.hw_pair_start, name='hw_pair_start'),
+    path('api/hw/pair/status/', views.hw_pair_status, name='hw_pair_status'),
+    path('api/hw/pair/cancel/', views.hw_pair_cancel, name='hw_pair_cancel'),
+    path('api/hw/pair/claim/', views.hw_pair_claim, name='hw_pair_claim'),
+    path('api/hw/hello/', views.hw_hello, name='hw_hello'),
+    path('api/hw/upload/', views.hw_upload, name='hw_upload'),
+    path('api/hw/trackers/', views.hw_trackers_api, name='hw_trackers_api'),
+    path('api/hw/trackers/<int:tracker_id>/rename/', views.hw_tracker_rename, name='hw_tracker_rename'),
+    path('api/hw/trackers/<int:tracker_id>/unpair/', views.hw_tracker_unpair, name='hw_tracker_unpair'),
     path('api/mobile/version/', views.mobile_version_check, name='mobile_version_check'),
     path('api/mobile/apk/', views.mobile_download_apk, name='mobile_download_apk'),
     path('api/locations/', views.locations_api, name='locations_api'),
