@@ -1,0 +1,11 @@
+# Adafruit's tinyuf2 4MB layout with the trailing FAT partition turned into
+# LittleFS. Keeping the uf2 slot where the board definition expects it matters:
+# PlatformIO flashes tinyuf2.bin to 0x2d0000 on every upload, which would land
+# in the middle of a repartitioned point log.
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   20K,
+otadata,  data, ota,     0xe000,   8K,
+ota_0,    app,  ota_0,   0x10000,  1408K,
+ota_1,    app,  ota_1,   0x170000, 1408K,
+uf2,      app,  factory, 0x2d0000, 256K,
+spiffs,   data, spiffs,  0x310000, 960K,
