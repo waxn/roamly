@@ -14,7 +14,7 @@ struct WifiCred {
 struct Settings {
   // user-facing (menu)
   uint16_t screenTimeoutS = 5;
-  uint16_t intervalS      = 30;
+  uint16_t intervalS      = 0;      // 0 = adaptive (60/30/10 s by speed)
   uint8_t  gpsMode        = GPS_BALANCED;
   uint16_t minAccM        = 0;      // 0 = keep every fix
   bool     imperial       = false;

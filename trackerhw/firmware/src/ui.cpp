@@ -78,7 +78,7 @@ static int setValues(int id, int* out) {
   auto add = [&](int v) { out[n++] = v; };
   switch (id) {
     case S_TIMEOUT: for (int v : {3, 5, 10, 15, 30, 60, 120}) add(v); break;
-    case S_INTERVAL: for (int v : {10, 15, 30, 60, 120, 300}) add(v); break;
+    case S_INTERVAL: for (int v : {0, 10, 15, 30, 60, 120, 300}) add(v); break;
     case S_GPSMODE: for (int v : {0, 1, 2}) add(v); break;
     case S_MINACC: for (int v : {0, 15, 25, 50, 100}) add(v); break;
     case S_UNITS: case S_FLIP: add(0); add(1); break;
@@ -128,7 +128,8 @@ static void setPut(int id, int v) {
 static String setFmt(int id, int v) {
   char b[24];
   switch (id) {
-    case S_TIMEOUT: case S_INTERVAL: snprintf(b, sizeof b, v >= 60 ? "%d min" : "%d s", v >= 60 ? v / 60 : v); return b;
+    case S_INTERVAL: if (!v) return "Adaptive";   // fall through
+    case S_TIMEOUT: snprintf(b, sizeof b, v >= 60 ? "%d min" : "%d s", v >= 60 ? v / 60 : v); return b;
     case S_GPSMODE: return v == GPS_ACCURATE ? "Accurate" : v == GPS_LOWPOWER ? "Low power" : "Balanced";
     case S_MINACC: if (!v) return "Keep all"; snprintf(b, sizeof b, cfg.imperial ? "%d ft" : "%d m", cfg.imperial ? (int)lroundf(v * 3.281f) : v); return b;
     case S_UNITS: return v ? "Imperial" : "Metric";
@@ -339,7 +340,8 @@ static void drawStatusGps() {
   txt(6, y, b, C_TEXT); y += 18;
   snprintf(b, sizeof b, "Pts %lu  miss %lu  filtered %lu", (unsigned long)ls.recorded, (unsigned long)ls.missed, (unsigned long)ls.filtered);
   txt(6, y, b, C_MUTED); y += 18;
-  snprintf(b, sizeof b, "%s  %s", setFmt(S_GPSMODE, cfg.gpsMode).c_str(), gi.configured ? "" : "(module defaults)");
+  if (!cfg.intervalS) snprintf(b, sizeof b, "%s, %s: every %lus", setFmt(S_GPSMODE, cfg.gpsMode).c_str(), motionName(ls.motion), (unsigned long)loggerIntervalS());
+  else snprintf(b, sizeof b, "%s, every %us%s", setFmt(S_GPSMODE, cfg.gpsMode).c_str(), cfg.intervalS, gi.configured ? "" : " (defaults)");
   txt(6, y, b, C_MUTED);
 }
 

@@ -29,5 +29,22 @@ static constexpr uint32_t WIFI_CONNECT_MS      = 20000;
 static constexpr uint32_t HTTP_TIMEOUT_MS      = 20000;
 static constexpr uint32_t PORTAL_TIMEOUT_MS    = 15UL * 60 * 1000;
 
+// ── Adaptive interval (Log interval = Adaptive) ─────────────────────────────
+// Doppler speed classes: below STILL is standing still, below FAST is walking
+// or jogging, at/above FAST is cycling or a vehicle (~14 km/h).
+// 0.8 m/s matches the phone app's DriftAnchor: a stationary NEO-6M's Doppler
+// jitters up to ~0.65 m/s, while even a slow walk holds above ~1 m/s.
+static constexpr float    ADAPT_STILL_MPS   = 0.8f;
+static constexpr float    ADAPT_FAST_MPS    = 4.0f;
+static constexpr uint32_t ADAPT_STILL_S     = 60;
+static constexpr uint32_t ADAPT_SLOW_S      = 30;
+static constexpr uint32_t ADAPT_FAST_S      = 10;
+// While still, Accurate/Balanced peek this often for movement (one fix, not
+// stored unless moving) so a start isn't noticed up to a minute late.
+static constexpr uint32_t ADAPT_PEEK_S      = 20;
+// A "still" reading this far from the last stored point counts as moving
+// (catches slow walking whose Doppler reads under ADAPT_STILL_MPS).
+static constexpr float    ADAPT_MOVE_M      = 40.0f;
+
 // ── Storage ─────────────────────────────────────────────────────────────────
 static constexpr int SEGMENT_RECORDS = 1024;   // 32 KB per segment file

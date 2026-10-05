@@ -4,6 +4,7 @@
 #include "storage.h"
 #include "power.h"
 #include "gps.h"
+#include "logger.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <NetworkClientSecure.h>
@@ -140,7 +141,7 @@ static void statusJson(JsonObject st) {
   st["free_kb"] = (int)s.freeKb;
   st["uptime_s"] = (int)(millis() / 1000);
   st["gps_mode"] = cfg.gpsMode == GPS_ACCURATE ? "accurate" : cfg.gpsMode == GPS_LOWPOWER ? "low_power" : "balanced";
-  st["interval_s"] = (int)cfg.intervalS;
+  st["interval_s"] = (int)loggerIntervalS();   // resolved, when Adaptive
   st["rssi"] = ss.rssi;
   st["boots"] = (int)bootCount();
   st["fw"] = FW_VERSION;

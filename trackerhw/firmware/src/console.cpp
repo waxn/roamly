@@ -21,7 +21,7 @@ static void help() {
       "  gps raw on|off         mirror NMEA to this console\n"
       "  gps detect             re-run pin/baud auto-detect\n"
       "  gps mode 0|1|2         accurate / balanced / low power\n"
-      "  set <key> <value>      interval timeout minacc units clock tz bright flip autosync batt recording\n"
+      "  set <key> <value>      interval (0/adaptive) timeout minacc units clock tz bright flip autosync batt recording\n"
       "  wifi add \"ssid\" pass   save a network\n"
       "  wifi list | wifi del N\n"
       "  server <url>           Roamly server base URL\n"
@@ -56,6 +56,8 @@ static void status() {
                 f.valid, f.fixType, f.atMs ? (unsigned long)(millis() - f.atMs) : 0UL, f.lat, f.lon, f.altM, f.accM,
                 f.accFromGst ? "gst" : "hdop", f.spdMs, f.crsDeg, f.sats, g.inView, g.tracked, f.hdop, g.bestSnr, g.avgTop4Snr,
                 (unsigned long)g.ttffMs);
+  Serial.printf("adaptive=%d motion=%s interval=%lus peeks=%lu\n", cfg.intervalS == 0, motionName(ls.motion),
+                (unsigned long)loggerIntervalS(), (unsigned long)ls.peeks);
   Serial.printf("log: rec=%d windows=%lu stored=%lu missed=%lu filtered=%lu werr=%lu lastwin=%lums next in %ldms\n",
                 cfg.recording, (unsigned long)ls.windows, (unsigned long)ls.recorded, (unsigned long)ls.missed,
                 (unsigned long)ls.filtered, (unsigned long)ls.writeErrors, (unsigned long)ls.lastWindowMs,
@@ -89,7 +91,7 @@ static bool setKey(const String& k, const String& v) {
     if (k != m.key) continue;
     switch (m.id) {
       case S_TIMEOUT: cfg.screenTimeoutS = constrain(n, 2, 3600); break;
-      case S_INTERVAL: cfg.intervalS = constrain(n, 5, 3600); break;
+      case S_INTERVAL: cfg.intervalS = (v == "adaptive" || n == 0) ? 0 : constrain(n, 5, 3600); break;
       case S_GPSMODE: cfg.gpsMode = constrain(n, 0, 2); break;
       case S_MINACC: cfg.minAccM = constrain(n, 0, 1000); break;
       case S_UNITS: cfg.imperial = n; break;
@@ -192,10 +194,12 @@ void consolePoll() {
   }
   const LoggerState& ls = loggerState();
   if (tracePoints && ls.recorded != lastRecorded) {
+    // (motion state is printed with each point below)
     lastRecorded = ls.recorded;
     const PointRec& r = ls.last;
-    Serial.printf("[pt] seq=%lu t=%lu %.7f,%.7f acc=%.1f sats=%u hdop=%.1f win=%lums\n", (unsigned long)r.seq,
+    Serial.printf("[pt] seq=%lu t=%lu %.7f,%.7f acc=%.1f sats=%u hdop=%.1f spd=%.2f %s/%lus win=%lums\n", (unsigned long)r.seq,
                   (unsigned long)r.t, r.latE7 / 1e7, r.lonE7 / 1e7, r.accDm == 0xFFFF ? NAN : r.accDm / 10.0, r.sats,
-                  r.hdopX10 / 10.0, (unsigned long)ls.lastWindowMs);
+                  r.hdopX10 / 10.0, r.spdCms == 0xFFFF ? NAN : r.spdCms / 100.0, motionName(ls.motion),
+                  (unsigned long)loggerIntervalS(), (unsigned long)ls.lastWindowMs);
   }
 }
