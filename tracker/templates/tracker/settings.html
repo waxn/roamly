@@ -1139,6 +1139,36 @@
             </ol>
         </div>
 
+        <!-- Hardware trackers (/trackerhw) -->
+        <div class="card settings-span-12" id="hw-card">
+            <div class="card-header">Hardware Trackers</div>
+            <p class="settings-section-desc">
+                A Roamly tracker is a small GPS logger you can carry instead of your phone. It records a point
+                every 30 seconds to its own storage and uploads them over Wi-Fi only while it's charging,
+                deleting each point only after this server confirms it was stored.
+            </p>
+            <div id="hw-list" aria-busy="true" style="margin-bottom:0.85rem;">
+                <div class="skeleton skel-line sm"></div>
+            </div>
+            <div id="hw-pair-panel" hidden style="border:1px solid var(--border);padding:1rem;margin-bottom:0.85rem;">
+                <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;">
+                    On the tracker open <strong style="color:var(--text);">Menu → Pair with Roamly</strong>, then press
+                    these buttons in order. ▲ is the top button (D0), ● the middle (D1), ▼ the bottom (D2).
+                </div>
+                <div id="hw-code" style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.6rem;"></div>
+                <div id="hw-pair-state" style="font-size:0.8125rem;color:var(--text-muted);font-family:var(--font-mono);"></div>
+            </div>
+            <div class="settings-actions">
+                <button class="btn btn-primary btn-sm" id="hw-pair-btn" onclick="hwStartPair(this)">Pair a tracker</button>
+                <button class="btn btn-outline btn-sm" id="hw-cancel-btn" hidden onclick="hwCancelPair()">Cancel</button>
+            </div>
+            <p style="font-size:0.75rem;color:var(--text-dim);margin-top:0.6rem;">
+                The tracker needs Wi-Fi and this server's address first: on the tracker choose
+                <strong>Menu → Wi-Fi setup</strong> and join the hotspot it shows. Build and usage notes live in
+                <code style="font-family:var(--font-mono);">trackerhw/</code> in the Roamly repository.
+            </p>
+        </div>
+
         <!-- Automatic Backups -->
         <div class="card settings-span-12">
             <div class="card-header">Automatic Backups</div>
@@ -3470,6 +3500,132 @@ async function deleteAccount() {
     });
 }
 
+// ── Hardware trackers ───────────────────────────────────────────────────
+const HW_SYMBOL = {T: '▲', M: '●', B: '▼'};
+const HW_LABEL = {T: 'top', M: 'middle', B: 'bottom'};
+let hwPollTimer = null, hwExpiresAt = 0;
+
+function hwAgo(iso) {
+    if (!iso) return 'never';
+    const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+    if (s < 90) return 'just now';
+    if (s < 5400) return Math.round(s / 60) + ' min ago';
+    if (s < 129600) return Math.round(s / 3600) + ' h ago';
+    return Math.round(s / 86400) + ' d ago';
+}
+
+async function loadHwTrackers() {
+    const host = document.getElementById('hw-list');
+    if (!host) return;
+    try {
+        const d = await window.roamlyFetch('/api/hw/trackers/', {toast: false});
+        const ts = d.trackers || [];
+        host.removeAttribute('aria-busy');
+        if (!ts.length) {
+            host.innerHTML = '<p style="font-size:0.8125rem;color:var(--text-muted);">No trackers paired yet.</p>';
+            return;
+        }
+        host.innerHTML = '<div class="settings-table-wrap"><table><thead><tr>' +
+            '<th>Tracker</th><th>Last upload</th><th>Battery</th><th>Waiting on device</th><th>Uploaded</th><th></th>' +
+            '</tr></thead><tbody>' + ts.map(t => {
+            const st = t.status || {};
+            const batt = st.battery != null ? Math.round(st.battery) + '%' + (st.charging ? ' ⚡' : '') : '—';
+            return `<tr>
+                <td>${escapeHtml(t.name)}
+                    <div style="font-size:0.72rem;color:var(--text-dim);font-family:var(--font-mono);">${escapeHtml(t.hw_id)}${t.firmware ? ' · fw ' + escapeHtml(t.firmware) : ''}${t.key_active ? '' : ' · <span style="color:var(--danger);">key revoked</span>'}</div></td>
+                <td style="color:var(--text-muted);">${escapeHtml(hwAgo(t.last_upload_at))}</td>
+                <td style="color:var(--text-muted);font-family:var(--font-mono);">${escapeHtml(batt)}</td>
+                <td style="color:var(--text-muted);font-family:var(--font-mono);">${st.stored != null ? st.stored : '—'}${st.quarantined ? ` <span style="color:var(--danger);" title="Points the server refused; kept on the tracker">(${st.quarantined} held)</span>` : ''}</td>
+                <td style="color:var(--text-muted);font-family:var(--font-mono);">${(t.points_uploaded || 0).toLocaleString()}</td>
+                <td style="white-space:nowrap;">
+                    <button class="btn btn-outline btn-sm" onclick="hwRename(${t.id}, '${escapeHtml(t.name).replace(/'/g, '&#39;')}')">Rename</button>
+                    <button class="btn btn-danger btn-sm" onclick="hwUnpair(${t.id})">Unpair</button>
+                </td></tr>`;
+        }).join('') + '</tbody></table></div>';
+    } catch (e) {
+        host.innerHTML = '<p style="font-size:0.8125rem;color:var(--danger);">Couldn\'t load trackers.</p>';
+    }
+}
+
+function hwShowCode(code) {
+    document.getElementById('hw-code').innerHTML = code.split('').map((c, i) =>
+        `<div title="${HW_LABEL[c]} button" style="width:2.6rem;height:2.9rem;border:1px solid var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg-elevated);">
+            <span style="font-size:1.35rem;line-height:1;color:var(--primary);">${HW_SYMBOL[c]}</span>
+            <span style="font-size:0.6rem;color:var(--text-dim);font-family:var(--font-mono);">${i + 1}</span></div>`).join('');
+}
+
+function hwSetPairing(on) {
+    document.getElementById('hw-pair-panel').hidden = !on;
+    document.getElementById('hw-cancel-btn').hidden = !on;
+    document.getElementById('hw-pair-btn').textContent = on ? 'New code' : 'Pair a tracker';
+    if (!on && hwPollTimer) { clearTimeout(hwPollTimer); hwPollTimer = null; }
+}
+
+async function hwStartPair(btn) {
+    btn.disabled = true;
+    try {
+        const d = await window.roamlyFetch('/api/hw/pair/start/', {method: 'POST', errorMessage: "Couldn't start pairing"});
+        hwShowCode(d.code);
+        hwExpiresAt = Date.now() + d.expires_in * 1000;
+        hwSetPairing(true);
+        hwPoll();
+    } catch (e) { /* roamlyFetch already toasted */ }
+    btn.disabled = false;
+}
+
+async function hwPoll() {
+    const state = document.getElementById('hw-pair-state');
+    const left = Math.max(0, Math.round((hwExpiresAt - Date.now()) / 1000));
+    let d = null;
+    try { d = await window.roamlyFetch('/api/hw/pair/status/', {toast: false}); } catch (e) { d = null; }
+    if (d && d.state === 'paired') {
+        hwSetPairing(false);
+        window.roamlyToast(`Paired ${d.tracker.name}`, {type: 'success'});
+        loadHwTrackers();
+        return;
+    }
+    if ((d && d.state === 'expired') || left <= 0) {
+        state.textContent = 'Code expired — press "New code" to try again.';
+        document.getElementById('hw-code').style.opacity = 0.35;
+        return;
+    }
+    document.getElementById('hw-code').style.opacity = 1;
+    state.textContent = `Waiting for the tracker… code valid ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+    hwPollTimer = setTimeout(hwPoll, 2000);
+}
+
+async function hwCancelPair() {
+    hwSetPairing(false);
+    try { await window.roamlyFetch('/api/hw/pair/cancel/', {method: 'POST', toast: false}); } catch (e) {}
+}
+
+async function hwRename(id, current) {
+    const answers = await window.roamlyPrompt('What should this tracker be called?', {
+        title: 'Rename tracker', confirmText: 'Save',
+        fields: [{name: 'name', label: 'Tracker name', placeholder: current}],
+    });
+    const name = answers && (answers.name || '').trim();
+    if (!name) return;
+    try {
+        await window.roamlyFetch(`/api/hw/trackers/${id}/rename/`, {method: 'POST', json: {name: name.trim()},
+            errorMessage: "Couldn't rename the tracker"});
+        loadHwTrackers();
+    } catch (e) {}
+}
+
+async function hwUnpair(id) {
+    const ok = await roamlyConfirm(
+        'The tracker\'s key is revoked, so it can no longer upload. Points it already uploaded stay in your history; '
+        + 'anything still stored on the tracker stays there until you pair it again.',
+        {title: 'Unpair tracker', danger: true, confirmText: 'Unpair'});
+    if (!ok) return;
+    try {
+        await window.roamlyFetch(`/api/hw/trackers/${id}/unpair/`, {method: 'POST', errorMessage: "Couldn't unpair"});
+        loadHwTrackers();
+    } catch (e) {}
+}
+loadHwTrackers();
+
 // ── Settings pages ──────────────────────────────────────────────────────
 // Keep the many independent controls manageable without changing their APIs.
 (function buildSettingsPages() {
@@ -3495,7 +3651,7 @@ async function deleteAccount() {
         data: {
             label: 'Data & Tracking',
             description: 'Import, export, process, diagnose, and automatically back up your location history.',
-            cards: ['Data Management', 'Background Jobs', 'GPSLogger for Android Setup', 'Automatic Backups', 'Diagnostics']
+            cards: ['Data Management', 'Background Jobs', 'Hardware Trackers', 'GPSLogger for Android Setup', 'Automatic Backups', 'Diagnostics']
         },
         api: {
             label: 'API',
