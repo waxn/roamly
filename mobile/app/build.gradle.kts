@@ -18,7 +18,7 @@ if (hasGoogleServices) {
 
 android {
     namespace = "com.roamly"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.roamly"
