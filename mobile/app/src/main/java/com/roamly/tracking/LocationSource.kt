@@ -129,6 +129,14 @@ data class FixRequest(
     val minIntervalMs: Long = intervalMs,
     val maxDelayMs: Long = intervalMs,
     val accuracy: FixAccuracy = FixAccuracy.HIGH,
+    /**
+     * Satellite fixes only. Used by activity recording: the platform source otherwise
+     * arms GPS and NETWORK side by side, and a Wi-Fi/cell fix interleaved into a 1 Hz
+     * track every few seconds is exactly the zig-zag a recorded ride must not have.
+     * Honoured by the platform source; the fused provider already prefers GNSS at
+     * HIGH and offers no per-provider switch, so it ignores this.
+     */
+    val gnssOnly: Boolean = false,
 )
 
 // ── Google Play Services ─────────────────────────────────────────────────────
@@ -259,7 +267,10 @@ private class PlatformLocationSource(context: Context) : LocationSource {
         onFix: (Location) -> Unit,
     ): FixStream? {
         val lm = manager ?: return null
-        val providers = providersFor(req.accuracy)
+        val providers = providersFor(req.accuracy).let { all ->
+            if (req.gnssOnly && LocationManager.GPS_PROVIDER in all) listOf(LocationManager.GPS_PROVIDER)
+            else all
+        }
         if (providers.isEmpty()) {
             Log.e(TAG, "No location provider available on this device")
             return null

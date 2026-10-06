@@ -51,6 +51,10 @@ object CaptureStats {
         CELL_UPLOAD_UNSUPPORTED("cell_unsupported", "Cell readings dropped: server too old"),
         CELL_UPLOAD_REJECTED("cell_rejected", "Cell readings the server didn't keep"),
         CELL_UPLOAD_FAILED("cell_upload_failed", "Cell uploads that failed"),
+        // Recorded activities. Rejections only — counting every accepted 1 Hz fix
+        // would be a SharedPreferences write a second for the length of a ride.
+        ACTIVITY_REJECTED("activity_rejected", "Recording: fixes rejected"),
+        ACTIVITY_UPLOAD_FAILED("activity_upload_failed", "Recording: track uploads that failed"),
     }
 
     private const val PREFS = "roamly_capture_stats"
