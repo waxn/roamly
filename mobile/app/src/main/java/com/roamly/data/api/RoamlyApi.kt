@@ -355,6 +355,9 @@ interface RoamlyApi {
     @POST("api/activities/")
     suspend fun createActivity(@Body body: ActivityCreateRequest): Response<ActivityCreateResponse>
 
+    @POST("api/activities/track/upload/")
+    suspend fun uploadActivityTrack(@Body body: ActivityTrackChunkRequest): Response<ActivityTrackChunkResponse>
+
     @GET("api/activities/")
     suspend fun getActivities(
         @Query("limit") limit: Int? = null,

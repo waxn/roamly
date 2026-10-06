@@ -788,6 +788,29 @@ data class ActivityCreateRequest(
     /** ISO-8601 UTC, same format UploadWorker stamps points with. */
     val start: String,
     val end: String,
+    /** A recorded track follows via [ActivityTrackChunkRequest]; the server waits
+     *  for it rather than scoring the (empty) history window. */
+    @SerializedName("has_track") val hasTrack: Boolean = false,
+)
+
+/**
+ * One chunk of a recorded track. Rows are `[t_ms, lat, lon, alt, acc, spd]`, nulls
+ * allowed for the last three. Chunks are idempotent by index server-side.
+ */
+data class ActivityTrackChunkRequest(
+    @SerializedName("client_id") val clientId: String,
+    val chunk: Int,
+    val final: Boolean,
+    val points: List<List<Any?>>,
+)
+
+data class ActivityTrackChunkResponse(
+    val status: String? = null,
+    val total: Int = 0,
+    @SerializedName("next_chunk") val nextChunk: Int = 0,
+    val complete: Boolean = false,
+    val duplicate: Boolean = false,
+    val error: String? = null,
 )
 
 data class ActivityDto(
