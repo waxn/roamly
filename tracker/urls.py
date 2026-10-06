@@ -231,8 +231,10 @@ urlpatterns = [
 
     # Activities (recorded rides / walks / runs)
     path('api/activities/', views.activities_api, name='activities_api'),
+    path('api/activities/track/upload/', views.activity_track_upload_api, name='activity_track_upload_api'),
     path('api/activities/<int:activity_id>/', views.activity_detail_api, name='activity_detail_api'),
     path('api/activities/<int:activity_id>/track/', views.activity_track_api, name='activity_track_api'),
+    path('api/activities/<int:activity_id>/gpx/', views.activity_gpx_api, name='activity_gpx_api'),
     path('api/activities/<int:activity_id>/update/', views.activity_update_api, name='activity_update_api'),
     path('api/activities/<int:activity_id>/delete/', views.activity_delete_api, name='activity_delete_api'),
     path('api/activities/<int:activity_id>/recompute/', views.activity_recompute_api, name='activity_recompute_api'),

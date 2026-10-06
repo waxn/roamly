@@ -57,7 +57,7 @@ from .models import (
     InferredLocation, EditBatch, TrashedLocation, RoadSegment, ROADS_AVAILABLE_CACHE_KEY,
     RailSegment, RailStation, DismissedSubwayGap, SUBWAY_AVAILABLE_CACHE_KEY,
     DownloadedRegion, HealthSample, HealthWorkout, HEALTH_KINDS,
-    Activity, ACTIVITY_KINDS,
+    Activity, ACTIVITY_KINDS, ActivityTrack,
     FamilyCircle, FamilyMembership, FamilyPlace, FamilyPlaceAlert,
     CellSample, CELL_RATS, CELL_ROLES,
     HardwareTracker,
@@ -66,6 +66,7 @@ from .email_utils import email_enabled, gen_code, send_code_email, send_invite_e
 from .dwell_utils import bridges_gap, credit_gap, credit_gap_in_place
 from .tz_utils import aware_local
 from . import cell_utils
+from . import activity_track
 from .image_utils import resize_image, resize_photo
 from . import geoip_utils
 from .geocoding_tasks import start_geocoding, get_status as get_geocoding_status, stop_geocoding, ensure_auto_geocode
@@ -13899,33 +13900,36 @@ def health_import_api(request):
 
 
 # ── Activity recording ───────────────────────────────────────────────────────
-# An Activity stores only the envelope; the track is derived from Location by
-# (device, start_time, end_time). See the model docstring for why there is no
-# grouping column on Location.
+# Two sources feed one pipeline (tracker/activity_track.py):
+#   * an ActivityTrack — the raw 1 Hz track the phone recorded privately and
+#     uploaded in chunks at Stop. Authoritative once ``complete``.
+#   * the history window — Location rows by (device, start_time, end_time), for
+#     activities recorded before dedicated tracks existed, or whose track never
+#     arrived. See the model docstring.
+# Either way the points are cleaned, Kalman/RTS-smoothed, scored and simplified
+# by the same code, so an old ride and a new one can't disagree about what
+# "distance" means.
 
-# After this long, stop re-checking whether late points have landed. The phone
-# uploads offline-first so points routinely arrive after the save, but not a day
-# later — and without a cut-off every read of every activity a user has ever
-# recorded would pay a COUNT forever.
+# After this long, stop re-checking whether late history points have landed
+# (history fallback only — a dedicated track knows when it is complete). The
+# phone uploads offline-first so points routinely arrive after the save, but
+# not a day later.
 _ACTIVITY_SETTLE_S = 24 * 3600
-# Below this, treat a fix as stationary. The tracker floors stationary jitter to
-# exactly 0 (MIN_LOGGED_SPEED_MPS on the phone), so any positive speed is real
-# motion; this is only a guard for imported history with derived speeds.
-_ACT_MOVING_SPEED_MPS = 0.5
-# Never credit a tracking hole as moving time.
-_ACT_MOVING_MAX_GAP_S = 60
-# Rolling median width for max speed. The nightly _flag_suspicious_locations
-# scan has not run on a ride recorded ten minutes ago, so `flag` alone cannot be
-# relied on to have caught an isolated Doppler spike — a median can.
-_ACT_SPEED_MEDIAN_N = 3
-_ACT_TRACK_MAX_POINTS = 2000
-_ACT_TRACK_SEGMENT_GAP_S = 60
+# History fixes are noisier than a recording (all-day tracking accepts up to
+# 100 m), so the fallback cuts there.
+_ACT_HISTORY_MAX_ACC_M = 50.0
+# Upload limits for one chunk / one whole track. 12h at 1 Hz is 43,200 fixes.
+_ACT_TRACK_CHUNK_MAX = 5000
+_ACT_TRACK_MAX_POINTS = 60000
+# One point per this many seconds is mirrored into Location history.
+_ACT_MIRROR_EVERY_S = 5.0
 _ACT_LIST_PAGE = 50
 _ACT_CACHE_TTL = 300
 
 
 def _activity_payload(act):
     """Serialize an Activity. Stats may be None — that means "not computed yet"."""
+    track = getattr(act, '_track_cache', None)
     return {
         'id': act.id,
         'client_id': act.client_id,
@@ -13940,14 +13944,25 @@ def _activity_payload(act):
         'distance_km': _jf(act.distance_km),
         'avg_speed_kmh': _jf(act.avg_speed_kmh),
         'max_speed_kmh': _jf(act.max_speed_kmh),
+        'elevation_gain_m': _jf(act.elevation_gain_m),
+        'elevation_loss_m': _jf(act.elevation_loss_m),
         'point_count': act.point_count,
+        'source': 'track' if track is not None and track.complete else 'history',
         'computed_at': act.stats_computed_at.isoformat() if act.stats_computed_at else None,
         'created_at': act.created_at.isoformat(),
     }
 
 
+def _activity_complete_track(act):
+    """The activity's complete ActivityTrack, or None. Memoised on the instance."""
+    if not hasattr(act, '_track_cache'):
+        act._track_cache = ActivityTrack.objects.filter(activity=act).first()
+    t = act._track_cache
+    return t if t is not None and t.complete and t.raw_count else None
+
+
 def _activity_point_count(act):
-    """How many fixes are in the activity's window right now.
+    """How many fixes are in the activity's history window right now.
 
     Must use filters byte-identical to Activity.locations, or comparing it
     against stats_point_count is meaningless and every read recomputes.
@@ -13959,75 +13974,63 @@ def _activity_point_count(act):
     ).count()
 
 
+def _activity_raw_points(act):
+    """``(points, max_accuracy)`` in activity_track's input shape, from either source."""
+    track = _activity_complete_track(act)
+    if track is not None:
+        pts = [(r[0] / 1000.0, r[1], r[2], r[3], r[4], r[5])
+               for r in activity_track.unpack(track.raw)]
+        return pts, activity_track.MAX_ACCURACY_M
+    rows = act.locations.exclude(flag='suspect').values_list(
+        'timestamp', 'latitude', 'longitude', 'altitude', 'accuracy', 'speed')
+    pts = [(ts.timestamp(), lat, lon, alt, acc, sp)
+           for ts, lat, lon, alt, acc, sp in rows.iterator(chunk_size=5000)]
+    return pts, _ACT_HISTORY_MAX_ACC_M
+
+
+def _activity_smoothed(act):
+    """The smoothed track, from the ActivityTrack cache when it is current."""
+    track = _activity_complete_track(act)
+    if (track is not None and track.smoothed
+            and track.algo_version == activity_track.ALGO_VERSION):
+        return activity_track.unpack(track.smoothed)
+    pts, max_acc = _activity_raw_points(act)
+    sm = activity_track.round_smoothed(activity_track.process(pts, act.kind, max_acc))
+    if track is not None:
+        track.smoothed = activity_track.pack(sm)
+        track.algo_version = activity_track.ALGO_VERSION
+        track.save(update_fields=['smoothed', 'algo_version', 'updated_at'])
+    return sm
+
+
 def _compute_activity_stats(act):
-    """Recompute an activity's cached stats from its Location rows, and save them.
+    """Recompute an activity's cached stats through activity_track, and save them."""
+    track = _activity_complete_track(act)
+    sm = _activity_smoothed(act)
+    st = activity_track.stats(sm, act.kind)
 
-    One ordered scan feeds everything. Distance reuses _gated_distance_segments
-    with ``initial_state='MOVING'`` — the same escape hatch
-    _compute_transport_breakdown_from_qs relies on, for the same reason: the
-    default STATIONARY start credits nothing until the track sustains a
-    departure past _DIST_EXIT_RADIUS_M for a full minute, so a twenty-minute
-    loop around a park would report zero. Reusing the function rather than
-    writing a second distance is what keeps this number in step with every other
-    distance in the app.
-    """
-    rows = list(act.locations.values_list(
-        'latitude', 'longitude', 'timestamp', 'accuracy', 'speed', 'flag'))
-
-    elapsed = max(0, int((act.end_time - act.start_time).total_seconds()))
-    distance_km = 0.0
-    moving_s = 0.0
-    max_kmh = None
-
-    if rows:
-        pts = [(r[0], r[1], r[2], r[3]) for r in rows]
-        distance_km = sum(km for _ts, km in _gated_distance_segments(pts, initial_state='MOVING'))
-
-        # Moving time, pairwise. Credit dt only when the gap is short enough to
-        # describe motion rather than a tracking hole, and the earlier fix was
-        # actually moving. Imported history has no Doppler, so fall back to the
-        # displacement-derived speed there.
-        for a, b in zip(rows, rows[1:]):
-            dt = (b[2] - a[2]).total_seconds()
-            if dt <= 0 or dt > _ACT_MOVING_MAX_GAP_S:
-                continue
-            mps = a[4]
-            if mps is None:
-                mps = _haversine_km(a[0], a[1], b[0], b[1]) * 1000.0 / dt
-            if mps >= _ACT_MOVING_SPEED_MPS:
-                moving_s += dt
-
-        # Max speed off a rolling median, not the raw maximum: a single bad
-        # Doppler reading is exactly the thing that would otherwise claim you hit
-        # 90 km/h on a walk. Suspect-flagged fixes are dropped first, but the
-        # flag scan runs nightly and cannot have seen a ride from ten minutes
-        # ago, which is why the median is doing the real work here.
-        speeds = [r[4] for r in rows if r[4] is not None and r[5] != 'suspect'
-                  and r[4] <= _DIST_MAX_SPEED_MPS]
-        if speeds:
-            if len(speeds) >= _ACT_SPEED_MEDIAN_N:
-                half = _ACT_SPEED_MEDIAN_N // 2
-                smoothed = [
-                    sorted(speeds[i - half:i + half + 1])[half]
-                    for i in range(half, len(speeds) - half)
-                ]
-            else:
-                smoothed = speeds
-            max_kmh = max(smoothed) * 3.6
-
-    avg_kmh = (distance_km / (moving_s / 3600.0)) if moving_s > 0 else None
-
-    act.distance_km = distance_km
-    act.moving_seconds = int(moving_s)
-    act.elapsed_seconds = elapsed
-    act.avg_speed_kmh = avg_kmh
-    act.max_speed_kmh = max_kmh
-    act.point_count = len(rows)
-    act.stats_point_count = len(rows)
+    act.distance_km = st['distance_m'] / 1000.0
+    act.moving_seconds = int(st['moving_s'])
+    act.elapsed_seconds = max(0, int((act.end_time - act.start_time).total_seconds()))
+    act.avg_speed_kmh = st['avg_speed_mps'] * 3.6 if st['avg_speed_mps'] is not None else None
+    act.max_speed_kmh = st['max_speed_mps'] * 3.6 if st['max_speed_mps'] is not None else None
+    act.elevation_gain_m = st['elevation_gain_m']
+    act.elevation_loss_m = st['elevation_loss_m']
+    if track is not None:
+        act.point_count = track.raw_count
+        act.stats_point_count = track.raw_count
+    else:
+        # Staleness key for the history fallback: the raw window count, which is
+        # what _activity_point_count compares against.
+        n = _activity_point_count(act)
+        act.point_count = n
+        act.stats_point_count = n
+    act.stats_algo_version = activity_track.ALGO_VERSION
     act.stats_computed_at = timezone.now()
     act.save(update_fields=[
         'distance_km', 'moving_seconds', 'elapsed_seconds', 'avg_speed_kmh',
-        'max_speed_kmh', 'point_count', 'stats_point_count', 'stats_computed_at',
+        'max_speed_kmh', 'elevation_gain_m', 'elevation_loss_m', 'point_count',
+        'stats_point_count', 'stats_algo_version', 'stats_computed_at',
     ])
     return act
 
@@ -14035,22 +14038,52 @@ def _compute_activity_stats(act):
 def _activity_stats(act, force=False):
     """Ensure ``act``'s cached stats are current, recomputing only when they aren't.
 
-    Lazy rather than computed-on-save, because the phone uploads offline-first:
-    an activity is routinely saved before some or all of its points have landed.
-    stats_point_count is the staleness key — if the window holds a different
-    number of fixes than it did at compute time, the stats are stale.
-
-    bulk_create(ignore_conflicts=True) *skips* a re-pushed point rather than
-    duplicating it, which is what makes a plain count a sound key here.
+    Lazy rather than computed-on-save. A dedicated track is scored when its
+    final chunk lands and only again if the algorithm changes. The history
+    fallback keeps the original staleness rule — the phone uploads
+    offline-first, so a window can still be filling when it is first read, and
+    stats_point_count against a live COUNT is what notices.
     """
-    if force or act.stats_computed_at is None:
+    if (force or act.stats_computed_at is None
+            or act.stats_algo_version != activity_track.ALGO_VERSION):
         return _compute_activity_stats(act)
+    track = _activity_complete_track(act)
+    if track is not None:
+        if track.raw_count != act.stats_point_count:
+            return _compute_activity_stats(act)
+        return act
     settled = act.stats_computed_at >= act.end_time + timedelta(seconds=_ACTIVITY_SETTLE_S)
     if settled:
         return act
     if _activity_point_count(act) != act.stats_point_count:
         return _compute_activity_stats(act)
     return act
+
+
+def _mirror_activity_to_history(act, sm):
+    """Write a thinned copy of the cleaned track into Location history.
+
+    The phone suspends all-day tracking while it records, so without this the
+    ride would be a hole on the normal map and in every history stat. Thinned
+    to one point per _ACT_MIRROR_EVERY_S — dense enough to draw the ride
+    faithfully, not so dense that one afternoon outweighs a month of ordinary
+    tracking. Goes through editor_tasks._make_location so the PostGIS column is
+    set (bulk_create bypasses Location.save()), and ignore_conflicts makes a
+    re-run harmless.
+    """
+    from .editor_tasks import _make_location
+    rows = activity_track.history_rows(sm, _ACT_MIRROR_EVERY_S)
+    objs = []
+    for t, lat, lon, alt, spd, acc, _seg in rows:
+        when = datetime.fromtimestamp(t, tz=dt_timezone.utc)
+        objs.append(_make_location(
+            act.device, lon, lat, when,
+            altitude=alt, accuracy=acc, speed=round(spd, 2)))
+    if objs:
+        Location.objects.bulk_create(objs, ignore_conflicts=True, batch_size=1000)
+        _bust_user_cache(act.user_id)
+        ensure_auto_geocode(act.user_id)
+    return len(objs)
 
 
 @login_required
@@ -14141,11 +14174,131 @@ def activities_api(request):
             'start_time': start, 'end_time': end,
         },
     )
-    _activity_stats(act, force=created)
+    # A phone that says a track follows: don't score the (empty) history window
+    # now — the final chunk scores it. Older builds don't send the flag and get
+    # the history fallback exactly as before.
+    if data.get('has_track'):
+        ActivityTrack.objects.get_or_create(activity=act)
+    else:
+        _activity_stats(act, force=created)
     _bust_activity_cache(user.id)
     return JsonResponse({'status': 'ok', 'created': created,
                          'activity': _activity_payload(act)},
                         status=201 if created else 200)
+
+
+def _clean_track_row(r):
+    """One uploaded ``[t_ms, lat, lon, alt, acc, spd]`` row, or None if unusable."""
+    if not isinstance(r, (list, tuple)) or len(r) < 3:
+        return None
+    try:
+        t = int(r[0])
+        lat = float(r[1])
+        lon = float(r[2])
+    except (TypeError, ValueError):
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180) or not math.isfinite(lat + lon):
+        return None
+
+    def opt(i):
+        if len(r) <= i or r[i] is None:
+            return None
+        try:
+            v = float(r[i])
+        except (TypeError, ValueError):
+            return None
+        return v if math.isfinite(v) else None
+
+    return [t, round(lat, 7), round(lon, 7), opt(3), opt(4), opt(5)]
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["POST"])
+def activity_track_upload_api(request):
+    """Receive one chunk of a recorded track: ``{client_id, chunk, final, points}``.
+
+    The phone posts the envelope first (with ``has_track``), then the raw track
+    in order, in chunks of at most _ACT_TRACK_CHUNK_MAX rows. Chunks are
+    idempotent by index — a retried chunk the server already holds is
+    acknowledged without being stored twice, and a chunk from the future is
+    refused with the index the server expects, so a lost request can never
+    leave a silent hole in the middle of a ride. On the final chunk the track
+    is scored and mirrored into history.
+
+    The phone deletes its local copy only once a response says ``complete``.
+    """
+    err = _require_api_intent(request) or _require_json(request)
+    if err:
+        return err
+    try:
+        body = request.body
+        if (request.META.get('HTTP_CONTENT_ENCODING') or '').lower() == 'gzip':
+            body = gzip.decompress(body)
+        data = json.loads(body.decode('utf-8') or '{}')
+    except (json.JSONDecodeError, ValueError, UnicodeDecodeError, OSError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    client_id = str(data.get('client_id') or '').strip()[:64]
+    try:
+        chunk = int(data.get('chunk', 0))
+    except (TypeError, ValueError):
+        return JsonResponse({'error': 'chunk must be an integer'}, status=400)
+    points = data.get('points') or []
+    if not client_id or not isinstance(points, list):
+        return JsonResponse({'error': 'client_id and points are required'}, status=400)
+    if len(points) > _ACT_TRACK_CHUNK_MAX:
+        return JsonResponse({'error': f'at most {_ACT_TRACK_CHUNK_MAX} points per chunk'}, status=413)
+
+    act = Activity.objects.filter(user=request.user, client_id=client_id).select_related('device').first()
+    if act is None:
+        # The envelope always goes first; a 404 tells the phone to re-send it.
+        return JsonResponse({'error': 'Unknown activity'}, status=404)
+
+    with transaction.atomic():
+        track, _ = ActivityTrack.objects.select_for_update().get_or_create(activity=act)
+        if track.complete or chunk < track.chunks_received:
+            return JsonResponse({'status': 'ok', 'duplicate': True, 'total': track.raw_count,
+                                 'next_chunk': track.chunks_received,
+                                 'complete': track.complete})
+        if chunk > track.chunks_received:
+            return JsonResponse({'error': 'out of order', 'next_chunk': track.chunks_received},
+                                status=409)
+        rows = [r for r in (_clean_track_row(p) for p in points) if r is not None]
+        skipped = len(points) - len(rows)
+        if skipped:
+            logger.warning('activity %s chunk %s: skipped %s unusable rows', act.id, chunk, skipped)
+        existing = activity_track.unpack(track.raw)
+        if len(existing) + len(rows) > _ACT_TRACK_MAX_POINTS:
+            return JsonResponse({'error': 'track too long'}, status=413)
+        existing.extend(rows)
+        track.raw = activity_track.pack(existing)
+        track.raw_count = len(existing)
+        track.chunks_received = chunk + 1
+        track.smoothed = None
+        track.algo_version = 0
+        final = bool(data.get('final'))
+        if final:
+            track.complete = True
+        track.save()
+
+    mirrored = 0
+    if final:
+        act._track_cache = track
+        if track.raw_count:
+            _activity_stats(act, force=True)
+            if not track.mirrored:
+                mirrored = _mirror_activity_to_history(act, _activity_smoothed(act))
+                track.mirrored = True
+                track.save(update_fields=['mirrored', 'updated_at'])
+        else:
+            # An empty recording: fall back to whatever history holds.
+            _activity_stats(act, force=True)
+        _bust_activity_cache(request.user.id)
+
+    return JsonResponse({'status': 'ok', 'accepted': len(rows), 'skipped': skipped,
+                         'total': track.raw_count, 'next_chunk': track.chunks_received,
+                         'complete': track.complete, 'mirrored': mirrored})
 
 
 def _get_activity(request, activity_id):
@@ -14164,7 +14317,7 @@ def activity_detail_api(request, activity_id):
     # Content-addressed: the key changes exactly when the numbers behind it do,
     # so there is nothing to invalidate by hand.
     stamp = int(act.stats_computed_at.timestamp()) if act.stats_computed_at else 0
-    key = f"act:detail:{request.user.id}:{act.id}:{stamp}"
+    key = f"act:detail:{request.user.id}:{act.id}:{stamp}:{act.kind}"
     cached = cache.get(key)
     if cached is not None:
         return JsonResponse(cached)
@@ -14176,59 +14329,93 @@ def activity_detail_api(request, activity_id):
 @login_required
 @require_http_methods(["GET"])
 def activity_track_api(request, activity_id):
-    """The drawn track: gap-split segments, decimated, with a parallel speed array.
+    """The drawn track: cleaned, smoothed, Douglas-Peucker-simplified segments.
 
-    Speeds ride alongside so the page can paint the speed gradient — a
-    functional encoding the design system deliberately leaves alone.
+    Per-vertex speed (km/h), time (epoch s) and elevation ride alongside so the
+    page can paint the speed gradient and draw time-based speed/elevation
+    charts. Simplification preserves shape instead of keeping every n-th fix.
     """
     act = _get_activity(request, activity_id)
     if not act:
         return JsonResponse({'error': 'Not found'}, status=404)
     _activity_stats(act)
 
-    key = f"act:track:{request.user.id}:{act.id}:{act.stats_point_count}"
+    stamp = int(act.stats_computed_at.timestamp()) if act.stats_computed_at else 0
+    key = f"act:track:{request.user.id}:{act.id}:{stamp}:{act.stats_point_count}"
     cached = cache.get(key)
     if cached is not None:
         return JsonResponse(cached)
 
-    rows = list(act.locations.values_list('latitude', 'longitude', 'timestamp', 'speed'))
-    # Stride before segmenting so the cap holds regardless of how the track
-    # splits, keeping every segment's own endpoints below.
-    stride = max(1, (len(rows) // _ACT_TRACK_MAX_POINTS) + 1) if rows else 1
-
-    segments, speeds = [], []
-    cur_pts, cur_sp = [], []
-    prev_ts = None
-    for i, (lat, lon, ts, sp) in enumerate(rows):
-        gap = prev_ts is not None and (ts - prev_ts).total_seconds() > _ACT_TRACK_SEGMENT_GAP_S
-        if gap and cur_pts:
-            segments.append(cur_pts)
-            speeds.append(cur_sp)
-            cur_pts, cur_sp = [], []
-        keep = (i % stride == 0) or gap or i == len(rows) - 1
-        if keep:
-            cur_pts.append([lon, lat])
-            cur_sp.append(round((sp or 0.0) * 3.6, 2))
-        prev_ts = ts
-    if cur_pts:
-        segments.append(cur_pts)
-        speeds.append(cur_sp)
-
-    payload = {
-        'segments': segments,
-        'speeds': speeds,
-        'point_count': len(rows),
-        'start': [rows[0][1], rows[0][0]] if rows else None,
-        'end': [rows[-1][1], rows[-1][0]] if rows else None,
-    }
+    sm = _activity_smoothed(act)
+    payload = activity_track.display_payload(sm)
+    payload['point_count'] = act.point_count
+    payload['source'] = 'track' if _activity_complete_track(act) is not None else 'history'
+    payload['start'] = [sm[0][2], sm[0][1]] if sm else None
+    payload['end'] = [sm[-1][2], sm[-1][1]] if sm else None
     cache.set(key, payload, 86400)
     return JsonResponse(payload)
 
 
 @login_required
+@require_http_methods(["GET"])
+def activity_gpx_api(request, activity_id):
+    """Download one activity as GPX 1.1 — smoothed by default, ``?raw=1`` for raw.
+
+    Raw is the recorded fixes exactly as the phone kept them (a dedicated
+    track), or the history window; smoothed is what the page draws, one
+    ``<trkseg>`` per gap-split segment.
+    """
+    act = _get_activity(request, activity_id)
+    if not act:
+        return JsonResponse({'error': 'Not found'}, status=404)
+    raw = request.GET.get('raw') == '1'
+    if raw:
+        pts, _ = _activity_raw_points(act)
+        segs = [[(p[0], p[1], p[2], p[3]) for p in s]
+                for s in activity_track.split_segments(sorted(pts, key=lambda p: p[0]))]
+    else:
+        by_seg = {}
+        for p in _activity_smoothed(act):
+            by_seg.setdefault(p[6], []).append((p[0], p[1], p[2], p[3]))
+        segs = list(by_seg.values())
+
+    from xml.sax.saxutils import escape
+    name = escape(act.title or f'{act.get_kind_display()} {act.start_time.date().isoformat()}')
+    gpx_type = {'ride': 'cycling', 'run': 'running', 'walk': 'walking',
+                'hike': 'hiking', 'row': 'rowing'}.get(act.kind, '')
+
+    def gen():
+        yield ('<?xml version="1.0" encoding="UTF-8"?>\n'
+               '<gpx version="1.1" creator="Roamly" xmlns="http://www.topografix.com/GPX/1/1">\n'
+               f'  <trk>\n    <name>{name}</name>\n')
+        if gpx_type:
+            yield f'    <type>{gpx_type}</type>\n'
+        for seg in segs:
+            buf = ['    <trkseg>\n']
+            for t, lat, lon, alt in seg:
+                buf.append(f'      <trkpt lat="{lat:.7f}" lon="{lon:.7f}">')
+                if alt is not None:
+                    buf.append(f'<ele>{alt:.1f}</ele>')
+                when = datetime.fromtimestamp(t, tz=dt_timezone.utc)
+                buf.append(f'<time>{when.strftime("%Y-%m-%dT%H:%M:%SZ")}</time></trkpt>\n')
+                if len(buf) >= 4000:
+                    yield ''.join(buf)
+                    buf = []
+            buf.append('    </trkseg>\n')
+            yield ''.join(buf)
+        yield '  </trk>\n</gpx>\n'
+
+    fname = f'roamly_{act.kind}_{act.start_time.strftime("%Y%m%d_%H%M")}{"_raw" if raw else ""}.gpx'
+    response = StreamingHttpResponse(gen(), content_type='application/gpx+xml')
+    response['Content-Disposition'] = f'attachment; filename="{fname}"'
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+@login_required
 @require_http_methods(["POST"])
 def activity_update_api(request, activity_id):
-    """Rename / re-categorise. Never touches the window, so stats stay valid."""
+    """Rename / re-categorise. A kind change re-scores; nothing else touches stats."""
     act = _get_activity(request, activity_id)
     if not act:
         return JsonResponse({'error': 'Not found'}, status=404)
@@ -14254,6 +14441,11 @@ def activity_update_api(request, activity_id):
             fields.append('kind')
     if fields:
         act.save(update_fields=fields)
+        if 'kind' in fields:
+            # The sport sets the speed ceiling, smoothing strength and pause
+            # threshold, so a re-categorised ride is re-smoothed and re-scored.
+            ActivityTrack.objects.filter(activity=act).update(algo_version=0)
+            _activity_stats(act, force=True)
         _bust_activity_cache(request.user.id)
     return JsonResponse({'status': 'ok', 'activity': _activity_payload(act)})
 
@@ -14262,11 +14454,11 @@ def activity_update_api(request, activity_id):
 @csrf_exempt
 @require_http_methods(["POST"])
 def activity_delete_api(request, activity_id):
-    """Delete the activity — the view over the track, never the recorded fixes.
+    """Delete the activity and its dedicated track — never history fixes.
 
-    The points stay in normal history, which is the whole point of deriving the
-    track rather than owning it: discarding a ride you didn't mean to record
-    should not punch a hole in your location history.
+    The thinned copy mirrored into Location stays, as do any history points in
+    the window: discarding a ride you didn't mean to record should not punch a
+    hole in your location history.
     """
     err = _require_api_intent(request)
     if err:
@@ -14286,6 +14478,7 @@ def activity_recompute_api(request, activity_id):
     act = _get_activity(request, activity_id)
     if not act:
         return JsonResponse({'error': 'Not found'}, status=404)
+    ActivityTrack.objects.filter(activity=act).update(algo_version=0)
     _activity_stats(act, force=True)
     _bust_activity_cache(request.user.id)
     return JsonResponse({'status': 'ok', 'activity': _activity_payload(act)})
