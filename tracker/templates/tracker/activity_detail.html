@@ -16,8 +16,15 @@
 .ad-stat .v { font-family: var(--font-mono); font-size: 1.35rem; font-weight: 600; }
 .ad-stat .l { color: var(--text-muted); font-size: 0.6875rem; margin-top: 0.15rem; }
 #ad-map { height: 26rem; border-radius: var(--radius); overflow: hidden; }
-#ad-chart-wrap { position: relative; }
-#ad-chart { width: 100%; height: 12rem; display: block; }
+.ad-chart-wrap { position: relative; }
+.ad-chart { width: 100%; height: 12rem; display: block; cursor: crosshair; }
+.ad-tip { position: absolute; top: 0.25rem; pointer-events: none; padding: 0.2rem 0.45rem;
+          background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 4px;
+          font-family: var(--font-mono); font-size: 0.6875rem; white-space: nowrap; display: none; }
+.ad-legend { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.6rem;
+             font-family: var(--font-mono); font-size: 0.6875rem; color: var(--text-muted); }
+.ad-legend .ramp { width: 7rem; height: 6px; border-radius: 3px;
+                   background: linear-gradient(90deg, #3b82f6, #22c55e, #f59e0b, #ef4444); }
 .ad-pending { color: var(--clay-amber); font-size: 0.8125rem; font-family: var(--font-mono); }
 .ad-note { color: var(--text-muted); font-size: 0.75rem; margin-top: 0.6rem;
            font-family: var(--font-mono); }
@@ -34,6 +41,7 @@
             <div class="ad-when" id="ad-when"></div>
         </div>
         <div class="toolbar-actions">
+            <a class="btn" id="ad-gpx" href="/api/activities/{{ activity_id }}/gpx/" download>GPX</a>
             <button class="btn" id="ad-rename">Rename</button>
             <button class="btn btn-danger" id="ad-delete">Delete</button>
         </div>
@@ -49,12 +57,24 @@
     <div class="card">
         <div class="card-header">Route</div>
         <div id="ad-map"></div>
+        <div class="ad-legend" id="ad-legend" hidden>
+            <span id="ad-legend-lo"></span><span class="ramp"></span><span id="ad-legend-hi"></span>
+        </div>
         <div class="ad-note" id="ad-note"></div>
     </div>
 
     <div class="card">
         <div class="card-header">Speed</div>
-        <div id="ad-chart-wrap"><canvas id="ad-chart"></canvas></div>
+        <div class="ad-chart-wrap" id="ad-speed-wrap">
+            <canvas class="ad-chart" id="ad-speed"></canvas><div class="ad-tip"></div>
+        </div>
+    </div>
+
+    <div class="card" id="ad-elev-card" hidden>
+        <div class="card-header">Elevation</div>
+        <div class="ad-chart-wrap" id="ad-elev-wrap">
+            <canvas class="ad-chart" id="ad-elev"></canvas><div class="ad-tip"></div>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -63,8 +83,12 @@
 <script>
 const ACTIVITY_ID = {{ activity_id }};
 const csrfToken = '{{ csrf_token }}';
-const GLYPH = { ride:'🚲', run:'🏃', walk:'🚶', hike:'🥾', other:'📍' };
-const LABEL = { ride:'Ride', run:'Run', walk:'Walk', hike:'Hike', other:'Activity' };
+const GLYPH = { ride:'🚲', run:'🏃', walk:'🚶', hike:'🥾', row:'🚣', other:'📍' };
+const LABEL = { ride:'Ride', run:'Run', walk:'Walk', hike:'Hike', row:'Row', other:'Activity' };
+// The same blue→green→amber→red functional ramp as the main map's speed
+// gradient, but stretched over THIS activity's own speed range (5th–95th
+// percentile) — on an absolute 1–30 m/s scale a whole walk would be one colour.
+const RAMP = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444'];
 
 const theme = localStorage.getItem('roamly_theme') || 'dark';
 const basemap = theme === 'light'
@@ -83,6 +107,13 @@ function cssVar(n, fb) {
 function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, c =>
         ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+function toElev(m) { return isImperial() ? m * 3.28084 : m; }
+function elevUnit() { return isImperial() ? 'ft' : 'm'; }
+function percentile(sorted, p) {
+    if (!sorted.length) return 0;
+    const i = Math.min(sorted.length - 1, Math.max(0, Math.round(p * (sorted.length - 1))));
+    return sorted[i];
 }
 function fmtDuration(s) {
     if (!s) return '—';
@@ -116,14 +147,18 @@ function renderActivity(a) {
         return;
     }
     const tile = (v, l) => `<div class="ad-stat"><div class="v">${v}</div><div class="l">${l}</div></div>`;
-    stats.innerHTML = [
+    const tiles = [
         tile(toDist(a.distance_km ?? 0).toFixed(2) + ' ' + distUnit(), 'distance'),
         tile(fmtDuration(a.moving_seconds), 'moving'),
         tile(fmtDuration(a.elapsed_seconds), 'elapsed'),
         tile((a.avg_speed_kmh != null ? toDist(a.avg_speed_kmh).toFixed(1) : '—') + ' ' + speedUnit(), 'avg speed'),
         tile((a.max_speed_kmh != null ? toDist(a.max_speed_kmh).toFixed(1) : '—') + ' ' + speedUnit(), 'max speed'),
-        tile((a.point_count || 0).toLocaleString(), 'points'),
-    ].join('');
+    ];
+    if (a.elevation_gain_m != null) {
+        tiles.push(tile(Math.round(toElev(a.elevation_gain_m)).toLocaleString() + ' ' + elevUnit(), 'elevation gain'));
+    }
+    tiles.push(tile((a.point_count || 0).toLocaleString(), a.source === 'track' ? 'recorded points' : 'points'));
+    stats.innerHTML = tiles.join('');
 }
 
 function ensureMap() {
@@ -141,6 +176,8 @@ function ensureMap() {
     amap.on('load', () => { amapLoaded = true; });
 }
 
+let hoverMarker = null;
+
 function renderTrack(track) {
     ensureMap();
     const note = document.getElementById('ad-note');
@@ -148,19 +185,52 @@ function renderTrack(track) {
         note.textContent = 'No GPS points landed in this activity’s window yet.';
         return;
     }
-    note.textContent = `${track.point_count.toLocaleString()} points`;
+    const verts = track.segments.reduce((n, s) => n + s.length, 0);
+    note.textContent = track.source === 'track'
+        ? `${track.point_count.toLocaleString()} recorded points · cleaned + smoothed · ${verts.toLocaleString()} drawn`
+        : `${track.point_count.toLocaleString()} history points · cleaned + smoothed · ${verts.toLocaleString()} drawn`;
+
+    // One two-point feature per hop, coloured by the hop's mean speed relative
+    // to this activity's own range.
+    const all = [];
+    track.speeds.forEach(seg => seg.forEach(v => all.push(v)));
+    all.sort((x, y) => x - y);
+    const lo = percentile(all, 0.05), hi = Math.max(percentile(all, 0.95), lo + 0.5);
+    const features = [];
+    track.segments.forEach((seg, si) => {
+        for (let i = 1; i < seg.length; i++) {
+            features.push({ type: 'Feature',
+                properties: { s: (track.speeds[si][i - 1] + track.speeds[si][i]) / 2 },
+                geometry: { type: 'LineString', coordinates: [seg[i - 1], seg[i]] } });
+        }
+    });
+    const gradientOn = (localStorage.getItem('roamly_speed_gradient') || 'on') === 'on';
+    const legend = document.getElementById('ad-legend');
+    if (gradientOn) {
+        legend.hidden = false;
+        document.getElementById('ad-legend-lo').textContent = toDist(lo).toFixed(1);
+        document.getElementById('ad-legend-hi').textContent = toDist(hi).toFixed(1) + ' ' + speedUnit();
+    }
+    const step = (hi - lo) / 3;
+    const color = gradientOn
+        ? ['interpolate', ['linear'], ['get', 's'],
+           lo, RAMP[0], lo + step, RAMP[1], lo + 2 * step, RAMP[2], hi, RAMP[3]]
+        : '#e8763d';
 
     const draw = () => {
         if (!amapLoaded) { setTimeout(draw, 60); return; }
         amap.resize();
-        ['ad-line','ad-start','ad-end'].forEach(id => { if (amap.getLayer(id)) amap.removeLayer(id); });
+        ['ad-casing','ad-line','ad-start','ad-end'].forEach(id => { if (amap.getLayer(id)) amap.removeLayer(id); });
         ['line','startend'].forEach(id => { if (amap.getSource(id)) amap.removeSource(id); });
 
-        amap.addSource('line', { type:'geojson', data:{ type:'Feature',
-            geometry:{ type:'MultiLineString', coordinates: track.segments } } });
+        amap.addSource('line', { type:'geojson', data:{ type:'FeatureCollection', features } });
+        // A dark casing under the coloured line keeps it legible on both basemaps.
+        amap.addLayer({ id:'ad-casing', type:'line', source:'line',
+            layout:{ 'line-join':'round', 'line-cap':'round' },
+            paint:{ 'line-color':'#111', 'line-width':6.5, 'line-opacity':0.55 } });
         amap.addLayer({ id:'ad-line', type:'line', source:'line',
             layout:{ 'line-join':'round', 'line-cap':'round' },
-            paint:{ 'line-color':'#e8763d', 'line-width':4, 'line-opacity':0.9 } });
+            paint:{ 'line-color': color, 'line-width':4 } });
 
         if (track.start && track.end) {
             amap.addSource('startend', { type:'geojson', data:{ type:'FeatureCollection', features:[
@@ -168,7 +238,7 @@ function renderTrack(track) {
                 { type:'Feature', properties:{kind:'end'},   geometry:{type:'Point', coordinates:track.end} },
             ]}});
             amap.addLayer({ id:'ad-start', type:'circle', source:'startend', filter:['==','kind','start'],
-                paint:{ 'circle-radius':7, 'circle-color':'#7ba3b8', 'circle-stroke-width':2.5, 'circle-stroke-color':'#fff' } });
+                paint:{ 'circle-radius':7, 'circle-color':'#22c55e', 'circle-stroke-width':2.5, 'circle-stroke-color':'#fff' } });
             amap.addLayer({ id:'ad-end', type:'circle', source:'startend', filter:['==','kind','end'],
                 paint:{ 'circle-radius':7, 'circle-color':'#d0694a', 'circle-stroke-width':2.5, 'circle-stroke-color':'#fff' } });
         }
@@ -180,59 +250,145 @@ function renderTrack(track) {
     setTimeout(draw, 120);
 }
 
-/** Speed over the track, hand-rolled on canvas — this app has no charting
- *  library, and stats.html / health.html carry same-named helpers with
- *  incompatible signatures, so this is its own compact copy rather than a shared
- *  import that would have to satisfy both. */
-function drawSpeedChart(speeds) {
-    const flat = [];
-    speeds.forEach(seg => seg.forEach(v => flat.push(isImperial() ? v * 0.621371 : v)));
-    const canvas = document.getElementById('ad-chart');
-    const wrap = document.getElementById('ad-chart-wrap');
+function showOnMap(coord) {
+    if (!amap) return;
+    if (!coord) { if (hoverMarker) { hoverMarker.remove(); hoverMarker = null; } return; }
+    if (!hoverMarker) {
+        const el = document.createElement('div');
+        el.style.cssText = 'width:12px;height:12px;border-radius:50%;background:#fff;' +
+                           'border:3px solid #e8763d;box-shadow:0 0 0 2px rgba(0,0,0,.35)';
+        hoverMarker = new maplibregl.Marker({ element: el });
+    }
+    hoverMarker.setLngLat(coord).addTo(amap);
+}
+
+/** A value-over-TIME chart, hand-rolled on canvas (this app has no charting
+ *  library). Time, not point index, on x — otherwise a dense stretch is drawn
+ *  wide and a sparse one narrow — and each gap-split segment is drawn as its
+ *  own run so a tracking hole reads as a break, not a straight ramp.
+ *  ``ceilP`` sets the y-axis from a percentile, so one leftover spike can't
+ *  flatten the whole chart. Hovering links back to the map. */
+function drawTimeChart(cfg) {
+    const { canvasId, wrapId, times, values, coords, unit, fmt, ceilP, floorToMin } = cfg;
+    const canvas = document.getElementById(canvasId);
+    const wrap = document.getElementById(wrapId);
+    const tip = wrap.querySelector('.ad-tip');
+    const pts = [];   // flattened [t, v, coord, segIndex]
+    times.forEach((seg, si) => seg.forEach((t, i) => {
+        const v = values[si][i];
+        if (v != null) pts.push([t, v, coords[si][i], si]);
+    }));
     const dpr = window.devicePixelRatio || 1;
     const w = wrap.clientWidth, h = 200;
     canvas.width = w * dpr; canvas.height = h * dpr;
     canvas.style.height = h + 'px';
     const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
-
-    if (flat.length < 2) {
+    if (pts.length < 2) {
         ctx.fillStyle = cssVar('--text-muted', '#888');
         ctx.font = '13px system-ui';
         ctx.fillText('Not enough points to chart.', 12, h / 2);
         return;
     }
-
+    const sorted = pts.map(p => p[1]).sort((a, b) => a - b);
+    const vMax = ceilP ? percentile(sorted, ceilP) * 1.08 : sorted[sorted.length - 1];
+    let vMin = 0;
+    if (floorToMin) vMin = sorted[0];
     const TICKS = 4;
-    const { top, step } = niceAxis(Math.max(...flat), TICKS);
+    const span = Math.max(vMax - vMin, 1e-6);
+    const { step } = niceAxis(span, TICKS);
+    const base = floorToMin ? Math.floor(vMin / step) * step : 0;
+    const top = base + step * Math.ceil((vMax - base) / step || 1);
+    const t0 = pts[0][0], t1 = pts[pts.length - 1][0];
+
     ctx.font = '11px ui-monospace, monospace';
     let gutter = 0;
-    for (let i = 0; i <= TICKS; i++) {
-        gutter = Math.max(gutter, ctx.measureText((step * i).toFixed(0)).width);
-    }
-    const padL = gutter + 12, padR = 8, padT = 10, padB = 22;
+    for (let v = base; v <= top + 1e-9; v += step) gutter = Math.max(gutter, ctx.measureText(fmt(v)).width);
+    const padL = gutter + 12, padR = 8, padT = 12, padB = 22;
     const plotW = w - padL - padR, plotH = h - padT - padB;
+    const X = t => padL + ((t - t0) / Math.max(1, t1 - t0)) * plotW;
+    const Y = v => padT + plotH - Math.max(0, Math.min(1, (v - base) / (top - base))) * plotH;
 
+    const muted = cssVar('--text-muted', '#888');
     ctx.strokeStyle = cssVar('--border', '#333');
-    ctx.fillStyle = cssVar('--text-muted', '#888');
+    ctx.fillStyle = muted;
     ctx.lineWidth = 1;
-    for (let i = 0; i <= TICKS; i++) {
-        const y = padT + plotH - (i / TICKS) * plotH;
+    for (let v = base; v <= top + 1e-9; v += step) {
+        const y = Y(v);
         ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
-        ctx.fillText((step * i).toFixed(0), padL - gutter - 6, y + 4);
+        ctx.fillText(fmt(v), padL - gutter - 6, y + 4);
     }
-    ctx.fillText(speedUnit(), padL - gutter - 6, padT - 2);
+    ctx.fillText(unit, padL - gutter - 6, padT - 3);
+    // Elapsed-time ticks along x.
+    const dur = t1 - t0;
+    const tickS = [60, 300, 600, 900, 1800, 3600, 7200, 10800].find(s => dur / s <= 6) || 21600;
+    for (let s = tickS; s < dur; s += tickS) {
+        const x = X(t0 + s);
+        const lbl = s >= 3600 ? `${Math.floor(s / 3600)}h${s % 3600 ? String(Math.floor(s % 3600 / 60)).padStart(2, '0') : ''}` : `${s / 60}m`;
+        ctx.fillText(lbl, x - ctx.measureText(lbl).width / 2, h - 6);
+    }
 
-    ctx.strokeStyle = cssVar('--primary', '#e8763d');
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    flat.forEach((v, i) => {
-        const x = padL + (i / (flat.length - 1)) * plotW;
-        const y = padT + plotH - Math.min(v / top, 1) * plotH;
-        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    const primary = cssVar('--primary', '#e8763d');
+    const runs = [];
+    pts.forEach(p => {
+        if (!runs.length || runs[runs.length - 1][0][3] !== p[3]) runs.push([]);
+        runs[runs.length - 1].push(p);
     });
-    ctx.stroke();
+    runs.forEach(run => {
+        ctx.beginPath();
+        run.forEach((p, i) => i ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1])));
+        ctx.strokeStyle = primary; ctx.lineWidth = 1.75; ctx.stroke();
+        ctx.lineTo(X(run[run.length - 1][0]), padT + plotH);
+        ctx.lineTo(X(run[0][0]), padT + plotH);
+        ctx.closePath();
+        ctx.globalAlpha = 0.12; ctx.fillStyle = primary; ctx.fill(); ctx.globalAlpha = 1;
+    });
+
+    const snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    canvas.onmousemove = ev => {
+        const r = canvas.getBoundingClientRect();
+        const t = t0 + ((ev.clientX - r.left - padL) / plotW) * (t1 - t0);
+        let lo = 0, hi = pts.length - 1;
+        while (lo < hi) { const m = (lo + hi) >> 1; pts[m][0] < t ? lo = m + 1 : hi = m; }
+        if (lo > 0 && Math.abs(pts[lo - 1][0] - t) < Math.abs(pts[lo][0] - t)) lo--;
+        const p = pts[lo];
+        ctx.putImageData(snapshot, 0, 0);
+        const x = X(p[0]);
+        ctx.strokeStyle = muted; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke();
+        ctx.fillStyle = primary;
+        ctx.beginPath(); ctx.arc(x, Y(p[1]), 3.5, 0, Math.PI * 2); ctx.fill();
+        const el = p[0] - t0;
+        tip.textContent = `${fmt(p[1])} ${unit} · ${fmtDuration(el) === '—' ? '0m' : fmtDuration(el)}`;
+        tip.style.display = 'block';
+        tip.style.left = Math.min(Math.max(0, x - tip.offsetWidth / 2), w - tip.offsetWidth) + 'px';
+        showOnMap(p[2]);
+    };
+    canvas.onmouseleave = () => {
+        ctx.putImageData(snapshot, 0, 0);
+        tip.style.display = 'none';
+        showOnMap(null);
+    };
+}
+
+function drawCharts(track) {
+    if (!track.segments || !track.segments.length) return;
+    drawTimeChart({
+        canvasId: 'ad-speed', wrapId: 'ad-speed-wrap', times: track.times,
+        values: track.speeds.map(seg => seg.map(v => toDist(v))),
+        coords: track.segments, unit: speedUnit(), ceilP: 0.99,
+        fmt: v => (Math.round(v * 10) / 10).toString(),
+    });
+    const elev = (track.elevations || []).map(seg => seg.map(v => v == null ? null : toElev(v)));
+    if (elev.some(seg => seg.some(v => v != null))) {
+        document.getElementById('ad-elev-card').hidden = false;
+        drawTimeChart({
+            canvasId: 'ad-elev', wrapId: 'ad-elev-wrap', times: track.times, values: elev,
+            coords: track.segments, unit: elevUnit(), floorToMin: true,
+            fmt: v => Math.round(v).toString(),
+        });
+    }
 }
 
 async function rename() {
@@ -258,8 +414,8 @@ async function rename() {
 
 async function remove() {
     const ok = await window.roamlyConfirm(
-        'Delete this activity? Your GPS points stay in your location history — only the ' +
-        'activity record is removed.',
+        'Delete this activity? Its recorded track is removed; the copy in your location ' +
+        'history stays.',
         { title: 'Delete activity', danger: true, confirmText: 'Delete' });
     if (!ok) return;
     try {
@@ -290,7 +446,9 @@ document.getElementById('ad-delete').addEventListener('click', remove);
         const d = await window.roamlyFetch(`/api/activities/${ACTIVITY_ID}/track/`,
                                            {errorMessage: "Couldn't load the track"});
         renderTrack(d);
-        drawSpeedChart(d.speeds || []);
+        drawCharts(d);
+        let rt = null;
+        window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => drawCharts(d), 150); });
     } catch (e) { /* roamlyFetch has already toasted */ }
 })();
 </script>

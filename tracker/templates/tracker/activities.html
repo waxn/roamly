@@ -59,9 +59,10 @@ const KINDS = [
     ['run',   'Run'],
     ['walk',  'Walk'],
     ['hike',  'Hike'],
+    ['row',   'Row'],
     ['other', 'Other'],
 ];
-const GLYPH = { ride:'🚲', run:'🏃', walk:'🚶', hike:'🥾', other:'📍' };
+const GLYPH = { ride:'🚲', run:'🏃', walk:'🚶', hike:'🥾', row:'🚣', other:'📍' };
 let activeKind = '';
 
 function isImperial() { return (localStorage.getItem('roamly_speed_unit') || 'kmh') === 'mph'; }
