@@ -17,10 +17,11 @@ import androidx.sqlite.execSQL
  * too; it moved to [com.roamly.data.local.MapCacheDatabase] in v3 so that map
  * queries can no longer take the write lock GPS capture needs. See that file.)
  */
-@Database(entities = [CachedPoint::class, CellSample::class], version = 4, exportSchema = false)
+@Database(entities = [CachedPoint::class, CellSample::class, ActivityPoint::class], version = 5, exportSchema = false)
 abstract class TrackingDatabase : RoomDatabase() {
     abstract fun pointDao(): PointDao
     abstract fun cellDao(): CellSampleDao
+    abstract fun activityPointDao(): ActivityPointDao
 
     companion object {
         @Volatile private var INSTANCE: TrackingDatabase? = null
@@ -107,11 +108,37 @@ abstract class TrackingDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v4 → v5 adds the private recording buffer for activities.
+         *
+         * Additive, like 3 → 4: `cached_points` and `cell_samples` are untouched,
+         * so un-uploaded fixes and cell readings survive. The column list,
+         * nullability and index name must match what Room generates for
+         * [ActivityPoint] exactly, or the identity-hash check aborts.
+         */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override suspend fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `activity_points` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`activityId` TEXT NOT NULL, " +
+                        "`t` INTEGER NOT NULL, " +
+                        "`lat` REAL NOT NULL, " +
+                        "`lon` REAL NOT NULL, " +
+                        "`alt` REAL, `acc` REAL, `spd` REAL)"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_activity_points_activityId_id` " +
+                        "ON `activity_points` (`activityId`, `id`)"
+                )
+            }
+        }
+
         fun getInstance(context: Context): TrackingDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder<TrackingDatabase>(
                     context.applicationContext, "roamly_tracking.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     // NO fallbackToDestructiveMigration. It was set here, directly
                     // contradicting the KDoc above it, and would silently wipe
                     // un-uploaded fixes the first time a version bump shipped
