@@ -255,10 +255,12 @@ def _build_activities_data(user):
     locations and health samples, which are whole-history sized. Activities are
     a handful per week.
 
-    Only the envelope is stored. The derived stats are deliberately left out —
-    they are a cache over Location rows that the restore will recompute anyway,
-    and a restore into a partially-populated history should report what is
-    actually there rather than a figure from another database.
+    Only the envelope is stored here. A recorded track (ActivityTrack.raw) is
+    written separately by views._write_backup_json as the streamed
+    ``activity_tracks`` section, since a long ride is hundreds of KB. The
+    derived stats are deliberately left out — they are a cache the restore
+    recomputes, and a restore should report what is actually there rather than
+    a figure from another database.
     """
     from .models import Activity
 

@@ -1,3 +1,4 @@
+import base64
 import csv
 import gzip
 import io
@@ -7082,7 +7083,7 @@ def _write_backup_json(user, f, progress=None):
     loc_total = Location.objects.filter(device__user=user).count()
 
     report('Collecting devices')
-    meta = {'version': 16, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 17, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # The single backup builder: the scheduled S3 backup calls this too, so the
@@ -7120,6 +7121,26 @@ def _write_backup_json(user, f, progress=None):
     f.write(b'"health_workouts":' + encoder.encode(health_workouts).encode() + b',')
     f.write(b'"activities":' + encoder.encode(activities).encode() + b',')
     f.write(b'"family_circles":' + encoder.encode(family_circles).encode() + b',')
+
+    # Recorded activity tracks (v17+), one at a time — a long ride is hundreds
+    # of KB, so building them all into one list first is the OOM the
+    # locations section already learned to avoid. The blob is the phone's raw
+    # recording, base64'd as-is; smoothing is a cache the restore recomputes.
+    report('Writing activity tracks')
+    f.write(b'"activity_tracks":[')
+    track_count = 0
+    for client_id, raw, raw_count, complete in (
+            ActivityTrack.objects.filter(activity__user=user, raw_count__gt=0)
+            .values_list('activity__client_id', 'raw', 'raw_count', 'complete')
+            .iterator(chunk_size=20)):
+        f.write((b',' if track_count else b'') + encoder.encode({
+            'client_id': client_id,
+            'raw': base64.b64encode(bytes(raw)).decode('ascii'),
+            'raw_count': raw_count,
+            'complete': complete,
+        }).encode())
+        track_count += 1
+    f.write(b'],')
 
     report('Writing locations', 0, loc_total)
     f.write(b'"locations":[')
@@ -7221,6 +7242,7 @@ def _write_backup_json(user, f, progress=None):
         'journals': len(journals),
         'custom_places': len(custom_places),
         'activities': len(activities),
+        'activity_tracks': track_count,
         'family_circles': len(family_circles),
     }).encode() + b'}')
     report('Writing cell samples', cell_total, cell_total)
@@ -7410,14 +7432,17 @@ def _restore_media_dest(name):
     return dest
 
 
-# Sections streamed out of a zip backup rather than loaded whole. These are the
-# only two that scale with tracking history; everything else scales with what
-# the user wrote and is small enough to build normally.
-_STREAMED_BACKUP_KEYS = ('locations', 'cell_samples')
+# Sections streamed out of a zip backup rather than loaded whole. locations and
+# cell_samples scale with tracking history, activity_tracks with recorded hours
+# (a long ride is hundreds of KB); everything else scales with what the user
+# wrote and is small enough to build normally.
+_STREAMED_BACKUP_KEYS = ('locations', 'cell_samples', 'activity_tracks')
 
 
 def _open_backup_json(zf):
-    """Read a zip backup's JSON as (small keys, locations iter, cell-samples iter).
+    """Read a zip backup's JSON as (small keys, locations, cell samples, activity tracks).
+
+    The last three are iterators.
 
     The export was deliberately rewritten to stream row-by-row because holding a
     whole history in memory OOM-killed the worker — but the RESTORE still did
@@ -7445,7 +7470,8 @@ def _open_backup_json(zf):
     except ImportError:
         with zf.open('backup.json') as jf:
             data = json.loads(jf.read().decode('utf-8-sig'))
-        return data, data.get('locations', []), data.get('cell_samples', [])
+        return (data, data.get('locations', []), data.get('cell_samples', []),
+                data.get('activity_tracks', []))
 
     # NOT ijson.kvitems(jf, ''): it builds each value in full before yielding
     # it, so `locations` would be materialised in RAM and only then discarded by
@@ -7479,7 +7505,7 @@ def _open_backup_json(zf):
                     yield row
         return gen()
 
-    return data, _stream('locations'), _stream('cell_samples')
+    return data, _stream('locations'), _stream('cell_samples'), _stream('activity_tracks')
 
 _RESTORE_JOB_RE = re.compile(r'^[A-Za-z0-9_-]{8,64}$')
 
@@ -7601,7 +7627,7 @@ def restore_backup(request):
             if sum(zi.file_size for zi in media_entries) > _RESTORE_MAX_TOTAL_BYTES:
                 return JsonResponse({'error': 'Backup media is too large'}, status=413)
             # locations and cell samples stream; everything else loads normally.
-            data, locations_iter, cell_iter = _open_backup_json(zf)
+            data, locations_iter, cell_iter, tracks_iter = _open_backup_json(zf)
         else:
             raw = f.read()
             # Old downloads were served gzipped over the wire; a client that
@@ -7611,6 +7637,7 @@ def restore_backup(request):
             data = json.loads(raw.decode('utf-8-sig'))
             locations_iter = data.get('locations', [])
             cell_iter = data.get('cell_samples', [])
+            tracks_iter = data.get('activity_tracks', [])
     except (json.JSONDecodeError, UnicodeDecodeError, OSError, EOFError,
             zipfile.BadZipFile, KeyError) as e:
         return JsonResponse({'error': f'Invalid backup file: {e}'}, status=400)
@@ -7624,7 +7651,7 @@ def restore_backup(request):
               'adventures': 0, 'api_keys': 0, 'journals': 0,
               'custom_places': 0, 'media_files': 0,
               'health_samples': 0, 'health_workouts': 0, 'activities': 0,
-              'family_circles': 0, 'cell_samples': 0}
+              'activity_tracks': 0, 'family_circles': 0, 'cell_samples': 0}
     errors = 0
 
     # Split the bar by rough cost: one unit per streamed row, the small
@@ -8214,6 +8241,28 @@ def restore_backup(request):
                 except Exception as e:
                     errors += 1
                     logger.warning(f"Backup restore activity error: {e}")
+
+            # Recorded activity tracks (v17+), streamed. Matched to the activity
+            # restored just above by client_id. ``mirrored`` is set because the
+            # thinned history copy travels in the locations section — mirroring
+            # again would be a no-op at best.
+            for tr in tracks_iter:
+                try:
+                    act = Activity.objects.filter(
+                        user=user, client_id=tr.get('client_id')).first()
+                    if act is None or ActivityTrack.objects.filter(activity=act).exists():
+                        continue
+                    blob = base64.b64decode(tr.get('raw') or '')
+                    rows = activity_track.unpack(blob)  # validates the blob
+                    ActivityTrack.objects.create(
+                        activity=act, raw=blob, raw_count=len(rows),
+                        chunks_received=1, complete=bool(tr.get('complete', True)),
+                        mirrored=True)
+                    Activity.objects.filter(pk=act.pk).update(stats_computed_at=None)
+                    counts['activity_tracks'] += 1
+                except Exception as e:
+                    errors += 1
+                    logger.warning(f"Backup restore activity track error: {e}")
 
             # Family Circles (v15+). Older backups simply lack the key and
             # restore exactly as before. Idempotent on (creator, name) — a
