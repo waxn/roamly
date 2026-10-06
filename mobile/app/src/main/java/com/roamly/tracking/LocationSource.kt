@@ -175,7 +175,23 @@ private class FusedLocationSource(context: Context) : LocationSource {
         }
         return runCatching {
             client.requestLocationUpdates(request, callback, looper)
-            FixStream { runCatching { client.removeLocationUpdates(callback) } }
+            val batching = req.maxDelayMs > req.intervalMs
+            FixStream {
+                runCatching {
+                    // A batching request may be holding up to maxDelayMs of fixes that
+                    // have not been delivered. Removing the request outright discards
+                    // them, which would drop the last minute of track every time the
+                    // screen came on. Flush first, and only remove once the flush has
+                    // delivered them to this still-registered callback.
+                    if (batching) {
+                        client.flushLocations().addOnCompleteListener {
+                            runCatching { client.removeLocationUpdates(callback) }
+                        }
+                    } else {
+                        client.removeLocationUpdates(callback)
+                    }
+                }
+            }
         }.onFailure { Log.e(TAG, "fused requestLocationUpdates failed", it) }.getOrNull()
     }
 

@@ -42,6 +42,11 @@ class LocationFilter(
      *  interval). 0 disables de-dup. Purely time-based — no displacement check. */
     var minTimeBetweenMs: Long = 0L,
 ) {
+    /** Extra age a fix may have on arrival, set by the service to the stream's batch window
+     *  while the provider is holding fixes back. A batched fix is stamped when produced, so
+     *  without this every fix but the newest in a batch would be rejected as stale. */
+    @Volatile var batchAllowanceMs: Long = 0L
+
     /**
      * The actual rejection window, as a fraction of [minTimeBetweenMs].
      *
@@ -71,7 +76,7 @@ class LocationFilter(
     @Synchronized
     fun accept(loc: Location): Boolean {
         val ageMs = System.currentTimeMillis() - loc.time
-        if (ageMs > maxAgeMs) {
+        if (ageMs > maxAgeMs + batchAllowanceMs) {
             Log.d(TAG, "Rejected stale fix: age=${ageMs}ms")
             CaptureStats.bump(CaptureStats.Counter.STALE)
             return false

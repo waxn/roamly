@@ -64,6 +64,13 @@ private const val MIN_ALARM_FLOOR_MS = 15_000L
 private const val CATCHUP_MULTIPLIER = 3
 /** Rollback lever for the freshness skip becoming reachable screen-off (streamArmed). */
 private const val SKIP_ON_STREAM_FRESHNESS = true
+/** Screen-off, the stream asks the location provider to hold fixes and deliver them together
+ *  at most this often. The fixes are still produced (and timestamped) every interval, so the
+ *  track is unchanged; the app processor just wakes once per window instead of once per fix.
+ *  Only fused hardware batching actually defers delivery; the platform source delivers as
+ *  produced, which is harmless. Rollback lever: set false to restore per-fix delivery. */
+private const val BATCH_SCREEN_OFF_STREAM = true
+private const val BATCH_WINDOW_MS = 60_000L
 /** Consecutive genuine misses before the "auto" priority drops to BALANCED. */
 private const val DEGRADE_AFTER_MISSES = 4
 // How long a single fix request may run before we give up on this cycle and reschedule.
@@ -271,6 +278,17 @@ class LocationTrackingService : Service() {
     private val pointWrites = Channel<PendingWrite>(Channel.UNLIMITED)
     private var writerJob: Job? = null
 
+    /**
+     * Fixes from the live stream, drained in order by a single consumer. Each fix used to get
+     * its own `scope.launch` on a multi-threaded dispatcher, which was fine while they arrived
+     * one at a time. A batched delivery hands over several at once, and concurrent launches
+     * could let a later fix win [captureLock] first and get the earlier ones rejected as
+     * older duplicates. One consumer keeps timestamp order, which the filter, drift anchor
+     * and speed bookkeeping all depend on.
+     */
+    private val streamFixes = Channel<android.location.Location>(Channel.UNLIMITED)
+    private var streamJob: Job? = null
+
     /** A position waiting for a cell reading. See [cellScans]. */
     private data class CellScanRequest(
         val latitude: Double,
@@ -417,6 +435,7 @@ class LocationTrackingService : Service() {
             (getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
         }.getOrDefault(true)
         startPointWriter()
+        startStreamConsumer()
         startCellScanner()
         observeRuntimePreferences()
         observeConfig()  // first emit → applyCapture(): starts the cadence (+ stream if screen-on)
@@ -464,6 +483,7 @@ class LocationTrackingService : Service() {
             runBlocking { withTimeoutOrNull(2_000L) { recorder.flush() } }
         }
         releaseWakeLock()
+        streamFixes.close()
         unregisterProviderChangeReceiver()
         unregisterScreenReceiver()
         configJob?.cancel()
@@ -757,7 +777,11 @@ class LocationTrackingService : Service() {
         // and then schedule against another. (The finally block below deliberately
         // re-reads from currentConfig instead, so a mid-cycle interval change lands.)
         val floorMs = alarmIntervalMs(cfg)
-        val freshWindow = effectiveIntervalMs(cfg)
+        // A batching provider delivers once per window, so between batches the newest
+        // point is legitimately up to a window old. Without allowing for it every alarm
+        // would see "stale" and burst on top of a healthy stream.
+        val batchMs = streamBatchMs(cfg)
+        val freshWindow = effectiveIntervalMs(cfg) + batchMs
         if (SKIP_ON_STREAM_FRESHNESS && streamArmed &&
             lastAcceptedAtMs != 0L && now - lastAcceptedAtMs < freshWindow) {
             CaptureStats.bump(CaptureStats.Counter.CYCLE_SKIPPED_FRESH)
@@ -1053,10 +1077,10 @@ class LocationTrackingService : Service() {
     @Suppress("MissingPermission")
     private fun startLocationUpdates(cfg: TrackingConfig) {
         stopLocationUpdates()
+        // Set before arming so the first batch isn't judged against the unbatched age limit.
+        filter.batchAllowanceMs = streamBatchMs(cfg)
         locationStream = locationSource.requestUpdates(buildRequest(cfg), callbackLooper) { loc ->
-            if (!isPaused && filter.accept(loc)) {
-                scope.launch { saveOrDwell(loc, cfg.maxAccuracyM, SaveSource.STREAM) }
-            }
+            if (!isPaused) streamFixes.trySend(loc)
         }
         streamArmed = locationStream != null
         if (locationStream == null) {
@@ -1081,6 +1105,12 @@ class LocationTrackingService : Service() {
         }
     }
 
+    /** How long the provider may hold fixes before delivering them. 0 = deliver as produced.
+     *  Screen-off only: with the screen on the wake lock already pins the CPU, so batching
+     *  would just delay the live view for no saving. */
+    private fun streamBatchMs(cfg: TrackingConfig): Long =
+        if (BATCH_SCREEN_OFF_STREAM && !screenOn && cfg.intervalMs < BATCH_WINDOW_MS) BATCH_WINDOW_MS else 0L
+
     private fun buildRequest(cfg: TrackingConfig): FixRequest {
         val intervalMs = cfg.intervalMs
         // One fix per interval, on time, regardless of movement:
@@ -1094,7 +1124,9 @@ class LocationTrackingService : Service() {
         return FixRequest(
             intervalMs = intervalMs,
             minIntervalMs = intervalMs,
-            maxDelayMs = intervalMs,
+            // Screen-off the provider may batch (see streamBatchMs); the fixes still
+            // come at intervalMs, only their delivery to us is grouped.
+            maxDelayMs = maxOf(intervalMs, streamBatchMs(cfg)),
             accuracy = accuracyFor(cfg.priority),
         )
     }
@@ -1150,6 +1182,19 @@ class LocationTrackingService : Service() {
      * network scheduler, moved off the capture path. One consumer keeps insertion
      * order, so PointDao's monotonic-id cursors are unaffected.
      */
+    private fun startStreamConsumer() {
+        if (streamJob != null) return
+        streamJob = scope.launch {
+            for (loc in streamFixes) {
+                runCatching {
+                    if (!isPaused && filter.accept(loc)) {
+                        saveOrDwell(loc, currentConfig?.maxAccuracyM, SaveSource.STREAM)
+                    }
+                }.onFailure { Log.e(TAG, "Stream fix failed", it) }
+            }
+        }
+    }
+
     private fun startPointWriter() {
         if (writerJob != null) return
         writerJob = scope.launch {
