@@ -14093,6 +14093,13 @@ def _activity_stats(act, force=False):
     offline-first, so a window can still be filling when it is first read, and
     stats_point_count against a live COUNT is what notices.
     """
+    _activity_complete_track(act)  # memoises the track row, complete or not
+    pending = act._track_cache is not None and not act._track_cache.complete
+    if pending and not force:
+        # The phone said a track follows and it hasn't finished arriving. Scoring
+        # the history window now would publish a confident 0.00 km (all-day
+        # tracking was paused during the ride); "not computed yet" is the truth.
+        return act
     if (force or act.stats_computed_at is None
             or act.stats_algo_version != activity_track.ALGO_VERSION):
         return _compute_activity_stats(act)
