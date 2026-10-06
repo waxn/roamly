@@ -1823,26 +1823,35 @@ class HealthWorkout(models.Model):
 # A deliberately recorded ride / walk / run: the user taps Start, the phone
 # captures at ~2s instead of the background interval, and Stop saves the envelope.
 #
-# The envelope is ALL that is stored. The track is derived from Location by
-# (device, start_time, end_time), exactly as Adventure.locations does, so the
-# points stay ordinary fixes that the normal map, distance and stats already
-# count. An Activity is a *view over* the track, not a silo — which is why
-# deleting one deletes a view and never a recorded fix.
+# An Activity recorded by the current phone app carries its OWN track
+# (ActivityTrack, below): the phone records at 1 Hz into a private buffer and
+# uploads the whole raw track once, at Stop, the way Strava uploads a file. The
+# server keeps that raw track untouched and derives a cleaned + smoothed version
+# from it (tracker/activity_track.py), so the algorithm can improve later and
+# every ride re-smooths itself.
 #
-# That is also why there is no grouping FK on Location. It is queried from ~75
-# places across the app, and a per-point activity column would be stale on
-# backlog replay regardless: bulk_create(ignore_conflicts=True) *skips* a
-# re-pushed point rather than updating it. Same reasoning that keeps CustomPlace
-# membership computed on the fly rather than materialised.
+# Activities recorded before that (and any whose track never arrived) have no
+# ActivityTrack and fall back to the original design: the track is derived from
+# Location by (device, start_time, end_time), exactly as Adventure.locations
+# does. Both paths go through the same clean -> smooth -> stats pipeline.
 #
-# Non-spatial — the geometry lives on the Location rows this points at — so
-# defined once rather than behind the HAS_POSTGIS branch, like the health models.
+# There is still no grouping FK on Location. It is queried from ~75 places
+# across the app, and a per-point activity column would be stale on backlog
+# replay regardless: bulk_create(ignore_conflicts=True) *skips* a re-pushed
+# point rather than updating it. A thinned copy of a recorded track is mirrored
+# INTO Location on upload, so the ride still shows on the normal map and counts
+# in history — those rows are ordinary fixes, and deleting the activity leaves
+# them in place.
+#
+# Non-spatial — defined once rather than behind the HAS_POSTGIS branch, like
+# the health models.
 
 ACTIVITY_KINDS = [
     ('ride', 'Ride'),
     ('run', 'Run'),
     ('walk', 'Walk'),
     ('hike', 'Hike'),
+    ('row', 'Row'),
     ('other', 'Other'),
 ]
 
@@ -1880,6 +1889,12 @@ class Activity(models.Model):
     # truth. (Once past _ACTIVITY_SETTLE_S the check stops, so a long history of
     # rides doesn't pay a COUNT per row forever.)
     stats_point_count = models.IntegerField(default=0)
+    # activity_track.ALGO_VERSION the stats were computed under. A mismatch
+    # recomputes on the next read, so improving the smoother re-scores every
+    # ride without a migration or a background job.
+    stats_algo_version = models.IntegerField(default=0)
+    elevation_gain_m = models.FloatField(null=True, blank=True)
+    elevation_loss_m = models.FloatField(null=True, blank=True)
 
     class Meta:
         unique_together = ['user', 'client_id']
@@ -1905,6 +1920,37 @@ class Activity(models.Model):
             timestamp__gte=self.start_time,
             timestamp__lte=self.end_time,
         ).order_by('timestamp', 'id')
+
+
+class ActivityTrack(models.Model):
+    """The raw recorded track of one Activity, as uploaded by the phone.
+
+    Stored as one gzipped-JSON blob rather than a row per point: a 10-hour ride
+    at 1 Hz is ~36k fixes that are only ever read together, so a blob is one row
+    to fetch, one value to back up, and no table that grows by tens of
+    thousands of rows per ride. Rows are ``[t_ms, lat, lon, alt, acc, spd]``
+    (alt/acc/spd may be null).
+
+    ``raw`` is the record and is never rewritten except by appending chunks.
+    ``smoothed`` is a cache of activity_track's output, keyed by
+    ``algo_version`` — a mismatch means "recompute".
+    """
+    activity = models.OneToOneField(Activity, on_delete=models.CASCADE, related_name='track')
+    raw = models.BinaryField(default=b'')
+    raw_count = models.IntegerField(default=0)
+    # Highest chunk index stored, so a retried chunk upload is a no-op rather
+    # than a duplicated stretch of track.
+    chunks_received = models.IntegerField(default=0)
+    # True once the phone has sent its final chunk. Stats and the history
+    # mirror wait for it, so a half-uploaded ride is never scored.
+    complete = models.BooleanField(default=False)
+    smoothed = models.BinaryField(null=True, blank=True)
+    algo_version = models.IntegerField(default=0)
+    mirrored = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"track of {self.activity_id} ({self.raw_count} pts)"
 
 
 class FamilyCircle(models.Model):
