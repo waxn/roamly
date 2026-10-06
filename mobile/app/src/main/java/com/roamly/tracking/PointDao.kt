@@ -8,6 +8,9 @@ interface PointDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(point: CachedPoint): Long
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(points: List<CachedPoint>)
+
     @Query("UPDATE cached_points SET synced = 1 WHERE id IN (:ids)")
     suspend fun markSynced(ids: List<Long>)
 

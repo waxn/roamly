@@ -1207,8 +1207,17 @@ class LocationTrackingService : Service() {
     private fun startPointWriter() {
         if (writerJob != null) return
         writerJob = scope.launch {
-            for (w in pointWrites) {
-                runCatching { persistPoint(w) }
+            for (first in pointWrites) {
+                // Take whatever else is already queued so a batched delivery lands in one
+                // transaction, one CSV open and one upload check instead of N of each.
+                // Nothing waits for more to arrive, so there is no added delay and no
+                // window in which a buffered point could be lost.
+                val group = ArrayList<PendingWrite>().apply { add(first) }
+                while (true) {
+                    val next = pointWrites.tryReceive().getOrNull() ?: break
+                    group.add(next)
+                }
+                runCatching { persistPoints(group) }
                     .onFailure { Log.e(TAG, "Point write failed", it) }
             }
         }
@@ -1244,9 +1253,11 @@ class LocationTrackingService : Service() {
         }
     }
 
-    private suspend fun persistPoint(w: PendingWrite) {
-        db.pointDao().insert(w.point)
-        runCatching { CsvPointLogger.appendPoint(applicationContext, w.point, w.csv) }
+    private suspend fun persistPoint(w: PendingWrite) = persistPoints(listOf(w))
+
+    private suspend fun persistPoints(writes: List<PendingWrite>) {
+        db.pointDao().insertAll(writes.map { it.point })
+        runCatching { CsvPointLogger.appendPoints(applicationContext, writes.map { it.point to it.csv }) }
             .onFailure { Log.e(TAG, "Failed to append point CSV", it) }
         maybeScheduleUpload()
     }

@@ -36,7 +36,13 @@ object CsvPointLogger {
         val fixCount: Int,
     )
 
-    fun appendPoint(context: Context, point: CachedPoint, ctx: SaveContext) {
+    fun appendPoint(context: Context, point: CachedPoint, ctx: SaveContext) =
+        appendPoints(context, listOf(point to ctx))
+
+    /** Appends several rows under one open/close, so a batched delivery costs one file
+     *  operation rather than one per point. */
+    fun appendPoints(context: Context, rows: List<Pair<CachedPoint, SaveContext>>) {
+        if (rows.isEmpty()) return
         synchronized(lock) {
             val dir = File(context.filesDir, DIR_NAME)
             if (!dir.exists()) dir.mkdirs()
@@ -50,32 +56,34 @@ object CsvPointLogger {
                 runCatching { csvFile.renameTo(File(dir, ROTATED_NAME)) }
             }
             val needsHeader = !csvFile.exists() || csvFile.length() == 0L
-            val gapMs = if (lastTimestampMs > 0L) point.timestamp - lastTimestampMs else -1L
-            lastTimestampMs = point.timestamp
             OutputStreamWriter(FileOutputStream(csvFile, true), Charsets.UTF_8)
                 .buffered(CSV_BUFFER_SIZE_BYTES).use { writer ->
                     if (needsHeader) writer.appendLine(CSV_HEADER)
-                    writer.appendLine(
-                        listOf(
-                            point.timestamp.toString(),
-                            format(point.latitude),
-                            format(point.longitude),
-                            format(point.accuracy),
-                            format(point.altitude),
-                            format(point.speed),
-                            point.battery?.toString().orEmpty(),
-                            escape(point.provider),
-                            if (point.synced) "1" else "0",
-                            ctx.source,
-                            ctx.fixAccuracy,
-                            ctx.consecutiveMisses.toString(),
-                            if (ctx.streaming) "1" else "0",
-                            if (ctx.screenOn) "1" else "0",
-                            if (ctx.recording) "1" else "0",
-                            if (gapMs >= 0L) gapMs.toString() else "",
-                            if (ctx.fixCount > 0) ctx.fixCount.toString() else "",
-                        ).joinToString(",")
-                    )
+                    for ((point, ctx) in rows) {
+                        val gapMs = if (lastTimestampMs > 0L) point.timestamp - lastTimestampMs else -1L
+                        lastTimestampMs = point.timestamp
+                        writer.appendLine(
+                            listOf(
+                                point.timestamp.toString(),
+                                format(point.latitude),
+                                format(point.longitude),
+                                format(point.accuracy),
+                                format(point.altitude),
+                                format(point.speed),
+                                point.battery?.toString().orEmpty(),
+                                escape(point.provider),
+                                if (point.synced) "1" else "0",
+                                ctx.source,
+                                ctx.fixAccuracy,
+                                ctx.consecutiveMisses.toString(),
+                                if (ctx.streaming) "1" else "0",
+                                if (ctx.screenOn) "1" else "0",
+                                if (ctx.recording) "1" else "0",
+                                if (gapMs >= 0L) gapMs.toString() else "",
+                                if (ctx.fixCount > 0) ctx.fixCount.toString() else "",
+                            ).joinToString(",")
+                        )
+                    }
                 }
         }
     }
