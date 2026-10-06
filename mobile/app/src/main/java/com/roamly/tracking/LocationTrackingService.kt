@@ -71,6 +71,9 @@ private const val SKIP_ON_STREAM_FRESHNESS = true
  *  produced, which is harmless. Rollback lever: set false to restore per-fix delivery. */
 private const val BATCH_SCREEN_OFF_STREAM = true
 private const val BATCH_WINDOW_MS = 60_000L
+/** Added to the batch window when the backup alarm is relaxed, so it lands just after a
+ *  batch rather than racing it. */
+private const val LAZY_ALARM_SLACK_MS = 5_000L
 /** Consecutive genuine misses before the "auto" priority drops to BALANCED. */
 private const val DEGRADE_AFTER_MISSES = 4
 // How long a single fix request may run before we give up on this cycle and reschedule.
@@ -785,7 +788,11 @@ class LocationTrackingService : Service() {
         if (SKIP_ON_STREAM_FRESHNESS && streamArmed &&
             lastAcceptedAtMs != 0L && now - lastAcceptedAtMs < freshWindow) {
             CaptureStats.bump(CaptureStats.Counter.CYCLE_SKIPPED_FRESH)
-            scheduleNextFix(floorMs)
+            // The stream is demonstrably delivering, so the backup alarm only has to
+            // notice it stopping (Doze). Checking every 15s just wakes the CPU between
+            // batches; relax to once per window, and fall back to the tight cadence the
+            // moment a check finds the stream stale.
+            scheduleNextFix(if (batchMs > 0L) batchMs + LAZY_ALARM_SLACK_MS else floorMs)
             return
         }
         fixInProgress = true
@@ -1034,7 +1041,9 @@ class LocationTrackingService : Service() {
     private fun scheduleNextFix(intervalMs: Long) {
         scheduleFixAlarm(FIX_ALARM_REQUEST_CODE, intervalMs)
         val cfg = currentConfig
-        val catchupMs = (cfg?.let { alarmIntervalMs(it) } ?: intervalMs) * CATCHUP_MULTIPLIER
+        // Never sooner than twice the primary delay, so a relaxed primary isn't pre-empted
+        // by a catch-up sized for the tight cadence.
+        val catchupMs = maxOf((cfg?.let { alarmIntervalMs(it) } ?: intervalMs) * CATCHUP_MULTIPLIER, intervalMs * 2)
         scheduleFixAlarm(FIX_CATCHUP_REQUEST_CODE, catchupMs)
     }
 
