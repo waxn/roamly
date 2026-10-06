@@ -142,6 +142,9 @@ private const val ADAPTIVE_MOVE_THRESHOLD_MPS = MOVE_SPEED_MPS
 // updateNotification() runs once per saved point; a floor keeps a burst of
 // stream fixes from rebuilding it back to back. A no-op at any normal interval.
 private const val NOTIFY_MIN_INTERVAL_MS = 2_000L
+// Nobody is looking at the notification with the screen off, so rebuilding it every
+// couple of seconds is pure wake-up cost. Forced updates (state changes) bypass it.
+private const val NOTIFY_SCREEN_OFF_MIN_INTERVAL_MS = 30_000L
 // Same reasoning for the per-point battery binder call.
 private const val BATTERY_READ_MAX_AGE_MS = 30_000L
 
@@ -1478,8 +1481,11 @@ class LocationTrackingService : Service() {
      *  (pause, resume, a recording starting or stopping). */
     private fun updateNotification(force: Boolean = false) {
         val now = SystemClock.elapsedRealtime()
-        val floor = if (currentConfig?.recording == true) NOTIFY_RECORDING_MIN_INTERVAL_MS
-                    else NOTIFY_MIN_INTERVAL_MS
+        val floor = when {
+            currentConfig?.recording == true -> NOTIFY_RECORDING_MIN_INTERVAL_MS
+            !screenOn -> NOTIFY_SCREEN_OFF_MIN_INTERVAL_MS
+            else -> NOTIFY_MIN_INTERVAL_MS
+        }
         if (!force && now - lastNotifyAtMs < floor) return
         lastNotifyAtMs = now
         getSystemService(NotificationManager::class.java)
