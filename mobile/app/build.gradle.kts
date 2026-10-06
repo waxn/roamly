@@ -153,7 +153,7 @@ dependencies {
     // auto-initializes at runtime without it, and FamilyPushService's own
     // registration code checks for that before touching the API (see there).
     implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.messaging.ktx)
+    implementation(libs.firebase.messaging)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
