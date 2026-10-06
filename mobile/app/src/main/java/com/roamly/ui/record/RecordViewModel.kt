@@ -9,6 +9,8 @@ import com.roamly.data.api.RoamlyApi
 import com.roamly.data.prefs.ActivitySession
 import com.roamly.data.prefs.UserPreferences
 import com.roamly.tracking.ActivityCoordinator
+import com.roamly.tracking.ActivitySport
+import com.roamly.tracking.KalmanFilter2D
 import com.roamly.tracking.TrackingDatabase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -34,6 +36,8 @@ data class RecordUiState(
     val maxSpeedMps: Float = 0f,
     val movingMs: Long = 0L,
     val pointCount: Int = 0,
+    /** Accuracy of the newest fix, or null before the first one lands. */
+    val gpsAccuracyM: Float? = null,
     val track: List<TrackPoint> = emptyList(),
     val recent: List<ActivityDto> = emptyList(),
     val loadingRecent: Boolean = false,
@@ -47,21 +51,21 @@ data class RecordUiState(
 }
 
 /**
- * Live figures for an in-progress recording, folded from the local point queue.
+ * Live figures for an in-progress recording, folded from the recorder's private
+ * buffer ([com.roamly.tracking.ActivityPoint]).
  *
  * The service and this ViewModel share the `@Singleton TrackingDatabase` in one
- * process, so Room emits the service's inserts here directly — the same seam
- * `SettingsViewModel` already uses for the pending-upload count. No binder, no
- * broadcast, nothing new between the two.
+ * process, so Room emits the recorder's writes here directly. The count flow is
+ * only a *trigger*; a cursored tail read keeps each update O(new points).
  *
- * The count flow is only a *trigger*: a `Flow<List<CachedPoint>>` would re-emit
- * the whole growing list on every insert, which over a 40-minute ride at 2s is
- * quadratic. Pairing the count with a cursored tail read keeps it O(new points).
+ * Every fix goes through a forward [KalmanFilter2D], so the line drawn while you
+ * ride and the distance shown follow the smoothed path rather than the raw
+ * zig-zag. Distance and moving time only accrue while moving (Doppler speed over
+ * the sport's pause threshold), so standing at a junction adds nothing.
  *
- * These numbers are provisional. The server recomputes the authoritative ones
- * from the uploaded fixes when the activity is saved, using the same gated
- * distance every other figure in the app comes from; the per-hop gate below is
- * chosen to land close to it rather than to duplicate it exactly.
+ * These numbers are provisional. The server re-smooths the uploaded track forwards
+ * *and* backwards (which a live view can't — it has no future fixes) and its
+ * figures are the ones kept.
  */
 @HiltViewModel
 class RecordViewModel @Inject constructor(
@@ -79,9 +83,12 @@ class RecordViewModel @Inject constructor(
 
     // Fold state for the live accumulation.
     private var cursorId = 0L
-    private var lastLat: Double? = null
-    private var lastLng: Double? = null
+    private var kalman = KalmanFilter2D(ActivitySport.OTHER.processNoise)
+    private var sport = ActivitySport.OTHER
+    private var lastEst: KalmanFilter2D.Estimate? = null
     private var lastTs = 0L
+    private var lastDrawn: TrackPoint? = null
+    private val recentSpeeds = ArrayDeque<Float>()
 
     init {
         viewModelScope.launch {
@@ -95,24 +102,27 @@ class RecordViewModel @Inject constructor(
         loadRecent()
     }
 
-    private fun resetFold() {
+    private fun resetFold(session: ActivitySession) {
         cursorId = 0L
-        lastLat = null
-        lastLng = null
+        sport = ActivitySport.of(session.kind)
+        kalman = KalmanFilter2D(sport.processNoise)
+        lastEst = null
         lastTs = 0L
+        lastDrawn = null
+        recentSpeeds.clear()
     }
 
     private fun startWatching(session: ActivitySession) {
         pointsJob?.cancel()
         tickJob?.cancel()
-        resetFold()
+        resetFold(session)
         _state.update {
-            it.copy(distanceM = 0.0, maxSpeedMps = 0f, movingMs = 0L,
+            it.copy(distanceM = 0.0, maxSpeedMps = 0f, movingMs = 0L, gpsAccuracyM = null,
                     pointCount = 0, track = emptyList(), currentSpeedMps = null)
         }
 
         pointsJob = viewModelScope.launch {
-            db.pointDao().countSinceFlow(session.startedAtMs)
+            db.activityPointDao().countFlow(session.id)
                 // conflate + collect, deliberately not collectLatest: conflate drops
                 // intermediate *emissions* under load, which is what we want, whereas
                 // collectLatest would cancel drainTail mid-loop — and it advances the
@@ -139,52 +149,58 @@ class RecordViewModel @Inject constructor(
     }
 
     private suspend fun drainTail(session: ActivitySession) {
-        val rows = db.pointDao().sinceTail(cursorId, session.startedAtMs)
+        val rows = db.activityPointDao().after(session.id, cursorId)
         if (rows.isEmpty()) return
 
         var distance = _state.value.distanceM
         var maxSpeed = _state.value.maxSpeedMps
         var moving = _state.value.movingMs
-        val track = _state.value.track.toMutableList()
+        val added = ArrayList<TrackPoint>()
         var latest: Float? = _state.value.currentSpeedMps
+        var acc: Float? = _state.value.gpsAccuracyM
 
         for (p in rows) {
             cursorId = maxOf(cursorId, p.id)
-            val pl = lastLat
-            val pn = lastLng
-            if (pl != null && pn != null) {
+            val est = kalman.update(p.t, p.lat, p.lon, p.acc)
+            // Doppler is the honest "am I moving" signal: it stays ~0 standing still
+            // even while the position wanders. Without it (rare at HIGH), fall back
+            // to the filter's own velocity.
+            val speed = p.spd ?: est.speedMps.toFloat()
+            val prev = lastEst
+            val dt = p.t - lastTs
+            if (prev != null && dt in 1..MAX_MOVING_GAP_MS && speed.toDouble() >= sport.movingMps) {
                 val out = FloatArray(1)
-                Location.distanceBetween(pl, pn, p.latitude, p.longitude, out)
-                val hop = out[0]
-                // Mirror the server's per-hop gate: credit only movement that clears
-                // the noise floor, scaled by how good the fix claims to be. Without
-                // it a stationary phone accumulates phantom metres all session.
-                val gate = maxOf(MIN_HOP_M, (p.accuracy ?: DEFAULT_ACC_M) * ACC_GATE_MULT)
-                if (hop >= gate) {
-                    distance += hop
-                    lastLat = p.latitude
-                    lastLng = p.longitude
-                }
-                val dt = p.timestamp - lastTs
-                if (dt in 1..MAX_MOVING_GAP_MS && (p.speed ?: 0f) >= MOVING_SPEED_MPS) {
-                    moving += dt
-                }
-            } else {
-                lastLat = p.latitude
-                lastLng = p.longitude
+                Location.distanceBetween(prev.lat, prev.lon, est.lat, est.lon, out)
+                distance += out[0]
+                moving += dt
             }
-            lastTs = p.timestamp
-            p.speed?.let {
-                if (it > maxSpeed && it <= MAX_PLAUSIBLE_MPS) maxSpeed = it
-                latest = it
-            }
-            track.add(TrackPoint(p.latitude, p.longitude))
+            lastEst = est
+            lastTs = p.t
+            acc = p.acc
+
+            // Max speed off a short rolling median, so one bad Doppler reading
+            // can't claim a top speed you never hit.
+            recentSpeeds.addLast(speed)
+            if (recentSpeeds.size > 5) recentSpeeds.removeFirst()
+            val median = recentSpeeds.sorted()[recentSpeeds.size / 2]
+            if (median > maxSpeed && median <= sport.ceilingMps) maxSpeed = median
+            latest = speed
+
+            // Thin the drawn line to vertices a few metres apart: the map draws the
+            // same shape with a fraction of the points over a long ride.
+            val tp = TrackPoint(est.lat, est.lon)
+            val ld = lastDrawn
+            val far = ld == null || FloatArray(1).also {
+                Location.distanceBetween(ld.lat, ld.lng, tp.lat, tp.lng, it)
+            }[0] >= DRAW_MIN_SPACING_M
+            if (far) { added += tp; lastDrawn = tp }
         }
 
         _state.update {
             it.copy(distanceM = distance, maxSpeedMps = maxSpeed, movingMs = moving,
-                    pointCount = it.pointCount + rows.size, track = track,
-                    currentSpeedMps = latest)
+                    pointCount = it.pointCount + rows.size,
+                    track = if (added.isEmpty()) it.track else it.track + added,
+                    currentSpeedMps = latest, gpsAccuracyM = acc)
         }
     }
 
@@ -212,7 +228,7 @@ class RecordViewModel @Inject constructor(
     }
 
     fun discard() {
-        viewModelScope.launch { ActivityCoordinator.discard(prefs) }
+        viewModelScope.launch { ActivityCoordinator.discard(context, prefs) }
     }
 
     fun loadRecent() {
@@ -239,11 +255,7 @@ class RecordViewModel @Inject constructor(
     }
 
     private companion object {
-        const val MIN_HOP_M = 10f
-        const val ACC_GATE_MULT = 1.5f
-        const val DEFAULT_ACC_M = 15f
-        const val MOVING_SPEED_MPS = 0.5f
         const val MAX_MOVING_GAP_MS = 60_000L
-        const val MAX_PLAUSIBLE_MPS = 60f   // ~216 km/h; above this it is a Doppler glitch
+        const val DRAW_MIN_SPACING_M = 3f
     }
 }

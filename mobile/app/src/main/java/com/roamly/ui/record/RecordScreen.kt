@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -24,7 +25,6 @@ import com.roamly.ui.theme.ClayCard
 import com.roamly.ui.theme.ClayOutlinedButton
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
-import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Polyline
@@ -36,6 +36,7 @@ private val KINDS = listOf(
     "run" to "Run",
     "walk" to "Walk",
     "hike" to "Hike",
+    "row" to "Row",
     "other" to "Other",
 )
 
@@ -113,10 +114,12 @@ fun RecordScreen(
         AlertDialog(
             onDismissRequest = { confirmDiscard = false },
             title = { Text("Discard this recording?") },
-            // Worth saying plainly: people expect Discard to undo the tracking too.
+            // Worth saying plainly: normal tracking pauses while recording, so the
+            // recorded track is the only copy of this stretch of time.
             text = {
-                Text("The activity won't be saved. The GPS points stay in your " +
-                     "normal location history, as they would have anyway.")
+                Text("The activity and its recorded track will be deleted. Normal " +
+                     "tracking was paused while recording, so this stretch won't " +
+                     "appear in your location history either.")
             },
             confirmButton = {
                 TextButton(onClick = { confirmDiscard = false; viewModel.discard() }) {
@@ -130,9 +133,10 @@ fun RecordScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun KindPicker(selected: String, onSelect: (String) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         KINDS.forEach { (slug, label) ->
             FilterChip(
                 selected = slug == selected,
@@ -157,8 +161,25 @@ private fun LiveStats(state: RecordUiState) {
             horizontalArrangement = Arrangement.SpaceEvenly) {
             Stat(formatSpeed(state.avgSpeedMps), "avg", small = true)
             Stat(formatSpeed(state.maxSpeedMps), "max", small = true)
-            Stat("${state.pointCount}", "points", small = true)
+            Stat(formatDuration(state.movingMs), "moving", small = true)
         }
+        Spacer(Modifier.height(10.dp))
+        // GPS quality up front: a weak fix explains a wobbly line before anyone
+        // has to wonder about it.
+        val acc = state.gpsAccuracyM
+        Text(
+            when {
+                acc == null -> "Waiting for GPS…"
+                acc <= 10f -> "GPS good · ±${acc.roundToInt()} m · ${state.pointCount} fixes"
+                acc <= 25f -> "GPS fair · ±${acc.roundToInt()} m · ${state.pointCount} fixes"
+                else -> "GPS weak · ±${acc.roundToInt()} m · ${state.pointCount} fixes"
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = if (acc == null || acc > 25f) Clay.colors.warning
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
     }
 }
 
@@ -183,11 +204,16 @@ private fun Stat(value: String, label: String, small: Boolean = false) {
  * deliberately not MapViewModel's retained instance, which is kept alive across
  * tab switches precisely because recreating *that* one crashes osmdroid's shared
  * tile cache. A second, self-contained instance is fine and already done twice.
+ *
+ * One persistent [Polyline], appended to as points arrive — rebuilding it per fix
+ * was O(n) a second, O(n²) over a ride. The camera follows the newest point until
+ * the user pans; the recenter button resumes following.
  */
 @Composable
 private fun LiveTrackMap(track: List<TrackPoint>, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val lineColor = Clay.colors.mapBlue.toArgb()
+    var follow by remember { mutableStateOf(true) }
     val mapView = remember {
         Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
         Configuration.getInstance().userAgentValue = "Roamly/1.0"
@@ -198,33 +224,45 @@ private fun LiveTrackMap(track: List<TrackPoint>, modifier: Modifier = Modifier)
             setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)
             setDestroyMode(false)
-            controller.setZoom(15.0)
+            controller.setZoom(16.0)
         }
     }
-
-    // Keyed on the point count, not the list: the list identity changes on every
-    // fold, and redrawing a polyline per fix would fight the user's own panning.
-    LaunchedEffect(track.size) {
-        if (track.size < 2) return@LaunchedEffect
-        val geo = track.map { GeoPoint(it.lat, it.lng) }
-        mapView.overlays.clear()
-        mapView.overlays.add(Polyline(mapView).apply {
-            setPoints(geo)
+    val polyline = remember {
+        Polyline(mapView).apply {
             outlinePaint.color = lineColor
-            outlinePaint.strokeWidth = 7f
+            outlinePaint.strokeWidth = 9f
+            outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+            outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
             outlinePaint.isAntiAlias = true
-        })
-        mapView.post {
-            runCatching {
-                mapView.zoomToBoundingBox(BoundingBox.fromGeoPoints(geo), false, 64)
-            }
-            mapView.invalidate()
+            mapView.overlays.add(this)
         }
     }
+    var drawn by remember { mutableIntStateOf(0) }
 
     DisposableEffect(mapView) {
+        // A drag means the user wants to look around; stop yanking the camera back.
+        @Suppress("ClickableViewAccessibility")
+        mapView.setOnTouchListener { _, ev ->
+            if (ev.actionMasked == android.view.MotionEvent.ACTION_MOVE) follow = false
+            false
+        }
         mapView.onResume()
         onDispose { mapView.onPause() }
+    }
+
+    LaunchedEffect(track.size, follow) {
+        if (track.size < drawn) {          // a new recording started
+            polyline.setPoints(emptyList())
+            drawn = 0
+        }
+        if (track.isEmpty()) return@LaunchedEffect
+        val first = drawn == 0
+        for (i in drawn until track.size) polyline.addPoint(GeoPoint(track[i].lat, track[i].lng))
+        drawn = track.size
+        val last = track.last()
+        if (first) mapView.controller.setCenter(GeoPoint(last.lat, last.lng))
+        else if (follow) mapView.controller.animateTo(GeoPoint(last.lat, last.lng))
+        mapView.invalidate()
     }
 
     ClayCard(contentPadding = 0.dp, modifier = modifier.fillMaxWidth()) {
@@ -233,6 +271,12 @@ private fun LiveTrackMap(track: List<TrackPoint>, modifier: Modifier = Modifier)
                 factory = { mapView },
                 modifier = Modifier.fillMaxSize(),
             )
+            if (!follow) {
+                SmallFloatingActionButton(
+                    onClick = { follow = true },
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp),
+                ) { Icon(Icons.Rounded.MyLocation, contentDescription = "Follow my position") }
+            }
         }
     }
 }

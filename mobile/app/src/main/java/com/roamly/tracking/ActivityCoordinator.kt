@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.roamly.data.prefs.ActivitySession
 import com.roamly.data.prefs.UserPreferences
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import java.util.UUID
 
@@ -12,8 +13,9 @@ import java.util.UUID
  * deliberately much smaller than it.
  *
  * The whole state is one DataStore session ([UserPreferences.activitySession]).
- * [LocationTrackingService] observes it and swaps its capture config accordingly,
- * so nothing here talks to the service directly beyond nudging it awake.
+ * [LocationTrackingService] observes it and hands capture to [ActivityRecorder]
+ * while it is set, so nothing here talks to the service directly beyond nudging it
+ * awake.
  *
  * **Nothing is stashed, so nothing has to be put back.** The recording constants
  * live in the service; the user's own interval, priority and drift preferences are
@@ -25,9 +27,9 @@ object ActivityCoordinator {
     private const val TAG = "ActivityCoordinator"
 
     /**
-     * Begin recording. Requires tracking to already be running: a recording is a
-     * higher-fidelity mode of the existing capture loop, not a second one, and
-     * requiring it means there is genuinely no prior state to restore on stop.
+     * Begin recording. Requires tracking to already be running: the recorder lives
+     * inside the tracking service, and requiring it means there is genuinely no
+     * prior state to restore on stop.
      *
      * Returns the new session, or null if tracking is off or location is denied.
      */
@@ -50,31 +52,38 @@ object ActivityCoordinator {
     }
 
     /**
-     * Finish recording and hand the envelope off to be saved.
+     * Finish recording and hand the envelope and track off to be saved.
      *
      * Order matters: clear the session **first** so capture returns to the user's
-     * normal settings immediately, then flush points, then enqueue the save. A
-     * crash anywhere after the clear leaves tracking correct and costs at most the
-     * activity record, which the queued worker will still deliver.
+     * normal settings immediately (the service stops the recorder, which writes out
+     * its buffer), then enqueue the save. The worker waits for that last write to
+     * land before it reads the track. A crash anywhere after the clear leaves
+     * tracking correct; the recorded fixes are already on disk and the queued
+     * worker still delivers them.
      */
     suspend fun stop(context: Context, prefs: UserPreferences): ActivitySession? {
         val session = prefs.activitySession.first() ?: return null
         prefs.clearActivity()
-        runCatching { UploadWorker.scheduleNow(context, prefs.syncOnMobileData.first(), replace = true) }
         ActivitySaveWorker.enqueue(context, session, System.currentTimeMillis())
         Log.i(TAG, "Recording stopped: ${session.kind} (${session.id})")
         return session
     }
 
     /**
-     * Abandon the recording without saving an activity.
+     * Abandon the recording: nothing is saved and the recorded fixes are deleted.
      *
-     * The captured points stay in normal history, which is the correct behaviour
-     * rather than an oversight: an activity is a view over the track, so discarding
-     * the view must not punch a hole in the location history behind it.
+     * The recorded track lives only in the phone's private recording buffer until
+     * it uploads, and all-day tracking was suspended while it ran — so a discarded
+     * ride leaves a gap in history for its duration. That is what "discard" means;
+     * the confirmation dialog says so.
      */
-    suspend fun discard(prefs: UserPreferences) {
+    suspend fun discard(context: Context, prefs: UserPreferences) {
+        val session = prefs.activitySession.first() ?: return
         prefs.clearActivity()
-        Log.i(TAG, "Recording discarded — points kept in normal history")
+        // Give the service a moment to stop the recorder and write its buffer, so
+        // the delete below catches those rows too rather than leaving orphans.
+        delay(1_500L)
+        TrackingDatabase.getInstance(context).activityPointDao().deleteActivity(session.id)
+        Log.i(TAG, "Recording discarded: ${session.id}")
     }
 }
