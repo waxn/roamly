@@ -94,6 +94,21 @@ Response:
 * **Torn writes are caught.** Every 32-byte record has a CRC-16; after a reboot
   appends go to a fresh segment, so a half-written tail is never extended.
 
+## Server-side cleanup
+
+Tracker uploads get two corrections the firmware deliberately doesn't spend
+CPU on:
+
+* **Stationary speed → 0.** Speeds under 2 km/h are zeroed, and so are speeds
+  under 5.4 km/h when the position barely moved relative to the neighbouring
+  points (< 0.5 m/s implied). A NEO-6M at rest reports 0.3–1.5 km/h of Doppler
+  noise; walking moves the fix, so real walking speeds survive.
+* **Glitch clusters flagged, not deleted.** A run of 1–6 points that jumps
+  ≥ 80 m away and back within 15 minutes while its own Doppler reads
+  ≤ 1.5 m/s is marked `suspect` (reason `cluster`). The map's *hide outliers*
+  toggle (on by default) hides it and distance totals skip it; the raw fix stays
+  in the database. Runs after every upload and in the nightly quality scan.
+
 ## Settings endpoints (browser)
 
 `GET /api/hw/trackers/`, `POST /api/hw/trackers/<id>/rename/` `{name}`,
