@@ -308,6 +308,10 @@ urlpatterns = [
     path('api/trash/', views.trash_api, name='trash_api'),
     path('api/trash/restore/', views.trash_restore_api, name='trash_restore'),
     path('api/trash/empty/', views.trash_empty_api, name='trash_empty'),
+    path('api/notifications/', views.notifications_api, name='notifications_api'),
+    path('api/notifications/overlap/<int:overlap_id>/hide/', views.overlap_hide_api, name='overlap_hide'),
+    path('api/notifications/overlap/<int:overlap_id>/dismiss/', views.overlap_dismiss_api, name='overlap_dismiss'),
+    path('api/notifications/overlap/<int:overlap_id>/unhide/', views.overlap_unhide_api, name='overlap_unhide'),
 
     # Automatic Backups
     path('api/backup/config/', views.backup_config_api, name='backup_config'),

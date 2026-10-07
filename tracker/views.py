@@ -13004,6 +13004,101 @@ def trash_empty_api(request):
     return JsonResponse({'status': 'ok', 'deleted': deleted})
 
 
+# ── Notifications ───────────────────────────────────────────────────────────
+# The navbar bell. Nothing is stored as a "notification": each item is derived
+# from the state that needs a decision, so it disappears by itself once that
+# state is resolved. The only source today is DeviceOverlap (overlap_tasks).
+
+_NOTIF_RECENT_HIDDEN = 20
+
+
+def _overlap_item(o, names):
+    """One DeviceOverlap as a notification item, with per-device point counts."""
+    from .models import TrashedLocation
+    devices = []
+    for dev_id in (o.device_a_id, o.device_b_id):
+        if o.status == 'hidden' and dev_id == o.hidden_device_id:
+            n = TrashedLocation.objects.filter(overlap=o, device_id=dev_id).count()
+        else:
+            n = Location.objects.filter(device_id=dev_id, timestamp__gte=o.start_time,
+                                        timestamp__lte=o.end_time).count()
+        devices.append({'id': dev_id, 'name': names.get(dev_id, str(dev_id)), 'points': n})
+    return {
+        'kind': 'device_overlap', 'id': o.id, 'status': o.status,
+        'start': o.start_time.isoformat(), 'end': o.end_time.isoformat(),
+        'hidden_device': o.hidden_device_id,
+        'devices': devices,
+    }
+
+
+@login_required
+def notifications_api(request):
+    """``?summary=1`` → just the pending count (every page load); otherwise the
+    full panel: pending items plus recently hidden overlaps, which can be undone."""
+    from .models import DeviceOverlap
+    pending_qs = DeviceOverlap.objects.filter(user=request.user, status='pending')
+    if request.GET.get('summary'):
+        return JsonResponse({'unread': pending_qs.count()})
+    names = {d.id: (d.name or d.device_id)
+             for d in Device.objects.filter(user=request.user)}
+    pending = list(pending_qs.order_by('-start_time')[:50])
+    hidden = list(DeviceOverlap.objects.filter(user=request.user, status='hidden')
+                  .order_by('-resolved_at')[:_NOTIF_RECENT_HIDDEN])
+    return JsonResponse({
+        'unread': pending_qs.count(),
+        'items': [_overlap_item(o, names) for o in pending],
+        'hidden': [_overlap_item(o, names) for o in hidden],
+    })
+
+
+def _own_overlap(request, overlap_id):
+    from .models import DeviceOverlap
+    return get_object_or_404(DeviceOverlap, id=overlap_id, user=request.user)
+
+
+@login_required
+@require_http_methods(["POST"])
+def overlap_hide_api(request, overlap_id):
+    """Hide one device's points for the overlap window."""
+    from . import overlap_tasks
+    o = _own_overlap(request, overlap_id)
+    try:
+        data = json.loads(request.body or '{}')
+        device_id = int(data.get('device_id'))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return JsonResponse({'error': 'device_id required'}, status=400)
+    if o.status == 'hidden':
+        return JsonResponse({'error': 'Already hidden — unhide it first.'}, status=409)
+    if device_id not in (o.device_a_id, o.device_b_id):
+        return JsonResponse({'error': 'That device is not part of this overlap.'}, status=400)
+    hidden = overlap_tasks.hide_overlap(request.user, o, device_id)
+    return JsonResponse({'status': 'ok', 'hidden': hidden})
+
+
+@login_required
+@require_http_methods(["POST"])
+def overlap_dismiss_api(request, overlap_id):
+    """Keep both tracks; the window is never offered again."""
+    o = _own_overlap(request, overlap_id)
+    if o.status == 'pending':
+        o.status = 'dismissed'
+        o.resolved_at = timezone.now()
+        o.save(update_fields=['status', 'resolved_at'])
+    return JsonResponse({'status': 'ok'})
+
+
+@login_required
+@require_http_methods(["POST"])
+def overlap_unhide_api(request, overlap_id):
+    """Put a hidden overlap's points back (the overlap becomes dismissed)."""
+    from . import overlap_tasks
+    o = _own_overlap(request, overlap_id)
+    if o.status != 'hidden':
+        return JsonResponse({'error': 'Nothing hidden for this overlap.'}, status=409)
+    restored = overlap_tasks.unhide_overlap(request.user, o)
+    return JsonResponse({'status': 'ok', 'restored': restored})
+
+
 # ── Health Connect ───────────────────────────────────────────────────────────
 # Steps / distance / calories read from Android Health Connect, plus manually
 # imported exercise sessions. Entirely self-contained: no endpoint here reads or
