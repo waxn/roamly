@@ -34,6 +34,8 @@ static volatile int lastAck = 0;   // 1 ack, -1 nak, 0 none
 static uint8_t lastAckCls = 0, lastAckId = 0;
 static uint8_t pm2[44];
 static bool pm2Valid = false;
+static uint8_t tp5[32];
+static bool tp5Valid = false;
 
 static void ubxChecksum(const uint8_t* d, size_t n, uint8_t& a, uint8_t& b) {
   a = b = 0;
@@ -59,6 +61,9 @@ static void ubxHandle(uint8_t cls, uint8_t id, const uint8_t* p, uint16_t len) {
     lastAckId = p[1];
     lastAck = id == 0x01 ? 1 : -1;
     if (id == 0x01) info.ubxAcks++; else info.ubxNaks++;
+  } else if (cls == 0x06 && id == 0x31 && len == 32) {
+    memcpy(tp5, p, 32);
+    tp5Valid = true;
   } else if (cls == 0x06 && id == 0x3B && len == 44) {
     memcpy(pm2, p, 44);
     pm2Valid = true;
@@ -317,6 +322,25 @@ bool gpsApplyMode(uint8_t mode, uint16_t intervalS) {
     memcpy(pm2 + 12, &search, 4);
     ok &= ubxCmd(0x06, 0x3B, pm2, 44);
   }
+  // The GY-NEO6MV2's blue LED hangs off the TIMEPULSE pin, so it is a 1 Hz
+  // "I have a fix" blinker that never turns off on its own. Turn the time
+  // pulse off (CFG-TP5 flags bit0 = active), patching the module's own copy.
+  tp5Valid = false;
+  uint8_t tpIdx = 0;
+  for (int i = 0; i < 3 && !tp5Valid; i++) {
+    ubxSend(0x06, 0x31, &tpIdx, 1);
+    uint32_t t0 = millis();
+    while (millis() - t0 < 600 && !tp5Valid) { gpsPoll(); delay(5); }
+  }
+  if (tp5Valid) {
+    tp5[28] &= ~0x01;                        // flags: active = 0
+    info.ledOff = ubxCmd(0x06, 0x31, tp5, 32);
+  } else {
+    // Older protocol: CFG-TP with status 0 = time pulse off.
+    uint8_t tp[20] = {0x40, 0x42, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x00};   // interval 1 s, length 0
+    info.ledOff = ubxCmd(0x06, 0x07, tp, 20);
+  }
+
   // CFG-RXM: lpMode 0 = continuous (max performance), 1 = power save.
   // Low-power mode is driven from our side with RXM-PMREQ, so the receiver
   // itself runs continuous while it is on.

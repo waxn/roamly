@@ -20,6 +20,7 @@ struct GpsFix {
 struct GpsInfo {
   bool     detected = false;
   bool     configured = false;   // UBX power config ACKed
+  bool     ledOff = false;       // timepulse (the module's blue LED) disabled
   int      rx = -1, tx = -1;
   uint32_t baud = 0;
   uint32_t bytes = 0, sentences = 0, badChecksum = 0;

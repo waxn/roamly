@@ -52,8 +52,8 @@ static void status() {
   char rs[120];
   resetSummary(rs, sizeof rs);
   Serial.printf("resets: %s\n", rs);
-  Serial.printf("gps: det=%d cfg=%d rx=%d tx=%d baud=%lu ver='%s' bytes=%lu sent=%lu bad=%lu acks=%lu naks=%lu asleep=%d\n",
-                g.detected, g.configured, g.rx, g.tx, (unsigned long)g.baud, g.version, (unsigned long)g.bytes,
+  Serial.printf("gps: det=%d cfg=%d led_off=%d rx=%d tx=%d baud=%lu ver='%s' bytes=%lu sent=%lu bad=%lu acks=%lu naks=%lu asleep=%d\n",
+                g.detected, g.configured, g.ledOff, g.rx, g.tx, (unsigned long)g.baud, g.version, (unsigned long)g.bytes,
                 (unsigned long)g.sentences, (unsigned long)g.badChecksum, (unsigned long)g.ubxAcks, (unsigned long)g.ubxNaks, g.asleep);
   Serial.printf("fix: valid=%d type=%u age=%lums %.7f,%.7f alt=%.1f acc=%.1f(%s) spd=%.2f crs=%.0f sats=%u/%u heard=%u hdop=%.2f snr best=%u top4=%.1f ttff=%lums\n",
                 f.valid, f.fixType, f.atMs ? (unsigned long)(millis() - f.atMs) : 0UL, f.lat, f.lon, f.altM, f.accM,
