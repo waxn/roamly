@@ -42,7 +42,7 @@ struct Settings {
   int8_t   gpsRx          = -1;     // -1 = not yet detected
   int8_t   gpsTx          = -1;
   uint32_t gpsBaud        = 0;
-  uint8_t  gpsLed         = 0;      // TIMEPULSE config that keeps the module LED dark
+  uint8_t  gpsLed         = 1;      // TIMEPULSE config that keeps the module LED dark (1 = held low)
 };
 
 extern Settings cfg;

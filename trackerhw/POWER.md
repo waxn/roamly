@@ -9,7 +9,7 @@ Target: **30–40 h** on the 1500 mAh cell at a 30 s interval.
 | NEO-6M, continuous tracking | ~37 mA | u-blox datasheet, plus ~2 mA for the board's power LED and regulator |
 | NEO-6M, power save (cyclic, 1 Hz) | ~11 mA | RF front end duty-cycled between epochs, same 1 Hz output |
 | NEO-6M, backup | < 0.1 mA | RTC + ephemeris kept |
-| GY-NEO6MV2 blue LED | ~1–2 mA | on the TIMEPULSE pin; the firmware turns the time pulse off (`CFG-TP5`) |
+| GY-NEO6MV2 blue LED | ~1–2 mA | on the TIMEPULSE pin; the firmware holds it low with a zero-length pulse (`CFG-TP5`, `gps led 1`). Merely disabling the pulse leaves it lit. |
 | ESP32-S3 awake @ 80 MHz | ~25 mA | only during a fix window (~3 s per point) and while the screen is on |
 | ESP32-S3 light sleep + board quiescent | ~0.5–1 mA | regulator, fuel gauge, sleeping TFT |
 | TFT backlight | ~15–20 mA | 5 s per glance; negligible over a day |
