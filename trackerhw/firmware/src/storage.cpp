@@ -131,27 +131,33 @@ static void normalise() {
   }
 }
 
+static uint32_t peekCorrupt = 0;   // corrupt slots in the last peek, counted on commit
+
 int storagePeek(PointRec* out, int max, int& consumed) {
   Lock l;
   normalise();
-  // After normalise() the cursor is inside firstSeg (or at the end of the
-  // active segment), so a batch never spans segments; a short batch at a
-  // segment boundary is simply followed by the next one.
+  // A batch may span segments: every reboot starts a fresh one, and a tracker
+  // that rebooted often would otherwise upload a handful of points per request.
   int filled = 0;
   consumed = 0;
-  File f = LittleFS.open(segPath(firstSeg), "r");
-  if (!f) return 0;
-  uint32_t n = f.size() / sizeof(PointRec);
-  if (cursor < n) {
-    f.seek(cursor * sizeof(PointRec));
-    for (uint32_t off = cursor; filled < max && off < n; off++) {
-      PointRec r;
-      if (f.read((uint8_t*)&r, sizeof r) != sizeof r) break;
-      consumed++;
-      if (recValid(r)) out[filled++] = r;
+  peekCorrupt = 0;
+  uint32_t off = cursor;
+  for (uint32_t seg = firstSeg; seg <= lastSeg && filled < max; seg++, off = 0) {
+    File f = LittleFS.open(segPath(seg), "r");
+    if (!f) continue;   // a gap in the ids (empty segment never written)
+    uint32_t n = f.size() / sizeof(PointRec);
+    if (off < n) {
+      f.seek(off * sizeof(PointRec));
+      for (; filled < max && off < n; off++) {
+        PointRec r;
+        if (f.read((uint8_t*)&r, sizeof r) != sizeof r) break;
+        consumed++;
+        if (recValid(r)) out[filled++] = r;
+        else peekCorrupt++;
+      }
     }
+    f.close();
   }
-  f.close();
   return filled;
 }
 
@@ -168,19 +174,27 @@ bool storageCommit(int consumed, const PointRec* rejected, int nRejected) {
     if (w != want) return false;
     quarantineCount += nRejected;
   }
-  // Count corrupt records we are stepping over, for the stats.
-  File f = LittleFS.open(segPath(firstSeg), "r");
-  if (f) {
-    f.seek(cursor * sizeof(PointRec));
-    for (int i = 0; i < consumed; i++) {
-      PointRec r;
-      if (f.read((uint8_t*)&r, sizeof r) != sizeof r) break;
-      if (!recValid(r)) corruptCount++;
+  corruptCount += peekCorrupt;
+  peekCorrupt = 0;
+  // Walk the cursor forward over `consumed` slots, retiring each segment it
+  // passes — the same path storagePeek read them along.
+  uint32_t left = consumed;
+  while (left > 0) {
+    uint32_t n = segRecords(firstSeg);
+    uint32_t avail = n > cursor ? n - cursor : 0;
+    uint32_t take = min(avail, left);
+    cursor += take;
+    left -= take;
+    pendingCount = pendingCount > take ? pendingCount - take : 0;
+    if (cursor < n) break;
+    if (firstSeg < lastSeg) {
+      LittleFS.remove(segPath(firstSeg));
+      firstSeg++;
+      cursor = 0;
+    } else {
+      break;   // active segment: handled below
     }
-    f.close();
   }
-  cursor += consumed;
-  pendingCount = pendingCount > (uint32_t)consumed ? pendingCount - consumed : 0;
   if (firstSeg == lastSeg && cursor >= lastSegCount && lastSegCount > 0) {
     // Everything in the active segment is confirmed: retire it and start fresh.
     LittleFS.remove(segPath(firstSeg));
