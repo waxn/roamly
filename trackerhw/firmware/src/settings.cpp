@@ -10,15 +10,20 @@ static constexpr uint32_t SEQ_STEP = 256;
 void settingsLoad() {
   prefs.begin("roamly", false);
   if (prefs.isKey("cfg")) {
-    // A struct blob, versioned by size: a firmware with a different layout
-    // starts from defaults but keeps provisioning, which is read separately.
-    if (prefs.getBytesLength("cfg") == sizeof(Settings)) {
-      prefs.getBytes("cfg", &cfg, sizeof(Settings));
-    } else {
-      prefs.getString("server", cfg.server, sizeof(cfg.server));
-      prefs.getString("apikey", cfg.apiKey, sizeof(cfg.apiKey));
+    // A struct blob. Fields are only ever APPENDED to Settings, so a record
+    // saved by older firmware is a prefix of the current layout: copy what it
+    // has and let the new fields keep their defaults. (Treating any size
+    // change as "start over" once wiped a tracker's saved Wi-Fi on update.)
+    size_t n = prefs.getBytesLength("cfg");
+    if (n > 0 && n <= sizeof(Settings)) {
+      uint8_t* buf = (uint8_t*)malloc(n);
+      if (buf && prefs.getBytes("cfg", buf, n) == n) memcpy((uint8_t*)&cfg, buf, n);
+      free(buf);
     }
   }
+  // Belt and braces: the pairing is also stored on its own.
+  if (!cfg.server[0]) prefs.getString("server", cfg.server, sizeof(cfg.server));
+  if (!cfg.apiKey[0]) prefs.getString("apikey", cfg.apiKey, sizeof(cfg.apiKey));
   seqPersisted = prefs.getUInt("seq", 1);
   seqNext = seqPersisted;
   seqPersisted += SEQ_STEP;

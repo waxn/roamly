@@ -11,6 +11,8 @@ struct WifiCred {
   char pass[65];
 };
 
+// Saved to NVS as one blob. ONLY APPEND new fields at the end: settingsLoad()
+// reads an older, shorter record as a prefix of this layout.
 struct Settings {
   // user-facing (menu)
   uint16_t screenTimeoutS = 5;
@@ -40,6 +42,7 @@ struct Settings {
   int8_t   gpsRx          = -1;     // -1 = not yet detected
   int8_t   gpsTx          = -1;
   uint32_t gpsBaud        = 0;
+  uint8_t  gpsLed         = 0;      // TIMEPULSE config that keeps the module LED dark
 };
 
 extern Settings cfg;
