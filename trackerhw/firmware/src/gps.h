@@ -20,7 +20,8 @@ struct GpsFix {
 struct GpsInfo {
   bool     detected = false;
   bool     configured = false;   // UBX power config ACKed
-  bool     ledOff = false;       // timepulse (the module's blue LED) disabled
+  bool     ledOff = false;       // LED config written and read back
+  bool     ledPending = false;   // needs (re)applying once the receiver talks
   int      rx = -1, tx = -1;
   uint32_t baud = 0;
   uint32_t bytes = 0, sentences = 0, badChecksum = 0;
@@ -42,6 +43,7 @@ const GpsFix& gpsLatest();       // most recent parsed fix (check .valid/.atMs)
 GpsInfo& gpsInfo();
 bool gpsApplyMode(uint8_t mode, uint16_t intervalS);
 bool gpsSetLed(uint8_t variant);   // see gps.cpp; 0..3
+void gpsMaintainLed();             // call from the main loop
 void gpsBackup(uint32_t ms);     // low-power: backup mode for ms (0 = until woken)
 void gpsWake();
 void gpsSetRawEcho(Stream* s);   // mirror NMEA to a stream (console "gps raw")

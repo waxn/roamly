@@ -336,41 +336,56 @@ bool gpsApplyMode(uint8_t mode, uint16_t intervalS) {
 
 // The GY-NEO6MV2's blue LED hangs off the TIMEPULSE pin. Which configuration
 // leaves that pin dark depends on how the board wires the LED, so it's a
-// setting (CFG-TP5 patched from the module's own copy):
+// setting (CFG-TP5):
 //   0  time pulse disabled
 //   1  enabled, 1 s period, zero-length pulse, polarity "rising" (pin held low)
+//      -- the one that turns the GY-NEO6MV2's LED off
 //   2  same with polarity "falling" (pin held high)
-//   3  module default (blinks once a second with a fix)
+//   3  module default (100 ms blink once a second with a fix)
+//
+// The payload is built outright rather than read-modify-written: right after
+// a power cycle the receiver is still booting when we first talk to it, the
+// read timed out, and the LED was silently left at its default. The write is
+// then read back to confirm it took. The receiver forgets it across a power
+// cycle, so it is reapplied after every wake-up and every 10 minutes.
+static uint32_t ledAppliedMs = 0;
+
 bool gpsSetLed(uint8_t variant) {
   if (cfg.gpsTx < 0) return false;
-  tp5Valid = false;
-  uint8_t tpIdx = 0;
-  for (int i = 0; i < 3 && !tp5Valid; i++) {
+  uint8_t p[32] = {0};
+  uint32_t period = 1000000, len = variant == 3 ? 100000 : 0;
+  uint32_t flags = variant == 0 ? 0x00 : variant == 1 ? 0x53 : variant == 2 ? 0x13 : 0x77;
+  memcpy(p + 8, &period, 4);    // freqPeriod (us)
+  memcpy(p + 12, &period, 4);   // freqPeriodLock
+  memcpy(p + 20, &len, 4);      // pulseLenRatio (us)
+  memcpy(p + 24, &len, 4);      // pulseLenRatioLock
+  memcpy(p + 28, &flags, 4);
+  bool ok = false;
+  for (int attempt = 0; attempt < 3 && !ok; attempt++) {
+    if (!ubxCmd(0x06, 0x31, p, 32)) continue;
+    tp5Valid = false;
+    uint8_t tpIdx = 0;
     ubxSend(0x06, 0x31, &tpIdx, 1);
     uint32_t t0 = millis();
-    while (millis() - t0 < 600 && !tp5Valid) { gpsPoll(); delay(5); }
+    while (millis() - t0 < 700 && !tp5Valid) { gpsPoll(); delay(5); }
+    uint32_t back = 0;
+    if (tp5Valid) memcpy(&back, tp5 + 28, 4);
+    ok = tp5Valid && (back & 0x7F) == (flags & 0x7F);
+    if (!ok) delay(300);
   }
-  if (!tp5Valid) { info.ledOff = false; return false; }
-  Serial.print("[gps] TP5 was:");
-  for (int i = 0; i < 32; i++) Serial.printf(" %02X", tp5[i]);
-  Serial.println();
-  uint32_t flags, period = 1000000, zero = 0, def = 100000;
-  memcpy(&flags, tp5 + 28, 4);
-  if (variant == 0) {
-    flags &= ~0x01u;
-  } else {
-    flags |= 0x01u | 0x02u | 0x10u;   // active, lock to GPS, length (not ratio)
-    flags &= ~0x08u;                   // period (not frequency)
-    if (variant == 1) flags |= 0x40u; else if (variant == 2) flags &= ~0x40u;
-    memcpy(tp5 + 8, &period, 4);
-    memcpy(tp5 + 12, &period, 4);
-    uint32_t len = variant == 3 ? def : zero;
-    memcpy(tp5 + 20, &len, 4);
-    memcpy(tp5 + 24, &len, 4);
-  }
-  memcpy(tp5 + 28, &flags, 4);
-  info.ledOff = ubxCmd(0x06, 0x31, tp5, 32) && variant != 3;
-  return info.ledOff || variant == 3;
+  info.ledOff = ok && variant != 3;
+  info.ledPending = !ok;
+  ledAppliedMs = millis();
+  return ok;
+}
+
+void gpsMaintainLed() {
+  // Reapply once the receiver is talking again after a wake-up, and
+  // periodically in case it browned out or reset behind our back.
+  if (info.asleep || cfg.gpsTx < 0) return;
+  bool talking = info.lastSentenceMs && millis() - info.lastSentenceMs < 2000;
+  if (!talking) return;
+  if (info.ledPending || millis() - ledAppliedMs > 10UL * 60 * 1000) gpsSetLed(cfg.gpsLed);
 }
 
 void gpsBackup(uint32_t ms) {
@@ -390,6 +405,7 @@ void gpsWake() {
   for (int i = 0; i < 8; i++) GPS.write(0xFF);
   GPS.flush();
   info.asleep = false;
+  info.ledPending = true;   // reassert the LED config once it's talking
   wokeAtMs = millis();
   haveFixSinceWake = false;
 }
@@ -398,7 +414,16 @@ bool gpsBegin() {
   wokeAtMs = millis();
   bool found = false;
   if (cfg.gpsRx >= 0 && cfg.gpsBaud) {
-    found = listenFor(cfg.gpsRx, cfg.gpsBaud, 2500);
+    // The receiver may still be in backup from before this boot (recording
+    // paused, powered off): wake it before listening, or the silence sends us
+    // into a full pin scan -- which once "found" the module on swapped pins.
+    if (cfg.gpsTx >= 0) {
+      GPS.end();
+      GPS.begin(cfg.gpsBaud, SERIAL_8N1, cfg.gpsRx, cfg.gpsTx);
+      for (int i = 0; i < 16; i++) GPS.write(0xFF);
+      GPS.flush();
+    }
+    found = listenFor(cfg.gpsRx, cfg.gpsBaud, 2500) || listenFor(cfg.gpsRx, cfg.gpsBaud, 4000);
   }
   if (!found) found = gpsDetect(true);
   info.detected = found;
