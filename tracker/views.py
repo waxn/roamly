@@ -80,6 +80,7 @@ from .backup_tasks import (
     _build_health_workouts_data,
     _build_activities_data,
     _build_family_data,
+    _build_device_overlaps_data,
 )
 
 logger = logging.getLogger(__name__)
@@ -7171,9 +7172,14 @@ def _write_backup_json(user, f, progress=None):
     # small sections and turn elapsed time into a meaningful ETA.
     report('Counting locations')
     loc_total = Location.objects.filter(device__user=user).count()
+    # Overlap-hidden points ride in the locations stream (tagged, see below), so
+    # they count toward its progress and its `counts` entry.
+    hidden_qs = (TrashedLocation.objects.filter(user=user, reason='overlap')
+                 .select_related('device').order_by('timestamp'))
+    loc_total += hidden_qs.count()
 
     report('Collecting devices')
-    meta = {'version': 17, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 18, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # The single backup builder: the scheduled S3 backup calls this too, so the
@@ -7199,6 +7205,7 @@ def _write_backup_json(user, f, progress=None):
     activities = _build_activities_data(user)
     report('Collecting family circles')
     family_circles = _build_family_data(user)
+    device_overlaps = _build_device_overlaps_data(user)
     health_total = HealthSample.objects.filter(user=user).count()
     cell_total = CellSample.objects.filter(user=user).count()
 
@@ -7211,6 +7218,7 @@ def _write_backup_json(user, f, progress=None):
     f.write(b'"health_workouts":' + encoder.encode(health_workouts).encode() + b',')
     f.write(b'"activities":' + encoder.encode(activities).encode() + b',')
     f.write(b'"family_circles":' + encoder.encode(family_circles).encode() + b',')
+    f.write(b'"device_overlaps":' + encoder.encode(device_overlaps).encode() + b',')
 
     # Recorded activity tracks (v17+), one at a time — a long ride is hundreds
     # of KB, so building them all into one list first is the OOM the
@@ -7251,6 +7259,28 @@ def _write_backup_json(user, f, progress=None):
             'city': loc.city, 'state': loc.state,
             'country': loc.country, 'country_code': loc.country_code,
             'place_name': loc.place_name,
+        }).encode())
+        written += 1
+        if written % 5000 == 0:
+            report('Writing locations', written, loc_total)
+    # Points hidden because another device recorded the same track (v18+). They
+    # live in TrashedLocation, not Location, but they are user data rather than
+    # trash, so they travel here tagged with `hidden: "overlap"` and restore
+    # straight back into the hidden table instead of becoming visible again.
+    for t in hidden_qs.iterator(chunk_size=2000):
+        if not first:
+            f.write(b',')
+        first = False
+        f.write(encoder.encode({
+            'device_id': t.device.device_id,
+            'latitude': _jf(t.latitude), 'longitude': _jf(t.longitude),
+            'altitude': _jf(t.altitude), 'accuracy': _jf(t.accuracy),
+            'speed': _jf(t.speed), 'battery': _jf(t.battery),
+            'timestamp': t.timestamp,
+            'city': t.city, 'state': t.state,
+            'country': t.country, 'country_code': t.country_code,
+            'place_name': t.place_name,
+            'hidden': 'overlap', 'overlap_ref': t.overlap_id,
         }).encode())
         written += 1
         if written % 5000 == 0:
@@ -7334,6 +7364,7 @@ def _write_backup_json(user, f, progress=None):
         'activities': len(activities),
         'activity_tracks': track_count,
         'family_circles': len(family_circles),
+        'device_overlaps': len(device_overlaps),
     }).encode() + b'}')
     report('Writing cell samples', cell_total, cell_total)
 
@@ -7785,6 +7816,42 @@ def restore_backup(request):
                 if created:
                     counts['devices'] += 1
 
+            # Device overlaps (v18+) before the locations stream, which tags the
+            # overlap-hidden points with the `ref` they belong to.
+            from .models import DeviceOverlap
+            overlap_map = {}
+            for ov in data.get('device_overlaps', []):
+                try:
+                    da = device_map.get(ov.get('device_a'))
+                    db = device_map.get(ov.get('device_b'))
+                    if not da or not db or da.id == db.id:
+                        continue
+                    if da.id > db.id:
+                        da, db = db, da
+                    hid = device_map.get(ov.get('hidden_device')) if ov.get('hidden_device') else None
+                    status = ov.get('status') if ov.get('status') in ('pending', 'hidden', 'dismissed') else 'pending'
+                    obj, _ = DeviceOverlap.objects.get_or_create(
+                        user=user, device_a=da, device_b=db,
+                        start_time=_parse_timestamp(ov['start_time']),
+                        defaults={
+                            'end_time': _parse_timestamp(ov['end_time']),
+                            'status': status,
+                            'hidden_device': hid,
+                            'resolved_at': (_parse_timestamp(ov['resolved_at'])
+                                            if ov.get('resolved_at') else None),
+                        })
+                    overlap_map[ov.get('ref')] = obj
+                except Exception as e:
+                    errors += 1
+                    logger.warning(f"Backup restore device overlap error: {e}")
+            # Re-restoring the same archive must not duplicate hidden points;
+            # TrashedLocation has no unique constraint to lean on like Location.
+            hidden_seen = set(
+                TrashedLocation.objects.filter(user=user, reason='overlap')
+                .values_list('device_id', 'timestamp', 'latitude', 'longitude'))
+            hidden_batch = []
+            hidden_total = 0
+
             # Restore locations using bulk_create with ignore_conflicts
             BATCH_SIZE = 1000
             loc_batch = []
@@ -7810,6 +7877,26 @@ def restore_backup(request):
                         if created:
                             counts['devices'] += 1
                     ts = _parse_timestamp(loc['timestamp'])
+                    if loc.get('hidden') == 'overlap':
+                        key = (device.id, ts, float(loc['latitude']), float(loc['longitude']))
+                        if key not in hidden_seen:
+                            hidden_seen.add(key)
+                            hidden_batch.append(TrashedLocation(
+                                user=user, device=device, original_id=0,
+                                latitude=loc['latitude'], longitude=loc['longitude'],
+                                timestamp=ts, altitude=loc.get('altitude'),
+                                accuracy=loc.get('accuracy'), speed=loc.get('speed'),
+                                battery=loc.get('battery'), city=loc.get('city', ''),
+                                state=loc.get('state', ''), country=loc.get('country', ''),
+                                country_code=loc.get('country_code', ''),
+                                place_name=loc.get('place_name', ''),
+                                reason='overlap',
+                                overlap=overlap_map.get(loc.get('overlap_ref'))))
+                            if len(hidden_batch) >= BATCH_SIZE:
+                                TrashedLocation.objects.bulk_create(hidden_batch)
+                                hidden_total += len(hidden_batch)
+                                hidden_batch = []
+                        continue
                     loc_obj = Location(
                         device=device,
                         latitude=loc['latitude'],
@@ -7838,7 +7925,12 @@ def restore_backup(request):
             if loc_batch:
                 created = Location.objects.bulk_create(loc_batch, ignore_conflicts=True)
                 loc_total += len(created)
-            counts['locations'] = loc_total
+            if hidden_batch:
+                TrashedLocation.objects.bulk_create(hidden_batch)
+                hidden_total += len(hidden_batch)
+            # Hidden points are part of the exported `locations` count, so they
+            # count here too or a clean restore would read as a shortfall.
+            counts['locations'] = loc_total + hidden_total
 
             progress.stage('Restoring adventures, journals & health', loc_end, cell_lo)
 

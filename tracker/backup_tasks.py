@@ -278,6 +278,30 @@ def _build_activities_data(user):
     ]
 
 
+def _build_device_overlaps_data(user):
+    """Build serializable DeviceOverlap records for a user's backup (v18+).
+
+    ``ref`` is the record's id at export time, used only to tie the hidden
+    points in the streamed ``locations`` section (``overlap_ref``) back to
+    their overlap — restore mints new ids.
+    """
+    from .models import DeviceOverlap
+    return [
+        {
+            'ref': o.id,
+            'device_a': o.device_a.device_id,
+            'device_b': o.device_b.device_id,
+            'start_time': o.start_time,
+            'end_time': o.end_time,
+            'status': o.status,
+            'hidden_device': o.hidden_device.device_id if o.hidden_device_id else None,
+            'resolved_at': o.resolved_at,
+        }
+        for o in DeviceOverlap.objects.filter(user=user)
+        .select_related('device_a', 'device_b', 'hidden_device').order_by('start_time')
+    ]
+
+
 def _build_family_data(user):
     """Build serializable Family Circles for a user's backup.
 
