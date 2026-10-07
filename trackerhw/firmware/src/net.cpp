@@ -295,6 +295,9 @@ bool netCanSync(char* why, size_t n) {
 
 bool netStartSync(bool manual) {
   if (ss.running || pState == PAIR_RUNNING) return false;
+  // A deliberate sync wins over a setup hotspot left running in the
+  // background (it outlives its screen); the automatic one waits for it.
+  if (manual && netPortalActive()) netPortalStop();
   char why[40];
   if (!netCanSync(why, sizeof why)) { if (manual) setMsg("%s", why); return false; }
   ss.running = true;
@@ -339,6 +342,7 @@ static void pairTask(void*) {
 
 void netStartPair(const char* code) {
   if (pState == PAIR_RUNNING || ss.running) return;
+  if (netPortalActive()) netPortalStop();
   strlcpy(pCode, code, sizeof pCode);
   if (!cfg.server[0] || !cfg.wifiCount) {
     snprintf(pMsg, sizeof pMsg, "set Wi-Fi + server first");
