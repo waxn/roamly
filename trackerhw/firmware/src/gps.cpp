@@ -329,6 +329,16 @@ bool gpsApplyMode(uint8_t mode, uint16_t intervalS) {
   // itself runs continuous while it is on.
   uint8_t rxm[2] = {0x08, (uint8_t)(mode == GPS_BALANCED ? 1 : 0)};
   ok &= ubxCmd(0x06, 0x11, rxm, 2);
+  // u-blox 6 keeps its configuration in RAM, and backup mode does not
+  // preserve it: every wake from backup (pause, Low power mode, power off)
+  // came back with factory settings -- default NMEA set, no power save, and
+  // the blinking LED. CFG-CFG saves the current config to battery-backed RAM,
+  // flash and EEPROM -- whichever this board has -- so it survives.
+  uint8_t save[13] = {0};
+  uint32_t all = 0x0000061F;          // ioPort|msgConf|infMsg|navConf|rxmConf|rinvConf|antConf
+  memcpy(save + 4, &all, 4);          // saveMask
+  save[12] = 0x17;                    // devBBR|devFlash|devEEPROM|devSpiFlash
+  info.saved = ubxCmd(0x06, 0x09, save, 13);
   info.configured = ok;
   (void)intervalS;
   return ok;
@@ -386,6 +396,16 @@ void gpsMaintainLed() {
   bool talking = info.lastSentenceMs && millis() - info.lastSentenceMs < 2000;
   if (!talking) return;
   if (info.ledPending || millis() - ledAppliedMs > 10UL * 60 * 1000) gpsSetLed(cfg.gpsLed);
+}
+
+void gpsReset(bool cold) {
+  // CFG-RST: navBbrMask 0x0000 hot / 0xFFFF cold, resetMode 0x02 = controlled
+  // software reset of the GNSS part only. Config is reapplied afterwards.
+  uint8_t p[4] = {0, 0, 0x02, 0};
+  if (cold) { p[0] = 0xFF; p[1] = 0xFF; }
+  ubxSend(0x06, 0x04, p, 4);
+  delay(1500);
+  gpsApplyMode(cfg.gpsMode, cfg.intervalS);
 }
 
 void gpsBackup(uint32_t ms) {
