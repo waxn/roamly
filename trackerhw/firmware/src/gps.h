@@ -41,6 +41,7 @@ void gpsPoll();                  // feed UART bytes to parsers; call often
 const GpsFix& gpsLatest();       // most recent parsed fix (check .valid/.atMs)
 GpsInfo& gpsInfo();
 bool gpsApplyMode(uint8_t mode, uint16_t intervalS);
+bool gpsSetLed(uint8_t variant);   // see gps.cpp; 0..3
 void gpsBackup(uint32_t ms);     // low-power: backup mode for ms (0 = until woken)
 void gpsWake();
 void gpsSetRawEcho(Stream* s);   // mirror NMEA to a stream (console "gps raw")

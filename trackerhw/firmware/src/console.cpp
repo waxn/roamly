@@ -21,6 +21,7 @@ static void help() {
       "  gps raw on|off         mirror NMEA to this console\n"
       "  gps detect             re-run pin/baud auto-detect\n"
       "  gps mode 0|1|2         accurate / balanced / low power\n"
+      "  gps led 0|1|2|3        module LED: 0 pulse off, 1 held low, 2 held high, 3 default\n"
       "  set <key> <value>      interval (0/adaptive) timeout minacc units clock tz bright flip autosync batt recording\n"
       "  wifi add \"ssid\" pass   save a network\n"
       "  wifi list | wifi del N\n"
@@ -126,6 +127,11 @@ static void exec(String cmd) {
     else if (arg == "raw off") gpsSetRawEcho(nullptr);
     else if (arg == "detect") { cfg.gpsRx = -1; Serial.println(gpsBegin() ? "ok" : "not found"); }
     else if (arg.startsWith("mode ")) setKey("mode", arg.substring(5));
+    else if (arg.startsWith("led ")) {
+      cfg.gpsLed = constrain(arg.substring(4).toInt(), 0, 3);
+      settingsSave();
+      Serial.println(gpsSetLed(cfg.gpsLed) ? "ok" : "module didn't accept it");
+    }
     else Serial.println("gps raw on|off | detect | mode N");
   } else if (head == "set") {
     int s2 = arg.indexOf(' ');

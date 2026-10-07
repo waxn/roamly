@@ -322,24 +322,7 @@ bool gpsApplyMode(uint8_t mode, uint16_t intervalS) {
     memcpy(pm2 + 12, &search, 4);
     ok &= ubxCmd(0x06, 0x3B, pm2, 44);
   }
-  // The GY-NEO6MV2's blue LED hangs off the TIMEPULSE pin, so it is a 1 Hz
-  // "I have a fix" blinker that never turns off on its own. Turn the time
-  // pulse off (CFG-TP5 flags bit0 = active), patching the module's own copy.
-  tp5Valid = false;
-  uint8_t tpIdx = 0;
-  for (int i = 0; i < 3 && !tp5Valid; i++) {
-    ubxSend(0x06, 0x31, &tpIdx, 1);
-    uint32_t t0 = millis();
-    while (millis() - t0 < 600 && !tp5Valid) { gpsPoll(); delay(5); }
-  }
-  if (tp5Valid) {
-    tp5[28] &= ~0x01;                        // flags: active = 0
-    info.ledOff = ubxCmd(0x06, 0x31, tp5, 32);
-  } else {
-    // Older protocol: CFG-TP with status 0 = time pulse off.
-    uint8_t tp[20] = {0x40, 0x42, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x00};   // interval 1 s, length 0
-    info.ledOff = ubxCmd(0x06, 0x07, tp, 20);
-  }
+  gpsSetLed(cfg.gpsLed);
 
   // CFG-RXM: lpMode 0 = continuous (max performance), 1 = power save.
   // Low-power mode is driven from our side with RXM-PMREQ, so the receiver
@@ -349,6 +332,45 @@ bool gpsApplyMode(uint8_t mode, uint16_t intervalS) {
   info.configured = ok;
   (void)intervalS;
   return ok;
+}
+
+// The GY-NEO6MV2's blue LED hangs off the TIMEPULSE pin. Which configuration
+// leaves that pin dark depends on how the board wires the LED, so it's a
+// setting (CFG-TP5 patched from the module's own copy):
+//   0  time pulse disabled
+//   1  enabled, 1 s period, zero-length pulse, polarity "rising" (pin held low)
+//   2  same with polarity "falling" (pin held high)
+//   3  module default (blinks once a second with a fix)
+bool gpsSetLed(uint8_t variant) {
+  if (cfg.gpsTx < 0) return false;
+  tp5Valid = false;
+  uint8_t tpIdx = 0;
+  for (int i = 0; i < 3 && !tp5Valid; i++) {
+    ubxSend(0x06, 0x31, &tpIdx, 1);
+    uint32_t t0 = millis();
+    while (millis() - t0 < 600 && !tp5Valid) { gpsPoll(); delay(5); }
+  }
+  if (!tp5Valid) { info.ledOff = false; return false; }
+  Serial.print("[gps] TP5 was:");
+  for (int i = 0; i < 32; i++) Serial.printf(" %02X", tp5[i]);
+  Serial.println();
+  uint32_t flags, period = 1000000, zero = 0, def = 100000;
+  memcpy(&flags, tp5 + 28, 4);
+  if (variant == 0) {
+    flags &= ~0x01u;
+  } else {
+    flags |= 0x01u | 0x02u | 0x10u;   // active, lock to GPS, length (not ratio)
+    flags &= ~0x08u;                   // period (not frequency)
+    if (variant == 1) flags |= 0x40u; else if (variant == 2) flags &= ~0x40u;
+    memcpy(tp5 + 8, &period, 4);
+    memcpy(tp5 + 12, &period, 4);
+    uint32_t len = variant == 3 ? def : zero;
+    memcpy(tp5 + 20, &len, 4);
+    memcpy(tp5 + 24, &len, 4);
+  }
+  memcpy(tp5 + 28, &flags, 4);
+  info.ledOff = ubxCmd(0x06, 0x31, tp5, 32) && variant != 3;
+  return info.ledOff || variant == 3;
 }
 
 void gpsBackup(uint32_t ms) {
