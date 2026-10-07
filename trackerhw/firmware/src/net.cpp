@@ -77,22 +77,33 @@ static String baseUrl() {
   return s;
 }
 
+// The connection outlives individual requests: a TLS handshake costs seconds,
+// and a sync is dozens of requests to one host. Only one network task runs at
+// a time, so a single session is enough; httpClose() ends it.
+static HTTPClient http;
+static NetworkClientSecure tls;
+static NetworkClient plain;
+static bool tlsReady = false;
+
+static void httpClose() {
+  http.end();
+  tls.stop();
+  plain.stop();
+}
+
 // One request. Returns the HTTP status (negative = transport error).
 static int request(const char* method, const String& path, const String& body, String& resp, bool auth) {
   String url = baseUrl() + path;
-  HTTPClient http;
-  NetworkClientSecure tls;
-  NetworkClient plain;
   bool https = url.startsWith("https://");
-  if (https) {
+  if (https && !tlsReady) {
     tls.useBuiltinCACertBundle();   // Mozilla roots compiled into the core
     tls.setHandshakeTimeout(HTTP_TIMEOUT_MS / 1000);
-    if (!http.begin(tls, url)) return -100;
-  } else {
-    if (!http.begin(plain, url)) return -100;
+    tlsReady = true;
   }
+  bool ok = https ? http.begin(tls, url) : http.begin(plain, url);
+  if (!ok) return -100;
   http.setTimeout(HTTP_TIMEOUT_MS);
-  http.setReuse(false);
+  http.setReuse(true);
   http.addHeader("X-Roamly-Client", "tracker/" FW_VERSION);
   if (auth) http.addHeader("Authorization", String("Bearer ") + cfg.apiKey);
   int code;
@@ -103,7 +114,7 @@ static int request(const char* method, const String& path, const String& body, S
     code = http.GET();
   }
   resp = code > 0 ? http.getString() : String(http.errorToString(code));
-  http.end();
+  if (code <= 0) httpClose();   // a broken connection must not be reused
   return code;
 }
 
@@ -145,6 +156,17 @@ static void statusJson(JsonObject st) {
   st["rssi"] = ss.rssi;
   st["boots"] = (int)bootCount();
   st["fw"] = FW_VERSION;
+}
+
+// ── Network task plumbing ───────────────────────────────────────────────────
+// A TLS handshake is seconds of uninterrupted big-number maths. At priority 1
+// that starved core 0's idle task, and the task watchdog rebooted the tracker
+// mid-handshake on every sync. Network tasks therefore run at idle priority
+// (time-sliced with IDLE0, so the watchdog stays fed) and at full clock, which
+// only costs battery during a sync — and syncs only run on external power.
+static void startNetTask(TaskFunction_t fn, const char* name) {
+  setCpuFrequencyMhz(240);
+  xTaskCreatePinnedToCore(fn, name, 16384, nullptr, tskIDLE_PRIORITY, nullptr, 0);
 }
 
 // ── Sync task ───────────────────────────────────────────────────────────────
@@ -253,10 +275,12 @@ static void syncTask(void*) {
     ok = true;
     setMsg(ss.sent ? "uploaded %lu" : "up to date", (unsigned long)ss.sent);
   } while (false);
+  httpClose();
   wifiOff();
   ss.lastOk = ok;
   if (ok) { ss.fails = 0; ss.lastOkUnix = time(nullptr); }
   else if (ss.fails < 250) ss.fails++;
+  setCpuFrequencyMhz(80);
   ss.running = false;
   vTaskDelete(nullptr);
 }
@@ -275,7 +299,7 @@ bool netStartSync(bool manual) {
   if (!netCanSync(why, sizeof why)) { if (manual) setMsg("%s", why); return false; }
   ss.running = true;
   ss.lastAttemptMs = millis();
-  xTaskCreatePinnedToCore(syncTask, "sync", 16384, nullptr, 1, nullptr, 0);
+  startNetTask(syncTask, "sync");
   return true;
 }
 
@@ -306,7 +330,10 @@ static void pairTask(void*) {
     snprintf(pMsg, sizeof pMsg, "paired as %s", cfg.deviceName);
     pState = PAIR_OK;
   } while (false);
+  httpClose();
   wifiOff();
+  setCpuFrequencyMhz(80);
+  if (pState == PAIR_RUNNING) pState = PAIR_FAIL;
   vTaskDelete(nullptr);
 }
 
@@ -319,7 +346,7 @@ void netStartPair(const char* code) {
     return;
   }
   pState = PAIR_RUNNING;
-  xTaskCreatePinnedToCore(pairTask, "pair", 16384, nullptr, 1, nullptr, 0);
+  startNetTask(pairTask, "pair");
 }
 
 // ── Setup hotspot ───────────────────────────────────────────────────────────
