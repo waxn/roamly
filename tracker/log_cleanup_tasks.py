@@ -183,7 +183,10 @@ def _do_sweep():
     try:
         from .models import TrashedLocation
         cutoff = now - timedelta(days=TRASH_RETENTION_DAYS)
-        deleted, _ = TrashedLocation.objects.filter(deleted_at__lt=cutoff).delete()
+        # Only real deletions expire. Overlap-hidden points are hidden, not
+        # deleted, and stay until the user unhides them from the notifications.
+        deleted, _ = TrashedLocation.objects.filter(
+            reason='deleted', deleted_at__lt=cutoff).delete()
         if deleted:
             logger.info("log cleanup: purged %d trashed points older than %d days",
                         deleted, TRASH_RETENTION_DAYS)

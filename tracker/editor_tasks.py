@@ -179,8 +179,11 @@ def create_batch(user, device, kind, pts, target='inferred', note=''):
 
 
 @transaction.atomic
-def trash_locations(user, qs, batch=None):
+def trash_locations(user, qs, batch=None, reason='deleted', overlap=None):
     """Snapshot real points into the trash, then delete them. Returns the count.
+
+    ``reason='overlap'`` (with its ``overlap``) is the device-overlap hide: the
+    same snapshot, but kept until unhidden rather than purged with the trash.
 
     The snapshot has to be taken before the delete and has to be complete: unlike
     the old ``dismissed`` markers, whose "restore" merely let a job regenerate
@@ -202,7 +205,7 @@ def trash_locations(user, qs, batch=None):
             accuracy=r['accuracy'], speed=r['speed'], battery=r['battery'],
             timestamp=r['timestamp'], city=r['city'], state=r['state'],
             country=r['country'], country_code=r['country_code'],
-            place_name=r['place_name'])
+            place_name=r['place_name'], reason=reason, overlap=overlap)
         for r in rows
     ])
     Location.objects.filter(id__in=[r['id'] for r in rows]).delete()

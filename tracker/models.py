@@ -843,6 +843,49 @@ class InferredLocation(models.Model):
         return f"Inferred {self.latitude:.5f},{self.longitude:.5f} @ {self.timestamp}"
 
 
+class DeviceOverlap(models.Model):
+    """A stretch of time when two of a user's devices recorded the same track.
+
+    The usual cause is a phone and the hardware tracker both logging the same
+    trip, which double-counts distance, visit time and every per-point stat.
+    Found by ``overlap_tasks``' hourly sweep and surfaced in the notification
+    bell, where the user picks which device to hide for the window.
+
+    Hiding moves that device's points in [start_time, end_time] into
+    TrashedLocation with ``reason='overlap'`` — out of Location, so every
+    surface drops them without a per-query filter — and unhiding moves them
+    back. The record is kept in every state: a ``dismissed`` or ``hidden``
+    overlap absorbs later detections of the same episode (a late upload, or the
+    unhidden points being re-scanned under new ids) instead of re-prompting.
+    """
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),      # awaiting the user's decision
+        ('hidden', 'Hidden'),        # hidden_device's points are in the trash
+        ('dismissed', 'Dismissed'),  # keep both; never prompt for this window again
+    ]
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='device_overlaps')
+    # Stored with device_a.id < device_b.id so a pair has one spelling.
+    device_a = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='+')
+    device_b = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='+')
+    start_time = models.DateTimeField()
+    end_time = models.DateTimeField()
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
+    hidden_device = models.ForeignKey(Device, on_delete=models.SET_NULL, null=True,
+                                      blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-start_time']
+        indexes = [
+            models.Index(fields=['user', 'status'], name='tracker_ovl_user_status_idx'),
+            models.Index(fields=['device_a', 'device_b', 'start_time'], name='tracker_ovl_pair_idx'),
+        ]
+
+    def __str__(self):
+        return f"Overlap {self.device_a_id}/{self.device_b_id} {self.start_time}–{self.end_time}"
+
+
 class TrashedLocation(models.Model):
     """A deleted real GPS point, kept so the deletion can be undone.
 
@@ -851,7 +894,9 @@ class TrashedLocation(models.Model):
     and lets a job regenerate the data — a Location is the primary record and
     cannot be recomputed from anything. If the row isn't stored here it is gone.
 
-    Purged after TRASH_RETENTION_DAYS by the hourly log-cleanup sweep. Restoring
+    Rows with reason='deleted' are purged after TRASH_RETENTION_DAYS by the
+    hourly log-cleanup sweep; reason='overlap' rows are hidden, not deleted, and
+    stay until their DeviceOverlap is unhidden. Restoring
     mints a *new* Location id, so `original_id` is informational only.
     """
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='trashed_locations')
@@ -872,6 +917,15 @@ class TrashedLocation(models.Model):
     country_code = models.CharField(max_length=3, blank=True)
     place_name = models.CharField(max_length=300, blank=True)
     deleted_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    # Why the point is here. 'deleted' is the editor's trash (purged after
+    # TRASH_RETENTION_DAYS); 'overlap' is a point hidden because another device
+    # recorded the same track (see DeviceOverlap) — kept until unhidden, never
+    # purged, and included in backups.
+    REASON_CHOICES = [('deleted', 'Deleted'), ('overlap', 'Device overlap')]
+    reason = models.CharField(max_length=10, choices=REASON_CHOICES, default='deleted',
+                              db_index=True)
+    overlap = models.ForeignKey(DeviceOverlap, on_delete=models.SET_NULL, null=True,
+                                blank=True, related_name='hidden_points')
 
     class Meta:
         ordering = ['-deleted_at']
@@ -1218,6 +1272,12 @@ class UserProfile(models.Model):
     # outage). No separate "recovered" flag to keep in sync.
     alert_no_data_last_point = models.DateTimeField(null=True, blank=True)
     alert_no_data_sent_at = models.DateTimeField(null=True, blank=True)
+
+    # Device-overlap scan cursor: the highest Location id overlap_tasks has
+    # already compared against the user's other devices. NULL = never scanned,
+    # so the first sweep covers the whole history once. Operational ⇒ excluded
+    # from backups.
+    overlap_scan_last_id = models.BigIntegerField(null=True, blank=True)
 
     # Roads: snap-to-road rendering + tracking-gap filling (see tracker/roads.py).
     # Provider is server-side rather than a localStorage map pref because the

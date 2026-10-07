@@ -12934,6 +12934,13 @@ def editor_batch_undo_api(request, batch_id):
 
 # ── Trash ───────────────────────────────────────────────────────────────────
 
+def _trash_visible_q():
+    """What the Trash tab manages: real deletions, plus overlap-hidden points
+    whose overlap no longer exists (its kept device was deleted, cascading the
+    record away) — otherwise those would be unreachable from anywhere."""
+    return Q(reason='deleted') | Q(overlap__isnull=True)
+
+
 @login_required
 def trash_api(request):
     """Deleted real points, newest first."""
@@ -12944,11 +12951,16 @@ def trash_api(request):
         limit = min(500, max(1, int(request.GET.get('limit', 200))))
     except (TypeError, ValueError):
         limit = 200
-    qs = (TrashedLocation.objects.filter(user=request.user)
+    # Overlap-hidden points live in the same table but aren't trash: they are
+    # managed (and unhidden) per overlap from the notification bell, so the
+    # Trash tab neither lists, restores nor empties them.
+    qs = (TrashedLocation.objects.filter(_trash_visible_q(), user=request.user)
           .select_related('device').order_by('-deleted_at'))
     total = qs.count()
     return JsonResponse({
         'total': total,
+        'hidden_overlap': TrashedLocation.objects.filter(
+            user=request.user, reason='overlap', overlap__isnull=False).count(),
         'retention_days': trash_retention_days(),
         'points': [{
             'id': t.id,
@@ -12973,9 +12985,11 @@ def trash_restore_api(request):
     except (json.JSONDecodeError, ValueError):
         data = {}
     ids = _editor_ids(data)
-    if not ids:
-        ids = list(TrashedLocation.objects.filter(user=request.user)
-                   .values_list('id', flat=True)[:_EDITOR_MAX_IDS])
+    deleted = TrashedLocation.objects.filter(_trash_visible_q(), user=request.user)
+    if ids:
+        ids = list(deleted.filter(id__in=ids).values_list('id', flat=True))
+    else:
+        ids = list(deleted.values_list('id', flat=True)[:_EDITOR_MAX_IDS])
     restored = editor_tasks.restore_trashed(request.user, ids)
     _bust_user_cache(request.user.id)
     return JsonResponse({'status': 'ok', 'restored': restored})
@@ -12986,7 +13000,7 @@ def trash_restore_api(request):
 def trash_empty_api(request):
     """Permanently discard the trash."""
     from .models import TrashedLocation
-    deleted, _ = TrashedLocation.objects.filter(user=request.user).delete()
+    deleted, _ = TrashedLocation.objects.filter(_trash_visible_q(), user=request.user).delete()
     return JsonResponse({'status': 'ok', 'deleted': deleted})
 
 

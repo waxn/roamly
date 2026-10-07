@@ -1004,7 +1004,10 @@ function renderTrash() {
         return;
     }
     count.textContent = `${trashData.total.toLocaleString()} deleted point`
-        + `${trashData.total === 1 ? '' : 's'} · kept ${trashData.retention_days} days`;
+        + `${trashData.total === 1 ? '' : 's'} · kept ${trashData.retention_days} days`
+        + (trashData.hidden_overlap
+            ? ` · ${trashData.hidden_overlap.toLocaleString()} more hidden as device overlaps (unhide from notifications)`
+            : '');
     list.innerHTML = pts.map(p => {
         const loc = [p.city, p.state, p.country].filter(Boolean).join(', ')
             || `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;

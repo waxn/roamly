@@ -54,3 +54,8 @@ class TrackerConfig(AppConfig):
                 start_family_scheduler()
             except Exception:
                 pass
+            try:
+                from .overlap_tasks import start_overlap_scheduler
+                start_overlap_scheduler()
+            except Exception:
+                pass
