@@ -37,6 +37,7 @@ static void help() {
       "  btn up|sel|down|back   press a button\n"
       "  shot                   dump the screen (host converts to PNG)\n"
       "  btn up|sel|down|back   press a button\n"
+      "  poweroff               power off (hold middle 3 s to turn on)\n"
       "  reboot"));
 }
 
@@ -190,6 +191,7 @@ static void exec(String cmd) {
     Serial.printf("woke: cause=%d after %lums\n", c, (unsigned long)(millis() - t0));
   } else if (head == "shot") uiScreenshot(Serial);
   else if (head == "btn") { uiInject(arg.c_str()); Serial.println("ok"); }
+  else if (head == "poweroff") appPowerOff();
   else if (head == "reboot") ESP.restart();
   else Serial.println("unknown command; try 'help'");
 }

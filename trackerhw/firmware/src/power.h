@@ -28,3 +28,6 @@ enum WakeCause : uint8_t { WAKE_TIMER, WAKE_BUTTON, WAKE_OTHER };
 WakeCause powerLightSleep(uint32_t ms);
 void powerSetBacklight(uint8_t pct);   // 0 = off
 float powerModelCurrentMa();
+
+[[noreturn]] void powerDeepSleep();   // "off": wake by holding the middle button 3 s
+void powerBootCheck();                // first thing in setup(): honour the 3 s hold

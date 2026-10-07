@@ -19,3 +19,4 @@ static constexpr int S_RECORDING = -1;
 // Implemented by main.cpp — applying a changed setting needs the GPS/logger.
 void appSettingChanged(int id);
 void applyTimezone();
+void appPowerOff();

@@ -59,6 +59,14 @@ void appSettingChanged(int id) {
   }
 }
 
+void appPowerOff() {
+  uiBootMessage("Powering off", "hold middle 3 s to turn on");
+  delay(1200);
+  if (gpsInfo().tx >= 0) gpsBackup(0);   // GPS to backup until it's woken at boot
+  delay(100);
+  powerDeepSleep();
+}
+
 static void syncScheduler() {
   static bool wasExt = false;
   static uint32_t extSince = 0;
@@ -110,6 +118,7 @@ static void gpsWatchdog() {
 }
 
 void setup() {
+  powerBootCheck();   // a short press while "off" returns to sleep here
   Serial.begin(115200);
   setCpuFrequencyMhz(80);   // plenty for this; Wi-Fi needs >= 80
   settingsLoad();
@@ -139,6 +148,7 @@ void loop() {
   uiPoll();
   syncScheduler();
   gpsWatchdog();
+  gpsMaintainLed();
   maybeSleep();
   delay(5);
 }

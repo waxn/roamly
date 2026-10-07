@@ -146,7 +146,7 @@ static String setFmt(int id, int v) {
 }
 
 // ── Menu model ──────────────────────────────────────────────────────────────
-enum MenuId { M_SYNC, M_PAIR, M_WIFI, M_SETTINGS, M_RECORD, M_STORAGE, M_ABOUT, M_RESTART, M_BACK, M_COUNT };
+enum MenuId { M_SYNC, M_PAIR, M_WIFI, M_SETTINGS, M_RECORD, M_STORAGE, M_ABOUT, M_RESTART, M_POWEROFF, M_BACK, M_COUNT };
 static String menuLabel(int i) {
   switch (i) {
     case M_SYNC: return "Sync now";
@@ -157,6 +157,7 @@ static String menuLabel(int i) {
     case M_STORAGE: return "Storage";
     case M_ABOUT: return "About";
     case M_RESTART: return "Restart";
+    case M_POWEROFF: return "Power off";
     case M_BACK: return "Back";
   }
   return "";
@@ -516,15 +517,20 @@ static void drawAbout() {
 
 static void drawConfirm() {
   title("Are you sure?");
-  const char* q = confirmWhat == 1 ? "Erase ALL stored points?" : confirmWhat == 2 ? "Delete refused points?" : "Restart the tracker?";
+  const char* q = confirmWhat == 1 ? "Erase ALL stored points?" : confirmWhat == 2 ? "Delete refused points?"
+                : confirmWhat == 4 ? "Power off?" : "Restart the tracker?";
   txt(6, 56, q, C_TEXT, &FreeSansBold9pt7b);
+  if (confirmWhat == 4) {
+    txt(6, 78, "Stops tracking. To turn back", C_MUTED);
+    txt(6, 96, "on, hold the middle button 3 s.", C_MUTED);
+  }
   if (confirmWhat == 1) {
     char b[40];
     snprintf(b, sizeof b, "%lu not uploaded yet!", (unsigned long)storageStats().pending);
     txt(6, 78, b, C_BAD);
   }
   txt(6, 128, "mid: yes", C_BAD);
-  txtR(XR, 128, "up/down: no", C_MUTED);
+  txtR(XR, 128, "up/down: no", C_MUTED);  // (confirm screens)
 }
 
 static void render() {
@@ -656,6 +662,7 @@ static void onMenuSelect() {
     case M_STORAGE: storSel = 0; enterScreen(SCR_STORAGE); break;
     case M_ABOUT: enterScreen(SCR_ABOUT); break;
     case M_RESTART: confirmWhat = 3; enterScreen(SCR_CONFIRM); break;
+    case M_POWEROFF: confirmWhat = 4; enterScreen(SCR_CONFIRM); break;
     case M_BACK: enterScreen(SCR_STATUS); break;
   }
 }
@@ -741,8 +748,9 @@ static void handle(Ev e) {
         if (confirmWhat == 1) { storageEraseAll(); showToast("Erased"); }
         else if (confirmWhat == 2) { storageClearQuarantine(); showToast("Cleared"); }
         else if (confirmWhat == 3) { uiBootMessage("Restarting..."); delay(300); ESP.restart(); }
+        else if (confirmWhat == 4) appPowerOff();
         enterScreen(SCR_STORAGE);
-      } else if (e == EV_UP || e == EV_DOWN || e == EV_SEL_LONG) enterScreen(confirmWhat == 3 ? SCR_MENU : SCR_STORAGE);
+      } else if (e == EV_UP || e == EV_DOWN || e == EV_SEL_LONG) enterScreen(confirmWhat >= 3 ? SCR_MENU : SCR_STORAGE);
       break;
   }
 }

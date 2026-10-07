@@ -6,6 +6,7 @@
 #include <Adafruit_LC709203F.h>
 #include <driver/gpio.h>
 #include <esp_sleep.h>
+#include <driver/rtc_io.h>
 
 static Adafruit_MAX17048 maxg;
 static Adafruit_LC709203F lcg;
@@ -24,6 +25,9 @@ static uint32_t lastHistMs = 0;
 static PowerState histState = PWR_UNKNOWN;
 
 bool powerBegin() {
+  // Released after a power-off, which held these low through deep sleep.
+  gpio_hold_dis((gpio_num_t)TFT_I2C_POWER);
+  gpio_hold_dis((gpio_num_t)NEOPIXEL_POWER);
   pinMode(TFT_I2C_POWER, OUTPUT);
   digitalWrite(TFT_I2C_POWER, HIGH);
   pinMode(NEOPIXEL_POWER, OUTPUT);
@@ -175,4 +179,37 @@ WakeCause powerLightSleep(uint32_t ms) {
   if (c == ESP_SLEEP_WAKEUP_TIMER) return WAKE_TIMER;
   if (c == ESP_SLEEP_WAKEUP_GPIO) return WAKE_BUTTON;
   return WAKE_OTHER;
+}
+
+// ── Power off (deep sleep) ──────────────────────────────────────────────────
+// "Off" is ESP32 deep sleep with the display and I2C rail cut and the GPS in
+// backup. The board's regulator stays on (only an EN-pin switch can turn that
+// off), so this is ~0.1-0.3 mA rather than zero.
+static constexpr uint32_t POWER_ON_HOLD_MS = 3000;
+
+[[noreturn]] void powerDeepSleep() {
+  powerSetBacklight(0);
+  digitalWrite(TFT_I2C_POWER, LOW);
+  digitalWrite(NEOPIXEL_POWER, LOW);
+  gpio_hold_en((gpio_num_t)TFT_I2C_POWER);
+  gpio_hold_en((gpio_num_t)NEOPIXEL_POWER);
+  gpio_deep_sleep_hold_en();
+  // The middle button (D1) wakes us: it's active-high with a pull-down, which
+  // has to be the RTC pull-down to survive deep sleep.
+  rtc_gpio_pullup_dis(GPIO_NUM_1);
+  rtc_gpio_pulldown_en(GPIO_NUM_1);
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_1, 1);
+  Serial.flush();
+  esp_deep_sleep_start();
+}
+
+void powerBootCheck() {
+  // Woken from power-off by the middle button: only a 3 s hold turns the
+  // tracker on; a bump in a pocket goes straight back to sleep.
+  if (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_EXT0) return;
+  rtc_gpio_deinit(GPIO_NUM_1);
+  pinMode(PIN_BTN_SELECT, INPUT_PULLDOWN);
+  uint32_t t0 = millis();
+  while (digitalRead(PIN_BTN_SELECT) == HIGH && millis() - t0 < POWER_ON_HOLD_MS) delay(10);
+  if (millis() - t0 < POWER_ON_HOLD_MS) powerDeepSleep();
 }
