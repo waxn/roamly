@@ -4988,6 +4988,91 @@ def _is_spike(prev, cur, nxt):
     return span < _FLAG_SPIKE_RETURN_M
 
 
+# Glitch-cluster detection, for hardware trackers (/trackerhw). A NEO-6M at rest
+# occasionally reports two to six consecutive fixes a hundred metres or more off,
+# then snaps back. `_is_spike` only sees a single-point excursion, and its
+# thresholds are set for phones. The signature that separates a glitch from a
+# real out-and-back trip is the receiver's own Doppler speed: a real trip moves
+# at speed, a glitch teleports while still reporting "stationary".
+#
+# Scoped to tracker devices: the rule leans on the NEO-6M's Doppler, which a
+# phone's fused location does not reliably report.
+_CLUSTER_MAX_RUN       = 6       # longest run of points treated as one glitch
+_CLUSTER_MAX_SPAN_S    = 900     # anchor-to-return within 15 minutes
+_CLUSTER_RETURN_M      = 40.0    # track before and after must agree this closely
+_CLUSTER_FAR_M         = 80.0    # each glitch point at least this far out
+_CLUSTER_JUMP_MPS      = 2.5     # implied speed of the jump out and back
+_CLUSTER_STILL_MPS     = 1.5     # glitch points' own Doppler at or under this
+
+
+def _cluster_far(a, r, base):
+    acc = max(a.accuracy or 0, r.accuracy or 0)
+    return base + max(_CLUSTER_FAR_M, 2 * acc)
+
+
+def _glitch_cluster_at(pts, i):
+    """Length of the glitch run starting right after pts[i], or 0."""
+    a = pts[i]
+    for k in range(1, _CLUSTER_MAX_RUN + 1):
+        if i + k + 1 >= len(pts):
+            return 0
+        run, b = pts[i + 1:i + k + 1], pts[i + k + 1]
+        span = (b.timestamp - a.timestamp).total_seconds()
+        if span <= 0 or span > _CLUSTER_MAX_SPAN_S:
+            return 0
+        back = _haversine_km(a.latitude, a.longitude, b.latitude, b.longitude) * 1000
+        if back > max(_CLUSTER_RETURN_M, 1.5 * ((a.accuracy or 0) + (b.accuracy or 0))):
+            continue
+        if not all(_haversine_km(a.latitude, a.longitude, r.latitude, r.longitude) * 1000
+                   >= _cluster_far(a, r, back) for r in run):
+            continue
+        if not all(r.speed is None or r.speed <= _CLUSTER_STILL_MPS for r in run):
+            continue
+        dt_in = (run[0].timestamp - a.timestamp).total_seconds()
+        dt_out = (b.timestamp - run[-1].timestamp).total_seconds()
+        if dt_in <= 0 or dt_out <= 0:
+            continue
+        d_in = _haversine_km(a.latitude, a.longitude, run[0].latitude, run[0].longitude) * 1000
+        d_out = _haversine_km(run[-1].latitude, run[-1].longitude, b.latitude, b.longitude) * 1000
+        if d_in / dt_in >= _CLUSTER_JUMP_MPS and d_out / dt_out >= _CLUSTER_JUMP_MPS:
+            return k
+    return 0
+
+
+def _flag_glitch_clusters(device_ids, window_start=None, window_end=None):
+    """Flag glitch clusters on tracker devices; adds the 'cluster' reason to any
+    existing ones rather than replacing them. Returns how many points it flagged."""
+    if not device_ids:
+        return 0
+    flagged = 0
+    for dev_id in device_ids:
+        qs = Location.objects.filter(device_id=dev_id).exclude(flag='ok')
+        if window_start is not None:
+            qs = qs.filter(timestamp__gte=window_start)
+        if window_end is not None:
+            qs = qs.filter(timestamp__lte=window_end)
+        pts = list(qs.order_by('timestamp').only(
+            'id', 'latitude', 'longitude', 'timestamp', 'speed', 'accuracy', 'flag', 'flag_reason'))
+        updates = []
+        i = 0
+        while i < len(pts):
+            k = _glitch_cluster_at(pts, i)
+            if k:
+                for r in pts[i + 1:i + k + 1]:
+                    reasons = [x for x in (r.flag_reason or '').split(',') if x]
+                    if 'cluster' not in reasons:
+                        reasons.append('cluster')
+                        r.flag, r.flag_reason = 'suspect', ','.join(reasons)
+                        updates.append(r)
+                i += k + 1
+            else:
+                i += 1
+        if updates:
+            Location.objects.bulk_update(updates, ['flag', 'flag_reason'], batch_size=500)
+            flagged += len(updates)
+    return flagged
+
+
 def _flag_suspicious_locations(user, window_start=None, window_end=None):
     """Scan a user's locations (skipping user-accepted 'ok' ones) and mark any
     with bad accuracy, impossible speed between consecutive points, or extreme altitude
@@ -5086,6 +5171,11 @@ def _flag_suspicious_locations(user, window_start=None, window_end=None):
 
     finalize(p1)
     flush()
+
+    # The reset above wiped any 'cluster' flags in the window too, so restore
+    # them for hardware trackers.
+    tracker_devices = list(HardwareTracker.objects.filter(user=user).values_list('device_id', flat=True))
+    flagged_total += _flag_glitch_clusters(tracker_devices, window_start, window_end)
 
     return flagged_total
 
@@ -15991,6 +16081,42 @@ def _hw_parse_point(raw, now_ts):
     }, None
 
 
+# A NEO-6M at rest reports Doppler speeds of ~0.1-0.5 m/s (0.3-1.5 km/h) that
+# are pure noise; stored as-is they read as a crawl on every stationary point.
+_HW_SPEED_FLOOR_MPS   = 0.56   # under 2 km/h: always noise
+_HW_SPEED_STILL_MPS   = 1.5    # under 5.4 km/h: noise if the position didn't move
+_HW_STILL_IMPLIED_MPS = 0.5    # "didn't move": implied speed to each neighbour
+
+
+def _hw_zero_still_speeds(fields_list):
+    """Zero speeds the position itself contradicts. Mutates the dicts in place.
+
+    Walking (~1.3 m/s) moves the fix, so its implied speed to the neighbouring
+    points is ~1.3 m/s too and it is left alone; a stationary tracker's Doppler
+    jitter is not backed by any movement of the position.
+    """
+    pts = sorted(fields_list, key=lambda f: f['timestamp'])
+    for i, f in enumerate(pts):
+        spd = f.get('speed')
+        if spd is None or spd == 0:
+            continue
+        if spd < _HW_SPEED_FLOOR_MPS:
+            f['speed'] = 0.0
+            continue
+        if spd >= _HW_SPEED_STILL_MPS:
+            continue
+        implied = []
+        for j in (i - 1, i + 1):
+            if 0 <= j < len(pts):
+                dt = abs((pts[j]['timestamp'] - f['timestamp']).total_seconds())
+                if 0 < dt <= 300:
+                    d = _haversine_km(f['latitude'], f['longitude'],
+                                      pts[j]['latitude'], pts[j]['longitude']) * 1000
+                    implied.append(d / dt)
+        if implied and max(implied) < _HW_STILL_IMPLIED_MPS:
+            f['speed'] = 0.0
+
+
 @csrf_exempt
 @require_POST
 def hw_upload(request):
@@ -16030,6 +16156,7 @@ def hw_upload(request):
     rejected = []
     wanted = {}          # seq -> (timestamp, lat, lon)
     to_create = []
+    parsed = []
     for raw in points:
         seq = raw.get('seq') if isinstance(raw, dict) else None
         if not isinstance(seq, int):
@@ -16038,6 +16165,9 @@ def hw_upload(request):
         if reason:
             rejected.append({'seq': seq, 'reason': reason})
             continue
+        parsed.append((seq, fields))
+    _hw_zero_still_speeds([f for _, f in parsed])
+    for seq, fields in parsed:
         wanted[seq] = (fields['timestamp'], round(fields['latitude'], 7), round(fields['longitude'], 7))
         loc = Location(device=device, **fields)
         # bulk_create bypasses Location.save(), which is what fills the PostGIS
@@ -16069,6 +16199,14 @@ def hw_upload(request):
         confirmed = sorted(seq for seq, key in wanted.items() if key in present)
 
     if to_create:
+        # Glitch clusters, over this batch plus enough history to see the track
+        # it left from (the run may have started in the previous batch).
+        try:
+            first = min(l.timestamp for l in to_create)
+            last = max(l.timestamp for l in to_create)
+            _flag_glitch_clusters([device.id], first - timedelta(seconds=_CLUSTER_MAX_SPAN_S), last)
+        except Exception:
+            logger.exception('hw_upload: cluster flagging failed')   # never fails an upload
         ensure_auto_geocode(tracker.user_id)
         newest = max(to_create, key=lambda l: l.timestamp)
         ensure_family_geofence_check(
