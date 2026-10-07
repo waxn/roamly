@@ -54,3 +54,8 @@ bool removeWifi(int idx);
 // every point; a reboot skips ahead by a step, leaving a harmless gap.
 uint32_t nextSeq();
 uint32_t bootCount();
+
+void recordReset();                 // call once at boot, after settingsLoad()
+const char* lastResetReason();
+uint32_t crashCount();              // crashes + watchdogs + brownouts, ever
+void resetSummary(char* out, size_t n);

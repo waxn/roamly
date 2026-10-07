@@ -1,5 +1,6 @@
 #include "settings.h"
 #include <Preferences.h>
+#include <esp_system.h>
 
 Settings cfg;
 static Preferences prefs;
@@ -74,3 +75,48 @@ uint32_t nextSeq() {
 }
 
 uint32_t bootCount() { return boots; }
+
+// ── Reset history ───────────────────────────────────────────────────────────
+// A tracker in a pocket has no console attached, so a crash would otherwise be
+// invisible: count every kind of reset and remember the last one.
+static const char* resetName(esp_reset_reason_t r) {
+  switch (r) {
+    case ESP_RST_POWERON: return "power-on";
+    case ESP_RST_SW: return "restart";
+    case ESP_RST_PANIC: return "crash";
+    case ESP_RST_INT_WDT: return "int-watchdog";
+    case ESP_RST_TASK_WDT: return "task-watchdog";
+    case ESP_RST_WDT: return "watchdog";
+    case ESP_RST_BROWNOUT: return "brownout";
+    case ESP_RST_DEEPSLEEP: return "deep-sleep";
+    case ESP_RST_USB: return "usb";
+    case ESP_RST_JTAG: return "jtag";
+    default: return "other";
+  }
+}
+static char lastReset[24] = "";
+static uint32_t badResets = 0;
+
+void recordReset() {
+  esp_reset_reason_t r = esp_reset_reason();
+  strlcpy(lastReset, resetName(r), sizeof lastReset);
+  bool bad = r == ESP_RST_PANIC || r == ESP_RST_INT_WDT || r == ESP_RST_TASK_WDT ||
+             r == ESP_RST_WDT || r == ESP_RST_BROWNOUT;
+  badResets = prefs.getUInt("rst_bad", 0);
+  if (bad) {
+    badResets++;
+    prefs.putUInt("rst_bad", badResets);
+    String key = String("rst_") + (int)r;
+    prefs.putUInt(key.c_str(), prefs.getUInt(key.c_str(), 0) + 1);
+  }
+}
+
+const char* lastResetReason() { return lastReset; }
+uint32_t crashCount() { return badResets; }
+
+void resetSummary(char* out, size_t n) {
+  snprintf(out, n, "last=%s crash=%lu taskwdt=%lu intwdt=%lu wdt=%lu brownout=%lu", lastReset,
+           (unsigned long)prefs.getUInt("rst_4", 0), (unsigned long)prefs.getUInt("rst_6", 0),
+           (unsigned long)prefs.getUInt("rst_5", 0), (unsigned long)prefs.getUInt("rst_7", 0),
+           (unsigned long)prefs.getUInt("rst_9", 0));
+}

@@ -49,6 +49,9 @@ static void status() {
   time_t now = time(nullptr);
   Serial.printf("fw %s id %s boots %lu up %lus time %ld (%s)\n", FW_VERSION, hwId(), (unsigned long)bootCount(),
                 (unsigned long)(millis() / 1000), (long)now, ctime(&now));
+  char rs[120];
+  resetSummary(rs, sizeof rs);
+  Serial.printf("resets: %s\n", rs);
   Serial.printf("gps: det=%d cfg=%d rx=%d tx=%d baud=%lu ver='%s' bytes=%lu sent=%lu bad=%lu acks=%lu naks=%lu asleep=%d\n",
                 g.detected, g.configured, g.rx, g.tx, (unsigned long)g.baud, g.version, (unsigned long)g.bytes,
                 (unsigned long)g.sentences, (unsigned long)g.badChecksum, (unsigned long)g.ubxAcks, (unsigned long)g.ubxNaks, g.asleep);

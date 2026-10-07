@@ -113,6 +113,7 @@ void setup() {
   Serial.begin(115200);
   setCpuFrequencyMhz(80);   // plenty for this; Wi-Fi needs >= 80
   settingsLoad();
+  recordReset();
   powerBegin();
   uiBegin();
   uiBootMessage("Starting", "fw " FW_VERSION);
@@ -122,7 +123,7 @@ void setup() {
   uiBootMessage("Looking for GPS...", cfg.gpsRx >= 0 ? "" : "first boot: auto-detecting pins");
   bool gpsOk = gpsBegin();
   if (!gpsOk) uiBootMessage("GPS not found", "check wiring; see trackerhw/README");
-  Serial.printf("[boot] fw %s id %s gps=%d rx=%d tx=%d baud=%lu ver=%s\n", FW_VERSION, hwId(), gpsOk,
+  Serial.printf("[boot] reset=%s fw %s id %s gps=%d rx=%d tx=%d baud=%lu ver=%s\n", lastResetReason(), FW_VERSION, hwId(), gpsOk,
                 gpsInfo().rx, gpsInfo().tx, (unsigned long)gpsInfo().baud, gpsInfo().version);
   loggerReschedule();
   uiWake();
