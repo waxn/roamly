@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Shared location — Roamly</title>
     {% load static %}
     <link rel="icon" type="image/x-icon" href="{% static 'tracker/roamlymark.ico' %}">
@@ -11,113 +11,395 @@
        referrer must never carry it to a tile provider. {% endcomment %}
     <meta name="robots" content="noindex, nofollow, noarchive">
     <meta name="referrer" content="no-referrer">
-    {% if not invalid %}<link rel="stylesheet" href="{% static 'tracker/vendor/maplibre-gl.css' %}">{% endif %}
+    {% if not invalid and gate == 'ok' %}<link rel="stylesheet" href="{% static 'tracker/vendor/maplibre-gl.css' %}">{% endif %}
+    {% if not invalid and gate == 'pin' and TURNSTILE_ENABLED %}<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>{% endif %}
     <style>
         :root {
             --bg: #14160f; --bg-card: #1b1e15; --border: #30352a;
-            --text: #e9e5d8; --text-muted: #a9a794; --primary: #e8763d;
+            --text: #e9e5d8; --text-muted: #a9a794; --primary: #e8763d; --blue: #2f7df6;
+            --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px);
         }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        html, body { height: 100%; }
-        body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        html, body { height: 100%; overflow: hidden; }
+        body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }
         #map { position: absolute; inset: 0; }
-        .bar {
-            position: absolute; top: 0; left: 0; right: 0; z-index: 10;
-            display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
-            padding: 0.6rem 1rem; background: rgba(20,22,15,0.92);
-            border-bottom: 1px solid var(--border); font-size: 0.8rem;
+
+        /* Gate / error screens */
+        .center { height: 100%; display: flex; align-items: center; justify-content: center; padding: 1rem; overflow-y: auto; }
+        .card { width: 100%; max-width: 380px; background: var(--bg-card); border: 1px solid var(--border);
+                border-radius: 12px; padding: 2rem 1.5rem; text-align: center; }
+        .card h1 { font-size: 1.25rem; margin-bottom: 0.5rem; }
+        .card p { color: var(--text-muted); font-size: 0.92rem; line-height: 1.5; margin-bottom: 1.25rem; }
+        .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 1.4rem;
+               border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text);
+               font: inherit; font-size: 0.95rem; font-weight: 600; text-decoration: none; cursor: pointer; }
+        .btn.primary { background: var(--primary); border-color: var(--primary); color: #1a0e07; }
+        .btn-col { display: flex; flex-direction: column; gap: 0.6rem; }
+        .pin-row { display: flex; gap: 0.6rem; justify-content: center; margin-bottom: 1rem; }
+        .pin-row input { width: 56px; height: 68px; text-align: center; font-size: 1.9rem; font-weight: 700;
+                         background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+                         font-family: ui-monospace, monospace; }
+        .pin-row input:focus { outline: 2px solid var(--primary); border-color: transparent; }
+        .pin-row.shake { animation: shake .35s; }
+        @keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+        .err { color: #e5645a; font-size: 0.85rem; min-height: 1.2rem; margin-bottom: 0.6rem; }
+        .hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+        .ts { display: flex; justify-content: center; margin-bottom: 1rem; }
+
+        /* Map UI */
+        .pill { position: absolute; z-index: 5; top: calc(var(--sat) + 12px); left: 12px; right: 12px; max-width: 460px;
+                display: flex; align-items: center; gap: 0.6rem; padding: 0.55rem 0.9rem;
+                background: rgba(20,22,15,0.92); border: 1px solid var(--border); border-radius: 999px;
+                font-size: 0.82rem; backdrop-filter: blur(6px); }
+        .pill .live { width: 9px; height: 9px; border-radius: 50%; background: #3fb870; flex: none; }
+        .pill.stale .live { background: #d9a441; }
+        .pill.off .live { background: #8a8878; }
+        .pill strong { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .pill .dim { color: var(--text-muted); white-space: nowrap; margin-left: auto; }
+        .fabs { position: absolute; z-index: 5; right: 12px; bottom: calc(var(--sab) + 16px); display: flex; flex-direction: column; gap: 10px; }
+        .fab { width: 52px; height: 52px; border-radius: 50%; border: 1px solid var(--border); background: rgba(27,30,21,0.96);
+               color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+        .fab svg { width: 24px; height: 24px; }
+        .fab.on { background: var(--primary); border-color: var(--primary); color: #1a0e07; }
+        .hist-btn { position: absolute; z-index: 5; left: 12px; bottom: calc(var(--sab) + 16px); min-height: 52px; padding: 0 1.3rem;
+                    border-radius: 26px; border: 1px solid var(--primary); background: var(--primary); color: #1a0e07;
+                    font: inherit; font-weight: 700; font-size: 0.95rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; }
+        .hist-btn.on { background: rgba(27,30,21,0.96); color: var(--text); border-color: var(--border); }
+        .sheet { position: absolute; z-index: 6; left: 0; right: 0; bottom: 0; background: var(--bg-card); border-top: 1px solid var(--border);
+                 border-radius: 16px 16px 0 0; padding: 0.9rem 1rem calc(var(--sab) + 1rem); transform: translateY(105%);
+                 transition: transform .22s ease; max-height: 70dvh; overflow-y: auto; }
+        .sheet.open { transform: none; }
+        .sheet h2 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); margin: 0.9rem 0 0.5rem; font-weight: 600; }
+        .sheet h2:first-of-type { margin-top: 0.2rem; }
+        .sheet .grab { width: 40px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 0.6rem; }
+        .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+        .chip { min-height: 44px; padding: 0 1rem; border-radius: 22px; border: 1px solid var(--border); background: var(--bg);
+                color: var(--text); font: inherit; font-size: 0.9rem; cursor: pointer; }
+        .chip.sel { background: var(--primary); border-color: var(--primary); color: #1a0e07; font-weight: 700; }
+        .sheet .close { width: 100%; margin-top: 1rem; }
+
+        /* The current-position marker */
+        .me { position: relative; width: 30px; height: 30px; }
+        .me::before { content: ''; position: absolute; inset: -14px; border-radius: 50%; background: rgba(47,125,246,.28);
+                      animation: pulse 2.2s ease-out infinite; }
+        .me::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: var(--blue);
+                     border: 4px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,.5); }
+        @keyframes pulse { 0% { transform: scale(.55); opacity: 1; } 100% { transform: scale(1.5); opacity: 0; } }
+        @media (prefers-reduced-motion: reduce) { .me::before { animation: none; } .sheet { transition: none; } }
+        .empty { position: absolute; z-index: 4; left: 50%; top: 50%; transform: translate(-50%,-50%); width: calc(100% - 2rem); max-width: 340px; }
+
+        /* Wider screens: sheet becomes a floating panel, controls stay out of the way */
+        @media (min-width: 720px) {
+            .sheet { left: 16px; right: auto; bottom: 84px; width: 340px; border: 1px solid var(--border); border-radius: 14px;
+                     padding-bottom: 1rem; transform: translateY(20px); opacity: 0; pointer-events: none; transition: .18s; }
+            .sheet.open { transform: none; opacity: 1; pointer-events: auto; }
+            .sheet .grab { display: none; }
+            .pill { left: 16px; top: 16px; }
+            .hist-btn { left: 16px; bottom: 20px; }
+            .fabs { right: 16px; bottom: 20px; }
         }
-        .bar strong { color: var(--primary); }
-        .bar .dim { color: var(--text-muted); }
-        .center {
-            height: 100%; display: flex; align-items: center; justify-content: center; padding: 1rem;
-        }
-        .card {
-            max-width: 420px; background: var(--bg-card); border: 1px solid var(--border);
-            padding: 2rem 2.25rem; text-align: center;
-        }
-        .card h1 { font-size: 1.3rem; margin-bottom: 0.6rem; }
-        .card p { color: var(--text-muted); font-size: 0.9rem; line-height: 1.5; }
+        .maplibregl-ctrl-attrib { font-size: 10px; }
     </style>
 </head>
 <body>
 {% if invalid %}
-    <div class="center">
-        <div class="card">
-            <h1>This link isn't active</h1>
-            <p>It may have expired, or the person who shared it has revoked it. Ask them for a new one.</p>
+    <div class="center"><div class="card">
+        <h1>This link isn't active</h1>
+        <p>It may have expired, or the person who shared it has revoked it. Ask them for a new one.</p>
+    </div></div>
+
+{% elif gate == 'login' %}
+    <div class="center"><div class="card">
+        <h1>Sign in to view</h1>
+        <p>{% if label %}“{{ label }}” is{% else %}This shared location is{% endif %} only open to people with a Roamly account.</p>
+        <div class="btn-col">
+            <a class="btn primary" href="{{ login_url }}">Sign in</a>
+            <a class="btn" href="{{ signup_url }}">Create an account</a>
         </div>
-    </div>
-{% else %}
-    <div class="bar">
-        <strong>Shared location</strong>
-        <span class="dim">last {{ window_hours }} hour{{ window_hours|pluralize }}</span>
-        <span class="dim" id="share-status">loading…</span>
-    </div>
-    <div id="map"></div>
-    <script src="{% static 'tracker/vendor/maplibre-gl.js' %}"></script>
+    </div></div>
+
+{% elif gate == 'pin' %}
+    <div class="center"><div class="card">
+        <h1>Enter PIN</h1>
+        <p>{% if label %}“{{ label }}” is{% else %}This shared location is{% endif %} protected. Enter the 4-digit PIN you were given{% if pin_login %} — you'll only need to do this once on this account{% endif %}.</p>
+        <form id="pin-form" autocomplete="off">
+            <input class="hp" type="text" name="website" id="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+            <div class="pin-row" id="pin-row">
+                {% for i in "0123" %}<input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="one-time-code" aria-label="PIN digit {{ forloop.counter }}">{% endfor %}
+            </div>
+            {% if TURNSTILE_ENABLED %}<div class="ts"><div class="cf-turnstile" data-sitekey="{{ TURNSTILE_SITE_KEY }}" data-theme="dark" data-callback="onTs"></div></div>{% endif %}
+            <div class="err" id="pin-err" role="alert"></div>
+            <button type="submit" class="btn primary" style="width:100%" id="pin-go">Unlock</button>
+        </form>
+    </div></div>
     <script>
         const TOKEN = '{{ token|escapejs }}';
-        const map = new maplibregl.Map({
-            container: 'map',
-            style: {
-                version: 8,
-                sources: {carto: {type: 'raster', tiles: ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png{{ CARTO_TILE_QS|escapejs }}'], tileSize: 256}},
-                layers: [{id: 'carto', type: 'raster', source: 'carto'}],
-            },
-            center: [0, 20], zoom: 1.5,
+        const rows = Array.from(document.querySelectorAll('#pin-row input'));
+        const err = document.getElementById('pin-err');
+        let tsToken = '', busy = false;
+        function onTs(t) { tsToken = t; }
+        rows.forEach((el, i) => {
+            el.addEventListener('input', () => {
+                el.value = el.value.replace(/\D/g, '').slice(-1);
+                if (el.value && rows[i + 1]) rows[i + 1].focus();
+                if (rows.every(r => r.value)) submit();
+            });
+            el.addEventListener('keydown', e => { if (e.key === 'Backspace' && !el.value && rows[i - 1]) rows[i - 1].focus(); });
+            el.addEventListener('paste', e => {
+                const d = (e.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0, 4);
+                if (!d) return;
+                e.preventDefault();
+                d.split('').forEach((c, k) => { rows[k].value = c; });
+                (rows[d.length] || rows[3]).focus();
+                if (d.length === 4) submit();
+            });
         });
-        let marker = null;
+        rows[0].focus();
+        document.getElementById('pin-form').addEventListener('submit', e => { e.preventDefault(); submit(); });
+        async function submit() {
+            const pin = rows.map(r => r.value).join('');
+            if (pin.length < 4 || busy) return;
+            busy = true; err.textContent = '';
+            try {
+                const r = await fetch(`/api/share/${encodeURIComponent(TOKEN)}/unlock/`, {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({pin, website: document.getElementById('hp').value, 'cf-turnstile-response': tsToken}),
+                });
+                const d = await r.json().catch(() => ({}));
+                if (r.ok) { location.reload(); return; }
+                err.textContent = d.error || 'Something went wrong.';
+                const row = document.getElementById('pin-row');
+                row.classList.remove('shake'); void row.offsetWidth; row.classList.add('shake');
+                rows.forEach(x => x.value = ''); rows[0].focus();
+                if (window.turnstile) { try { turnstile.reset(); } catch (_) {} tsToken = ''; }
+            } catch (_) {
+                err.textContent = 'Connection problem. Try again.';
+            } finally { busy = false; }
+        }
+    </script>
 
-        async function load() {
-            const status = document.getElementById('share-status');
+{% else %}
+    <div id="map"></div>
+    <div class="pill off" id="pill"><span class="live"></span><strong id="p-title">{% if label %}{{ label|truncatechars:40 }}{% else %}Shared location{% endif %}</strong><span class="dim" id="p-status">loading…</span></div>
+    <div class="empty card" id="empty" hidden><h1>No location yet</h1><p style="margin:0">Nothing has been recorded to show. This page will update when a location arrives.</p></div>
+
+    <button class="hist-btn" id="hist-btn" hidden><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg><span id="hist-label">History</span></button>
+
+    <div class="fabs">
+        <button class="fab" id="layers-btn" aria-label="Map style"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 8l10 5 10-5z"/><path d="m2 13 10 5 10-5"/></svg></button>
+        <button class="fab" id="recenter" aria-label="Centre on current location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+    </div>
+
+    <div class="sheet" id="sheet" role="dialog" aria-label="Options">
+        <div class="grab"></div>
+        <div id="sec-hist"><h2>History</h2><div class="chips" id="win-chips"></div></div>
+        <h2>Map</h2>
+        <div class="chips" id="base-chips"></div>
+        <button class="btn close" id="sheet-close">Done</button>
+    </div>
+
+    <script src="{% static 'tracker/vendor/maplibre-gl.js' %}"></script>
+    <script>
+    (function () {
+        const TOKEN = '{{ token|escapejs }}';
+        const CARTO_QS = '{{ CARTO_TILE_QS|escapejs }}';
+        const POLL_MS = 45000;
+        const BASES = {
+            'Dark': {tiles: ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png' + CARTO_QS], max: 19},
+            'Streets': {tiles: ['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png' + CARTO_QS], max: 19},
+            'Satellite': {tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], max: 19},
+        };
+        const $ = id => document.getElementById(id);
+        const store = {
+            get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } },
+            set(k, v) { try { localStorage.setItem(k, v); } catch (_) {} },
+        };
+        let baseName = store.get('roamly_share_base');
+        if (!BASES[baseName]) baseName = 'Dark';
+
+        function styleFor(name) {
+            const b = BASES[name];
+            return {version: 8, sources: {base: {type: 'raster', tiles: b.tiles, tileSize: 256, maxzoom: b.max}},
+                    layers: [{id: 'base', type: 'raster', source: 'base'}]};
+        }
+        const map = new maplibregl.Map({container: 'map', style: styleFor(baseName), center: [0, 20], zoom: 1.5,
+                                         attributionControl: false, dragRotate: false});
+        map.touchZoomRotate.disableRotation();
+        map.addControl(new maplibregl.AttributionControl({compact: true}), 'bottom-left');
+
+        let data = null;            // last server payload
+        let showHistory = false;
+        let win = null;             // selected history window (hours)
+        let marker = null, curLL = null, anim = null, fitted = false;
+        let lastOk = 0, timer = null;
+
+        // ── marker (animated) ──────────────────────────────────────────────
+        function placeMarker(ll) {
+            if (!marker) {
+                const el = document.createElement('div'); el.className = 'me';
+                marker = new maplibregl.Marker({element: el}).setLngLat(ll).addTo(map);
+                curLL = ll; return;
+            }
+            const from = curLL, t0 = performance.now();
+            cancelAnimationFrame(anim);
+            const step = now => {
+                const k = Math.min(1, (now - t0) / 900), e = 1 - Math.pow(1 - k, 3);
+                const p = [from[0] + (ll[0] - from[0]) * e, from[1] + (ll[1] - from[1]) * e];
+                marker.setLngLat(p);
+                if (k < 1) anim = requestAnimationFrame(step); else curLL = ll;
+            };
+            anim = requestAnimationFrame(step);
+            curLL = ll;
+        }
+
+        // ── history layers (re-added after every basemap swap) ─────────────
+        function ensureLayers() {
+            if (!map.isStyleLoaded() && !map.getSource('base')) return;
+            const fc = {type: 'FeatureCollection', features: []};
+            if (!map.getSource('trk')) {
+                map.addSource('trk', {type: 'geojson', data: fc});
+                map.addLayer({id: 'trk-case', type: 'line', source: 'trk', filter: ['==', '$type', 'LineString'],
+                    layout: {'line-cap': 'round', 'line-join': 'round'},
+                    paint: {'line-color': '#000', 'line-width': 7, 'line-opacity': 0.35}});
+                map.addLayer({id: 'trk-line', type: 'line', source: 'trk', filter: ['==', '$type', 'LineString'],
+                    layout: {'line-cap': 'round', 'line-join': 'round'},
+                    paint: {'line-color': '#e8763d', 'line-width': 4, 'line-opacity': 0.95}});
+                map.addLayer({id: 'trk-dots', type: 'circle', source: 'trk', filter: ['==', '$type', 'Point'],
+                    paint: {'circle-radius': 3.5, 'circle-color': '#e8763d', 'circle-stroke-color': '#fff',
+                            'circle-stroke-width': 1, 'circle-opacity': 0.95}});
+            }
+            paintTrack();
+        }
+        function paintTrack() {
+            const src = map.getSource('trk');
+            if (!src) return;
+            const feats = [];
+            if (showHistory && data && data.points && data.points.length) {
+                const coords = data.points.map(p => [p[1], p[0]]);
+                const style = data.style || 'lines';
+                if (style !== 'dots' && coords.length > 1)
+                    feats.push({type: 'Feature', geometry: {type: 'LineString', coordinates: coords}, properties: {}});
+                if (style !== 'lines')
+                    coords.forEach(c => feats.push({type: 'Feature', geometry: {type: 'Point', coordinates: c}, properties: {}}));
+            }
+            src.setData({type: 'FeatureCollection', features: feats});
+        }
+        map.on('style.load', ensureLayers);
+        map.on('styledata', () => { if (!map.getSource('trk') && map.getSource('base')) ensureLayers(); });
+
+        function fitAll() {
+            const pts = [];
+            if (curLL) pts.push(curLL);
+            if (showHistory && data && data.points) data.points.forEach(p => pts.push([p[1], p[0]]));
+            if (!pts.length) return;
+            if (pts.length === 1) { map.easeTo({center: pts[0], zoom: Math.max(map.getZoom(), 15), duration: 600}); return; }
+            const b = pts.reduce((a, c) => a.extend(c), new maplibregl.LngLatBounds(pts[0], pts[0]));
+            const pad = window.innerWidth < 720 ? {top: 80, bottom: 150, left: 40, right: 80} : 80;
+            map.fitBounds(b, {padding: pad, maxZoom: 16, duration: 600});
+        }
+
+        // ── data ───────────────────────────────────────────────────────────
+        function fmtAgo(ms) {
+            const s = Math.max(0, Math.round(ms / 1000));
+            if (s < 60) return s + 's ago';
+            const m = Math.round(s / 60); if (m < 60) return m + ' min ago';
+            const h = Math.floor(m / 60); if (h < 24) return h + 'h ' + (m % 60) + 'm ago';
+            return Math.floor(h / 24) + ' d ago';
+        }
+        function renderStatus() {
+            const pill = $('pill'), st = $('p-status');
+            if (!data) return;
+            if (!data.current) { pill.className = 'pill off'; st.textContent = 'no location yet'; return; }
+            const age = Date.now() - new Date(data.current.ts).getTime();
+            const stale = age > 15 * 60 * 1000;
+            pill.className = 'pill' + (stale ? ' stale' : '');
+            st.textContent = (stale ? 'last seen ' : 'updated ') + fmtAgo(age);
+        }
+
+        async function load(opts) {
+            opts = opts || {};
+            const w = showHistory && win ? win : 0;
             let d;
             try {
-                const r = await fetch(`/api/share/${encodeURIComponent(TOKEN)}/track/`);
+                const r = await fetch(`/api/share/${encodeURIComponent(TOKEN)}/data/?window=${w}`, {cache: 'no-store'});
+                if (r.status === 403) { location.reload(); return; }
                 if (!r.ok) {
                     const e = await r.json().catch(() => ({}));
-                    status.textContent = e.error || 'This link is no longer active.';
+                    $('p-status').textContent = e.error || 'This link is no longer active.';
+                    $('pill').className = 'pill off';
+                    if (r.status === 404) clearInterval(timer);
                     return;
                 }
                 d = await r.json();
-            } catch (e) {
-                status.textContent = 'Offline — will retry.';
+            } catch (_) {
+                $('p-status').textContent = 'offline — retrying';
+                $('pill').className = 'pill off';
                 return;
             }
-
-            const pts = d.points || [];
-            if (!pts.length) {
-                status.textContent = 'No recent location to show.';
-                return;
-            }
-            const coords = pts.map(p => [p[1], p[0]]);
-            const line = {type: 'Feature', geometry: {type: 'LineString', coordinates: coords}};
-            if (map.getSource('trk')) {
-                map.getSource('trk').setData(line);
-            } else {
-                map.addSource('trk', {type: 'geojson', data: line});
-                map.addLayer({id: 'trk', type: 'line', source: 'trk',
-                    paint: {'line-color': '#e8763d', 'line-width': 3, 'line-opacity': 0.9}});
-            }
-            const last = coords[coords.length - 1];
-            if (marker) marker.setLngLat(last);
-            else marker = new maplibregl.Marker({color: '#e8763d'}).setLngLat(last).addTo(map);
-
-            const b = coords.reduce((acc, c) => acc.extend(c),
-                new maplibregl.LngLatBounds(coords[0], coords[0]));
-            map.fitBounds(b, {padding: 60, maxZoom: 15, duration: 0});
-
-            const when = new Date(pts[pts.length - 1][2]);
-            status.textContent = `last seen ${when.toLocaleString()}`;
+            data = d; lastOk = Date.now();
+            $('empty').hidden = !!d.current;
+            if (d.current) placeMarker([d.current.lng, d.current.lat]);
+            buildSheet();
+            ensureLayers(); paintTrack();
+            renderStatus();
+            if (!fitted && d.current) { fitted = true; map.jumpTo({center: [d.current.lng, d.current.lat], zoom: 15}); }
+            else if (opts.fit) fitAll();
         }
 
-        map.on('load', () => {
-            load();
-            // Refresh while the tab is open — the whole point of a share link is
-            // watching someone arrive.
-            setInterval(() => { if (!document.hidden) load(); }, 60000);
+        // ── controls ───────────────────────────────────────────────────────
+        function winLabel(h) {
+            if (h === 0) return 'Live only';
+            if (h < 24) return h + (h === 1 ? ' hour' : ' hours');
+            const d = h / 24; return d + (d === 1 ? ' day' : ' days');
+        }
+        function buildSheet() {
+            if (!data) return;
+            const hist = (data.windows || []).filter(h => h > 0);
+            $('hist-btn').hidden = !hist.length;
+            $('sec-hist').hidden = !hist.length;
+            if (hist.length && (win === null || !hist.includes(win)))
+                win = hist.includes(data.default_window) ? data.default_window : hist[0];
+            $('win-chips').innerHTML = hist.map(h =>
+                `<button class="chip${h === win && showHistory ? ' sel' : ''}" data-w="${h}">${winLabel(h)}</button>`).join('')
+                + (showHistory ? '<button class="chip" data-w="off">Hide history</button>' : '');
+            $('base-chips').innerHTML = Object.keys(BASES).map(n =>
+                `<button class="chip${n === baseName ? ' sel' : ''}" data-b="${n}">${n}</button>`).join('');
+            $('hist-btn').classList.toggle('on', showHistory);
+            $('hist-label').textContent = showHistory ? 'History: ' + winLabel(win) : 'History';
+        }
+        const sheet = $('sheet');
+        const openSheet = () => { sheet.classList.add('open'); };
+        const closeSheet = () => sheet.classList.remove('open');
+        $('hist-btn').onclick = () => { buildSheet(); sheet.classList.contains('open') ? closeSheet() : openSheet(); };
+        $('layers-btn').onclick = () => { buildSheet(); sheet.classList.contains('open') ? closeSheet() : openSheet(); };
+        $('sheet-close').onclick = closeSheet;
+        $('recenter').onclick = () => { if (curLL) map.easeTo({center: curLL, zoom: Math.max(map.getZoom(), 15), duration: 500}); };
+        sheet.addEventListener('click', e => {
+            const w = e.target.closest('[data-w]'), b = e.target.closest('[data-b]');
+            if (w) {
+                if (w.dataset.w === 'off') showHistory = false;
+                else { showHistory = true; win = parseInt(w.dataset.w, 10); }
+                buildSheet(); load({fit: true}).then(() => { if (!showHistory) fitAll(); });
+                if (window.innerWidth < 720) closeSheet();
+            } else if (b) {
+                baseName = b.dataset.b; store.set('roamly_share_base', baseName);
+                map.setStyle(styleFor(baseName));
+                buildSheet();
+            }
         });
+        map.on('mousedown', closeSheet);
+        map.on('touchstart', closeSheet);
+
+        // ── polling ────────────────────────────────────────────────────────
+        function start() { clearInterval(timer); timer = setInterval(() => { if (!document.hidden) load(); }, POLL_MS); }
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) { if (Date.now() - lastOk > 20000) load(); start(); }
+        });
+        setInterval(renderStatus, 5000);
+        map.on('load', () => { ensureLayers(); load(); start(); });
+    })();
     </script>
 {% endif %}
+{% if CUSTOM_JS_SNIPPET %}{{ CUSTOM_JS_SNIPPET|safe }}{% endif %}
 </body>
 </html>
