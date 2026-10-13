@@ -258,6 +258,54 @@
         </div>
     </div>
 
+    <!-- Edit-user dialog -->
+    <div class="ue-overlay" id="ue-overlay" onclick="if(event.target===this)closeUserEdit()">
+        <div class="ue-modal" role="dialog" aria-modal="true" aria-labelledby="ue-title">
+            <div class="card-header" id="ue-title" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>Edit user</span>
+                <button class="btn btn-sm btn-outline" style="padding:2px 10px;" onclick="closeUserEdit()" aria-label="Close">×</button>
+            </div>
+            <div class="ue-body">
+                <div class="ue-section">Account</div>
+                <div class="form-group">
+                    <label for="ue-username">Username</label>
+                    <input type="text" id="ue-username" class="form-control" maxlength="150" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="ue-email">Email</label>
+                    <input type="email" id="ue-email" class="form-control" maxlength="254" autocomplete="off">
+                </div>
+                <label class="ue-check"><input type="checkbox" id="ue-email-verified"> Email verified
+                    <span class="ue-hint">Unticked blocks sign-in until they enter an emailed code.</span></label>
+                <label class="ue-check"><input type="checkbox" id="ue-active"> Account active
+                    <span class="ue-hint">Inactive accounts can't sign in. Their data is kept.</span></label>
+
+                <div class="ue-section">Password</div>
+                <div class="form-group">
+                    <label for="ue-password">Set a new password</label>
+                    <input type="password" id="ue-password" class="form-control" autocomplete="new-password" placeholder="Leave blank to keep the current one">
+                    <span class="ue-hint">Setting one signs them out everywhere.</span>
+                </div>
+                <div id="ue-reset-row" style="display:flex;align-items:center;gap:0.5rem;">
+                    <button class="btn btn-sm btn-outline" onclick="userEditAction('send_reset')">Email a reset link</button>
+                    <span class="ue-hint" style="margin:0;">Lets them choose their own.</span>
+                </div>
+
+                <div class="ue-section">Two-factor &amp; devices</div>
+                <div class="ue-line"><span id="ue-totp-status"></span>
+                    <button class="btn btn-sm btn-outline" id="ue-totp-btn" style="color:var(--danger);border-color:var(--danger);" onclick="userEditAction('disable_totp')">Turn off 2FA</button></div>
+                <div class="ue-line"><span id="ue-devices-status"></span>
+                    <button class="btn btn-sm btn-outline" id="ue-devices-btn" onclick="userEditAction('forget_devices')">Forget devices</button></div>
+                <span class="ue-hint">2FA can only be turned off here — turning it on needs their own authenticator app, from their Settings.</span>
+            </div>
+            <div class="settings-actions" style="padding:0.9rem 1.25rem;border-top:1px solid var(--border);margin:0;">
+                <button class="btn btn-primary btn-sm" onclick="saveUserEdit()">Save</button>
+                <button class="btn btn-sm btn-outline" onclick="closeUserEdit()">Cancel</button>
+                <span id="ue-status" style="font-size:0.8125rem;align-self:center;"></span>
+            </div>
+        </div>
+    </div>
+
     <!-- ── Custom JS tab ── -->
     <div id="tab-custom-js" style="display:none;">
         <div class="card" style="transition:none;">
@@ -525,6 +573,18 @@
 {% block extra_css %}
 <style>
 .tab-btn { min-width:90px; }
+/* Edit-user dialog */
+.ue-overlay { position:fixed; inset:0; z-index:2000; background:rgba(4,8,18,0.72); display:none; align-items:center; justify-content:center; padding:1rem; }
+.ue-overlay.open { display:flex; }
+.ue-modal { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-clay-lg); width:100%; max-width:480px; max-height:90vh; display:flex; flex-direction:column; overflow:hidden; }
+.ue-modal > .card-header { padding:0.9rem 1.25rem; margin:0; border-bottom:1px solid var(--border); }
+.ue-body { padding:0.5rem 1.25rem 1rem; overflow-y:auto; }
+.ue-section { font-family:var(--font-mono); font-size:0.7rem; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-muted); margin:1rem 0 0.5rem; padding-bottom:0.3rem; border-bottom:1px solid var(--border); }
+.ue-check { display:flex; flex-wrap:wrap; align-items:center; gap:0.5rem; font-size:0.875rem; cursor:pointer; margin-bottom:0.6rem; }
+.ue-hint { display:block; width:100%; font-size:0.75rem; color:var(--text-muted); margin-top:0.2rem; }
+.ue-check .ue-hint { margin:0 0 0 1.5rem; }
+.ue-line { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; font-size:0.875rem; margin-bottom:0.5rem; }
+
 /* Overpass endpoint list — rows join into one plate, like a table without one. */
 .op-row {
     display:flex; align-items:center; gap:0.5rem;
@@ -1052,7 +1112,7 @@ async function loadUsers() {
     const d = await r.json();
     document.getElementById('users-tbody').innerHTML = d.users.map(u=>
         `<tr class="al-row" id="user-row-${u.id}" data-username="${esc(u.username)}">
-            <td style="font-weight:600;">${esc(u.username)}${u.is_self ? ' <span style="color:var(--text-muted);font-weight:400;">(you)</span>' : ''}</td>
+            <td style="font-weight:600;">${esc(u.username)}${u.is_self ? ' <span style="color:var(--text-muted);font-weight:400;">(you)</span>' : ''}${u.is_active ? '' : ' <span style="color:var(--danger);font-weight:400;font-size:0.7rem;">inactive</span>'}</td>
             <td style="color:var(--text-muted);">${esc(u.email)}</td>
             <td style="font-size:0.75rem;color:var(--text-muted);">${u.date_joined ? new Date(u.date_joined).toLocaleDateString() : '—'}</td>
             <td style="font-size:0.75rem;color:var(--text-muted);">${u.last_login ? fmtTime(u.last_login) : 'Never'}</td>
@@ -1064,8 +1124,9 @@ async function loadUsers() {
                     ${u.is_admin ? 'Admin' : 'User'}
                 </button>
             </td>
-            <td style="text-align:center;">
-                ${u.is_self ? '<span style="color:var(--text-muted);font-size:0.7rem;">—</span>' :
+            <td style="text-align:center;white-space:nowrap;">
+                <button class="btn btn-sm btn-outline" style="font-size:0.7rem;padding:2px 10px;" onclick="openUserEdit(${u.id})">Edit</button>
+                ${u.is_self ? '' :
                     `<button class="btn btn-sm btn-outline" style="font-size:0.7rem;padding:2px 10px;color:var(--danger);border-color:var(--danger);"
                         onclick="deleteUser(${u.id})">Delete</button>`}
             </td>
@@ -1096,6 +1157,96 @@ async function toggleAdmin(userId, btn) {
     btn.className = `btn btn-sm ${d.is_admin ? 'btn-primary' : 'btn-outline'}`;
     btn.style.fontSize = '0.7rem';
     btn.style.padding = '2px 10px';
+}
+
+// ── Edit user ──────────────────────────────────────────────────────────────
+let _ueUser = null, _ueSelf = false;
+
+function _ueRender(u) {
+    _ueUser = u;
+    document.getElementById('ue-title').firstElementChild.textContent = `Edit ${u.username}`;
+    document.getElementById('ue-username').value = u.username;
+    document.getElementById('ue-email').value = u.email;
+    document.getElementById('ue-email-verified').checked = u.email_verified;
+    document.getElementById('ue-active').checked = u.is_active;
+    document.getElementById('ue-active').disabled = _ueSelf;
+    document.getElementById('ue-password').value = '';
+    document.getElementById('ue-reset-row').style.display = u.email_enabled ? 'flex' : 'none';
+    document.getElementById('ue-totp-status').textContent = u.totp_enabled
+        ? `2FA on · ${u.backup_codes_left} backup code${u.backup_codes_left === 1 ? '' : 's'} left` : '2FA off';
+    document.getElementById('ue-totp-btn').style.display = u.totp_enabled ? '' : 'none';
+    document.getElementById('ue-devices-status').textContent =
+        `${u.known_devices} trusted device${u.known_devices === 1 ? '' : 's'}`;
+    document.getElementById('ue-devices-btn').disabled = !u.known_devices;
+}
+
+async function openUserEdit(userId) {
+    const st = document.getElementById('ue-status');
+    st.textContent = '';
+    const r = await fetch(`/api/admin/users/${userId}/`);
+    if (!r.ok) { await roamlyAlert('Could not load that user.'); return; }
+    const d = await r.json();
+    _ueSelf = d.is_self;
+    _ueRender(d.user);
+    document.getElementById('ue-overlay').classList.add('open');
+    document.getElementById('ue-email').focus();
+}
+
+function closeUserEdit() {
+    document.getElementById('ue-overlay').classList.remove('open');
+    document.getElementById('ue-password').value = '';
+    _ueUser = null;
+}
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.getElementById('ue-overlay').classList.contains('open')) closeUserEdit();
+});
+
+async function _uePost(body) {
+    const r = await fetch(`/api/admin/users/${_ueUser.id}/update/`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken')},
+        body: JSON.stringify(body),
+    });
+    let d = {};
+    try { d = await r.json(); } catch (_) {}
+    if (!r.ok) { await roamlyAlert(d.error || 'Failed to update user.'); return null; }
+    return d;
+}
+
+async function saveUserEdit() {
+    if (!_ueUser) return;
+    const body = {
+        username: document.getElementById('ue-username').value.trim(),
+        email: document.getElementById('ue-email').value.trim(),
+        email_verified: document.getElementById('ue-email-verified').checked,
+        is_active: document.getElementById('ue-active').checked,
+    };
+    const pw = document.getElementById('ue-password').value;
+    if (pw) body.password = pw;
+    const st = document.getElementById('ue-status');
+    st.textContent = 'Saving…'; st.style.color = 'var(--text-muted)';
+    const d = await _uePost(body);
+    if (!d) { st.textContent = ''; return; }
+    closeUserEdit();
+    roamlyToast(pw ? 'User saved — new password set.' : 'User saved.');
+    loadUsers();
+}
+
+async function userEditAction(action) {
+    if (!_ueUser) return;
+    const name = _ueUser.username;
+    const prompts = {
+        disable_totp: [`Turn off two-factor authentication for "${name}"? Their backup codes are deleted too; they can set it up again from Settings.`, {danger: true, confirmText: 'Turn off 2FA'}],
+        forget_devices: [`Forget all of "${name}"'s trusted devices? Their next sign-in on each will need an emailed code (when email is set up).`, {confirmText: 'Forget devices'}],
+        send_reset: [`Email a password-reset link to ${_ueUser.email || '(no address)'}?`, {confirmText: 'Send link'}],
+    };
+    const [msg, opts] = prompts[action];
+    if (!await roamlyConfirm(msg, opts)) return;
+    const d = await _uePost({[action]: true});
+    if (!d) return;
+    _ueRender(d.user);
+    roamlyToast({disable_totp: '2FA turned off.', forget_devices: 'Trusted devices forgotten.', send_reset: 'Reset link sent.'}[action]);
 }
 
 // ── Custom JS ──────────────────────────────────────────────────────────────

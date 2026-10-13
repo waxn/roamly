@@ -336,7 +336,7 @@
         <div class="divider"><span class="divider-text">or</span></div>
 
         <div class="card-footer">
-            already have an account? <a href="{% url 'tracker:login' %}">sign in</a>
+            already have an account? <a href="{% url 'tracker:login' %}{% if request.GET.next %}?next={{ request.GET.next|urlencode }}{% endif %}">sign in</a>
         </div>
     </div>
 

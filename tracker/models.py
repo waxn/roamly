@@ -1710,6 +1710,7 @@ class ActionLog(models.Model):
         ('delete_data', 'Delete location data'),
         ('delete_account', 'Delete account'),
         ('admin_toggle', 'Admin toggle'),
+        ('admin_edit_user', 'Admin edited user'),
         ('admin_delete_user', 'Admin deleted user'),
         ('custom_js_save', 'Custom JS saved'),
         ('api_key_create', 'API key created'),

@@ -276,7 +276,7 @@
         <div class="divider"><span class="divider-text">or</span></div>
 
         <div class="card-footer">
-            no account? <a href="{% url 'tracker:signup' %}">sign up</a>
+            no account? <a href="{% url 'tracker:signup' %}{% if request.GET.next %}?next={{ request.GET.next|urlencode }}{% endif %}">sign up</a>
         </div>
     </div>
 

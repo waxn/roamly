@@ -515,6 +515,10 @@ def share_view(request, token):
     if not sh:
         return render(request, 'tracker/share.html', {'invalid': True}, status=404)
     gate = _share_gate(request, sh)
+    if gate == 'login':
+        request.session['share_next'] = {'url': request.path, 't': time.time()}
+    elif request.session.get('share_next', {}).get('url') == request.path:
+        request.session.pop('share_next', None)
     ctx = {
         'token': sh.token, 'standalone': True, 'gate': gate,
         'login_url': f"/login/?next={urllib.parse.quote(request.path)}",
@@ -936,6 +940,12 @@ def _safe_next(request, default='tracker:map'):
     nxt = request.POST.get('next') or request.GET.get('next') or ''
     if nxt and url_has_allowed_host_and_scheme(nxt, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
         return nxt
+    # Fallback for a flow that lost ?next= (a cross-link between login and
+    # signup, a validation re-render): the share page remembers where it sent
+    # the visitor, for 30 minutes.
+    pending = request.session.get('share_next')
+    if pending and time.time() - pending.get('t', 0) < 1800 and pending.get('url', '').startswith('/share/'):
+        return pending['url']
     return default
 
 
@@ -1353,7 +1363,7 @@ def _verify_turnstile(request, allow_app=True, token=None):
 def login_view(request):
     is_app = _is_app_client(request)
     if request.user.is_authenticated and not is_app:
-        return redirect('tracker:map')
+        return redirect(_safe_next(request))
     if request.method == 'POST':
         if _rate_limited(request, 'login', 10, 300,
                          identifier=request.POST.get('username', '')):
@@ -11773,6 +11783,166 @@ def admin_toggle_admin_api(request, user_id):
     return JsonResponse({'ok': True, 'is_admin': profile.is_admin})
 
 
+def _admin_user_detail(target):
+    """The fields the admin Edit-user dialog reads and writes."""
+    profile, _ = UserProfile.objects.get_or_create(user=target)
+    return {
+        'id': target.id,
+        'username': target.username,
+        'email': target.email,
+        'is_active': target.is_active,
+        'has_password': target.has_usable_password(),
+        'email_verified': profile.email_verified,
+        'totp_enabled': profile.totp_enabled,
+        'backup_codes_left': TOTPBackupCode.objects.filter(user=target, used_at__isnull=True).count(),
+        'known_devices': KnownDevice.objects.filter(user=target).count(),
+        'email_enabled': email_enabled(),
+    }
+
+
+@login_required
+def admin_user_detail_api(request, user_id):
+    """GET one user's account fields for the admin Edit-user dialog."""
+    err = _require_admin(request)
+    if err:
+        return err
+    from django.contrib.auth.models import User as AuthUser
+    target = get_object_or_404(AuthUser, id=user_id)
+    return JsonResponse({'user': _admin_user_detail(target), 'is_self': target.id == request.user.id})
+
+
+@login_required
+@require_POST
+def admin_update_user_api(request, user_id):
+    """Edit another account: username, email, verification, active flag,
+    password, and the recovery levers for a locked-out user (turn off 2FA,
+    forget trusted devices, email a reset link).
+
+    Every key is optional — only what is present is changed. 2FA can only be
+    turned *off* here: enabling it needs the user to scan a secret into their
+    own authenticator app, which an admin cannot do for them.
+    """
+    err = _require_admin(request)
+    if err:
+        return err
+    try:
+        data = json.loads(request.body or b'{}')
+    except (ValueError, TypeError):
+        return JsonResponse({'error': 'Invalid JSON.'}, status=400)
+
+    from django.contrib.auth.models import User as AuthUser
+    target = get_object_or_404(AuthUser, id=user_id)
+    is_self = target.id == request.user.id
+    profile, _ = UserProfile.objects.get_or_create(user=target)
+    changes = []
+    user_fields = []
+    profile_fields = []
+
+    if 'username' in data:
+        username = (data.get('username') or '').strip()
+        if username != target.username:
+            if not username or len(username) > 150:
+                return JsonResponse({'error': 'Username must be 1-150 characters.'}, status=400)
+            from django.contrib.auth.validators import UnicodeUsernameValidator
+            from django.core.exceptions import ValidationError
+            try:
+                UnicodeUsernameValidator()(username)
+            except ValidationError:
+                return JsonResponse({'error': 'Username may only contain letters, digits and @/./+/-/_.'}, status=400)
+            if AuthUser.objects.filter(username__iexact=username).exclude(id=target.id).exists():
+                return JsonResponse({'error': 'That username is already taken.'}, status=400)
+            changes.append(f'username {target.username}->{username}')
+            target.username = username
+            user_fields.append('username')
+
+    if 'email' in data:
+        email = (data.get('email') or '').strip()
+        if email != target.email:
+            if email:
+                from django.core.validators import validate_email
+                from django.core.exceptions import ValidationError
+                try:
+                    validate_email(email)
+                except ValidationError:
+                    return JsonResponse({'error': 'Enter a valid email address.'}, status=400)
+                # Same rule as SignUpForm.clean_email, so email login stays unambiguous.
+                if AuthUser.objects.filter(email__iexact=email).exclude(id=target.id).exists():
+                    return JsonResponse({'error': 'Another account already uses that email.'}, status=400)
+            changes.append(f'email -> {email or "(none)"}')
+            target.email = email
+            user_fields.append('email')
+
+    if 'is_active' in data:
+        active = bool(data.get('is_active'))
+        if active != target.is_active:
+            if is_self and not active:
+                return JsonResponse({'error': 'Cannot deactivate your own account.'}, status=400)
+            target.is_active = active
+            user_fields.append('is_active')
+            changes.append(f'is_active={active}')
+
+    password = data.get('password') or ''
+    if password:
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError
+        try:
+            validate_password(password, target)
+        except ValidationError as e:
+            return JsonResponse({'error': ' '.join(e.messages)}, status=400)
+        # set_password rotates the session auth hash, so the user's existing
+        # sessions are signed out by it.
+        target.set_password(password)
+        user_fields.append('password')
+        changes.append('password set')
+
+    if 'email_verified' in data:
+        verified = bool(data.get('email_verified'))
+        if verified != profile.email_verified:
+            profile.email_verified = verified
+            profile_fields.append('email_verified')
+            changes.append(f'email_verified={verified}')
+
+    if data.get('disable_totp') and (profile.totp_enabled or profile.totp_secret):
+        profile.totp_enabled = False
+        profile.totp_secret = ''
+        profile_fields += ['totp_enabled', 'totp_secret']
+        TOTPBackupCode.objects.filter(user=target).delete()
+        changes.append('2FA disabled')
+
+    if data.get('forget_devices'):
+        n, _ = KnownDevice.objects.filter(user=target).delete()
+        changes.append(f'forgot {n} trusted devices')
+
+    if user_fields:
+        target.save(update_fields=user_fields)
+    if profile_fields:
+        profile.save(update_fields=list(dict.fromkeys(profile_fields)))
+    if 'password' in user_fields and is_self:
+        from django.contrib.auth import update_session_auth_hash
+        update_session_auth_hash(request, target)
+
+    reset_sent = False
+    if data.get('send_reset'):
+        if not email_enabled():
+            return JsonResponse({'error': 'SMTP is not configured on this instance.'}, status=400)
+        if not target.email:
+            return JsonResponse({'error': 'This account has no email address.'}, status=400)
+        from django.contrib.auth.tokens import default_token_generator
+        from django.utils.http import urlsafe_base64_encode
+        from django.utils.encoding import force_bytes
+        uid = urlsafe_base64_encode(force_bytes(target.pk))
+        token = default_token_generator.make_token(target)
+        url = request.build_absolute_uri(f'/reset/{uid}/{token}/')
+        send_password_reset_email(target.email, url, target.username)
+        reset_sent = True
+        changes.append('reset link emailed')
+
+    if changes:
+        _log_action(request, 'admin_edit_user',
+                    description=f"{target.username}: " + '; '.join(changes))
+    return JsonResponse({'ok': True, 'user': _admin_user_detail(target), 'reset_sent': reset_sent})
+
+
 @login_required
 @require_POST
 def admin_delete_user_api(request, user_id):
@@ -12109,7 +12279,7 @@ def admin_action_logs_api(request):
     if action_filter == 'auth':
         qs = qs.filter(action__in=['login', 'logout', 'signup', 'login_fail'])
     elif action_filter == 'admin':
-        qs = qs.filter(action__in=['admin_toggle', 'admin_delete_user', 'custom_js_save'])
+        qs = qs.filter(action__in=['admin_toggle', 'admin_edit_user', 'admin_delete_user', 'custom_js_save'])
     elif action_filter:
         qs = qs.filter(action=action_filter)
     if hours:
