@@ -201,7 +201,7 @@
 
 {% else %}
     <div id="map"></div>
-    <div class="pill off" id="pill"><span class="live"></span><strong id="p-title">{% if label %}{{ label|truncatechars:40 }}{% else %}Shared location{% endif %}</strong><span class="dim" id="p-status">loading…</span></div>
+    <div class="pill off" id="pill"><span class="live"></span><strong id="p-title">{{ sharer|truncatechars:40 }}</strong><span class="dim" id="p-status">loading…</span></div>
     <div class="empty card" id="empty" hidden><h1>No location yet</h1><p style="margin:0">Nothing has been recorded to show. This page will update when a location arrives.</p></div>
 
     <button class="hist-btn" id="hist-btn" hidden><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg><span id="hist-label">History</span></button>

@@ -520,6 +520,7 @@ def share_view(request, token):
         'login_url': f"/login/?next={urllib.parse.quote(request.path)}",
         'signup_url': f"/signup/?next={urllib.parse.quote(request.path)}",
         'label': sh.label,
+        'sharer': sh.user.username,
         'pin_login': sh.require_login,
     }
     if gate == 'ok':
