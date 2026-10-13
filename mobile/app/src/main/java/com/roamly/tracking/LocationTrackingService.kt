@@ -64,7 +64,7 @@ private const val MIN_ALARM_FLOOR_MS = 15_000L
 private const val CATCHUP_MULTIPLIER = 3
 /** Rollback lever for the freshness skip becoming reachable screen-off (streamArmed). */
 private const val SKIP_ON_STREAM_FRESHNESS = true
-/** Screen-off, the stream asks the location provider to hold fixes and deliver them together
+/** Screen-off AND Android Battery Saver on, the stream asks the location provider to hold fixes and deliver them together
  *  at most this often. The fixes are still produced (and timestamped) every interval, so the
  *  track is unchanged; the app processor just wakes once per window instead of once per fix.
  *  Only fused hardware batching actually defers delivery; the platform source delivers as
@@ -249,6 +249,8 @@ class LocationTrackingService : Service() {
     private var syncPrefJob: Job? = null
     private var providerReceiver: BroadcastReceiver? = null
     private var screenReceiver: BroadcastReceiver? = null
+    /** Android Battery Saver on. Screen-off stream batching only applies then. */
+    @Volatile private var powerSave = false
     private var wakeLock: PowerManager.WakeLock? = null
 
     /**
@@ -440,6 +442,7 @@ class LocationTrackingService : Service() {
         screenOn = runCatching {
             (getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
         }.getOrDefault(true)
+        powerSave = readPowerSave()
         startPointWriter()
         startStreamConsumer()
         startCellScanner()
@@ -578,6 +581,14 @@ class LocationTrackingService : Service() {
         if (screenReceiver != null) return
         val rcv = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action == PowerManager.ACTION_POWER_SAVE_MODE_CHANGED) {
+                    val ps = readPowerSave()
+                    if (ps == powerSave) return
+                    powerSave = ps
+                    Log.i(TAG, "Battery saver ${if (ps) "on" else "off"} — re-selecting capture mode")
+                    if (!isPaused) currentConfig?.let { applyCapture(it) }
+                    return
+                }
                 val on = when (intent?.action) {
                     Intent.ACTION_SCREEN_ON -> true
                     Intent.ACTION_SCREEN_OFF -> false
@@ -593,10 +604,15 @@ class LocationTrackingService : Service() {
         val filterScreen = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
         }
         runCatching { registerReceiver(rcv, filterScreen) }
             .onFailure { Log.e(TAG, "Failed to register screen receiver", it) }
     }
+
+    private fun readPowerSave(): Boolean = runCatching {
+        (getSystemService(Context.POWER_SERVICE) as PowerManager).isPowerSaveMode
+    }.getOrDefault(false)
 
     private fun unregisterScreenReceiver() {
         screenReceiver?.let { runCatching { unregisterReceiver(it) } }
@@ -1121,7 +1137,7 @@ class LocationTrackingService : Service() {
      *  Screen-off only: with the screen on the wake lock already pins the CPU, so batching
      *  would just delay the live view for no saving. */
     private fun streamBatchMs(cfg: TrackingConfig): Long =
-        if (BATCH_SCREEN_OFF_STREAM && !screenOn && cfg.intervalMs < BATCH_WINDOW_MS) BATCH_WINDOW_MS else 0L
+        if (BATCH_SCREEN_OFF_STREAM && powerSave && !screenOn && cfg.intervalMs < BATCH_WINDOW_MS) BATCH_WINDOW_MS else 0L
 
     private fun buildRequest(cfg: TrackingConfig): FixRequest {
         val intervalMs = cfg.intervalMs
