@@ -2193,9 +2193,23 @@ class LocationShare(models.Model):
     last_viewed_at = models.DateTimeField(null=True, blank=True)
     view_count = models.IntegerField(default=0)
 
+    # Access control. ``pin_hash`` blank = no PIN. With ``require_login`` AND a
+    # PIN, the PIN is asked once per account and remembered (LocationShareGrant).
+    require_login = models.BooleanField(default=False)
+    pin_hash = models.CharField(max_length=128, blank=True, default='')
+    # Hours the viewer may pick between; 0 = "live only" (no history). Always
+    # a subset of what the sharer ticked — the data API rejects anything else.
+    allowed_windows = models.JSONField(default=list, blank=True)
+    default_window_hours = models.IntegerField(default=0)
+    view_style = models.CharField(max_length=8, default='lines')  # lines | dots | both
+
     class Meta:
         ordering = ['-created_at']
         indexes = [models.Index(fields=['user', '-created_at'], name='tracker_share_user_idx')]
+
+    @property
+    def has_pin(self):
+        return bool(self.pin_hash)
 
     def save(self, *args, **kwargs):
         if not self.token:
@@ -2216,6 +2230,29 @@ class LocationShare(models.Model):
 
     def __str__(self):
         return f"share {self.token[:8]}… for {self.user.username}"
+
+
+class LocationShareGrant(models.Model):
+    """An account that has entered a login+PIN share's PIN once."""
+    share = models.ForeignKey(LocationShare, on_delete=models.CASCADE, related_name='grants')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='location_share_grants')
+    granted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['share', 'user']
+
+
+class LocationShareView(models.Model):
+    """One visit to a share link (username, if signed in, and time). Deduped at
+    write time so a viewer leaving the tab open does not flood the log. No IP."""
+    share = models.ForeignKey(LocationShare, on_delete=models.CASCADE, related_name='views')
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
+                             related_name='+')
+    viewed_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ['-viewed_at']
+        indexes = [models.Index(fields=['share', '-viewed_at'], name='tracker_shview_idx')]
 
 
 # ─────────────────────────────────────────────────────────────────────────────

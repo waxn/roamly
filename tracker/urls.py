@@ -108,8 +108,12 @@ urlpatterns = [
     # The user's own security events (Settings -> Devices & Sessions).
     # Location sharing. /share/<token>/ is public — the token is the credential.
     path('share/<str:token>/', views.share_view, name='share'),
-    path('api/share/<str:token>/track/', views.share_track_api, name='share_track'),
+    path('api/share/<str:token>/track/', views.share_data_api, name='share_track'),  # legacy alias
+    path('api/share/<str:token>/data/', views.share_data_api, name='share_data'),
+    path('api/share/<str:token>/unlock/', views.share_unlock_api, name='share_unlock'),
     path('api/shares/', views.location_shares_api, name='location_shares'),
+    path('api/shares/<int:share_id>/update/', views.location_share_update_api, name='location_share_update'),
+    path('api/shares/<int:share_id>/views/', views.location_share_views_api, name='location_share_views'),
     path('api/shares/<int:share_id>/revoke/', views.location_share_revoke_api, name='location_share_revoke'),
     path('api/profile/activity/', views.profile_activity_api, name='profile_activity'),
     path('api/profile/devices/', views.profile_devices_api, name='profile_devices'),

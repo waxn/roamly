@@ -54,7 +54,7 @@ from .models import (
     AdventureDayNote, AdventureDayPhoto,
     SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig, StatsSnapshot,
     DismissedSuggestion, PlannedStop, KnownDevice, TOTPBackupCode,
-    LocationShare,
+    LocationShare, LocationShareGrant, LocationShareView,
     InferredLocation, EditBatch, TrashedLocation, RoadSegment, ROADS_AVAILABLE_CACHE_KEY,
     RailSegment, RailStation, DismissedSubwayGap, SUBWAY_AVAILABLE_CACHE_KEY,
     DownloadedRegion, HealthSample, HealthWorkout, HEALTH_KINDS,
@@ -277,7 +277,10 @@ def offline_view(request):
 # ---------------------------------------------------------------------------
 
 _SHARE_MAX_WINDOW_H = 24 * 30      # a month of history is the ceiling
-_SHARE_MAX_POINTS = 5000
+_SHARE_MAX_POINTS = 2000
+_SHARE_WINDOW_CHOICES = (0, 1, 6, 24, 72, 168, 720)   # 0 = live position only
+_SHARE_STYLES = ('lines', 'dots', 'both')
+_SHARE_VIEW_DEDUPE_S = 600
 
 
 def _share_payload(sh):
@@ -289,6 +292,11 @@ def _share_payload(sh):
         'device_id': sh.device.device_id if sh.device else None,
         'device_name': (sh.device.name or sh.device.device_id) if sh.device else 'All devices',
         'window_hours': sh.window_hours,
+        'allowed_windows': sh.allowed_windows or [sh.window_hours],
+        'default_window_hours': sh.default_window_hours,
+        'view_style': sh.view_style,
+        'require_login': sh.require_login,
+        'has_pin': sh.has_pin,
         'expires_at': sh.expires_at.isoformat() if sh.expires_at else None,
         'permanent': sh.is_permanent,
         'revoked': bool(sh.revoked_at),
@@ -297,6 +305,61 @@ def _share_payload(sh):
         'last_viewed_at': sh.last_viewed_at.isoformat() if sh.last_viewed_at else None,
         'view_count': sh.view_count,
     }
+
+
+def _share_clean_windows(raw, default):
+    """Validate the ticked windows → (sorted unique list, default)."""
+    out = set()
+    for v in (raw or []):
+        try:
+            v = int(v)
+        except (TypeError, ValueError):
+            continue
+        if v in _SHARE_WINDOW_CHOICES:
+            out.add(v)
+    if not out:
+        out = {0}
+    windows = sorted(out)
+    try:
+        default = int(default)
+    except (TypeError, ValueError):
+        default = windows[0]
+    if default not in out:
+        default = windows[0]
+    return windows, default
+
+
+def _share_apply_settings(sh, data, creating=False):
+    """Apply the sharer-controlled fields from a JSON body. Returns an error
+    string or None. Only keys that are present are touched (partial update)."""
+    if creating or 'allowed_windows' in data:
+        windows, default = _share_clean_windows(
+            data.get('allowed_windows'), data.get('default_window_hours'))
+        sh.allowed_windows = windows
+        sh.default_window_hours = default
+        sh.window_hours = max(max(windows), 1)
+    if 'view_style' in data:
+        style = str(data.get('view_style') or 'lines')
+        sh.view_style = style if style in _SHARE_STYLES else 'lines'
+    if 'require_login' in data:
+        sh.require_login = bool(data.get('require_login'))
+    if 'label' in data:
+        sh.label = str(data.get('label') or '')[:120]
+    if 'pin' in data:
+        pin = str(data.get('pin') or '').strip()
+        if pin == '':
+            if sh.pin_hash:
+                sh.pin_hash = ''
+                if sh.pk:
+                    sh.grants.all().delete()
+        elif re.fullmatch(r'\d{4}', pin):
+            from django.contrib.auth.hashers import make_password
+            sh.pin_hash = make_password(pin)
+            if sh.pk:
+                sh.grants.all().delete()   # a new PIN invalidates remembered ones
+        else:
+            return 'PIN must be exactly 4 digits.'
+    return None
 
 
 @login_required
@@ -312,12 +375,6 @@ def location_shares_api(request):
         data = json.loads(request.body or b'{}')
     except (json.JSONDecodeError, ValueError):
         data = request.POST
-
-    try:
-        window = int(data.get('window_hours') or 24)
-    except (TypeError, ValueError):
-        window = 24
-    window = max(1, min(window, _SHARE_MAX_WINDOW_H))
 
     device = None
     device_id = (data.get('device_id') or '').strip()
@@ -336,12 +393,42 @@ def location_shares_api(request):
             return JsonResponse({'error': 'Invalid expiry'}, status=400)
         expires_at = timezone.now() + timedelta(hours=hours)
 
-    sh = LocationShare.objects.create(
-        user=request.user, device=device, window_hours=window,
-        expires_at=expires_at, label=str(data.get('label') or '')[:120],
-    )
+    sh = LocationShare(user=request.user, device=device, expires_at=expires_at)
+    err = _share_apply_settings(sh, data, creating=True)
+    if err:
+        return JsonResponse({'error': err}, status=400)
+    sh.save()
     _log_action(request, 'share_create',
-                description=f"share={sh.id} window={window}h permanent={sh.is_permanent}")
+                description=(f"share={sh.id} windows={sh.allowed_windows} "
+                             f"permanent={sh.is_permanent} login={sh.require_login} pin={sh.has_pin}"))
+    return JsonResponse({'status': 'ok', 'share': _share_payload(sh)})
+
+
+@login_required
+@require_POST
+def location_share_update_api(request, share_id):
+    """Edit a share's protection, windows, style, label or expiry."""
+    sh = LocationShare.objects.filter(user=request.user, id=share_id).select_related('device').first()
+    if not sh:
+        return JsonResponse({'error': 'Not found'}, status=404)
+    try:
+        data = json.loads(request.body or b'{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    err = _share_apply_settings(sh, data)
+    if err:
+        return JsonResponse({'error': err}, status=400)
+    if 'expires_in_hours' in data:
+        if data['expires_in_hours'] in (None, '', 'never'):
+            sh.expires_at = None
+        else:
+            try:
+                hours = max(1, min(int(data['expires_in_hours']), _SHARE_MAX_WINDOW_H))
+            except (TypeError, ValueError):
+                return JsonResponse({'error': 'Invalid expiry'}, status=400)
+            sh.expires_at = timezone.now() + timedelta(hours=hours)
+    sh.save()
+    cache.delete_many([f'sharedata:{sh.id}:{w}' for w in _SHARE_WINDOW_CHOICES])
     return JsonResponse({'status': 'ok', 'share': _share_payload(sh)})
 
 
@@ -360,51 +447,207 @@ def location_share_revoke_api(request, share_id):
     return JsonResponse({'status': 'ok', 'share': _share_payload(sh)})
 
 
+@login_required
+@require_http_methods(["GET"])
+def location_share_views_api(request, share_id):
+    """Recent visits to one of the caller's links: time + username (null = not signed in)."""
+    sh = LocationShare.objects.filter(user=request.user, id=share_id).first()
+    if not sh:
+        return JsonResponse({'error': 'Not found'}, status=404)
+    rows = sh.views.select_related('user')[:100]
+    return JsonResponse({
+        'views': [{'at': v.viewed_at.isoformat(),
+                   'username': v.user.username if v.user else None} for v in rows],
+        'total': sh.view_count,
+        'unique_users': sh.views.exclude(user=None).values('user').distinct().count(),
+    })
+
+
 def _get_active_share(token):
     sh = (LocationShare.objects.filter(token=(token or '').strip())
           .select_related('user', 'device').first())
     return sh if (sh and sh.is_active) else None
 
 
+def _share_pin_marker(sh):
+    # Tied to the current PIN hash, so changing the PIN revokes remembered unlocks.
+    return f"{sh.id}:{sh.pin_hash[-12:]}"
+
+
+def _share_gate(request, sh):
+    """'ok' | 'login' | 'pin' — what the viewer must still do."""
+    u = request.user
+    if u.is_authenticated and u.id == sh.user_id:
+        return 'ok'                      # the owner always sees their own link
+    if sh.require_login and not u.is_authenticated:
+        return 'login'
+    if sh.has_pin:
+        if u.is_authenticated and sh.require_login:
+            if LocationShareGrant.objects.filter(share=sh, user=u).exists():
+                return 'ok'
+        elif _share_pin_marker(sh) in (request.session.get('share_ok') or []):
+            return 'ok'
+        return 'pin'
+    return 'ok'
+
+
+def _share_log_view(request, sh):
+    """Count + log a visit, at most once per viewer per 10 minutes."""
+    u = request.user if request.user.is_authenticated else None
+    if u and u.id == sh.user_id:
+        return                            # the owner previewing their own link
+    who = f"u{u.id}" if u else hashlib.sha1(
+        f"{_client_ip(request)}|{request.META.get('HTTP_USER_AGENT', '')}".encode()).hexdigest()[:16]
+    try:
+        if not cache.add(f"shareview:{sh.id}:{who}", 1, _SHARE_VIEW_DEDUPE_S):
+            return
+    except Exception:
+        pass                              # cache outage: log rather than lose it
+    LocationShareView.objects.create(share=sh, user=u)
+    LocationShare.objects.filter(pk=sh.pk).update(
+        last_viewed_at=timezone.now(), view_count=F('view_count') + 1)
+
+
 def share_view(request, token):
-    """Public read-only map for a share link. No login: the token is the credential."""
+    """Public map for a share link. The token is the credential; the sharer may
+    additionally require a sign-in and/or a 4-digit PIN."""
     sh = _get_active_share(token)
     if not sh:
         return render(request, 'tracker/share.html', {'invalid': True}, status=404)
-    LocationShare.objects.filter(pk=sh.pk).update(
-        last_viewed_at=timezone.now(), view_count=F('view_count') + 1)
-    return render(request, 'tracker/share.html', {
-        'token': sh.token,
-        'window_hours': sh.window_hours,
-        'standalone': True,
-    })
+    gate = _share_gate(request, sh)
+    ctx = {
+        'token': sh.token, 'standalone': True, 'gate': gate,
+        'login_url': f"/login/?next={urllib.parse.quote(request.path)}",
+        'signup_url': f"/signup/?next={urllib.parse.quote(request.path)}",
+        'label': sh.label,
+        'pin_login': sh.require_login,
+    }
+    if gate == 'ok':
+        _share_log_view(request, sh)
+    resp = render(request, 'tracker/share.html', ctx)
+    resp['Cache-Control'] = 'private, no-store'
+    return resp
 
 
-def share_track_api(request, token):
-    """The shared slice of track. Public, rate-limited, and deliberately minimal.
+@csrf_exempt
+@require_POST
+def share_unlock_api(request, token):
+    """Check a share's PIN. Public; throttled per IP and per link, locks out on
+    repeated failures, honeypot + Turnstile (when the admin enabled it)."""
+    bad = _require_json(request)
+    if bad:
+        return bad
+    sh = _get_active_share(token)
+    if not sh:
+        return JsonResponse({'error': 'This link is no longer active.'}, status=404)
+    if _rate_limited(request, 'share_unlock', 20, 900, identifier=f"share{sh.id}"):
+        return JsonResponse({'error': 'Too many attempts. Try again later.'}, status=429)
+    try:
+        data = json.loads(request.body or b'{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    if data.get('website'):                               # honeypot
+        return JsonResponse({'error': 'Incorrect PIN.'}, status=403)
+    gate = _share_gate(request, sh)
+    if gate == 'login':
+        return JsonResponse({'error': 'Sign in first.', 'gate': 'login'}, status=403)
+    if gate == 'ok':
+        return JsonResponse({'status': 'ok'})
 
-    Returns coordinates and timestamps only — no username, no device list, no
-    city labels, nothing that would identify whose track this is or let the
-    holder of one link enumerate anything else.
-    """
+    ip_key = f"sharepinfail:{sh.id}:{_client_ip(request)}"
+    all_key = f"sharepinfail_all:{sh.id}"
+    if (cache.get(ip_key) or 0) >= 5 or (cache.get(all_key) or 0) >= 30:
+        return JsonResponse({'error': 'Too many wrong PINs. Try again in a while.'}, status=429)
+    if not _verify_turnstile(request, allow_app=False, token=data.get('cf-turnstile-response', '')):
+        return JsonResponse({'error': 'Please complete the verification.', 'captcha': True}, status=400)
+
+    from django.contrib.auth.hashers import check_password
+    if not check_password(str(data.get('pin') or ''), sh.pin_hash):
+        for k, ttl in ((ip_key, 900), (all_key, 3600)):
+            cache.add(k, 0, ttl)
+            try:
+                cache.incr(k)
+            except ValueError:
+                cache.set(k, 1, ttl)
+        return JsonResponse({'error': 'Incorrect PIN.'}, status=403)
+
+    if sh.require_login and request.user.is_authenticated:
+        LocationShareGrant.objects.get_or_create(share=sh, user=request.user)
+    else:
+        ok = list(request.session.get('share_ok') or [])
+        ok.append(_share_pin_marker(sh))
+        request.session['share_ok'] = ok[-50:]
+    _share_log_view(request, sh)
+    return JsonResponse({'status': 'ok'})
+
+
+def _share_current_fix(sh):
+    """Newest fix across the shared device(s). One indexed lookup per device."""
+    devices = [sh.device] if sh.device_id else list(Device.objects.filter(user=sh.user))
+    best = None
+    for d in devices:
+        row = (Location.objects.filter(device=d).order_by('-timestamp')
+               .values_list('latitude', 'longitude', 'timestamp', 'accuracy').first())
+        if row and (best is None or row[2] > best[2]):
+            best = row
+    return best
+
+
+def share_data_api(request, token):
+    """Live position (+ optional history) for a share. Public, rate-limited and
+    deliberately minimal: coordinates and timestamps only — no username, device
+    list or city labels."""
     if _rate_limited(request, 'share_track', 120, 300):
         return JsonResponse({'error': 'Too many requests.'}, status=429)
     sh = _get_active_share(token)
     if not sh:
         return JsonResponse({'error': 'This link is no longer active.'}, status=404)
+    gate = _share_gate(request, sh)
+    if gate != 'ok':
+        return JsonResponse({'error': 'Access required.', 'gate': gate}, status=403)
 
-    since = timezone.now() - timedelta(hours=sh.window_hours)
-    qs = Location.objects.filter(device__user=sh.user, timestamp__gte=since)
-    if sh.device_id:
-        qs = qs.filter(device_id=sh.device_id)
-    rows = (qs.order_by('timestamp')
-            .values_list('latitude', 'longitude', 'timestamp')[:_SHARE_MAX_POINTS])
-    points = [[_jf(lat), _jf(lng), ts.isoformat()] for lat, lng, ts in rows]
-    return JsonResponse({
-        'points': points,
-        'window_hours': sh.window_hours,
-        'updated': timezone.now().isoformat(),
-    })
+    windows = sh.allowed_windows or [sh.window_hours]
+    raw = request.GET.get('window')
+    try:
+        window = int(raw) if raw not in (None, '') else sh.default_window_hours
+    except (TypeError, ValueError):
+        return JsonResponse({'error': 'Invalid window'}, status=400)
+    if window != 0 and window not in windows:   # 0 = live position, always allowed
+        return JsonResponse({'error': 'That history window is not shared.'}, status=400)
+
+    ckey = f"sharedata:{sh.id}:{window}"
+    body = cache.get(ckey)
+    if body is None:
+        cur = _share_current_fix(sh)
+        points = []
+        if window > 0:
+            since = timezone.now() - timedelta(hours=window)
+            qs = Location.objects.filter(device__user=sh.user, timestamp__gte=since)
+            if sh.device_id:
+                qs = qs.filter(device_id=sh.device_id)
+            # Newest points win when over budget, then stride-thin evenly.
+            rows = list(qs.order_by('-timestamp')
+                        .values_list('latitude', 'longitude', 'timestamp')[:_SHARE_MAX_POINTS * 3])
+            rows.reverse()
+            step = max(1, math.ceil(len(rows) / _SHARE_MAX_POINTS))
+            thinned = rows[::step]
+            if rows and thinned[-1] is not rows[-1]:
+                thinned.append(rows[-1])
+            points = [[_jf(lat), _jf(lng), ts.isoformat()] for lat, lng, ts in thinned]
+        body = {
+            'current': ({'lat': _jf(cur[0]), 'lng': _jf(cur[1]), 'ts': cur[2].isoformat(),
+                         'accuracy': _jf(cur[3])} if cur else None),
+            'points': points,
+            'window': window,
+            'windows': windows,
+            'default_window': sh.default_window_hours,
+            'style': sh.view_style,
+            'updated': timezone.now().isoformat(),
+        }
+        cache.set(ckey, body, 15)
+    resp = JsonResponse(body)
+    resp['Cache-Control'] = 'private, no-store'
+    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -1061,7 +1304,7 @@ _TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteveri
 _TURNSTILE_TIMEOUT = 10
 
 
-def _verify_turnstile(request, allow_app=True):
+def _verify_turnstile(request, allow_app=True, token=None):
     """Check the Cloudflare Turnstile CAPTCHA on a login/signup POST, when the
     admin has one configured. Returns True when the request may proceed.
 
@@ -1086,7 +1329,8 @@ def _verify_turnstile(request, allow_app=True):
     from .context_processors import get_turnstile_enabled
     if not get_turnstile_enabled():
         return True
-    token = request.POST.get('cf-turnstile-response', '')
+    if token is None:
+        token = request.POST.get('cf-turnstile-response', '')
     if not token:
         return False
     config = SiteConfig.load()
