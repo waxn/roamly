@@ -138,6 +138,14 @@ private const val NOTIFY_RECORDING_MIN_INTERVAL_MS = 10_000L
 private const val ADAPTIVE_MOVING_INTERVAL_MS = 60_000L
 private const val ADAPTIVE_STATIONARY_INTERVAL_MS = 300_000L
 // MOVE_SPEED_MPS is a top-level constant in DriftAnchor.kt, same package.
+// "Slow down while still" (Settings, off by default): once every real fix for
+// STILL_AFTER_MS has stayed within STILL_RADIUS_M of where the stillness began,
+// capture drops to STILL_INTERVAL_MS; the first fix outside the radius restores
+// the user's interval. Displacement only, never Doppler — some chips report
+// garbage speed while parked, which would keep this from ever engaging.
+private const val STILL_RADIUS_M = 75f
+private const val STILL_AFTER_MS = 5 * 60_000L
+private const val STILL_INTERVAL_MS = 60_000L
 private const val ADAPTIVE_MOVE_THRESHOLD_MPS = MOVE_SPEED_MPS
 // updateNotification() runs once per saved point; a floor keeps a burst of
 // stream fixes from rebuilding it back to back. A no-op at any normal interval.
@@ -152,6 +160,14 @@ const val ACTION_STOP     = "com.roamly.STOP"
 const val ACTION_PAUSE    = "com.roamly.PAUSE"
 const val ACTION_RESUME   = "com.roamly.RESUME"
 const val ACTION_TAKE_FIX = "com.roamly.TAKE_FIX"
+
+/** The four prefs folded into one flow so the outer combine in observeConfig stays 5-arity. */
+private data class ExtraFlags(
+    val activity: ActivitySession?,
+    val adaptiveInterval: Boolean,
+    val cellLogging: Boolean,
+    val slowWhenStill: Boolean,
+)
 
 /** Snapshot of the user's tracking knobs. Changes restart the location request live. */
 private data class TrackingConfig(
@@ -171,6 +187,8 @@ private data class TrackingConfig(
      *  and gated again inside [CellScanner] by its own scan floor — this flag
      *  only decides whether a position is offered to the scanner at all. */
     val cellLogging: Boolean = false,
+    /** Drop to STILL_INTERVAL_MS once parked for STILL_AFTER_MS (see [stillParked]). */
+    val slowWhenStill: Boolean = false,
 ) {
     val recording: Boolean get() = activity != null
 }
@@ -239,6 +257,13 @@ class LocationTrackingService : Service() {
      *  from a dwell point, whose synthetic speed is always 0 regardless of
      *  whether the device is actually moving. */
     @Volatile private var lastFixSpeedMps: Float = 0f
+    /** Where the current still period began, and when. Reset by any real fix
+     *  outside STILL_RADIUS_M of it. Only touched under captureLock. */
+    private var stillRef: android.location.Location? = null
+    private var stillSinceMs: Long = 0L
+    /** Parked for at least STILL_AFTER_MS. Only changes capture when the
+     *  user enabled slowWhenStill. */
+    @Volatile private var stillParked = false
     /** Cached battery level + notification throttle, so a burst of stream fixes
      *  doesn't make a binder call and a notification rebuild per point. */
     @Volatile private var lastBatteryPct: Int? = null
@@ -354,6 +379,7 @@ class LocationTrackingService : Service() {
             }
             ACTION_PAUSE  -> {
                 isPaused = true; filter.reset(); driftAnchor.reset(); CellScanner.reset(); cancelNextFix()
+                stillRef = null; stillParked = false
                 recorder.stop()
                 stopLocationUpdates(); streamArmed = false; pinWakeLock = false; releaseWakeLock()
                 updateNotification(force = true)
@@ -633,8 +659,9 @@ class LocationTrackingService : Service() {
             // adaptive interval arrived and again here for cell logging.
             val activityAdaptiveCell = combine(
                 prefs.activitySession, prefs.adaptiveIntervalEnabled, prefs.cellLoggingEnabled,
-            ) { activity, adaptiveInterval, cellLogging ->
-                Triple(activity, adaptiveInterval, cellLogging)
+                prefs.slowWhenStill,
+            ) { activity, adaptiveInterval, cellLogging, slowWhenStill ->
+                ExtraFlags(activity, adaptiveInterval, cellLogging, slowWhenStill)
             }
 
             combine(
@@ -643,7 +670,7 @@ class LocationTrackingService : Service() {
                 prefs.maxAccuracyM,
                 prefs.suppressStationaryDrift,
                 activityAdaptiveCell,
-            ) { interval, priority, maxAcc, suppressDrift, (activity, adaptiveInterval, cellLogging) ->
+            ) { interval, priority, maxAcc, suppressDrift, (activity, adaptiveInterval, cellLogging, slowWhenStill) ->
                 // A live session hands capture to the recorder rather than touching
                 // the user's preferences — which is why stopping restores nothing:
                 // clearing the session *is* the restore.
@@ -658,6 +685,7 @@ class LocationTrackingService : Service() {
                     activity = act,
                     adaptiveInterval = adaptiveInterval,
                     cellLogging = cellLogging,
+                    slowWhenStill = slowWhenStill,
                 )
             }.distinctUntilChanged().collect { cfg ->
                 // All-day capture was suspended for the length of a recording, so a
@@ -696,7 +724,26 @@ class LocationTrackingService : Service() {
         if (cfg.adaptiveInterval) {
             if (lastFixSpeedMps >= ADAPTIVE_MOVE_THRESHOLD_MPS) ADAPTIVE_MOVING_INTERVAL_MS
             else ADAPTIVE_STATIONARY_INTERVAL_MS
-        } else cfg.intervalMs
+        } else captureIntervalMs(cfg)
+
+    /** The user's interval, or STILL_INTERVAL_MS while parked with slowWhenStill on.
+     *  Drives both the stream request and the alarm cadence. */
+    private fun captureIntervalMs(cfg: TrackingConfig): Long =
+        if (cfg.slowWhenStill && stillParked) maxOf(cfg.intervalMs, STILL_INTERVAL_MS) else cfg.intervalMs
+
+    /** Advance the still-period tracker with a real fix. Returns true when the
+     *  parked state flipped. Called under captureLock. */
+    private fun updateStillness(loc: android.location.Location, nowMs: Long): Boolean {
+        val ref = stillRef
+        val parked = if (ref == null || loc.distanceTo(ref) > STILL_RADIUS_M) {
+            stillRef = loc
+            stillSinceMs = nowMs
+            false
+        } else nowMs - stillSinceMs >= STILL_AFTER_MS
+        if (parked == stillParked) return false
+        stillParked = parked
+        return true
+    }
 
     private fun alarmIntervalMs(cfg: TrackingConfig): Long = maxOf(effectiveIntervalMs(cfg), MIN_ALARM_FLOOR_MS)
 
@@ -1137,10 +1184,10 @@ class LocationTrackingService : Service() {
      *  Screen-off only: with the screen on the wake lock already pins the CPU, so batching
      *  would just delay the live view for no saving. */
     private fun streamBatchMs(cfg: TrackingConfig): Long =
-        if (BATCH_SCREEN_OFF_STREAM && powerSave && !screenOn && cfg.intervalMs < BATCH_WINDOW_MS) BATCH_WINDOW_MS else 0L
+        if (BATCH_SCREEN_OFF_STREAM && powerSave && !screenOn && captureIntervalMs(cfg) < BATCH_WINDOW_MS) BATCH_WINDOW_MS else 0L
 
     private fun buildRequest(cfg: TrackingConfig): FixRequest {
-        val intervalMs = cfg.intervalMs
+        val intervalMs = captureIntervalMs(cfg)
         // One fix per interval, on time, regardless of movement:
         //  - minUpdateInterval == interval: the provider's default floor, so it won't
         //    deliver (and burn battery on) extra sub-interval fixes.
@@ -1328,6 +1375,7 @@ class LocationTrackingService : Service() {
             lastBatteryAtMs = nowMs
         }
         val battery = lastBatteryPct
+        var stillChanged = false
 
         synchronized(captureLock) {
             // Re-check under the lock. The caller's accept() happened outside it, so a
@@ -1385,6 +1433,7 @@ class LocationTrackingService : Service() {
                 lastFixSpeedMps = point.speed ?: 0f
                 // A real point is proof the chip is healthy, wherever it came from.
                 consecutiveMisses = 0
+                stillChanged = updateStillness(loc, lastAcceptedAtMs)
             }
                 pointWrites.trySend(
                 PendingWrite(
@@ -1411,6 +1460,15 @@ class LocationTrackingService : Service() {
                 )
             }
             Log.d(TAG, "Saved ${loc.latitude},${loc.longitude} acc=${loc.accuracy}m")
+        }
+        // Re-arm stream + alarm at the new cadence, outside captureLock (applyCapture
+        // seeds a fix, which comes back through here).
+        if (stillChanged) {
+            val cfg = currentConfig
+            if (cfg != null && cfg.slowWhenStill && !cfg.recording && !isPaused) {
+                Log.i(TAG, "Still state → ${if (stillParked) "parked" else "moving"}; re-selecting capture")
+                scope.launch { if (!isPaused) currentConfig?.let { applyCapture(it) } }
+            }
         }
         updateNotification()
         return true

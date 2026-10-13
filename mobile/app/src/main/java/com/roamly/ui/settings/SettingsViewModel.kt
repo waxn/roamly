@@ -37,6 +37,7 @@ data class SettingsUiState(
     val syncOnMobileData: Boolean = true,
     val suppressStationaryDrift: Boolean = true,
     val adaptiveIntervalEnabled: Boolean = false,
+    val slowWhenStill: Boolean = false,
     val cellLoggingEnabled: Boolean = false,
     val simpleModeEnabled: Boolean = false,
     val batteryOptimizationDisabled: Boolean = false,
@@ -85,6 +86,7 @@ class SettingsViewModel @Inject constructor(
         collect(prefs.syncOnMobileData)      { v -> _state.update { it.copy(syncOnMobileData = v) } }
         collect(prefs.suppressStationaryDrift) { v -> _state.update { it.copy(suppressStationaryDrift = v) } }
         collect(prefs.adaptiveIntervalEnabled) { v -> _state.update { it.copy(adaptiveIntervalEnabled = v) } }
+        collect(prefs.slowWhenStill) { v -> _state.update { it.copy(slowWhenStill = v) } }
         collect(prefs.cellLoggingEnabled) { v -> _state.update { it.copy(cellLoggingEnabled = v) } }
         collect(prefs.simpleModeEnabled)       { v -> _state.update { it.copy(simpleModeEnabled = v) } }
         collect(prefs.lastSyncTime)          { v -> _state.update { it.copy(lastSyncTime = v) } }
@@ -239,6 +241,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setSuppressStationaryDrift(enabled: Boolean) {
         viewModelScope.launch { prefs.setSuppressStationaryDrift(enabled) }
+    }
+
+    fun setSlowWhenStill(enabled: Boolean) {
+        viewModelScope.launch { prefs.setSlowWhenStill(enabled) }
     }
 
     fun setAdaptiveIntervalEnabled(enabled: Boolean) {

@@ -413,6 +413,14 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(16.dp))
             ToggleRow(
+                title = "Slow down while still",
+                subtitle = "Normal interval while moving; once a minute after 5 minutes in one spot",
+                checked = state.slowWhenStill,
+                onCheckedChange = viewModel::setSlowWhenStill,
+            )
+
+            Spacer(Modifier.height(16.dp))
+            ToggleRow(
                 title = "Adaptive interval",
                 subtitle = "Record every 1 min while moving, every 5 min while still — instead of the fixed interval above",
                 checked = state.adaptiveIntervalEnabled,

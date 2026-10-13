@@ -63,6 +63,8 @@ class UserPreferences @Inject constructor(
         // fixed bounds -- see LocationTrackingService.
         private val KEY_ADAPTIVE_INTERVAL       = booleanPreferencesKey("adaptive_interval_enabled")
         private val KEY_CELL_LOGGING            = booleanPreferencesKey("cell_logging_enabled")
+        // Drop to one point a minute after a few minutes parked; see LocationTrackingService.
+        private val KEY_SLOW_WHEN_STILL         = booleanPreferencesKey("slow_when_still")
 
         // Simple Mode: a reduced bottom nav (Map / Family / Settings) for a
         // non-technical family member. Local-only, per device -- not synced to
@@ -137,6 +139,8 @@ class UserPreferences @Inject constructor(
      *  it is an extra data stream most people have no use for, and the multi-SIM
      *  half of it wants a permission tracking does not otherwise need. */
     val cellLoggingEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_CELL_LOGGING] ?: false }
+    /** Record once a minute after ~5 minutes parked, back to the normal interval on moving. */
+    val slowWhenStill: Flow<Boolean> = context.dataStore.data.map { it[KEY_SLOW_WHEN_STILL] ?: false }
 
     // ── Simple Mode ────────────────────────────────────────────────────────
 
@@ -267,6 +271,10 @@ class UserPreferences @Inject constructor(
 
     suspend fun setAdaptiveIntervalEnabled(enabled: Boolean) {
         context.dataStore.edit { it[KEY_ADAPTIVE_INTERVAL] = enabled }
+    }
+
+    suspend fun setSlowWhenStill(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_SLOW_WHEN_STILL] = enabled }
     }
 
     suspend fun setCellLoggingEnabled(enabled: Boolean) {
