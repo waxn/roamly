@@ -214,8 +214,7 @@
     <div class="sheet" id="sheet" role="dialog" aria-label="Options">
         <div class="grab"></div>
         <div id="sec-hist"><h2>History</h2><div class="chips" id="win-chips"></div></div>
-        <h2>Map</h2>
-        <div class="chips" id="base-chips"></div>
+        <div id="sec-map" hidden><h2>Map layer</h2><div class="chips" id="base-chips"></div></div>
         <button class="btn close" id="sheet-close">Done</button>
     </div>
 
@@ -377,7 +376,6 @@
             if (!data) return;
             const hist = (data.windows || []).filter(h => h > 0);
             $('hist-btn').hidden = !hist.length;
-            $('sec-hist').hidden = !hist.length;
             if (hist.length && (win === null || !hist.includes(win)))
                 win = hist.includes(data.default_window) ? data.default_window : hist[0];
             $('win-chips').innerHTML = hist.map(h =>
@@ -389,10 +387,18 @@
             $('hist-label').textContent = showHistory ? 'History: ' + winLabel(win) : 'History';
         }
         const sheet = $('sheet');
-        const openSheet = () => { sheet.classList.add('open'); };
-        const closeSheet = () => sheet.classList.remove('open');
-        $('hist-btn').onclick = () => { buildSheet(); sheet.classList.contains('open') ? closeSheet() : openSheet(); };
-        $('layers-btn').onclick = () => { buildSheet(); sheet.classList.contains('open') ? closeSheet() : openSheet(); };
+        let sheetMode = null;
+        const closeSheet = () => { sheet.classList.remove('open'); sheetMode = null; };
+        function toggleSheet(mode) {
+            if (sheet.classList.contains('open') && sheetMode === mode) { closeSheet(); return; }
+            sheetMode = mode;
+            $('sec-hist').hidden = mode !== 'history';
+            $('sec-map').hidden = mode !== 'layers';
+            buildSheet();
+            sheet.classList.add('open');
+        }
+        $('hist-btn').onclick = () => toggleSheet('history');
+        $('layers-btn').onclick = () => toggleSheet('layers');
         $('sheet-close').onclick = closeSheet;
         $('recenter').onclick = () => { if (curLL) map.easeTo({center: curLL, zoom: Math.max(map.getZoom(), 15), duration: 500}); };
         sheet.addEventListener('click', e => {
