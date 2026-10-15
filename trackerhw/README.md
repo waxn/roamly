@@ -38,24 +38,33 @@ the **XIAO's** pin names. Wire it to the Feather like this:
 |---|---|---|
 | **3V3** | power in | **3V** |
 | **GND** | ground | **GND** |
-| **D7** | GNSS TX (data out) | **RX** (GPIO38) |
-| **D6** | GNSS RX (data in) | **TX** (GPIO39) |
 | **D0** | STANDBY (high = run, low = standby) | **A0** (GPIO18) |
-| **D2** | RESET (active low) | **A1** (GPIO17) |
+| **D2** | RESET (active low) | **A2** (GPIO16) |
+| **D6** | GNSS RX (data in) | **A4** (GPIO14) |
+| **D7** | GNSS TX (data out) | **RX** (GPIO38) |
+
+A0, A2 and A4 deliberately skip a pin each, so the joints aren't crammed
+together. Any free GPIO would do for the data lines (the ESP32-S3 routes its
+UART anywhere), but STANDBY and RESET need RTC-capable pins (GPIO0–21) so
+power-off can hold them through deep sleep. Avoid SCK/MOSI/MISO (display),
+SDA/SCL (fuel gauge) and D13 (red LED). Pin choices live in
+`firmware/src/config.h`.
 
 Leave the module's **5V** pad unconnected. Screw/clip the antenna onto the
 module's U.FL connector before powering it: the patch side (the ceramic square)
 should face the sky — in a pocket, away from your body.
 
 * Seeed note: an earlier revision of the module had RESET on **D10** instead of
-  D2. If yours says so on the silkscreen or schematic, wire D10 to A1 instead.
+  D2. If yours says so on the silkscreen or schematic, wire D10 to A2 instead.
 * D0 and D2 must not float: Seeed's troubleshooting note is that an unpulled
   STANDBY/RESET leaves the green LED stuck on. The firmware drives both high.
 * The module's green LED is its 1PPS indicator (blinks once a second with a
   fix). The L76K has no command to turn it off; desolder it if it bothers you.
 
-The firmware auto-detects the UART pins and baud rate on first boot and
-remembers them.
+The firmware auto-detects the UART pins and baud rate if the wiring above
+doesn't answer, and remembers what it found. The L76K never acknowledges a
+command, so the transmit pin is found by its effect: switch an extra sentence
+on, watch for it, switch it off.
 
 ## Buttons
 
