@@ -21,7 +21,7 @@ static void help() {
       "  gps raw on|off         mirror NMEA to this console\n"
       "  gps detect             re-run pin/baud auto-detect\n"
       "  gps mode 0|1|2         accurate / balanced / low power\n"
-      "  gps led 0|1|2|3        module LED: 0 pulse off, 1 held low, 2 held high, 3 default\n"
+      "  gps reset hot|cold|hard | standby | wake | config\n"
       "  set <key> <value>      interval (0/adaptive) timeout minacc units clock tz bright flip autosync batt recording\n"
       "  wifi add \"ssid\" pass   save a network\n"
       "  wifi list | wifi del N\n"
@@ -54,12 +54,12 @@ static void status() {
   char rs[120];
   resetSummary(rs, sizeof rs);
   Serial.printf("resets: %s\n", rs);
-  Serial.printf("gps: det=%d cfg=%d saved=%d led_off=%d rx=%d tx=%d baud=%lu ver='%s' bytes=%lu sent=%lu bad=%lu acks=%lu naks=%lu asleep=%d\n",
-                g.detected, g.configured, g.saved, g.ledOff, g.rx, g.tx, (unsigned long)g.baud, g.version, (unsigned long)g.bytes,
-                (unsigned long)g.sentences, (unsigned long)g.badChecksum, (unsigned long)g.ubxAcks, (unsigned long)g.ubxNaks, g.asleep);
+  Serial.printf("gps: det=%d cfg=%d saved=%d rx=%d tx=%d baud=%lu ver='%s' bytes=%lu sent=%lu bad=%lu asleep=%d view gps/bds/glo=%u/%u/%u\n",
+                g.detected, g.configured, g.saved, g.rx, g.tx, (unsigned long)g.baud, g.version, (unsigned long)g.bytes,
+                (unsigned long)g.sentences, (unsigned long)g.badChecksum, g.asleep, g.inViewGps, g.inViewBds, g.inViewGlo);
   Serial.printf("fix: valid=%d type=%u age=%lums %.7f,%.7f alt=%.1f acc=%.1f(%s) spd=%.2f crs=%.0f sats=%u/%u heard=%u hdop=%.2f snr best=%u top4=%.1f ttff=%lums\n",
                 f.valid, f.fixType, f.atMs ? (unsigned long)(millis() - f.atMs) : 0UL, f.lat, f.lon, f.altM, f.accM,
-                f.accFromGst ? "gst" : "hdop", f.spdMs, f.crsDeg, f.sats, g.inView, g.tracked, f.hdop, g.bestSnr, g.avgTop4Snr,
+                "hdop", f.spdMs, f.crsDeg, f.sats, g.inView, g.tracked, f.hdop, g.bestSnr, g.avgTop4Snr,
                 (unsigned long)g.ttffMs);
   Serial.printf("adaptive=%d motion=%s interval=%lus peeks=%lu\n", cfg.intervalS == 0, motionName(ls.motion),
                 (unsigned long)loggerIntervalS(), (unsigned long)ls.peeks);
@@ -128,12 +128,11 @@ static void exec(String cmd) {
     else if (arg == "raw off") gpsSetRawEcho(nullptr);
     else if (arg == "detect") { cfg.gpsRx = -1; Serial.println(gpsBegin() ? "ok" : "not found"); }
     else if (arg.startsWith("mode ")) setKey("mode", arg.substring(5));
-    else if (arg == "reset hot" || arg == "reset cold") { gpsReset(arg == "reset cold"); Serial.println("reset sent, config reapplied"); }
-    else if (arg.startsWith("led ")) {
-      cfg.gpsLed = constrain(arg.substring(4).toInt(), 0, 3);
-      settingsSave();
-      Serial.println(gpsSetLed(cfg.gpsLed) ? "ok" : "module didn't accept it");
-    }
+    else if (arg == "reset hot" || arg == "reset cold") { gpsReset(arg == "reset cold"); Serial.println("restart sent"); }
+    else if (arg == "reset hard") { gpsHardReset(); Serial.println("RESET pin pulsed"); }
+    else if (arg == "standby") { gpsStandby(); Serial.println("standby (pin low)"); }
+    else if (arg == "wake") { gpsWake(); Serial.println("awake (pin high)"); }
+    else if (arg == "config") { cfg.gpsCfgSaved = 0; Serial.println(gpsApplyMode(cfg.gpsMode, cfg.intervalS) ? "configured" : "output didn't change"); }
     else Serial.println("gps raw on|off | detect | mode N");
   } else if (head == "set") {
     int s2 = arg.indexOf(' ');

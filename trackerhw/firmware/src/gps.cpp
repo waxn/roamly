@@ -6,125 +6,134 @@
 #include <sys/time.h>
 #include <time.h>
 
+// The L76K speaks the CASIC protocol: configuration is plain NMEA-style
+// $PCAS sentences, and none of them is acknowledged. So instead of waiting
+// for an ACK, gpsApplyMode() watches the output change to what it asked for.
+//
+// Multi-GNSS changes the sentence names: position comes as $GNRMC/$GNGGA
+// (TinyGPSPlus understands GN), but satellites arrive per constellation
+// ($GPGSV, $BDGSV, $GLGSV) and the fix type as $GNGSA, which TinyGPSCustom
+// can't match across talkers, so those go through the small parser below.
+
 static HardwareSerial& GPS = Serial1;
 static TinyGPSPlus nmea;
-// NEO-6 talks as "GP"; TinyGPSCustom matches the full sentence name.
-static TinyGPSCustom gstTime(nmea, "GPGST", 1), gstLat(nmea, "GPGST", 6), gstLon(nmea, "GPGST", 7);
-static TinyGPSCustom gsaMode(nmea, "GPGSA", 2);
-static TinyGPSCustom gsvTotal(nmea, "GPGSV", 3), gsvMsg(nmea, "GPGSV", 2);
-static TinyGPSCustom gsvPrn[4] = {{nmea, "GPGSV", 4}, {nmea, "GPGSV", 8}, {nmea, "GPGSV", 12}, {nmea, "GPGSV", 16}};
-static TinyGPSCustom gsvSnr[4] = {{nmea, "GPGSV", 7}, {nmea, "GPGSV", 11}, {nmea, "GPGSV", 15}, {nmea, "GPGSV", 19}};
 
 static GpsFix fix;
 static GpsInfo info;
 static Stream* rawEcho = nullptr;
 static uint32_t wokeAtMs = 0;
 static bool haveFixSinceWake = false;
-static uint32_t lastPassed = 0;
 
-// Per-PRN SNR, aged out after a few seconds so a satellite that set is dropped.
-static uint8_t snr[100];
-static uint32_t snrAt[100];
+// HDOP-to-metres factor (user equivalent range error). A rough, conventional
+// figure for a modern multi-GNSS receiver; the L76K reports no error estimate.
+static constexpr float UERE_M = 3.5f;
 
-// ── UBX framing ─────────────────────────────────────────────────────────────
-static uint8_t ubxBuf[128];
-static int ubxPos = -1;   // -1 = not in a UBX frame
-static uint16_t ubxLen = 0;
-static volatile int lastAck = 0;   // 1 ack, -1 nak, 0 none
-static uint8_t lastAckCls = 0, lastAckId = 0;
-static uint8_t pm2[44];
-static bool pm2Valid = false;
-static uint8_t tp5[32];
-static bool tp5Valid = false;
+// ── Line parser for GSA / GSV / TXT ─────────────────────────────────────────
+static char line[100];
+static uint8_t lineLen = 0;
+static uint8_t gsaFixMode = 0;
+static uint32_t gsaAtMs = 0;
+static uint32_t txtSeenMs = 0;
+static bool sawGsv = false, sawVtg = false, sawGll = false, sawGn = false;
 
-static void ubxChecksum(const uint8_t* d, size_t n, uint8_t& a, uint8_t& b) {
-  a = b = 0;
-  for (size_t i = 0; i < n; i++) { a += d[i]; b += a; }
+// Per-satellite SNR, keyed by constellation + PRN, aged out after a few seconds.
+static constexpr int SNR_SLOTS = 3 * 100;
+static uint8_t snr[SNR_SLOTS];
+static uint32_t snrAt[SNR_SLOTS];
+static uint32_t viewAt[3];
+static uint8_t viewCount[3];
+
+static int talkerIndex(const char* t) {
+  if (!strncmp(t, "GP", 2)) return 0;
+  if (!strncmp(t, "BD", 2) || !strncmp(t, "GB", 2)) return 1;
+  if (!strncmp(t, "GL", 2)) return 2;
+  return -1;
 }
 
-static void ubxSend(uint8_t cls, uint8_t id, const uint8_t* payload, uint16_t len) {
-  uint8_t hdr[6] = {0xB5, 0x62, cls, id, (uint8_t)(len & 0xFF), (uint8_t)(len >> 8)};
-  // checksum covers cls, id, len, payload
-  uint8_t a = 0, b = 0;
-  for (int i = 2; i < 6; i++) { a += hdr[i]; b += a; }
-  for (uint16_t i = 0; i < len; i++) { a += payload[i]; b += a; }
-  GPS.write(hdr, 6);
-  if (len) GPS.write(payload, len);
-  GPS.write(a);
-  GPS.write(b);
-  GPS.flush();
+static int splitFields(char* s, char** f, int max) {
+  int n = 0;
+  f[n++] = s;
+  for (char* p = s; *p && n < max; p++) {
+    if (*p == ',' || *p == '*') { *p = 0; f[n++] = p + 1; }
+  }
+  return n;
 }
 
-static void ubxHandle(uint8_t cls, uint8_t id, const uint8_t* p, uint16_t len) {
-  if (cls == 0x05 && len >= 2) {
-    lastAckCls = p[0];
-    lastAckId = p[1];
-    lastAck = id == 0x01 ? 1 : -1;
-    if (id == 0x01) info.ubxAcks++; else info.ubxNaks++;
-  } else if (cls == 0x06 && id == 0x31 && len == 32) {
-    memcpy(tp5, p, 32);
-    tp5Valid = true;
-  } else if (cls == 0x06 && id == 0x3B && len == 44) {
-    memcpy(pm2, p, 44);
-    pm2Valid = true;
-  } else if (cls == 0x0A && id == 0x04 && len >= 40) {
-    // MON-VER: swVersion[30], hwVersion[10]
-    char sw[31];
-    memcpy(sw, p, 30); sw[30] = 0;
-    char hw[11];
-    memcpy(hw, p + 30, 10); hw[10] = 0;
-    snprintf(info.version, sizeof info.version, "%s/%s", sw, hw);
+static void satStats() {
+  uint32_t now = millis();
+  uint8_t top[4] = {0, 0, 0, 0}, tracked = 0, best = 0;
+  for (int i = 0; i < SNR_SLOTS; i++) {
+    if (!snrAt[i] || now - snrAt[i] > 5000 || !snr[i]) continue;
+    tracked++;
+    uint8_t s = snr[i];
+    if (s > best) best = s;
+    for (int k = 0; k < 4; k++) if (s > top[k]) { for (int j = 3; j > k; j--) top[j] = top[j - 1]; top[k] = s; break; }
+  }
+  info.tracked = tracked;
+  info.bestSnr = best;
+  int n = 0, sum = 0;
+  for (int k = 0; k < 4; k++) if (top[k]) { sum += top[k]; n++; }
+  info.avgTop4Snr = n ? (float)sum / n : 0;
+  uint8_t v[3];
+  for (int c = 0; c < 3; c++) v[c] = (viewAt[c] && now - viewAt[c] < 5000) ? viewCount[c] : 0;
+  info.inViewGps = v[0]; info.inViewBds = v[1]; info.inViewGlo = v[2];
+  info.inView = v[0] + v[1] + v[2];
+}
+
+static void onLine() {
+  // Validate the checksum ourselves; TinyGPSPlus does so for its own sentences.
+  char* star = strchr(line, '*');
+  if (line[0] != '$' || !star) return;
+  uint8_t cs = 0;
+  for (char* p = line + 1; p < star; p++) cs ^= (uint8_t)*p;
+  if (strtoul(star + 1, nullptr, 16) != cs) return;
+  if (strlen(line) < 7) return;
+  const char* type = line + 3;   // after "$" + 2-char talker
+  if (line[1] == 'G' && line[2] == 'N') sawGn = true;
+  if (!strncmp(type, "VTG", 3)) { sawVtg = true; return; }
+  if (!strncmp(type, "GLL", 3)) { sawGll = true; return; }
+  char* f[24];
+  if (!strncmp(type, "GSA", 3)) {
+    int n = splitFields(line, f, 24);
+    if (n > 2) { gsaFixMode = atoi(f[2]); gsaAtMs = millis(); }
+  } else if (!strncmp(type, "GSV", 3)) {
+    sawGsv = true;
+    int c = talkerIndex(line + 1);
+    if (c < 0) return;
+    int n = splitFields(line, f, 24);
+    if (n > 3) { viewCount[c] = atoi(f[3]); viewAt[c] = millis(); }
+    for (int k = 0; k < 4; k++) {
+      int pi = 4 + k * 4, si = 7 + k * 4;
+      if (si >= n) break;
+      int prn = atoi(f[pi]);
+      if (prn <= 0 || prn >= 100) continue;
+      snr[c * 100 + prn] = (uint8_t)atoi(f[si]);
+      snrAt[c * 100 + prn] = millis();
+    }
+    satStats();
+  } else if (!strncmp(type, "TXT", 3)) {
+    txtSeenMs = millis();
+    // $GPTXT,01,01,02,SW=URANUS5,V5.x... answers $PCAS06,0 (firmware version)
+    char* sw = strstr(line, "SW=");
+    if (sw) {
+      strlcpy(info.version, sw + 3, sizeof info.version);
+      char* e = strchr(info.version, '*');
+      if (e) *e = 0;
+    }
   }
 }
 
-static bool ubxFeed(uint8_t c) {
-  if (ubxPos < 0) return false;
-  if (ubxPos == 1 && c != 0x62) { ubxPos = -1; return false; }
-  if (ubxPos < (int)sizeof ubxBuf) ubxBuf[ubxPos] = c;
-  ubxPos++;
-  if (ubxPos == 6) {
-    ubxLen = ubxBuf[4] | (ubxBuf[5] << 8);
-    if (ubxLen > sizeof ubxBuf - 8) { ubxPos = -1; return true; }
-  }
-  if (ubxPos >= 6 && ubxPos == 6 + ubxLen + 2) {
-    uint8_t a, b;
-    ubxChecksum(ubxBuf + 2, 4 + ubxLen, a, b);
-    if (a == ubxBuf[6 + ubxLen] && b == ubxBuf[7 + ubxLen])
-      ubxHandle(ubxBuf[2], ubxBuf[3], ubxBuf + 6, ubxLen);
-    ubxPos = -1;
-  }
-  return true;
-}
-
-static bool waitAck(uint8_t cls, uint8_t id, uint32_t ms) {
-  uint32_t t0 = millis();
-  while (millis() - t0 < ms) {
-    gpsPoll();
-    if (lastAck && lastAckCls == cls && lastAckId == id) return lastAck > 0;
-    delay(5);
-  }
-  return false;
-}
-
-static bool ubxCmd(uint8_t cls, uint8_t id, const uint8_t* p, uint16_t len, int tries = 3) {
-  for (int i = 0; i < tries; i++) {
-    lastAck = 0;
-    ubxSend(cls, id, p, len);
-    if (waitAck(cls, id, 600)) return true;
-  }
-  return false;
-}
-
-// ── NMEA side ───────────────────────────────────────────────────────────────
+// ── Epoch assembly (RMC + GGA via TinyGPSPlus) ──────────────────────────────
+// RMC and GGA both carry the position, so the fix is built per epoch (keyed by
+// its timestamp) and published once both have arrived — or when the next
+// epoch starts, if one of them never does.
 static GpsFix pend;
 static uint32_t pendEpoch = UINT32_MAX;
 static bool pendPublished = true;
+static uint8_t pendParts = 0;   // bit0 RMC-ish (speed), bit1 GGA-ish (sats/hdop)
 
 static void publish() {
-  if (!pend.accFromGst) {
-    // No GST this epoch: a coarse, conventional stand-in (HDOP x UERE).
-    pend.accM = isnan(pend.hdop) ? NAN : pend.hdop * 5.0f;
-  }
+  pend.accM = isnan(pend.hdop) ? NAN : pend.hdop * UERE_M;
   pend.atMs = millis();
   fix = pend;
   pendPublished = true;
@@ -135,40 +144,12 @@ static void publish() {
 }
 
 static void onSentence() {
-  if (nmea.passedChecksum() != lastPassed) {
-    lastPassed = nmea.passedChecksum();
-    info.sentences = lastPassed;
-    info.lastSentenceMs = millis();
-  }
-
-  if (gsvMsg.isUpdated()) {
-    for (int i = 0; i < 4; i++) {
-      int prn = atoi(gsvPrn[i].value());
-      if (prn > 0 && prn < 100) {
-        snr[prn] = (uint8_t)atoi(gsvSnr[i].value());
-        snrAt[prn] = millis();
-      }
-    }
-    info.inView = atoi(gsvTotal.value());
-    uint8_t top[4] = {0, 0, 0, 0};
-    uint8_t tracked = 0, best = 0;
-    for (int p = 1; p < 100; p++) {
-      if (!snrAt[p] || millis() - snrAt[p] > 5000 || !snr[p]) continue;
-      tracked++;
-      uint8_t s = snr[p];
-      if (s > best) best = s;
-      for (int k = 0; k < 4; k++) if (s > top[k]) { for (int j = 3; j > k; j--) top[j] = top[j - 1]; top[k] = s; break; }
-    }
-    info.tracked = tracked;
-    info.bestSnr = best;
-    int n = 0, sum = 0;
-    for (int k = 0; k < 4; k++) if (top[k]) { sum += top[k]; n++; }
-    info.avgTop4Snr = n ? (float)sum / n : 0;
-  }
+  info.sentences = nmea.passedChecksum();
+  info.lastSentenceMs = millis();
 
   if (nmea.date.isValid() && nmea.time.isValid() && nmea.date.year() >= 2020 && nmea.time.isUpdated()) {
     time_t t = (time_t)civilToUnix(nmea.date.year(), nmea.date.month(), nmea.date.day(),
-                          nmea.time.hour(), nmea.time.minute(), nmea.time.second());
+                                   nmea.time.hour(), nmea.time.minute(), nmea.time.second());
     fix.unix = (uint32_t)t;
     time_t now = time(nullptr);
     if (!info.timeValid || llabs((long long)now - (long long)t) > 2) {
@@ -178,12 +159,6 @@ static void onSentence() {
     info.timeValid = true;
   }
 
-  // One fix per epoch. RMC and GGA both carry the position, so publishing on
-  // every location update would count each epoch twice (and the early-stop
-  // "best of three" would end after one and a half seconds). Build the epoch
-  // up from whichever sentences carry its timestamp, and publish it when that
-  // epoch's GST (accuracy) arrives — or when the next epoch starts, if the
-  // module didn't send GST.
   if (nmea.location.isUpdated()) {
     uint32_t ep = nmea.time.value();
     if (ep != pendEpoch) {
@@ -191,27 +166,20 @@ static void onSentence() {
       pend = GpsFix();
       pendEpoch = ep;
       pendPublished = false;
+      pendParts = 0;
     }
     pend.valid = nmea.location.isValid() && nmea.satellites.value() >= 3;
     pend.lat = nmea.location.lat();
     pend.lon = nmea.location.lng();
-    pend.unix = fix.unix;   // set by the time block above for this epoch
-    if (nmea.altitude.isValid()) pend.altM = nmea.altitude.meters();
-    if (nmea.speed.isValid()) pend.spdMs = nmea.speed.mps();
+    pend.unix = fix.unix;
+    if (nmea.altitude.isUpdated() || nmea.altitude.isValid()) pend.altM = nmea.altitude.meters();
+    if (nmea.speed.isValid()) { pend.spdMs = nmea.speed.mps(); pendParts |= 1; }
     if (nmea.course.isValid()) pend.crsDeg = nmea.course.deg();
-    pend.sats = nmea.satellites.value();
+    if (nmea.satellites.isValid()) { pend.sats = nmea.satellites.value(); pendParts |= 2; }
     if (nmea.hdop.isValid()) pend.hdop = nmea.hdop.hdop();
-    uint8_t ft = atoi(gsaMode.value());
-    pend.fixType = ft ? ft : (pend.valid ? 2 : 1);
-  }
-  if ((gstLat.isUpdated() || gstLon.isUpdated()) && !pendPublished) {
-    uint32_t gt = (uint32_t)lroundf(atof(gstTime.value()) * 100.0f);
-    float a = atof(gstLat.value()), b = atof(gstLon.value());
-    if (gt == pendEpoch && (a > 0 || b > 0)) {
-      pend.accM = sqrtf(a * a + b * b);
-      pend.accFromGst = true;
-      publish();
-    }
+    bool gsaFresh = gsaAtMs && millis() - gsaAtMs < 2500;
+    pend.fixType = gsaFresh && gsaFixMode ? gsaFixMode : (pend.valid ? 2 : 1);
+    if (pendParts == 3) publish();
   }
 }
 
@@ -219,21 +187,36 @@ void gpsPoll() {
   while (GPS.available()) {
     int c = GPS.read();
     info.bytes++;
-    if (c == 0xB5 && ubxPos < 0) { ubxPos = 0; ubxBuf[0] = 0xB5; ubxPos = 1; continue; }
-    if (ubxFeed((uint8_t)c)) continue;
     if (rawEcho) rawEcho->write((uint8_t)c);
     uint32_t bad = nmea.failedChecksum();
     bool committed = nmea.encode((char)c);
     if (nmea.failedChecksum() != bad) info.badChecksum++;
-    // encode() only returns true for the sentences TinyGPSPlus itself decodes
-    // (GGA/RMC); GSV/GSA/GST arrive as custom fields and need checking at
-    // every line end, or satellites-in-view never updates.
-    if (committed || c == '\n') onSentence();
+    if (c == '$') lineLen = 0;
+    if (c == '\n' || c == '\r') {
+      if (lineLen) { line[lineLen] = 0; onLine(); lineLen = 0; }
+    } else if (lineLen < sizeof(line) - 1) {
+      line[lineLen++] = (char)c;
+    }
+    if (committed) onSentence();
   }
 }
 
+// ── Commands ────────────────────────────────────────────────────────────────
+static void pcas(const char* body) {
+  uint8_t cs = 0;
+  for (const char* p = body; *p; p++) cs ^= (uint8_t)*p;
+  char out[80];
+  snprintf(out, sizeof out, "$%s*%02X\r\n", body, cs);
+  GPS.print(out);
+  GPS.flush();
+}
+
+static void pump(uint32_t ms) {
+  uint32_t t0 = millis();
+  while (millis() - t0 < ms) { gpsPoll(); delay(5); }
+}
+
 // ── Detection ───────────────────────────────────────────────────────────────
-// Listen on a pin/baud for a checksum-valid NMEA sentence.
 static bool listenFor(int rx, uint32_t baud, uint32_t ms) {
   GPS.end();
   GPS.begin(baud, SERIAL_8N1, rx, -1);
@@ -248,27 +231,28 @@ static bool listenFor(int rx, uint32_t baud, uint32_t ms) {
   return probe.passedChecksum() > 0;
 }
 
-// With RX found, find which pin reaches the module's RX by asking for MON-VER.
+// With RX found, find which pin reaches the module's RX: ask for the firmware
+// version ($PCAS06,0) and wait for the $GPTXT answer.
 static int findTx(int rx, uint32_t baud) {
-  const int cands[] = {39, 38, 17, 18, 16, 15, 14, 8, 5, 6, 9, 10, 11, 12, 13, 37};
+  const int partner = rx == 38 ? 39 : rx == 39 ? 38 : -1;
+  const int cands[] = {partner, 39, 38, 16, 15, 14, 8, 5, 6, 9, 10, 11, 12, 13, 37};
   for (int tx : cands) {
-    if (tx == rx) continue;
+    if (tx < 0 || tx == rx || tx == PIN_GPS_STANDBY || tx == PIN_GPS_RESET) continue;
     GPS.end();
     GPS.begin(baud, SERIAL_8N1, rx, tx);
     info.version[0] = 0;
-    for (int k = 0; k < 2 && !info.version[0]; k++) {
-      ubxSend(0x0A, 0x04, nullptr, 0);
-      uint32_t t0 = millis();
-      while (millis() - t0 < 700 && !info.version[0]) { gpsPoll(); delay(5); }
-    }
+    pcas("PCAS06,0");
+    pump(900);
     if (info.version[0]) return tx;
   }
-  return -1;
+  // No answer from any candidate (TXT output may be off): assume the pin next
+  // to RX, which is how the wiring guide connects it.
+  return partner;
 }
 
 bool gpsDetect(bool verbose) {
-  const int pins[] = {38, 39, 17, 18, 16, 15, 14, 8, 5, 6, 9, 10, 11, 12, 13, 37};
-  const uint32_t bauds[] = {9600, 38400, 115200, 4800, 57600};
+  const int pins[] = {38, 39, 16, 15, 14, 8, 5, 6, 9, 10, 11, 12, 13, 37};
+  const uint32_t bauds[] = {9600, 115200, 38400, 57600, 4800};
   for (uint32_t baud : bauds) {
     for (int rx : pins) {
       if (verbose) Serial.printf("[gps] probe rx=%d @%lu\n", rx, (unsigned long)baud);
@@ -286,165 +270,84 @@ bool gpsDetect(bool verbose) {
   return false;
 }
 
-static void enableNmea(uint8_t id, uint8_t rate) {
-  uint8_t p[3] = {0xF0, id, rate};   // CFG-MSG, rate on the current port
-  ubxCmd(0x06, 0x01, p, 3);
-}
-
+// ── Configuration ───────────────────────────────────────────────────────────
 bool gpsApplyMode(uint8_t mode, uint16_t intervalS) {
-  if (cfg.gpsTx < 0) return false;   // can't talk to it: runs on module defaults
-  // Exactly the sentences we parse: RMC/GGA (position, time), GSA (fix
-  // type), GSV (satellites in view), GST (accuracy); GLL and VTG off. Don't
-  // trust the module's stored defaults — the first NEO-6M tested shipped
-  // with GSA and GSV disabled.
-  enableNmea(0x00, 1);   // GGA
-  enableNmea(0x01, 0);   // GLL
-  enableNmea(0x02, 1);   // GSA
-  enableNmea(0x03, 1);   // GSV
-  enableNmea(0x04, 1);   // RMC
-  enableNmea(0x05, 0);   // VTG
-  enableNmea(0x07, 1);   // GST
-  // Power save mode works off CFG-PM2; read the module's own copy and patch
-  // only the periods rather than trusting a hard-coded blob.
-  pm2Valid = false;
-  for (int i = 0; i < 3 && !pm2Valid; i++) {
-    ubxSend(0x06, 0x3B, nullptr, 0);
-    uint32_t t0 = millis();
-    while (millis() - t0 < 600 && !pm2Valid) { gpsPoll(); delay(5); }
-  }
-  bool ok = true;
-  if (mode == GPS_BALANCED && pm2Valid) {
-    // u-blox 6: an update period under 10 s selects *cyclic tracking* — the
-    // receiver keeps tracking at 1 Hz but powers down its RF/baseband between
-    // epochs. ~11 mA instead of ~40 mA, same 1 Hz output.
-    uint32_t upd = 1000, search = 10000;
-    memcpy(pm2 + 8, &upd, 4);
-    memcpy(pm2 + 12, &search, 4);
-    ok &= ubxCmd(0x06, 0x3B, pm2, 44);
-  }
-  gpsSetLed(cfg.gpsLed);
-
-  // CFG-RXM: lpMode 0 = continuous (max performance), 1 = power save.
-  // Low-power mode is driven from our side with RXM-PMREQ, so the receiver
-  // itself runs continuous while it is on.
-  uint8_t rxm[2] = {0x08, (uint8_t)(mode == GPS_BALANCED ? 1 : 0)};
-  ok &= ubxCmd(0x06, 0x11, rxm, 2);
-  // u-blox 6 keeps its configuration in RAM, and backup mode does not
-  // preserve it: every wake from backup (pause, Low power mode, power off)
-  // came back with factory settings -- default NMEA set, no power save, and
-  // the blinking LED. CFG-CFG saves the current config to battery-backed RAM,
-  // flash and EEPROM -- whichever this board has -- so it survives.
-  uint8_t save[13] = {0};
-  uint32_t all = 0x0000061F;          // ioPort|msgConf|infMsg|navConf|rxmConf|rinvConf|antConf
-  memcpy(save + 4, &all, 4);          // saveMask
-  save[12] = 0x17;                    // devBBR|devFlash|devEEPROM|devSpiFlash
-  info.saved = ubxCmd(0x06, 0x09, save, 13);
-  info.configured = ok;
-  (void)intervalS;
-  return ok;
-}
-
-// The GY-NEO6MV2's blue LED hangs off the TIMEPULSE pin. Which configuration
-// leaves that pin dark depends on how the board wires the LED, so it's a
-// setting (CFG-TP5):
-//   0  time pulse disabled
-//   1  enabled, 1 s period, zero-length pulse, polarity "rising" (pin held low)
-//      -- the one that turns the GY-NEO6MV2's LED off
-//   2  same with polarity "falling" (pin held high)
-//   3  module default (100 ms blink once a second with a fix)
-//
-// The payload is built outright rather than read-modify-written: right after
-// a power cycle the receiver is still booting when we first talk to it, the
-// read timed out, and the LED was silently left at its default. The write is
-// then read back to confirm it took. The receiver forgets it across a power
-// cycle, so it is reapplied after every wake-up and every 10 minutes.
-static uint32_t ledAppliedMs = 0;
-
-bool gpsSetLed(uint8_t variant) {
+  (void)mode; (void)intervalS;   // power modes are driven from our side (standby pin)
   if (cfg.gpsTx < 0) return false;
-  uint8_t p[32] = {0};
-  uint32_t period = 1000000, len = variant == 3 ? 100000 : 0;
-  uint32_t flags = variant == 0 ? 0x00 : variant == 1 ? 0x53 : variant == 2 ? 0x13 : 0x77;
-  memcpy(p + 8, &period, 4);    // freqPeriod (us)
-  memcpy(p + 12, &period, 4);   // freqPeriodLock
-  memcpy(p + 20, &len, 4);      // pulseLenRatio (us)
-  memcpy(p + 24, &len, 4);      // pulseLenRatioLock
-  memcpy(p + 28, &flags, 4);
-  bool ok = false;
-  for (int attempt = 0; attempt < 3 && !ok; attempt++) {
-    if (!ubxCmd(0x06, 0x31, p, 32)) continue;
-    tp5Valid = false;
-    uint8_t tpIdx = 0;
-    ubxSend(0x06, 0x31, &tpIdx, 1);
-    uint32_t t0 = millis();
-    while (millis() - t0 < 700 && !tp5Valid) { gpsPoll(); delay(5); }
-    uint32_t back = 0;
-    if (tp5Valid) memcpy(&back, tp5 + 28, 4);
-    ok = tp5Valid && (back & 0x7F) == (flags & 0x7F);
-    if (!ok) delay(300);
+  // GPS + BeiDou + GLONASS: the most satellites, which is what matters most
+  // with the antenna in a pocket.
+  pcas("PCAS04,7");
+  delay(100);
+  pcas("PCAS02,1000");                      // 1 Hz
+  delay(100);
+  // Exactly the sentences we parse: GGA, GSA, GSV, RMC. GLL, VTG, ZDA, TXT off.
+  pcas("PCAS03,1,0,1,1,1,0,0,0");
+  // Nothing is acknowledged, so confirm by watching the output change.
+  sawGsv = sawVtg = sawGll = sawGn = false;
+  pump(2500);
+  // $GN talkers only appear once multi-GNSS is really on, so this can't be
+  // fooled by a receiver that happened to be emitting the same sentence set.
+  info.configured = sawGn && sawGsv && !sawVtg && !sawGll;
+  // Persist to the module's flash once, so it also comes up configured after
+  // a power cycle (and standby/reset can't lose it). Flash has finite write
+  // cycles, so not on every boot.
+  if (info.configured && !cfg.gpsCfgSaved) {
+    pcas("PCAS00");
+    delay(300);
+    cfg.gpsCfgSaved = 1;
+    settingsSave();
   }
-  info.ledOff = ok && variant != 3;
-  info.ledPending = !ok;
-  ledAppliedMs = millis();
-  return ok;
+  info.saved = cfg.gpsCfgSaved;
+  return info.configured;
 }
 
-void gpsMaintainLed() {
-  // Reapply once the receiver is talking again after a wake-up, and
-  // periodically in case it browned out or reset behind our back.
-  if (info.asleep || cfg.gpsTx < 0) return;
-  bool talking = info.lastSentenceMs && millis() - info.lastSentenceMs < 2000;
-  if (!talking) return;
-  if (info.ledPending || millis() - ledAppliedMs > 10UL * 60 * 1000) gpsSetLed(cfg.gpsLed);
+// ── Power ───────────────────────────────────────────────────────────────────
+// STANDBY high = running, low = standby (~0.36 mA, time and ephemeris kept, so
+// the next fix is a hot start). The module can't wake itself, so the logger
+// wakes it gpsWakeLeadMs() ahead of each fix window.
+uint32_t gpsWakeLeadMs() {
+  switch (cfg.gpsMode) {
+    case GPS_ACCURATE: return 0;        // never sleeps
+    case GPS_LOWPOWER: return 5000;
+    default:           return 9000;     // Balanced: a longer warm-up for better fixes
+  }
 }
 
-void gpsReset(bool cold) {
-  // CFG-RST: navBbrMask 0x0000 hot / 0xFFFF cold, resetMode 0x02 = controlled
-  // software reset of the GNSS part only. Config is reapplied afterwards.
-  uint8_t p[4] = {0, 0, 0x02, 0};
-  if (cold) { p[0] = 0xFF; p[1] = 0xFF; }
-  ubxSend(0x06, 0x04, p, 4);
-  delay(1500);
-  gpsApplyMode(cfg.gpsMode, cfg.intervalS);
-}
-
-void gpsBackup(uint32_t ms) {
-  if (cfg.gpsTx < 0) return;
-  // RXM-PMREQ: duration (ms, 0 = until woken), flags bit1 = enter backup.
-  uint8_t p[8] = {0};
-  memcpy(p, &ms, 4);
-  p[4] = 0x02;
-  ubxSend(0x02, 0x41, p, 8);
+void gpsStandby() {
+  digitalWrite(PIN_GPS_STANDBY, LOW);
   info.asleep = true;
 }
 
 void gpsWake() {
-  if (!info.asleep) return;
-  // Any UART activity wakes a u-blox 6 from an indefinite backup; a timed
-  // backup wakes by itself. Both resume from battery-backed ephemeris.
-  for (int i = 0; i < 8; i++) GPS.write(0xFF);
-  GPS.flush();
+  digitalWrite(PIN_GPS_STANDBY, HIGH);
+  if (info.asleep) { wokeAtMs = millis(); haveFixSinceWake = false; }
   info.asleep = false;
-  info.ledPending = true;   // reassert the LED config once it's talking
+}
+
+void gpsReset(bool cold) {
+  pcas(cold ? "PCAS10,2" : "PCAS10,0");
+  wokeAtMs = millis();
+  haveFixSinceWake = false;
+}
+
+void gpsHardReset() {
+  digitalWrite(PIN_GPS_RESET, LOW);
+  delay(100);
+  digitalWrite(PIN_GPS_RESET, HIGH);
   wokeAtMs = millis();
   haveFixSinceWake = false;
 }
 
 bool gpsBegin() {
+  pinMode(PIN_GPS_RESET, OUTPUT);
+  digitalWrite(PIN_GPS_RESET, HIGH);
+  pinMode(PIN_GPS_STANDBY, OUTPUT);
+  digitalWrite(PIN_GPS_STANDBY, HIGH);   // awake (it may be coming out of a power-off standby)
+  info.asleep = false;
   wokeAtMs = millis();
+  delay(300);
   bool found = false;
-  if (cfg.gpsRx >= 0 && cfg.gpsBaud) {
-    // The receiver may still be in backup from before this boot (recording
-    // paused, powered off): wake it before listening, or the silence sends us
-    // into a full pin scan -- which once "found" the module on swapped pins.
-    if (cfg.gpsTx >= 0) {
-      GPS.end();
-      GPS.begin(cfg.gpsBaud, SERIAL_8N1, cfg.gpsRx, cfg.gpsTx);
-      for (int i = 0; i < 16; i++) GPS.write(0xFF);
-      GPS.flush();
-    }
-    found = listenFor(cfg.gpsRx, cfg.gpsBaud, 2500) || listenFor(cfg.gpsRx, cfg.gpsBaud, 4000);
-  }
+  if (cfg.gpsRx >= 0 && cfg.gpsBaud) found = listenFor(cfg.gpsRx, cfg.gpsBaud, 2500) || listenFor(cfg.gpsRx, cfg.gpsBaud, 3000);
   if (!found) found = gpsDetect(true);
   info.detected = found;
   if (!found) return false;
@@ -454,11 +357,7 @@ bool gpsBegin() {
   info.rx = cfg.gpsRx;
   info.tx = cfg.gpsTx;
   info.baud = cfg.gpsBaud;
-  if (cfg.gpsTx >= 0 && !info.version[0]) {
-    ubxSend(0x0A, 0x04, nullptr, 0);
-    uint32_t t0 = millis();
-    while (millis() - t0 < 800 && !info.version[0]) { gpsPoll(); delay(5); }
-  }
+  if (cfg.gpsTx >= 0 && !info.version[0]) { pcas("PCAS06,0"); pump(800); }
   gpsApplyMode(cfg.gpsMode, cfg.intervalS);
   return true;
 }

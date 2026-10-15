@@ -12,11 +12,15 @@ static constexpr int PIN_BTN_UP     = 0;   // D0  ▲
 static constexpr int PIN_BTN_SELECT = 1;   // D1  ●
 static constexpr int PIN_BTN_DOWN   = 2;   // D2  ▼
 
-// ── GPS UART ────────────────────────────────────────────────────────────────
-// Default wiring: GPS TX -> Feather RX (GPIO38), GPS RX -> Feather TX (GPIO39).
-// gps.cpp auto-detects a swapped pair and the baud rate, and remembers it.
+// ── GPS: Seeed L76K GNSS module for XIAO ────────────────────────────────────
+// Module pad -> Feather pin (see trackerhw/README.md):
+//   D7 (GNSS TX)  -> RX  GPIO38      D6 (GNSS RX) -> TX  GPIO39
+//   D0 (STANDBY)  -> A0  GPIO18      D2 (RESET)   -> A1  GPIO17
+// gps.cpp auto-detects a swapped UART pair and the baud rate, and remembers it.
 static constexpr int PIN_GPS_RX_DEFAULT = 38;
 static constexpr int PIN_GPS_TX_DEFAULT = 39;
+static constexpr int PIN_GPS_STANDBY    = 18;   // high = running, low = standby
+static constexpr int PIN_GPS_RESET      = 17;   // active low
 
 // ── Timing ──────────────────────────────────────────────────────────────────
 static constexpr uint32_t FIX_WINDOW_MS        = 12000;  // how long to collect candidates per point
@@ -32,8 +36,8 @@ static constexpr uint32_t PORTAL_TIMEOUT_MS    = 15UL * 60 * 1000;
 // ── Adaptive interval (Log interval = Adaptive) ─────────────────────────────
 // Doppler speed classes: below STILL is standing still, below FAST is walking
 // or jogging, at/above FAST is cycling or a vehicle (~14 km/h).
-// 0.8 m/s matches the phone app's DriftAnchor: a stationary NEO-6M's Doppler
-// jitters up to ~0.65 m/s, while even a slow walk holds above ~1 m/s.
+// 0.8 m/s matches the phone app's DriftAnchor: a stationary receiver's Doppler
+// jitters up to ~0.65 m/s (measured on the NEO-6M), while even a slow walk holds above ~1 m/s.
 static constexpr float    ADAPT_STILL_MPS   = 0.8f;
 static constexpr float    ADAPT_FAST_MPS    = 4.0f;
 static constexpr uint32_t ADAPT_STILL_S     = 60;

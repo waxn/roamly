@@ -18,9 +18,9 @@ static float winMinSpd = NAN;
 static uint32_t lastStoreWindowMs = 0;
 static uint32_t lastSeenFixAt = 0;
 
-// Low-power mode: wake the receiver this long before a window so it has a
-// hot fix ready (u-blox 6 hot start ~1 s; more in a pocket).
-static constexpr uint32_t LP_LEAD_MS = 7000;
+// Balanced / Low power put the receiver in standby between points and wake it
+// gpsWakeLeadMs() before the next window, so it has a hot fix ready.
+static uint32_t gpsWakeAtMs = 0;   // 0 = no wake scheduled
 
 LoggerState& loggerState() { return ls; }
 
@@ -36,7 +36,9 @@ uint32_t loggerIntervalS() {
 // Gap until the next window: the interval, except while still in a mode where
 // the receiver is on anyway — then peek for movement more often than we store.
 static uint32_t nextGapS() {
-  if (adaptive() && ls.motion == MOTION_STILL && cfg.gpsMode != GPS_LOWPOWER) return ADAPT_PEEK_S;
+  // Peeking only makes sense when the receiver is running anyway (Accurate);
+  // in the standby modes every peek would cost a full wake-up.
+  if (adaptive() && ls.motion == MOTION_STILL && gpsWakeLeadMs() == 0) return ADAPT_PEEK_S;
   return loggerIntervalS();
 }
 
@@ -73,7 +75,7 @@ static bool acceptable(const GpsFix& f) {
   if (!f.valid || f.fixType < 2 || f.sats < 4) return false;
   if (!isnan(f.hdop) && f.hdop > 10.0f) return false;
   if (f.unix < 1577836800UL) return false;   // GPS hasn't decoded a real date yet
-  // Waking from backup, the NEO-6 can re-emit its last epoch before tracking
+  // Waking from standby a receiver can re-emit its last epoch before tracking
   // resumes; bench testing caught one stored as a "new" point one second after
   // the real one. A fix must be newer than the last stored point, and (once
   // the clock is set) current.
@@ -96,7 +98,7 @@ static void store(const GpsFix& f) {
   r.sats = f.sats;
   r.hdopX10 = isnan(f.hdop) ? 0xFF : (uint8_t)min(254L, lroundf(f.hdop * 10));
   r.batt = batteryPercentByte();
-  r.flags = (f.fixType >= 3 ? 1 : 0) | (f.accFromGst ? 2 : 0);
+  r.flags = (f.fixType >= 3 ? 1 : 0);   // bit1 (accuracy from GST) was NEO-6M only
   if (storageAppend(r)) {
     ls.last = r;
     ls.haveLast = true;
@@ -116,21 +118,37 @@ static void finishWindow(bool gotFix) {
   // doesn't stretch the interval.
   ls.nextDueMs = ls.windowStartMs + interval;
   if ((int32_t)(ls.nextDueMs - millis()) < 500) ls.nextDueMs = millis() + 500;
-  if (cfg.gpsMode == GPS_LOWPOWER && gotFix) {
-    int32_t off = (int32_t)(ls.nextDueMs - millis()) - (int32_t)LP_LEAD_MS;
-    // Only sleep the receiver after a good fix: with stale ephemeris it needs
-    // to stay on to download a fresh one, or it would never get a fix again.
-    if (off > 4000) gpsBackup((uint32_t)off);
+  uint32_t lead = gpsWakeLeadMs();
+  int32_t gap = (int32_t)(ls.nextDueMs - millis());
+  // Only stand the receiver down after a good fix: with stale ephemeris it
+  // needs to stay on long enough to download a fresh one, or it never fixes.
+  if (lead && gotFix && gap > (int32_t)lead + 3000) {
+    gpsStandby();
+    gpsWakeAtMs = ls.nextDueMs - lead;
+    if (!gpsWakeAtMs) gpsWakeAtMs = 1;
   }
+}
+
+uint32_t loggerNextWakeMs() {
+  // When the ESP has to be awake next: to wake the receiver, or shortly before
+  // the window itself (to flush stale UART bytes).
+  uint32_t t = ls.nextDueMs - 1200;
+  if (gpsInfo().asleep && gpsWakeAtMs && (int32_t)(gpsWakeAtMs - t) < 0) t = gpsWakeAtMs;
+  return t;
 }
 
 void loggerTick() {
   if (!cfg.recording) {
-    if (!gpsInfo().asleep) gpsBackup(0);
+    if (!gpsInfo().asleep) gpsStandby();
+    gpsWakeAtMs = 0;
     ls.collecting = false;
     return;
   }
   uint32_t now = millis();
+  if (gpsInfo().asleep && gpsWakeAtMs && (int32_t)(now - gpsWakeAtMs) >= 0) {
+    gpsWake();
+    gpsWakeAtMs = 0;
+  }
   if (!ls.collecting) {
     if ((int32_t)(now - ls.nextDueMs) < 0) return;
     ls.collecting = true;
@@ -144,9 +162,8 @@ void loggerTick() {
     ls.peekOnly = adaptive() && ls.motion == MOTION_STILL && ls.haveLast &&
                   now - lastStoreWindowMs < ADAPT_STILL_S * 1000 - 1500;
     lastSeenFixAt = gpsLatest().atMs;
-    // A timed backup wakes the receiver by itself; this covers an indefinite
-    // one (recording was paused) and is harmless otherwise.
-    if (gpsInfo().asleep) gpsWake();
+    // Normally already woken at gpsWakeAtMs; this covers a resume from pause.
+    if (gpsInfo().asleep) { gpsWake(); gpsWakeAtMs = 0; }
   }
   const GpsFix& f = gpsLatest();
   if (f.atMs != lastSeenFixAt) {

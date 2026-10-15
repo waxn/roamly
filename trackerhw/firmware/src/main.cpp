@@ -62,7 +62,7 @@ void appSettingChanged(int id) {
 void appPowerOff() {
   uiBootMessage("Powering off", "hold middle 3 s to turn on");
   delay(1200);
-  if (gpsInfo().tx >= 0) gpsBackup(0);   // GPS to backup until it's woken at boot
+  gpsStandby();   // held low through deep sleep by powerDeepSleep(); gpsBegin() wakes it
   delay(100);
   powerDeepSleep();
 }
@@ -94,7 +94,7 @@ static void maybeSleep() {
   if (p.usbHost || p.external) return;
   const LoggerState& ls = loggerState();
   if (ls.collecting) return;
-  int32_t ms = (int32_t)(ls.nextDueMs - millis()) - 1200;   // wake early to flush stale UART bytes
+  int32_t ms = (int32_t)(loggerNextWakeMs() - millis());
   if (!cfg.recording) ms = 60000;
   if (ms < 400) return;
   Serial.flush();
@@ -148,7 +148,6 @@ void loop() {
   uiPoll();
   syncScheduler();
   gpsWatchdog();
-  gpsMaintainLed();
   maybeSleep();
   delay(5);
 }

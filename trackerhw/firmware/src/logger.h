@@ -25,5 +25,6 @@ struct LoggerState {
 void loggerTick();
 LoggerState& loggerState();
 void loggerReschedule();       // after an interval/mode change: start a window now
-uint32_t loggerIntervalS();    // the interval in force right now (resolves Adaptive)
+uint32_t loggerIntervalS();
+uint32_t loggerNextWakeMs();   // millis() by which the ESP must be awake again    // the interval in force right now (resolves Adaptive)
 const char* motionName(Motion m);

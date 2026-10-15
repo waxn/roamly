@@ -509,7 +509,7 @@ static void drawAbout() {
   txt(6, 60, String("ID ") + hwId(), C_MUTED);
   const GpsInfo& g = gpsInfo();
   txt(6, 78, String("GPS rx") + g.rx + " tx" + g.tx + " @" + g.baud, C_MUTED);
-  txt(6, 96, String(g.version[0] ? g.version : "u-blox (version unknown)"), C_MUTED);
+  txt(6, 96, String("L76K ") + (g.version[0] ? g.version : "(version unknown)"), C_MUTED);
   txt(6, 114, String("Boots ") + bootCount() + "  crashes " + crashCount() + "  up " + agoShort(millis() / 1000), crashCount() ? C_WARN : C_MUTED);
   txtR(XR, 132, String("last: ") + lastResetReason(), C_MUTED);
   txt(6, 132, powerInfo().gaugeName, C_MUTED);

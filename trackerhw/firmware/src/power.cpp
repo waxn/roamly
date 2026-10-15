@@ -28,6 +28,8 @@ bool powerBegin() {
   // Released after a power-off, which held these low through deep sleep.
   gpio_hold_dis((gpio_num_t)TFT_I2C_POWER);
   gpio_hold_dis((gpio_num_t)NEOPIXEL_POWER);
+  gpio_hold_dis((gpio_num_t)PIN_GPS_STANDBY);
+  gpio_hold_dis((gpio_num_t)PIN_GPS_RESET);
   pinMode(TFT_I2C_POWER, OUTPUT);
   digitalWrite(TFT_I2C_POWER, HIGH);
   pinMode(NEOPIXEL_POWER, OUTPUT);
@@ -49,13 +51,15 @@ bool powerBegin() {
 }
 
 float powerModelCurrentMa() {
-  // Rough board-level averages per GPS mode (NEO-6M + ESP32-S3 light-sleeping
+  // Rough board-level averages per GPS mode (L76K + ESP32-S3 light-sleeping
   // between points + board LEDs/regulators). Only used until enough SOC
   // history exists to measure the real rate.
   switch (cfg.gpsMode) {
-    case GPS_ACCURATE: return 48;
-    case GPS_LOWPOWER: return 12;
-    default:           return 20;
+    // L76K: ~41 mA tracking, ~0.36 mA standby; at 30 s Balanced wakes it ~12 s
+    // per point and Low power ~8 s.
+    case GPS_ACCURATE: return 45;
+    case GPS_LOWPOWER: return 13;
+    default:           return 19;
   }
 }
 
@@ -163,7 +167,8 @@ WakeCause powerLightSleep(uint32_t ms) {
   // Keep the buttons, display/I2C power and GPS UART pins in their run-time
   // configuration across sleep; otherwise sleep-select would float them.
   const gpio_num_t keep[] = {GPIO_NUM_0, GPIO_NUM_1, GPIO_NUM_2, (gpio_num_t)TFT_I2C_POWER,
-                             (gpio_num_t)TFT_BACKLITE, (gpio_num_t)NEOPIXEL_POWER};
+                             (gpio_num_t)TFT_BACKLITE, (gpio_num_t)NEOPIXEL_POWER,
+                             (gpio_num_t)PIN_GPS_STANDBY, (gpio_num_t)PIN_GPS_RESET};
   for (auto g : keep) gpio_sleep_sel_dis(g);
   gpio_wakeup_enable(GPIO_NUM_0, GPIO_INTR_LOW_LEVEL);
   gpio_wakeup_enable(GPIO_NUM_1, GPIO_INTR_HIGH_LEVEL);
@@ -193,6 +198,9 @@ static constexpr uint32_t POWER_ON_HOLD_MS = 3000;
   digitalWrite(NEOPIXEL_POWER, LOW);
   gpio_hold_en((gpio_num_t)TFT_I2C_POWER);
   gpio_hold_en((gpio_num_t)NEOPIXEL_POWER);
+  // Keep the GPS in standby (and out of reset) for as long as we're off.
+  gpio_hold_en((gpio_num_t)PIN_GPS_STANDBY);
+  gpio_hold_en((gpio_num_t)PIN_GPS_RESET);
   gpio_deep_sleep_hold_en();
   // The middle button (D1) wakes us: it's active-high with a pull-down, which
   // has to be the RTC pull-down to survive deep sleep.

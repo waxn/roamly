@@ -42,7 +42,8 @@ struct Settings {
   int8_t   gpsRx          = -1;     // -1 = not yet detected
   int8_t   gpsTx          = -1;
   uint32_t gpsBaud        = 0;
-  uint8_t  gpsLed         = 1;      // TIMEPULSE config that keeps the module LED dark (1 = held low)
+  uint8_t  gpsLed         = 1;      // unused since the L76K (was the NEO-6M's LED config); kept for layout
+  uint8_t  gpsCfgSaved    = 0;      // L76K config written to its flash ($PCAS00)
 };
 
 extern Settings cfg;
