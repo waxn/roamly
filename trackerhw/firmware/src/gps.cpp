@@ -231,27 +231,33 @@ static bool listenFor(int rx, uint32_t baud, uint32_t ms) {
   return probe.passedChecksum() > 0;
 }
 
-// With RX found, find which pin reaches the module's RX: ask for the firmware
-// version ($PCAS06,0) and wait for the $GPTXT answer.
+// With RX found, find which pin reaches the module's RX. The L76K never
+// acknowledges anything, and once configured it no longer answers a version
+// query (TXT output is off), so prove the link by its effect: turn VTG on,
+// watch for it, and turn it back off.
+static bool txWorks(int rx, int tx, uint32_t baud) {
+  GPS.end();
+  GPS.begin(baud, SERIAL_8N1, rx, tx);
+  sawVtg = false;
+  pcas("PCAS03,1,0,1,1,1,1,0,0");
+  pump(1800);
+  bool ok = sawVtg;
+  pcas("PCAS03,1,0,1,1,1,0,0,0");
+  pump(200);
+  return ok;
+}
+
 static int findTx(int rx, uint32_t baud) {
-  const int partner = rx == 38 ? 39 : rx == 39 ? 38 : -1;
-  const int cands[] = {partner, 39, 38, 16, 15, 14, 8, 5, 6, 9, 10, 11, 12, 13, 37};
+  const int cands[] = {PIN_GPS_TX_DEFAULT, 39, 38, 15, 8, 5, 6, 9, 10, 11, 12, 13, 17};
   for (int tx : cands) {
-    if (tx < 0 || tx == rx || tx == PIN_GPS_STANDBY || tx == PIN_GPS_RESET) continue;
-    GPS.end();
-    GPS.begin(baud, SERIAL_8N1, rx, tx);
-    info.version[0] = 0;
-    pcas("PCAS06,0");
-    pump(900);
-    if (info.version[0]) return tx;
+    if (tx == rx || tx == PIN_GPS_STANDBY || tx == PIN_GPS_RESET) continue;
+    if (txWorks(rx, tx, baud)) return tx;
   }
-  // No answer from any candidate (TXT output may be off): assume the pin next
-  // to RX, which is how the wiring guide connects it.
-  return partner;
+  return PIN_GPS_TX_DEFAULT;   // nothing answered: trust the wiring guide
 }
 
 bool gpsDetect(bool verbose) {
-  const int pins[] = {38, 39, 16, 15, 14, 8, 5, 6, 9, 10, 11, 12, 13, 37};
+  const int pins[] = {PIN_GPS_RX_DEFAULT, 39, 14, 15, 17, 8, 5, 6, 9, 10, 11, 12, 13};
   const uint32_t bauds[] = {9600, 115200, 38400, 57600, 4800};
   for (uint32_t baud : bauds) {
     for (int rx : pins) {
@@ -358,7 +364,20 @@ bool gpsBegin() {
   info.tx = cfg.gpsTx;
   info.baud = cfg.gpsBaud;
   if (cfg.gpsTx >= 0 && !info.version[0]) { pcas("PCAS06,0"); pump(800); }
-  gpsApplyMode(cfg.gpsMode, cfg.intervalS);
+  if (!gpsApplyMode(cfg.gpsMode, cfg.intervalS)) {
+    // Hearing it but unable to configure it: the remembered TX pin is stale
+    // (rewired, or a module swap). Find it again and retry once.
+    int tx = findTx(cfg.gpsRx, cfg.gpsBaud);
+    if (tx != cfg.gpsTx) {
+      Serial.printf("[gps] TX pin %d didn't configure the module; now using %d\n", cfg.gpsTx, tx);
+      cfg.gpsTx = tx;
+      settingsSave();
+    }
+    GPS.end();
+    GPS.begin(cfg.gpsBaud, SERIAL_8N1, cfg.gpsRx, cfg.gpsTx);
+    info.tx = cfg.gpsTx;
+    gpsApplyMode(cfg.gpsMode, cfg.intervalS);
+  }
   return true;
 }
 
