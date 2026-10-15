@@ -558,7 +558,7 @@ The page carries `noindex, nofollow, noarchive` and `referrer: no-referrer`, and
 | `tracker/activity_track.py` | Recorded-activity pipeline: clean, Kalman + RTS smooth, stats, Douglas-Peucker, history mirror rows |
 | `tracker/cell_utils.py` | Carrier identification (name-first, MCC/MNC fallback) + tower-position estimation with a confidence verdict |
 | `mobile/.../tracking/CellScanner.kt` | The only file in the app that touches telephony — reads cells per SIM and gates what is stored |
-| `trackerhw/` | Hardware tracker (ESP32-S3 + NEO-6M) firmware and docs — see Hardware tracker below |
+| `trackerhw/` | Hardware tracker (ESP32-S3 + L76K GNSS) firmware and docs — see Hardware tracker below |
 
 ## Models
 
@@ -680,7 +680,7 @@ Every mutation calls `_bust_user_cache`. Custom places also appear in:
 
 ## Hardware tracker (`trackerhw/`)
 
-A pocket GPS logger (Adafruit ESP32-S3 Reverse TFT Feather + NEO-6M) for days without the phone. Firmware is a PlatformIO project in `trackerhw/firmware/`; its README, `PROTOCOL.md` and `POWER.md` are the reference for the device side. It logs to LittleFS and uploads **only while charging**.
+A pocket GPS logger (Adafruit ESP32-S3 Reverse TFT Feather + Seeed L76K GNSS module; the first build used a NEO-6M) for days without the phone. Firmware is a PlatformIO project in `trackerhw/firmware/`; its README, `PROTOCOL.md` and `POWER.md` are the reference for the device side. It logs to LittleFS and uploads **only while charging**.
 
 **Server side is a pairing record, not a new location source.** Points land in `Location` under an ordinary `Device` (`hw-<mac>`), so map/stats/backups need nothing new. `HardwareTracker` (migration `0094`) holds the pairing: its **own** `APIKey` (OneToOne), `hw_id`, and the last status the tracker reported (display-only JSON). Unpairing deletes the key and the row; the `Device` and its points stay. Pairing state is **excluded from backups**, and tracker keys are left out of the backup's `api_keys` too (a restored copy would belong to no tracker). **`app_api_key` excludes tracker keys** (`hardware_tracker__isnull=True`): it hands the phone the account's *oldest* active key, and a phone that adopted a tracker's key would stop tracking when the tracker was unpaired.
 

@@ -6,46 +6,41 @@ Target: **30–40 h** on the 1500 mAh cell at a 30 s interval.
 
 | Consumer | Current | Notes |
 |---|---|---|
-| NEO-6M, continuous tracking | ~37 mA | u-blox datasheet, plus ~2 mA for the board's power LED and regulator |
-| NEO-6M, power save (cyclic, 1 Hz) | ~11 mA | RF front end duty-cycled between epochs, same 1 Hz output |
-| NEO-6M, backup | < 0.1 mA | RTC + ephemeris kept |
-| GY-NEO6MV2 blue LED | ~1–2 mA | on the TIMEPULSE pin; the firmware holds it low with a zero-length pulse (`CFG-TP5`, `gps led 1`). Merely disabling the pulse leaves it lit. |
-| ESP32-S3 awake @ 80 MHz | ~25 mA | only during a fix window (~3 s per point) and while the screen is on |
+| L76K, tracking | ~41 mA | Seeed's figure, GPS + BeiDou + GLONASS |
+| L76K, standby | ~0.36 mA | STANDBY pin low; keeps time and ephemeris, so waking is a hot start |
+| L76K green 1PPS LED | ~1 mA while blinking | on the module; no command turns it off |
+| ESP32-S3 awake @ 80 MHz | ~25 mA | only during a fix window (~2–3 s per point) and while the screen is on |
 | ESP32-S3 light sleep + board quiescent | ~0.5–1 mA | regulator, fuel gauge, sleeping TFT |
 | TFT backlight | ~15–20 mA | 5 s per glance; negligible over a day |
 | Wi-Fi | ~100 mA | only while charging |
 
 ## GPS modes
 
-| Mode | What the receiver does | Board average @ 30 s | 1500 mAh lasts |
+The L76K has no u-blox-style cyclic power-save mode. Instead it has a hardware
+STANDBY pin, and it can't wake itself, so the ESP puts it in standby after
+each good fix and wakes it a fixed lead time before the next window.
+
+| Mode | Receiver | Board average @ 30 s | 1500 mAh lasts |
 |---|---|---|---|
-| **Accurate** | continuous tracking (`CFG-RXM` lpMode 0) | ~45 mA | ~30 h |
-| **Balanced** (default) | cyclic power save at 1 Hz (`CFG-PM2` update 1 s / search 10 s, `CFG-RXM` lpMode 1) | ~15 mA | ~90 h |
-| **Low power** | the ESP puts it into backup (`RXM-PMREQ`) after each point and it wakes itself 7 s before the next | ~15 mA at 30 s, ~5 mA at 2 min | ~90 h / ~270 h |
+| **Accurate** | always on | ~45 mA | ~30 h |
+| **Balanced** (default) | standby between points, woken 9 s early | ~19 mA | ~70 h |
+| **Low power** | standby, woken 5 s early | ~13 mA | ~100 h |
 
-These are budget estimates (with 10 % of the cell held back), not
-measurements — the fuel gauge can't measure current, only state of charge.
-The tracker measures its real drain rate from its own state-of-charge history
-and shows it on the Battery page once it has 30 minutes of data; until then the
-estimate is marked *(est)* and comes from the table above.
-
-**Low power only pays off at longer intervals.** Waking the receiver early
-enough for a hot fix costs ~10 s of full-power tracking per point, which at
-30 s is the same average as Balanced's cyclic tracking, with worse fixes right
-after each wake. At 2–5 minute intervals it is far better. Low power also only
-sleeps the receiver after a *successful* fix: with no fix it stays on, because
-a receiver whose ephemeris has gone stale has to stay on long enough to
-download a new one or it would never get a fix again.
+Budget estimates with 10 % of the cell held back — the fuel gauge can't
+measure current. The Battery page shows the measured drain rate after 30
+minutes unplugged. The receiver is only stood down after a *successful* fix:
+with no fix it stays on, since stale ephemeris needs time with the sky to
+refresh. At the 10 s Adaptive interval (moving fast) there's no time to stand
+it down, so it runs continuously — about Accurate's draw while you're moving.
 
 ## Adaptive interval
 
-Adaptive (the default) only changes how often a point is *stored*, so in
-Accurate and Balanced its battery effect is small — the receiver runs either
-way; a still period trades one stored point per 30 s for one per 60 s plus two
-cheap peeks. In Low power it matters more, because the receiver sleeps between
-points: a mostly-still day behaves like a fixed 1-minute interval,
-roughly 8 mA, about a week, while a day spent driving holds the receiver
-awake at 10 s points (too short to sleep it at all), about Accurate's draw.
+With the L76K, Adaptive matters for battery in Balanced and Low power, because
+the receiver stands down between points: a still period (60 s points) spends
+most of its time in standby, while driving (10 s points) keeps it on
+throughout. Only Accurate peeks for movement every 20 s while still — in the
+standby modes each peek would cost a full wake-up, so there a start of
+movement is noticed at the next 60 s point.
 
 ## The ESP32 side
 
@@ -68,7 +63,7 @@ isn't draining — two readings 10 s apart must agree, so one noisy reading in a
 pocket can't start Wi-Fi. The Feather charges at ~200 mA, so an empty 1500 mAh
 cell takes roughly 8 hours.
 
-## Bench measurements
+## Bench measurements (NEO-6M, before the L76K port)
 
 First bench run, 2026-10-05: tracker indoors on a windowsill, NEO-6M patch
 facing up, 30 s interval, 6 minutes per mode, on USB power (so no current

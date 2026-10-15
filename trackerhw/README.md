@@ -22,27 +22,40 @@ trackerhw/
 | Part | Notes |
 |---|---|
 | Adafruit ESP32-S3 Reverse TFT Feather ([#5691](https://www.adafruit.com/product/5691)) | 240×135 TFT, 3 buttons, MAX17048 fuel gauge, LiPo charger, 4 MB flash / 2 MB PSRAM |
-| HiLetgo NEO-6M GPS module (GY-GPS6MV2) with the stock 25 mm ceramic patch | u-blox 6, firmware 7.03; has a small backup cell that keeps ephemeris for fast restarts |
+| Seeed Studio L76K GNSS Module for XIAO ([wiki](https://wiki.seeedstudio.com/get_start_l76k_gnss/)) + its U.FL patch antenna | Quectel L76K: GPS + BeiDou + GLONASS + QZSS, ~41 mA tracking, ~0.36 mA standby. CASIC protocol (`$PCAS` commands) |
 | EEMB 1500 mAh 3.7 V LiPo | plugs into the Feather's JST-PH battery socket |
+
+The first build used a HiLetgo NEO-6M (u-blox 6); its firmware is in git history
+before the L76K port. The L76K sees three constellations instead of one, which
+matters most in a pocket.
 
 ### Wiring
 
-| NEO-6M | Feather |
-|---|---|
-| VCC | 3V |
-| GND | GND |
-| TX | RX (GPIO38) |
-| RX | TX (GPIO39) |
+The module is made to plug onto a Seeed XIAO, so its pads are labelled with
+the **XIAO's** pin names. Wire it to the Feather like this:
 
-The firmware auto-detects the pins and baud rate on first boot (it probes the
-free header pins at 9600/38400/115200/4800/57600 and then finds the TX line by
-asking the module for its version), and remembers the result. If GPS RX isn't
-connected the tracker still logs, but can't configure the module, so it runs in
-the module's default continuous mode and battery life drops to ~30 h.
+| L76K module pad | What it is | Feather pin |
+|---|---|---|
+| **3V3** | power in | **3V** |
+| **GND** | ground | **GND** |
+| **D7** | GNSS TX (data out) | **RX** (GPIO38) |
+| **D6** | GNSS RX (data in) | **TX** (GPIO39) |
+| **D0** | STANDBY (high = run, low = standby) | **A0** (GPIO18) |
+| **D2** | RESET (active low) | **A1** (GPIO17) |
 
-**Antenna:** the ceramic patch must face the sky — in a pocket, put the patch
-side away from your body. GPS through a body is weak (expect ±10–30 m and more
-misses than in the open).
+Leave the module's **5V** pad unconnected. Screw/clip the antenna onto the
+module's U.FL connector before powering it: the patch side (the ceramic square)
+should face the sky — in a pocket, away from your body.
+
+* Seeed note: an earlier revision of the module had RESET on **D10** instead of
+  D2. If yours says so on the silkscreen or schematic, wire D10 to A1 instead.
+* D0 and D2 must not float: Seeed's troubleshooting note is that an unpulled
+  STANDBY/RESET leaves the green LED stuck on. The firmware drives both high.
+* The module's green LED is its 1PPS indicator (blinks once a second with a
+  fix). The L76K has no command to turn it off; desolder it if it bothers you.
+
+The firmware auto-detects the UART pins and baud rate on first boot and
+remembers them.
 
 ## Buttons
 
@@ -87,7 +100,7 @@ which):
 | Pair with Roamly | Enter the 8-press code from Roamly → Settings → Data & Tracking → Hardware Trackers. |
 | Wi-Fi setup | Starts a hotspot (`Roamly-XXXX`, password on screen). Join it from your phone; the setup page opens (or browse to `192.168.4.1`). Set the server URL and up to 5 Wi-Fi networks. Hold ● to stop. Stops itself after 15 min. |
 | Settings | See below. |
-| Pause / Resume recording | Paused puts the GPS into backup mode (~0 mA). |
+| Pause / Resume recording | Paused puts the GPS in standby (~0.36 mA). |
 | Storage | Counts; clear refused points; erase everything (confirms, shows how many are not uploaded). |
 | About | Firmware, tracker ID, GPS port + module version, boot count. |
 | Restart | |
@@ -118,7 +131,7 @@ by up to 60 s. Thresholds live in `firmware/src/config.h` (`ADAPT_*`).
 |---|---|---|
 | Screen timeout | 3 s – 2 min | 5 s |
 | Log interval | **Adaptive**, or fixed 10 s – 5 min | Adaptive |
-| GPS mode | Accurate / Balanced / Low power — see [POWER.md](POWER.md) | Balanced |
+| GPS mode | Accurate (always on) / Balanced (standby between points, wakes 9 s early) / Low power (wakes 5 s early) — see [POWER.md](POWER.md) | Balanced |
 | Min accuracy | keep all, 15/25/50/100 m (worse fixes are not stored) | keep all |
 | Units | metric / imperial | metric |
 | Clock | 24 h / 12 h | 24 h |
@@ -190,7 +203,7 @@ Balanced mode, 30 s interval:
 * First fix 1.2–1.9 s after a reboot (module backup cell kept ephemeris).
 * No missed points in 36 minutes across the three GPS modes; stationary
   position scatter 3–5 m median. Table per mode in
-  [POWER.md](POWER.md#bench-measurements).
+  [POWER.md](POWER.md#bench-measurements-neo-6m-before-the-l76k-port).
 
 ## Roadmap / ideas (not built yet)
 
