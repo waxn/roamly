@@ -13,17 +13,16 @@ static constexpr int PIN_BTN_SELECT = 1;   // D1  ●
 static constexpr int PIN_BTN_DOWN   = 2;   // D2  ▼
 
 // ── GPS: Seeed L76K GNSS module for XIAO ────────────────────────────────────
-// Module pad -> Feather pin, spread out with a free pin between each for easy
-// soldering (see trackerhw/README.md):
-//   D0 (STANDBY)  -> A0  GPIO18      D2 (RESET)   -> A2  GPIO16
-//   D6 (GNSS RX)  -> A4  GPIO14      D7 (GNSS TX) -> RX  GPIO38
+// Module pad -> Feather pin (see trackerhw/README.md):
+//   D7 (GNSS TX)  -> RX  GPIO38      D6 (GNSS RX) -> TX  GPIO39
+//   D0 (STANDBY)  -> A0  GPIO18      D2 (RESET)   -> A1  GPIO17
 // STANDBY and RESET must be RTC-capable pins (GPIO0-21) so power-off can hold
 // them through deep sleep. gps.cpp auto-detects the UART pins and baud rate if
 // these don't answer, and remembers what it found.
 static constexpr int PIN_GPS_RX_DEFAULT = 38;   // ESP receives (module D7)
-static constexpr int PIN_GPS_TX_DEFAULT = 14;   // ESP transmits (module D6)
+static constexpr int PIN_GPS_TX_DEFAULT = 39;   // ESP transmits (module D6)
 static constexpr int PIN_GPS_STANDBY    = 18;   // high = running, low = standby
-static constexpr int PIN_GPS_RESET      = 16;   // active low
+static constexpr int PIN_GPS_RESET      = 17;   // active low
 
 // ── Timing ──────────────────────────────────────────────────────────────────
 static constexpr uint32_t FIX_WINDOW_MS        = 12000;  // how long to collect candidates per point
