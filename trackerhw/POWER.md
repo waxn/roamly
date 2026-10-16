@@ -20,14 +20,15 @@ The L76K has no u-blox-style cyclic power-save mode. Instead it has a hardware
 STANDBY pin, and it can't wake itself, so the ESP puts it in standby after
 each good fix and wakes it a fixed lead time before the next window.
 
-| Mode | Receiver | Board average @ 30 s | 1500 mAh lasts |
-|---|---|---|---|
-| **Accurate** | always on | ~45 mA | ~30 h |
-| **Balanced** (default) | standby between points, woken 9 s early | ~19 mA | ~70 h |
-| **Low power** | standby, woken 5 s early | ~13 mA | ~100 h |
+| Mode | Receiver | GPS awake (measured) | Board average @ 30 s | 1500 mAh lasts |
+|---|---|---|---|---|
+| **Accurate** | always on | 100 % | ~44 mA | ~31 h |
+| **Balanced** (default) | standby between points, woken 9 s early | 30.9 % | ~16 mA | ~85 h |
+| **Low power** | standby, woken 5 s early | 17.8 % | ~11 mA | ~125 h |
 
-Budget estimates with 10 % of the cell held back — the fuel gauge can't
-measure current. The Battery page shows the measured drain rate after 30
+The awake share is measured on the bench (see [l76ktests.md](l76ktests.md));
+the currents are the module's datasheet figures plus ~3 mA for the ESP32 and
+board, with 10 % of the cell held back — the fuel gauge can't measure current. The Battery page shows the measured drain rate after 30
 minutes unplugged. The receiver is only stood down after a *successful* fix:
 with no fix it stays on, since stale ephemeris needs time with the sky to
 refresh. At the 10 s Adaptive interval (moving fast) there's no time to stand
