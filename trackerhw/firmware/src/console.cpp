@@ -61,6 +61,7 @@ static void status() {
                 f.valid, f.fixType, f.atMs ? (unsigned long)(millis() - f.atMs) : 0UL, f.lat, f.lon, f.altM, f.accM,
                 "hdop", f.spdMs, f.crsDeg, f.sats, g.inView, g.tracked, f.hdop, g.bestSnr, g.avgTop4Snr,
                 (unsigned long)g.ttffMs);
+  Serial.printf("gps duty=%.1f%% mode=%u lead=%lums\n", gpsDuty() * 100, cfg.gpsMode, (unsigned long)gpsWakeLeadMs());
   Serial.printf("adaptive=%d motion=%s interval=%lus peeks=%lu\n", cfg.intervalS == 0, motionName(ls.motion),
                 (unsigned long)loggerIntervalS(), (unsigned long)ls.peeks);
   Serial.printf("log: rec=%d windows=%lu stored=%lu missed=%lu filtered=%lu werr=%lu lastwin=%lums next in %ldms\n",
@@ -130,6 +131,7 @@ static void exec(String cmd) {
     else if (arg.startsWith("mode ")) setKey("mode", arg.substring(5));
     else if (arg == "reset hot" || arg == "reset cold") { gpsReset(arg == "reset cold"); Serial.println("restart sent"); }
     else if (arg == "reset hard") { gpsHardReset(); Serial.println("RESET pin pulsed"); }
+    else if (arg == "duty reset") { gpsDutyReset(); Serial.println("duty counter reset"); }
     else if (arg == "standby") { gpsStandby(); Serial.println("standby (pin low)"); }
     else if (arg == "wake") { gpsWake(); Serial.println("awake (pin high)"); }
     else if (arg == "config") { cfg.gpsCfgSaved = 0; Serial.println(gpsApplyMode(cfg.gpsMode, cfg.intervalS) ? "configured" : "output didn't change"); }

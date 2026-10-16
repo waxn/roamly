@@ -256,7 +256,7 @@ static bool txWorks(int rx, int tx, uint32_t baud) {
 }
 
 static int findTx(int rx, uint32_t baud) {
-  const int cands[] = {PIN_GPS_TX_DEFAULT, 39, 38, 15, 8, 5, 6, 9, 10, 11, 12, 13, 17};
+  const int cands[] = {PIN_GPS_TX_DEFAULT, 39, 38, 14, 15, 16, 17, 8, 5, 6, 9, 10, 11, 12, 13};
   for (int tx : cands) {
     if (tx == rx || tx == PIN_GPS_STANDBY || tx == PIN_GPS_RESET) continue;
     if (txWorks(rx, tx, baud)) return tx;
@@ -265,10 +265,13 @@ static int findTx(int rx, uint32_t baud) {
 }
 
 bool gpsDetect(bool verbose) {
-  const int pins[] = {PIN_GPS_RX_DEFAULT, 39, 14, 15, 17, 8, 5, 6, 9, 10, 11, 12, 13};
+  const int pins[] = {PIN_GPS_RX_DEFAULT, 39, 14, 15, 16, 17, 8, 5, 6, 9, 10, 11, 12, 13};
   const uint32_t bauds[] = {9600, 115200, 38400, 57600, 4800};
   for (uint32_t baud : bauds) {
     for (int rx : pins) {
+      // Never reconfigure the control lines as UART inputs: a floating RESET
+      // holds the module in reset for the rest of the scan.
+      if (rx == PIN_GPS_STANDBY || rx == PIN_GPS_RESET) continue;
       if (verbose) Serial.printf("[gps] probe rx=%d @%lu\n", rx, (unsigned long)baud);
       if (listenFor(rx, baud, baud == 9600 ? 1300 : 900)) {
         int tx = findTx(rx, baud);
@@ -327,14 +330,32 @@ uint32_t gpsWakeLeadMs() {
   }
 }
 
+static uint32_t awakeSinceMs = 0;   // when STANDBY last went high
+
 void gpsStandby() {
   digitalWrite(PIN_GPS_STANDBY, LOW);
+  if (!info.asleep) info.awakeMs += millis() - awakeSinceMs;
   info.asleep = true;
+}
+
+// Fraction of time the receiver has been awake since counting started (the
+// receiver's draw is ~41 mA awake vs ~0.36 mA in standby, so this is most of
+// the battery story). Resets with gpsDutyReset().
+float gpsDuty() {
+  uint32_t now = millis(), span = now - info.sinceMs;
+  uint32_t on = info.awakeMs + (info.asleep ? 0 : now - awakeSinceMs);
+  return span ? (float)on / span : 1.0f;
+}
+
+void gpsDutyReset() {
+  info.awakeMs = 0;
+  info.sinceMs = millis();
+  awakeSinceMs = millis();
 }
 
 void gpsWake() {
   digitalWrite(PIN_GPS_STANDBY, HIGH);
-  if (info.asleep) { wokeAtMs = millis(); haveFixSinceWake = false; }
+  if (info.asleep) { wokeAtMs = millis(); haveFixSinceWake = false; awakeSinceMs = millis(); }
   info.asleep = false;
 }
 
@@ -359,6 +380,7 @@ bool gpsBegin() {
   digitalWrite(PIN_GPS_STANDBY, HIGH);   // awake (it may be coming out of a power-off standby)
   info.asleep = false;
   wokeAtMs = millis();
+  gpsDutyReset();
   delay(300);
   bool found = false;
   if (cfg.gpsRx >= 0 && cfg.gpsBaud) found = listenFor(cfg.gpsRx, cfg.gpsBaud, 2500) || listenFor(cfg.gpsRx, cfg.gpsBaud, 3000);

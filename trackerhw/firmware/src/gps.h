@@ -33,6 +33,8 @@ struct GpsInfo {
   uint32_t ttffMs = 0;           // time to first fix since power-up / wake
   bool     timeValid = false;
   bool     asleep = false;       // STANDBY pin held low
+  uint32_t awakeMs = 0;          // total time with STANDBY high (duty-cycle measurement)
+  uint32_t sinceMs = 0;          // when awakeMs started counting
   char     version[40] = "";
 };
 
@@ -43,7 +45,9 @@ GpsInfo& gpsInfo();
 bool gpsApplyMode(uint8_t mode, uint16_t intervalS);
 void gpsStandby();               // STANDBY low: ~0.36 mA, keeps time + ephemeris
 void gpsWake();                  // STANDBY high
-uint32_t gpsWakeLeadMs();        // how long before a fix window to wake it (0 = never sleep it)
+uint32_t gpsWakeLeadMs();
+float gpsDuty();                 // fraction of time awake since gpsDutyReset()
+void gpsDutyReset();        // how long before a fix window to wake it (0 = never sleep it)
 void gpsReset(bool cold);        // $PCAS10 hot / cold start
 void gpsHardReset();             // pulse the RESET pin
 void gpsSetRawEcho(Stream* s);   // mirror NMEA to a stream (console "gps raw")
