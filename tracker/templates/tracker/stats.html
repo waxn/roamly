@@ -158,6 +158,25 @@
 .heat-cell[data-day] { cursor: pointer; }
 .heat-cell[data-day]:hover { outline: 1px solid var(--border-bright); outline-offset: 1px; }
 .heat-void { visibility: hidden; }
+.heat-years {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text);
+}
+.heat-year-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font: inherit;
+    line-height: 1;
+    padding: 0.125rem 0.4rem;
+    cursor: pointer;
+}
+.heat-year-btn:hover:not(:disabled) { color: var(--text); border-color: var(--border-bright); }
+.heat-year-btn:disabled { opacity: 0.35; cursor: default; }
 .heat-legend {
     display: flex;
     align-items: center;
@@ -229,7 +248,14 @@
         <div class="card heat-card" style="grid-column: 1 / -1;">
             <div class="card-header" style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;">
                 <span>Daily Distance</span>
-                <span id="heat-summary" style="font-size:0.75rem;font-weight:500;color:var(--text-muted);font-family:var(--font-mono);"></span>
+                <span style="display:flex;align-items:baseline;gap:0.75rem;flex-wrap:wrap;justify-content:flex-end;">
+                    <span id="heat-summary" style="font-size:0.75rem;font-weight:500;color:var(--text-muted);font-family:var(--font-mono);"></span>
+                    <span class="heat-years">
+                        <button type="button" class="heat-year-btn" id="heat-prev" aria-label="Previous year">&lsaquo;</button>
+                        <span id="heat-year"></span>
+                        <button type="button" class="heat-year-btn" id="heat-next" aria-label="Next year">&rsaquo;</button>
+                    </span>
+                </span>
             </div>
             <div class="heat-scroll">
                 <div class="heatmap">
@@ -562,6 +588,14 @@ function attachChartHover(canvas, els, getState) {
 }
 
 // Advance a 'YYYY-MM-DD' string by N days without timezone issues
+// 'YYYY-MM-DD' / 'YYYY-MM-DD HH' for a Date in the browser's own zone.
+function localDateStr(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function localHourKey(d) {
+    return `${localDateStr(d)} ${String(d.getHours()).padStart(2, '0')}`;
+}
+
 function addDays(dateStr, n) {
     const [y, m, d] = dateStr.split('-').map(Number);
     const dt = new Date(Date.UTC(y, m - 1, d + n));
@@ -967,12 +1001,13 @@ loadYearlyOverview();
 loadHeatmap();
 window.onSnapshotReady = function() { loadStats(); loadYearlyOverview(); loadHeatmap(); };
 
-// ─── Daily distance heatmap (trailing year) ────────────────────
-// Deliberately independent of the toolbar range filter: it always shows the
-// last year. Fetched with `all=1&granularity=daily`, which is the one distance
-// request served straight from the precomputed StatsSnapshot.
+// ─── Daily distance heatmap (calendar year) ────────────────────
+// Deliberately independent of the toolbar range filter: it always shows one
+// whole calendar year, Jan 1 – Dec 31, with the days still to come drawn as
+// empty squares. Fetched once with `all=1&granularity=daily` (the one distance
+// request served straight from the precomputed StatsSnapshot); stepping
+// between years just redraws from that.
 
-const HEAT_WEEKS = 53;
 const HEAT_ALPHA = [null, 0.22, 0.45, 0.7, 1];   // index = level 1..4; 0 renders as empty
 const DOW_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', ''];
 
@@ -1017,31 +1052,56 @@ function dowIndex(dateStr) {
     return (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7;
 }
 
+let heatData = { days: [], distances: [] };
+let heatYear = new Date().getFullYear();
+
 function loadHeatmap() {
     fetch('/api/distance/?all=1&granularity=daily')
         .then(r => r.json())
-        .then(data => drawHeatmap(data.days || [], data.distances || []));
+        .then(data => {
+            heatData = { days: data.days || [], distances: data.distances || [] };
+            drawHeatmap();
+        });
 }
 
-function drawHeatmap(days, distancesKm) {
+function heatFirstYear() {
+    const first = heatData.days.find((d, i) => heatData.distances[i] > 0);
+    const thisYear = new Date().getFullYear();
+    return first ? Math.min(thisYear, parseInt(first.slice(0, 4), 10)) : thisYear;
+}
+
+function drawHeatmap() {
     const grid = document.getElementById('heat-grid');
     const monthsEl = document.getElementById('heat-months');
     const dowsEl = document.getElementById('heat-dows');
     const legendEl = document.getElementById('heat-legend');
     const summaryEl = document.getElementById('heat-summary');
 
-    const byDay = new Map(days.map((d, i) => [d, distancesKm[i]]));
+    const thisYear = new Date().getFullYear();
+    heatYear = Math.max(heatFirstYear(), Math.min(thisYear, heatYear));
+    document.getElementById('heat-year').textContent = heatYear;
+    document.getElementById('heat-prev').disabled = heatYear <= heatFirstYear();
+    document.getElementById('heat-next').disabled = heatYear >= thisYear;
 
-    // Window: HEAT_WEEKS whole Mon–Sun columns, the last of which holds today.
-    const today = new Date().toISOString().slice(0, 10);
-    const gridStart = addDays(today, -dowIndex(today) - (HEAT_WEEKS - 1) * 7);
+    const byDay = new Map(heatData.days.map((d, i) => [d, heatData.distances[i]]));
+
+    // Whole Mon–Sun columns from the week holding Jan 1 to the week holding
+    // Dec 31 (53 or 54 of them). Local "today", because the API's day keys are
+    // the user's local days — a UTC date runs a day ahead every evening.
+    const yearStart = `${heatYear}-01-01`;
+    const yearEnd = `${heatYear}-12-31`;
+    const today = localDateStr(new Date());
+    const gridStart = addDays(yearStart, -dowIndex(yearStart));
+    const daysInYear = (Date.UTC(heatYear + 1, 0, 1) - Date.UTC(heatYear, 0, 1)) / 86400000;
+    const weeks = Math.ceil((dowIndex(yearStart) + daysInYear) / 7);
 
     const cells = [];
     const windowVals = [];
-    for (let c = 0; c < HEAT_WEEKS; c++) {
+    for (let c = 0; c < weeks; c++) {
         for (let r = 0; r < 7; r++) {
             const day = addDays(gridStart, c * 7 + r);
-            if (day > today) { cells.push(null); continue; }
+            if (day < yearStart || day > yearEnd) { cells.push(null); continue; }
+            if (day > today) { cells.push({ day, future: true }); continue; }
             const km = byDay.get(day) || 0;
             cells.push({ day, km });
             windowVals.push(km);
@@ -1056,37 +1116,38 @@ function drawHeatmap(days, distancesKm) {
 
     grid.innerHTML = cells.map(c => {
         if (!c) return '<div class="heat-cell heat-void"></div>';
+        if (c.future) return '<div class="heat-cell"></div>';
         const level = levelOf ? levelOf(c.km) : 0;
         const tip = `${c.day}\n${c.km > 0 ? formatDistance(c.km) : 'no distance'}`;
         return `<div class="heat-cell" style="${heatCellStyle(level)}" data-day="${c.day}" data-tip="${tip.replace(/\n/g, '&#10;')}"></div>`;
     }).join('');
 
-    // Month labels sit above the column where each month first appears; skipped
-    // when too close to the previous label to fit without overlapping.
-    let lastMonth = null, lastCol = -3;
+    // Month labels sit above the column holding each month's 1st; skipped when
+    // too close to the previous label to fit without overlapping.
+    let lastCol = -3;
     const labels = [];
-    for (let c = 0; c < HEAT_WEEKS; c++) {
-        const day = addDays(gridStart, c * 7);
-        const month = day.slice(0, 7);
-        if (month !== lastMonth) {
-            lastMonth = month;
-            if (c - lastCol >= 3 && c <= HEAT_WEEKS - 3) {
-                labels.push(`<div class="heat-month" style="grid-column:${c + 1} / span 4;">${MONTH_NAMES[parseInt(day.slice(5, 7), 10) - 1]}</div>`);
-                lastCol = c;
-            }
+    for (let m = 1; m <= 12; m++) {
+        const first = `${heatYear}-${String(m).padStart(2, '0')}-01`;
+        const col = Math.floor((Date.parse(first) - Date.parse(gridStart)) / (7 * 86400000));
+        if (col - lastCol >= 3) {
+            labels.push(`<div class="heat-month" style="grid-column:${col + 1} / span 3;">${MONTH_NAMES[m - 1]}</div>`);
+            lastCol = col;
         }
     }
-    monthsEl.style.gridTemplateColumns = `repeat(${HEAT_WEEKS}, var(--heat-cell))`;
+    monthsEl.style.gridTemplateColumns = `repeat(${weeks}, var(--heat-cell))`;
     monthsEl.innerHTML = labels.join('');
 
     summaryEl.textContent = activeDays
-        ? `${formatDistance(totalKm)} over ${activeDays} active day${activeDays !== 1 ? 's' : ''} in the last year`
-        : 'no distance data in the last year';
+        ? `${formatDistance(totalKm)} over ${activeDays} active day${activeDays !== 1 ? 's' : ''}`
+        : `no distance data in ${heatYear}`;
 
     legendEl.innerHTML = 'less'
         + [0, 1, 2, 3, 4].map(l => `<div class="heat-cell" style="${heatCellStyle(l)}"></div>`).join('')
         + 'more';
 }
+
+document.getElementById('heat-prev').addEventListener('click', () => { heatYear--; drawHeatmap(); });
+document.getElementById('heat-next').addEventListener('click', () => { heatYear++; drawHeatmap(); });
 
 // Hover/click on the cells (delegated — the grid is rebuilt on every draw).
 (function attachHeatmapHover() {
