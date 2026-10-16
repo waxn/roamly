@@ -41,6 +41,13 @@ _LOCK_NAMESPACE = 0x52414d53       # 'RAMS'
 
 PERIODS = ('daily', 'weekly', 'monthly', 'yearly')
 
+# How far apart two period boundaries can be and still be the SAME period. The
+# boundary is a local midnight, so it moves whenever the user's zone does (the
+# zone follows their newest fix): a flight from Virginia to Chicago moves "today
+# began" from 04:00Z to 05:00Z. Consecutive periods are always >= 23h apart
+# (a DST day), so anything closer than this is one period seen from two zones.
+_SAME_PERIOD_TOLERANCE = timedelta(hours=12)
+
 KM_TO_MI = 0.621371
 
 
@@ -410,11 +417,13 @@ def _send_period(profile, period, allow_empty=False):
 def _process_user(user_id, only_period=None, force=False, stamp=True, allow_empty=False):
     """Send any due cadences for one user, holding the per-user lock."""
     from .models import UserProfile
-    profile = UserProfile.objects.filter(user_id=user_id).select_related('user').first()
-    if not profile:
-        return
     with _user_email_lock(user_id) as got:
         if not got:
+            return
+        # Loaded INSIDE the lock: a copy read before it could predate the cursor
+        # another worker stamped while holding it, and resend that period.
+        profile = UserProfile.objects.filter(user_id=user_id).select_related('user').first()
+        if not profile:
             return
         # A "daily" recap has to cover the user's own day, not the server's, and
         # this sweep runs in a daemon thread with no request to inherit a zone
@@ -431,14 +440,20 @@ def _process_user(user_id, only_period=None, force=False, stamp=True, allow_empt
                 # user hasn't toggled it on yet; the scheduler path requires the flag.
                 if not force and not getattr(profile, f'summary_{period}'):
                     continue
+                cur_start, _ws, _we, _lbl = _period_bounds(period, now)
                 if not force:
-                    cur_start, _ws, _we, _lbl = _period_bounds(period, now)
                     last = getattr(profile, f'summary_last_{period}')
-                    if last is not None and last >= cur_start:
+                    # The cursor holds the boundary of the period last delivered
+                    # (older rows hold the send time, which is just after it), so
+                    # "delivered" means "close to this period's boundary", not
+                    # "at or after it": comparing instants exactly resent
+                    # yesterday's recap after flying a zone west, because today's
+                    # boundary moved an hour later than the stamp.
+                    if last is not None and last > cur_start - _SAME_PERIOD_TOLERANCE:
                         continue   # already delivered for the current period
                 result = _send_period(profile, period, allow_empty=allow_empty)
                 if stamp and result in ('sent', 'empty'):
-                    setattr(profile, f'summary_last_{period}', timezone.now())
+                    setattr(profile, f'summary_last_{period}', cur_start)
                     profile.save(update_fields=[f'summary_last_{period}'])
 
 
