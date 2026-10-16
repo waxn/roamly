@@ -32,6 +32,7 @@ from django.db.models import (
 )
 from django.db.models.functions import Coalesce, Cast, Round
 from django.http import FileResponse, JsonResponse, HttpResponse, StreamingHttpResponse
+from django.template.loader import render_to_string
 from django.views.static import serve as static_serve
 
 from .net_utils import validate_outbound_url, validate_outbound_host, OutboundURLError
@@ -700,10 +701,15 @@ def _error_page(request, code, title, message):
         authed = False
     home_url = '/map/' if authed else '/'
     home_label = 'back to the map' if authed else 'back home'
-    return render(request, 'tracker/_error.html', {
+    # No request passed to the template: that would run the context processors,
+    # which read the session and profile from the database, so a 500 caused by
+    # the database raised again inside its own error page and the visitor got a
+    # bare connection reset instead. The template needs nothing from them.
+    html = render_to_string('tracker/_error.html', {
         'code': code, 'title': title, 'message': message,
         'home_url': home_url, 'home_label': home_label,
-    }, status=code)
+    })
+    return HttpResponse(html, status=code)
 
 
 def error_400(request, exception=None):
