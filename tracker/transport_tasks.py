@@ -23,6 +23,7 @@ derived from consecutive fixes as a fallback.
 import math
 import logging
 import threading
+from .scheduler_utils import db_thread
 import time
 
 from django.db import close_old_connections
@@ -310,7 +311,7 @@ def _is_thread_alive(user_id):
 
 
 def _start_thread(user_id):
-    t = threading.Thread(target=_transport_worker, args=(user_id,), daemon=True)
+    t = db_thread(_transport_worker, args=(user_id,))
     _running_threads[user_id] = t
     t.start()
 

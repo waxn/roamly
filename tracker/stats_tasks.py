@@ -26,6 +26,7 @@ from ``apps.ready()`` loops and runs due work.
 import time
 import logging
 import threading
+from .scheduler_utils import db_thread
 from contextlib import contextmanager
 from datetime import timedelta
 
@@ -179,7 +180,7 @@ def start_stats_compute(user_id):
     t = _threads.get(user_id)
     if t is not None and t.is_alive():
         return 'running'
-    t = threading.Thread(target=compute_snapshot, args=(user_id,), daemon=True)
+    t = db_thread(compute_snapshot, args=(user_id,))
     _threads[user_id] = t
     t.start()
     return 'started'

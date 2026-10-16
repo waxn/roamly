@@ -32,6 +32,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+from .scheduler_utils import db_thread
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone as dt_timezone
 
@@ -302,7 +303,7 @@ def start_sync(user, days=None):
             with _lock:
                 _running.discard(user.id)
 
-    threading.Thread(target=worker, daemon=True).start()
+    db_thread(worker).start()
     return True
 
 

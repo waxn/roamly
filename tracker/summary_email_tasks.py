@@ -17,6 +17,7 @@ import json
 import time
 import logging
 import threading
+from .scheduler_utils import db_thread
 from collections import defaultdict
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -475,7 +476,7 @@ def send_summary_now(user_id, period='daily'):
         finally:
             close_old_connections()
 
-    threading.Thread(target=_run, daemon=True).start()
+    db_thread(_run).start()
     return 'started'
 
 

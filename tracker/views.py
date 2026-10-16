@@ -18,6 +18,7 @@ import urllib.parse
 import urllib.request
 
 import requests
+from .scheduler_utils import db_thread
 from collections import defaultdict, Counter
 from datetime import datetime, date, time as dt_time, timedelta, timezone as dt_timezone
 from itertools import groupby
@@ -826,7 +827,7 @@ def landing_view(request):
         stat, created = SiteStat.objects.get_or_create(pk=1)
         stale = created or (timezone.now() - stat.updated_at).total_seconds() > 86400
         if stale:
-            threading.Thread(target=_refresh_site_stats, daemon=True).start()
+            db_thread(_refresh_site_stats).start()
         stats = {
             'site_total_points': stat.total_points,
             'site_total_cities': stat.total_cities,
@@ -7673,7 +7674,7 @@ def export_backup_start(request):
             logger.error(f'Backup generation failed: {e}')
             put({'status': 'error', 'message': str(e)})
 
-    threading.Thread(target=generate, daemon=True).start()
+    db_thread(generate).start()
     return JsonResponse({'job_id': job_id})
 
 
@@ -10425,7 +10426,7 @@ def places_api(request):
         # The new place may cover a suggested cluster — drop it from the queue now
         # rather than leaving a confirmed place sitting there for the TTL.
         cache.delete(f"suggestions:{request.user.id}")
-        threading.Thread(target=_refresh_places_snapshot, args=(request.user,), daemon=True).start()
+        db_thread(_refresh_places_snapshot, args=(request.user,)).start()
         return JsonResponse(_serialize_place(place))
 
     # GET list → serve the precomputed snapshot when available.
@@ -10670,7 +10671,7 @@ def place_update(request, place_id):
     if any(k in data for k in ('name', 'lat', 'lng', 'radius_m')):
         # Moving or resizing changes which clusters this place covers.
         cache.delete(f"suggestions:{request.user.id}")
-        threading.Thread(target=_refresh_places_snapshot, args=(request.user,), daemon=True).start()
+        db_thread(_refresh_places_snapshot, args=(request.user,)).start()
     return JsonResponse(_serialize_place(place))
 
 
@@ -10682,7 +10683,7 @@ def place_delete(request, place_id):
     _bust_user_cache(request.user.id)
     # Deleting a place can re-expose the cluster it covered as a suggestion.
     cache.delete(f"suggestions:{request.user.id}")
-    threading.Thread(target=_refresh_places_snapshot, args=(request.user,), daemon=True).start()
+    db_thread(_refresh_places_snapshot, args=(request.user,)).start()
     return JsonResponse({'deleted': True})
 
 

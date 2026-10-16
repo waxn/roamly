@@ -22,6 +22,7 @@ primary delivery path.
 import logging
 import threading
 import time
+from .scheduler_utils import db_thread
 from contextlib import contextmanager
 from math import asin, cos, radians, sin, sqrt
 
@@ -69,7 +70,7 @@ def ensure_family_geofence_check(user_id, fixes):
     fixes = list(fixes)
     if not fixes:
         return
-    threading.Thread(target=_run_check, args=(user_id, fixes), daemon=True).start()
+    db_thread(_run_check, args=(user_id, fixes)).start()
 
 
 def _run_check(user_id, fixes):

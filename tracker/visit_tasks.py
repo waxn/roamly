@@ -2,6 +2,7 @@ import time
 import threading
 import logging
 import math
+from .scheduler_utils import db_thread
 from datetime import timedelta
 from collections import defaultdict
 
@@ -291,7 +292,7 @@ def _is_thread_alive(user_id):
     return thread is not None and thread.is_alive()
 
 def _start_thread(user_id):
-    thread = threading.Thread(target=_visit_worker, args=(user_id,), daemon=True)
+    thread = db_thread(_visit_worker, args=(user_id,))
     _running_threads[user_id] = thread
     thread.start()
 

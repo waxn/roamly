@@ -5,6 +5,7 @@ import threading
 import logging
 import time
 import zipfile
+from .scheduler_utils import db_thread
 from datetime import timedelta
 
 from django.db import close_old_connections
@@ -531,7 +532,7 @@ def run_backup_now(user_id):
     if user_id in _backup_threads and _backup_threads[user_id].is_alive():
         return 'already_running'
 
-    thread = threading.Thread(target=_run_backup, args=(user_id,), daemon=True)
+    thread = db_thread(_run_backup, args=(user_id,))
     _backup_threads[user_id] = thread
     thread.start()
     return 'started'

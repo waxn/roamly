@@ -25,6 +25,7 @@ import secrets
 import threading
 import time
 
+from .scheduler_utils import db_thread
 from django.db import close_old_connections
 from django.utils import timezone
 
@@ -282,7 +283,7 @@ def _is_thread_alive():
 
 def _start_thread(token):
     global _running_thread
-    t = threading.Thread(target=_rail_download_worker, args=(token,), daemon=True)
+    t = db_thread(_rail_download_worker, args=(token,))
     _running_thread = t
     t.start()
 

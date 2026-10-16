@@ -39,3 +39,29 @@ def wait_for_app_registry(timeout=_REGISTRY_WAIT_TIMEOUT_S):
             return False
         time.sleep(_REGISTRY_POLL_S)
     return True
+
+
+def db_thread(target, args=(), name=None):
+    """Return an unstarted daemon thread that closes its DB connection on exit.
+
+    For one-off background work (a geocode run, a geofence check, a snapshot
+    refresh) — not for the long-lived scheduler loops, which keep one connection
+    for their whole life on purpose.
+
+    ``close_old_connections()`` at the end of a job does NOT close anything: with
+    ``conn_max_age`` set, a connection opened seconds ago is not "old", so it
+    survives the thread and is only released when the garbage collector gets
+    round to the dead thread's wrapper. One of these threads per location push
+    was enough to exhaust Postgres's ``max_connections`` ("sorry, too many
+    clients already"). ``connections.close_all()`` closes it deterministically.
+    """
+    import threading
+    from django.db import connections
+
+    def _run():
+        try:
+            target(*args)
+        finally:
+            connections.close_all()
+
+    return threading.Thread(target=_run, daemon=True, name=name)

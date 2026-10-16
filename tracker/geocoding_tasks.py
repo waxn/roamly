@@ -1,6 +1,7 @@
 import time
 import threading
 import logging
+from .scheduler_utils import db_thread
 from collections import defaultdict
 
 from django.utils import timezone
@@ -219,7 +220,7 @@ def _is_thread_alive(user_id):
 
 
 def _start_thread(user_id):
-    thread = threading.Thread(target=_geocode_worker, args=(user_id,), daemon=True)
+    thread = db_thread(_geocode_worker, args=(user_id,))
     _running_threads[user_id] = thread
     thread.start()
 

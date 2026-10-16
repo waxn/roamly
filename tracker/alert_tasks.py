@@ -28,6 +28,7 @@ the moment a newer point lands.
 import time
 import logging
 import threading
+from .scheduler_utils import db_thread
 from contextlib import contextmanager
 
 from django.conf import settings
@@ -249,7 +250,7 @@ def send_alert_now(user_id):
         finally:
             close_old_connections()
 
-    threading.Thread(target=_run, daemon=True).start()
+    db_thread(_run).start()
     return 'started'
 
 
