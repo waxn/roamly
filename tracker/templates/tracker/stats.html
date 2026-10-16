@@ -628,11 +628,13 @@ function groupDays(days, distancesKm, range) {
     const hours = (!isNaN(parseInt(range))) ? parseInt(range) : null;
     const rangeStartTs = hours ? new Date(now - hours * 3600000) : null;
 
-    // UTC date/hour strings (API keys are UTC)
-    const todayStr = now.toISOString().slice(0, 10);
-    const nowHourKey = now.toISOString().slice(0, 13).replace('T', ' ');
-    const rangeStartDate = rangeStartTs ? rangeStartTs.toISOString().slice(0, 10) : null;
-    const rangeStartHour = rangeStartTs ? rangeStartTs.toISOString().slice(0, 13).replace('T', ' ') : null;
+    // Local date/hour strings: the API buckets by the user's local day and hour
+    // (UserTimezoneMiddleware), so UTC keys here would add a phantom empty day
+    // every evening and shift the hourly fill by the UTC offset.
+    const todayStr = localDateStr(now);
+    const nowHourKey = localHourKey(now);
+    const rangeStartDate = rangeStartTs ? localDateStr(rangeStartTs) : null;
+    const rangeStartHour = rangeStartTs ? localHourKey(rangeStartTs) : null;
 
     // For daily/hourly: build map then fill the full window
     if (mode === 'daily') {

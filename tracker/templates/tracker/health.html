@@ -852,7 +852,10 @@ function drawHeatmap(days, steps) {
 
     const byDay = new Map(days.map((d, i) => [d, steps[i]]));
 
-    const today = new Date().toISOString().slice(0, 10);
+    // Local date: the day keys are local days (tz_offset), and a UTC date runs
+    // a day ahead every evening, adding an empty square past the real today.
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const gridStart = addDays(today, -dowIndex(today) - (HEAT_WEEKS - 1) * 7);
 
     const cells = [];
