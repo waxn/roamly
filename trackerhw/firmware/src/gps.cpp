@@ -168,7 +168,15 @@ static void onSentence() {
       pendPublished = false;
       pendParts = 0;
     }
-    pend.valid = nmea.location.isValid() && nmea.satellites.value() >= 3;
+    // A position is only a measurement if the receiver says so: GGA quality 6
+    // ("estimated" / dead reckoning, which the L76K reports for its first
+    // seconds after a reset), 7 (manual) or 8 (simulated) and RMC mode E/N are
+    // guesses, and storing them would put points where the tracker never was.
+    TinyGPSLocation::Quality q = nmea.location.FixQuality();
+    TinyGPSLocation::Mode md = nmea.location.FixMode();
+    bool measured = q != TinyGPSLocation::Estimated && q != TinyGPSLocation::Manual &&
+                    q != TinyGPSLocation::Simulated && md != TinyGPSLocation::E;
+    pend.valid = nmea.location.isValid() && nmea.satellites.value() >= 3 && measured;
     pend.lat = nmea.location.lat();
     pend.lon = nmea.location.lng();
     pend.unix = fix.unix;
