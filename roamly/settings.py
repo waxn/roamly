@@ -92,6 +92,12 @@ if DATABASE_URL:
     import dj_database_url
     DATABASES = {'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600)}
     DATABASES['default']['ENGINE'] = 'django.contrib.gis.db.backends.postgis'
+    # Persistent connections (conn_max_age) outlive the server end of them: when
+    # Postgres restarts or drops a backend, each gunicorn thread still holds its
+    # dead socket and the next request on it fails outright -- and so does the
+    # 500 page rendered for it. A health check pings a reused connection once
+    # per request and reconnects instead.
+    DATABASES['default']['CONN_HEALTH_CHECKS'] = True
 else:
     DATABASES = {
         'default': {
