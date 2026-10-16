@@ -191,6 +191,10 @@ def _process_user(user_id, force=False, stamp=True):
     with _user_alert_lock(user_id) as got:
         if not got:
             return 'locked'
+        # Re-read under the lock: the copy above can predate the dedupe cursor
+        # another worker stamped while it held the lock, which would mail the
+        # same outage twice.
+        profile.refresh_from_db()
 
         hours = clamp_hours(profile.alert_no_data_hours)
         last_ts, device_name = latest_fix(profile.user)
