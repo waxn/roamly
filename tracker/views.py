@@ -2965,6 +2965,28 @@ def locations_bounds_api(request):
 
 
 @login_required
+def _stable_thin(points, max_points):
+    """Thin `points` (dicts with an 'id') to at most ~`max_points`, keeping the
+    same points from one request to the next.
+
+    Taking every Nth point by position (`points[::n]`) picks a different set
+    whenever the window's start moves — which a "last 7/30 days" range does with
+    every push — so each reload asked to road-snap thousands of points it had
+    never seen, every one a cache miss and a nearest-road search. This keeps a
+    point when the top `k` bits of a multiplicative hash of its id are zero, so
+    the choice depends on the point alone. The keep rate is a power of two, and
+    a point kept at 1-in-2^(k+1) is also kept at 1-in-2^k, so even when `k`
+    changes the surviving points are a subset of what was already cached.
+    """
+    k = 0
+    while (len(points) >> k) > max_points:
+        k += 1
+    if k == 0:
+        return points
+    shift = 32 - k
+    return [p for p in points if ((p['id'] * 2654435761) & 0xFFFFFFFF) >> shift == 0]
+
+
 def track_api(request):
     """Return GPS track as decimated path per device — single request, no tiles.
 
@@ -3104,8 +3126,7 @@ def track_api(request):
                 sampled.append(pts[-1])
 
         if len(sampled) > MAX_POINTS:
-            stride = max(1, len(sampled) // MAX_POINTS)
-            sampled = sampled[::stride]
+            sampled = _stable_thin(sampled, MAX_POINTS)
             if sampled[-1] is not pts[-1]:
                 sampled.append(pts[-1])
 
