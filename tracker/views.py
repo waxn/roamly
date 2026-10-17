@@ -2036,6 +2036,34 @@ def site_carto_api(request):
 
 
 @login_required
+def site_basemaps_api(request):
+    """Admin Panel → Basemaps: the basemap catalog with the instance's on/off
+    state and provider keys (GET), or a partial update (POST — only the keys
+    present change, so each control autosaves alone). Admins only. Like
+    carto_api_key the keys are client-side tile keys, so returned in clear."""
+    from . import basemaps
+    err = _require_admin(request)
+    if err:
+        return err
+    config = SiteConfig.load()
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body or '{}')
+        except (json.JSONDecodeError, ValueError):
+            return JsonResponse({'error': 'Invalid request.'}, status=400)
+        if not isinstance(data, dict):
+            return JsonResponse({'error': 'Invalid request.'}, status=400)
+        cfg = basemaps.sanitize_config(data, config.basemap_config)
+        if cfg != (config.basemap_config or {}):
+            config.basemap_config = cfg
+            config.save(update_fields=['basemap_config', 'updated_at'])
+            basemaps.bust_site_cache()
+    profile = UserProfile.objects.filter(user=request.user).first()
+    return JsonResponse({'ok': True, **basemaps.catalog_for(
+        config.basemap_config, basemaps.carto_qs(), admin_profile=profile)})
+
+
+@login_required
 @require_http_methods(["POST"])
 def site_fcm_api(request):
     """Save the instance's Firebase Cloud Messaging service-account credentials
@@ -2501,35 +2529,6 @@ def profile_mapbox_token_api(request):
         profile.save(update_fields=['mapbox_token'])
         return JsonResponse({'ok': True, 'mapbox_token': profile.mapbox_token})
     return JsonResponse({'mapbox_token': profile.mapbox_token})
-
-
-@login_required
-def profile_basemaps_api(request):
-    """Diagnostics → Maps: the basemap catalog with this user's on/off state
-    and provider keys (GET), or a partial update (POST — only the keys present
-    change, so each control autosaves alone). `mapbox_token` is accepted too
-    and written to the same UserProfile.mapbox_token Settings edits, so there
-    is one Mapbox token, not two."""
-    from . import basemaps
-    profile, _ = UserProfile.objects.get_or_create(user=request.user)
-    if request.method == 'POST':
-        try:
-            data = json.loads(request.body or '{}')
-        except (json.JSONDecodeError, ValueError):
-            return JsonResponse({'error': 'Invalid request.'}, status=400)
-        if not isinstance(data, dict):
-            return JsonResponse({'error': 'Invalid request.'}, status=400)
-        fields = []
-        if 'mapbox_token' in data:
-            profile.mapbox_token = (data.get('mapbox_token') or '').strip()[:500]
-            fields.append('mapbox_token')
-        cfg = basemaps.sanitize_config(data, profile.basemap_config)
-        if cfg != (profile.basemap_config or {}):
-            profile.basemap_config = cfg
-            fields.append('basemap_config')
-        if fields:
-            profile.save(update_fields=fields)
-    return JsonResponse({'ok': True, **basemaps.catalog_for(profile, basemaps.carto_qs())})
 
 
 @login_required

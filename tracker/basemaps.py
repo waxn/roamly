@@ -4,8 +4,8 @@ them a given user has switched on.
 The map used to hardcode three basemaps (plus three Mapbox ones behind a token)
 in map-core.js. This module is now the single list: map_view / editor_view hand
 `resolve_for(profile)` to the page, map-core.js builds the sidebar picker from
-it, and Diagnostics → Maps edits `UserProfile.basemap_config` through
-`profile_basemaps_api`.
+it, and Admin Panel → Basemaps edits the instance-wide
+`SiteConfig.basemap_config` through `site_basemaps_api`.
 
 Built server-side rather than in JS so the keys are filled in once, in one
 place, and so the same answer is available to anything else that wants it
@@ -18,7 +18,7 @@ must never change — a renamed id silently resets everyone's chosen basemap.
 
 All keys here are client-side tile keys: they ride in every tile URL and are
 visible in devtools regardless, the same reasoning that leaves
-`UserProfile.mapbox_token` unmasked. Masking them would only stop the user
+`SiteConfig.carto_api_key` and `UserProfile.mapbox_token` unmasked. Masking them would only stop the user
 checking what they typed.
 """
 
@@ -30,17 +30,17 @@ _GLYPHS = 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf'
 # variants, which is how a "dark outdoors" look is had without any key at all.
 _DEM_TILES = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'
 
-# Key-bearing providers, in the order the Diagnostics page lists them.
+# Key-bearing providers, in the order Admin Panel → Basemaps lists them.
 PROVIDERS = {
     'mapbox': {
         'name': 'Mapbox',
         'signup': 'https://account.mapbox.com/access-tokens/',
-        'note': 'Public token (pk.…). Free tier covers personal use. Shared with Settings → Maps.',
+        'note': 'Public token (pk.…) for the whole instance. A user\'s own token in Settings → Maps takes priority for them.',
     },
     'maptiler': {
         'name': 'MapTiler',
         'signup': 'https://cloud.maptiler.com/account/keys/',
-        'note': 'Free plan, non-commercial. Has Outdoor Dark — the closest thing to a dark Mapbox Outdoors.',
+        'note': 'Free plan is non-commercial. Has Outdoor Dark — the closest thing to a dark Mapbox Outdoors.',
     },
     'thunderforest': {
         'name': 'Thunderforest',
@@ -246,31 +246,57 @@ _IDS = {e[0] for e in CATALOG}
 _FALLBACK = 'Streets'
 
 MAX_CUSTOM = 10
-MAX_KEY_LEN = 200
+MAX_KEY_LEN = 500
 MAX_URL_LEN = 1000
+
+SITE_CACHE_KEY = 'site_basemap_config'
+_STORED_KEYS = ('mapbox',) + _KEY_PROVIDERS
 
 
 def empty_config():
     return {'enabled': {}, 'keys': {}, 'custom': [], 'mapbox_style': ''}
 
 
-def _cfg(profile):
-    raw = getattr(profile, 'basemap_config', None) or {}
+def site_config():
+    """`SiteConfig.basemap_config`, cached 1h (busted on save) — read on every
+    map page load, so it should not cost a query each time."""
+    from django.core.cache import cache
+    raw = cache.get(SITE_CACHE_KEY)
+    if raw is None:
+        from .models import SiteConfig
+        try:
+            raw = SiteConfig.load().basemap_config or {}
+        except Exception:
+            raw = {}
+        cache.set(SITE_CACHE_KEY, raw, 3600)
+    return raw
+
+
+def bust_site_cache():
+    from django.core.cache import cache
+    cache.delete(SITE_CACHE_KEY)
+
+
+def _cfg(raw):
+    raw = raw or {}
     out = empty_config()
     if isinstance(raw.get('enabled'), dict):
         out['enabled'] = {k: bool(v) for k, v in raw['enabled'].items() if k in _IDS}
     if isinstance(raw.get('keys'), dict):
-        out['keys'] = {p: str(raw['keys'].get(p) or '')[:MAX_KEY_LEN]
-                       for p in _KEY_PROVIDERS}
+        out['keys'] = {p: str(raw['keys'].get(p) or '')[:MAX_KEY_LEN] for p in _STORED_KEYS}
     if isinstance(raw.get('custom'), list):
         out['custom'] = [c for c in raw['custom'] if isinstance(c, dict)][:MAX_CUSTOM]
     out['mapbox_style'] = str(raw.get('mapbox_style') or '')[:MAX_URL_LEN]
     return out
 
 
-def _keys(profile, cfg):
-    keys = {p: (cfg['keys'].get(p) or '').strip() for p in _KEY_PROVIDERS}
-    keys['mapbox'] = (getattr(profile, 'mapbox_token', '') or '').strip()
+def _keys(cfg, profile=None):
+    """Instance keys, except Mapbox: a user's own token from Settings wins over
+    the instance one, so someone with their own Mapbox account bills to it."""
+    keys = {p: (cfg['keys'].get(p) or '').strip() for p in _STORED_KEYS}
+    own = (getattr(profile, 'mapbox_token', '') or '').strip() if profile else ''
+    if own:
+        keys['mapbox'] = own
     return keys
 
 
@@ -310,47 +336,49 @@ def is_available(provider, keys):
 
 
 def carto_qs():
-    """The '?key=...' suffix for CARTO tiles (instance key, Admin Panel →
-    Basemaps), or ''. Same value templates get as CARTO_TILE_QS."""
+    """The '?key=...' suffix for CARTO tiles (instance key, same tab), or ''.
+    Same value templates get as CARTO_TILE_QS."""
     from .context_processors import get_carto_api_key
     key = get_carto_api_key()
     return ('?key=' + quote(key, safe='')) if key else ''
 
 
-def catalog_for(profile, carto_suffix=''):
-    """Every catalog entry with its availability and on/off state — what
-    Diagnostics → Maps renders. Available entries carry their `style` too, so
-    the page can preview a basemap before switching it on."""
-    cfg = _cfg(profile)
-    keys = _keys(profile, cfg)
+def catalog_for(raw, carto_suffix='', admin_profile=None):
+    """Every catalog entry with its on/off state — what Admin Panel →
+    Basemaps renders. Mapbox entries are always switchable even with no
+    instance token, since users can bring their own; previews fall back to the
+    admin's own token. Entries with a usable key carry their `style` so the
+    page can preview them."""
+    cfg = _cfg(raw)
+    keys = _keys(cfg)
+    preview_keys = _keys(cfg, admin_profile)
     entries = []
     for bid, group, label, desc, provider, default_on, builder in CATALOG:
-        available = is_available(provider, keys)
+        previewable = is_available(provider, preview_keys)
         entries.append({
             'id': bid, 'group': group, 'label': label, 'description': desc,
             'provider': provider, 'default_on': default_on,
-            'available': available,
+            'available': provider == 'mapbox' or is_available(provider, keys),
             'enabled': cfg['enabled'].get(bid, default_on),
-            'style': builder(keys, carto_suffix) if available else None,
+            'style': builder(preview_keys, carto_suffix) if previewable else None,
         })
-    providers = []
-    for pid, meta in PROVIDERS.items():
-        providers.append({'id': pid, **meta, 'key': keys.get(pid, '')})
+    providers = [{'id': pid, **meta, 'key': keys.get(pid, '')} for pid, meta in PROVIDERS.items()]
     return {
         'entries': entries,
         'providers': providers,
         'custom': cfg['custom'],
         'mapbox_style': cfg['mapbox_style'],
         'mapbox_style_valid': bool(mapbox_style_path(cfg['mapbox_style'])),
+        'admin_has_mapbox': bool(preview_keys.get('mapbox')),
     }
 
 
-def resolve_for(profile, carto_qs=''):
-    """The basemaps this user's map should offer, in picker order:
+def resolve_for(profile, carto_qs='', raw=None):
+    """The basemaps `profile`'s map should offer, in picker order:
     `[{id, group, label, name, style}]`. `style` is a MapLibre style object or
     a style URL. Always non-empty — Streets is the floor."""
-    cfg = _cfg(profile)
-    keys = _keys(profile, cfg)
+    cfg = _cfg(site_config() if raw is None else raw)
+    keys = _keys(cfg, profile)
     out = []
     for bid, group, label, desc, provider, default_on, builder in CATALOG:
         if not is_available(provider, keys):
@@ -399,7 +427,7 @@ def sanitize_config(data, current):
         cfg['enabled'] = enabled
     if isinstance(data.get('keys'), dict):
         keys = dict(cfg.get('keys') or {})
-        for p in _KEY_PROVIDERS:
+        for p in _STORED_KEYS:
             if p in data['keys']:
                 keys[p] = str(data['keys'][p] or '').strip()[:MAX_KEY_LEN]
         cfg['keys'] = keys

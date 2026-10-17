@@ -1224,14 +1224,6 @@ class UserProfile(models.Model):
     # embed in the browser and app), so it is not masked.
     mapbox_token = models.CharField(max_length=500, blank=True, default='')
 
-    # Which basemaps this user's map picker offers, plus the tile keys for the
-    # providers that need one (MapTiler/Thunderforest/Stadia), a Mapbox Studio
-    # style and any custom XYZ URLs. Shape and validation live in
-    # tracker/basemaps.py; edited from Diagnostics → Maps. Like mapbox_token,
-    # the keys are client-side tile keys and are not masked. Config only ⇒
-    # excluded from backups.
-    basemap_config = models.JSONField(default=dict, blank=True)
-
     # Distance/speed unit for display ('kmh' or 'mph' — same values as the
     # roamly_speed_unit localStorage key it mirrors). localStorage stays the
     # source of truth for the map/stats pages (no read-path change there);
@@ -1476,6 +1468,12 @@ class SiteConfig(models.Model):
     # client-side key embedded in tile URLs, so it is public by design and
     # deliberately NOT masked the way turnstile_secret_key is.
     carto_api_key = models.CharField(blank=True, default='', max_length=255)
+    # Which basemaps every map picker offers, plus the instance tile keys for
+    # providers that need one (Mapbox/MapTiler/Thunderforest/Stadia), a Mapbox
+    # Studio style and custom XYZ URLs. Shape and validation live in
+    # tracker/basemaps.py; edited from Admin Panel → Basemaps. Client-side
+    # tile keys like carto_api_key, so not masked. Config ⇒ not backed up.
+    basemap_config = models.JSONField(blank=True, default=dict)
     # Firebase Cloud Messaging, for Family Circle place-alert push notifications
     # (see FamilyCircle etc. below). Unlike carto_api_key this is a server-side
     # signing secret (a full service-account key file), not a client-embedded
