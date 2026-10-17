@@ -3003,7 +3003,6 @@ def locations_bounds_api(request):
     ]})
 
 
-@login_required
 def _stable_thin(points, max_points):
     """Thin `points` (dicts with an 'id') to at most ~`max_points`, keeping the
     same points from one request to the next.
@@ -3026,6 +3025,7 @@ def _stable_thin(points, max_points):
     return [p for p in points if ((p['id'] * 2654435761) & 0xFFFFFFFF) >> shift == 0]
 
 
+@login_required
 def track_api(request):
     """Return GPS track as decimated path per device — single request, no tiles.
 
