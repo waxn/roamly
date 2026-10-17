@@ -59,6 +59,10 @@
             --clay-amber: #cf9a44;     /* ochre slot */
             --clay-lavender: #a888a0;  /* mauve slot */
             --clay-sky: #7ba3b8;       /* map-blue slot */
+            /* Inline links: a lightened map-blue. Unset, links fell back to the
+               browser's #0000ee, which all but vanishes on the ink background. */
+            --link: #a8cadb;
+            --link-hover: #d3e6ef;
 
             /* Core theme (dark, default) — ink & slate */
             --bg: #14160f;
@@ -116,6 +120,8 @@
             --clay-amber: #a97b1f;
             --clay-lavender: #86657e;
             --clay-sky: #4f7d94;
+            --link: #2f6680;
+            --link-hover: #1d4a5f;
             --bg: #f2efe4;
             --bg-card: #faf8f0;
             --bg-elevated: #f5f2e7;
@@ -160,6 +166,11 @@
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        /* Element specificity, so any link that sets its own colour (.btn,
+           nav, chips) keeps it; the hover only touches unclassed links. */
+        a { color: var(--link); text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, var(--link) 45%, transparent); }
+        a:not([class]):hover { color: var(--link-hover); text-decoration-color: currentColor; }
 
         body {
             font-family: var(--font-body);
