@@ -105,6 +105,15 @@ static void store(const GpsFix& f) {
     ls.lastAtMs = millis();
     lastStoreWindowMs = ls.windowStartMs;
     ls.recorded++;
+    // Remember where we are for the GPS start-up hint. Every 30 min at most:
+    // it only needs to be roughly right, and the flash has finite writes.
+    if (!cfg.lastPosUnix || r.t - cfg.lastPosUnix >= 1800) {
+      cfg.lastLatE7 = r.latE7;
+      cfg.lastLonE7 = r.lonE7;
+      cfg.lastAltM = r.altCm == INT32_MIN ? 0 : (int16_t)constrain(r.altCm / 100, -500, 9000);
+      cfg.lastPosUnix = r.t;
+      settingsSave();
+    }
   } else {
     ls.writeErrors++;
   }

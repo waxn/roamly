@@ -20,6 +20,11 @@ static TinyGPSPlus nmea;
 
 static GpsFix fix;
 static GpsInfo info;
+
+// When the ESP clock was last set from GNSS time. In RTC memory: it survives a
+// deep sleep (power off) and a reset, but not a power loss -- exactly when the
+// clock itself is trustworthy. Drives how much a time hint can be trusted.
+RTC_DATA_ATTR static uint32_t rtcClockSetUnix = 0;
 static Stream* rawEcho = nullptr;
 static uint32_t wokeAtMs = 0;
 static bool haveFixSinceWake = false;
@@ -157,6 +162,7 @@ static void onSentence() {
       settimeofday(&tv, nullptr);
     }
     info.timeValid = true;
+    rtcClockSetUnix = (uint32_t)t;
   }
 
   if (nmea.location.isUpdated()) {
@@ -191,10 +197,38 @@ static void onSentence() {
   }
 }
 
+// ── CASIC binary frames (only ACK/NACK are read) ────────────────────────────
+// 0xBA 0xCE, len (U2 LE), class, id, payload, checksum (U4). The text parsers
+// above see these bytes too; checksums keep them from producing anything.
+static uint8_t cbuf[16];
+static int cpos = -1;
+static uint16_t clen = 0;
+static volatile int casicAck = 0;    // 1 ACK, -1 NACK, 0 none
+static uint8_t casicAckCls = 0, casicAckId = 0;
+
+static void casicFeed(uint8_t c) {
+  if (cpos < 0) { if (c == 0xBA) { cbuf[0] = c; cpos = 1; } return; }
+  if (cpos == 1 && c != 0xCE) { cpos = c == 0xBA ? 1 : -1; return; }
+  if (cpos < (int)sizeof cbuf) cbuf[cpos] = c;
+  cpos++;
+  if (cpos == 4) { clen = cbuf[2] | (cbuf[3] << 8); if (clen > 8) { cpos = -1; return; } }
+  if (cpos >= 6 && cpos == 6 + clen + 4) {
+    uint8_t cls = cbuf[4], id = cbuf[5];
+    if (cls == 0x05 && clen == 4) {
+      uint32_t ck = ((uint32_t)cls << 24) + ((uint32_t)id << 16) + clen;
+      uint32_t w = cbuf[6] | (cbuf[7] << 8) | (cbuf[8] << 16) | ((uint32_t)cbuf[9] << 24);
+      uint32_t got = cbuf[10] | (cbuf[11] << 8) | (cbuf[12] << 16) | ((uint32_t)cbuf[13] << 24);
+      if (ck + w == got) { casicAckCls = cbuf[6]; casicAckId = cbuf[7]; casicAck = id == 0x01 ? 1 : -1; }
+    }
+    cpos = -1;
+  }
+}
+
 void gpsPoll() {
   while (GPS.available()) {
     int c = GPS.read();
     info.bytes++;
+    casicFeed((uint8_t)c);
     if (rawEcho) rawEcho->write((uint8_t)c);
     uint32_t bad = nmea.failedChecksum();
     bool committed = nmea.encode((char)c);
@@ -365,12 +399,83 @@ void gpsReset(bool cold) {
   haveFixSinceWake = false;
 }
 
+static void casicSend(uint8_t cls, uint8_t id, const uint8_t* p, uint16_t len) {
+  uint8_t hdr[6] = {0xBA, 0xCE, (uint8_t)(len & 0xFF), (uint8_t)(len >> 8), cls, id};
+  uint32_t ck = ((uint32_t)cls << 24) + ((uint32_t)id << 16) + len;
+  for (uint16_t i = 0; i + 3 < len; i += 4)
+    ck += p[i] | (p[i + 1] << 8) | (p[i + 2] << 16) | ((uint32_t)p[i + 3] << 24);
+  uint8_t tail[4] = {(uint8_t)ck, (uint8_t)(ck >> 8), (uint8_t)(ck >> 16), (uint8_t)(ck >> 24)};
+  GPS.write(hdr, 6);
+  GPS.write(p, len);
+  GPS.write(tail, 4);
+  GPS.flush();
+}
+
+// A start-up hint: roughly where we are and what time it is (CASIC AID-INI).
+// Without it a receiver that has lost its almanac/time searches the whole sky
+// blind; with it, it knows which satellites should be up. No internet needed --
+// the position is the last fix (saved to flash), the time is the ESP clock.
+//
+// The time is only sent when it can be trusted: the clock must have been set
+// from GNSS since the last power loss, and the ESP's RC sleep clock drifts, so
+// the accuracy claimed grows with time since that sync; past a minute of
+// uncertainty it is left out rather than misleading the receiver. A wrong hint
+// is worse than none.
+bool gpsAid() {
+  if (cfg.gpsTx < 0) { strlcpy(info.aid, "no TX line", sizeof info.aid); return false; }
+  uint8_t p[56] = {0};
+  uint8_t flags = 0;
+  if (cfg.lastPosUnix) {
+    double lat = cfg.lastLatE7 / 1e7, lon = cfg.lastLonE7 / 1e7, alt = cfg.lastAltM;
+    memcpy(p + 0, &lat, 8);
+    memcpy(p + 8, &lon, 8);
+    memcpy(p + 16, &alt, 8);
+    float pAcc = 5000;                 // we may have moved since; stay generous
+    memcpy(p + 36, &pAcc, 4);
+    flags |= 0x01 | 0x20;              // position valid, in LLA
+  }
+  time_t now = time(nullptr);
+  float tAcc = -1;
+  if (rtcClockSetUnix && now > 1600000000 && now >= (time_t)rtcClockSetUnix) {
+    tAcc = 1.0f + 0.02f * (float)(now - rtcClockSetUnix);   // 2 % drift budget
+    if (tAcc <= 60.0f) {
+      // GPS time = UTC + 18 leap seconds (unchanged since 2017), from 1980-01-06.
+      uint64_t gps = (uint64_t)now - 315964800ULL + 18;
+      double tow = (double)(gps % 604800ULL);
+      uint16_t wn = (uint16_t)(gps / 604800ULL);
+      memcpy(p + 24, &tow, 8);
+      memcpy(p + 40, &tAcc, 4);
+      memcpy(p + 52, &wn, 2);
+      flags |= 0x02;                   // time valid
+    } else {
+      tAcc = -1;
+    }
+  }
+  if (!flags) { strlcpy(info.aid, "nothing to send", sizeof info.aid); return false; }
+  p[55] = flags;
+  for (int attempt = 0; attempt < 3; attempt++) {
+    casicAck = 0;
+    casicSend(0x0B, 0x01, p, 56);
+    uint32_t t0 = millis();
+    while (millis() - t0 < 700 && !(casicAck && casicAckCls == 0x0B && casicAckId == 0x01)) { gpsPoll(); delay(5); }
+    if (casicAck && casicAckCls == 0x0B && casicAckId == 0x01) {
+      snprintf(info.aid, sizeof info.aid, "%s%s%s", casicAck > 0 ? "ACK" : "NACK",
+               (flags & 0x01) ? " pos" : "", (flags & 0x02) ? " time" : "");
+      return casicAck > 0;
+    }
+  }
+  snprintf(info.aid, sizeof info.aid, "no reply (pos=%d time=%d)", !!(flags & 1), !!(flags & 2));
+  return false;
+}
+
 void gpsHardReset() {
   digitalWrite(PIN_GPS_RESET, LOW);
   delay(100);
   digitalWrite(PIN_GPS_RESET, HIGH);
   wokeAtMs = millis();
   haveFixSinceWake = false;
+  pump(400);   // let it boot before talking to it
+  gpsAid();
 }
 
 bool gpsBegin() {
@@ -408,6 +513,7 @@ bool gpsBegin() {
     info.tx = cfg.gpsTx;
     gpsApplyMode(cfg.gpsMode, cfg.intervalS);
   }
+  gpsAid();
   return true;
 }
 

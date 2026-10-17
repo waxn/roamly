@@ -44,6 +44,12 @@ struct Settings {
   uint32_t gpsBaud        = 0;
   uint8_t  gpsLed         = 1;      // unused since the L76K (was the NEO-6M's LED config); kept for layout
   uint8_t  gpsCfgSaved    = 0;      // L76K config written to its flash ($PCAS00)
+  // Last known position, for the GPS start-up hint (AID-INI). Saved at most
+  // every 30 min so it survives a power loss without wearing the flash.
+  int32_t  lastLatE7      = 0;
+  int32_t  lastLonE7      = 0;
+  int16_t  lastAltM       = 0;
+  uint32_t lastPosUnix    = 0;      // 0 = no position saved yet
 };
 
 extern Settings cfg;

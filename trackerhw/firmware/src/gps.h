@@ -36,6 +36,7 @@ struct GpsInfo {
   uint32_t awakeMs = 0;          // total time with STANDBY high (duty-cycle measurement)
   uint32_t sinceMs = 0;          // when awakeMs started counting
   char     version[40] = "";
+  char     aid[48] = "not sent";  // last AID-INI result, for the console
 };
 
 bool gpsBegin();                 // wake, detect (if needed), configure
@@ -50,5 +51,6 @@ float gpsDuty();                 // fraction of time awake since gpsDutyReset()
 void gpsDutyReset();        // how long before a fix window to wake it (0 = never sleep it)
 void gpsReset(bool cold);        // $PCAS10 hot / cold start
 void gpsHardReset();             // pulse the RESET pin
+bool gpsAid();                   // send a time/position hint (AID-INI); true if ACKed
 void gpsSetRawEcho(Stream* s);   // mirror NMEA to a stream (console "gps raw")
 bool gpsDetect(bool verbose);
