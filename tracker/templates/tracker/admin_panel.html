@@ -1467,6 +1467,7 @@ function renderMaps() {
                    data-provider="${bmEsc(p.id)}" value="${bmEsc(p.key)}"
                    placeholder="${p.id === 'mapbox' ? 'pk.…' : 'paste key'}" onchange="saveKey(this)">
             <div class="bm-note" style="margin:0.3rem 0 0;">${bmEsc(p.note)}</div>
+            ${bmOwnMapboxNote(p)}
         </div>`).join('');
 
     // Basemap groups
@@ -1509,6 +1510,23 @@ function renderMaps() {
         document.getElementById('bm-custom').innerHTML = '';
         (bmData.custom || []).forEach(c => addCustomRow(c));
     }
+}
+
+// The admin's own Settings token is separate from the instance one: it keeps
+// working for them (it wins), but nobody else gets Mapbox until one is set here.
+// Say so, and offer to copy it across rather than leave it looking missing.
+function bmOwnMapboxNote(p) {
+    if (p.id !== 'mapbox' || !bmAdminMapboxToken) return '';
+    if (p.key === bmAdminMapboxToken) {
+        return '<div class="bm-note" style="margin:0.3rem 0 0;">Same as your own token in Settings → Maps.</div>';
+    }
+    return `<div class="bm-note" style="margin:0.4rem 0 0;">
+        You also have your own token in Settings → Maps (…${bmEsc(bmAdminMapboxToken.slice(-6))}). It's used for your account only${p.key ? ', instead of this one' : ''}.
+        <button class="btn btn-outline btn-sm" type="button" style="margin-left:0.4rem;padding:0.2rem 0.55rem;font-size:0.75rem;"
+                onclick="bmUseOwnMapbox()">Use it for everyone</button></div>`;
+}
+function bmUseOwnMapbox() {
+    bmSave({ keys: { mapbox: bmAdminMapboxToken } }, 'Mapbox token set for everyone');
 }
 
 function saveKey(input) {
