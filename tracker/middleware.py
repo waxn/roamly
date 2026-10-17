@@ -165,7 +165,7 @@ class SecurityHeadersMiddleware:
         'https://*.basemaps.cartocdn.com',
         'https://server.arcgisonline.com',
         'https://api.mapbox.com',
-        # Optional basemaps from tracker/basemaps.py (Diagnostics → Maps).
+        # Optional basemaps from tracker/basemaps.py (Admin Panel → Basemaps).
         # A user's own custom XYZ URL is not covered — that host goes in
         # CSP_EXTRA_HOSTS once the policy is enforced.
         'https://api.maptiler.com',

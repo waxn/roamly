@@ -21,9 +21,9 @@ window.ROAMLY_MAP_HOOKS = window.ROAMLY_MAP_HOOKS || {};
 
 // Basemaps come from the server: tracker/basemaps.py builds the list (built-in
 // CARTO/Esri, the free extras, and the Mapbox/MapTiler/Thunderforest/Stadia
-// ones whose key the user has entered), filtered to what they switched on in
-// Diagnostics -> Maps, with every key and the CARTO instance key already in
-// the URLs. The page renders it with json_script as #roamly-basemaps. Each
+// ones that have a key — the instance's, or the user's own Mapbox token),
+// filtered to what an admin switched on in Admin Panel -> Basemaps, with every
+// key and the CARTO instance key already in the URLs. The page renders it with json_script as #roamly-basemaps. Each
 // entry's `style` is a MapLibre style object or a style URL.
 //
 // Entry ids are what roamly_map_tile_style stores, and the original six
@@ -127,7 +127,7 @@ const defaultTimeRange = localStorage.getItem('roamly_default_time_range') || '2
 document.getElementById('time-range').value = defaultTimeRange;
 
 // Fall back to the first offered basemap if the saved one is unavailable
-// (switched off in Diagnostics -> Maps, or its key/token was removed).
+// (switched off in Admin Panel -> Basemaps, or its key/token was removed).
 const _rawSavedTileStyle = localStorage.getItem('roamly_map_tile_style') || 'Streets';
 const _savedTileStyle = mapStyles[_rawSavedTileStyle] ? _rawSavedTileStyle : _basemapList[0].id;
 
@@ -162,7 +162,7 @@ map.on('error', (e) => {
     if (!_mapboxErrorShown) {
         _mapboxErrorShown = true;
         document.getElementById('map-info').textContent =
-            provider + ' tiles failed to load — check the key in Diagnostics → Maps.';
+            provider + ' tiles failed to load — the key may be wrong or restricted (Admin Panel → Basemaps).';
     }
 });
 
