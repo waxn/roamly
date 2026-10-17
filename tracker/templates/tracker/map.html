@@ -630,11 +630,8 @@
 
             <div class="sidebar-section" id="basemap-section">
                 <div class="sidebar-label">basemap</div>
-                <div class="sidebar-btn-group">
-                    <button class="style-btn active" data-style="Streets">streets</button>
-                    <button class="style-btn" data-style="Dark">dark</button>
-                    <button class="style-btn" data-style="Satellite">sat</button>
-                </div>
+                {# Buttons are built by map-core.js from #roamly-basemaps; which
+                   ones appear is chosen in Diagnostics → Maps. #}
             </div>
 
             <div class="sidebar-section">
@@ -774,6 +771,7 @@
 {% endblock %}
 
 {% block extra_js %}
+{{ basemaps|json_script:"roamly-basemaps" }}
 <script>
 window.ROAMLY_MAP_CFG = {
     mapboxToken: '{{ MAPBOX_TOKEN|escapejs }}',

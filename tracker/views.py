@@ -1791,7 +1791,17 @@ def map_view(request):
     return render(request, 'tracker/map.html', {
         'devices': devices,
         'has_postgis': HAS_POSTGIS,
+        'basemaps': _user_basemaps(request),
     })
+
+
+def _user_basemaps(request):
+    """The basemap picker list for the map pages (see tracker/basemaps.py),
+    rendered into the page with json_script so the first style is known before
+    MapLibre starts — no round trip, no flash of the wrong basemap."""
+    from . import basemaps
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    return basemaps.resolve_for(profile, basemaps.carto_qs())
 
 
 @login_required
@@ -2491,6 +2501,35 @@ def profile_mapbox_token_api(request):
         profile.save(update_fields=['mapbox_token'])
         return JsonResponse({'ok': True, 'mapbox_token': profile.mapbox_token})
     return JsonResponse({'mapbox_token': profile.mapbox_token})
+
+
+@login_required
+def profile_basemaps_api(request):
+    """Diagnostics → Maps: the basemap catalog with this user's on/off state
+    and provider keys (GET), or a partial update (POST — only the keys present
+    change, so each control autosaves alone). `mapbox_token` is accepted too
+    and written to the same UserProfile.mapbox_token Settings edits, so there
+    is one Mapbox token, not two."""
+    from . import basemaps
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body or '{}')
+        except (json.JSONDecodeError, ValueError):
+            return JsonResponse({'error': 'Invalid request.'}, status=400)
+        if not isinstance(data, dict):
+            return JsonResponse({'error': 'Invalid request.'}, status=400)
+        fields = []
+        if 'mapbox_token' in data:
+            profile.mapbox_token = (data.get('mapbox_token') or '').strip()[:500]
+            fields.append('mapbox_token')
+        cfg = basemaps.sanitize_config(data, profile.basemap_config)
+        if cfg != (profile.basemap_config or {}):
+            profile.basemap_config = cfg
+            fields.append('basemap_config')
+        if fields:
+            profile.save(update_fields=fields)
+    return JsonResponse({'ok': True, **basemaps.catalog_for(profile, basemaps.carto_qs())})
 
 
 @login_required
@@ -13046,6 +13085,7 @@ def editor_view(request):
     return render(request, 'tracker/editor.html', {
         'devices': devices,
         'has_postgis': HAS_POSTGIS,
+        'basemaps': _user_basemaps(request),
         # Edge-to-edge viewport: strips the nav and footer, the same lever the
         # public adventure page already uses.
         'standalone': True,

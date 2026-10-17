@@ -8,6 +8,7 @@
         <button class="diag-tab" id="tab-review" onclick="switchTab('review')">Quality Review</button>
         <button class="diag-tab" id="tab-subway" onclick="switchTab('subway')">Subway Gaps</button>
         <button class="diag-tab" id="tab-trash" onclick="switchTab('trash')">Trash</button>
+        <button class="diag-tab" id="tab-maps" onclick="switchTab('maps')">Maps</button>
     </div>
 
     <!-- ── Coverage & Stats pane ─────────────────────────────────────────── -->
@@ -150,6 +151,65 @@
         </div>
     </div>
 
+    <!-- ── Maps pane ─────────────────────────────────────────────────────── -->
+    <div id="pane-maps" style="display:none;">
+        <div class="page-toolbar" style="margin-bottom:1rem;">
+            <div>
+                <h1>Maps</h1>
+                <p class="page-lead" style="margin-bottom:0;">
+                    Choose which basemaps the map and editor offer, and add keys for providers that need one.
+                    Changes save as you make them; reload the map to see them.
+                </p>
+            </div>
+            <div class="toolbar-actions">
+                <a href="{% url 'tracker:map' %}" class="btn btn-primary btn-sm">Open map</a>
+                <span id="bm-msg" style="font-size:0.82rem;color:var(--text-muted);"></span>
+            </div>
+        </div>
+        <div class="bm-layout">
+            <div class="bm-main">
+                <div class="card bm-card">
+                    <div class="card-header">Provider keys</div>
+                    <p class="bm-note">Free tiers are plenty for personal use. These are browser tile keys —
+                        they appear in tile URLs, so restrict them to this site's domain in the provider's dashboard.</p>
+                    <div id="bm-keys"></div>
+                </div>
+                <div id="bm-groups"></div>
+                <div class="card bm-card">
+                    <div class="card-header">Mapbox Studio style</div>
+                    <p class="bm-note">Design your own style (e.g. a dark Outdoors) in
+                        <a href="https://studio.mapbox.com/" target="_blank" rel="noopener">Mapbox Studio</a>,
+                        then paste its style URL (<code>mapbox://styles/you/abc123</code>). Uses your Mapbox token.</p>
+                    <div class="bm-inline">
+                        <input type="text" id="bm-mbstyle" class="form-control" placeholder="mapbox://styles/username/style-id"
+                               onchange="saveMapboxStyle()">
+                        <button class="btn btn-outline btn-sm" type="button" onclick="previewMapboxStyle()">Preview</button>
+                    </div>
+                    <div id="bm-mbstyle-status" class="bm-note" style="margin-top:0.4rem;"></div>
+                </div>
+                <div class="card bm-card">
+                    <div class="card-header">Custom tile URLs
+                        <button class="btn btn-outline btn-sm" type="button" onclick="addCustomRow()">Add</button>
+                    </div>
+                    <p class="bm-note">Any raster XYZ source: an <code>https://</code> URL with <code>{z}</code>,
+                        <code>{x}</code> and <code>{y}</code>. If the instance enforces its Content-Security-Policy,
+                        the host also needs adding to <code>CSP_EXTRA_HOSTS</code>.</p>
+                    <div id="bm-custom"></div>
+                    <div class="bm-inline" style="margin-top:0.6rem;">
+                        <button class="btn btn-primary btn-sm" type="button" onclick="saveCustom()">Save custom tiles</button>
+                    </div>
+                </div>
+            </div>
+            <div class="bm-side">
+                <div class="card bm-card bm-preview-card">
+                    <div class="card-header"><span id="bm-preview-name">Preview</span></div>
+                    <div id="bm-preview" class="bm-preview"></div>
+                    <div id="bm-preview-status" class="bm-note" style="margin-top:0.4rem;">Pick a basemap to preview it.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
 </div>
 {% endblock %}
 
@@ -161,6 +221,41 @@
     padding:0.45rem 1rem; border-radius:0; font-size:0.85rem; font-weight:600; cursor:pointer; transition:all .15s; }
 .diag-tab:hover { color:var(--text); border-color:var(--accent); }
 .diag-tab.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+
+/* ── maps tab ─────────────────────────────────────────────────────────── */
+.diag-tabs { flex-wrap:wrap; }
+.bm-layout { display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:1rem; align-items:start; }
+.bm-main { display:flex; flex-direction:column; gap:1rem; min-width:0; }
+.bm-side { position:sticky; top:80px; }
+.bm-card .card-header { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; }
+.bm-note { font-size:0.8rem; color:var(--text-muted); line-height:1.45; margin:0 0 0.6rem; }
+.bm-note code { font-size:0.75rem; }
+.bm-inline { display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; }
+.bm-inline .form-control { flex:1; min-width:180px; }
+.bm-key { padding:0.6rem 0; border-top:1px solid var(--border); }
+.bm-key:first-child { border-top:none; }
+.bm-key-head { display:flex; justify-content:space-between; align-items:baseline; gap:0.5rem; margin-bottom:0.3rem; }
+.bm-key-name { font-weight:700; }
+.bm-key-head a { font-size:0.75rem; }
+.bm-row { display:flex; align-items:center; gap:0.7rem; padding:0.5rem 0; border-top:1px solid var(--border); }
+.bm-row:first-of-type { border-top:none; }
+.bm-row input[type=checkbox] { width:16px; height:16px; flex:none; accent-color:var(--primary); }
+.bm-row-text { flex:1; min-width:0; }
+.bm-row-name { font-weight:600; font-size:0.9rem; }
+.bm-row-desc { font-size:0.78rem; color:var(--text-muted); }
+.bm-row.unavailable .bm-row-name, .bm-row.unavailable .bm-row-desc { opacity:0.5; }
+.bm-row .btn-sm { flex:none; padding:0.3rem 0.6rem; font-size:0.75rem; }
+.bm-row.previewing { background:rgba(232,118,61,0.08); }
+.bm-preview { height:320px; border:1px solid var(--border); }
+.bm-custom-row { display:grid; grid-template-columns:1fr 2.4fr 70px auto; gap:0.4rem; margin-bottom:0.4rem; align-items:center; }
+.bm-custom-row .bm-attr { grid-column:1 / span 3; }
+@media (max-width: 900px) {
+    .bm-layout { grid-template-columns:1fr; }
+    .bm-side { position:static; order:-1; }
+    .bm-preview { height:220px; }
+    .bm-custom-row { grid-template-columns:1fr auto; }
+    .bm-custom-row .bm-url, .bm-custom-row .bm-attr { grid-column:1 / -1; }
+}
 
 /* ── stats tab (existing styles) ──────────────────────────────────────── */
 .toolbar-actions .btn-sm { padding: 0.5rem 0.75rem; }
@@ -366,6 +461,8 @@ function switchTab(tab) {
     document.getElementById('pane-review').style.display = tab === 'review' ? '' : 'none';
     document.getElementById('pane-subway').style.display = tab === 'subway' ? '' : 'none';
     document.getElementById('pane-trash').style.display = tab === 'trash' ? '' : 'none';
+    document.getElementById('pane-maps').style.display = tab === 'maps' ? '' : 'none';
+    document.getElementById('tab-maps').classList.toggle('active', tab === 'maps');
     document.getElementById('tab-stats').classList.toggle('active', tab === 'stats');
     document.getElementById('tab-review').classList.toggle('active', tab === 'review');
     document.getElementById('tab-subway').classList.toggle('active', tab === 'subway');
@@ -373,6 +470,7 @@ function switchTab(tab) {
     if (tab === 'review') initReviewMap();
     if (tab === 'subway') initSubway();
     if (tab === 'trash') initTrash();
+    if (tab === 'maps') initMaps();
 }
 
 // ── range controls ───────────────────────────────────────────────────────────
@@ -1305,9 +1403,237 @@ async function deleteSubwayFill(id) {
         }).catch(() => roamlyAlert('Could not delete that fill.'));
 }
 
+// ── Maps tab ────────────────────────────────────────────────────────────────
+// Diagnostics → Maps edits UserProfile.basemap_config via /api/profile/basemaps/
+// (tracker/basemaps.py). Every control autosaves on its own: the endpoint only
+// changes the keys a POST carries.
+const BM_GROUPS = [
+    ['built-in', 'Built-in', 'Always free. CARTO tiles use the instance key from Admin Panel → Basemaps.'],
+    ['free', 'Free, no key', 'Extra free basemaps. The terrain ones add hillshading from free elevation tiles.'],
+    ['mapbox', 'Mapbox', 'Needs a Mapbox token.'],
+    ['maptiler', 'MapTiler', 'Needs a MapTiler key.'],
+    ['thunderforest', 'Thunderforest', 'Needs a Thunderforest key.'],
+    ['stadia', 'Stadia Maps', 'Needs a Stadia Maps key.'],
+];
+let bmData = null, bmInit = false, bmPreviewMap = null, bmPreviewId = null, bmCustomDirty = true;
+
+function bmEsc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g,
+        c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function bmFlash(text, bad) {
+    const el = document.getElementById('bm-msg');
+    el.textContent = text;
+    el.style.color = bad ? 'var(--danger)' : 'var(--text-muted)';
+    clearTimeout(bmFlash._t);
+    bmFlash._t = setTimeout(() => { el.textContent = ''; }, 2500);
+}
+
+function initMaps() {
+    if (bmInit) { if (bmPreviewMap) bmPreviewMap.resize(); return; }
+    bmInit = true;
+    fetch('/api/profile/basemaps/', { credentials: 'same-origin' })
+        .then(r => r.json()).then(d => { bmData = d; renderMaps(); })
+        .catch(() => bmFlash('Could not load map settings.', true));
+}
+
+function bmSave(payload, label) {
+    return fetch('/api/profile/basemaps/', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+        body: JSON.stringify(payload),
+    }).then(r => r.json()).then(d => {
+        if (!d.ok) throw new Error(d.error || 'failed');
+        bmData = d;
+        renderMaps();
+        bmFlash((label || 'Saved') + ' ✓');
+        return d;
+    }).catch(() => { bmFlash('Could not save.', true); });
+}
+
+function renderMaps() {
+    if (!bmData) return;
+    // Keys
+    const keysEl = document.getElementById('bm-keys');
+    keysEl.innerHTML = bmData.providers.map(p => `
+        <div class="bm-key">
+            <div class="bm-key-head">
+                <span class="bm-key-name">${bmEsc(p.name)}</span>
+                <a href="${bmEsc(p.signup)}" target="_blank" rel="noopener">get a key ↗</a>
+            </div>
+            <input type="text" class="form-control" spellcheck="false" autocomplete="off"
+                   data-provider="${bmEsc(p.id)}" value="${bmEsc(p.key)}"
+                   placeholder="${p.id === 'mapbox' ? 'pk.…' : 'paste key'}" onchange="saveKey(this)">
+            <div class="bm-note" style="margin:0.3rem 0 0;">${bmEsc(p.note)}</div>
+        </div>`).join('');
+
+    // Basemap groups
+    const groupsEl = document.getElementById('bm-groups');
+    groupsEl.innerHTML = BM_GROUPS.map(([gid, title, note]) => {
+        const rows = bmData.entries.filter(e => e.group === gid);
+        if (!rows.length) return '';
+        return `<div class="card bm-card">
+            <div class="card-header">${bmEsc(title)}</div>
+            <p class="bm-note">${bmEsc(note)}</p>
+            ${rows.map(e => `
+                <div class="bm-row${e.available ? '' : ' unavailable'}${e.id === bmPreviewId ? ' previewing' : ''}">
+                    <input type="checkbox" ${e.enabled ? 'checked' : ''} ${e.available ? '' : 'disabled'}
+                           data-id="${bmEsc(e.id)}" onchange="toggleBasemap(this)"
+                           title="${e.available ? 'Show in the map picker' : 'Add the key above first'}">
+                    <div class="bm-row-text">
+                        <div class="bm-row-name">${bmEsc(e.id)}</div>
+                        <div class="bm-row-desc">${bmEsc(e.description)}${e.available ? '' : ' — needs a key'}</div>
+                    </div>
+                    ${e.available ? `<button class="btn btn-outline btn-sm" type="button" data-id="${bmEsc(e.id)}"
+                        onclick="previewBasemap(this.dataset.id)">Preview</button>` : ''}
+                </div>`).join('')}
+        </div>`;
+    }).join('');
+
+    // Mapbox Studio style
+    const mbInput = document.getElementById('bm-mbstyle');
+    if (document.activeElement !== mbInput) mbInput.value = bmData.mapbox_style || '';
+    const mbStatus = document.getElementById('bm-mbstyle-status');
+    const hasToken = bmData.providers.some(p => p.id === 'mapbox' && p.key);
+    if (!bmData.mapbox_style) mbStatus.textContent = '';
+    else if (!bmData.mapbox_style_valid) { mbStatus.textContent = "That doesn't look like a Mapbox style URL."; mbStatus.style.color = 'var(--danger)'; }
+    else if (!hasToken) { mbStatus.textContent = 'Saved — add a Mapbox token above to use it.'; mbStatus.style.color = 'var(--warning, #d29922)'; }
+    else { mbStatus.textContent = 'Shows as "custom" under Mapbox on the map.'; mbStatus.style.color = 'var(--text-muted)'; }
+
+    // Custom rows are rebuilt only on first load and after saving them, so a
+    // toggle elsewhere never wipes a row the user is still typing.
+    if (bmCustomDirty) {
+        bmCustomDirty = false;
+        document.getElementById('bm-custom').innerHTML = '';
+        (bmData.custom || []).forEach(c => addCustomRow(c));
+    }
+}
+
+function saveKey(input) {
+    const p = input.dataset.provider, v = input.value.trim();
+    const payload = p === 'mapbox' ? { mapbox_token: v } : { keys: { [p]: v } };
+    bmSave(payload, 'Key saved');
+}
+
+function toggleBasemap(cb) {
+    bmSave({ enabled: { [cb.dataset.id]: cb.checked } }, cb.checked ? 'Shown' : 'Hidden');
+}
+
+function saveMapboxStyle() {
+    bmSave({ mapbox_style: document.getElementById('bm-mbstyle').value.trim() }, 'Style saved');
+}
+
+function previewMapboxStyle() {
+    const raw = document.getElementById('bm-mbstyle').value.trim();
+    const token = (bmData.providers.find(p => p.id === 'mapbox') || {}).key;
+    const m = raw.replace(/^mapbox:\/\/styles\//, '').replace(/^https:\/\/api\.mapbox\.com\/styles\/v1\//, '')
+                 .split('?')[0].split('/').filter(Boolean);
+    if (m.length < 2 || !token) { bmFlash(token ? 'Enter a style URL first.' : 'Add a Mapbox token first.', true); return; }
+    bmShowPreview('Mapbox Studio style', bmRasterStyle(
+        'mapbox', 'https://api.mapbox.com/styles/v1/' + m[0] + '/' + m[1] +
+        '/tiles/256/{z}/{x}/{y}?access_token=' + encodeURIComponent(token), 22, '&copy; Mapbox'));
+}
+
+function bmRasterStyle(id, url, maxzoom, attribution) {
+    return { version: 8, sources: { [id]: { type: 'raster', tiles: [url], tileSize: 256,
+        maxzoom: maxzoom || 19, attribution: attribution || '' } },
+        layers: [{ id: id, type: 'raster', source: id }] };
+}
+
+function previewBasemap(id) {
+    const e = bmData && bmData.entries.find(x => x.id === id);
+    if (!e || !e.style) return;
+    bmPreviewId = id;
+    document.querySelectorAll('.bm-row').forEach(r => r.classList.toggle('previewing',
+        !!r.querySelector(`[data-id="${CSS.escape(id)}"]`)));
+    bmShowPreview(id, e.style);
+}
+
+let bmTileErrors = 0;
+function bmShowPreview(name, style) {
+    document.getElementById('bm-preview-name').textContent = name;
+    const status = document.getElementById('bm-preview-status');
+    status.textContent = 'Loading tiles…';
+    status.style.color = 'var(--text-muted)';
+    bmTileErrors = 0;
+    if (!bmPreviewMap) {
+        bmPreviewMap = new maplibregl.Map({ container: 'bm-preview', style: style,
+            center: [-71.06, 42.36], zoom: 11, attributionControl: { compact: true } });
+        bmPreviewMap.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+        // A rough key check: tiles either arrive or the provider refuses them.
+        bmPreviewMap.on('error', (ev) => {
+            const st = ev && ev.error && ev.error.status;
+            bmTileErrors++;
+            const s = document.getElementById('bm-preview-status');
+            s.style.color = 'var(--danger)';
+            s.textContent = (st === 401 || st === 403)
+                ? `Tiles refused (${st}) — the key is wrong or restricted to another domain.`
+                : `Some tiles failed to load${st ? ' (' + st + ')' : ''}.`;
+        });
+        bmPreviewMap.on('sourcedata', (ev) => {
+            if (ev.tile && !bmTileErrors) {
+                const s = document.getElementById('bm-preview-status');
+                s.style.color = 'var(--text-muted)';
+                s.textContent = 'Tiles loading fine.';
+            }
+        });
+        // Centre on the user's most recent fix when there is one.
+        fetch('/api/locations/?all=1&limit=1', { credentials: 'same-origin' })
+            .then(r => r.json()).then(d => {
+                const dev = (d.devices || [])[0];
+                const pt = dev && (dev.locations || dev.points || [])[0];
+                const loc = pt || (d.locations || [])[0];
+                const lat = loc && (loc.latitude ?? loc.lat), lng = loc && (loc.longitude ?? loc.lng ?? loc.lon);
+                if (lat != null && lng != null) bmPreviewMap.jumpTo({ center: [lng, lat], zoom: 11 });
+            }).catch(() => {});
+    } else {
+        bmPreviewMap.setStyle(style);
+    }
+}
+
+function addCustomRow(c) {
+    c = c || { name: '', url: '', max_zoom: 19, attribution: '', enabled: true };
+    const row = document.createElement('div');
+    row.className = 'bm-custom-row';
+    row.innerHTML = `
+        <input type="text" class="form-control bm-name" placeholder="name" maxlength="40" value="${bmEsc(c.name)}">
+        <input type="text" class="form-control bm-url" placeholder="https://tiles.example.com/{z}/{x}/{y}.png" value="${bmEsc(c.url)}">
+        <input type="number" class="form-control bm-mz" min="1" max="24" title="max zoom" value="${bmEsc(c.max_zoom || 19)}">
+        <div class="bm-inline" style="flex-wrap:nowrap;">
+            <button class="btn btn-outline btn-sm" type="button" title="Preview">Preview</button>
+            <button class="btn btn-outline btn-sm" type="button" title="Remove" style="color:var(--danger);">✕</button>
+        </div>
+        <input type="text" class="form-control bm-attr" placeholder="attribution (optional)" maxlength="200" value="${bmEsc(c.attribution)}">`;
+    const [prevBtn, delBtn] = row.querySelectorAll('button');
+    prevBtn.onclick = () => {
+        const url = row.querySelector('.bm-url').value.trim();
+        if (!/^https:\/\//.test(url) || !/\{z\}/.test(url) || !/\{x\}/.test(url) || !/\{y\}/.test(url)) {
+            bmFlash('URL must be https:// and contain {z}, {x} and {y}.', true); return;
+        }
+        bmShowPreview(row.querySelector('.bm-name').value.trim() || 'Custom',
+            bmRasterStyle('custom', url, parseInt(row.querySelector('.bm-mz').value, 10) || 19,
+                          row.querySelector('.bm-attr').value.trim()));
+    };
+    delBtn.onclick = () => { row.remove(); };
+    document.getElementById('bm-custom').appendChild(row);
+}
+
+function saveCustom() {
+    const rows = [...document.querySelectorAll('#bm-custom .bm-custom-row')].map(r => ({
+        name: r.querySelector('.bm-name').value.trim(),
+        url: r.querySelector('.bm-url').value.trim(),
+        max_zoom: parseInt(r.querySelector('.bm-mz').value, 10) || 19,
+        attribution: r.querySelector('.bm-attr').value.trim(),
+    })).filter(r => r.url);
+    const bad = rows.filter(r => !/^https:\/\//.test(r.url) || !['{z}','{x}','{y}'].every(t => r.url.includes(t)));
+    if (bad.length) { bmFlash('Each URL must be https:// and contain {z}, {x} and {y}.', true); return; }
+    bmCustomDirty = true;
+    bmSave({ custom: rows }, 'Custom tiles saved');
+}
+
 (function () {
     const tab = new URLSearchParams(location.search).get('tab');
-    if (tab === 'review' || tab === 'trash' || tab === 'subway') switchTab(tab);
+    if (tab === 'review' || tab === 'trash' || tab === 'subway' || tab === 'maps') switchTab(tab);
 })();
 </script>
 {% endblock %}

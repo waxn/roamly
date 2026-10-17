@@ -1224,6 +1224,14 @@ class UserProfile(models.Model):
     # embed in the browser and app), so it is not masked.
     mapbox_token = models.CharField(max_length=500, blank=True, default='')
 
+    # Which basemaps this user's map picker offers, plus the tile keys for the
+    # providers that need one (MapTiler/Thunderforest/Stadia), a Mapbox Studio
+    # style and any custom XYZ URLs. Shape and validation live in
+    # tracker/basemaps.py; edited from Diagnostics → Maps. Like mapbox_token,
+    # the keys are client-side tile keys and are not masked. Config only ⇒
+    # excluded from backups.
+    basemap_config = models.JSONField(default=dict, blank=True)
+
     # Distance/speed unit for display ('kmh' or 'mph' — same values as the
     # roamly_speed_unit localStorage key it mirrors). localStorage stays the
     # source of truth for the map/stats pages (no read-path change there);

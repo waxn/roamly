@@ -35,9 +35,12 @@
 .tool-btn.active .tool-btn-badge { color:var(--primary); }
 .tool-btn.danger { color:var(--danger); border-color:rgba(220,80,80,0.4); }
 
-.sidebar-btn-group { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; }
+.sidebar-btn-group { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; }
 .style-btn { background:rgba(0,0,0,0.12); border:1px solid var(--border); color:var(--text-muted);
-    padding:6px 4px; border-radius:0; font-size:0.7rem; font-weight:700; cursor:pointer; text-align:center; }
+    padding:6px 4px; border-radius:0; font-size:0.7rem; font-weight:700; cursor:pointer; text-align:center;
+    min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sidebar-sublabel { font-size:0.55rem; font-weight:700; text-transform:uppercase; letter-spacing:0.09em;
+    color:var(--text-muted); opacity:0.75; margin-top:6px; margin-bottom:3px; }
 .style-btn.active { background:var(--primary); border-color:var(--primary); color:#fff; }
 
 .ed-hint { font-size:0.68rem; color:var(--text-muted); line-height:1.4; }
@@ -111,13 +114,9 @@
                 </select>
             </div>
 
-            <div class="sidebar-section">
+            <div class="sidebar-section" id="basemap-section">
                 <div class="sidebar-label">basemap</div>
-                <div class="sidebar-btn-group" id="basemap-section">
-                    <button class="style-btn active" data-style="Streets" type="button">streets</button>
-                    <button class="style-btn" data-style="Dark" type="button">dark</button>
-                    <button class="style-btn" data-style="Satellite" type="button">sat</button>
-                </div>
+                {# Built by map-core.js from #roamly-basemaps (Diagnostics → Maps). #}
             </div>
 
             {% if ROAD_SNAP_ENABLED %}
@@ -239,6 +238,7 @@
 {% endblock %}
 
 {% block extra_js %}
+{{ basemaps|json_script:"roamly-basemaps" }}
 <script>
 window.ROAMLY_MAP_CFG = {
     mapboxToken: '{{ MAPBOX_TOKEN|escapejs }}',

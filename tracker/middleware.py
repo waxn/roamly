@@ -165,6 +165,18 @@ class SecurityHeadersMiddleware:
         'https://*.basemaps.cartocdn.com',
         'https://server.arcgisonline.com',
         'https://api.mapbox.com',
+        # Optional basemaps from tracker/basemaps.py (Diagnostics → Maps).
+        # A user's own custom XYZ URL is not covered — that host goes in
+        # CSP_EXTRA_HOSTS once the policy is enforced.
+        'https://api.maptiler.com',
+        'https://tile.thunderforest.com',
+        'https://tiles.stadiamaps.com',
+        'https://tile.openstreetmap.org',
+        'https://tile.opentopomap.org',
+        'https://*.tile-cyclosm.openstreetmap.fr',
+        'https://tiles.openfreemap.org',
+        'https://s3.amazonaws.com',
+        'https://demotiles.maplibre.org',
     )
     _TURNSTILE = 'https://challenges.cloudflare.com'
 

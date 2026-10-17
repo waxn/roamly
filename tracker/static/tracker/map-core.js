@@ -19,112 +19,68 @@
 window.ROAMLY_MAP_CFG = window.ROAMLY_MAP_CFG || {};
 window.ROAMLY_MAP_HOOKS = window.ROAMLY_MAP_HOOKS || {};
 
-// CARTO now requires an API key on its raster basemaps and watermarks every
-// tile served without one. The instance key lives on SiteConfig (Admin Panel ->
-// Basemaps) and reaches templates as CARTO_TILE_QS, an already-built '?key=...'
-// suffix; this file is a static asset rather than a template, so the page hands
-// it over through ROAMLY_MAP_CFG the same way it does the Mapbox token. Blank
-// when no key is set, leaving the URLs exactly as they were.
-const _cartoQs = ROAMLY_MAP_CFG.cartoQs || '';
-
-const mapStyles = {
-    'Streets': {
+// Basemaps come from the server: tracker/basemaps.py builds the list (built-in
+// CARTO/Esri, the free extras, and the Mapbox/MapTiler/Thunderforest/Stadia
+// ones whose key the user has entered), filtered to what they switched on in
+// Diagnostics -> Maps, with every key and the CARTO instance key already in
+// the URLs. The page renders it with json_script as #roamly-basemaps. Each
+// entry's `style` is a MapLibre style object or a style URL.
+//
+// Entry ids are what roamly_map_tile_style stores, and the original six
+// ('Streets', 'Dark', 'Satellite', 'Mapbox Streets/Outdoors/Satellite') kept
+// their names, so a saved choice survives this change.
+const _basemapList = (() => {
+    try {
+        const el = document.getElementById('roamly-basemaps');
+        const list = el ? JSON.parse(el.textContent) : null;
+        if (Array.isArray(list) && list.length) return list;
+    } catch (e) { console.warn('basemap list unreadable', e); }
+    // A page that never rendered the list still gets a working map.
+    return [{ id: 'Streets', group: 'built-in', label: 'streets', name: 'Streets', style: {
         version: 8,
-        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-        sources: {
-            'osm': {
-                type: 'raster',
-                tiles: ['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png' + _cartoQs],
-                tileSize: 256,
-                attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
-            }
-        },
+        sources: { osm: { type: 'raster', tileSize: 256,
+            tiles: ['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png' + (ROAMLY_MAP_CFG.cartoQs || '')],
+            attribution: '&copy; OpenStreetMap contributors &copy; CARTO' } },
         layers: [{ id: 'osm', type: 'raster', source: 'osm' }]
-    },
-    'Dark': {
-        version: 8,
-        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-        sources: {
-            'carto': {
-                type: 'raster',
-                tiles: ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png' + _cartoQs],
-                tileSize: 256,
-                attribution: '&copy; CartoDB'
-            }
-        },
-        layers: [{ id: 'carto', type: 'raster', source: 'carto' }]
-    },
-    'Satellite': {
-        version: 8,
-        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-        sources: {
-            'esri': {
-                type: 'raster',
-                tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-                tileSize: 256,
-                maxzoom: 19,
-                attribution: '&copy; Esri'
-            }
-        },
-        layers: [{ id: 'esri', type: 'raster', source: 'esri' }]
-    }
-};
+    } }];
+})();
+const mapStyles = {};
+_basemapList.forEach(b => { mapStyles[b.id] = b.style; });
 
-// Optional Mapbox basemaps — only added when the user has a public token saved
-// on their account (Settings; served here via MAPBOX_TOKEN). Uses Mapbox raster
-// tiles so it slots into the same style-8 raster pattern as the built-in basemaps.
-// The built-in free basemaps above are always available regardless.
-const _mapboxToken = (ROAMLY_MAP_CFG.mapboxToken || '').trim();
-function _mapboxRasterStyle(styleId, attribution) {
-    return {
-        version: 8,
-        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-        sources: {
-            'mapbox': {
-                type: 'raster',
-                tiles: ['https://api.mapbox.com/styles/v1/mapbox/' + styleId +
-                        '/tiles/256/{z}/{x}/{y}?access_token=' + encodeURIComponent(_mapboxToken)],
-                tileSize: 256,
-                maxzoom: 22,
-                attribution: attribution
+// Build the picker: one 3-column group per provider, each after the first
+// under its own sublabel. A shared grid crushed long names into slivers in the
+// 220px sidebar, which is why Mapbox already had its own group.
+(function buildBasemapPicker() {
+    const section = document.getElementById('basemap-section');
+    if (!section) return;
+    section.querySelectorAll('.sidebar-btn-group, .sidebar-sublabel').forEach(el => el.remove());
+    const groupNames = { 'built-in': '', free: 'free', mapbox: 'mapbox', maptiler: 'maptiler',
+                         thunderforest: 'thunderforest', stadia: 'stadia', custom: 'custom' };
+    let currentGroup = null, grid = null, first = true;
+    _basemapList.forEach(b => {
+        if (b.group !== currentGroup) {
+            currentGroup = b.group;
+            const name = groupNames[b.group] !== undefined ? groupNames[b.group] : b.group;
+            if (!first && name) {
+                const lbl = document.createElement('div');
+                lbl.className = 'sidebar-sublabel';
+                lbl.textContent = name;
+                section.appendChild(lbl);
             }
-        },
-        layers: [{ id: 'mapbox', type: 'raster', source: 'mapbox' }]
-    };
-}
-if (_mapboxToken) {
-    const _mbAttr = '&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> &copy; OpenStreetMap contributors';
-    mapStyles['Mapbox Streets'] = _mapboxRasterStyle('streets-v12', _mbAttr);
-    mapStyles['Mapbox Outdoors'] = _mapboxRasterStyle('outdoors-v12', _mbAttr);
-    mapStyles['Mapbox Satellite'] = _mapboxRasterStyle('satellite-streets-v12', _mbAttr);
-    // Give the Mapbox basemaps their own labelled group under the built-in one.
-    // Appending them to the built-in grid crushed them into unreadable slivers —
-    // the sidebar is 220px, so a shared row leaves ~60px per button and "mb
-    // outdoors" simply does not fit. Their own group means the same three
-    // one-word labels as above, and the "mapbox" sublabel carries the prefix.
-    // Injected before the button wiring below runs, so they pick up the same
-    // click behaviour from the global .style-btn query.
-    const _basemapSection = document.getElementById('basemap-section');
-    if (_basemapSection) {
-        const _mbLabel = document.createElement('div');
-        _mbLabel.className = 'sidebar-sublabel';
-        _mbLabel.textContent = 'mapbox';
-        _basemapSection.appendChild(_mbLabel);
-
-        const _mbGroup = document.createElement('div');
-        _mbGroup.className = 'sidebar-btn-group';
-        [['Mapbox Streets', 'streets'], ['Mapbox Outdoors', 'outdoors'],
-         ['Mapbox Satellite', 'sat']].forEach(([style, label]) => {
-            const btn = document.createElement('button');
-            btn.className = 'style-btn';
-            btn.dataset.style = style;
-            btn.textContent = label;
-            btn.title = style;
-            _mbGroup.appendChild(btn);
-        });
-        _basemapSection.appendChild(_mbGroup);
-    }
-}
+            first = false;
+            grid = document.createElement('div');
+            grid.className = 'sidebar-btn-group';
+            section.appendChild(grid);
+        }
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'style-btn';
+        btn.dataset.style = b.id;
+        btn.textContent = b.label;
+        btn.title = b.name;
+        grid.appendChild(btn);
+    });
+})();
 
 function showMapLoading(label) {
     document.getElementById('map-loading-bar').classList.add('active');
@@ -170,10 +126,10 @@ function speedColorExpr(fallback) {
 const defaultTimeRange = localStorage.getItem('roamly_default_time_range') || '24';
 document.getElementById('time-range').value = defaultTimeRange;
 
-// Fall back to Streets if the saved style is unavailable (e.g. a Mapbox basemap
-// was chosen, then the token was later removed in Settings).
+// Fall back to the first offered basemap if the saved one is unavailable
+// (switched off in Diagnostics -> Maps, or its key/token was removed).
 const _rawSavedTileStyle = localStorage.getItem('roamly_map_tile_style') || 'Streets';
-const _savedTileStyle = mapStyles[_rawSavedTileStyle] ? _rawSavedTileStyle : 'Streets';
+const _savedTileStyle = mapStyles[_rawSavedTileStyle] ? _rawSavedTileStyle : _basemapList[0].id;
 
 const map = new maplibregl.Map({
     container: 'map',
@@ -184,20 +140,29 @@ const map = new maplibregl.Map({
 
 map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
-// Surface Mapbox tile auth failures instead of showing a silent blank map.
-// A correct token returns tiles; a 401/403 here almost always means the token
-// is invalid or has URL restrictions that exclude this site's domain.
+// Surface keyed-basemap tile failures instead of showing a silent blank map.
+// A correct key returns tiles; a 401/403 here almost always means the key is
+// wrong or has URL/domain restrictions that exclude this site.
+const _keyedSources = {
+    mapbox: 'Mapbox', maptiler: 'MapTiler', thunderforest: 'Thunderforest', stadia: 'Stadia Maps',
+};
 let _mapboxErrorShown = false;
 map.on('error', (e) => {
     const url = e && e.error && (e.error.url || '');
     const status = e && e.error && e.error.status;
-    const isMapbox = (e && e.sourceId === 'mapbox') || (typeof url === 'string' && url.indexOf('api.mapbox.com') !== -1);
-    if (!isMapbox) return;
-    console.warn('Mapbox tile error', status || '', url || '', e && e.error);
+    let provider = e && _keyedSources[e.sourceId];
+    if (!provider && typeof url === 'string') {
+        if (url.indexOf('api.mapbox.com') !== -1) provider = 'Mapbox';
+        else if (url.indexOf('api.maptiler.com') !== -1) provider = 'MapTiler';
+        else if (url.indexOf('thunderforest.com') !== -1) provider = 'Thunderforest';
+        else if (url.indexOf('stadiamaps.com') !== -1) provider = 'Stadia Maps';
+    }
+    if (!provider) return;
+    console.warn(provider + ' tile error', status || '', url || '', e && e.error);
     if (!_mapboxErrorShown) {
         _mapboxErrorShown = true;
         document.getElementById('map-info').textContent =
-            'Mapbox tiles failed to load — check your token and its URL restrictions in Settings.';
+            provider + ' tiles failed to load — check the key in Diagnostics → Maps.';
     }
 });
 
