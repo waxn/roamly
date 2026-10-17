@@ -140,99 +140,99 @@ def _stadia(style_id, key, ext='png'):
 
 # (id, group, short label, description, provider-or-None, default_on, builder)
 # `builder(keys, carto_qs)` returns a MapLibre style object or a style URL.
-# Short labels must fit a third of the 220px sidebar — one short word.
+# Labels are proper-case words; long ones wrap onto two lines in the picker.
 CATALOG = [
     # ── built-in ─────────────────────────────────────────────────────────
-    ('Streets', 'built-in', 'streets', 'CARTO Positron — light, low-contrast.', None, True,
+    ('Streets', 'built-in', 'Streets', 'CARTO Positron — light, low-contrast.', None, True,
      lambda k, c: _carto('light_all', c)),
-    ('Dark', 'built-in', 'dark', 'CARTO Dark Matter.', None, True,
+    ('Dark', 'built-in', 'Dark', 'CARTO Dark Matter.', None, True,
      lambda k, c: _carto('dark_all', c, '&copy; CartoDB')),
-    ('Satellite', 'built-in', 'sat', 'Esri World Imagery.', None, True,
+    ('Satellite', 'built-in', 'Satellite', 'Esri World Imagery.', None, True,
      lambda k, c: _esri('World_Imagery')),
 
     # ── free, no key ─────────────────────────────────────────────────────
-    ('Dark Terrain', 'free', 'dk terrain', 'CARTO Dark with free terrain hillshading — a key-less dark outdoors.', None, False,
+    ('Dark Terrain', 'free', 'Dark Terrain', 'CARTO Dark with free terrain hillshading — a key-less dark outdoors.', None, False,
      lambda k, c: _with_hillshade(_carto('dark_all', c, '&copy; CartoDB'), dark=True)),
-    ('Light Terrain', 'free', 'terrain', 'CARTO Voyager with terrain hillshading.', None, False,
+    ('Light Terrain', 'free', 'Terrain', 'CARTO Voyager with terrain hillshading.', None, False,
      lambda k, c: _with_hillshade(_carto('rastertiles/voyager', c), dark=False)),
-    ('Voyager', 'free', 'voyager', 'CARTO Voyager — colourful, readable streets.', None, False,
+    ('Voyager', 'free', 'Voyager', 'CARTO Voyager — colourful, readable streets.', None, False,
      lambda k, c: _carto('rastertiles/voyager', c)),
-    ('OpenStreetMap', 'free', 'osm', 'The standard OpenStreetMap style.', None, False,
+    ('OpenStreetMap', 'free', 'OSM', 'The standard OpenStreetMap style.', None, False,
      lambda k, c: _raster('osmstd', ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], _OSM, maxzoom=19)),
-    ('OpenTopoMap', 'free', 'topo', 'Topographic: contours, trails, peaks. Max zoom 17.', None, False,
+    ('OpenTopoMap', 'free', 'Topo', 'Topographic: contours, trails, peaks. Max zoom 17.', None, False,
      lambda k, c: _raster('otm', ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
                           'Map: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA) ' + _OSM,
                           maxzoom=17)),
-    ('CyclOSM', 'free', 'cyclosm', 'Cycling-focused: bike lanes, paths, surfaces.', None, False,
+    ('CyclOSM', 'free', 'CyclOSM', 'Cycling-focused: bike lanes, paths, surfaces.', None, False,
      lambda k, c: _raster('cyclosm', ['https://a.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png',
                                       'https://b.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png',
                                       'https://c.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png'],
                           '<a href="https://www.cyclosm.org">CyclOSM</a> ' + _OSM, maxzoom=20)),
-    ('Esri Topo', 'free', 'esri topo', 'Esri World Topographic.', None, False,
+    ('Esri Topo', 'free', 'Esri Topo', 'Esri World Topographic.', None, False,
      lambda k, c: _esri('World_Topo_Map')),
-    ('Esri Dark Gray', 'free', 'esri dark', 'Esri Dark Gray Canvas — very muted. Max zoom 16.', None, False,
+    ('Esri Dark Gray', 'free', 'Esri Dark', 'Esri Dark Gray Canvas — very muted. Max zoom 16.', None, False,
      lambda k, c: _esri('Canvas/World_Dark_Gray_Base', maxzoom=16)),
-    ('OpenFreeMap Liberty', 'free', 'liberty', 'OpenFreeMap vector style — crisp labels, no key, no limits.', None, False,
+    ('OpenFreeMap Liberty', 'free', 'Vector', 'OpenFreeMap vector style — crisp labels, no key, no limits.', None, False,
      lambda k, c: 'https://tiles.openfreemap.org/styles/liberty'),
-    ('OpenFreeMap Dark', 'free', 'ofm dark', 'OpenFreeMap dark vector style.', None, False,
+    ('OpenFreeMap Dark', 'free', 'Vector Dark', 'OpenFreeMap dark vector style.', None, False,
      lambda k, c: 'https://tiles.openfreemap.org/styles/dark'),
 
     # ── Mapbox (token) ───────────────────────────────────────────────────
-    ('Mapbox Streets', 'mapbox', 'streets', 'Mapbox Streets.', 'mapbox', True,
+    ('Mapbox Streets', 'mapbox', 'Streets', 'Mapbox Streets.', 'mapbox', True,
      lambda k, c: _mapbox('mapbox/streets-v12', k['mapbox'])),
-    ('Mapbox Outdoors', 'mapbox', 'outdoors', 'Mapbox Outdoors.', 'mapbox', True,
+    ('Mapbox Outdoors', 'mapbox', 'Outdoors', 'Mapbox Outdoors.', 'mapbox', True,
      lambda k, c: _mapbox('mapbox/outdoors-v12', k['mapbox'])),
-    ('Mapbox Satellite', 'mapbox', 'sat', 'Mapbox Satellite Streets.', 'mapbox', True,
+    ('Mapbox Satellite', 'mapbox', 'Satellite', 'Mapbox Satellite Streets.', 'mapbox', True,
      lambda k, c: _mapbox('mapbox/satellite-streets-v12', k['mapbox'])),
-    ('Mapbox Dark', 'mapbox', 'dark', 'Mapbox Dark.', 'mapbox', False,
+    ('Mapbox Dark', 'mapbox', 'Dark', 'Mapbox Dark.', 'mapbox', False,
      lambda k, c: _mapbox('mapbox/dark-v11', k['mapbox'])),
-    ('Mapbox Light', 'mapbox', 'light', 'Mapbox Light.', 'mapbox', False,
+    ('Mapbox Light', 'mapbox', 'Light', 'Mapbox Light.', 'mapbox', False,
      lambda k, c: _mapbox('mapbox/light-v11', k['mapbox'])),
-    ('Mapbox Night', 'mapbox', 'night', 'Mapbox Navigation Night.', 'mapbox', False,
+    ('Mapbox Night', 'mapbox', 'Night', 'Mapbox Navigation Night.', 'mapbox', False,
      lambda k, c: _mapbox('mapbox/navigation-night-v1', k['mapbox'])),
 
     # ── MapTiler (key) ───────────────────────────────────────────────────
-    ('MapTiler Outdoor Dark', 'maptiler', 'outdr dark', 'Outdoor, dark: trails, contours, hillshade.', 'maptiler', True,
+    ('MapTiler Outdoor Dark', 'maptiler', 'Outdoor Dark', 'Outdoor, dark: trails, contours, hillshade.', 'maptiler', True,
      lambda k, c: _maptiler('outdoor-v2-dark', k['maptiler'])),
-    ('MapTiler Outdoor', 'maptiler', 'outdoor', 'Outdoor: trails, contours, hillshade.', 'maptiler', True,
+    ('MapTiler Outdoor', 'maptiler', 'Outdoor', 'Outdoor: trails, contours, hillshade.', 'maptiler', True,
      lambda k, c: _maptiler('outdoor-v2', k['maptiler'])),
-    ('MapTiler Topo', 'maptiler', 'topo', 'Topographic.', 'maptiler', False,
+    ('MapTiler Topo', 'maptiler', 'Topo', 'Topographic.', 'maptiler', False,
      lambda k, c: _maptiler('topo-v2', k['maptiler'])),
-    ('MapTiler Topo Dark', 'maptiler', 'topo dark', 'Topographic, dark.', 'maptiler', False,
+    ('MapTiler Topo Dark', 'maptiler', 'Topo Dark', 'Topographic, dark.', 'maptiler', False,
      lambda k, c: _maptiler('topo-v2-dark', k['maptiler'])),
-    ('MapTiler Streets Dark', 'maptiler', 'st dark', 'Streets, dark.', 'maptiler', False,
+    ('MapTiler Streets Dark', 'maptiler', 'Streets Dark', 'Streets, dark.', 'maptiler', False,
      lambda k, c: _maptiler('streets-v2-dark', k['maptiler'])),
-    ('MapTiler Winter', 'maptiler', 'winter', 'Ski runs and winter trails.', 'maptiler', False,
+    ('MapTiler Winter', 'maptiler', 'Winter', 'Ski runs and winter trails.', 'maptiler', False,
      lambda k, c: _maptiler('winter-v2', k['maptiler'])),
-    ('MapTiler Satellite', 'maptiler', 'sat', 'Satellite with labels.', 'maptiler', False,
+    ('MapTiler Satellite', 'maptiler', 'Satellite', 'Satellite with labels.', 'maptiler', False,
      lambda k, c: _maptiler('hybrid', k['maptiler'], ext='jpg')),
 
     # ── Thunderforest (key) ──────────────────────────────────────────────
-    ('Thunderforest Outdoors', 'thunderforest', 'outdoors', 'Hiking-focused outdoors map.', 'thunderforest', True,
+    ('Thunderforest Outdoors', 'thunderforest', 'Outdoors', 'Hiking-focused outdoors map.', 'thunderforest', True,
      lambda k, c: _thunderforest('outdoors', k['thunderforest'])),
-    ('Thunderforest Landscape', 'thunderforest', 'landscape', 'Terrain-forward landscape map.', 'thunderforest', False,
+    ('Thunderforest Landscape', 'thunderforest', 'Landscape', 'Terrain-forward landscape map.', 'thunderforest', False,
      lambda k, c: _thunderforest('landscape', k['thunderforest'])),
-    ('Thunderforest Cycle', 'thunderforest', 'cycle', 'OpenCycleMap.', 'thunderforest', False,
+    ('Thunderforest Cycle', 'thunderforest', 'Cycle', 'OpenCycleMap.', 'thunderforest', False,
      lambda k, c: _thunderforest('cycle', k['thunderforest'])),
-    ('Thunderforest Transport Dark', 'thunderforest', 'trnsp dark', 'Dark transit map.', 'thunderforest', False,
+    ('Thunderforest Transport Dark', 'thunderforest', 'Transit Dark', 'Dark transit map.', 'thunderforest', False,
      lambda k, c: _thunderforest('transport-dark', k['thunderforest'])),
-    ('Thunderforest Spinal', 'thunderforest', 'spinal', 'Spinal Map — loud, dark, fun.', 'thunderforest', False,
+    ('Thunderforest Spinal', 'thunderforest', 'Spinal', 'Spinal Map — loud, dark, fun.', 'thunderforest', False,
      lambda k, c: _thunderforest('spinal-map', k['thunderforest'])),
-    ('Thunderforest Atlas', 'thunderforest', 'atlas', 'Clean atlas style.', 'thunderforest', False,
+    ('Thunderforest Atlas', 'thunderforest', 'Atlas', 'Clean atlas style.', 'thunderforest', False,
      lambda k, c: _thunderforest('atlas', k['thunderforest'])),
 
     # ── Stadia (key) ─────────────────────────────────────────────────────
-    ('Stadia Smooth Dark', 'stadia', 'smth dark', 'Alidade Smooth Dark.', 'stadia', True,
+    ('Stadia Smooth Dark', 'stadia', 'Smooth Dark', 'Alidade Smooth Dark.', 'stadia', True,
      lambda k, c: _stadia('alidade_smooth_dark', k['stadia'])),
-    ('Stadia Smooth', 'stadia', 'smooth', 'Alidade Smooth.', 'stadia', False,
+    ('Stadia Smooth', 'stadia', 'Smooth', 'Alidade Smooth.', 'stadia', False,
      lambda k, c: _stadia('alidade_smooth', k['stadia'])),
-    ('Stadia Outdoors', 'stadia', 'outdoors', 'Stadia Outdoors.', 'stadia', True,
+    ('Stadia Outdoors', 'stadia', 'Outdoors', 'Stadia Outdoors.', 'stadia', True,
      lambda k, c: _stadia('outdoors', k['stadia'])),
-    ('Stamen Terrain', 'stadia', 'terrain', 'Stamen Terrain.', 'stadia', False,
+    ('Stamen Terrain', 'stadia', 'Terrain', 'Stamen Terrain.', 'stadia', False,
      lambda k, c: _stadia('stamen_terrain', k['stadia'])),
-    ('Stamen Toner', 'stadia', 'toner', 'Stamen Toner — high-contrast black & white.', 'stadia', False,
+    ('Stamen Toner', 'stadia', 'Toner', 'Stamen Toner — high-contrast black & white.', 'stadia', False,
      lambda k, c: _stadia('stamen_toner', k['stadia'])),
-    ('Stamen Watercolor', 'stadia', 'watercolr', 'Stamen Watercolor (no labels).', 'stadia', False,
+    ('Stamen Watercolor', 'stadia', 'Watercolor', 'Stamen Watercolor (no labels).', 'stadia', False,
      lambda k, c: _stadia('stamen_watercolor', k['stadia'], ext='jpg')),
 ]
 
@@ -390,7 +390,7 @@ def resolve_for(profile, carto_qs='', raw=None):
 
     mb_path = mapbox_style_path(cfg['mapbox_style'])
     if mb_path and keys['mapbox']:
-        out.append({'id': 'Mapbox Custom', 'group': 'mapbox', 'label': 'custom',
+        out.append({'id': 'Mapbox Custom', 'group': 'mapbox', 'label': 'Custom',
                     'name': 'Mapbox Studio style', 'style': _mapbox(mb_path, keys['mapbox'])})
 
     for i, c in enumerate(cfg['custom']):
@@ -404,12 +404,12 @@ def resolve_for(profile, carto_qs='', raw=None):
             maxzoom = 19
         attribution = str(c.get('attribution') or '')[:200]
         out.append({'id': f'custom:{name}', 'group': 'custom',
-                    'label': name.lower()[:10], 'name': name,
+                    'label': name[:20], 'name': name,
                     'style': _raster('custom', [url], attribution, maxzoom=maxzoom)})
 
     if not out:
         builder = next(e for e in CATALOG if e[0] == _FALLBACK)[6]
-        out.append({'id': _FALLBACK, 'group': 'built-in', 'label': 'streets',
+        out.append({'id': _FALLBACK, 'group': 'built-in', 'label': 'Streets',
                     'name': _FALLBACK, 'style': builder(keys, carto_qs)})
     return out
 

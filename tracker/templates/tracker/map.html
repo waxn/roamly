@@ -154,9 +154,12 @@
     font-weight: 700;
     min-width: 0;
     overflow: hidden;
-    text-overflow: ellipsis;
     cursor: pointer;
-    white-space: nowrap;
+    /* Wrap rather than ellipsize: "Outdoor Dark" in a third of the sidebar
+       reads better on two lines than as "Outdoor D…". */
+    white-space: normal;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
     transition: background 0.12s, color 0.12s;
 }
 .style-btn.active { background: var(--primary); color: #fff; }

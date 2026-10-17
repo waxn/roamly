@@ -47,38 +47,57 @@ const _basemapList = (() => {
 const mapStyles = {};
 _basemapList.forEach(b => { mapStyles[b.id] = b.style; });
 
-// Build the picker: one 3-column group per provider, each after the first
-// under its own sublabel. A shared grid crushed long names into slivers in the
-// 220px sidebar, which is why Mapbox already had its own group.
+// Build the picker: one group per provider, each after the first under its
+// own sublabel. A shared grid crushed long names into slivers in the 220px
+// sidebar, which is why Mapbox already had its own group.
+//
+// Each group is a 6-column grid where a button normally spans 2 (three per
+// row), and the last row is widened so it always fills the width: a lone
+// button spans all 6, a pair spans 3 each, and a group that would leave one
+// button alone (4, 7, …) ends in two rows of two instead.
+function _basemapSpans(n) {
+    if (n === 1) return [6];
+    const spans = new Array(n).fill(2);
+    const rem = n % 3;
+    if (rem === 2) { spans[n - 1] = 3; spans[n - 2] = 3; }
+    else if (rem === 1) { for (let i = n - 4; i < n; i++) spans[i] = 3; }
+    return spans;
+}
 (function buildBasemapPicker() {
     const section = document.getElementById('basemap-section');
     if (!section) return;
     section.querySelectorAll('.sidebar-btn-group, .sidebar-sublabel').forEach(el => el.remove());
     const groupNames = { 'built-in': '', free: 'free', mapbox: 'mapbox', maptiler: 'maptiler',
                          thunderforest: 'thunderforest', stadia: 'stadia', custom: 'custom' };
-    let currentGroup = null, grid = null, first = true;
+    const groups = [];
     _basemapList.forEach(b => {
-        if (b.group !== currentGroup) {
-            currentGroup = b.group;
-            const name = groupNames[b.group] !== undefined ? groupNames[b.group] : b.group;
-            if (!first && name) {
-                const lbl = document.createElement('div');
-                lbl.className = 'sidebar-sublabel';
-                lbl.textContent = name;
-                section.appendChild(lbl);
-            }
-            first = false;
-            grid = document.createElement('div');
-            grid.className = 'sidebar-btn-group';
-            section.appendChild(grid);
+        const last = groups[groups.length - 1];
+        if (last && last.id === b.group) last.items.push(b);
+        else groups.push({ id: b.group, items: [b] });
+    });
+    groups.forEach((g, gi) => {
+        const name = groupNames[g.id] !== undefined ? groupNames[g.id] : g.id;
+        if (gi > 0 && name) {
+            const lbl = document.createElement('div');
+            lbl.className = 'sidebar-sublabel';
+            lbl.textContent = name;
+            section.appendChild(lbl);
         }
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'style-btn';
-        btn.dataset.style = b.id;
-        btn.textContent = b.label;
-        btn.title = b.name;
-        grid.appendChild(btn);
+        const grid = document.createElement('div');
+        grid.className = 'sidebar-btn-group';
+        grid.style.gridTemplateColumns = 'repeat(6, minmax(0, 1fr))';
+        const spans = _basemapSpans(g.items.length);
+        g.items.forEach((b, i) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'style-btn';
+            btn.dataset.style = b.id;
+            btn.textContent = b.label;
+            btn.title = b.name;
+            btn.style.gridColumn = 'span ' + spans[i];
+            grid.appendChild(btn);
+        });
+        section.appendChild(grid);
     });
 })();
 
