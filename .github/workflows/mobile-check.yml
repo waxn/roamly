@@ -1,0 +1,43 @@
+name: Android compile check
+
+# Compile-only, for branches pushed purely to check a change builds before it
+# is tagged as a release. Kotlin errors are re-emitted as workflow annotations,
+# which (unlike job logs) can be read without auth on a public repo.
+on:
+  push:
+    branches:
+      - 'mobile-ci/**'
+  workflow_dispatch:
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Compile
+        run: |
+          set -o pipefail
+          status=0
+          ./gradlew compileDebugKotlin --console=plain 2>&1 | tee build.log || status=$?
+          grep -E '^e: ' build.log | head -50 | while IFS= read -r line; do
+            msg="${line#e: }"
+            # "file:///path/File.kt:12:5 message" → file + line annotation
+            if [[ "$msg" =~ ^file://([^:]+):([0-9]+):([0-9]+)\ (.*)$ ]]; then
+              f="${BASH_REMATCH[1]#$GITHUB_WORKSPACE/}"
+              echo "::error file=$f,line=${BASH_REMATCH[2]},col=${BASH_REMATCH[3]}::${BASH_REMATCH[4]}"
+            else
+              echo "::error::$msg"
+            fi
+          done
+          exit $status
