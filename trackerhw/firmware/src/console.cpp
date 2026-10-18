@@ -32,6 +32,7 @@ static void help(Print& out) {
       "  sync                   upload now\n"
       "  dump [n]               print stored points as CSV\n"
       "  trace on|off           print each point as it's stored\n"
+      "  trace ble on|off       print advert and fix-window edges\n"
       "  erase                  delete ALL stored points\n"
       "  sleeptest <ms>         light-sleep once (USB will drop)\n"
       "  shot                   dump the screen (host converts to PNG)\n"
@@ -197,7 +198,10 @@ void consoleExec(String cmd, Print& out) {
     while (syncStatus().running) { delay(200); }
     out.printf("sync: %s (ok=%d sent=%lu)\n", syncStatus().msg, syncStatus().lastOk, (unsigned long)syncStatus().sent);
   } else if (head == "dump") storageDump(Serial, arg.length() ? arg.toInt() : 50);
-  else if (head == "trace") tracePoints = arg == "on";
+  else if (head == "trace") {
+    if (arg.startsWith("ble")) bleTrace = arg.endsWith("on");
+    else tracePoints = arg == "on";
+  }
   else if (head == "erase") { storageEraseAll(); out.println("erased"); }
   else if (head == "sleeptest") {
     uint32_t ms = arg.toInt() ? arg.toInt() : 3000;

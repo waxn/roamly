@@ -245,16 +245,20 @@ static void stackStop() {
   advertising = false;
 }
 
+bool bleTrace = false;
+
 static void advStart() {
   if (!stackOn || advertising) return;
   buildAdvert();
   advertising = NimBLEDevice::getAdvertising()->start();
+  if (bleTrace) Serial.printf("[ble] %lu adv on\n", (unsigned long)millis());
 }
 
 static void advStop() {
   if (!stackOn || !advertising) return;
   NimBLEDevice::getAdvertising()->stop();
   advertising = false;
+  if (bleTrace) Serial.printf("[ble] %lu adv off\n", (unsigned long)millis());
 }
 
 // ── Main-loop work ──────────────────────────────────────────────────────────
@@ -390,6 +394,12 @@ void bleTick() {
   if (stackOn) drainQueue();
 
   bool busy = gpsBusy();
+  if (bleTrace) {
+    static bool lastCollecting = false;
+    bool c = loggerState().collecting;
+    if (c != lastCollecting) Serial.printf("[ble] %lu fix window %s\n", (unsigned long)now, c ? "start" : "end");
+    lastCollecting = c;
+  }
   bool external = powerInfo().external;
   bool connected = conns > 0;
   if (connected && now - connectedSinceMs > CONNECTED_MAX_MS) {

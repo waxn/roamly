@@ -24,6 +24,7 @@
 //   [3] advert sequence (low byte), changes every window
 //   [4] advertising interval in tens of seconds (the phone scales its "gone" timeout)
 
+extern bool bleTrace;           // console "trace ble on": log advert + fix-window edges
 void bleTick();                  // call from the main loop
 bool bleActive();                // radio in use: don't light-sleep
 uint32_t bleNextWakeMs();        // millis() of the next advertising window (0 = none)
