@@ -56,9 +56,21 @@ epochs, or after 12 s with whatever was best (nothing is stored if no fix
 qualified: valid, ≥ 4 satellites, HDOP ≤ 10, real date).
 
 **Bluetooth** costs one 6.5 s advertising window per `ble` interval (default
-60 s), placed while the GPS is in standby so the two never draw at once —
-roughly 1–2 % extra on top of the GPS duty above. Between windows the BLE
-stack is deinitialised, so light sleep is unaffected; `ble 0` turns it off.
+60 s), placed while the GPS is in standby so the two never draw at once. The
+radio itself is cheap; the cost is that the ESP stays awake (~25–30 mA) for
+the window instead of light-sleeping. That is ~11 % of the time at 60 s, about
+**+3 mA average** (estimate, not yet measured on battery):
+
+| Mode | without BLE | `ble 60` | `ble 120` |
+|---|---|---|---|
+| Accurate | ~31 h | ~29 h | ~30 h |
+| Balanced | ~85 h | ~71 h | ~78 h |
+| Low power | ~125 h | ~96 h | ~109 h |
+
+The window is 6.5 s because the phone's low-power scan listens 0.5 s every
+5 s; a shorter window could fall between two of its listens. `ble 0` turns
+Bluetooth off (and with it the hand-off). Between windows the BLE stack is
+deinitialised, so light sleep is unaffected.
 
 ## Charging and sync
 
