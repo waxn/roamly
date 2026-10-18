@@ -7500,7 +7500,7 @@ def _write_backup_json(user, f, progress=None):
     loc_total += hidden_qs.count()
 
     report('Collecting devices')
-    meta = {'version': 18, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 19, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # The single backup builder: the scheduled S3 backup calls this too, so the
@@ -8151,8 +8151,9 @@ def restore_backup(request):
                         da, db = db, da
                     hid = device_map.get(ov.get('hidden_device')) if ov.get('hidden_device') else None
                     status = ov.get('status') if ov.get('status') in ('pending', 'hidden', 'dismissed') else 'pending'
+                    kind = ov.get('kind') if ov.get('kind') in ('same', 'apart') else 'same'   # pre-v19: 'same'
                     obj, _ = DeviceOverlap.objects.get_or_create(
-                        user=user, device_a=da, device_b=db,
+                        user=user, device_a=da, device_b=db, kind=kind,
                         start_time=_parse_timestamp(ov['start_time']),
                         defaults={
                             'end_time': _parse_timestamp(ov['end_time']),
@@ -13598,7 +13599,7 @@ def _overlap_item(o, names):
                                         timestamp__lte=o.end_time).count()
         devices.append({'id': dev_id, 'name': names.get(dev_id, str(dev_id)), 'points': n})
     return {
-        'kind': 'device_overlap', 'id': o.id, 'status': o.status,
+        'kind': 'device_overlap', 'overlap': o.kind, 'id': o.id, 'status': o.status,
         'start': o.start_time.isoformat(), 'end': o.end_time.isoformat(),
         'hidden_device': o.hidden_device_id,
         'devices': devices,
@@ -13621,6 +13622,9 @@ def notifications_api(request):
     return JsonResponse({
         'unread': pending_qs.count(),
         'items': [_overlap_item(o, names) for o in pending],
+        # Lets the app show only what concerns the tracker.
+        'tracker_devices': list(HardwareTracker.objects.filter(user=request.user)
+                                .values_list('device_id', flat=True)),
         'hidden': [_overlap_item(o, names) for o in hidden],
     })
 
@@ -13630,9 +13634,14 @@ def _own_overlap(request, overlap_id):
     return get_object_or_404(DeviceOverlap, id=overlap_id, user=request.user)
 
 
+@csrf_exempt
 @login_required
 @require_http_methods(["POST"])
 def overlap_hide_api(request, overlap_id):
+    # Also called by the app's Tracker tab (session or Bearer, no CSRF token).
+    err = _require_api_intent(request)
+    if err:
+        return err
     """Hide one device's points for the overlap window."""
     from . import overlap_tasks
     o = _own_overlap(request, overlap_id)
@@ -13649,9 +13658,14 @@ def overlap_hide_api(request, overlap_id):
     return JsonResponse({'status': 'ok', 'hidden': hidden})
 
 
+@csrf_exempt
 @login_required
 @require_http_methods(["POST"])
 def overlap_dismiss_api(request, overlap_id):
+    # Also called by the app's Tracker tab (session or Bearer, no CSRF token).
+    err = _require_api_intent(request)
+    if err:
+        return err
     """Keep both tracks; the window is never offered again."""
     o = _own_overlap(request, overlap_id)
     if o.status == 'pending':
@@ -13661,9 +13675,14 @@ def overlap_dismiss_api(request, overlap_id):
     return JsonResponse({'status': 'ok'})
 
 
+@csrf_exempt
 @login_required
 @require_http_methods(["POST"])
 def overlap_unhide_api(request, overlap_id):
+    # Also called by the app's Tracker tab (session or Bearer, no CSRF token).
+    err = _require_api_intent(request)
+    if err:
+        return err
     """Put a hidden overlap's points back (the overlap becomes dismissed)."""
     from . import overlap_tasks
     o = _own_overlap(request, overlap_id)
