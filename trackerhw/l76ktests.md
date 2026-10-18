@@ -134,3 +134,31 @@ Note: **Auto-sync is switched off** in this tracker's settings, so it won't uplo
 - **A pocket run:** fix rate and outliers with a body in the way.
 - **Adaptive while moving:** switching to 30 s points walking and 10 s cycling or driving.
 - **The estimated-fix guard:** couldn't trigger quality 6 on demand.
+
+## Antenna comparison (2026-10-18)
+
+Same windowsill, Accurate mode, 30 s points, 10 minutes each, run back to
+back. **Signal** is the mean C/N0 of the four strongest satellites, from the
+raw GSV sentences. **Scatter** is each stored point's distance from the run's
+mean position.
+
+| Antenna | Signal, top 4 | Signal, all (median) | Satellites used (median) | Scatter median / p90 / max |
+|---|---|---|---|---|
+| Small PCB antenna | 38.5 dB-Hz | 30 dB-Hz | 16 (from a cold boot; 20 once settled) | **0.8 / 1.8 / 2.6 m** |
+| Stock ceramic patch, on top | 34.5 dB-Hz | 28 dB-Hz | 24 | 14.8 / 46.3 / 50.1 m |
+| Stock ceramic patch, under the module near the ESP32 | 38.5 dB-Hz | 29 dB-Hz | 21 | 2.9 / 6.3 / 10.7 m |
+
+- **The PCB antenna was best:** about 4 dB stronger than the ceramic patch in
+  its original spot, with no jumps.
+- **On the ceramic run, the error was the receiver jumping, not noise.** It
+  held still for 7 minutes, then moved its own solution 60 m in about 10 s and
+  slid back over the next few minutes. Throughout, it reported 0.00 m/s, HDOP
+  0.5 and 22 satellites, so the HDOP-based accuracy figure stayed at 1.8 m.
+  An overnight run on that antenna left a long trail of points around the
+  house that looks just like this. This is what the stationary anchor
+  (README) now holds still.
+- **Moving the ceramic patch under the module** raised its signal to match
+  the PCB antenna. Its scatter (11 m worst case) came from a slow settling
+  drift, not a jump.
+- Each run is only 10 minutes, so these show which antenna to prefer, not how
+  often each one jumps.
