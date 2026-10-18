@@ -24,7 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Bluetooth
-import androidx.compose.material.icons.rounded.BluetoothSearching
+import androidx.compose.material.icons.automirrored.rounded.BluetoothSearching
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.GpsFixed
 import androidx.compose.material.icons.rounded.Handshake
@@ -148,7 +148,7 @@ private fun PairingContent(viewModel: TrackerViewModel) {
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ClayCard {
-            ClaySectionHeader("Pair over Bluetooth", Icons.Rounded.BluetoothSearching)
+            ClaySectionHeader("Pair over Bluetooth", Icons.AutoMirrored.Rounded.BluetoothSearching)
             Spacer(Modifier.height(8.dp))
             Text(
                 "On the tracker: Menu → Bluetooth → Pair a phone. It appears below; tap it, then type the 6-digit code the tracker shows.",
