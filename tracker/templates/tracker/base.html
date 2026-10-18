@@ -2584,7 +2584,26 @@
                 return `/map/?start=${localDate(it.start)}&end=${localDate(it.end)}`;
             }
 
+            function apartPending(it) {
+                // Phone and tracker were in different places: both recorded,
+                // only one was with the user. Choosing one hides the other.
+                const [a, b] = it.devices;
+                return `<div class="notif-item" data-id="${it.id}">
+                    <div class="notif-title">${esc(a.name)} and ${esc(b.name)} were in different places</div>
+                    <div class="notif-meta">${esc(fmtRange(it.start, it.end))} · ${fmtDur(it.start, it.end)}</div>
+                    <div class="notif-text">They were apart, so both kept recording — but only one of them was with you.
+                        Which one? The other's points for this stretch (${a.points.toLocaleString()} / ${b.points.toLocaleString()})
+                        are hidden from the map, distance and stats. You can undo this later.</div>
+                    <div class="notif-actions">
+                        <button type="button" class="btn btn-primary btn-sm" data-act="hide" data-dev="${b.id}">I had ${esc(a.name)}</button>
+                        <button type="button" class="btn btn-primary btn-sm" data-act="hide" data-dev="${a.id}">I had ${esc(b.name)}</button>
+                        <button type="button" class="btn btn-outline btn-sm" data-act="dismiss">Keep both</button>
+                        <a href="${mapLink(it)}">View on map</a>
+                    </div>
+                </div>`;
+            }
             function overlapPending(it) {
+                if (it.overlap === 'apart') return apartPending(it);
                 const [a, b] = it.devices;
                 return `<div class="notif-item" data-id="${it.id}">
                     <div class="notif-title">${esc(a.name)} and ${esc(b.name)} recorded the same track</div>
@@ -2604,7 +2623,9 @@
                 const hid = it.devices.find(d => d.id === it.hidden_device) || it.devices[0];
                 const kept = it.devices.find(d => d !== hid) || it.devices[1];
                 return `<div class="notif-item" data-id="${it.id}">
-                    <div class="notif-title">${esc(hid.name)} hidden while overlapping ${esc(kept.name)}</div>
+                    <div class="notif-title">${it.overlap === 'apart'
+                        ? `${esc(hid.name)} hidden — you had ${esc(kept.name)}`
+                        : `${esc(hid.name)} hidden while overlapping ${esc(kept.name)}`}</div>
                     <div class="notif-meta">${esc(fmtRange(it.start, it.end))} · ${hid.points.toLocaleString()} points</div>
                     <div class="notif-actions">
                         <button type="button" class="btn btn-outline btn-sm" data-act="unhide">Unhide</button>
