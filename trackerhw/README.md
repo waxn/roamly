@@ -107,6 +107,7 @@ which):
 | Sync now | Upload immediately (still needs Wi-Fi + pairing). |
 | Pair with Roamly | Enter the 8-press code from Roamly → Settings → Data & Tracking → Hardware Trackers. |
 | Wi-Fi setup | Starts a hotspot (`Roamly-XXXX`, password on screen). Join it from your phone; the setup page opens (or browse to `192.168.4.1`). Set the server URL and up to 5 Wi-Fi networks. Hold ● to stop. Stops itself after 15 min. |
+| Bluetooth | Pair a phone (shows a 6-digit passkey for 2 min), forget paired phones. |
 | Settings | See below. |
 | Pause / Resume recording | Paused puts the GPS in standby (~0.36 mA). |
 | Storage | Counts; clear refused points; erase everything (confirms, shows how many are not uploaded). |
@@ -192,6 +193,37 @@ on the map and in stats.
 * Storage holds ~30,000 points (≈10 days at 30 s) in the 960 KB LittleFS
   partition.
 
+## Bluetooth and the phone app
+
+The Roamly Android app pairs with the tracker over BLE (Menu → Bluetooth →
+Pair a phone on the tracker, then Settings → Roamly Tracker in the app; type
+the passkey the tracker shows). The bond is encrypted and authenticated —
+nothing on the GATT service is readable without it. After pairing the app
+gets a **Tracker** tab: live status, diagnostics, every setting, Sync / Pause
+/ Restart / Power off, and the serial console.
+
+**Hand-off.** The tracker advertises for 6.5 s every `ble` seconds (default
+60). The app's low-power scan treats it as *together* while it keeps hearing
+it, and *apart* after `max(200 s, 3.5 × interval)` of silence.
+
+* Together, `handoff=tracker` (default): the tracker records, the phone's GPS
+  rests (only once the tracker has a fix and is recording).
+* Together, `handoff=phone`: the phone sends a 5-minute lease every 2 min; the
+  tracker pauses while the lease is valid, so it resumes by itself if the
+  phone vanishes.
+* Apart: both record, and Roamly asks — on the site's bell and in the app's
+  Tracker tab — which one you had, hiding the other device's points for that
+  stretch. Phone activity recordings are never handed off.
+
+**Never during a fix.** The radio is scheduled around the GPS rather than
+alongside it: no advertising inside a fix window; in Balanced / Low power a
+window opens only while the GPS is in standby and only if it ends before the
+next GPS wake; in Accurate it opens right after a fix. A connection the app
+holds open stays up, but new windows still wait for the fix to finish. Between
+windows the BLE stack is shut down entirely so the ESP can light-sleep.
+
+GATT layout and advert format: [PROTOCOL.md](PROTOCOL.md#bluetooth).
+
 ## Serial console
 
 115200 baud on the USB port (`pio device monitor`). Type `help`. Useful:
@@ -215,15 +247,8 @@ Balanced mode, 30 s interval:
 
 ## Roadmap / ideas (not built yet)
 
-* **BLE beacon:** advertise battery %, tracking state and last-fix age so the
-  phone app can show the tracker's battery.
-* **Phone hand-off:** when the app sees the tracker advertising "tracking", the
-  phone pauses its own GPS; when the tracker disappears or stops, the phone
-  resumes — so something is always tracking. The advertisement should carry a
-  per-pairing token (derived from the API key) so the app only trusts *your*
-  tracker, and a monotonic counter so a replayed advert can't keep the phone
-  paused.
 * Store course / satellites / HDOP server-side (sent today, not yet persisted:
   `Location` has no columns for them).
-* OTA updates over Wi-Fi while charging (the partition table keeps two app
-  slots for this, but the image is already 94 % of one slot).
+* OTA updates over Wi-Fi while charging. The two app slots were merged into
+  one 2.75 MB slot to fit NimBLE, so OTA would need the partitions split
+  again (the LittleFS partition stayed where it was, so points survived).

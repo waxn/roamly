@@ -55,6 +55,11 @@ A fix window ends at the first fix ≤ 8 m, after the best of three fresh
 epochs, or after 12 s with whatever was best (nothing is stored if no fix
 qualified: valid, ≥ 4 satellites, HDOP ≤ 10, real date).
 
+**Bluetooth** costs one 6.5 s advertising window per `ble` interval (default
+60 s), placed while the GPS is in standby so the two never draw at once —
+roughly 1–2 % extra on top of the GPS duty above. Between windows the BLE
+stack is deinitialised, so light sleep is unaffected; `ble 0` turns it off.
+
 ## Charging and sync
 
 Syncs happen only on external power, so Wi-Fi never touches the battery

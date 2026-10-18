@@ -115,6 +115,24 @@ CPU on:
 `POST /api/hw/trackers/<id>/unpair/` (deletes the key and the pairing row;
 the `Device` and every uploaded point stay), `POST /api/hw/pair/cancel/`.
 
+## Bluetooth
+
+Service `7f6c0001-8a2b-4c3d-9e5f-726f616d6c79`; every characteristic needs an
+encrypted, MITM-authenticated bond (passkey shown on the tracker).
+
+| UUID suffix | Props | Content |
+|---|---|---|
+| `0002` status | read, notify (every 2 s while connected) | JSON: `fw`, `batt{pct,v,state,hours,measured}`, `rec{user,phone_paused,handoff,lease_s,interval,adaptive,motion,recorded,missed}`, `gps{fix,sats,view,gps,bds,glo,hdop,acc,lat,lon,age,snr,asleep,duty,ver,aid}`, `store{pending,held,corrupt,free_kb}`, `sync{msg,running,last_ok,paired,auto}`, `boots`, `crashes`, `last_reset` |
+| `0003` settings | read, write, notify | JSON of console keys; write `{"key": value, ...}` (same keys and ranges as `set` on the serial console) |
+| `0004` command | write, notify | `{"cmd": "sync"\|"pause"\|"resume"\|"restart"\|"poweroff"\|"forget"}`, or `{"cmd":"lease","ttl":300,"t":<unix>}`; reply `{"ok","cmd","msg"}` |
+| `0005` console | write, notify | one console line; output in MTU-sized chunks, `0x04` ends it |
+
+Advertisement: service UUID plus manufacturer data, company `0xFFFF`:
+`[version=1, flags, battery % (0xFF unknown), sequence, interval/10 s]`.
+Flags: bit0 recording now, bit1 handoff=tracker, bit2 charging, bit3 has a
+fix, bit4 paused for the phone's lease, bit5 paused by the user, bit6 pairing
+mode. The lease's `t` sets the clock if the GPS hasn't yet.
+
 ## Flash record layout (`PointRec`, 32 bytes, little-endian)
 
 | off | type | field |
