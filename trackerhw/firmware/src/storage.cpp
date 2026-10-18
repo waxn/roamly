@@ -225,7 +225,7 @@ bool storageClearQuarantine() {
   return true;
 }
 
-void storageDump(Stream& s, int maxRows) {
+void storageDump(Print& s, int maxRows) {
   Lock l;
   s.println("seq,t,lat,lon,alt_m,acc_m,spd_ms,crs,sats,hdop,batt,flags,crc_ok");
   int rows = 0;

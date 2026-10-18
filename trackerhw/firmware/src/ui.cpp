@@ -7,6 +7,7 @@
 #include "logger.h"
 #include "net.h"
 #include "util.h"
+#include "ble.h"
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
@@ -49,7 +50,7 @@ static uint32_t lastActivityMs = 0;
 static bool needFull = true;
 
 // ── Screens ─────────────────────────────────────────────────────────────────
-enum Scr : uint8_t { SCR_STATUS, SCR_MENU, SCR_SETTINGS, SCR_EDIT, SCR_PAIR, SCR_PORTAL, SCR_STORAGE, SCR_ABOUT, SCR_CONFIRM };
+enum Scr : uint8_t { SCR_STATUS, SCR_MENU, SCR_SETTINGS, SCR_EDIT, SCR_PAIR, SCR_PORTAL, SCR_STORAGE, SCR_ABOUT, SCR_CONFIRM, SCR_BLE };
 static Scr scr = SCR_STATUS;
 static int statusPage = 0;
 static constexpr int STATUS_PAGES = 4;
@@ -57,6 +58,7 @@ static int menuSel = 0, menuTop = 0;
 static int setSel = 0, setTop = 0;
 static int editIdx = 0;
 static int storSel = 0;
+static int bleSel = 0;
 static char toast[48] = "";
 static uint32_t toastUntil = 0;
 static int confirmWhat = 0;   // 1 = erase points, 2 = clear quarantine, 3 = restart
@@ -70,7 +72,8 @@ static void showToast(const char* s) {
 
 // ── Settings model ──────────────────────────────────────────────────────────
 static const char* SET_LABEL[S_COUNT] = {"Screen timeout", "Log interval", "GPS mode", "Min accuracy", "Units", "Clock",
-                                         "Time zone", "Brightness", "Flip screen", "Auto-sync", "Battery size"};
+                                         "Time zone", "Brightness", "Flip screen", "Auto-sync", "Battery size",
+                                         "When together", "Bluetooth"};
 static constexpr int TZ_AUTO = 9999;
 
 static int setValues(int id, int* out) {
@@ -85,7 +88,9 @@ static int setValues(int id, int* out) {
     case S_CLOCK: case S_AUTOSYNC: add(1); add(0); break;
     case S_TZ: add(TZ_AUTO); for (int m = -720; m <= 840; m += 30) add(m); break;
     case S_BRIGHT: for (int v = 10; v <= 100; v += 10) add(v); break;
-    case S_BATT: for (int v = 500; v <= 3000; v += 100) add(v); break;
+    case S_BATT: for (int v = 500; v <= 4000; v += 100) add(v); break;
+    case S_HANDOFF: add(0); add(1); break;
+    case S_BLE: for (int v : {0, 30, 60, 120, 300}) add(v); break;
   }
   return n;
 }
@@ -103,6 +108,8 @@ static int setGet(int id) {
     case S_FLIP: return cfg.flip;
     case S_AUTOSYNC: return cfg.autoSync;
     case S_BATT: return cfg.battMah;
+    case S_HANDOFF: return cfg.handoff;
+    case S_BLE: return cfg.bleIntervalS;
   }
   return 0;
 }
@@ -120,6 +127,8 @@ static void setPut(int id, int v) {
     case S_FLIP: cfg.flip = v; break;
     case S_AUTOSYNC: cfg.autoSync = v; break;
     case S_BATT: cfg.battMah = v; break;
+    case S_HANDOFF: cfg.handoff = v; break;
+    case S_BLE: cfg.bleIntervalS = v; break;
   }
   settingsSave();
   appSettingChanged(id);
@@ -141,17 +150,20 @@ static String setFmt(int id, int v) {
     case S_FLIP: return v ? "On" : "Off";
     case S_AUTOSYNC: return v ? "When charging" : "Off";
     case S_BATT: snprintf(b, sizeof b, "%d mAh", v); return b;
+    case S_HANDOFF: return v ? "Phone records" : "Tracker records";
+    case S_BLE: if (!v) return "Off"; snprintf(b, sizeof b, v >= 60 ? "every %d min" : "every %d s", v >= 60 ? v / 60 : v); return b;
   }
   return "";
 }
 
 // ── Menu model ──────────────────────────────────────────────────────────────
-enum MenuId { M_SYNC, M_PAIR, M_WIFI, M_SETTINGS, M_RECORD, M_STORAGE, M_ABOUT, M_RESTART, M_POWEROFF, M_BACK, M_COUNT };
+enum MenuId { M_SYNC, M_PAIR, M_WIFI, M_BLE, M_SETTINGS, M_RECORD, M_STORAGE, M_ABOUT, M_RESTART, M_POWEROFF, M_BACK, M_COUNT };
 static String menuLabel(int i) {
   switch (i) {
     case M_SYNC: return "Sync now";
     case M_PAIR: return isPaired() ? "Re-pair with Roamly" : "Pair with Roamly";
     case M_WIFI: return "Wi-Fi setup";
+    case M_BLE: return "Bluetooth";
     case M_SETTINGS: return "Settings";
     case M_RECORD: return cfg.recording ? "Pause recording" : "Resume recording";
     case M_STORAGE: return "Storage";
@@ -263,6 +275,7 @@ static void gpsLine(int y) {
   String state;
   uint16_t c;
   if (!cfg.recording) { state = "Paused"; c = C_MUTED; }
+  else if (bleHandoffPaused()) { state = "Phone tracking"; c = C_MUTED; }
   else if (!gi.detected) { state = "No GPS!"; c = C_BAD; }
   else if (f.valid && age < 90) { state = f.fixType >= 3 ? "3D fix" : "2D fix"; c = f.fixType >= 3 ? C_GOOD : C_WARN; }
   else if (loggerState().haveLast) { state = "Searching"; c = C_WARN; }
@@ -485,6 +498,38 @@ static void drawPortal() {
   txt(6, 128, "hold mid: stop hotspot", C_MUTED);
 }
 
+static void drawBle() {
+  title("Bluetooth");
+  char b[48];
+  if (blePairing()) {
+    uint32_t pk = blePasskey();
+    if (pk) {
+      txt(6, 44, "Enter this code on your phone:", C_MUTED);
+      snprintf(b, sizeof b, "%03lu %03lu", (unsigned long)(pk / 1000), (unsigned long)(pk % 1000));
+      txt(6, 84, b, C_PRIMARY, &FreeSansBold18pt7b);
+    } else {
+      txt(6, 44, "Pairing mode (2 min)", C_PRIMARY, &FreeSansBold9pt7b);
+      txt(6, 66, "In the Roamly app: Settings >", C_MUTED);
+      txt(6, 84, "Tracker > Pair over Bluetooth", C_MUTED);
+    }
+    txt(6, 128, "hold mid: cancel", C_MUTED);
+    return;
+  }
+  snprintf(b, sizeof b, "%s, %s", bleStateText(), setFmt(S_BLE, cfg.bleIntervalS).c_str());
+  txt(6, 42, b, C_TEXT);
+  snprintf(b, sizeof b, "%u phone%s paired", bleBondCount(), bleBondCount() == 1 ? "" : "s");
+  txt(6, 60, b, C_MUTED);
+  if (bleHandoffPaused()) snprintf(b, sizeof b, "Phone tracking (%lus left)", (unsigned long)bleLeaseRemainingS());
+  else snprintf(b, sizeof b, "Together: %s", setFmt(S_HANDOFF, cfg.handoff).c_str());
+  txt(6, 78, b, C_MUTED);
+  const char* items[3] = {"Back", "Pair a phone", "Forget phones"};
+  for (int i = 0; i < 3; i++) {
+    int y = 86 + i * 16;
+    if (i == bleSel) cv->fillRect(0, y, W, 16, C_PANEL);
+    txt(9, y + 13, items[i], i == bleSel ? (i == 2 ? C_BAD : C_TEXT) : C_DIM);
+  }
+}
+
 static void drawStorage() {
   title("Storage");
   StorageStats s = storageStats();
@@ -518,7 +563,7 @@ static void drawAbout() {
 static void drawConfirm() {
   title("Are you sure?");
   const char* q = confirmWhat == 1 ? "Erase ALL stored points?" : confirmWhat == 2 ? "Delete refused points?"
-                : confirmWhat == 4 ? "Power off?" : "Restart the tracker?";
+                : confirmWhat == 4 ? "Power off?" : confirmWhat == 5 ? "Forget all paired phones?" : "Restart the tracker?";
   txt(6, 56, q, C_TEXT, &FreeSansBold9pt7b);
   if (confirmWhat == 4) {
     txt(6, 78, "Stops tracking. To turn back", C_MUTED);
@@ -541,6 +586,7 @@ static void render() {
       drawList("Menu", M_COUNT, menuSel, menuTop, menuLabel, [](int i) {
         if (i == M_SYNC && syncStatus().running) return String("running");
         if (i == M_STORAGE) return String(storageStats().pending);
+        if (i == M_BLE) return String(bleStateText());
         return String("");
       });
       break;
@@ -553,6 +599,7 @@ static void render() {
     case SCR_PAIR: drawPair(); break;
     case SCR_PORTAL: drawPortal(); break;
     case SCR_STORAGE: drawStorage(); break;
+    case SCR_BLE: drawBle(); break;
     case SCR_ABOUT: drawAbout(); break;
     case SCR_CONFIRM: drawConfirm(); break;
   }
@@ -598,7 +645,7 @@ void uiWakeFromButton() {
 bool uiScreenOn() { return screenOn; }
 
 bool uiWantsAwake() {
-  return scr == SCR_PAIR || scr == SCR_PORTAL || netPortalActive();
+  return scr == SCR_PAIR || scr == SCR_PORTAL || netPortalActive() || blePairing();
 }
 
 void uiApplyDisplaySettings() {
@@ -660,6 +707,7 @@ static void onMenuSelect() {
       showToast(cfg.recording ? "Recording" : "Paused");
       break;
     case M_STORAGE: storSel = 0; enterScreen(SCR_STORAGE); break;
+    case M_BLE: bleSel = 0; enterScreen(SCR_BLE); break;
     case M_ABOUT: enterScreen(SCR_ABOUT); break;
     case M_RESTART: confirmWhat = 3; enterScreen(SCR_CONFIRM); break;
     case M_POWEROFF: confirmWhat = 4; enterScreen(SCR_CONFIRM); break;
@@ -743,14 +791,23 @@ static void handle(Ev e) {
     case SCR_ABOUT:
       if (e == EV_SEL || e == EV_SEL_LONG) enterScreen(SCR_MENU);
       break;
+    case SCR_BLE:
+      if (blePairing()) { if (e == EV_SEL_LONG) { bleCancelPairing(); showToast("Pairing cancelled"); } break; }
+      if (e == EV_UP) bleSel = (bleSel + 2) % 3;
+      else if (e == EV_DOWN) bleSel = (bleSel + 1) % 3;
+      else if (e == EV_SEL_LONG || (e == EV_SEL && bleSel == 0)) enterScreen(SCR_MENU);
+      else if (e == EV_SEL && bleSel == 1) bleEnterPairing();
+      else if (e == EV_SEL && bleSel == 2) { confirmWhat = 5; enterScreen(SCR_CONFIRM); }
+      break;
     case SCR_CONFIRM:
       if (e == EV_SEL) {
         if (confirmWhat == 1) { storageEraseAll(); showToast("Erased"); }
         else if (confirmWhat == 2) { storageClearQuarantine(); showToast("Cleared"); }
         else if (confirmWhat == 3) { uiBootMessage("Restarting..."); delay(300); ESP.restart(); }
         else if (confirmWhat == 4) appPowerOff();
+        else if (confirmWhat == 5) { bleForgetPhones(); showToast("Phones forgotten"); enterScreen(SCR_BLE); break; }
         enterScreen(SCR_STORAGE);
-      } else if (e == EV_UP || e == EV_DOWN || e == EV_SEL_LONG) enterScreen(confirmWhat >= 3 ? SCR_MENU : SCR_STORAGE);
+      } else if (e == EV_UP || e == EV_DOWN || e == EV_SEL_LONG) enterScreen(confirmWhat == 5 ? SCR_BLE : confirmWhat >= 3 ? SCR_MENU : SCR_STORAGE);
       break;
   }
 }
@@ -797,7 +854,7 @@ static Ev pollButtons() {
 // Console hooks: render the current screen to the serial port (the host turns
 // it into a PNG) and inject button events, so the UI can be checked and driven
 // without looking at the hardware.
-void uiScreenshot(Stream& out) {
+void uiScreenshot(Print& out) {
   render();
   const uint16_t* px = cv->getBuffer();
   out.printf("SHOT %d %d\n", W, H);
@@ -833,6 +890,11 @@ void uiPoll() {
   if (scr == SCR_PAIR || scr == SCR_EDIT) timeout = max<uint32_t>(timeout, 60000);
   if (scr == SCR_PORTAL) timeout = max<uint32_t>(timeout, 120000);
   if (pairState() == PAIR_RUNNING) lastActivityMs = millis();
+  // A passkey on its way: the screen must be showing it.
+  if (blePairing()) {
+    lastActivityMs = millis();
+    if (blePasskey() && scr != SCR_BLE) { enterScreen(SCR_BLE); if (!screenOn) uiWake(); }
+  }
   if (screenOn && millis() - lastActivityMs > timeout) {
     if (scr == SCR_PORTAL) {}   // the hotspot keeps running with the screen off
     screenSetOn(false);

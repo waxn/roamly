@@ -50,6 +50,9 @@ struct Settings {
   int32_t  lastLonE7      = 0;
   int16_t  lastAltM       = 0;
   uint32_t lastPosUnix    = 0;      // 0 = no position saved yet
+  // Bluetooth (phone link / hand-off)
+  uint16_t bleIntervalS   = 60;     // advertise a short window this often; 0 = Bluetooth off
+  uint8_t  handoff        = 0;      // when the phone is near: 0 = tracker records, 1 = phone records
 };
 
 extern Settings cfg;

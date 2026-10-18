@@ -47,5 +47,5 @@ bool storageCommit(int consumed, const PointRec* rejected, int nRejected);
 
 bool storageEraseAll();
 bool storageClearQuarantine();
-void storageDump(Stream& s, int maxRows);
+void storageDump(Print& s, int maxRows);
 uint16_t crc16(const uint8_t* d, size_t n);

@@ -10,10 +10,10 @@ void uiWakeFromButton();
 void uiBootMessage(const char* line1, const char* line2 = "");
 void uiApplyDisplaySettings();
 bool uiWantsAwake();
-void uiScreenshot(Stream& out);
+void uiScreenshot(Print& out);
 void uiInject(const char* name);   // up / sel / down / back     // a screen that must not be slept through (pairing, hotspot)
 
-enum SetId { S_TIMEOUT, S_INTERVAL, S_GPSMODE, S_MINACC, S_UNITS, S_CLOCK, S_TZ, S_BRIGHT, S_FLIP, S_AUTOSYNC, S_BATT, S_COUNT };
+enum SetId { S_TIMEOUT, S_INTERVAL, S_GPSMODE, S_MINACC, S_UNITS, S_CLOCK, S_TZ, S_BRIGHT, S_FLIP, S_AUTOSYNC, S_BATT, S_HANDOFF, S_BLE, S_COUNT };
 static constexpr int S_RECORDING = -1;
 
 // Implemented by main.cpp — applying a changed setting needs the GPS/logger.

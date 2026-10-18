@@ -3,6 +3,7 @@
 #include "settings.h"
 #include "gps.h"
 #include "power.h"
+#include "ble.h"
 
 static LoggerState ls;
 static GpsFix best;
@@ -147,7 +148,9 @@ uint32_t loggerNextWakeMs() {
 }
 
 void loggerTick() {
-  if (!cfg.recording) {
+  // Paused by the user, or handed off: the phone is near, holds a lease, and
+  // the tracker is set to let the phone record while they're together.
+  if (!cfg.recording || bleHandoffPaused()) {
     if (!gpsInfo().asleep) gpsStandby();
     gpsWakeAtMs = 0;
     ls.collecting = false;

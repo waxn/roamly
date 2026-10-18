@@ -16,6 +16,7 @@
 #include "ui.h"
 #include "util.h"
 #include "console.h"
+#include "ble.h"
 
 void applyTimezone() {
   char tz[64];
@@ -92,10 +93,14 @@ static void maybeSleep() {
   // On USB/charger there's no battery to save, and a USB host would lose the
   // console across every sleep.
   if (p.usbHost || p.external) return;
+  if (bleActive()) return;   // radio on: advertising window or a connected phone
   const LoggerState& ls = loggerState();
   if (ls.collecting) return;
   int32_t ms = (int32_t)(loggerNextWakeMs() - millis());
-  if (!cfg.recording) ms = 60000;
+  if (!cfg.recording || bleHandoffPaused()) ms = 60000;
+  // Wake for the next Bluetooth window too, or the phone stops seeing us.
+  uint32_t bw = bleNextWakeMs();
+  if (bw) ms = min(ms, (int32_t)(bw - millis()));
   if (ms < 400) return;
   Serial.flush();
   if (powerLightSleep((uint32_t)ms) == WAKE_BUTTON) uiWakeFromButton();
@@ -147,6 +152,7 @@ void loop() {
   gpsPoll();
   uiPoll();
   syncScheduler();
+  bleTick();
   gpsWatchdog();
   maybeSleep();
   delay(5);
