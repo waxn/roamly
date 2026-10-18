@@ -147,6 +147,7 @@ mean position.
 | Small PCB antenna | 38.5 dB-Hz | 30 dB-Hz | 16 (from a cold boot; 20 once settled) | **0.8 / 1.8 / 2.6 m** |
 | Stock ceramic patch, on top | 34.5 dB-Hz | 28 dB-Hz | 24 | 14.8 / 46.3 / 50.1 m |
 | Stock ceramic patch, under the module near the ESP32 | 38.5 dB-Hz | 29 dB-Hz | 21 | 2.9 / 6.3 / 10.7 m |
+| Small PCB antenna, under the module near the ESP32 | 38.5 dB-Hz | 26 dB-Hz | 19 | 2.0 / 2.8 / 6.5 m (raw, see below) |
 
 - **The PCB antenna was best:** about 4 dB stronger than the ceramic patch in
   its original spot, with no jumps.
@@ -160,5 +161,15 @@ mean position.
 - **Moving the ceramic patch under the module** raised its signal to match
   the PCB antenna. Its scatter (11 m worst case) came from a slow settling
   drift, not a jump.
+- **The PCB antenna lost some signal under the module.** Its strongest four
+  satellites held up, but weaker ones dropped (median 30 → 26 dB-Hz, 20 → 19
+  satellites used), and scatter rose from 0.6 m to 2.0 m. It's still the
+  steadiest of the four, with no jumps. This run had the stationary anchor
+  on, so its scatter comes from the module's raw per-second NMEA positions,
+  not the stored points. Measured the same way, the other runs give: PCB on
+  top (settled) 0.6 / 1.4 / 1.6 m, ceramic on top 16.3 / 46.1 / 51.2 m,
+  ceramic under 2.6 / 6.7 / 11.0 m.
+- The anchor had released once before this run, when the tracker was handled
+  to swap antennas. That's real movement, and it then re-anchored by itself.
 - Each run is only 10 minutes, so these show which antenna to prefer, not how
   often each one jumps.
