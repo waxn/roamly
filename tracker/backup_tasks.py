@@ -280,7 +280,7 @@ def _build_activities_data(user):
 
 
 def _build_device_overlaps_data(user):
-    """Build serializable DeviceOverlap records for a user's backup (v18+).
+    """Build serializable DeviceOverlap records for a user's backup (v18+; `kind` v19+).
 
     ``ref`` is the record's id at export time, used only to tie the hidden
     points in the streamed ``locations`` section (``overlap_ref``) back to
@@ -290,6 +290,7 @@ def _build_device_overlaps_data(user):
     return [
         {
             'ref': o.id,
+            'kind': o.kind,
             'device_a': o.device_a.device_id,
             'device_b': o.device_b.device_id,
             'start_time': o.start_time,
