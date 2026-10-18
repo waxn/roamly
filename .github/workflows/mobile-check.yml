@@ -40,4 +40,10 @@ jobs:
               echo "::error::$msg"
             fi
           done
+          if [ "$status" != 0 ] && ! grep -qE '^e: ' build.log; then
+            # Not a Kotlin error: surface Gradle's own explanation instead.
+            grep -A12 -E 'What went wrong|FAILURE:|error:' build.log | head -40 | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error::$line"
+            done
+          fi
           exit $status
