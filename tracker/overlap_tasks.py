@@ -66,6 +66,7 @@ MERGE_GAP_S = 900           # runs this close to a record belong to it
 SCAN_CHUNK = 20000          # new points read per pass
 SEGMENT_GAP_S = 1800        # split a device's new points at gaps this long...
 SEGMENT_MAX_S = 86400       # ...and at most a day each, bounding each fetch
+APART_MIN_M = 500           # "apart" needs at least this much separation...
 
 _scheduler_thread = None
 
@@ -160,13 +161,61 @@ def find_runs(points, other):
     return runs
 
 
+def find_apart_runs(points, other):
+    """Runs where the two devices were provably in different places.
+
+    The mirror image of ``find_runs``: a fix is *apart* when the other device's
+    nearest-in-time fix is more than ``max(APART_MIN_M, DIVERGE_FACTOR x radius)``
+    away, and a *near* pair ends the run. Used for phone + hardware tracker
+    pairs: when they're apart both record, and only one of them was with the
+    user. Same ``(start, end, matches)`` shape, so ``_record_run`` handles both.
+    """
+    if not points or not other:
+        return []
+    other_ts = [o[0] for o in other]
+    runs = []
+    cur = None
+
+    def close():
+        if cur:
+            runs.append((cur[0], cur[1], cur[2]))
+
+    for ts, lat, lon, acc in points:
+        i = bisect_left(other_ts, ts)
+        best = None
+        for j in (i - 1, i):
+            if 0 <= j < len(other):
+                dt = abs((other[j][0] - ts).total_seconds())
+                if dt <= MATCH_WINDOW_S and (best is None or dt < best[0]):
+                    best = (dt, other[j])
+        if best is None:
+            continue
+        o = best[1]
+        radius = min(MATCH_RADIUS_MAX_M,
+                     max(MATCH_RADIUS_M, (acc or 0) + (o[3] or 0)))
+        d = _haversine_m(lat, lon, o[1], o[2])
+        if d > max(APART_MIN_M, DIVERGE_FACTOR * radius):
+            if cur and (ts - cur[1]).total_seconds() > RUN_BREAK_S:
+                close()
+                cur = None
+            if cur is None:
+                cur = [ts, ts, 0]
+            cur[1] = ts
+            cur[2] += 1
+        elif d <= radius:
+            close()
+            cur = None
+    close()
+    return runs
+
+
 def _qualifies(start, end, matches):
     return matches >= MIN_RUN_MATCHES and (end - start).total_seconds() >= MIN_RUN_S
 
 
 # ── Recording ───────────────────────────────────────────────────────────────
 
-def _record_run(user, dev_x, dev_y, start, end, matches):
+def _record_run(user, dev_x, dev_y, start, end, matches, kind='same'):
     """Merge one run into the user's DeviceOverlap records.
 
     Returns ``(created, moved)``: whether a new pending overlap was opened, and
@@ -177,13 +226,13 @@ def _record_run(user, dev_x, dev_y, start, end, matches):
     gap = timedelta(seconds=MERGE_GAP_S)
     with transaction.atomic():
         existing = (DeviceOverlap.objects.select_for_update()
-                    .filter(user=user, device_a_id=a, device_b_id=b,
+                    .filter(user=user, device_a_id=a, device_b_id=b, kind=kind,
                             start_time__lte=end + gap, end_time__gte=start - gap)
                     .order_by('start_time').first())
         if existing is None:
             if not _qualifies(start, end, matches):
                 return False, 0
-            DeviceOverlap.objects.create(user=user, device_a_id=a, device_b_id=b,
+            DeviceOverlap.objects.create(user=user, device_a_id=a, device_b_id=b, kind=kind,
                                          start_time=start, end_time=end)
             return True, 0
         grew = False
@@ -277,7 +326,7 @@ def scan_user(user_id):
     """Compare a user's new points against their other devices. Returns the
     number of new pending overlaps."""
     from django.db.models import Max
-    from .models import Device, Location, UserProfile
+    from .models import Device, HardwareTracker, Location, UserProfile
 
     profile = UserProfile.objects.filter(user_id=user_id).select_related('user').first()
     if profile is None:
@@ -294,6 +343,10 @@ def scan_user(user_id):
         UserProfile.objects.filter(pk=profile.pk).update(overlap_scan_last_id=hi)
         return 0
 
+    # "Apart" is only asked about for pairs involving a hardware tracker: that
+    # is the hand-off case. Two phones apart (an old one left tracking at home)
+    # would otherwise prompt endlessly.
+    trackers = set(HardwareTracker.objects.filter(user_id=user_id).values_list('device_id', flat=True))
     created = moved = 0
     while cursor < hi:
         rows = list(Location.objects
@@ -325,6 +378,11 @@ def scan_user(user_id):
                         new, n = _record_run(user, dev, other_dev, start, end, matches)
                         created += new
                         moved += n
+                    if dev in trackers or other_dev in trackers:
+                        for start, end, matches in find_apart_runs(seg, other):
+                            new, n = _record_run(user, dev, other_dev, start, end, matches, kind='apart')
+                            created += new
+                            moved += n
         cursor = rows[-1][0]
         # Per chunk, so a killed sweep resumes rather than starting over.
         UserProfile.objects.filter(pk=profile.pk).update(overlap_scan_last_id=cursor)

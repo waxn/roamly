@@ -863,7 +863,16 @@ class DeviceOverlap(models.Model):
         ('hidden', 'Hidden'),        # hidden_device's points are in the trash
         ('dismissed', 'Dismissed'),  # keep both; never prompt for this window again
     ]
+    KIND_CHOICES = [
+        ('same', 'Same track'),        # both recorded the same place: one is a duplicate
+        ('apart', 'Apart'),            # in different places: only one was with the user
+    ]
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='device_overlaps')
+    # 'apart' is only detected for pairs involving a hardware tracker: while the
+    # phone and tracker are apart both record (neither knows which one the user
+    # carries), and the user picks which was with them afterwards. Hiding works
+    # the same either way; only the question asked differs.
+    kind = models.CharField(max_length=6, choices=KIND_CHOICES, default='same')
     # Stored with device_a.id < device_b.id so a pair has one spelling.
     device_a = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='+')
     device_b = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='+')
