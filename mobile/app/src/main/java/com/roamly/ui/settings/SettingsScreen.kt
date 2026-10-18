@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Watch
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -67,6 +68,11 @@ fun SettingsScreen(
     var showHealth by remember { mutableStateOf(false) }
     if (showHealth) {
         com.roamly.ui.health.HealthScreen(onBack = { showHealth = false })
+        return
+    }
+    var showTracker by remember { mutableStateOf(false) }
+    if (showTracker) {
+        com.roamly.ui.tracker.TrackerScreen(onBack = { showTracker = false })
         return
     }
     var showFamily by remember { mutableStateOf(false) }
@@ -754,6 +760,28 @@ fun SettingsScreen(
                 Icon(Icons.Rounded.MonitorHeart, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Health", fontWeight = FontWeight.Bold)
+            }
+        }
+
+        // ── Roamly Tracker (BLE) ────────────────────────────────────────────
+        ClayCard {
+            ClaySectionHeader("Roamly Tracker", Icons.Rounded.Watch, gradient = clay.secondaryGradient)
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Pair your Roamly Tracker over Bluetooth to manage it from here. While they're together only one of them records; once paired it gets its own tab.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(14.dp))
+            ClayButton(
+                onClick = { showTracker = true },
+                gradient = clay.secondaryGradient,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Rounded.Watch, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Roamly Tracker", fontWeight = FontWeight.Bold)
             }
         }
 

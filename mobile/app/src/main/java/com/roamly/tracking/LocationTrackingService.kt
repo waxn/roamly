@@ -198,6 +198,7 @@ class LocationTrackingService : Service() {
 
     @Inject lateinit var prefs: UserPreferences
     @Inject lateinit var db: TrackingDatabase
+    @Inject lateinit var trackerLink: com.roamly.tracker.TrackerLink
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     /** Where fixes come from: Play Services' fused provider when it is genuinely available,
@@ -215,6 +216,13 @@ class LocationTrackingService : Service() {
     /** Owns capture while an activity is being recorded. See [applyCapture]. */
     private lateinit var recorder: ActivityRecorder
     private var isPaused = false
+    /** The Roamly hardware tracker is near, recording and holding a fix, and is set
+     *  to record while the two are together (see [com.roamly.tracker.TrackerLink]):
+     *  the phone rests its GPS. Separate from [isPaused], the user's own pause, so
+     *  the notification's Pause/Resume button keeps meaning exactly that. */
+    @Volatile private var handoffPaused = false
+    /** What capture actually obeys: the user's pause or the hand-off. */
+    private val capturePaused get() = isPaused || handoffPaused
     private var initialized = false
     private var lastUploadScheduleAt = System.currentTimeMillis()
     private var syncOnMobileData = true
@@ -353,6 +361,25 @@ class LocationTrackingService : Service() {
         recorder = ActivityRecorder(locationSource, callbackLooper, db.activityPointDao(), scope) {
             updateNotification()
         }
+        // Bluetooth hand-off with the hardware tracker. Presence scanning lives
+        // with the service because it must run whenever the phone is tracking.
+        trackerLink.phoneTracking = true
+        trackerLink.startPresence()
+        scope.launch {
+            trackerLink.phoneShouldPause.collect { pause ->
+                if (pause == handoffPaused) return@collect
+                handoffPaused = pause
+                Log.i(TAG, if (pause) "Hand-off: tracker is recording, phone GPS resting" else "Hand-off: phone recording again")
+                if (pause) {
+                    filter.reset(); driftAnchor.reset(); cancelNextFix()
+                    stopLocationUpdates(); streamArmed = false; pinWakeLock = false; releaseWakeLock()
+                    updateNotification(force = true)
+                } else if (!isPaused) {
+                    currentConfig?.let { applyCapture(it) }
+                    updateNotification(force = true)
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -378,6 +405,7 @@ class LocationTrackingService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_PAUSE  -> {
+                trackerLink.phoneTracking = false
                 isPaused = true; filter.reset(); driftAnchor.reset(); CellScanner.reset(); cancelNextFix()
                 stillRef = null; stillParked = false
                 recorder.stop()
@@ -386,6 +414,7 @@ class LocationTrackingService : Service() {
                 return START_STICKY
             }
             ACTION_RESUME -> {
+                trackerLink.phoneTracking = true
                 isPaused = false
                 currentConfig?.let { applyCapture(it) }
                 updateNotification()
@@ -400,7 +429,7 @@ class LocationTrackingService : Service() {
                     // The OS killed us and the alarm is recreating us cold — full init
                     // re-establishes config/observers and kicks the first fix itself.
                     initTracking()
-                } else if (!isPaused) {
+                } else if (!capturePaused) {
                     // runFixCycle skips the GPS request if the stream already covered this
                     // interval, but always reschedules so the cadence never dies. Off the
                     // main thread: its prologue makes several AlarmManager binder calls.
@@ -441,7 +470,7 @@ class LocationTrackingService : Service() {
 
         if (!initialized) {
             initTracking()
-        } else if (!isPaused) {
+        } else if (!capturePaused) {
             // A repeat start of an already-running service (the 15-min heartbeat, a
             // provider change, etc.). Only nudge the cadence if it looks stalled, so a
             // healthy tracker isn't perturbed into extra fixes.
@@ -510,6 +539,8 @@ class LocationTrackingService : Service() {
     }
 
     override fun onDestroy() {
+        trackerLink.phoneTracking = false
+        trackerLink.stopPresence()
         stopLocationUpdates()
         // Stop the recording stream and write out its buffer. The session itself
         // stays in DataStore, so a restarted service resumes the recording.
@@ -582,7 +613,7 @@ class LocationTrackingService : Service() {
         val rcv = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 val cfg = currentConfig ?: return
-                if (isPaused) return
+                if (capturePaused) return
                 Log.i(TAG, "Location providers changed — re-arming capture")
                 applyCapture(cfg, forceRearm = true)
             }
@@ -612,7 +643,7 @@ class LocationTrackingService : Service() {
                     if (ps == powerSave) return
                     powerSave = ps
                     Log.i(TAG, "Battery saver ${if (ps) "on" else "off"} — re-selecting capture mode")
-                    if (!isPaused) currentConfig?.let { applyCapture(it) }
+                    if (!capturePaused) currentConfig?.let { applyCapture(it) }
                     return
                 }
                 val on = when (intent?.action) {
@@ -623,7 +654,7 @@ class LocationTrackingService : Service() {
                 if (on == screenOn) return
                 screenOn = on
                 Log.i(TAG, "Screen ${if (on) "on" else "off"} — re-selecting capture mode")
-                if (!isPaused) currentConfig?.let { applyCapture(it) }
+                if (!capturePaused) currentConfig?.let { applyCapture(it) }
             }
         }
         screenReceiver = rcv
@@ -767,6 +798,7 @@ class LocationTrackingService : Service() {
         // fixes would also interleave with the recording; the server mirrors a
         // cleaned copy of the ride into history instead.
         val act = cfg.activity
+        // A deliberately recorded activity is never handed off to the tracker.
         if (act != null && !isPaused) {
             stopLocationUpdates()
             cancelNextFix()
@@ -777,7 +809,7 @@ class LocationTrackingService : Service() {
             return
         }
         if (recorder.active) recorder.stop()
-        if (!isPaused) {
+        if (!capturePaused) {
             startLocationUpdates(cfg)    // primary: smooth warm stream whenever not deep-Doze
             // pinWakeLock carries exactly the old `streaming` assignment, so wake-lock
             // and battery behaviour are unchanged. Whether a stream is actually armed
@@ -802,7 +834,7 @@ class LocationTrackingService : Service() {
         // Dispatched: applyCapture is reached from the screen-on/off and
         // PROVIDERS_CHANGED receivers, whose onReceive runs on the main thread, and
         // runFixCycle's prologue makes several AlarmManager binder calls.
-        if (!isPaused) scope.launch { runFixCycle() }  // take one now; it schedules the next + catch-up
+        if (!capturePaused) scope.launch { runFixCycle() }  // take one now; it schedules the next + catch-up
     }
 
     private fun observeRuntimePreferences() {
@@ -818,7 +850,7 @@ class LocationTrackingService : Service() {
      *  the next exact alarm. The exact alarm (not a continuous stream) is what carries
      *  the cadence through Doze. Reschedules even on a missed fix so the loop never dies. */
     private fun runFixCycle() {
-        if (isPaused) return
+        if (capturePaused) return
         val cfg = currentConfig ?: return
         // A stale alarm from before a recording started: the recorder owns capture,
         // and applyCapture re-anchors this cadence when the recording ends.
@@ -877,8 +909,8 @@ class LocationTrackingService : Service() {
                 // our own de-dup window says nothing about GPS health, but counted as a
                 // miss all the same.
                 hadRawFix = loc != null
-                val accepted = loc?.takeIf { !isPaused && filter.accept(it) }
-                if (!isPaused) {
+                val accepted = loc?.takeIf { !capturePaused && filter.accept(it) }
+                if (!capturePaused) {
                     got = saveOrDwell(accepted, cfg.maxAccuracyM, SaveSource.CYCLE)
                     if (!got) {
                         Log.d(TAG, "Fix cycle produced no usable point (null/filtered/imprecise)")
@@ -903,7 +935,7 @@ class LocationTrackingService : Service() {
                 if (!hadRawFix && !got) consecutiveMisses += 1
                 // Re-arm from the *current* config so an interval change mid-cycle takes
                 // effect on the next wake.
-                if (!isPaused) currentConfig?.let { c ->
+                if (!capturePaused) currentConfig?.let { c ->
                     val floor = alarmIntervalMs(c)
                     val nextMs = if (got) {
                         // Got a point: keep the cadence ~interval measured from the cycle
@@ -1155,7 +1187,7 @@ class LocationTrackingService : Service() {
         // Set before arming so the first batch isn't judged against the unbatched age limit.
         filter.batchAllowanceMs = streamBatchMs(cfg)
         locationStream = locationSource.requestUpdates(buildRequest(cfg), callbackLooper) { loc ->
-            if (!isPaused) streamFixes.trySend(loc)
+            if (!capturePaused) streamFixes.trySend(loc)
         }
         streamArmed = locationStream != null
         if (locationStream == null) {
@@ -1173,7 +1205,7 @@ class LocationTrackingService : Service() {
     @Suppress("MissingPermission")
     private fun seedLastLocation() {
         locationSource.lastKnown { loc ->
-            if (loc != null && !isPaused && filter.accept(loc)) {
+            if (loc != null && !capturePaused && filter.accept(loc)) {
                 val maxAcc = currentConfig?.maxAccuracyM
                 scope.launch { saveOrDwell(loc, maxAcc, SaveSource.SEED) }
             }
@@ -1215,7 +1247,7 @@ class LocationTrackingService : Service() {
         watchdogJob = scope.launch {
             while (isActive) {
                 delay(WATCHDOG_CHECK_MS)
-                if (isPaused) continue
+                if (capturePaused) continue
                 // Safety valve for a recording the user forgot to stop. It has to live
                 // here, not only in the config transform: that transform re-runs only
                 // when one of the prefs emits, so a ride left running overnight would
@@ -1262,7 +1294,7 @@ class LocationTrackingService : Service() {
         streamJob = scope.launch {
             for (loc in streamFixes) {
                 runCatching {
-                    if (!isPaused && filter.accept(loc)) {
+                    if (!capturePaused && filter.accept(loc)) {
                         saveOrDwell(loc, currentConfig?.maxAccuracyM, SaveSource.STREAM)
                     }
                 }.onFailure { Log.e(TAG, "Stream fix failed", it) }
@@ -1465,9 +1497,9 @@ class LocationTrackingService : Service() {
         // seeds a fix, which comes back through here).
         if (stillChanged) {
             val cfg = currentConfig
-            if (cfg != null && cfg.slowWhenStill && !cfg.recording && !isPaused) {
+            if (cfg != null && cfg.slowWhenStill && !cfg.recording && !capturePaused) {
                 Log.i(TAG, "Still state → ${if (stillParked) "parked" else "moving"}; re-selecting capture")
-                scope.launch { if (!isPaused) currentConfig?.let { applyCapture(it) } }
+                scope.launch { if (!capturePaused) currentConfig?.let { applyCapture(it) } }
             }
         }
         updateNotification()
@@ -1533,6 +1565,7 @@ class LocationTrackingService : Service() {
             "\n⚠ Exact alarms denied — Doze cadence limited to ~15 min" else ""
         val warn = batteryWarn + alarmWarn
         if (isPaused) return "Tracking is paused$warn"
+        if (handoffPaused) return "Roamly Tracker is recording — phone GPS resting$warn"
         currentConfig?.activity?.let { act ->
             val mins = ((System.currentTimeMillis() - act.startedAtMs) / 60_000L)
                 .coerceAtLeast(0)

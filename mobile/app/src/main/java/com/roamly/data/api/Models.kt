@@ -977,3 +977,34 @@ data class FamilyPushTokenRequest(
     @SerializedName("device_label") val deviceLabel: String = "",
 )
 data class FamilyPushTokenUnregisterRequest(val token: String)
+
+
+// ── Notifications (device overlaps / phone+tracker apart) ─────────────────────
+
+/** GET /api/notifications/ — items needing a decision, plus recently hidden ones. */
+data class NotificationsResponse(
+    val unread: Int = 0,
+    val items: List<NotificationItem> = emptyList(),
+    val hidden: List<NotificationItem> = emptyList(),
+    @com.google.gson.annotations.SerializedName("tracker_devices")
+    val trackerDevices: List<Int>? = null,
+)
+
+data class NotificationItem(
+    val kind: String = "",
+    /** "same" (duplicate track) or "apart" (only one device was carried). */
+    val overlap: String? = null,
+    val id: Int = 0,
+    val status: String = "",
+    val start: String = "",
+    val end: String = "",
+    @com.google.gson.annotations.SerializedName("hidden_device")
+    val hiddenDevice: Int? = null,
+    val devices: List<NotificationDevice> = emptyList(),
+)
+
+data class NotificationDevice(
+    val id: Int = 0,
+    val name: String = "",
+    val points: Int = 0,
+)

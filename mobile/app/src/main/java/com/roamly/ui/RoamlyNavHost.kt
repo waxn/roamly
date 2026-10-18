@@ -16,6 +16,7 @@ import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Watch
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -57,6 +58,7 @@ import com.roamly.ui.search.SearchTabScreen
 import com.roamly.ui.stats.StatsScreen
 import com.roamly.ui.stats.StatsViewModel
 import com.roamly.ui.record.RecordScreen
+import com.roamly.ui.tracker.TrackerScreen
 import com.roamly.ui.trips.TripDetailScreen
 import com.roamly.ui.trips.TripsViewModel
 import com.roamly.ui.update.UpdateBanner
@@ -77,6 +79,9 @@ sealed class Screen(val route: String, val label: String) {
     // just works, with no BackHandler — recording continues in the foreground
     // service either way, which the ongoing notification says.
     object Record     : Screen("record",      "Record")
+    // The Roamly Tracker (BLE). Only in the bar once a tracker is paired —
+    // before that it is reached from Settings → Roamly Tracker to pair one.
+    object Tracker    : Screen("tracker",     "Tracker")
 }
 
 // Search sits in the middle slot always — it hosts history search, plus the AI
@@ -98,6 +103,7 @@ private fun iconFor(screen: Screen): ImageVector = when (screen) {
     Screen.Search     -> Icons.Rounded.Search
     Screen.Journal    -> Icons.Rounded.AutoStories
     Screen.Stats      -> Icons.Rounded.BarChart
+    Screen.Tracker    -> Icons.Rounded.Watch
     else              -> Icons.Rounded.Settings
 }
 
@@ -134,7 +140,10 @@ fun RoamlyNavHost() {
     }
     val isLoggedIn by authViewModel.isLoggedIn.collectAsState()
     val simpleMode by authViewModel.simpleModeEnabled.collectAsState()
-    val bottomNavItems = if (simpleMode) simpleNavItems else advancedNavItems
+    val trackerPaired by authViewModel.trackerPaired.collectAsState()
+    val bottomNavItems = (if (simpleMode) simpleNavItems else advancedNavItems).let { items ->
+        if (trackerPaired) items.dropLast(1) + Screen.Tracker + items.last() else items
+    }
 
     // Check for a newer sideloaded build once logged in (throttled to ~24h).
     LaunchedEffect(isLoggedIn) {
@@ -296,6 +305,11 @@ fun RoamlyNavHost() {
                 val vm = hiltViewModel<StatsViewModel>(activityOwner)
                 LaunchedEffect(Unit) { vm.load() }
                 StatsScreen(viewModel = vm, onNavigateToMap = { dateStr -> mapViewModel.navigateToDate(dateStr); navController.navigate(Screen.Map.route) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true } })
+            }
+            composable(Screen.Tracker.route) {
+                // Back-stack scoped: the screen opens a BLE session for as long
+                // as it is visible, and nothing about it is worth keeping.
+                TrackerScreen()
             }
             composable(Screen.Settings.route) {
                 // DELIBERATELY NOT activity-scoped, unlike the three tabs above.

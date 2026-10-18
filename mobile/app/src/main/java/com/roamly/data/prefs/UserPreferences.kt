@@ -71,6 +71,13 @@ class UserPreferences @Inject constructor(
         // the server, so a reinstall resets it, same tier as darkMode.
         private val KEY_SIMPLE_MODE             = booleanPreferencesKey("simple_mode_enabled")
 
+        // The Roamly hardware tracker this phone is bonded with over Bluetooth.
+        // Per phone (a bond is a pairing between two radios), so deliberately
+        // kept across sign-out, like the device cookie. Its presence is what
+        // shows the Tracker tab.
+        private val KEY_TRACKER_BLE_ADDRESS     = stringPreferencesKey("tracker_ble_address")
+        private val KEY_TRACKER_BLE_NAME        = stringPreferencesKey("tracker_ble_name")
+
         // Activity recording. A non-blank id IS the "recording right now" state.
         // It lives in DataStore so it survives a process kill — the service resumes
         // the recording rather than stranding a high-frequency override — and
@@ -145,6 +152,19 @@ class UserPreferences @Inject constructor(
     // ── Simple Mode ────────────────────────────────────────────────────────
 
     val simpleModeEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_SIMPLE_MODE] ?: false }
+
+    // ── Hardware tracker (Bluetooth) ───────────────────────────────────────
+
+    val trackerBleAddress: Flow<String?> = context.dataStore.data.map { it[KEY_TRACKER_BLE_ADDRESS] }
+    val trackerBleName: Flow<String?> = context.dataStore.data.map { it[KEY_TRACKER_BLE_NAME] }
+
+    /** Pass nulls to forget the tracker. */
+    suspend fun setTrackerBle(address: String?, name: String?) {
+        context.dataStore.edit { prefs ->
+            if (address == null) prefs.remove(KEY_TRACKER_BLE_ADDRESS) else prefs[KEY_TRACKER_BLE_ADDRESS] = address
+            if (name == null) prefs.remove(KEY_TRACKER_BLE_NAME) else prefs[KEY_TRACKER_BLE_NAME] = name
+        }
+    }
 
     /** The activity being recorded, or null when not recording.
      *

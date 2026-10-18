@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -62,6 +63,11 @@ class AuthViewModel @Inject constructor(
      *  already-prefs-holding ViewModel rather than adding a second one just for
      *  one boolean. */
     val simpleModeEnabled: StateFlow<Boolean> = prefs.simpleModeEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** A hardware tracker is bonded over Bluetooth: shows the Tracker tab. */
+    val trackerPaired: StateFlow<Boolean> = prefs.trackerBleAddress
+        .map { it != null }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     fun onServerUrlChange(value: String) = _uiState.update { it.copy(serverUrl = value) }

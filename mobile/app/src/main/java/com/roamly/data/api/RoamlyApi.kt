@@ -37,6 +37,22 @@ interface RoamlyApi {
     @GET("api/profile/mapbox-token/")
     suspend fun getMapboxToken(): Response<MapboxTokenResponse>
 
+    // --- Notifications: device overlaps / phone + tracker apart ---
+
+    @GET("api/notifications/")
+    suspend fun getNotifications(): Response<NotificationsResponse>
+
+    /** Hide [body]["device_id"]'s points for the overlap window. */
+    @POST("api/notifications/overlap/{id}/hide/")
+    suspend fun hideOverlap(@Path("id") id: Int, @Body body: Map<String, Int>): Response<ResponseBody>
+
+    /** Keep both tracks; the window is never offered again. */
+    @POST("api/notifications/overlap/{id}/dismiss/")
+    suspend fun dismissOverlap(@Path("id") id: Int, @Body body: Map<String, String>): Response<ResponseBody>
+
+    @POST("api/notifications/overlap/{id}/unhide/")
+    suspend fun unhideOverlap(@Path("id") id: Int, @Body body: Map<String, String>): Response<ResponseBody>
+
     // --- AI "Ask" ---
 
     /** Whether the user has AI Ask enabled/configured — gates the Ask tab. */

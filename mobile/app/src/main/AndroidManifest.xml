@@ -36,6 +36,17 @@
     <!-- Wake lock for upload worker -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- Roamly Tracker (BLE). Scanning is the presence check behind the
+         phone/tracker recording hand-off, so it runs from the location
+         foreground service too. Deliberately no neverForLocation flag: the
+         app already holds location, and that flag lets Android filter
+         beacon-like advertisements out of scan results. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+
     <!-- Cell-tower coverage logging. OPTIONAL and requested separately at
          runtime (the Health Connect pattern), because scanning itself needs
          only ACCESS_FINE_LOCATION, which tracking already holds. This is
