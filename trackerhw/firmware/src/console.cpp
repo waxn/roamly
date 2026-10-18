@@ -69,6 +69,9 @@ static void status(Print& out) {
                 (unsigned long)gpsWakeLeadMs(), g.aid, cfg.lastLatE7 / 1e7, cfg.lastLonE7 / 1e7, (unsigned long)cfg.lastPosUnix);
   out.printf("adaptive=%d motion=%s interval=%lus peeks=%lu\n", cfg.intervalS == 0, motionName(ls.motion),
                 (unsigned long)loggerIntervalS(), (unsigned long)ls.peeks);
+  const StillAnchor& an = loggerAnchor();
+  out.printf("anchor: %s held=%lu releases=%lu\n", an.active() ? "set" : "off",
+                (unsigned long)an.held, (unsigned long)an.releases);
   out.printf("log: rec=%d windows=%lu stored=%lu missed=%lu filtered=%lu werr=%lu lastwin=%lums next in %ldms\n",
                 cfg.recording, (unsigned long)ls.windows, (unsigned long)ls.recorded, (unsigned long)ls.missed,
                 (unsigned long)ls.filtered, (unsigned long)ls.writeErrors, (unsigned long)ls.lastWindowMs,

@@ -4,6 +4,7 @@
 #include "gps.h"
 #include "power.h"
 #include "ble.h"
+#include "anchor.h"
 
 static LoggerState ls;
 static GpsFix best;
@@ -13,6 +14,8 @@ static uint8_t goodInWindow = 0;
 // one reading: real movement stays above a threshold for seconds, while a
 // stationary receiver's Doppler spikes for single epochs (bench: up to 0.65 m/s).
 static float winMinSpd = NAN;
+static float winMaxSpd = NAN;   // and the fastest: the anchor needs every reading still
+static StillAnchor anchor;
 // Window start of the last stored point: the still-interval is measured from
 // here, on the same clock the windows are scheduled on (measuring from the
 // store itself, ~2.5 s later, made every 60 s point land at 80 s).
@@ -24,6 +27,7 @@ static uint32_t lastSeenFixAt = 0;
 static uint32_t gpsWakeAtMs = 0;   // 0 = no wake scheduled
 
 LoggerState& loggerState() { return ls; }
+const StillAnchor& loggerAnchor() { return anchor; }
 
 const char* motionName(Motion m) { return m == MOTION_FAST ? "fast" : m == MOTION_SLOW ? "moving" : "still"; }
 
@@ -43,17 +47,11 @@ static uint32_t nextGapS() {
   return loggerIntervalS();
 }
 
-static float distM(double lat1, double lon1, double lat2, double lon2) {
-  double dlat = (lat2 - lat1) * DEG_TO_RAD, dlon = (lon2 - lon1) * DEG_TO_RAD;
-  double a = sin(dlat / 2) * sin(dlat / 2) + cos(lat1 * DEG_TO_RAD) * cos(lat2 * DEG_TO_RAD) * sin(dlon / 2) * sin(dlon / 2);
-  return (float)(6371000.0 * 2 * atan2(sqrt(a), sqrt(1 - a)));
-}
-
 static Motion classify(const GpsFix& f) {
   float v = isnan(winMinSpd) ? 0 : winMinSpd;
   Motion m = v >= ADAPT_FAST_MPS ? MOTION_FAST : v >= ADAPT_STILL_MPS ? MOTION_SLOW : MOTION_STILL;
   if (m == MOTION_STILL && ls.haveLast) {
-    float d = distM(ls.last.latE7 / 1e7, ls.last.lonE7 / 1e7, f.lat, f.lon);
+    float d = anchorDistM(ls.last.latE7 / 1e7, ls.last.lonE7 / 1e7, f.lat, f.lon);
     float acc = isnan(f.accM) ? 0 : f.accM;
     if (d > max(ADAPT_MOVE_M, 2 * acc)) m = MOTION_SLOW;
   }
@@ -139,6 +137,18 @@ static void finishWindow(bool gotFix) {
   }
 }
 
+// Run a finished window's best fix through the stationary anchor: while it
+// holds, the point goes down at the anchor with zero speed, so neither the map
+// nor the adaptive "40 m away = moving" rule sees the receiver's drift.
+static GpsFix anchored(const GpsFix& f) {
+  GpsFix r = f;
+  if (anchor.update(r.lat, r.lon, winMinSpd, winMaxSpd, r.unix) == ANCHOR_HELD) {
+    r.spdMs = 0;
+    r.crsDeg = NAN;
+  }
+  return r;
+}
+
 uint32_t loggerNextWakeMs() {
   // When the ESP has to be awake next: to wake the receiver, or shortly before
   // the window itself (to flush stale UART bytes).
@@ -154,6 +164,7 @@ void loggerTick() {
     if (!gpsInfo().asleep) gpsStandby();
     gpsWakeAtMs = 0;
     ls.collecting = false;
+    anchor.reset();   // wherever we are on resume, it's not known to be here
     return;
   }
   uint32_t now = millis();
@@ -169,6 +180,7 @@ void loggerTick() {
     haveBest = false;
     goodInWindow = 0;
     winMinSpd = NAN;
+    winMaxSpd = NAN;
     // While still, a window only stores once a full still-interval has passed
     // since the last point; earlier windows just look for movement.
     ls.peekOnly = adaptive() && ls.motion == MOTION_STILL && ls.haveLast &&
@@ -183,6 +195,7 @@ void loggerTick() {
     if ((int32_t)(f.atMs - ls.windowStartMs) >= 0 && acceptable(f)) {
       goodInWindow++;
       if (!isnan(f.spdMs) && (isnan(winMinSpd) || f.spdMs < winMinSpd)) winMinSpd = f.spdMs;
+      if (!isnan(f.spdMs) && (isnan(winMaxSpd) || f.spdMs > winMaxSpd)) winMaxSpd = f.spdMs;
       if (!haveBest || (!isnan(f.accM) && (isnan(best.accM) || f.accM < best.accM))) {
         best = f;
         haveBest = true;
@@ -195,9 +208,10 @@ void loggerTick() {
     // a peek cheap.
     if (goodInWindow < 2 && !timeUp) return;
     if (haveBest) {
-      Motion m = classify(best);
+      GpsFix f = anchored(best);
+      Motion m = classify(f);
       updateMotion(m);
-      if (m != MOTION_STILL) store(best);   // started moving: record it now
+      if (m != MOTION_STILL) store(f);   // started moving: record it now
       else ls.peeks++;
       ls.consecutiveMisses = 0;
     }
@@ -212,11 +226,12 @@ void loggerTick() {
   if (adaptive() && goodInWindow < 2) goodEnough = false;
   if (goodEnough || timeUp) {
     if (haveBest) {
-      if (adaptive()) updateMotion(classify(best));
-      if (cfg.minAccM && !isnan(best.accM) && best.accM > cfg.minAccM) {
+      GpsFix f = anchored(best);
+      if (adaptive()) updateMotion(classify(f));
+      if (cfg.minAccM && !isnan(f.accM) && f.accM > cfg.minAccM) {
         ls.filtered++;
       } else {
-        store(best);
+        store(f);
       }
       ls.consecutiveMisses = 0;
     } else {

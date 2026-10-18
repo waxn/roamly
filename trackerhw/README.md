@@ -134,6 +134,31 @@ setting off is recorded within ~20 s rather than a minute late. Low power
 doesn't peek (a peek would cost a full GPS wake-up), so there a start can lag
 by up to 60 s. Thresholds live in `firmware/src/config.h` (`ADAPT_*`).
 
+### Stationary anchor
+
+Indoors with a weak antenna, the GPS module's position can jump tens of metres
+in a few seconds and slide back over minutes while the tracker sits still. On
+the bench the ceramic patch jumped 60 m while reporting 0.00 m/s and HDOP 0.5,
+so neither the accuracy estimate nor Min accuracy can catch it. The speed
+reading comes from a separate measurement (Doppler) and stays honestly at zero,
+so the tracker uses that instead (`firmware/src/anchor.cpp`):
+
+* After 3 windows in a row where every speed reading is under 0.3 m/s and the
+  positions sit within 30 m of each other, it pins an **anchor** at their
+  average.
+* While pinned, still points are stored at the anchor with zero speed. The
+  receiver's wander doesn't reach the map, and Adaptive doesn't mistake it for
+  movement. Fixes within 10 m of the anchor keep refining it, so an anchor
+  pinned while the module was still settling follows it in. Drift and jumps
+  land further out and are ignored.
+* A window whose *slowest* speed reading is 0.3 m/s or more releases the
+  anchor, and that point is stored as measured. So does being over 200 m away
+  in 2 windows running, a backstop for movement the speed reading misses. A
+  gap of over 10 minutes (paused, handed off, powered off) drops the anchor.
+
+The console `status` shows `anchor: set|off held=N releases=N`. Thresholds are
+`ANCHOR_*` in `config.h`.
+
 ### Settings
 
 | Setting | Options | Default |

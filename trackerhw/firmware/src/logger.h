@@ -2,6 +2,7 @@
 #pragma once
 #include <Arduino.h>
 #include "storage.h"
+#include "anchor.h"
 
 enum Motion : uint8_t { MOTION_STILL = 0, MOTION_SLOW = 1, MOTION_FAST = 2 };
 
@@ -28,3 +29,4 @@ void loggerReschedule();       // after an interval/mode change: start a window 
 uint32_t loggerIntervalS();
 uint32_t loggerNextWakeMs();   // millis() by which the ESP must be awake again    // the interval in force right now (resolves Adaptive)
 const char* motionName(Motion m);
+const StillAnchor& loggerAnchor();

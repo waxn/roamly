@@ -52,5 +52,27 @@ static constexpr uint32_t ADAPT_PEEK_S      = 20;
 // (catches slow walking whose Doppler reads under ADAPT_STILL_MPS).
 static constexpr float    ADAPT_MOVE_M      = 40.0f;
 
+// ── Stationary anchor (anchor.h) ────────────────────────────────────────────
+// Windows in a row that read still (every reading under STILL_MPS), within
+// ENTER_M of each other, before the position is pinned. While pinned, still windows store the anchor; a window
+// whose slowest Doppler reading clears STILL_MPS releases it, as do
+// BREAK_WINDOWS windows in a row more than BREAK_M away (the receiver's own
+// jumps reached 60 m on the bench). A gap longer than MAX_GAP_S drops it.
+// STILL_MPS is tighter than ADAPT_STILL_MPS (sized for the NEO-6M's noisy
+// Doppler): the L76K reads 0.00-0.15 m/s at rest, even mid-jump, and a slow
+// amble at ~0.5 m/s must neither form an anchor nor stay stuck to one.
+static constexpr float    ANCHOR_STILL_MPS     = 0.3f;
+static constexpr uint8_t  ANCHOR_ENTER_WINDOWS = 3;
+static constexpr float    ANCHOR_ENTER_M       = 30.0f;
+// The anchor keeps averaging fixes within REFINE_M of it, the newest weighted
+// at least 1/REFINE_N, so it settles onto the true spot. REFINE_M is tighter
+// than ENTER_M: on the device a fresh anchor (few fixes in its mean) followed
+// a slow 30 m slide-back most of the way at 30 m.
+static constexpr float    ANCHOR_REFINE_M      = 10.0f;
+static constexpr uint16_t ANCHOR_REFINE_N      = 60;
+static constexpr float    ANCHOR_BREAK_M       = 200.0f;
+static constexpr uint8_t  ANCHOR_BREAK_WINDOWS = 2;
+static constexpr uint32_t ANCHOR_MAX_GAP_S     = 600;
+
 // ── Storage ─────────────────────────────────────────────────────────────────
 static constexpr int SEGMENT_RECORDS = 1024;   // 32 KB per segment file
