@@ -1,0 +1,766 @@
+{% extends "tracker/base.html" %}
+{% load static %}
+{% block title %}Flights - Roamly{% endblock %}
+
+{% block extra_css %}
+.fl-pane[hidden] { display: none; }
+.fl-table td, .fl-table th { white-space: nowrap; }
+.fl-table tbody tr { cursor: pointer; }
+.fl-route { font-family: var(--font-mono); font-weight: 600; }
+.fl-route .fl-arrow { color: var(--text-muted); margin: 0 0.3rem; }
+.fl-sub { font-size: 0.75rem; color: var(--text-muted); }
+.fl-num a { font-family: var(--font-mono); font-weight: 600; }
+.fl-empty { padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); }
+.fl-empty-icon { font-size: 1.6rem; margin-bottom: 0.5rem; }
+#fl-map { height: 68vh; min-height: 420px; border: 1px solid var(--border); border-radius: var(--radius-clay-lg, 10px); }
+.fl-map-note { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.6rem; }
+
+.fl-bars { display: flex; flex-direction: column; gap: 0.6rem; }
+.fl-bar-row { display: grid; grid-template-columns: 1fr auto; gap: 0.3rem 0.75rem; align-items: baseline; }
+.fl-bar-name { font-weight: 600; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fl-bar-val { font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-muted); white-space: nowrap; }
+.fl-bar-track { grid-column: 1 / -1; height: 7px; background: var(--bg-elevated); border: 1px solid var(--border); }
+.fl-bar-fill { height: 100%; background: var(--primary); }
+.fl-years { display: flex; align-items: flex-end; gap: 6px; height: 180px; padding-top: 1.2rem; overflow-x: auto; }
+.fl-year { flex: 1 0 34px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 4px; }
+.fl-year-bar { width: 100%; max-width: 46px; background: var(--primary); min-height: 2px; position: relative; }
+.fl-year-bar span { position: absolute; top: -1.15rem; left: 50%; transform: translateX(-50%); font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); }
+.fl-year-lbl { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); }
+.fl-fact { display: flex; justify-content: space-between; gap: 1rem; padding: 0.45rem 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+.fl-fact:last-child { border-bottom: none; }
+.fl-fact b { font-family: var(--font-mono); font-weight: 600; text-align: right; }
+
+/* Modal */
+.fl-overlay { position: fixed; inset: 0; z-index: 2000; background: rgba(4, 8, 18, 0.72); display: none; align-items: flex-start; justify-content: center; padding: 3vh 1rem; overflow-y: auto; }
+.fl-overlay.open { display: flex; }
+.fl-modal { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-clay-lg, 12px); width: 100%; max-width: 720px; padding: 1.5rem; position: relative; }
+.fl-modal-title { font-family: var(--font-display); font-size: 1.3rem; font-weight: 700; margin-bottom: 1rem; }
+.fl-close { position: absolute; top: 0.9rem; right: 0.9rem; width: 32px; height: 32px; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text); border-radius: 50%; cursor: pointer; font-size: 1.15rem; line-height: 1; }
+.fl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; }
+.fl-grid .full { grid-column: 1 / -1; }
+.fl-lookup-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.75rem; align-items: end; }
+.fl-lookup-row .form-group { margin-bottom: 0; }
+.fl-hint { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.35rem; }
+.fl-status { font-size: 0.8125rem; margin: 0.6rem 0 0.2rem; min-height: 1.1em; }
+.fl-legs { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.5rem 0 0.25rem; }
+.fl-leg { text-align: left; padding: 0.55rem 0.75rem; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text); cursor: pointer; border-radius: 6px; font-size: 0.85rem; }
+.fl-leg:hover { border-color: var(--primary); }
+.fl-section { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin: 1.1rem 0 0.6rem; padding-top: 0.9rem; border-top: 1px solid var(--border); }
+.fl-ap-wrap { position: relative; }
+.fl-ap-list { position: absolute; left: 0; right: 0; top: 100%; z-index: 10; background: var(--bg-card); border: 1px solid var(--border); max-height: 260px; overflow-y: auto; box-shadow: var(--clay-shadow-hover); }
+.fl-ap-list[hidden] { display: none; }
+.fl-ap-opt { padding: 0.45rem 0.65rem; cursor: pointer; font-size: 0.82rem; }
+.fl-ap-opt:hover, .fl-ap-opt.on { background: var(--bg-elevated); }
+.fl-ap-opt code { font-family: var(--font-mono); font-weight: 600; color: var(--primary); margin-right: 0.4rem; }
+.fl-actions { display: flex; gap: 0.5rem; margin-top: 1.25rem; }
+.fl-actions .spacer { flex: 1; }
+@media (max-width: 640px) {
+    .fl-grid, .fl-lookup-row { grid-template-columns: 1fr; }
+}
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-toolbar">
+        <div>
+            <h1>Flights</h1>
+            <p class="page-lead" style="margin-bottom:0;">Your flight log: every flight you've taken, mapped and counted.</p>
+        </div>
+        <div class="toolbar-actions">
+            <select id="fl-year" class="form-control" style="width:auto;" aria-label="Year">
+                <option value="">All years</option>
+            </select>
+            <button class="btn btn-primary btn-sm" onclick="openFlight(null)">Add flight</button>
+        </div>
+    </div>
+
+    <div class="pill-tabs" role="tablist">
+        <button class="tab-btn active" data-tab="list">List</button>
+        <button class="tab-btn" data-tab="map">Map</button>
+        <button class="tab-btn" data-tab="stats">Stats</button>
+    </div>
+
+    <section class="fl-pane" id="pane-list">
+        <div class="card">
+            <div class="table-responsive">
+                <table class="fl-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th><th>Flight</th><th>Route</th><th>Airline</th>
+                            <th>Aircraft</th><th>Duration</th><th>Distance</th><th>Seat</th>
+                        </tr>
+                    </thead>
+                    <tbody id="fl-body" aria-busy="true">
+                        {% for i in "123456" %}
+                        <tr aria-hidden="true">{% for c in "12345678" %}<td><span class="skeleton skel-line" style="display:inline-block;width:70%;"></span></td>{% endfor %}</tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <section class="fl-pane" id="pane-map" hidden>
+        <div id="fl-map"></div>
+        <p class="fl-map-note">Great-circle routes between airports. Thicker, brighter lines are routes you flew more often; airport dots grow with visits. Click either for details.</p>
+    </section>
+
+    <section class="fl-pane" id="pane-stats" hidden>
+        <div class="grid grid-4">
+            <div class="card stat-card"><div class="stat-value" id="st-flights">–</div><div class="stat-label">flights</div></div>
+            <div class="card stat-card"><div class="stat-value stat-value-sky" id="st-dist">–</div><div class="stat-label" id="st-dist-lbl">distance</div></div>
+            <div class="card stat-card"><div class="stat-value stat-value-amber" id="st-time">–</div><div class="stat-label">in the air</div></div>
+            <div class="card stat-card"><div class="stat-value stat-value-lavender" id="st-airports">–</div><div class="stat-label">airports</div></div>
+            <div class="card stat-card"><div class="stat-value" id="st-airlines">–</div><div class="stat-label">airlines</div></div>
+            <div class="card stat-card"><div class="stat-value" id="st-countries">–</div><div class="stat-label">countries</div></div>
+            <div class="card stat-card"><div class="stat-value stat-value-sky" id="st-earth">–</div><div class="stat-label">times around the Earth</div></div>
+            <div class="card stat-card"><div class="stat-value" id="st-moon">–</div><div class="stat-label">of the way to the Moon</div></div>
+        </div>
+
+        <div class="grid grid-2">
+            <div class="card" style="grid-column: 1 / -1;">
+                <div class="card-header">Flights per year</div>
+                <div class="fl-years" id="st-years"></div>
+            </div>
+            <div class="card"><div class="card-header">Top airports</div><div class="fl-bars" id="st-top-airports"></div></div>
+            <div class="card"><div class="card-header">Top routes</div><div class="fl-bars" id="st-top-routes"></div></div>
+            <div class="card"><div class="card-header">Airlines</div><div class="fl-bars" id="st-top-airlines"></div></div>
+            <div class="card"><div class="card-header">Aircraft</div><div class="fl-bars" id="st-top-aircraft"></div></div>
+            <div class="card"><div class="card-header">Seat class</div><div class="fl-bars" id="st-class"></div></div>
+            <div class="card"><div class="card-header">Why you flew</div><div class="fl-bars" id="st-reason"></div></div>
+            <div class="card" style="grid-column: 1 / -1;"><div class="card-header">Records</div><div id="st-records"></div></div>
+        </div>
+    </section>
+</div>
+
+<div class="fl-overlay" id="fl-overlay" role="dialog" aria-modal="true" aria-labelledby="fl-modal-title">
+    <div class="fl-modal">
+        <button class="fl-close" onclick="closeFlight()" aria-label="Close">&times;</button>
+        <div class="fl-modal-title" id="fl-modal-title">Add flight</div>
+
+        <div class="fl-lookup-row">
+            <div class="form-group">
+                <label for="f-number">Flight number</label>
+                <input class="form-control" id="f-number" maxlength="10" placeholder="UA123" autocomplete="off" style="text-transform:uppercase;">
+            </div>
+            <div class="form-group">
+                <label for="f-date">Departure date</label>
+                <input class="form-control" id="f-date" type="date">
+            </div>
+            {% if FLIGHT_LOOKUP_ENABLED %}
+            <button class="btn btn-outline" id="f-lookup" onclick="lookupFlight()">Look up</button>
+            {% endif %}
+        </div>
+        <div class="fl-status" id="f-status"></div>
+        <div class="fl-legs" id="f-legs"></div>
+        {% if not FLIGHT_LOOKUP_ENABLED %}
+        <p class="fl-hint">Automatic lookup isn't set up on this instance, so fill the details in below. An admin can switch it on under Admin Panel &rarr; Flight data.</p>
+        {% endif %}
+
+        <div class="fl-section">Route</div>
+        <div class="fl-grid">
+            <div class="form-group fl-ap-wrap">
+                <label for="f-dep">From</label>
+                <input class="form-control" id="f-dep" placeholder="JFK, or search by city or name" autocomplete="off">
+                <div class="fl-ap-list" id="f-dep-list" hidden></div>
+            </div>
+            <div class="form-group fl-ap-wrap">
+                <label for="f-arr">To</label>
+                <input class="form-control" id="f-arr" placeholder="LAX, or search by city or name" autocomplete="off">
+                <div class="fl-ap-list" id="f-arr-list" hidden></div>
+            </div>
+            <div class="form-group">
+                <label for="f-sched-dep">Scheduled departure (local)</label>
+                <input class="form-control" id="f-sched-dep" type="datetime-local">
+            </div>
+            <div class="form-group">
+                <label for="f-sched-arr">Scheduled arrival (local)</label>
+                <input class="form-control" id="f-sched-arr" type="datetime-local">
+            </div>
+            <div class="form-group">
+                <label for="f-actual-dep">Actual departure (local)</label>
+                <input class="form-control" id="f-actual-dep" type="datetime-local">
+            </div>
+            <div class="form-group">
+                <label for="f-actual-arr">Actual arrival (local)</label>
+                <input class="form-control" id="f-actual-arr" type="datetime-local">
+            </div>
+        </div>
+        <p class="fl-hint" style="margin-top:-0.4rem;">Times are the clock at each airport, as printed on a boarding pass.</p>
+
+        <div class="fl-section">Aircraft &amp; seat</div>
+        <div class="fl-grid">
+            <div class="form-group">
+                <label for="f-airline">Airline</label>
+                <input class="form-control" id="f-airline" maxlength="120">
+            </div>
+            <div class="form-group">
+                <label for="f-aircraft">Aircraft</label>
+                <input class="form-control" id="f-aircraft" maxlength="120" placeholder="Boeing 787-9">
+            </div>
+            <div class="form-group">
+                <label for="f-reg">Registration</label>
+                <input class="form-control" id="f-reg" maxlength="16" placeholder="N12345" style="text-transform:uppercase;">
+            </div>
+            <div class="form-group">
+                <label for="f-seat">Seat</label>
+                <input class="form-control" id="f-seat" maxlength="8" placeholder="23A" style="text-transform:uppercase;">
+            </div>
+            <div class="form-group">
+                <label for="f-class">Class</label>
+                <select class="form-control" id="f-class">
+                    <option value="">Not set</option>
+                    <option value="economy">Economy</option>
+                    <option value="premium">Premium economy</option>
+                    <option value="business">Business</option>
+                    <option value="first">First</option>
+                    <option value="private">Private</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="f-seat-type">Seat type</label>
+                <select class="form-control" id="f-seat-type">
+                    <option value="">Not set</option>
+                    <option value="window">Window</option>
+                    <option value="middle">Middle</option>
+                    <option value="aisle">Aisle</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="f-reason">Reason</label>
+                <select class="form-control" id="f-reason">
+                    <option value="">Not set</option>
+                    <option value="leisure">Leisure</option>
+                    <option value="business">Business</option>
+                    <option value="crew">Crew</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            <div class="form-group full">
+                <label for="f-notes">Notes</label>
+                <textarea class="form-control" id="f-notes" rows="2" maxlength="5000"></textarea>
+            </div>
+        </div>
+
+        <div class="fl-actions">
+            <button class="btn btn-outline" id="f-delete" onclick="deleteFlight()" style="color:var(--danger);" hidden>Delete</button>
+            <a class="btn btn-outline" id="f-fr24" target="_blank" rel="noopener noreferrer" hidden>Flightradar24 &nearr;</a>
+            <span class="spacer"></span>
+            <button class="btn btn-outline" onclick="closeFlight()">Cancel</button>
+            <button class="btn btn-primary" id="f-save" onclick="saveFlight()">Save</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = '{{ csrf_token }}';
+const AIRPORTS_URL = "{% static 'tracker/data/airports.json' %}";
+const LOOKUP_ON = {{ FLIGHT_LOOKUP_ENABLED|yesno:"true,false" }};
+const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+const EARTH_KM = 40075, MOON_KM = 384400;
+
+let flights = [];
+let editing = null;       // flight being edited, or null for a new one
+let pendingLeg = null;    // lookup result the form was filled from
+let flMap = null, flMapReady = false;
+
+function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+const isMiles = () => (localStorage.getItem('roamly_speed_unit') || 'kmh') === 'mph';
+function fmtDist(km) {
+    if (km == null) return '–';
+    const v = isMiles() ? km * 0.621371 : km;
+    return Math.round(v).toLocaleString() + (isMiles() ? ' mi' : ' km');
+}
+function fmtDur(min) {
+    if (min == null || !isFinite(min) || min <= 0) return '–';
+    const h = Math.floor(min / 60), m = Math.round(min % 60);
+    return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
+}
+function durationMin(f) {
+    const a = f.actual_dep && f.actual_arr ? [f.actual_dep, f.actual_arr] : [f.sched_dep, f.sched_arr];
+    if (!a[0] || !a[1]) return null;
+    const d = (new Date(a[1]) - new Date(a[0])) / 60000;
+    return d > 0 && d < 24 * 60 ? d : null;
+}
+const code = (f, side) => f[side + '_iata'] || f[side + '_icao'] || '?';
+const apLabel = (f, side) => f[side + '_city'] || f[side + '_name'] || code(f, side);
+
+// ---- Airports (bundled OurAirports subset, loaded on first need) ----------
+let airports = null, airportsByCode = null;
+async function loadAirports() {
+    if (airports) return airports;
+    try {
+        const rows = await fetch(AIRPORTS_URL).then(r => r.json());
+        airports = rows.map(([iata, icao, name, city, cc, lat, lon]) => ({ iata, icao, name, city, cc, lat, lon,
+            hay: (iata + ' ' + icao + ' ' + name + ' ' + city).toLowerCase() }));
+        airportsByCode = new Map();
+        airports.forEach(a => { if (a.icao) airportsByCode.set(a.icao, a); });
+        airports.forEach(a => { if (a.iata) airportsByCode.set(a.iata, a); });
+    } catch (e) { airports = []; airportsByCode = new Map(); }
+    return airports;
+}
+function searchAirports(q) {
+    q = q.trim().toLowerCase();
+    if (!q || !airports) return [];
+    const up = q.toUpperCase(), exact = [], starts = [], rest = [];
+    for (const a of airports) {
+        if (a.iata === up || a.icao === up) exact.push(a);
+        else if ((a.city || '').toLowerCase().startsWith(q) || a.name.toLowerCase().startsWith(q)) starts.push(a);
+        else if (q.length >= 3 && a.hay.includes(q)) rest.push(a);
+        if (exact.length + starts.length > 40) break;
+    }
+    return exact.concat(starts, rest).slice(0, 8);
+}
+
+// Each airport input keeps the chosen code on dataset.code; typing clears it.
+function wireAirport(side) {
+    const input = document.getElementById('f-' + side), list = document.getElementById(`f-${side}-list`);
+    let opts = [], on = -1;
+    const close = () => { list.hidden = true; on = -1; };
+    const pick = a => {
+        input.value = `${a.iata || a.icao} · ${a.city || a.name}`;
+        input.dataset.code = a.iata || a.icao;
+        close();
+    };
+    input.addEventListener('input', async () => {
+        delete input.dataset.code;
+        await loadAirports();
+        opts = searchAirports(input.value);
+        on = -1;
+        list.innerHTML = opts.map((a, i) => `<div class="fl-ap-opt" data-i="${i}"><code>${esc(a.iata || a.icao)}</code>${esc(a.name)}<span class="fl-sub"> · ${esc(a.city)}${a.cc ? ', ' + esc(a.cc) : ''}</span></div>`).join('');
+        list.hidden = !opts.length;
+    });
+    list.addEventListener('mousedown', e => {
+        const el = e.target.closest('.fl-ap-opt');
+        if (el) { e.preventDefault(); pick(opts[+el.dataset.i]); }
+    });
+    input.addEventListener('keydown', e => {
+        if (list.hidden) return;
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            on = (on + (e.key === 'ArrowDown' ? 1 : -1) + opts.length) % opts.length;
+            [...list.children].forEach((c, i) => c.classList.toggle('on', i === on));
+        } else if (e.key === 'Enter' && on >= 0) { e.preventDefault(); pick(opts[on]); }
+        else if (e.key === 'Escape') close();
+    });
+    input.addEventListener('blur', () => setTimeout(close, 120));
+}
+function airportCode(side) {
+    const input = document.getElementById('f-' + side);
+    if (input.dataset.code) return input.dataset.code;
+    const raw = input.value.trim().toUpperCase().split(/[\s·]/)[0];
+    return /^[A-Z0-9]{3,4}$/.test(raw) ? raw : '';
+}
+function setAirport(side, f) {
+    const input = document.getElementById('f-' + side);
+    const c = f[side + '_iata'] || f[side + '_icao'] || '';
+    input.value = c ? `${c} · ${f[side + '_city'] || f[side + '_name'] || ''}` : '';
+    if (c) input.dataset.code = c; else delete input.dataset.code;
+}
+
+// ---- Loading + rendering ---------------------------------------------------
+async function loadFlights() {
+    try {
+        const r = await fetch('/api/flights/');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        flights = (await r.json()).flights || [];
+    } catch (e) {
+        roamlyToast('Could not load your flights.', { type: 'error' });
+        flights = [];
+    }
+    const years = [...new Set(flights.map(f => f.date.slice(0, 4)))].sort().reverse();
+    const ys = document.getElementById('fl-year'), cur = ys.value;
+    ys.innerHTML = '<option value="">All years</option>' + years.map(y => `<option value="${y}">${y}</option>`).join('');
+    ys.value = years.includes(cur) ? cur : '';
+    renderAll();
+}
+function visible() {
+    const y = document.getElementById('fl-year').value;
+    return y ? flights.filter(f => f.date.startsWith(y)) : flights;
+}
+function renderAll() {
+    renderList();
+    renderStats();
+    if (flMapReady) renderMap();
+}
+
+function renderList() {
+    const body = document.getElementById('fl-body');
+    body.removeAttribute('aria-busy');
+    const rows = visible();
+    if (!rows.length) {
+        body.innerHTML = `<tr><td colspan="8"><div class="fl-empty"><div class="fl-empty-icon">✈️</div>
+            <div style="font-weight:700;">No flights yet</div>
+            <div style="margin-top:0.35rem;font-size:0.85rem;">Add one with its flight number and date${LOOKUP_ON ? ', and Roamly fills in the rest' : ''}.</div></div></td></tr>`;
+        return;
+    }
+    body.innerHTML = rows.map(f => `<tr data-id="${f.id}">
+        <td>${esc(new Date(f.date + 'T00:00').toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }))}</td>
+        <td class="fl-num">${f.fr24_url ? `<a href="${esc(f.fr24_url)}" target="_blank" rel="noopener noreferrer" title="Open on Flightradar24" onclick="event.stopPropagation()">${esc(f.flight_number)}</a>` : '<span class="fl-sub">–</span>'}</td>
+        <td><span class="fl-route">${esc(code(f, 'dep'))}<span class="fl-arrow">→</span>${esc(code(f, 'arr'))}</span>
+            <div class="fl-sub">${esc(apLabel(f, 'dep'))} → ${esc(apLabel(f, 'arr'))}</div></td>
+        <td>${esc(f.airline_name) || '<span class="fl-sub">–</span>'}</td>
+        <td>${esc(f.aircraft_model) || '<span class="fl-sub">–</span>'}${f.registration ? `<div class="fl-sub">${esc(f.registration)}</div>` : ''}</td>
+        <td>${fmtDur(durationMin(f))}</td>
+        <td>${fmtDist(f.distance_km)}</td>
+        <td>${esc(f.seat) || '<span class="fl-sub">–</span>'}${f.seat_class ? `<div class="fl-sub">${esc(f.seat_class)}</div>` : ''}</td>
+    </tr>`).join('');
+    body.querySelectorAll('tr[data-id]').forEach(tr =>
+        tr.addEventListener('click', () => openFlight(flights.find(f => f.id === +tr.dataset.id))));
+}
+
+// ---- Stats ---------------------------------------------------------------
+function tally(rows, keyFn) {
+    const m = new Map();
+    rows.forEach(f => { const k = keyFn(f); if (k) m.set(k, (m.get(k) || 0) + 1); });
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+}
+function bars(id, entries, limit = 8, label = n => `${n} flight${n === 1 ? '' : 's'}`) {
+    const el = document.getElementById(id);
+    if (!entries.length) { el.innerHTML = '<div class="fl-sub">Nothing to show yet.</div>'; return; }
+    const max = entries[0][1];
+    el.innerHTML = entries.slice(0, limit).map(([name, n]) => `<div class="fl-bar-row">
+        <span class="fl-bar-name" title="${esc(name)}">${esc(name)}</span><span class="fl-bar-val">${label(n)}</span>
+        <div class="fl-bar-track"><div class="fl-bar-fill" style="width:${Math.max(2, n / max * 100)}%"></div></div></div>`).join('');
+}
+function renderStats() {
+    const rows = visible();
+    const totalKm = rows.reduce((s, f) => s + (f.distance_km || 0), 0);
+    const totalMin = rows.reduce((s, f) => s + (durationMin(f) || 0), 0);
+    const aps = new Set(), countries = new Set();
+    rows.forEach(f => ['dep', 'arr'].forEach(s => {
+        aps.add(code(f, s));
+        if (f[s + '_country']) countries.add(f[s + '_country']);
+    }));
+    const set = (id, v) => { document.getElementById(id).textContent = v; };
+    set('st-flights', rows.length.toLocaleString());
+    set('st-dist', fmtDist(totalKm));
+    const h = Math.floor(totalMin / 60);
+    set('st-time', totalMin ? (h >= 48 ? `${(totalMin / 1440).toFixed(1)}d` : `${h}h ${Math.round(totalMin % 60)}m`) : '–');
+    set('st-airports', aps.size.toLocaleString());
+    set('st-airlines', new Set(rows.map(f => f.airline_name).filter(Boolean)).size.toLocaleString());
+    set('st-countries', countries.size.toLocaleString());
+    set('st-earth', (totalKm / EARTH_KM).toFixed(2) + '×');
+    set('st-moon', (totalKm / MOON_KM * 100).toFixed(1) + '%');
+
+    // Per year (always over every flight — the year filter would leave one bar).
+    const byYear = tally(flights, f => f.date.slice(0, 4)).sort((a, b) => a[0].localeCompare(b[0]));
+    const maxY = Math.max(1, ...byYear.map(e => e[1]));
+    document.getElementById('st-years').innerHTML = byYear.length ? byYear.map(([y, n]) =>
+        `<div class="fl-year"><div class="fl-year-bar" style="height:${n / maxY * 100}%"><span>${n}</span></div><div class="fl-year-lbl">${y}</div></div>`).join('')
+        : '<div class="fl-sub">Nothing to show yet.</div>';
+
+    const apVisits = new Map();
+    rows.forEach(f => ['dep', 'arr'].forEach(s => {
+        const c = code(f, s), lbl = `${c} · ${apLabel(f, s)}`;
+        apVisits.set(lbl, (apVisits.get(lbl) || 0) + 1);
+    }));
+    bars('st-top-airports', [...apVisits.entries()].sort((a, b) => b[1] - a[1]), 8, n => `${n} visit${n === 1 ? '' : 's'}`);
+    bars('st-top-routes', tally(rows, f => [code(f, 'dep'), code(f, 'arr')].sort().join(' ⇄ ')));
+    bars('st-top-airlines', tally(rows, f => f.airline_name));
+    bars('st-top-aircraft', tally(rows, f => f.aircraft_model));
+    const CLASS = { economy: 'Economy', premium: 'Premium economy', business: 'Business', first: 'First', private: 'Private' };
+    const REASON = { leisure: 'Leisure', business: 'Business', crew: 'Crew', other: 'Other' };
+    bars('st-class', tally(rows, f => CLASS[f.seat_class]));
+    bars('st-reason', tally(rows, f => REASON[f.reason]));
+
+    const withDist = rows.filter(f => f.distance_km != null);
+    const withDur = rows.filter(f => durationMin(f) != null);
+    const desc = f => `${f.flight_number || ''} ${code(f, 'dep')} → ${code(f, 'arr')} · ${f.date}`.trim();
+    const facts = [];
+    if (withDist.length) {
+        const lo = withDist.reduce((a, b) => b.distance_km < a.distance_km ? b : a);
+        const hi = withDist.reduce((a, b) => b.distance_km > a.distance_km ? b : a);
+        facts.push(['Longest flight', `${desc(hi)} · ${fmtDist(hi.distance_km)}`]);
+        facts.push(['Shortest flight', `${desc(lo)} · ${fmtDist(lo.distance_km)}`]);
+        facts.push(['Average distance', fmtDist(totalKm / withDist.length)]);
+    }
+    if (withDur.length) {
+        const hi = withDur.reduce((a, b) => durationMin(b) > durationMin(a) ? b : a);
+        facts.push(['Longest time aloft', `${desc(hi)} · ${fmtDur(durationMin(hi))}`]);
+    }
+    const seats = tally(rows, f => ({ window: 'Window', middle: 'Middle', aisle: 'Aisle' })[f.seat_type]);
+    if (seats.length) facts.push(['Favourite seat', `${seats[0][0]} (${seats[0][1]})`]);
+    document.getElementById('st-records').innerHTML = facts.length
+        ? facts.map(([k, v]) => `<div class="fl-fact"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')
+        : '<div class="fl-sub">Nothing to show yet.</div>';
+    document.getElementById('st-dist-lbl').textContent = isMiles() ? 'miles flown' : 'kilometres flown';
+}
+
+// ---- Map -------------------------------------------------------------------
+// Great-circle path, with longitudes unwrapped so a route over the Pacific is
+// one continuous line instead of a stripe across the whole map.
+function arc(lon1, lat1, lon2, lat2, n = 64) {
+    const r = Math.PI / 180;
+    const p1 = [lat1 * r, lon1 * r], p2 = [lat2 * r, lon2 * r];
+    const d = 2 * Math.asin(Math.sqrt(Math.sin((p2[0] - p1[0]) / 2) ** 2 +
+        Math.cos(p1[0]) * Math.cos(p2[0]) * Math.sin((p2[1] - p1[1]) / 2) ** 2));
+    if (!d) return [[lon1, lat1], [lon2, lat2]];
+    const pts = [];
+    let prev = null;
+    for (let i = 0; i <= n; i++) {
+        const t = i / n, a = Math.sin((1 - t) * d) / Math.sin(d), b = Math.sin(t * d) / Math.sin(d);
+        const x = a * Math.cos(p1[0]) * Math.cos(p1[1]) + b * Math.cos(p2[0]) * Math.cos(p2[1]);
+        const y = a * Math.cos(p1[0]) * Math.sin(p1[1]) + b * Math.cos(p2[0]) * Math.sin(p2[1]);
+        const z = a * Math.sin(p1[0]) + b * Math.sin(p2[0]);
+        let lon = Math.atan2(y, x) / r;
+        const lat = Math.atan2(z, Math.sqrt(x * x + y * y)) / r;
+        if (prev !== null) { while (lon - prev > 180) lon -= 360; while (lon - prev < -180) lon += 360; }
+        prev = lon;
+        pts.push([lon, lat]);
+    }
+    return pts;
+}
+function mapData() {
+    const routes = new Map(), aps = new Map();
+    visible().forEach(f => {
+        if (f.dep_lat == null || f.arr_lat == null) return;
+        const a = code(f, 'dep'), b = code(f, 'arr');
+        const key = [a, b].sort().join('-');
+        const r = routes.get(key) || { f, n: 0, list: [] };
+        r.n++; r.list.push(f);
+        routes.set(key, r);
+        ['dep', 'arr'].forEach(s => {
+            const c = code(f, s);
+            const ap = aps.get(c) || { c, name: f[s + '_name'], city: f[s + '_city'], lat: f[s + '_lat'], lon: f[s + '_lon'], n: 0 };
+            ap.n++;
+            aps.set(c, ap);
+        });
+    });
+    const maxR = Math.max(1, ...[...routes.values()].map(r => r.n));
+    const maxA = Math.max(1, ...[...aps.values()].map(a => a.n));
+    return {
+        lines: { type: 'FeatureCollection', features: [...routes.entries()].map(([key, r]) => ({
+            type: 'Feature',
+            properties: { key, n: r.n, w: r.n / maxR, label: key.replace('-', ' ⇄ ') },
+            geometry: { type: 'LineString', coordinates: arc(r.f.dep_lon, r.f.dep_lat, r.f.arr_lon, r.f.arr_lat) },
+        })) },
+        points: { type: 'FeatureCollection', features: [...aps.values()].map(a => ({
+            type: 'Feature',
+            properties: { c: a.c, name: a.name || '', city: a.city || '', n: a.n, w: a.n / maxA },
+            geometry: { type: 'Point', coordinates: [a.lon, a.lat] },
+        })) },
+        routes,
+    };
+}
+let lastMap = null;
+function renderMap() {
+    lastMap = mapData();
+    flMap.getSource('fl-lines').setData(lastMap.lines);
+    flMap.getSource('fl-aps').setData(lastMap.points);
+    const coords = lastMap.lines.features.flatMap(f => f.geometry.coordinates);
+    if (coords.length) {
+        const b = coords.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
+        flMap.fitBounds(b, { padding: 50, maxZoom: 6, duration: 0 });
+    }
+}
+function initMap() {
+    if (flMap) { flMap.resize(); return; }
+    flMap = new maplibregl.Map({
+        container: 'fl-map',
+        style: {
+            version: 8,
+            sources: { base: {
+                type: 'raster', tileSize: 256, attribution: '&copy; OpenStreetMap &copy; CARTO',
+                tiles: ['https://basemaps.cartocdn.com/' + (theme === 'light' ? 'light_all' : 'dark_all') + '/{z}/{x}/{y}.png{{ CARTO_TILE_QS|escapejs }}'],
+            } },
+            layers: [{ id: 'base', type: 'raster', source: 'base' }],
+        },
+        center: [0, 25], zoom: 1.2, renderWorldCopies: true,
+    });
+    flMap.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+    flMap.on('load', () => {
+        const empty = { type: 'FeatureCollection', features: [] };
+        flMap.addSource('fl-lines', { type: 'geojson', data: empty });
+        flMap.addSource('fl-aps', { type: 'geojson', data: empty });
+        flMap.addLayer({ id: 'fl-lines', type: 'line', source: 'fl-lines',
+            layout: { 'line-cap': 'round' },
+            paint: { 'line-color': '#e8763d',
+                     'line-width': ['interpolate', ['linear'], ['get', 'w'], 0, 1.2, 1, 4],
+                     'line-opacity': ['interpolate', ['linear'], ['get', 'w'], 0, 0.45, 1, 0.95] } });
+        flMap.addLayer({ id: 'fl-aps', type: 'circle', source: 'fl-aps',
+            paint: { 'circle-color': '#6fa3c7', 'circle-stroke-color': '#0e1116', 'circle-stroke-width': 1.5,
+                     'circle-radius': ['interpolate', ['linear'], ['get', 'w'], 0, 4, 1, 10] } });
+        const pop = (e, html) => new maplibregl.Popup({ closeButton: true }).setLngLat(e.lngLat).setHTML(html).addTo(flMap);
+        flMap.on('click', 'fl-aps', e => {
+            const p = e.features[0].properties;
+            pop(e, `<b>${esc(p.c)}</b> · ${esc(p.name)}<br><span class="fl-sub">${esc(p.city)} · ${p.n} visit${p.n == 1 ? '' : 's'}</span>`);
+        });
+        flMap.on('click', 'fl-lines', e => {
+            const p = e.features[0].properties, r = lastMap.routes.get(p.key);
+            const list = (r ? r.list : []).slice(0, 8).map(f => `${esc(f.date)} ${esc(f.flight_number)}`).join('<br>');
+            pop(e, `<b>${esc(p.label)}</b> · ${p.n} flight${p.n == 1 ? '' : 's'}<br><span class="fl-sub">${list}</span>`);
+        });
+        ['fl-aps', 'fl-lines'].forEach(id => {
+            flMap.on('mouseenter', id, () => { flMap.getCanvas().style.cursor = 'pointer'; });
+            flMap.on('mouseleave', id, () => { flMap.getCanvas().style.cursor = ''; });
+        });
+        flMapReady = true;
+        renderMap();
+    });
+}
+
+// ---- Tabs ------------------------------------------------------------------
+function showTab(name) {
+    if (!['list', 'map', 'stats'].includes(name)) name = 'list';
+    document.querySelectorAll('.pill-tabs .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+    ['list', 'map', 'stats'].forEach(t => { document.getElementById('pane-' + t).hidden = t !== name; });
+    history.replaceState(null, '', '#' + name);
+    if (name === 'map') initMap();
+}
+document.querySelectorAll('.pill-tabs .tab-btn').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+
+// ---- Add / edit -------------------------------------------------------------
+const F = id => document.getElementById(id);
+function utcToLocalInput(iso, tz) {
+    if (!iso) return '';
+    try {
+        const parts = new Intl.DateTimeFormat('en-CA', { timeZone: tz || 'UTC', year: 'numeric', month: '2-digit',
+            day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(iso));
+        const g = t => parts.find(p => p.type === t).value;
+        return `${g('year')}-${g('month')}-${g('day')}T${g('hour')}:${g('minute')}`;
+    } catch (e) { return ''; }
+}
+function fillForm(f) {
+    F('f-number').value = f.flight_number || '';
+    F('f-date').value = f.date || '';
+    setAirport('dep', f);
+    setAirport('arr', f);
+    const loc = (field, side) => f[field + '_local'] ?? utcToLocalInput(f[field], f[side + '_tz']);
+    F('f-sched-dep').value = loc('sched_dep', 'dep');
+    F('f-sched-arr').value = loc('sched_arr', 'arr');
+    F('f-actual-dep').value = loc('actual_dep', 'dep');
+    F('f-actual-arr').value = loc('actual_arr', 'arr');
+    F('f-airline').value = f.airline_name || '';
+    F('f-aircraft').value = f.aircraft_model || '';
+    F('f-reg').value = f.registration || '';
+    if (f.seat !== undefined) F('f-seat').value = f.seat || '';
+    if (f.seat_class !== undefined) F('f-class').value = f.seat_class || '';
+    if (f.seat_type !== undefined) F('f-seat-type').value = f.seat_type || '';
+    if (f.reason !== undefined) F('f-reason').value = f.reason || '';
+    if (f.notes !== undefined) F('f-notes').value = f.notes || '';
+}
+function setStatus(text, kind) {
+    const el = F('f-status');
+    el.textContent = text || '';
+    el.style.color = kind === 'error' ? 'var(--danger)' : kind === 'ok' ? 'var(--success)' : 'var(--text-muted)';
+}
+function openFlight(f) {
+    editing = f;
+    pendingLeg = null;
+    F('fl-modal-title').textContent = f ? 'Edit flight' : 'Add flight';
+    F('f-legs').innerHTML = '';
+    setStatus('');
+    ['f-seat', 'f-notes'].forEach(id => { F(id).value = ''; });
+    ['f-class', 'f-seat-type', 'f-reason'].forEach(id => { F(id).value = ''; });
+    fillForm(f || { date: new Date().toISOString().slice(0, 10) });
+    F('f-delete').hidden = !f;
+    F('f-fr24').hidden = !(f && f.fr24_url);
+    if (f && f.fr24_url) F('f-fr24').href = f.fr24_url;
+    F('fl-overlay').classList.add('open');
+    loadAirports();
+    setTimeout(() => F('f-number').focus(), 30);
+}
+function closeFlight() { F('fl-overlay').classList.remove('open'); }
+F('fl-overlay').addEventListener('mousedown', e => { if (e.target.id === 'fl-overlay') closeFlight(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && F('fl-overlay').classList.contains('open')) closeFlight(); });
+
+function applyLeg(leg) {
+    pendingLeg = leg;
+    fillForm(leg);
+    F('f-legs').innerHTML = '';
+    setStatus(`Filled in from AeroDataBox${leg.status ? ' (' + leg.status + ')' : ''}. Check it over, then save.`, 'ok');
+}
+async function lookupFlight() {
+    const number = F('f-number').value.replace(/\s+/g, '').toUpperCase(), date = F('f-date').value;
+    if (!number || !date) { setStatus('Enter the flight number and date first.', 'error'); return; }
+    const btn = F('f-lookup');
+    btn.disabled = true;
+    setStatus('Looking up…');
+    F('f-legs').innerHTML = '';
+    try {
+        const r = await fetch(`/api/flights/lookup/?number=${encodeURIComponent(number)}&date=${encodeURIComponent(date)}`);
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { setStatus(d.error || 'Lookup failed.', 'error'); return; }
+        const legs = d.legs || [];
+        if (!legs.length) { setStatus(`No flight ${number} found on ${date}. You can still fill it in by hand.`, 'error'); return; }
+        if (legs.length === 1) { applyLeg(legs[0]); return; }
+        // A flight number with stops comes back as one leg per segment.
+        setStatus('This flight has several legs. Pick yours:');
+        F('f-legs').innerHTML = legs.map((l, i) => `<button class="fl-leg" data-i="${i}">
+            <b>${esc(l.dep_iata || l.dep_icao)} → ${esc(l.arr_iata || l.arr_icao)}</b>
+            <span class="fl-sub">${esc(l.dep_city)} → ${esc(l.arr_city)} · ${esc(utcToLocalInput(l.sched_dep, l.dep_tz).replace('T', ' '))}</span></button>`).join('');
+        F('f-legs').querySelectorAll('.fl-leg').forEach(b => b.addEventListener('click', () => applyLeg(legs[+b.dataset.i])));
+    } catch (e) {
+        setStatus('Lookup failed. Check your connection.', 'error');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function saveFlight() {
+    const dep = airportCode('dep'), arr = airportCode('arr');
+    if (!F('f-date').value) { setStatus('A date is required.', 'error'); return; }
+    if (!dep || !arr) { setStatus('Pick both airports (type a code like JFK, or search by city).', 'error'); return; }
+    const body = {
+        flight_number: F('f-number').value,
+        date: F('f-date').value,
+        sched_dep_local: F('f-sched-dep').value, sched_arr_local: F('f-sched-arr').value,
+        actual_dep_local: F('f-actual-dep').value, actual_arr_local: F('f-actual-arr').value,
+        airline_name: F('f-airline').value, aircraft_model: F('f-aircraft').value,
+        registration: F('f-reg').value, seat: F('f-seat').value, seat_class: F('f-class').value,
+        seat_type: F('f-seat-type').value, reason: F('f-reason').value, notes: F('f-notes').value,
+    };
+    // Airport detail: the lookup's own record where the code still matches it,
+    // the stored one when editing an unchanged airport, else just the code and
+    // the server fills it from the airport dataset.
+    for (const [side, c] of [['dep', dep], ['arr', arr]]) {
+        const src = [pendingLeg, editing].find(s => s && (s[side + '_iata'] === c || s[side + '_icao'] === c));
+        if (src) ['iata', 'icao', 'name', 'city', 'country', 'lat', 'lon', 'tz'].forEach(k => { body[`${side}_${k}`] = src[`${side}_${k}`]; });
+        else body[c.length === 4 ? `${side}_icao` : `${side}_iata`] = c;
+    }
+    if (pendingLeg) {
+        body.source = 'aerodatabox';
+        ['airline_iata', 'airline_icao'].forEach(k => { body[k] = pendingLeg[k]; });
+    } else if (editing) {
+        body.source = editing.source;
+        ['airline_iata', 'airline_icao'].forEach(k => { body[k] = editing[k]; });
+    }
+    const btn = F('f-save');
+    btn.disabled = true;
+    try {
+        const url = editing ? `/api/flights/${editing.id}/update/` : '/api/flights/';
+        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF }, body: JSON.stringify(body) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { setStatus(d.error || 'Could not save.', 'error'); return; }
+        closeFlight();
+        roamlyToast(editing ? 'Flight updated.' : 'Flight added.');
+        await loadFlights();
+    } catch (e) {
+        setStatus('Could not save. Check your connection.', 'error');
+    } finally {
+        btn.disabled = false;
+    }
+}
+async function deleteFlight() {
+    if (!editing) return;
+    if (!await roamlyConfirm('Delete this flight from your log?', { danger: true, confirmText: 'Delete' })) return;
+    const r = await fetch(`/api/flights/${editing.id}/delete/`, { method: 'POST', headers: { 'X-CSRFToken': CSRF } });
+    if (!r.ok) { roamlyToast('Could not delete the flight.', { type: 'error' }); return; }
+    closeFlight();
+    roamlyToast('Flight deleted.');
+    await loadFlights();
+}
+
+F('f-number').addEventListener('keydown', e => { if (e.key === 'Enter' && LOOKUP_ON) { e.preventDefault(); lookupFlight(); } });
+document.getElementById('fl-year').addEventListener('change', renderAll);
+wireAirport('dep');
+wireAirport('arr');
+showTab((location.hash || '#list').slice(1));
+loadFlights();
+</script>
+{% endblock %}
