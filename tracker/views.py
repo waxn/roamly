@@ -1266,7 +1266,7 @@ def _client_ip(request):
     return parts[-n]
 
 
-def _rate_limit_ids(request, identifier=''):
+def _rate_limit_ids(request, identifier='', include_ip=True):
     """The counters an attempt should be charged against.
 
     An IP alone is not enough even with the header fixed — a botnet has many.
@@ -1274,7 +1274,7 @@ def _rate_limit_ids(request, identifier=''):
     is throttled wherever it comes from, and that counter is not something a
     request header can reset.
     """
-    ids = [f'ip:{_client_ip(request)}']
+    ids = [f'ip:{_client_ip(request)}'] if include_ip else []
     ident = (identifier or '').strip().lower()[:150]
     if ident:
         ids.append(f'id:{ident}')
@@ -1298,13 +1298,17 @@ def _log_action(request, action, description='', user=None):
         pass
 
 
-def _rate_limited(request, scope, limit, window_s, identifier=''):
+def _rate_limited(request, scope, limit, window_s, identifier='', include_ip=True):
     """Return True if this client has already made `limit` requests to `scope`
     within the trailing `window_s` seconds. IP-keyed, cache-backed (Redis in
     prod, LocMem in dev). Fails **open** — a cache hiccup must never lock users
-    out of signing in. Call once per request that should count toward the limit."""
+    out of signing in. Call once per request that should count toward the limit.
+
+    include_ip=False charges only the identifier's counter, for a limit that is
+    about the identifier alone (e.g. mail to one recipient) and must not also
+    cap everyone behind the same IP at that number."""
     limited = False
-    for ident in _rate_limit_ids(request, identifier):
+    for ident in _rate_limit_ids(request, identifier, include_ip):
         key = f'ratelimit:{scope}:{ident}'
         try:
             cache.add(key, 0, window_s)  # arm the window on the first hit (no-op after)
@@ -6602,6 +6606,15 @@ def trip_invite_email_api(request, trip_id):
         return JsonResponse({"error": "A valid email is required"}, status=400)
     if not email_enabled():
         return JsonResponse({"error": "Email isn't configured on this server — share the link instead."}, status=400)
+    # Generous enough never to bother someone inviting a group, tight enough
+    # that the instance's SMTP can't be turned into a mailer for arbitrary
+    # addresses with attacker-written adventure names in the subject.
+    if _rate_limited(request, 'invite_email', 30, 3600,
+                     identifier=f'user:{request.user.id}'):
+        return JsonResponse({"error": "That's a lot of invites — try again in an hour, or share the link instead."}, status=429)
+    if _rate_limited(request, 'invite_email_to', 5, 3600,
+                     identifier=email.lower(), include_ip=False):
+        return JsonResponse({"error": "This address has already been sent several invites in the last hour."}, status=429)
     _ensure_invite_token(trip)
     url = request.build_absolute_uri(f"/adventure/join/{trip.invite_token}/")
     ok = send_invite_email(email, trip.name, url, request.user.username)
