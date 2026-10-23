@@ -1325,14 +1325,14 @@
                 <li><a href="{% url 'tracker:search' %}" class="{% if request.resolver_match.url_name == 'search' %}active{% endif %}">Search</a></li>
                 {% if AI_ASK_ENABLED %}<li><a href="{% url 'tracker:ask' %}" class="{% if request.resolver_match.url_name == 'ask' %}active{% endif %}">Ask</a></li>{% endif %}
                 <li class="nav-dropdown">
-                    <button type="button" class="navbar-nav-toggle {% if request.resolver_match.url_name == 'stats' or request.resolver_match.url_name == 'visits' or request.resolver_match.url_name == 'data' %}active{% endif %}" aria-haspopup="true" aria-expanded="false" aria-controls="insights-menu">
-                        Insights
+                    <button type="button" class="navbar-nav-toggle {% if request.resolver_match.url_name == 'stats' or request.resolver_match.url_name == 'visits' or request.resolver_match.url_name == 'data' or request.resolver_match.url_name == 'cells' or request.resolver_match.url_name == 'editor' or request.resolver_match.url_name == 'flights' %}active{% endif %}" aria-haspopup="true" aria-expanded="false" aria-controls="data-menu">
+                        Data
                         <svg class="nav-caret" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                     </button>
-                    <div class="nav-dropdown-menu" id="insights-menu" role="menu">
+                    <div class="nav-dropdown-menu" id="data-menu" role="menu">
                         <a role="menuitem" href="{% url 'tracker:stats' %}" class="{% if request.resolver_match.url_name == 'stats' %}active{% endif %}">Stats</a>
                         <a role="menuitem" href="{% url 'tracker:visits' %}" class="{% if request.resolver_match.url_name == 'visits' %}active{% endif %}">Visits</a>
-                        <a role="menuitem" href="{% url 'tracker:data' %}" class="{% if request.resolver_match.url_name == 'data' %}active{% endif %}">Data</a>
+                        <a role="menuitem" href="{% url 'tracker:data' %}" class="{% if request.resolver_match.url_name == 'data' %}active{% endif %}">Raw data</a>
                         <a role="menuitem" href="{% url 'tracker:cells' %}" class="{% if request.resolver_match.url_name == 'cells' %}active{% endif %}">Cell signal</a>
                         {% comment %} The map editor was linked only from Diagnostics and a
                            Settings card, so a whole feature was effectively
@@ -1429,7 +1429,7 @@
         // so the tour — which spans real page loads, not a single modal — can
         // find its place again after each navigation. `pending` mirrors
         // UserProfile.intro_seen server-side; the step list order matches the
-        // main nav grouping (content pages, then Insights, then Settings last).
+        // main nav grouping (content pages, then the Data menu, then Settings last).
         window.__RLY_INTRO__ = {
             pending: {{ INTRO_PENDING|yesno:"true,false" }},
             steps: [
@@ -2509,7 +2509,7 @@
             document.querySelector('meta[name="theme-color"]').content = theme === 'light' ? '#f2efe4' : '#14160f';
         })();
 
-        // Nav dropdowns (Insights + user menu)
+        // Nav dropdowns (Data + user menu)
         (function() {
             const dropdowns = Array.from(document.querySelectorAll('.nav-dropdown'));
             if (!dropdowns.length) return;
