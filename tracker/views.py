@@ -2175,6 +2175,45 @@ def site_turnstile_api(request):
 
 @login_required
 @require_http_methods(["POST"])
+def site_aerodatabox_api(request):
+    """Save (or, with {"test": true}, try) the AeroDataBox config. Admins only.
+
+    The key is masked on render and only overwritten when the submitted value
+    differs from the mask; a blank submission clears it. Same convention as
+    turnstile_secret_key.
+    """
+    from . import flight_lookup
+    err = _require_admin(request)
+    if err:
+        return err
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+
+    config = SiteConfig.load()
+    if data.get('test'):
+        if not flight_lookup.configured(config):
+            return JsonResponse({'ok': False, 'error': 'Save a key first.'})
+        # Any well-known flight will do: what matters is that the key is
+        # accepted. "No such flight today" still proves it, so only an error
+        # message counts as a failure. Uncached, so this spends one call.
+        legs, lerr = flight_lookup.lookup(config, 'BA117', timezone.localdate().isoformat(),
+                                          use_cache=False)
+        return JsonResponse({'ok': lerr is None, 'error': lerr, 'legs': len(legs)})
+
+    prov = data.get('aerodatabox_provider')
+    if prov in flight_lookup.PROVIDERS:
+        config.aerodatabox_provider = prov
+    key = (data.get('aerodatabox_key') or '').strip()
+    if key != _AI_KEY_MASK:
+        config.aerodatabox_key = key[:255]
+    config.save(update_fields=['aerodatabox_provider', 'aerodatabox_key', 'updated_at'])
+    return JsonResponse({'ok': True, 'configured': flight_lookup.configured(config)})
+
+
+@login_required
+@require_http_methods(["POST"])
 def site_carto_api(request):
     """Save the instance's CARTO basemap API key. Admins only.
 
@@ -12084,6 +12123,8 @@ def admin_panel_view(request):
         'site_carto_api_key': site_config.carto_api_key,
         'site_fcm_project_id': site_config.fcm_project_id,
         'site_fcm_configured': bool(site_config.fcm_service_account_json),
+        'site_aerodatabox_provider': site_config.aerodatabox_provider,
+        'site_aerodatabox_set': bool(site_config.aerodatabox_key),
         'auto_download_roads': site_config.auto_download_roads,
         'auto_download_subway': site_config.auto_download_subway,
         'auto_download_pois': site_config.auto_download_pois,
@@ -17001,7 +17042,33 @@ def _flight_json(request):
 
 @login_required
 def flights_view(request):
-    return render(request, 'tracker/flights.html')
+    from . import flight_lookup
+    return render(request, 'tracker/flights.html', {
+        # Only whether lookup works — the key itself never reaches a template.
+        'FLIGHT_LOOKUP_ENABLED': flight_lookup.configured(SiteConfig.load()),
+    })
+
+
+@login_required
+def flight_lookup_api(request):
+    """AeroDataBox legs for ?number=&date=. Saves nothing."""
+    from . import flight_lookup
+    num = re.sub(r'\s+', '', (request.GET.get('number') or '').upper())
+    if not _FLIGHT_NO_RE.match(num):
+        return JsonResponse({'error': 'Enter a flight number like UA123.'}, status=400)
+    try:
+        day = date.fromisoformat((request.GET.get('date') or '').strip())
+    except ValueError:
+        return JsonResponse({'error': 'Enter the departure date.'}, status=400)
+    # Per account, not per IP: the quota being protected is the instance's.
+    if _rate_limited(request, 'flight_lookup', 30, 86400,
+                     identifier=str(request.user.id), include_ip=False):
+        return JsonResponse({'error': 'Lookup limit reached for today. Fill the flight in by hand.'},
+                            status=429)
+    legs, err = flight_lookup.lookup(SiteConfig.load(), num, day.isoformat())
+    if err:
+        return JsonResponse({'error': err}, status=502)
+    return JsonResponse({'legs': legs})
 
 
 @login_required

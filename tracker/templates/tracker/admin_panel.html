@@ -30,6 +30,7 @@
         <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('basemaps',this)">Basemaps</button>
         <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('downloads',this)">Downloads</button>
         <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('push-notifications',this)">Push Notifications</button>
+        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('flight-data',this)">Flight data</button>
     </div>
 
     <!-- ── Monitoring tab ── -->
@@ -621,6 +622,34 @@
             </div>
         </div>
     </div>
+
+    <div id="tab-flight-data" style="display:none;">
+        <div class="card" style="transition:none;">
+            <div class="card-header">AeroDataBox flight lookup</div>
+            <p class="settings-section-desc">
+                Lets everyone on this instance fill in a flight on the <strong>Flights</strong> page from just its number and date: airports, times, airline, aircraft and registration. Subscribe to AeroDataBox on <a href="https://rapidapi.com/aedbx-aedbx/api/aerodatabox" target="_blank" rel="noopener">RapidAPI</a> or <a href="https://api.market/store/aedbx/aerodatabox" target="_blank" rel="noopener">API.Market</a> (both have a small free tier) and paste the key here. Each looked-up flight is cached for 30 days, and each account is limited to 30 lookups a day so one person can't spend the quota. Without a key, flights are entered by hand.
+            </p>
+            <div class="form-group">
+                <label for="adb-provider">Provider</label>
+                <select id="adb-provider" class="form-control" style="max-width:240px;">
+                    <option value="rapidapi"{% if site_aerodatabox_provider == 'rapidapi' %} selected{% endif %}>RapidAPI</option>
+                    <option value="apimarket"{% if site_aerodatabox_provider == 'apimarket' %} selected{% endif %}>API.Market</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="adb-key">API key</label>
+                <input type="password" id="adb-key" class="form-control" autocomplete="off"
+                    value="{% if site_aerodatabox_set %}••••••••{% endif %}" placeholder="paste your AeroDataBox key"
+                    style="max-width:420px;font-family:var(--font-mono);font-size:0.8125rem;">
+            </div>
+            <p class="settings-section-desc" style="margin-top:-0.35rem;">Clear the field and save to turn lookup off. <strong>Test</strong> spends one API call.</p>
+            <div class="settings-actions" style="margin-top:0.75rem;">
+                <button class="btn btn-primary btn-sm" onclick="saveAdbConfig()">Save</button>
+                <button class="btn btn-outline btn-sm" onclick="testAdbConfig()">Test</button>
+                <span id="adb-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -765,7 +794,7 @@
 {% block extra_js %}
 <script>
 // ── Tab switching ──────────────────────────────────────────────────────────
-const TABS = ['monitoring','access-log','events','retention','users','custom-js','contact','captcha','basemaps','downloads','push-notifications'];
+const TABS = ['monitoring','access-log','events','retention','users','custom-js','contact','captcha','basemaps','downloads','push-notifications','flight-data'];
 const _loaded = {};
 function showTab(name, btn) {
     TABS.forEach(t => {
@@ -1664,6 +1693,37 @@ async function saveFcmConfig() {
     st.style.color = r.ok ? 'var(--success)' : 'var(--danger)';
     if (r.ok) document.getElementById('fcm-project-id').value = d.fcm_project_id || '';
     setTimeout(()=>{ st.textContent=''; }, 4000);
+}
+
+// ── AeroDataBox (Flights lookup) ────────────────────────────────────────────
+async function _adbPost(body) {
+    const r = await fetch('/api/site/aerodatabox/', {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
+        body: JSON.stringify(body),
+    });
+    let d = {}; try { d = await r.json(); } catch(e) {}
+    return [r, d];
+}
+function _adbStatus(text, ok) {
+    const st = document.getElementById('adb-status');
+    st.textContent = text;
+    st.style.color = ok === undefined ? 'var(--text-muted)' : (ok ? 'var(--success)' : 'var(--danger)');
+}
+async function saveAdbConfig() {
+    _adbStatus('Saving…');
+    const [r, d] = await _adbPost({
+        aerodatabox_provider: document.getElementById('adb-provider').value,
+        aerodatabox_key: document.getElementById('adb-key').value.trim(),
+    });
+    if (!r.ok) return _adbStatus(d.error || 'Error saving.', false);
+    _adbStatus(d.configured ? 'Saved. Lookup is on.' : 'Saved. Lookup is off.', true);
+    if (d.configured) document.getElementById('adb-key').value = '••••••••';
+}
+async function testAdbConfig() {
+    _adbStatus('Testing…');
+    const [r, d] = await _adbPost({ test: true });
+    if (r.ok && d.ok) _adbStatus('The key works.', true);
+    else _adbStatus(d.error || 'Test failed.', false);
 }
 
 // ── Downloads (road / subway / POI — instance-wide, admin-only) ─────────────

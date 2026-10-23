@@ -254,6 +254,7 @@ urlpatterns = [
     path('api/cells/insights/', views.cell_insights_api, name='cell_insights_api'),
     path('api/cells/', views.cell_samples_api, name='cell_samples_api'),
     path('api/flights/', views.flights_api, name='flights_api'),
+    path('api/flights/lookup/', views.flight_lookup_api, name='flight_lookup'),
     path('api/flights/<int:flight_id>/update/', views.flight_update_api, name='flight_update'),
     path('api/flights/<int:flight_id>/delete/', views.flight_delete_api, name='flight_delete'),
 
@@ -271,6 +272,7 @@ urlpatterns = [
     path('api/site/contact-email/', views.site_contact_email_api, name='site_contact_email'),
     path('api/site/turnstile/', views.site_turnstile_api, name='site_turnstile'),
     path('api/site/carto/', views.site_carto_api, name='site_carto'),
+    path('api/site/aerodatabox/', views.site_aerodatabox_api, name='site_aerodatabox'),
     path('api/site/basemaps/', views.site_basemaps_api, name='site_basemaps'),
     path('api/site/fcm/', views.site_fcm_api, name='site_fcm'),
     path('api/site/auto-download/', views.site_auto_download_api, name='site_auto_download'),

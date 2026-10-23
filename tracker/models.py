@@ -1491,6 +1491,13 @@ class SiteConfig(models.Model):
     # save time so push_tasks.py doesn't need to re-parse it on every send.
     fcm_project_id = models.CharField(max_length=200, blank=True, default='')
     fcm_service_account_json = models.TextField(blank=True, default='')
+    # AeroDataBox, for filling in a flight from its number + date on the Flights
+    # page. A paid server-side key, so masked like turnstile_secret_key and never
+    # sent to a template — templates only learn whether lookup is available.
+    # Provider picks the gateway (RapidAPI or API.Market). Config ⇒ not backed up.
+    aerodatabox_provider = models.CharField(max_length=12, default='rapidapi',
+                                            choices=[('rapidapi', 'RapidAPI'), ('apimarket', 'API.Market')])
+    aerodatabox_key = models.CharField(max_length=255, blank=True, default='')
     updated_at = models.DateTimeField(auto_now=True)
 
     @classmethod
