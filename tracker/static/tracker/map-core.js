@@ -217,6 +217,22 @@ function formatSpeed(mps) {
     return `${(mps * 3.6).toFixed(1)} km/h`;
 }
 
+// One popup for the whole page. Layer click handlers get re-registered whenever
+// a layer is rebuilt (a filter change, a basemap swap), and the decimated track
+// and the detail dots draw the same fix above DETAIL_MIN_ZOOM — so a single
+// click could fire several handlers and stack identical popups, where closing
+// one only revealed the next. Replacing a shared instance makes that harmless.
+let _pointPopup = null;
+function openPointPopup(coords, html) {
+    // A page with its own click semantics (the editor's placing tools) can veto.
+    const veto = ROAMLY_MAP_HOOKS.suppressPopup;
+    if (typeof veto === 'function' && veto()) return;
+    if (_pointPopup) _pointPopup.remove();
+    _pointPopup = new maplibregl.Popup({ offset: 10, maxWidth: '280px' })
+        .setLngLat(coords).setHTML(html).addTo(map);
+    _pointPopup.on('close', () => { _pointPopup = null; });
+}
+
 function showPointPopup(pt, coords) {
     const ts = new Date(pt.ts * 1000);
     let html = `<strong>${pt.device_name || 'Unknown'}</strong><br>`;
@@ -226,7 +242,7 @@ function showPointPopup(pt, coords) {
     if (pt.country) html += `<br>${pt.country}`;
     const spd = formatSpeed(pt.speed);
     if (spd) html += `<br><span style="color:var(--text-muted)">${spd}</span>`;
-    new maplibregl.Popup({ offset: 10 }).setLngLat(coords).setHTML(html).addTo(map);
+    openPointPopup(coords, html);
 }
 
 // ── Filter params ──
@@ -468,6 +484,7 @@ function suspectCount() {
     return n;
 }
 
+let _accHandlersBound = false;
 function initAccLayers() {
     if (map.getSource(ACC_SOURCE_ID)) return;
 
@@ -553,6 +570,8 @@ function initAccLayers() {
         }
     });
 
+    if (_accHandlersBound) return;
+    _accHandlersBound = true;
     map.on('click', ACC_DOTS_LAYER, e => {
         const p = e.features[0].properties;
         const ts = p.timestamp ? new Date(p.timestamp) : null;
@@ -570,10 +589,7 @@ function initAccLayers() {
             html += '<br><span style="color:#a78bda">snapped to road — display only, '
                  + 'the recorded position is unchanged</span>';
         }
-        new maplibregl.Popup({ offset: 10 })
-            .setLngLat(e.features[0].geometry.coordinates.slice())
-            .setHTML(html)
-            .addTo(map);
+        openPointPopup(e.features[0].geometry.coordinates.slice(), html);
     });
     map.on('mouseenter', ACC_DOTS_LAYER, () => map.getCanvas().style.cursor = 'pointer');
     map.on('mouseleave', ACC_DOTS_LAYER, () => map.getCanvas().style.cursor = '');
@@ -782,6 +798,7 @@ async function fetchAndFocusSelected(id, dateStr) {
     }
 }
 
+const _trackDotHandlers = new Set();
 function renderTrack(devices, autoFit) {
     lastTrackData = devices || [];
     clearTrackLayers();
@@ -861,11 +878,16 @@ function renderTrack(devices, autoFit) {
             }
         });
 
-        map.on('click', `${srcId}-dots`, e => {
-            showPointPopup(e.features[0].properties, e.features[0].geometry.coordinates.slice());
-        });
-        map.on('mouseenter', `${srcId}-dots`, () => map.getCanvas().style.cursor = 'pointer');
-        map.on('mouseleave', `${srcId}-dots`, () => map.getCanvas().style.cursor = '');
+        // Delegated layer listeners outlive the layer and don't dedupe, so
+        // register once per layer id rather than once per render.
+        if (!_trackDotHandlers.has(`${srcId}-dots`)) {
+            _trackDotHandlers.add(`${srcId}-dots`);
+            map.on('click', `${srcId}-dots`, e => {
+                showPointPopup(e.features[0].properties, e.features[0].geometry.coordinates.slice());
+            });
+            map.on('mouseenter', `${srcId}-dots`, () => map.getCanvas().style.cursor = 'pointer');
+            map.on('mouseleave', `${srcId}-dots`, () => map.getCanvas().style.cursor = '');
+        }
     });
 
     if (autoFit && minLng !== Infinity) {
@@ -1122,7 +1144,7 @@ function showDwellPopup(p, coords) {
           + `${Number(p.point_count).toLocaleString()} points</span>`;
     if (p.start) html += `<br><span style="color:var(--text-muted)">${new Date(p.start).toLocaleString()}</span>`;
     html += `<br><span style="color:var(--text-muted)">click ${expanded ? 'again to collapse' : 'to see the raw track'}</span>`;
-    new maplibregl.Popup({ offset: 10 }).setLngLat(coords).setHTML(html).addTo(map);
+    openPointPopup(coords, html);
 }
 
 function collapseDwellExpand() {

@@ -73,6 +73,30 @@
     z-index:20; transition:width .3s ease, opacity .3s ease; opacity:0; }
 #map-loading-bar.active { width:70%; opacity:1; }
 
+/* Popup theming — the same plate /map/ uses, so a clicked point reads the same here. */
+.maplibregl-popup-content {
+    background: var(--bg-card) !important; color: var(--text) !important;
+    border: 1px solid var(--border) !important; border-radius:0 !important;
+    padding: 12px 34px 12px 12px !important; font-size: 0.8125rem;
+    font-family: var(--font-body) !important; font-weight: 700 !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip { border-top-color: var(--bg-card) !important; }
+.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-right .maplibregl-popup-tip { border-bottom-color: var(--bg-card) !important; }
+.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--bg-card) !important; }
+.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--bg-card) !important; }
+.maplibregl-popup-close-button {
+    color: var(--text-muted) !important; width: 28px; height: 28px; line-height: 28px;
+    font-size: 1.25rem; font-weight: 700; border-radius:0;
+    top: 6px; right: 6px; background: rgba(0, 0, 0, 0.08);
+}
+.maplibregl-popup-close-button:hover { color: var(--text) !important; background: rgba(255,255,255,0.08); }
+.maplibregl-map, .maplibregl-ctrl { font-family: var(--font-body) !important; font-weight: 700 !important; }
+
 .ed-box { position:absolute; border:1px dashed var(--primary); background:rgba(232,118,61,0.12);
     pointer-events:none; z-index:9; display:none; }
 {% endblock %}
@@ -391,6 +415,9 @@ function repaintSel() {
 }
 // The core repaints dots whenever new ones arrive; keep the highlight on top.
 ROAMLY_MAP_HOOKS.onPointsPainted = [() => repaintSel()];
+// While a placing tool is open a click means "here", not "tell me about this
+// point" — a popup would cover the spot just clicked.
+ROAMLY_MAP_HOOKS.suppressPopup = () => mode !== null;
 
 // ── Selection ───────────────────────────────────────────────────────────────
 function pickableLayers() {
