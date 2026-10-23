@@ -1,6 +1,6 @@
 import io
 import uuid
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from django.core.files.uploadedfile import InMemoryUploadedFile
 
 
@@ -13,21 +13,35 @@ from django.core.files.uploadedfile import InMemoryUploadedFile
 # actually accept: 50MP is comfortably above any real phone camera.
 Image.MAX_IMAGE_PIXELS = 50_000_000
 
+# The only decoders an upload is allowed to reach. Image.open() otherwise tries
+# every format Pillow knows — TIFF, EPS (which shells out to Ghostscript), PDF,
+# SPIDER, MSP, MIC… — and the Pillow 13.0.0 advisory batch (Oct 2026) was almost
+# entirely in those rarely-used decoders. A phone or browser only ever uploads
+# these. MPO (multi-picture JPEG) is left out on purpose: its multi-frame seek
+# bypassed the decompression-bomb check (GHSA-p8hx-v2p6-rp84).
+ALLOWED_FORMATS = ('JPEG', 'PNG', 'WEBP', 'GIF', 'BMP')
+
 
 class ImageTooLarge(ValueError):
     """Raised for an image whose declared dimensions are implausible."""
 
 
+class UnsupportedImage(ValueError):
+    """Raised for a file that is not one of ALLOWED_FORMATS."""
+
+
 def _open_guarded(image_field):
     """Image.open + convert('RGB'), refusing decompression bombs."""
     try:
-        img = Image.open(image_field)
+        img = Image.open(image_field, formats=ALLOWED_FORMATS)
         img.load()
         return img.convert('RGB')
     except Image.DecompressionBombError as exc:
         raise ImageTooLarge('That image is too large to process.') from exc
     except Image.DecompressionBombWarning as exc:
         raise ImageTooLarge('That image is too large to process.') from exc
+    except UnidentifiedImageError as exc:
+        raise UnsupportedImage('Unsupported image format.') from exc
 
 
 def resize_image(image_field, max_size, quality=85):

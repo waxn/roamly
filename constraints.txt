@@ -21,7 +21,7 @@ whitenoise==6.12.0
 psycopg2-binary==2.9.13
 dj-database-url==3.1.2
 django-cors-headers==4.9.0
-Pillow==12.3.0
+Pillow==13.0.0
 boto3==1.43.95
 django-redis==7.0.0
 # Held below 2.4.0 on purpose — see the note in requirements.txt (commit ba00fdb).
