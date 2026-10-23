@@ -92,6 +92,11 @@ each of which reads as an oversight unless the reason travels with it:
   picking a different offline country DB, not upgrading this one.
 - **MapLibre GL JS stays on v5** (vendored, 5.24.0 — the *final* 5.x, not a
   stale pin). See the Globe entry under Map tools for why v6 is not a bump.
+  **The vendored file carries a local patch**: `DOM.removeAttributes` iterates
+  `Array.from(e.attributes)` rather than the live `NamedNodeMap`, backporting
+  the fix for GHSA-jrc7-96c5-q579 (the attribution sanitizer skipped the
+  attribute after each one it removed, so `<details open ontoggle=…>` survived;
+  fixed upstream only in 6.4.1). Replacing the file drops the patch — re-apply it.
 
 **Android:** `kotlin` is pinned to the 2.3 line by **KSP**, which has no 2.4.x
 release and which both Hilt and Room run through. `okhttp` stays on 4.x
