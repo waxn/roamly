@@ -1,6 +1,7 @@
 import base64
 import csv
 import gzip
+import zlib
 import io
 import json
 import secrets
@@ -8159,13 +8160,15 @@ def restore_backup(request):
             # Old downloads were served gzipped over the wire; a client that
             # saved the compressed bytes without inflating them still restores.
             if raw[:2] == b'\x1f\x8b':
-                raw = gzip.decompress(raw)
+                raw = _gunzip_capped(raw, _RESTORE_MAX_JSON_BYTES)
             data = json.loads(raw.decode('utf-8-sig'))
             locations_iter = data.get('locations', [])
             cell_iter = data.get('cell_samples', [])
             tracks_iter = data.get('activity_tracks', [])
+    except _InflatedTooLarge:
+        return JsonResponse({'error': 'Backup file is too large'}, status=413)
     except (json.JSONDecodeError, UnicodeDecodeError, OSError, EOFError,
-            zipfile.BadZipFile, KeyError) as e:
+            zipfile.BadZipFile, KeyError, ValueError) as e:
         return JsonResponse({'error': f'Invalid backup file: {e}'}, status=400)
 
     meta = data.get('meta', {})
@@ -9126,6 +9129,35 @@ def _reject_oversize_upload(f):
     return None
 
 
+class _InflatedTooLarge(ValueError):
+    """A compressed payload that expands past the caller's limit."""
+
+
+# Ceilings on what a compressed upload may expand to. gzip.decompress() and
+# ZipFile.read() have no limit of their own, so a few hundred KB of zeros
+# inflated to gigabytes in a gunicorn worker and OOM-killed it.
+_ACT_TRACK_INFLATE_MAX = 64 * 1024 * 1024     # one chunk is <= 5000 rows, ~0.5 MB
+_HEALTH_IMPORT_INFLATE_MAX = 50 * 1024 * 1024  # years of daily rows is a few MB
+_KMZ_INFLATE_MAX = 100 * 1024 * 1024
+
+
+def _gunzip_capped(data, limit):
+    """gzip.decompress with a ceiling: raises _InflatedTooLarge past `limit`
+    bytes and ValueError on a truncated stream. Inflates incrementally, so a
+    bomb costs at most `limit` bytes before it is refused."""
+    d = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    out = d.decompress(data, limit + 1)
+    if len(out) > limit or d.unconsumed_tail:
+        raise _InflatedTooLarge('decompressed size over limit')
+    if not d.eof:
+        raise ValueError('truncated gzip stream')
+    return out
+
+
+def _too_large_once_inflated():
+    return JsonResponse({'error': 'File too large once decompressed'}, status=413)
+
+
 class _ImportDeviceCache:
     """Memoises Device.get_or_create for one import run.
 
@@ -9485,8 +9517,9 @@ def import_kml(request):
 
     raw = f.read()
     # KMZ is a zip archive containing doc.kml (or the first *.kml entry).
-    # zf.read() below is unbounded decompression, so the declared size is
-    # checked first — a small .kmz can otherwise expand without limit.
+    # Reading the entry is decompression, so it is capped at _KMZ_INFLATE_MAX
+    # (declared size first, then the bytes actually read) — a small .kmz can
+    # otherwise expand without limit.
     if f.name.lower().endswith('.kmz') or raw[:2] == b'PK':
         try:
             with _zipfile.ZipFile(_io.BytesIO(raw)) as zf:
@@ -9496,9 +9529,14 @@ def import_kml(request):
                 # Prefer doc.kml; otherwise take the first one
                 entry = next((n for n in kml_names if n.lower() == 'doc.kml'), kml_names[0])
                 _info = zf.getinfo(entry)
-                if _info.file_size > getattr(settings, 'MAX_IMPORT_BYTES', 2 * 1024 * 1024 * 1024):
-                    return JsonResponse({"error": "KMZ contents too large"}, status=413)
-                raw = zf.read(entry)
+                if _info.file_size > _KMZ_INFLATE_MAX:
+                    return _too_large_once_inflated()
+                # Read at most one byte past the cap rather than trusting the
+                # declared size in the header.
+                with zf.open(entry) as _kml:
+                    raw = _kml.read(_KMZ_INFLATE_MAX + 1)
+                if len(raw) > _KMZ_INFLATE_MAX:
+                    return _too_large_once_inflated()
         except _zipfile.BadZipFile as e:
             return JsonResponse({"error": f"Invalid KMZ archive: {e}"}, status=400)
 
@@ -14821,12 +14859,17 @@ def health_import_api(request):
     upload = request.FILES.get('file')
     if not upload:
         return JsonResponse({'error': 'No file uploaded'}, status=400)
+    err = _reject_oversize_upload(upload)
+    if err:
+        return err
 
     try:
         raw = upload.read()
         if raw[:2] == b'\x1f\x8b':
-            raw = gzip.decompress(raw)
+            raw = _gunzip_capped(raw, _HEALTH_IMPORT_INFLATE_MAX)
         text = raw.decode('utf-8-sig', errors='replace')
+    except _InflatedTooLarge:
+        return _too_large_once_inflated()
     except Exception as exc:
         return JsonResponse({'error': f'Could not read the file: {exc}'}, status=400)
 
@@ -15243,8 +15286,10 @@ def activity_track_upload_api(request):
     try:
         body = request.body
         if (request.META.get('HTTP_CONTENT_ENCODING') or '').lower() == 'gzip':
-            body = gzip.decompress(body)
+            body = _gunzip_capped(body, _ACT_TRACK_INFLATE_MAX)
         data = json.loads(body.decode('utf-8') or '{}')
+    except _InflatedTooLarge:
+        return _too_large_once_inflated()
     except (json.JSONDecodeError, ValueError, UnicodeDecodeError, OSError):
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
