@@ -743,9 +743,16 @@ def build_backup_zip(user, out_path, *, include_media=True, progress=None):
             zf.write(json_tmp_path, arcname='backup.json')
             written = 0
             media_bytes = 0
+            media_root = os.path.realpath(settings.MEDIA_ROOT)
             for relative_path in media_files:
-                abs_path = os.path.join(settings.MEDIA_ROOT, relative_path)
-                if os.path.exists(abs_path):
+                # A stored name is not proof the file is under MEDIA_ROOT: a
+                # row written by an older restore could carry an absolute name
+                # or a '..', and os.path.join would follow it anywhere on the
+                # server. Only ever zip what resolves inside MEDIA_ROOT.
+                abs_path = os.path.realpath(os.path.join(media_root, relative_path))
+                if not abs_path.startswith(media_root + os.sep):
+                    abs_path = None
+                if abs_path and os.path.isfile(abs_path):
                     zf.write(abs_path, arcname=f'media/{relative_path}',
                              compress_type=zipfile.ZIP_STORED)
                     media_bytes += os.path.getsize(abs_path)

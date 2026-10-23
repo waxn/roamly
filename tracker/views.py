@@ -7874,6 +7874,36 @@ def _restore_media_dest(name):
     return dest
 
 
+# Characters Django's own storage ever produces in a saved name
+# (get_valid_filename keeps word characters, '-', '_' and '.'), plus '/'.
+_SAFE_MEDIA_NAME_RE = re.compile(r'^[\w./-]+$')
+
+
+def _restored_media(model, field_name, name):
+    """A file-field value from a backup, or '' when it cannot be trusted.
+
+    Restore assigns these names straight onto ImageField/FileField rows, and
+    Django does not validate a name assigned as a string. The backup export
+    later opens os.path.join(MEDIA_ROOT, name), and an absolute name or a '..'
+    escapes MEDIA_ROOT, so a hand-written backup naming '/proc/self/environ'
+    put the server's environment (SECRET_KEY, DATABASE_URL) into the user's
+    next export. A name must therefore sit under that field's own upload_to
+    folder, with no '..' segment, only storage-safe characters (a quote in a
+    name also became script in templates that build onclick handlers from
+    photo URLs) and an extension the media restore itself would accept.
+    """
+    if not name or not isinstance(name, str) or len(name) > 255:
+        return ''
+    prefix = model._meta.get_field(field_name).upload_to
+    if not name.startswith(prefix) or not _SAFE_MEDIA_NAME_RE.match(name):
+        return ''
+    if '..' in name.split('/') or '//' in name:
+        return ''
+    if os.path.splitext(name)[1].lower() not in _RESTORE_MEDIA_EXTS:
+        return ''
+    return name
+
+
 # Sections streamed out of a zip backup rather than loaded whole. locations and
 # cell_samples scale with tracking history, activity_tracks with recorded hours
 # (a long ride is hundreds of KB); everything else scales with what the user
@@ -8433,13 +8463,15 @@ def restore_backup(request):
                                 if isinstance(b.get('id'), int):
                                     blurb_id_map[b['id']] = blurb
                                 for ph in b.get('photos', []):
-                                    if ph.get('image') or ph.get('video'):
+                                    ph_image = _restored_media(AdventureBlurbPhoto, 'image', ph.get('image'))
+                                    ph_video = _restored_media(AdventureBlurbPhoto, 'video', ph.get('video'))
+                                    if ph_image or ph_video:
                                         photo_obj = AdventureBlurbPhoto.objects.create(
                                             blurb=blurb,
                                             media_type=ph.get('media_type', 'image'),
-                                            image=ph.get('image') or '',
-                                            thumbnail=ph.get('thumbnail') or '',
-                                            video=ph.get('video') or '',
+                                            image=ph_image,
+                                            thumbnail=_restored_media(AdventureBlurbPhoto, 'thumbnail', ph.get('thumbnail')),
+                                            video=ph_video,
                                             order=ph.get('order', 0),
                                         )
                                         if isinstance(ph.get('id'), int):
@@ -8507,13 +8539,15 @@ def restore_backup(request):
                                     place=place,
                                 )
                                 for ph in n.get('photos', []):
-                                    if ph.get('image') or ph.get('video'):
+                                    ph_image = _restored_media(AdventureDayPhoto, 'image', ph.get('image'))
+                                    ph_video = _restored_media(AdventureDayPhoto, 'video', ph.get('video'))
+                                    if ph_image or ph_video:
                                         AdventureDayPhoto.objects.create(
                                             day_note=note,
                                             media_type=ph.get('media_type', 'image'),
-                                            image=ph.get('image') or '',
-                                            thumbnail=ph.get('thumbnail') or '',
-                                            video=ph.get('video') or '',
+                                            image=ph_image,
+                                            thumbnail=_restored_media(AdventureDayPhoto, 'thumbnail', ph.get('thumbnail')),
+                                            video=ph_video,
                                             order=ph.get('order', 0),
                                         )
                             except Exception as e:
@@ -8552,10 +8586,11 @@ def restore_backup(request):
                     if j_created:
                         counts['journals'] += 1
                         for ph in j.get('photos', []):
-                            if ph.get('image'):
+                            ph_image = _restored_media(JournalPhoto, 'image', ph.get('image'))
+                            if ph_image:
                                 JournalPhoto.objects.create(
-                                    entry=entry, image=ph['image'],
-                                    thumbnail=ph.get('thumbnail') or '',
+                                    entry=entry, image=ph_image,
+                                    thumbnail=_restored_media(JournalPhoto, 'thumbnail', ph.get('thumbnail')),
                                     caption=ph.get('caption', ''),
                                     order=ph.get('order', 0),
                                 )
