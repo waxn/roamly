@@ -206,7 +206,7 @@
                     <div class="ed-hint" id="route-hint">Pick the route you actually took.</div>
                     <div class="ed-field" id="field-gap" style="display:none;">
                         <div class="ed-range-label"><span>fill gaps longer than</span><span id="gap-label"></span></div>
-                        <input type="range" class="ed-range" id="gap-range" min="0" max="12" step="1">
+                        <input type="range" class="ed-range" id="gap-range" min="0" max="13" step="1">
                         <div class="ed-hint" id="gap-hint"></div>
                     </div>
                     <div class="sidebar-tools" id="route-list"></div>
@@ -566,7 +566,7 @@ document.getElementById('btn-delete').addEventListener('click', async () => {
 // How far apart two recorded points must be before the stretch between them is
 // treated as a gap and filled. Stepped rather than linear so the short end — where
 // it matters most — isn't squeezed into the first few pixels.
-const GAP_STEPS = [10, 15, 20, 30, 45, 60, 90, 120, 180, 300, 420, 600, 900];
+const GAP_STEPS = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 300, 420, 600, 900];
 function gapStepIndex() {
     let saved = 60;
     try { saved = parseInt(localStorage.getItem('roamly_editor_min_gap_s'), 10) || 60; } catch (e) {}
@@ -610,8 +610,10 @@ function previewRoute(ids) {
         drawCandidates(0);
         renderRouteList(d.waypoints ? null : d.straight_m);
         openPanel('route');
-        const skipped = d.skipped
-            ? ` ${d.skipped} point(s) off the road network were left out of the route (they stay on the map).` : '';
+        const skipped = (d.skipped
+            ? ` ${d.skipped} point(s) off the road network were left out of the route (they stay on the map).` : '')
+            + (d.held
+            ? ` ${d.held} repeated point(s) stuck at one spot while the phone had no fix were stepped over, so the fill is timed from when it really left — you may want to delete them.` : '');
         document.getElementById('route-hint').textContent = d.waypoints
             ? `Routed through ${d.waypoints} recorded point(s) in between, each leg timed by its own fixes.${skipped}`
             : 'Pick the route you actually took.';

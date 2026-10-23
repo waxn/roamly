@@ -92,7 +92,8 @@ def points_along(route, start_dt, end_dt, interval_s=FILL_INTERVAL_S,
     dt_total = (end_dt - start_dt).total_seconds()
     if dt_total <= 0:
         return [], total
-    n = int(dt_total // interval_s) - 1
+    # The epsilon keeps dt / (dt/2) from flooring to 1 on a rounding error.
+    n = int(dt_total / interval_s + 1e-9) - 1
     if n < 1:
         return [], total
     n = min(n, MAX_POINTS_PER_ROUTE)
@@ -309,7 +310,7 @@ def route_between_points(profile, a, b):
 # while would cost one route per fix. The default; the editor's slider passes
 # its own, clamped to the bounds below.
 LEG_MIN_S = 60
-LEG_MIN_S_BOUNDS = (10, 900)
+LEG_MIN_S_BOUNDS = (5, 900)
 # Nor is one this short in distance — every point would be thinned away.
 _LEG_MIN_M = 2 * MIN_POINT_SPACING_M
 # A leg the router can't serve and that is this short is drawn as a straight
@@ -326,29 +327,61 @@ def _leg_route(profile, a, b, mode, max_anchor_m):
     return cands[0]['coords'] if cands else None
 
 
+# A phone that loses its fix mid-drive keeps re-logging the last known position
+# with a fresh timestamp (dwell points). The recorded stretch then reads "parked
+# at A for five minutes, then 3km to B in fifteen seconds" — and a leg that short
+# in time has no room for a single generated point, so the fill came out empty
+# however the line was routed. When a leg implies a speed nothing on a road
+# reaches and its start is the tail of a run of fixes at one spot, the leg is
+# re-anchored to the *first* fix of that run: that is when the car really left.
+# A genuine stop followed by a normal drive never trips it, since its departure
+# leg has a plausible speed.
+_SAME_SPOT_M = 30.0
+_PLAUSIBLE_MPS = 50.0
+
+
+def _same_spot_runs(rows):
+    """For each index, the earliest index of the run of fixes at its position."""
+    run = list(range(len(rows)))
+    for k in range(1, len(rows)):
+        anchor = rows[run[k - 1]]
+        if roads._haversine_m(anchor['longitude'], anchor['latitude'],
+                              rows[k]['longitude'], rows[k]['latitude']) <= _SAME_SPOT_M:
+            run[k] = run[k - 1]
+    return run
+
+
 def plan_through(profile, rows, mode='', max_anchor_m=None, min_gap_s=LEG_MIN_S):
     """Route from rows[0] to rows[-1] through every row in between.
 
     `rows` are Location value dicts, oldest first. Returns ``(legs, skipped,
-    warnings)`` where each leg is ``{'a': idx, 'b': idx, 'coords': [...],
+    warnings, held)`` where each leg is ``{'a': idx, 'b': idx, 'coords': [...],
     'fill': bool}`` — ``fill`` False for a leg too short to need points. A fix the
     router cannot reach (usually a GPS glitch off the network) is skipped rather
     than failing the whole connection, and reported in ``skipped``. Fixes less
-    than `min_gap_s` apart are treated as tracked and left unfilled. Raises
+    than `min_gap_s` apart are treated as tracked and left unfilled. ``held`` is
+    the ids of repeated fixes a leg was re-anchored across (see above). Raises
     ``ValueError`` with a user-facing message when no route can be made.
     """
-    legs, skipped, warnings = [], [], []
+    legs, skipped, warnings, held = [], [], [], []
+    run = _same_spot_runs(rows)
     routed = 0
     i = 0
     n = len(rows)
     while i < n - 1:
-        a = rows[i]
         j = i + 1
         while True:
-            b = rows[j]
+            a, b = rows[i], rows[j]
             dt = (b['timestamp'] - a['timestamp']).total_seconds()
             straight = roads._haversine_m(a['longitude'], a['latitude'],
                                           b['longitude'], b['latitude'])
+            if (run[i] < i and straight > _SAME_SPOT_M
+                    and (dt <= 0 or straight / dt > _PLAUSIBLE_MPS)):
+                s = run[i]
+                held.extend(r['id'] for r in rows[s + 1:i + 1])
+                legs = [l for l in legs if l['a'] < s]
+                i = s
+                continue
             line = [[a['longitude'], a['latitude']], [b['longitude'], b['latitude']]]
             if dt < min_gap_s or straight < _LEG_MIN_M:
                 legs.append({'a': i, 'b': j, 'coords': line, 'fill': False})
@@ -357,7 +390,7 @@ def plan_through(profile, rows, mode='', max_anchor_m=None, min_gap_s=LEG_MIN_S)
             if routed > MAX_ROUTED_LEGS:
                 raise ValueError(
                     f'That stretch has more than {MAX_ROUTED_LEGS} gaps to route. '
-                    'Connect it in shorter pieces.')
+                    'Connect it in shorter pieces, or raise "fill gaps longer than".')
             coords = _leg_route(profile, a, b, mode, max_anchor_m)
             if coords:
                 length = _polyline_len(coords)
@@ -380,7 +413,7 @@ def plan_through(profile, rows, mode='', max_anchor_m=None, min_gap_s=LEG_MIN_S)
             skipped.append(rows[j]['id'])
             j += 1
         i = j
-    return legs, skipped, warnings
+    return legs, skipped, warnings, held
 
 
 def points_through(rows, legs):
@@ -391,7 +424,13 @@ def points_through(rows, legs):
         if not leg['fill']:
             total += _polyline_len(leg['coords'])
             continue
+        # The 10s spacing assumes room for it. A leg the user chose to fill
+        # that is shorter than two intervals would otherwise get nothing at
+        # all, so tighten the spacing until it has at least one point.
+        dt = (b['timestamp'] - a['timestamp']).total_seconds()
+        interval = max(1.0, min(FILL_INTERVAL_S, dt / 2.0))
         pts, length = points_along(leg['coords'], a['timestamp'], b['timestamp'],
+                                   interval_s=interval,
                                    v_start=a['speed'], v_end=b['speed'])
         out.extend(pts)
         total += length

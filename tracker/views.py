@@ -13268,7 +13268,7 @@ def editor_route_api(request):
     b = (last['longitude'], last['latitude'])
     mode = first['transport_mode'] or last['transport_mode'] or ''
     straight = roads_mod._haversine_m(a[0], a[1], b[0], b[1])
-    skipped, warnings = [], []
+    skipped, warnings, held = [], [], []
 
     try:
         if len(rows) == 2:
@@ -13276,7 +13276,7 @@ def editor_route_api(request):
                                                  max_anchor_m=_EDITOR_ANCHOR_M)
             plans = [[{'a': 0, 'b': 1, 'coords': c['coords'], 'fill': True}] for c in cands]
         else:
-            legs, skipped, warnings = editor_tasks.plan_through(
+            legs, skipped, warnings, held = editor_tasks.plan_through(
                 profile, rows, mode, max_anchor_m=_EDITOR_ANCHOR_M,
                 min_gap_s=min_gap_s)
             plans = [legs]
@@ -13310,8 +13310,9 @@ def editor_route_api(request):
               {'ids': [r['id'] for r in rows], 'plans': plans},
               _EDITOR_ROUTE_TTL)
     return JsonResponse({'status': 'ok', 'token': token, 'straight_m': _jf(straight),
-                         'waypoints': len(rows) - 2 - len(skipped),
+                         'waypoints': len(rows) - 2 - len(set(skipped) | set(held)),
                          'between': len(rows) - 2, 'min_gap_s': min_gap_s,
+                         'held': len(held),
                          'gaps': sum(1 for legs in plans[:1] for l in legs if l['fill']),
                          'skipped': len(skipped), 'routes': out})
 
