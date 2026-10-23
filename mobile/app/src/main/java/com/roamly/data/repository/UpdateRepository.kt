@@ -2,16 +2,21 @@ package com.roamly.data.repository
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
+import android.content.pm.Signature
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import androidx.core.content.pm.PackageInfoCompat
 import com.roamly.data.api.RoamlyApi
 import com.roamly.data.api.VersionInfo
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -122,6 +127,56 @@ class UpdateRepository @Inject constructor(
             Uri.parse("package:${context.packageName}"),
         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
+    }
+
+    /**
+     * True only if [file] is a genuine newer build of this app: same package
+     * name, a higher versionCode, and signed by exactly the certificate(s) the
+     * installed app is signed with.
+     *
+     * The APK comes from whatever server the user configured (proxying GitHub),
+     * possibly over plain HTTP, and the "Update available" banner is a trusted
+     * prompt. Android's own signature check only protects *this* package: an
+     * APK with a different package name installs as a brand-new app through
+     * that same prompt. So nothing is handed to the installer unless it is
+     * provably ours.
+     */
+    suspend fun verifyApk(file: File): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val pm = context.packageManager
+            @Suppress("DEPRECATION")
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                PackageManager.GET_SIGNING_CERTIFICATES
+            } else {
+                PackageManager.GET_SIGNATURES
+            }
+            @Suppress("DEPRECATION")
+            val archive = pm.getPackageArchiveInfo(file.path, flags) ?: return@withContext false
+            if (archive.packageName != context.packageName) return@withContext false
+            @Suppress("DEPRECATION")
+            val installed = pm.getPackageInfo(context.packageName, flags)
+            if (PackageInfoCompat.getLongVersionCode(archive) <=
+                PackageInfoCompat.getLongVersionCode(installed)
+            ) return@withContext false
+            val archiveCerts = signerDigests(archive)
+            archiveCerts.isNotEmpty() && archiveCerts == signerDigests(installed)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** SHA-256 of each current signing certificate (no rotation history). */
+    private fun signerDigests(info: PackageInfo): Set<String> {
+        val sigs: Array<Signature> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.signingInfo?.apkContentsSigners ?: emptyArray()
+        } else {
+            @Suppress("DEPRECATION")
+            info.signatures ?: emptyArray()
+        }
+        return sigs.map { sig ->
+            MessageDigest.getInstance("SHA-256").digest(sig.toByteArray())
+                .joinToString("") { "%02x".format(it) }
+        }.toSet()
     }
 
     /** Launch the system package installer for a downloaded APK. */

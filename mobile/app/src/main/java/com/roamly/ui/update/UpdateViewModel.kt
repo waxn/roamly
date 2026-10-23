@@ -84,6 +84,9 @@ class UpdateViewModel @Inject constructor(
             val file = repo.downloadApk(info) { pct -> _state.update { s -> s.copy(progress = pct) } }
             if (file == null) {
                 _state.update { it.copy(downloading = false, error = "Download failed") }
+            } else if (!repo.verifyApk(file)) {
+                file.delete()
+                _state.update { it.copy(downloading = false, error = "Update failed verification — not installed") }
             } else {
                 _state.update { it.copy(downloading = false) }
                 repo.install(file)
