@@ -279,6 +279,24 @@ def _build_activities_data(user):
     ]
 
 
+def _build_flights_data(user):
+    """Build serializable flight-log rows for a user's backup (v20+).
+
+    Every field restore needs, airports included in full, so a restored flight
+    does not depend on the bundled airport dataset still matching. Distance is
+    left out: Flight.save() recomputes it.
+    """
+    from .models import Flight
+
+    fields = ['flight_number', 'date', 'airline_name', 'airline_iata', 'airline_icao',
+              'sched_dep', 'sched_arr', 'actual_dep', 'actual_arr',
+              'aircraft_model', 'registration', 'seat', 'seat_class', 'seat_type',
+              'reason', 'notes', 'source']
+    for side in ('dep', 'arr'):
+        fields += [f'{side}_{k}' for k in ('iata', 'icao', 'name', 'city', 'country', 'lat', 'lon', 'tz')]
+    return list(Flight.objects.filter(user=user).order_by('date', 'id').values(*fields))
+
+
 def _build_device_overlaps_data(user):
     """Build serializable DeviceOverlap records for a user's backup (v18+; `kind` v19+).
 

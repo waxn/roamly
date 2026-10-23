@@ -83,6 +83,7 @@ from .backup_tasks import (
     _build_health_workouts_data,
     _build_activities_data,
     _build_family_data,
+    _build_flights_data,
     _build_device_overlaps_data,
 )
 
@@ -7769,7 +7770,7 @@ def _write_backup_json(user, f, progress=None):
     loc_total += hidden_qs.count()
 
     report('Collecting devices')
-    meta = {'version': 19, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 20, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # The single backup builder: the scheduled S3 backup calls this too, so the
@@ -7796,6 +7797,7 @@ def _write_backup_json(user, f, progress=None):
     report('Collecting family circles')
     family_circles = _build_family_data(user)
     device_overlaps = _build_device_overlaps_data(user)
+    flights = _build_flights_data(user)
     health_total = HealthSample.objects.filter(user=user).count()
     cell_total = CellSample.objects.filter(user=user).count()
 
@@ -7809,6 +7811,7 @@ def _write_backup_json(user, f, progress=None):
     f.write(b'"activities":' + encoder.encode(activities).encode() + b',')
     f.write(b'"family_circles":' + encoder.encode(family_circles).encode() + b',')
     f.write(b'"device_overlaps":' + encoder.encode(device_overlaps).encode() + b',')
+    f.write(b'"flights":' + encoder.encode(flights).encode() + b',')
 
     # Recorded activity tracks (v17+), one at a time — a long ride is hundreds
     # of KB, so building them all into one list first is the OOM the
@@ -7955,6 +7958,7 @@ def _write_backup_json(user, f, progress=None):
         'activity_tracks': track_count,
         'family_circles': len(family_circles),
         'device_overlaps': len(device_overlaps),
+        'flights': len(flights),
     }).encode() + b'}')
     report('Writing cell samples', cell_total, cell_total)
 
@@ -8394,7 +8398,8 @@ def restore_backup(request):
               'adventures': 0, 'api_keys': 0, 'journals': 0,
               'custom_places': 0, 'media_files': 0,
               'health_samples': 0, 'health_workouts': 0, 'activities': 0,
-              'activity_tracks': 0, 'family_circles': 0, 'cell_samples': 0}
+              'activity_tracks': 0, 'family_circles': 0, 'cell_samples': 0,
+              'flights': 0}
     errors = 0
 
     # Split the bar by rough cost: one unit per streamed row, the small
@@ -9140,6 +9145,28 @@ def restore_backup(request):
                 except Exception as e:
                     errors += 1
                     logger.warning(f"Backup restore family circle error: {e}")
+
+            # Flight log (v20+). Older backups lack the key. Each row goes
+            # through _apply_flight, the same validation the API applies, since
+            # the file is user-supplied input. Idempotent on the natural key a
+            # person would recognise as "the same flight".
+            for fl in data.get('flights', []):
+                try:
+                    row = {k: (v.isoformat() if hasattr(v, 'isoformat') else v)
+                           for k, v in fl.items()} if isinstance(fl, dict) else {}
+                    flight = Flight(user=user)
+                    if _apply_flight(flight, row):
+                        errors += 1
+                        continue
+                    if Flight.objects.filter(user=user, flight_number=flight.flight_number,
+                                             date=flight.date, dep_iata=flight.dep_iata,
+                                             arr_iata=flight.arr_iata).exists():
+                        continue
+                    flight.save()
+                    counts['flights'] += 1
+                except Exception as e:
+                    errors += 1
+                    logger.warning(f"Backup restore flight error: {e}")
 
     except Exception as e:
         logger.error(f"Backup restore failed: {e}")
