@@ -1665,7 +1665,7 @@ function switchAdvTab(tab,btn){
     if(tab==='details'&&!visitsLoaded)loadVisits();
 }
 
-function escHtml(str){if(!str)return'';return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function escHtml(str){if(!str)return'';return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 
 // ─── Init ─────────────────────────────────────────────────────
 

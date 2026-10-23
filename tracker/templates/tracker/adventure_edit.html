@@ -1112,7 +1112,7 @@ let pendingEditIndex = null;    // index of block being edited
 let currentPhotoBlockIndex = null;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function uid(){ return Math.random().toString(36).slice(2,10); }
 
 function autoResize(el){

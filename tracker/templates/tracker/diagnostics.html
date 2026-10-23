@@ -325,7 +325,7 @@ function fmtDur(s) {
 }
 function fmtNum(v) { return (v === null || v === undefined) ? '—' : v; }
 function fmtTime(iso) { return iso ? new Date(iso).toLocaleString() : '—'; }
-function esc(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function esc(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
 // ── shared state + floating hover readout ─────────────────────────────────────
 let diagData = null;

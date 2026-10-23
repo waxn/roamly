@@ -155,7 +155,7 @@ const elSend = document.getElementById('ask-send');
 const elError = document.getElementById('ask-error');
 
 function escapeHtml(s) {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 // Minimal, safe formatting: escape first, then **bold** and internal markdown
 // links [text](/path). Only "/"-prefixed URLs are linked (no quotes/brackets in
