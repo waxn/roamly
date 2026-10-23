@@ -15,7 +15,7 @@
 #
 # Verified against PyPI 2026-09-15.
 
-Django==6.1.1
+Django==6.1.2
 gunicorn==26.2.0
 whitenoise==6.12.0
 psycopg2-binary==2.9.13
