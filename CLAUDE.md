@@ -485,6 +485,19 @@ The triage is driven by `mobile/app/src/main/java/com/roamly/data/api/RoamlyApi.
 
 **Raw API keys are no longer exported.** `APIKey.key` is a live, never-expiring credential and the backup document is written to disk and uploaded to S3. Both builders now export `{name, is_active, created_at}` only, and `restore_backup` recreates keys **by name with a freshly minted secret**. Restoring by key value was also an existence oracle — the column is unique across users, so `IntegrityError` distinguished "another account holds this" from "created".
 
+**Security fixes, Oct 2026 audit.** Each closes a hole that was actually reachable; keep them when refactoring nearby.
+
+- **Image decoding is allow-listed.** `image_utils._open_guarded` opens with `formats=ALLOWED_FORMATS` (JPEG, PNG, WebP, GIF, BMP — **no MPO, TIFF, EPS, HEIC**). Pillow's Oct 2026 advisory batch (fixed in 13.0.0) was almost all in decoders an upload never needs. Adding HEIC means adding `pillow-heif` *and* the format here.
+- **Restored media names are validated** (`_restored_media`): a name must sit under its field's `upload_to`, contain no `..`, match `[\w./-]+` and carry a media extension, else it is dropped. Restore assigns names straight onto file fields and export opens `MEDIA_ROOT/name`, so `"image":"/proc/self/environ"` in a hand-written backup used to export the server's environment. `build_backup_zip` also `realpath`-checks every file it zips.
+- **Adventure dates, device, public link and PIN are owner-only** in `update_trip` (owner = `trip.device.user`). A member's request carrying them is still saved for the shared fields; the owner-only keys are dropped and echoed as `ignored`, because the settings form sends every field.
+- **Story block fields rendered unquoted are coerced server-side** (`_coerce_block_fields`: heading `level` 1-3, `map_embed.height_px` 120-1200, `place_id`/`photo_ids` ints) and again in both renderers. Restore runs bodies through `_clean_body` too.
+- **Every hand-rolled `esc()` escapes `"` and `'`.** The admin panel's did not, and an anonymous request path in the access log broke out of a `title=""` on Monitoring. A new template escaper must escape quotes.
+- **Compressed uploads inflate through `_gunzip_capped`** (activity chunk 64 MB, health import 50 MB, legacy backup 2 GiB) and KMZ reads at most `_KMZ_INFLATE_MAX` (100 MB) — never bare `gzip.decompress` / `zf.read` on user input.
+- **API keys require an active user** (`user__is_active=True` in both lookups), so deactivating an account also stops its phone and trackers.
+- **Invite emails are rate limited**: 30/hour per user and IP, 5/hour per recipient (`include_ip=False`, so one recipient limit doesn't cap a shared IP).
+- **The mobile updater verifies before installing** (`UpdateRepository.verifyApk`): same package, higher versionCode, identical signing certificate. A debug-signed install therefore never accepts a release update, which Android would refuse anyway.
+- **Redis is pinned to `redis:8.10-alpine`** (RESTORE flaws incl. the in-the-wild CVE-2026-25243, TLS use-after-free). Postgres `16-3.5` tracks 16.x but only on `docker compose pull db`.
+
 **`settings.py` fails closed.** `DEBUG` defaults **False** (which is also what makes the custom error pages reachable) and `SECRET_KEY` has **no production fallback** — it raises `ImproperlyConfigured` at boot rather than silently running on a literal that ships in a public Docker image. A dev placeholder is still used when `DEBUG` is on.
 
 **Postgres is published on loopback only** (`127.0.0.1:5433:5432` in `docker-compose.yml.example`). The app uses `db:5432` on the compose network; the host port is for psql/SSH tunnels. Docker inserts its own iptables rules ahead of ufw, so a bare `5433:5432` exposed the database to the internet regardless of the host firewall.
