@@ -1816,6 +1816,167 @@ def data_table(request):
     return render(request, 'tracker/data_table.html', {'devices': devices})
 
 
+# ---------------------------------------------------------------------------
+# Raw data: the other user-owned point tables, behind the /data/ page's selector
+# ---------------------------------------------------------------------------
+#
+# An allow-list, deliberately: each key maps to a queryset factory that scopes
+# to the requesting user *inside the factory*, so no request parameter can ever
+# widen it. Only tables a person would recognise as their own data belong here.
+# Logs, job rows, snapshots, caches, API keys, sessions and the instance-wide
+# reference tables (POI / roads / rails / boundaries) are left out on purpose,
+# as is Visit, which has its own page. Recorded points (`locations`) keep their
+# existing endpoint and are listed only so the selector can offer them.
+#
+# Column `type` drives client formatting: time / num / coord / speed / text.
+
+_RAW_SOURCES = {
+    'locations': {
+        'label': 'Recorded points',
+        'qs': lambda u: Location.objects.filter(device__user=u),
+    },
+    'generated': {
+        'label': 'Generated points (map editor)',
+        'qs': lambda u: InferredLocation.objects.filter(device__user=u, batch__undone=False),
+        'time': 'timestamp',
+        'device_fk': True,
+        'fields': [('latitude', 'Latitude', 'coord'), ('longitude', 'Longitude', 'coord'),
+                   ('timestamp', 'Timestamp', 'time'), ('created_at', 'Created', 'time')],
+    },
+    'trash': {
+        'label': 'Deleted points (trash)',
+        'qs': lambda u: TrashedLocation.objects.filter(user=u, reason='deleted'),
+        'time': 'timestamp',
+        'device_fk': True,
+        'fields': [('latitude', 'Latitude', 'coord'), ('longitude', 'Longitude', 'coord'),
+                   ('city', 'City', 'text'), ('accuracy', 'Accuracy (m)', 'num'),
+                   ('speed', 'Speed', 'speed'), ('timestamp', 'Timestamp', 'time'),
+                   ('deleted_at', 'Deleted', 'time')],
+    },
+    'hidden': {
+        'label': 'Hidden points (device overlap)',
+        'qs': lambda u: TrashedLocation.objects.filter(user=u, reason='overlap'),
+        'time': 'timestamp',
+        'device_fk': True,
+        'fields': [('latitude', 'Latitude', 'coord'), ('longitude', 'Longitude', 'coord'),
+                   ('city', 'City', 'text'), ('speed', 'Speed', 'speed'),
+                   ('timestamp', 'Timestamp', 'time'), ('deleted_at', 'Hidden', 'time')],
+    },
+    'cells': {
+        'label': 'Cell signal readings',
+        'qs': lambda u: CellSample.objects.filter(user=u),
+        'time': 'timestamp',
+        'device_fk': False,
+        'fields': [('sim_slot', 'SIM', 'num'), ('carrier', 'Carrier', 'text'),
+                   ('rat', 'Network', 'text'), ('role', 'Role', 'text'),
+                   ('band', 'Band', 'num'), ('dbm', 'dBm', 'num'), ('level', 'Bars', 'num'),
+                   ('latitude', 'Latitude', 'coord'), ('longitude', 'Longitude', 'coord'),
+                   ('timestamp', 'Timestamp', 'time')],
+    },
+    'health': {
+        'label': 'Health records',
+        'qs': lambda u: HealthSample.objects.filter(user=u),
+        'time': 'start_time',
+        'device_fk': False,
+        'fields': [('kind', 'Metric', 'text'), ('value', 'Value', 'num'),
+                   ('source', 'Source', 'text'), ('start_time', 'Start', 'time'),
+                   ('end_time', 'End', 'time')],
+    },
+}
+
+_RAW_PAGE_SIZE = 200
+
+
+@login_required
+def raw_data_sources_api(request):
+    """The sources this user actually has rows in, in selector order."""
+    out = []
+    for key, src in _RAW_SOURCES.items():
+        if key == 'locations' or src['qs'](request.user).exists():
+            out.append({'key': key, 'label': src['label']})
+    return JsonResponse({'sources': out})
+
+
+@login_required
+def raw_data_source_api(request, key):
+    """One page of a non-location raw source, newest first, read-only."""
+    src = _RAW_SOURCES.get(key)
+    if src is None or key == 'locations':
+        return JsonResponse({'error': 'Unknown data source.'}, status=404)
+
+    tf = src['time']
+    qs = src['qs'](request.user)
+
+    device = (request.GET.get('device_id') or '').strip()
+    if device:
+        # Resolve against the user's own devices only. For FK sources that is
+        # the filter itself; for the CharField sources the rows are already
+        # user-scoped, but an unknown id still answers with nothing rather than
+        # being passed through.
+        dev = Device.objects.filter(user=request.user, device_id=device).first()
+        if dev is None:
+            qs = qs.none()
+        elif src['device_fk']:
+            qs = qs.filter(device=dev)
+        else:
+            qs = qs.filter(device_id=dev.device_id)
+
+    if request.GET.get('all') != '1':
+        try:
+            hours = max(1, min(int(request.GET.get('hours', '24')), 24 * 365 * 50))
+        except (TypeError, ValueError):
+            hours = 24
+        qs = qs.filter(**{f'{tf}__gte': timezone.now() - timedelta(hours=hours)})
+
+    bv = request.GET.get('before_value')
+    if bv:
+        try:
+            bdt = datetime.fromisoformat(bv)
+            if timezone.is_naive(bdt):
+                bdt = timezone.make_aware(bdt, dt_timezone.utc)
+            bid = int(request.GET.get('before_id') or 0)
+            qs = qs.filter(Q(**{f'{tf}__lt': bdt}) | Q(**{tf: bdt, 'id__lt': bid}))
+        except (TypeError, ValueError):
+            return JsonResponse({'error': 'Bad cursor.'}, status=400)
+
+    cols = list(src['fields'])
+    names = [c[0] for c in cols]
+    if src['device_fk']:
+        cols = [('device', 'Device', 'text')] + cols
+        names = ['device__name', 'device__device_id'] + names
+    else:
+        cols = [('device_id', 'Device', 'text')] + cols
+        names = ['device_id'] + names
+
+    rows = list(qs.order_by(f'-{tf}', '-id').values_list('id', tf, *names)[:_RAW_PAGE_SIZE + 1])
+    has_more = len(rows) > _RAW_PAGE_SIZE
+    rows = rows[:_RAW_PAGE_SIZE]
+
+    out = []
+    for r in rows:
+        vals = list(r[2:])
+        if src['device_fk']:
+            vals = [vals[0] or vals[1]] + vals[2:]
+        row = {'id': r[0]}
+        for (k, _label, _t), v in zip(cols, vals):
+            if isinstance(v, datetime):
+                v = v.isoformat()
+            elif isinstance(v, float):
+                v = _jf(v)
+            row[k] = v
+        out.append(row)
+
+    payload = {
+        'columns': [{'key': k, 'label': lbl, 'type': t} for k, lbl, t in cols],
+        'rows': out,
+        'has_more': has_more,
+    }
+    if rows:
+        payload['next_before_value'] = rows[-1][1].isoformat()
+        payload['next_before_id'] = rows[-1][0]
+    return JsonResponse(payload)
+
+
 @login_required
 def stats_view(request):
     return render(request, 'tracker/stats.html')

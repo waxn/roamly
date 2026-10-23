@@ -9,9 +9,12 @@
     <div class="page-toolbar">
         <div>
             <h1>Raw data</h1>
-            <p class="page-lead" style="margin-bottom:0;">browse and sort every recorded gps point.</p>
+            <p class="page-lead" style="margin-bottom:0;" id="data-lead">Browse and sort every recorded GPS point.</p>
         </div>
         <div class="toolbar-actions">
+            <select id="data-source" class="form-control" style="width: auto;" aria-label="Data source">
+                <option value="locations">Recorded points</option>
+            </select>
             <select id="data-device" class="form-control" style="width: auto;">
                 <option value="">All devices</option>
                 {% for device in devices %}
@@ -26,11 +29,11 @@
                 <option value="720">Last 30 days</option>
                 <option value="all">All time</option>
             </select>
-            <button class="btn btn-primary btn-sm" onclick="loadData()">load</button>
+            <button class="btn btn-primary btn-sm" onclick="reloadActive()">Load</button>
         </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="loc-card">
         <div class="table-responsive">
             <table>
                 <thead>
@@ -63,6 +66,20 @@
                 <button id="load-more-btn" class="btn btn-outline btn-sm" onclick="loadMore()" style="display: none;">Load More</button>
                 <button id="load-all-btn" class="btn btn-outline btn-sm" onclick="loadAll()" style="display: none;">Load All</button>
             </div>
+        </div>
+    </div>
+
+    {# Every other source: read-only, columns supplied by the server. #}
+    <div class="card" id="raw-card" hidden>
+        <div class="table-responsive" id="raw-scroll">
+            <table>
+                <thead><tr id="raw-head"></tr></thead>
+                <tbody id="raw-body"></tbody>
+            </table>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem; gap:0.5rem;">
+            <div id="raw-info" style="font-size: 0.8125rem; color: var(--text-muted);"></div>
+            <button id="raw-more-btn" class="btn btn-outline btn-sm" onclick="rawLoad(true)" style="display: none;">Load More</button>
         </div>
     </div>
 </div>
@@ -461,14 +478,126 @@ function openOnMap(id, isoTs) {
     }
 }
 
-loadData();
-document.getElementById('data-device').addEventListener('change', () => loadData(false));
-document.getElementById('data-range').addEventListener('change', () => loadData(false));
+// ---- Source selector -------------------------------------------------------
+// The server lists only sources this account has rows in; each is read through
+// /api/data/source/<key>/, which scopes to the signed-in user itself.
+const SOURCE_LEADS = {
+    locations: 'Browse and sort every recorded GPS point.',
+    generated: 'Points the map editor generated to fill gaps. They never count toward distance or stats.',
+    trash: 'Points you deleted. Restore them from Diagnostics \u2192 Trash within 30 days.',
+    hidden: 'Points hidden because another of your devices recorded the same trip.',
+    cells: 'Cell tower readings your phone logged alongside its GPS fixes.',
+    health: 'Raw records from Health Connect, Zepp and file imports.',
+};
+const sourceSel = document.getElementById('data-source');
+let activeSource = 'locations';
+let raw = { rows: [], columns: [], bv: null, bid: null, loading: false, token: 0 };
+
+function fmtRaw(v, type) {
+    if (v === null || v === undefined || v === '') return '-';
+    if (type === 'time') return new Date(v).toLocaleString();
+    if (type === 'coord') return Number(v).toFixed(5);
+    if (type === 'speed') return formatSpeed(v);
+    if (type === 'num') return typeof v === 'number' && !Number.isInteger(v) ? v.toFixed(1) : String(v);
+    return escHtml(String(v));
+}
+
+function rawRender() {
+    document.getElementById('raw-head').innerHTML =
+        raw.columns.map(c => `<th>${escHtml(c.label)}</th>`).join('');
+    const n = raw.columns.length || 1;
+    document.getElementById('raw-body').innerHTML = raw.rows.length
+        ? raw.rows.map(r => '<tr>' + raw.columns.map(c =>
+            `<td${c.type === 'time' ? ' style="color:var(--text-muted)"' : ''}>${fmtRaw(r[c.key], c.type)}</td>`).join('') + '</tr>').join('')
+        : `<tr><td colspan="${n}" style="text-align:center;padding:2.5rem 1rem;color:var(--text-muted);">Nothing in this range. Try a wider time range or another device.</td></tr>`;
+    document.getElementById('raw-info').textContent = `Showing ${raw.rows.length} rows`;
+}
+
+async function rawLoad(append = false) {
+    if (append && raw.loading) return;
+    const token = append ? raw.token : ++raw.token;
+    if (!append) {
+        raw.rows = []; raw.bv = null; raw.bid = null;
+        document.getElementById('raw-body').innerHTML = dataTableSkeleton(8);
+    }
+    const params = new URLSearchParams();
+    const range = document.getElementById('data-range').value;
+    if (range === 'all') params.set('all', '1'); else params.set('hours', range);
+    const device = document.getElementById('data-device').value;
+    if (device) params.set('device_id', device);
+    if (append && raw.bv) { params.set('before_value', raw.bv); params.set('before_id', raw.bid); }
+    const btn = document.getElementById('raw-more-btn');
+    raw.loading = true;
+    btn.disabled = true;
+    try {
+        const r = await fetch(`/api/data/source/${encodeURIComponent(activeSource)}/?${params}`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const d = await r.json();
+        if (token !== raw.token) return;  // the source or filters changed meanwhile
+        raw.columns = d.columns || [];
+        raw.rows = raw.rows.concat(d.rows || []);
+        raw.bv = d.next_before_value ?? null;
+        raw.bid = d.next_before_id ?? null;
+        rawRender();
+        btn.style.display = d.has_more ? 'block' : 'none';
+    } catch (err) {
+        if (token !== raw.token) return;
+        document.getElementById('raw-body').innerHTML =
+            `<tr><td style="text-align:center;color:var(--danger);padding:2rem;">Could not load this data (${escHtml(err.message)}).</td></tr>`;
+        btn.style.display = 'none';
+    } finally {
+        raw.loading = false;
+        btn.disabled = false;
+    }
+}
+
+function reloadActive() {
+    if (activeSource === 'locations') loadData(false); else rawLoad(false);
+}
+
+function selectSource(key, push = true) {
+    activeSource = key;
+    sourceSel.value = key;
+    document.getElementById('loc-card').hidden = key !== 'locations';
+    document.getElementById('raw-card').hidden = key === 'locations';
+    document.getElementById('data-lead').textContent = SOURCE_LEADS[key] || '';
+    try { localStorage.setItem('roamly_data_source', key); } catch (e) {}
+    if (push) {
+        const u = new URL(location.href);
+        if (key === 'locations') u.searchParams.delete('source'); else u.searchParams.set('source', key);
+        history.replaceState(null, '', u);
+    }
+    reloadActive();
+}
+
+(async () => {
+    let wanted = new URLSearchParams(location.search).get('source');
+    if (!wanted) { try { wanted = localStorage.getItem('roamly_data_source'); } catch (e) {} }
+    let sources = [{ key: 'locations', label: 'Recorded points' }];
+    try {
+        const r = await fetch('/api/data/sources/');
+        if (r.ok) sources = (await r.json()).sources || sources;
+    } catch (e) {}
+    sourceSel.innerHTML = sources.map(s => `<option value="${escHtml(s.key)}">${escHtml(s.label)}</option>`).join('');
+    // A single source has nothing to choose between.
+    sourceSel.style.display = sources.length > 1 ? '' : 'none';
+    const key = sources.some(s => s.key === wanted) ? wanted : 'locations';
+    selectSource(key, false);
+})();
+
+sourceSel.addEventListener('change', () => selectSource(sourceSel.value));
+document.getElementById('data-device').addEventListener('change', reloadActive);
+document.getElementById('data-range').addEventListener('change', reloadActive);
 // search inputs removed; no listeners needed here
 
 // Infinite scroll: load more when near bottom of table container or window
 function _checkAndMaybeLoadMore(elTop, elHeight, elScrollTop, elScrollHeight) {
     if (elScrollTop + elHeight >= elScrollHeight - 180) {
+        if (activeSource !== 'locations') {
+            const rawBtn = document.getElementById('raw-more-btn');
+            if (rawBtn.style.display !== 'none' && !raw.loading) rawLoad(true);
+            return;
+        }
         const loadMoreBtn = document.getElementById('load-more-btn');
         if (loadMoreBtn && loadMoreBtn.style.display !== 'none' && !loadMoreBtn.disabled) {
             loadMore();
@@ -479,7 +608,7 @@ function _checkAndMaybeLoadMore(elTop, elHeight, elScrollTop, elScrollHeight) {
 let _scrollPending = false;
 const tableContainer = document.querySelector('.table-responsive');
 
-function _onScrollEvent(source) {
+function _onScrollEvent(source, el = tableContainer) {
     if (_scrollPending) return;
     _scrollPending = true;
     requestAnimationFrame(() => {
@@ -489,8 +618,8 @@ function _onScrollEvent(source) {
                 const height = window.innerHeight || document.documentElement.clientHeight;
                 const scrollHeight = document.documentElement.scrollHeight;
                 _checkAndMaybeLoadMore(0, height, scrollTop, scrollHeight);
-            } else if (tableContainer) {
-                _checkAndMaybeLoadMore(tableContainer.getBoundingClientRect().top, tableContainer.clientHeight, tableContainer.scrollTop, tableContainer.scrollHeight);
+            } else if (el) {
+                _checkAndMaybeLoadMore(el.getBoundingClientRect().top, el.clientHeight, el.scrollTop, el.scrollHeight);
             }
         } finally {
             _scrollPending = false;
@@ -499,6 +628,8 @@ function _onScrollEvent(source) {
 }
 
 if (tableContainer) tableContainer.addEventListener('scroll', () => _onScrollEvent('container'));
+const rawScroll = document.getElementById('raw-scroll');
+rawScroll.addEventListener('scroll', () => _onScrollEvent('container', rawScroll));
 window.addEventListener('scroll', () => _onScrollEvent('window'));
 </script>
 {% endblock %}
