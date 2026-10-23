@@ -1,6 +1,12 @@
 services:
   redis:
-    image: redis:8-alpine
+    # Pinned to a minor line, not bare `8`: 8.10.x carries the fixes for the
+    # RESTORE flaws (CVE-2026-25243, exploited in the wild; CVE-2026-66373)
+    # and the TLS use-after-free (CVE-2026-81934). A pull follows 8.10.x
+    # patches; moving to a newer minor is a deliberate edit here. Redis only
+    # holds cache and rate-limit counters, so ./data/redis is safe to wipe if
+    # a future version ever refuses to load it.
+    image: redis:8.10-alpine
     container_name: roamly_redis
     restart: unless-stopped
     volumes:
@@ -16,6 +22,8 @@ services:
     # ./data/postgres volume is bound to the major, so the new server refuses
     # to start against the old data directory. That needs pg_dumpall, a wiped
     # volume and a restore. PG 16 is supported until Nov 2028.
+    # `16-3.5` follows the latest PostgreSQL 16.x, but only when pulled: run
+    # `docker compose pull db` for security releases (16.15 fixed 25 CVEs).
     image: postgis/postgis:16-3.5
     container_name: roamly_db
     restart: unless-stopped
