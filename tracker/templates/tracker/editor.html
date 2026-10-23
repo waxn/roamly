@@ -97,6 +97,10 @@
 .maplibregl-popup-close-button:hover { color: var(--text) !important; background: rgba(255,255,255,0.08); }
 .maplibregl-map, .maplibregl-ctrl { font-family: var(--font-body) !important; font-weight: 700 !important; }
 
+.ed-range { width:100%; accent-color:var(--primary); }
+.ed-range-label { display:flex; justify-content:space-between; font-size:0.65rem; color:var(--text-muted); font-weight:700; }
+.ed-range-label span:last-child { color:var(--text); font-family:var(--font-mono); }
+
 .ed-box { position:absolute; border:1px dashed var(--primary); background:rgba(232,118,61,0.12);
     pointer-events:none; z-index:9; display:none; }
 {% endblock %}
@@ -200,6 +204,11 @@
                 </div>
                 <div class="ed-panel" id="panel-route" style="display:none;">
                     <div class="ed-hint" id="route-hint">Pick the route you actually took.</div>
+                    <div class="ed-field" id="field-gap" style="display:none;">
+                        <div class="ed-range-label"><span>fill gaps longer than</span><span id="gap-label"></span></div>
+                        <input type="range" class="ed-range" id="gap-range" min="0" max="12" step="1">
+                        <div class="ed-hint" id="gap-hint"></div>
+                    </div>
                     <div class="sidebar-tools" id="route-list"></div>
                     <div class="ed-actions">
                         <button class="tool-btn" id="btn-route-accept" type="button">use this route</button>
@@ -554,11 +563,47 @@ document.getElementById('btn-delete').addEventListener('click', async () => {
     });
 });
 
+// How far apart two recorded points must be before the stretch between them is
+// treated as a gap and filled. Stepped rather than linear so the short end — where
+// it matters most — isn't squeezed into the first few pixels.
+const GAP_STEPS = [10, 15, 20, 30, 45, 60, 90, 120, 180, 300, 420, 600, 900];
+function gapStepIndex() {
+    let saved = 60;
+    try { saved = parseInt(localStorage.getItem('roamly_editor_min_gap_s'), 10) || 60; } catch (e) {}
+    const i = GAP_STEPS.indexOf(saved);
+    return i >= 0 ? i : GAP_STEPS.indexOf(60);
+}
+function fmtGap(s) { return s < 60 ? `${s}s` : (s % 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s / 60} min`); }
+const gapRange = document.getElementById('gap-range');
+gapRange.value = gapStepIndex();
+document.getElementById('gap-label').textContent = fmtGap(GAP_STEPS[gapRange.value]);
+gapRange.addEventListener('input', () => {
+    document.getElementById('gap-label').textContent = fmtGap(GAP_STEPS[gapRange.value]);
+});
+let gapTimer = null;
+gapRange.addEventListener('change', () => {
+    try { localStorage.setItem('roamly_editor_min_gap_s', String(GAP_STEPS[gapRange.value])); } catch (e) {}
+    clearTimeout(gapTimer);
+    gapTimer = setTimeout(() => { if (routeIds) previewRoute(routeIds); }, 150);
+});
+
+let routeIds = null;
+let routeReq = 0;
 document.getElementById('btn-route').addEventListener('click', () => {
-    const ids = Array.from(selected.values()).filter(p => !p.inferred).map(p => p.id);
+    previewRoute(Array.from(selected.values()).filter(p => !p.inferred).map(p => p.id));
+});
+function previewRoute(ids) {
+    routeIds = ids;
+    const req = ++routeReq;
     say('Finding routes…');
-    post('/api/editor/route/', { ids }).then(({ ok, d }) => {
-        if (!ok) return say(d.error || 'Could not connect those points.', 'error');
+    post('/api/editor/route/', { ids, min_gap_s: GAP_STEPS[gapRange.value] }).then(({ ok, d }) => {
+        if (req !== routeReq) return;   // a newer slider position superseded this one
+        if (!ok) {
+            // A slider move that fails must not leave the previous plan
+            // committable under a setting it wasn't built with.
+            clearCandidates();
+            return say(d.error || 'Could not connect those points.', 'error');
+        }
         routeToken = d.token;
         routeCands = d.routes || [];
         chosenRoute = 0;
@@ -570,13 +615,17 @@ document.getElementById('btn-route').addEventListener('click', () => {
         document.getElementById('route-hint').textContent = d.waypoints
             ? `Routed through ${d.waypoints} recorded point(s) in between, each leg timed by its own fixes.${skipped}`
             : 'Pick the route you actually took.';
+        document.getElementById('field-gap').style.display = d.between ? 'flex' : 'none';
+        document.getElementById('gap-hint').textContent =
+            `${d.gaps} gap(s) filled · ${routeCands[0] ? routeCands[0].points : 0} point(s) to add. `
+            + 'Recorded points closer together than this are left as they are.';
         say(d.waypoints
             ? `Route through ${d.waypoints} recorded point(s) found — accept it or cancel.`
             : routeCands.length > 1
                 ? `${routeCands.length} routes found — click one on the map or in the list.`
                 : 'One route found — accept it or cancel.');
     });
-});
+}
 
 function drawCandidates(chosen) {
     addEditorLayers();
@@ -623,19 +672,21 @@ function renderRouteList(straightM) {
 }
 
 document.getElementById('btn-route-accept').addEventListener('click', () => {
-    if (routeToken === null) return;
+    if (routeToken === null) return say('No route to use — adjust the setting or select the points again.', 'error');
     say('Placing points…');
     post('/api/editor/route/commit/', { token: routeToken, index: chosenRoute }).then(({ ok, d }) => {
         if (!ok) return say(d.error || 'Could not place the points.', 'error');
         say(`Connected — ${d.points} point(s) along ${(d.route_m / 1000).toFixed(1)}km of road`
             + (d.waypoints ? `, through ${d.waypoints} recorded point(s).` : '.'));
         clearCandidates();
+        routeIds = null;
         closePanels();
         refreshAll();
     });
 });
 document.getElementById('btn-route-cancel').addEventListener('click', () => {
     clearCandidates();
+    routeIds = null;
     closePanels();
     say('');
 });

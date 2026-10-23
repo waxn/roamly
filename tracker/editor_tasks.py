@@ -306,8 +306,10 @@ def route_between_points(profile, a, b):
 # A leg this short in time is ordinary tracking, not a gap: the fixes on either
 # side are already close enough together that filling between them adds nothing
 # but a routing call each. Without this, a stretch that was tracked well for a
-# while would cost one route per fix.
-_LEG_MIN_S = 60
+# while would cost one route per fix. The default; the editor's slider passes
+# its own, clamped to the bounds below.
+LEG_MIN_S = 60
+LEG_MIN_S_BOUNDS = (10, 900)
 # Nor is one this short in distance — every point would be thinned away.
 _LEG_MIN_M = 2 * MIN_POINT_SPACING_M
 # A leg the router can't serve and that is this short is drawn as a straight
@@ -324,14 +326,15 @@ def _leg_route(profile, a, b, mode, max_anchor_m):
     return cands[0]['coords'] if cands else None
 
 
-def plan_through(profile, rows, mode='', max_anchor_m=None):
+def plan_through(profile, rows, mode='', max_anchor_m=None, min_gap_s=LEG_MIN_S):
     """Route from rows[0] to rows[-1] through every row in between.
 
     `rows` are Location value dicts, oldest first. Returns ``(legs, skipped,
     warnings)`` where each leg is ``{'a': idx, 'b': idx, 'coords': [...],
     'fill': bool}`` — ``fill`` False for a leg too short to need points. A fix the
     router cannot reach (usually a GPS glitch off the network) is skipped rather
-    than failing the whole connection, and reported in ``skipped``. Raises
+    than failing the whole connection, and reported in ``skipped``. Fixes less
+    than `min_gap_s` apart are treated as tracked and left unfilled. Raises
     ``ValueError`` with a user-facing message when no route can be made.
     """
     legs, skipped, warnings = [], [], []
@@ -347,7 +350,7 @@ def plan_through(profile, rows, mode='', max_anchor_m=None):
             straight = roads._haversine_m(a['longitude'], a['latitude'],
                                           b['longitude'], b['latitude'])
             line = [[a['longitude'], a['latitude']], [b['longitude'], b['latitude']]]
-            if dt < _LEG_MIN_S or straight < _LEG_MIN_M:
+            if dt < min_gap_s or straight < _LEG_MIN_M:
                 legs.append({'a': i, 'b': j, 'coords': line, 'fill': False})
                 break
             routed += 1

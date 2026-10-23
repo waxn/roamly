@@ -13251,6 +13251,12 @@ def editor_route_api(request):
     rows, err = _route_through_rows(request, _editor_ids(data))
     if err:
         return JsonResponse({'error': err}, status=400)
+    lo, hi = editor_tasks.LEG_MIN_S_BOUNDS
+    try:
+        min_gap_s = int(data.get('min_gap_s', editor_tasks.LEG_MIN_S))
+    except (TypeError, ValueError):
+        min_gap_s = editor_tasks.LEG_MIN_S
+    min_gap_s = max(lo, min(hi, min_gap_s))
 
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
     if not profile.road_provider_resolved:
@@ -13271,7 +13277,8 @@ def editor_route_api(request):
             plans = [[{'a': 0, 'b': 1, 'coords': c['coords'], 'fill': True}] for c in cands]
         else:
             legs, skipped, warnings = editor_tasks.plan_through(
-                profile, rows, mode, max_anchor_m=_EDITOR_ANCHOR_M)
+                profile, rows, mode, max_anchor_m=_EDITOR_ANCHOR_M,
+                min_gap_s=min_gap_s)
             plans = [legs]
     except roads_mod.RoadProviderError as exc:
         return JsonResponse({'error': str(exc)}, status=400)
@@ -13304,6 +13311,8 @@ def editor_route_api(request):
               _EDITOR_ROUTE_TTL)
     return JsonResponse({'status': 'ok', 'token': token, 'straight_m': _jf(straight),
                          'waypoints': len(rows) - 2 - len(skipped),
+                         'between': len(rows) - 2, 'min_gap_s': min_gap_s,
+                         'gaps': sum(1 for legs in plans[:1] for l in legs if l['fill']),
                          'skipped': len(skipped), 'routes': out})
 
 
