@@ -253,6 +253,9 @@ urlpatterns = [
     path('api/cells/coverage/', views.cell_coverage_api, name='cell_coverage_api'),
     path('api/cells/insights/', views.cell_insights_api, name='cell_insights_api'),
     path('api/cells/', views.cell_samples_api, name='cell_samples_api'),
+    path('api/flights/', views.flights_api, name='flights_api'),
+    path('api/flights/<int:flight_id>/update/', views.flight_update_api, name='flight_update'),
+    path('api/flights/<int:flight_id>/delete/', views.flight_delete_api, name='flight_delete'),
 
     # Geocoding
     path('api/geocode/', views.geocode_api, name='geocode_api'),

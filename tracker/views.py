@@ -64,7 +64,7 @@ from .models import (
     Activity, ACTIVITY_KINDS, ActivityTrack,
     FamilyCircle, FamilyMembership, FamilyPlace, FamilyPlaceAlert,
     CellSample, CELL_RATS, CELL_ROLES,
-    HardwareTracker,
+    HardwareTracker, Flight, FLIGHT_SEAT_CLASSES, FLIGHT_SEAT_TYPES, FLIGHT_REASONS,
 )
 from .email_utils import email_enabled, gen_code, send_code_email, send_invite_email, send_password_reset_email, send_contact_email
 from .dwell_utils import bridges_gap, credit_gap, credit_gap_in_place
@@ -16851,6 +16851,198 @@ def cell_insights_api(request):
 @login_required
 def cells_view(request):
     return render(request, 'tracker/cells.html')
+
+
+# ---------------------------------------------------------------------------
+# Flights (the personal flight log — see Flight in models.py)
+# ---------------------------------------------------------------------------
+#
+# Times: the form shows the wall clock at each airport, which is what a
+# boarding pass prints, so the API accepts either an aware ISO instant
+# (``sched_dep``, what the AeroDataBox lookup supplies) or a naive local time
+# (``sched_dep_local``) read in that airport's own zone. Both are stored UTC
+# and returned both ways.
+
+_FLIGHT_NO_RE = re.compile(r'^[A-Z0-9]{2,3}\s?\d{1,4}[A-Z]?$')
+_FLIGHT_TIME_FIELDS = (('sched_dep', 'dep'), ('sched_arr', 'arr'),
+                       ('actual_dep', 'dep'), ('actual_arr', 'arr'))
+_FLIGHT_AIRPORT_KEYS = ('iata', 'icao', 'name', 'city', 'country', 'lat', 'lon', 'tz')
+
+
+def _flight_zone(name):
+    from zoneinfo import ZoneInfo
+    try:
+        return ZoneInfo(name) if name else None
+    except Exception:
+        return None
+
+
+def _flight_payload(f):
+    out = {
+        'id': f.id, 'flight_number': f.flight_number, 'date': f.date.isoformat(),
+        'airline_name': f.airline_name, 'airline_iata': f.airline_iata,
+        'airline_icao': f.airline_icao,
+        'aircraft_model': f.aircraft_model, 'registration': f.registration,
+        'seat': f.seat, 'seat_class': f.seat_class, 'seat_type': f.seat_type,
+        'reason': f.reason, 'notes': f.notes, 'distance_km': f.distance_km,
+        'source': f.source, 'fr24_url': f.fr24_url,
+    }
+    for side in ('dep', 'arr'):
+        for k in _FLIGHT_AIRPORT_KEYS:
+            out[f'{side}_{k}'] = getattr(f, f'{side}_{k}')
+    for field, side in _FLIGHT_TIME_FIELDS:
+        v = getattr(f, field)
+        out[field] = v.isoformat() if v else None
+        tz = _flight_zone(getattr(f, f'{side}_tz'))
+        out[f'{field}_local'] = (v.astimezone(tz) if tz else v).strftime('%Y-%m-%dT%H:%M') if v else ''
+    return out
+
+
+def _clean_flight_airport(data, side, f):
+    """Fill one airport onto `f` from the request.
+
+    A known code fills every field from the bundled dataset, so a typed "JFK"
+    becomes a full airport; anything the request supplies explicitly (the
+    lookup sends the airline's own names) wins over that.
+    """
+    from . import airports
+    from .tz_utils import zone_name_for_point
+
+    code = (data.get(f'{side}_iata') or data.get(f'{side}_icao') or '').strip().upper()
+    rec = airports.lookup(code) if code else None
+    base = {k: '' for k in ('iata', 'icao', 'name', 'city', 'country', 'tz')}
+    base.update({'lat': None, 'lon': None})
+    if rec:
+        base.update({k: rec[k] for k in ('iata', 'icao', 'name', 'city', 'country', 'lat', 'lon')})
+    elif len(code) == 3:
+        base['iata'] = code
+    elif len(code) == 4:
+        base['icao'] = code
+    for k in ('name', 'city', 'country'):
+        v = (data.get(f'{side}_{k}') or '').strip()
+        if v:
+            base[k] = v.upper() if k == 'country' else v
+    for k in ('lat', 'lon'):
+        if data.get(f'{side}_{k}') not in (None, ''):
+            v = _safe_float(data.get(f'{side}_{k}'))
+            if v is not None:
+                base[k] = v
+    if base['lat'] is None or base['lon'] is None or not (
+            -90 <= base['lat'] <= 90 and -180 <= base['lon'] <= 180):
+        base['lat'] = base['lon'] = None
+    tz = (data.get(f'{side}_tz') or '').strip()
+    if not _flight_zone(tz) and base['lat'] is not None:
+        tz = zone_name_for_point(base['lat'], base['lon']) or ''
+    base['tz'] = tz if _flight_zone(tz) else ''
+
+    limits = {'iata': 3, 'icao': 4, 'name': 200, 'city': 120, 'country': 2, 'tz': 64}
+    for k in _FLIGHT_AIRPORT_KEYS:
+        v = base[k]
+        if k in limits:
+            v = (v or '')[:limits[k]]
+        setattr(f, f'{side}_{k}', v)
+
+
+def _apply_flight(f, data):
+    """Validate the request onto `f`. Returns an error string, or None."""
+    num = re.sub(r'\s+', '', (data.get('flight_number') or '').upper())
+    if num and not _FLIGHT_NO_RE.match(num):
+        return 'That does not look like a flight number (e.g. UA123).'
+    f.flight_number = num
+    try:
+        f.date = date.fromisoformat((data.get('date') or '').strip())
+    except ValueError:
+        return 'A date is required.'
+
+    _clean_flight_airport(data, 'dep', f)
+    _clean_flight_airport(data, 'arr', f)
+    if not (f.dep_iata or f.dep_icao) or not (f.arr_iata or f.arr_icao):
+        return 'Both airports are required.'
+
+    for field, side in _FLIGHT_TIME_FIELDS:
+        val = None
+        iso = (data.get(field) or '').strip()
+        loc = (data.get(f'{field}_local') or '').strip()
+        try:
+            if iso:
+                val = datetime.fromisoformat(iso.replace('Z', '+00:00'))
+                if timezone.is_naive(val):
+                    val = timezone.make_aware(val, dt_timezone.utc)
+            elif loc:
+                naive = datetime.fromisoformat(loc)
+                val = naive.replace(tzinfo=_flight_zone(getattr(f, f'{side}_tz')) or dt_timezone.utc)
+        except ValueError:
+            return f'Could not read the {field.replace("_", " ")} time.'
+        setattr(f, field, val.astimezone(dt_timezone.utc) if val else None)
+
+    f.airline_name = (data.get('airline_name') or '').strip()[:120]
+    f.airline_iata = (data.get('airline_iata') or '').strip().upper()[:3]
+    f.airline_icao = (data.get('airline_icao') or '').strip().upper()[:4]
+    f.aircraft_model = (data.get('aircraft_model') or '').strip()[:120]
+    f.registration = (data.get('registration') or '').strip().upper()[:16]
+    f.seat = (data.get('seat') or '').strip().upper()[:8]
+    f.notes = (data.get('notes') or '').strip()[:5000]
+    for field, choices in (('seat_class', FLIGHT_SEAT_CLASSES), ('seat_type', FLIGHT_SEAT_TYPES),
+                           ('reason', FLIGHT_REASONS)):
+        v = (data.get(field) or '').strip()
+        setattr(f, field, v if v in dict(choices) else '')
+    if data.get('source') in ('manual', 'aerodatabox'):
+        f.source = data['source']
+    return None
+
+
+def _flight_json(request):
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+@login_required
+def flights_view(request):
+    return render(request, 'tracker/flights.html')
+
+
+@login_required
+def flights_api(request):
+    if request.method == 'GET':
+        flights = Flight.objects.filter(user=request.user).order_by('-date', '-sched_dep', '-id')
+        return JsonResponse({'flights': [_flight_payload(f) for f in flights]})
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed.'}, status=405)
+    data = _flight_json(request)
+    if data is None:
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+    if Flight.objects.filter(user=request.user).count() >= 20000:
+        return JsonResponse({'error': 'Flight log is full.'}, status=400)
+    f = Flight(user=request.user)
+    err = _apply_flight(f, data)
+    if err:
+        return JsonResponse({'error': err}, status=400)
+    f.save()
+    return JsonResponse({'flight': _flight_payload(f)})
+
+
+@login_required
+@require_POST
+def flight_update_api(request, flight_id):
+    f = get_object_or_404(Flight, id=flight_id, user=request.user)
+    data = _flight_json(request)
+    if data is None:
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+    err = _apply_flight(f, data)
+    if err:
+        return JsonResponse({'error': err}, status=400)
+    f.save()
+    return JsonResponse({'flight': _flight_payload(f)})
+
+
+@login_required
+@require_POST
+def flight_delete_api(request, flight_id):
+    get_object_or_404(Flight, id=flight_id, user=request.user).delete()
+    return JsonResponse({'ok': True})
 
 
 # ---------------------------------------------------------------------------

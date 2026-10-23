@@ -2420,3 +2420,94 @@ class HardwareTracker(models.Model):
 
     def __str__(self):
         return f"{self.device} ({self.hw_id})"
+
+
+FLIGHT_SEAT_CLASSES = [
+    ('economy', 'Economy'), ('premium', 'Premium economy'), ('business', 'Business'),
+    ('first', 'First'), ('private', 'Private'),
+]
+FLIGHT_SEAT_TYPES = [('window', 'Window'), ('middle', 'Middle'), ('aisle', 'Aisle')]
+FLIGHT_REASONS = [('leisure', 'Leisure'), ('business', 'Business'), ('crew', 'Crew'), ('other', 'Other')]
+
+
+class Flight(models.Model):
+    """One flight in the user's personal flight log (the Flights page).
+
+    Entered by hand or filled in from AeroDataBox by flight number and date.
+    Both airports are stored **denormalised** — code, name, city, country,
+    position and zone — so a flight never depends on a lookup table that can
+    change underneath it, and a backup restores it whole.
+
+    Deliberately not linked to Location: a flight is a record of a journey the
+    user took, whether or not their phone tracked it, and nothing in the GPS
+    aggregates reads this table. Non-spatial, so defined once rather than
+    behind HAS_POSTGIS.
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='flights')
+    flight_number = models.CharField(max_length=10, blank=True, default='')
+    # Local departure date — what the boarding pass says, and what AeroDataBox
+    # and Flightradar24 both key a flight by.
+    date = models.DateField()
+    airline_name = models.CharField(max_length=120, blank=True, default='')
+    airline_iata = models.CharField(max_length=3, blank=True, default='')
+    airline_icao = models.CharField(max_length=4, blank=True, default='')
+
+    dep_iata = models.CharField(max_length=3, blank=True, default='')
+    dep_icao = models.CharField(max_length=4, blank=True, default='')
+    dep_name = models.CharField(max_length=200, blank=True, default='')
+    dep_city = models.CharField(max_length=120, blank=True, default='')
+    dep_country = models.CharField(max_length=2, blank=True, default='')
+    dep_lat = models.FloatField(null=True, blank=True)
+    dep_lon = models.FloatField(null=True, blank=True)
+    dep_tz = models.CharField(max_length=64, blank=True, default='')
+
+    arr_iata = models.CharField(max_length=3, blank=True, default='')
+    arr_icao = models.CharField(max_length=4, blank=True, default='')
+    arr_name = models.CharField(max_length=200, blank=True, default='')
+    arr_city = models.CharField(max_length=120, blank=True, default='')
+    arr_country = models.CharField(max_length=2, blank=True, default='')
+    arr_lat = models.FloatField(null=True, blank=True)
+    arr_lon = models.FloatField(null=True, blank=True)
+    arr_tz = models.CharField(max_length=64, blank=True, default='')
+
+    # UTC instants. "Actual" prefers the runway/revised time AeroDataBox gives.
+    sched_dep = models.DateTimeField(null=True, blank=True)
+    sched_arr = models.DateTimeField(null=True, blank=True)
+    actual_dep = models.DateTimeField(null=True, blank=True)
+    actual_arr = models.DateTimeField(null=True, blank=True)
+
+    aircraft_model = models.CharField(max_length=120, blank=True, default='')
+    registration = models.CharField(max_length=16, blank=True, default='')
+    seat = models.CharField(max_length=8, blank=True, default='')
+    seat_class = models.CharField(max_length=10, choices=FLIGHT_SEAT_CLASSES, blank=True, default='')
+    seat_type = models.CharField(max_length=8, choices=FLIGHT_SEAT_TYPES, blank=True, default='')
+    reason = models.CharField(max_length=10, choices=FLIGHT_REASONS, blank=True, default='')
+    notes = models.TextField(blank=True, default='')
+
+    # Great-circle airport-to-airport distance, recomputed on save.
+    distance_km = models.FloatField(null=True, blank=True)
+    SOURCE_CHOICES = [('manual', 'Manual'), ('aerodatabox', 'AeroDataBox')]
+    source = models.CharField(max_length=12, choices=SOURCE_CHOICES, default='manual')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date', '-sched_dep']
+        indexes = [models.Index(fields=['user', 'date'], name='tracker_flight_user_date_idx')]
+
+    def save(self, *args, **kwargs):
+        from .airports import great_circle_km
+        if None not in (self.dep_lat, self.dep_lon, self.arr_lat, self.arr_lon):
+            self.distance_km = round(great_circle_km(self.dep_lat, self.dep_lon,
+                                                     self.arr_lat, self.arr_lon), 1)
+        else:
+            self.distance_km = None
+        super().save(*args, **kwargs)
+
+    @property
+    def fr24_url(self):
+        num = ''.join(self.flight_number.split()).lower()
+        return f'https://www.flightradar24.com/data/flights/{num}' if num else ''
+
+    def __str__(self):
+        return f"{self.flight_number or 'Flight'} {self.dep_iata}-{self.arr_iata} {self.date}"
