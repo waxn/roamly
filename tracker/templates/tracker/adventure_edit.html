@@ -1196,7 +1196,7 @@ function buildBlockEl(block, index){
     let inner = '';
 
     if(block.type === 'heading'){
-        inner = `<div class="block-heading" data-level="${c.level||2}">
+        inner = `<div class="block-heading" data-level="${[1,2,3].includes(+c.level) ? +c.level : 2}">
             <textarea class="block-text" data-field="text" rows="1">${esc(c.text||'')}</textarea>
         </div>`;
     } else if(block.type === 'paragraph'){
@@ -1211,7 +1211,7 @@ function buildBlockEl(block, index){
             <textarea class="callout-text" data-field="text" rows="2">${esc(c.text||'')}</textarea>
         </div>`;
     } else if(block.type === 'map_embed'){
-        const h = c.height_px || 360;
+        const h = parseInt(c.height_px, 10) || 360;
         inner = `<div class="block-map-embed">
             <div class="map-embed-live" id="map-embed-${block._id}" data-block-id="${block._id}" style="height:${h}px;"></div>
         </div>`;

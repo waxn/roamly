@@ -5846,8 +5846,43 @@ def _clean_body(body):
         if btype not in _BODY_BLOCK_TYPES:
             continue
         content = _clean_body_value(block.get('content'), depth=1)
-        blocks.append({'type': btype, 'content': content if content is not None else {}})
+        if not isinstance(content, dict):
+            content = {}
+        _coerce_block_fields(btype, content)
+        blocks.append({'type': btype, 'content': content})
     return blocks
+
+
+def _as_int(v, default=None):
+    if isinstance(v, bool):
+        return default
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_block_fields(btype, content):
+    """Force the block fields renderers drop into markup unquoted to their type.
+
+    _clean_body_value bounds what can be stored but keeps any string, and the
+    public page and editor interpolate a heading's `level` into a class/attribute
+    and a map embed's `height_px` into a style attribute as numbers. A string
+    there was stored XSS on the public page and in the owner's editor. Ids are
+    coerced too, so a lookup keyed on them can never carry markup either.
+    """
+    if btype == 'heading':
+        level = _as_int(content.get('level'), 2)
+        content['level'] = level if level in (1, 2, 3) else 2
+    elif btype == 'map_embed':
+        h = _as_int(content.get('height_px'), 360)
+        content['height_px'] = min(max(h, 120), 1200)
+    elif btype == 'location_card':
+        content['place_id'] = _as_int(content.get('place_id'))
+    elif btype == 'photo_grid':
+        ids = content.get('photo_ids')
+        content['photo_ids'] = [i for i in (_as_int(x) for x in ids) if i is not None] \
+            if isinstance(ids, list) else []
 
 
 def _body_word_count(body):
@@ -8409,7 +8444,7 @@ def restore_backup(request):
                             'end_time': end,
                             'creator': creator,
                             'public_slug': a.get('public_slug') or None,
-                            'body': a.get('body') or [],
+                            'body': _clean_body(a.get('body')) if isinstance(a.get('body'), list) else [],
                         }
                     )
                     if adv_created:
@@ -8418,8 +8453,8 @@ def restore_backup(request):
                         # Backfill the CMS body/subtitle onto a pre-existing adventure
                         # so re-importing an enriched backup fills in blank fields.
                         update_fields = []
-                        if not adv.body and a.get('body'):
-                            adv.body = a['body']
+                        if not adv.body and isinstance(a.get('body'), list) and a['body']:
+                            adv.body = _clean_body(a['body'])
                             update_fields.append('body')
                         if not adv.subtitle and a.get('subtitle'):
                             adv.subtitle = a['subtitle']

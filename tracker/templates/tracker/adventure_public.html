@@ -591,7 +591,7 @@ function renderPinRefs(text){
 function renderBlock(block, allPhotos){
     const c = block.content || {};
     if(block.type === 'heading'){
-        const level = c.level || 2;
+        const level = [1,2,3].includes(+c.level) ? +c.level : 2;
         return `<div class="pub-block pub-heading-${level}">${esc(c.text||'')}</div>`;
     }
     if(block.type === 'paragraph'){
@@ -607,7 +607,7 @@ function renderBlock(block, allPhotos){
         </div>`;
     }
     if(block.type === 'map_embed'){
-        const height = c.height_px || 360;
+        const height = parseInt(c.height_px, 10) || 360;
         const mapId = 'embed-map-' + Math.random().toString(36).slice(2,8);
         return `<div class="pub-block pub-map-embed interactive" id="${mapId}-wrap" data-map-id="${mapId}" data-config="${esc(JSON.stringify(c))}">
             <div id="${mapId}" class="pub-map-inner" style="height:${height}px;"></div>
