@@ -6109,6 +6109,22 @@ def update_trip(request, trip_id):
         data = json.loads(request.body)
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
+    # The window, the device and the public link/PIN decide whose track is
+    # exposed and to whom, so only the owner of the adventure's device may
+    # change them. Any member used to be able to: setting start_time to 1970
+    # (end_time blank becomes 2099) returned the owner's entire location
+    # history through the adventure payload, and switching device_id to their
+    # own device made them the owner. A member's save still goes through for
+    # the shared fields; the owner-only ones it carries are dropped rather
+    # than failing the request, because the settings form sends every field
+    # on every save and its date inputs can't round-trip the stored instant.
+    is_owner = trip.device.user_id == request.user.id
+    ignored = []
+    if not is_owner:
+        for key in ('start_time', 'end_time', 'device_id', 'public_slug', 'access_pin'):
+            if key in data:
+                data.pop(key)
+                ignored.append(key)
     if 'description' in data:
         trip.description = data['description']
     if 'name' in data:
@@ -6149,7 +6165,10 @@ def update_trip(request, trip_id):
         raw_pin = (data['access_pin'] or '').strip()
         trip.access_pin = raw_pin[:20]
     trip.save()
-    return JsonResponse({"status": "ok", "public_slug": trip.public_slug})
+    resp = {"status": "ok", "public_slug": trip.public_slug}
+    if ignored:
+        resp["ignored"] = ignored
+    return JsonResponse(resp)
 
 
 # Hard cap on how many points any single adventure payload will return. Shared
