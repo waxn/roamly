@@ -74,8 +74,11 @@ class ApiKeyAuthMiddleware:
                 if key:
                     try:
                         from .models import APIKey
+                        # user__is_active: deactivating an account in the
+                        # Admin Panel must also stop its phone and trackers;
+                        # login checks is_active, a Bearer key used not to.
                         api_key = APIKey.objects.select_related('user').get(
-                            key=key, is_active=True
+                            key=key, is_active=True, user__is_active=True
                         )
                         # Stamp last_used at most once every 5 minutes.
                         #

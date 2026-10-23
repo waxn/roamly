@@ -757,7 +757,8 @@ def get_api_key_user(request):
         return None
 
     try:
-        api_key = APIKey.objects.select_related('user').get(key=key, is_active=True)
+        api_key = APIKey.objects.select_related('user').get(
+            key=key, is_active=True, user__is_active=True)
         api_key.last_used = timezone.now()
         api_key.save(update_fields=['last_used'])
         return api_key.user
