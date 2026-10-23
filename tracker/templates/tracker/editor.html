@@ -111,6 +111,11 @@
                     Click a point to select. <strong>Ctrl</strong>-click adds to the selection,
                     <strong>Shift</strong>-drag selects a box.
                 </div>
+                <div class="ed-hint">
+                    To fill a spotty drive, select its first and last point and
+                    <strong>connect via roads</strong> — it routes through every point
+                    recorded in between.
+                </div>
                 <a href="{% url 'tracker:map' %}" class="tool-btn" style="text-decoration:none;">← back to map</a>
             </div>
 
@@ -160,7 +165,7 @@
                 <div class="sidebar-tools">
                     <button class="tool-btn" id="btn-clear-sel" type="button" disabled>clear selection</button>
                     <button class="tool-btn" id="btn-route" type="button" disabled>
-                        connect via roads<span class="tool-btn-badge">2 points</span>
+                        connect via roads<span class="tool-btn-badge">start + end</span>
                     </button>
                     <button class="tool-btn" id="btn-move" type="button" disabled>
                         move / retime<span class="tool-btn-badge">1 point</span>
@@ -194,7 +199,7 @@
                     </div>
                 </div>
                 <div class="ed-panel" id="panel-route" style="display:none;">
-                    <div class="ed-hint">Pick the route you actually took.</div>
+                    <div class="ed-hint" id="route-hint">Pick the route you actually took.</div>
                     <div class="sidebar-tools" id="route-list"></div>
                     <div class="ed-actions">
                         <button class="tool-btn" id="btn-route-accept" type="button">use this route</button>
@@ -409,7 +414,7 @@ function repaintSel() {
     const real = Array.from(selected.values()).filter(p => !p.inferred).length;
     document.getElementById('btn-clear-sel').disabled = !n;
     document.getElementById('btn-delete').disabled = !n;
-    document.getElementById('btn-route').disabled = real !== 2;
+    document.getElementById('btn-route').disabled = real < 2;
     document.getElementById('btn-move').disabled = real !== 1;
     document.getElementById('btn-add-run').disabled = real !== 1;
 }
@@ -556,12 +561,20 @@ document.getElementById('btn-route').addEventListener('click', () => {
         if (!ok) return say(d.error || 'Could not connect those points.', 'error');
         routeToken = d.token;
         routeCands = d.routes || [];
+        chosenRoute = 0;
         drawCandidates(0);
-        renderRouteList(d.straight_m);
+        renderRouteList(d.waypoints ? null : d.straight_m);
         openPanel('route');
-        say(routeCands.length > 1
-            ? `${routeCands.length} routes found — click one on the map or in the list.`
-            : 'One route found — accept it or cancel.');
+        const skipped = d.skipped
+            ? ` ${d.skipped} point(s) off the road network were left out of the route (they stay on the map).` : '';
+        document.getElementById('route-hint').textContent = d.waypoints
+            ? `Routed through ${d.waypoints} recorded point(s) in between, each leg timed by its own fixes.${skipped}`
+            : 'Pick the route you actually took.';
+        say(d.waypoints
+            ? `Route through ${d.waypoints} recorded point(s) found — accept it or cancel.`
+            : routeCands.length > 1
+                ? `${routeCands.length} routes found — click one on the map or in the list.`
+                : 'One route found — accept it or cancel.');
     });
 });
 
@@ -599,7 +612,7 @@ function renderRouteList(straightM) {
     const el = document.getElementById('route-list');
     el.innerHTML = routeCands.map(r => {
         const km = (r.length_m / 1000).toFixed(1);
-        const detour = renderRouteList._straight
+        const detour = renderRouteList._straight && routeCands.length > 1
             ? ` · ${(r.length_m / renderRouteList._straight).toFixed(1)}× direct` : '';
         return `<button class="tool-btn ${r.index === chosenRoute ? 'active' : ''}" type="button"
                     onclick="chooseRoute(${r.index})">
@@ -614,7 +627,8 @@ document.getElementById('btn-route-accept').addEventListener('click', () => {
     say('Placing points…');
     post('/api/editor/route/commit/', { token: routeToken, index: chosenRoute }).then(({ ok, d }) => {
         if (!ok) return say(d.error || 'Could not place the points.', 'error');
-        say(`Connected — ${d.points} point(s) along ${(d.route_m / 1000).toFixed(1)}km of road.`);
+        say(`Connected — ${d.points} point(s) along ${(d.route_m / 1000).toFixed(1)}km of road`
+            + (d.waypoints ? `, through ${d.waypoints} recorded point(s).` : '.'));
         clearCandidates();
         closePanels();
         refreshAll();

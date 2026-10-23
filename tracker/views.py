@@ -13184,15 +13184,62 @@ def _route_anchor_rows(request, ids):
     return rows, None
 
 
+# Recorded fixes between the two ends become waypoints only if they are
+# plausibly where the car was — the same bar distance accounting uses.
+_EDITOR_WAYPOINT_MAX_ACC_M = 100.0
+_EDITOR_ROUTE_ROW_FIELDS = ('id', 'latitude', 'longitude', 'timestamp', 'speed',
+                            'device_id', 'transport_mode')
+
+
+def _route_through_rows(request, ids):
+    """Endpoints plus every usable recorded fix between them, oldest first.
+
+    The ends are the earliest and latest of the selected points, so selecting a
+    whole stretch works as well as selecting just its two ends. Returns
+    ``(rows, error)``.
+    """
+    ends = list(Location.objects.filter(id__in=ids, device__user=request.user)
+                .order_by('timestamp').values(*_EDITOR_ROUTE_ROW_FIELDS))
+    if len(ends) < 2:
+        return None, 'Select a start and an end point to connect.'
+    if len({r['device_id'] for r in ends}) != 1:
+        return None, 'All selected points must be on the same device.'
+    first, last = ends[0], ends[-1]
+    if first['timestamp'] == last['timestamp']:
+        return None, 'Those points share a timestamp, so there is no gap to fill.'
+    between = list(
+        Location.objects.filter(device_id=first['device_id'],
+                                timestamp__gt=first['timestamp'],
+                                timestamp__lt=last['timestamp'])
+        .exclude(flag='suspect')
+        .filter(Q(accuracy__isnull=True) | Q(accuracy__lte=_EDITOR_WAYPOINT_MAX_ACC_M))
+        .order_by('timestamp', 'id').values(*_EDITOR_ROUTE_ROW_FIELDS))
+    return [first] + between + [last], None
+
+
+def _flatten_legs(legs):
+    coords = []
+    for leg in legs:
+        c = leg['coords']
+        coords.extend(c if not coords else c[1:] if coords[-1] == c[0] else c)
+    return coords
+
+
 @login_required
 @require_http_methods(["POST"])
 def editor_route_api(request):
-    """Offer up to three road routes between two selected points.
+    """Offer road routes between a start and an end point.
 
-    A preview, not a commit: for a lot of gaps there is more than one plausible
-    way round and only the person who drove it knows which. The candidates are
-    held in the cache and committed by index, so the client never sends geometry
-    back and cannot inject a path that was never offered.
+    Recorded fixes between the two ends are routed *through*: each leg runs
+    from one real fix to the next and is timed by those two fixes, so a drive
+    that only logged a point now and then is filled in around what it did
+    record. With nothing in between there is more than one plausible way round
+    and up to three alternatives are offered; with waypoints the fixes pin the
+    route down, so there is one.
+
+    A preview, not a commit: the candidates are held in the cache and committed
+    by index, so the client never sends geometry back and cannot inject a path
+    that was never offered.
     """
     from . import editor_tasks, roads as roads_mod
 
@@ -13201,7 +13248,7 @@ def editor_route_api(request):
     except (json.JSONDecodeError, ValueError):
         return JsonResponse({'error': 'Invalid request.'}, status=400)
 
-    rows, err = _route_anchor_rows(request, _editor_ids(data))
+    rows, err = _route_through_rows(request, _editor_ids(data))
     if err:
         return JsonResponse({'error': err}, status=400)
 
@@ -13210,44 +13257,54 @@ def editor_route_api(request):
         return JsonResponse({'error': 'No road data provider is configured. '
                                       'Download road data or set a provider in Settings.'}, status=400)
 
-    a = (rows[0]['longitude'], rows[0]['latitude'])
-    b = (rows[1]['longitude'], rows[1]['latitude'])
-    mode = rows[0]['transport_mode'] or rows[1]['transport_mode'] or ''
+    first, last = rows[0], rows[-1]
+    a = (first['longitude'], first['latitude'])
+    b = (last['longitude'], last['latitude'])
+    mode = first['transport_mode'] or last['transport_mode'] or ''
+    straight = roads_mod._haversine_m(a[0], a[1], b[0], b[1])
+    skipped, warnings = [], []
+
     try:
-        cands = roads_mod.route_alternatives(profile, a, b, mode, k=3,
-                                             max_anchor_m=_EDITOR_ANCHOR_M)
+        if len(rows) == 2:
+            cands = roads_mod.route_alternatives(profile, a, b, mode, k=3,
+                                                 max_anchor_m=_EDITOR_ANCHOR_M)
+            plans = [[{'a': 0, 'b': 1, 'coords': c['coords'], 'fill': True}] for c in cands]
+        else:
+            legs, skipped, warnings = editor_tasks.plan_through(
+                profile, rows, mode, max_anchor_m=_EDITOR_ANCHOR_M)
+            plans = [legs]
     except roads_mod.RoadProviderError as exc:
         return JsonResponse({'error': str(exc)}, status=400)
+    except ValueError as exc:
+        return JsonResponse({'error': str(exc)}, status=400)
 
-    if not cands:
+    if not plans:
         return JsonResponse({'error': 'No road route found between those two points. '
                                       'The area may not have road data downloaded yet — '
                                       'try Download Roads in Settings.'}, status=400)
 
-    straight = roads_mod._haversine_m(a[0], a[1], b[0], b[1])
     token = secrets.token_hex(8)
     out = []
-    for idx, c in enumerate(cands):
-        pts, _len = editor_tasks.points_along(
-            c['coords'], rows[0]['timestamp'], rows[1]['timestamp'],
-            v_start=rows[0]['speed'], v_end=rows[1]['speed'])
-        warn = ''
-        if straight > 0 and c['length_m'] > max(1500.0, straight * editor_tasks.DETOUR_WARN_FACTOR):
+    for idx, legs in enumerate(plans):
+        pts, length = editor_tasks.points_through(rows, legs)
+        warn = '; '.join(warnings)
+        if not warn and straight > 0 and len(rows) == 2 and \
+                length > max(1500.0, straight * editor_tasks.DETOUR_WARN_FACTOR):
             warn = 'much longer than the direct line — it may be routing around missing road data'
         out.append({
             'index': idx,
-            'coords': c['coords'],
-            'length_m': _jf(c['length_m']),
+            'coords': _flatten_legs(legs),
+            'length_m': _jf(length),
             'points': len(pts),
             'warning': warn,
         })
 
     cache.set(f'editroute:{request.user.id}:{token}',
-              {'ids': [r['id'] for r in rows],
-               'routes': [c['coords'] for c in cands]},
+              {'ids': [r['id'] for r in rows], 'plans': plans},
               _EDITOR_ROUTE_TTL)
     return JsonResponse({'status': 'ok', 'token': token, 'straight_m': _jf(straight),
-                         'routes': out})
+                         'waypoints': len(rows) - 2 - len(skipped),
+                         'skipped': len(skipped), 'routes': out})
 
 
 @login_required
@@ -13262,35 +13319,40 @@ def editor_route_commit_api(request):
         return JsonResponse({'error': 'Invalid request.'}, status=400)
 
     held = cache.get(f"editroute:{request.user.id}:{data.get('token') or ''}")
-    if not held:
+    if not held or 'plans' not in held:
         return JsonResponse({'error': 'That route preview has expired. '
-                                      'Select the two points again.'}, status=400)
+                                      'Select the points again.'}, status=400)
     try:
         idx = int(data.get('index', 0))
     except (TypeError, ValueError):
         idx = 0
-    if not (0 <= idx < len(held['routes'])):
+    if not (0 <= idx < len(held['plans'])):
         return JsonResponse({'error': 'Unknown route.'}, status=400)
 
-    rows, err = _route_anchor_rows(request, held['ids'])
-    if err:
-        return JsonResponse({'error': err}, status=400)
+    # Re-read every fix the plan was built on: ownership is re-checked, and if
+    # any of them was deleted or moved since the preview, the plan is stale.
+    by_id = {r['id']: r for r in Location.objects.filter(
+        id__in=held['ids'], device__user=request.user).values(*_EDITOR_ROUTE_ROW_FIELDS)}
+    if len(by_id) != len(held['ids']):
+        return JsonResponse({'error': 'Some of those points changed since the preview. '
+                                      'Select the points again.'}, status=400)
+    rows = [by_id[i] for i in held['ids']]
 
-    coords = held['routes'][idx]
-    pts, route_len = editor_tasks.points_along(
-        coords, rows[0]['timestamp'], rows[1]['timestamp'],
-        v_start=rows[0]['speed'], v_end=rows[1]['speed'])
+    legs = held['plans'][idx]
+    pts, route_len = editor_tasks.points_through(rows, legs)
     if not pts:
         return JsonResponse({'error': 'That gap is too short to place any points in.'}, status=400)
 
     device = Device.objects.get(id=rows[0]['device_id'])
+    via = f' via {len(rows) - 2} recorded point(s)' if len(rows) > 2 else ''
     batch = editor_tasks.create_batch(
         request.user, device, 'route', pts, target='inferred',
-        note=f'{route_len / 1000:.1f}km along roads')
+        note=f'{route_len / 1000:.1f}km along roads{via}')
     cache.delete(f"editroute:{request.user.id}:{data.get('token')}")
     _bust_user_cache(request.user.id)
     return JsonResponse({'status': 'ok', 'batch_id': batch.id,
-                         'points': batch.point_count, 'route_m': _jf(route_len)})
+                         'points': batch.point_count, 'route_m': _jf(route_len),
+                         'waypoints': len(rows) - 2})
 
 
 @login_required

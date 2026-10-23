@@ -293,3 +293,103 @@ def route_between_points(profile, a, b):
                 f'{straight / 1000:.1f}km gap — it may have detoured around '
                 f'missing road data.')
     return pts, route_len, straight, warn
+
+
+# ── Connecting through what was recorded ────────────────────────────────────
+# A drive with spotty tracking still has a few real fixes along the way. Routing
+# the two ends straight to each other ignores them — the road chosen can miss
+# them entirely, and the generated points are timed as if the car went at one
+# steady pace. Treating every recorded fix in between as a waypoint fixes both:
+# each leg is routed through the next fix, and timed by that leg's own two
+# timestamps and Doppler speeds.
+
+# A leg this short in time is ordinary tracking, not a gap: the fixes on either
+# side are already close enough together that filling between them adds nothing
+# but a routing call each. Without this, a stretch that was tracked well for a
+# while would cost one route per fix.
+_LEG_MIN_S = 60
+# Nor is one this short in distance — every point would be thinned away.
+_LEG_MIN_M = 2 * MIN_POINT_SPACING_M
+# A leg the router can't serve and that is this short is drawn as a straight
+# line: at this length a chord and the road are indistinguishable.
+_LEG_STRAIGHT_OK_M = 250.0
+# Each leg is a routing call; a stretch with this many gaps is better split up.
+MAX_ROUTED_LEGS = 150
+
+
+def _leg_route(profile, a, b, mode, max_anchor_m):
+    cands = roads.route_alternatives(profile, (a['longitude'], a['latitude']),
+                                     (b['longitude'], b['latitude']), mode, k=1,
+                                     max_anchor_m=max_anchor_m)
+    return cands[0]['coords'] if cands else None
+
+
+def plan_through(profile, rows, mode='', max_anchor_m=None):
+    """Route from rows[0] to rows[-1] through every row in between.
+
+    `rows` are Location value dicts, oldest first. Returns ``(legs, skipped,
+    warnings)`` where each leg is ``{'a': idx, 'b': idx, 'coords': [...],
+    'fill': bool}`` — ``fill`` False for a leg too short to need points. A fix the
+    router cannot reach (usually a GPS glitch off the network) is skipped rather
+    than failing the whole connection, and reported in ``skipped``. Raises
+    ``ValueError`` with a user-facing message when no route can be made.
+    """
+    legs, skipped, warnings = [], [], []
+    routed = 0
+    i = 0
+    n = len(rows)
+    while i < n - 1:
+        a = rows[i]
+        j = i + 1
+        while True:
+            b = rows[j]
+            dt = (b['timestamp'] - a['timestamp']).total_seconds()
+            straight = roads._haversine_m(a['longitude'], a['latitude'],
+                                          b['longitude'], b['latitude'])
+            line = [[a['longitude'], a['latitude']], [b['longitude'], b['latitude']]]
+            if dt < _LEG_MIN_S or straight < _LEG_MIN_M:
+                legs.append({'a': i, 'b': j, 'coords': line, 'fill': False})
+                break
+            routed += 1
+            if routed > MAX_ROUTED_LEGS:
+                raise ValueError(
+                    f'That stretch has more than {MAX_ROUTED_LEGS} gaps to route. '
+                    'Connect it in shorter pieces.')
+            coords = _leg_route(profile, a, b, mode, max_anchor_m)
+            if coords:
+                length = _polyline_len(coords)
+                if straight > 0 and length > max(1500.0, straight * DETOUR_WARN_FACTOR):
+                    warnings.append(
+                        f'{a["timestamp"]:%H:%M}–{b["timestamp"]:%H:%M}: road route is '
+                        f'{length / 1000:.1f}km for a {straight / 1000:.1f}km gap')
+                legs.append({'a': i, 'b': j, 'coords': coords, 'fill': True})
+                break
+            if straight <= _LEG_STRAIGHT_OK_M:
+                legs.append({'a': i, 'b': j, 'coords': line, 'fill': True})
+                break
+            # Unreachable. If the far end is an intermediate fix, route past it;
+            # if it is the chosen end point, there is nothing left to try.
+            if j == n - 1:
+                raise ValueError(
+                    f'No road route found between {a["timestamp"]:%H:%M} and '
+                    f'{b["timestamp"]:%H:%M}. The area may not have road data '
+                    'downloaded yet — try Download Roads in Settings.')
+            skipped.append(rows[j]['id'])
+            j += 1
+        i = j
+    return legs, skipped, warnings
+
+
+def points_through(rows, legs):
+    """Generated points for a plan from `plan_through`, timed leg by leg."""
+    out, total = [], 0.0
+    for leg in legs:
+        a, b = rows[leg['a']], rows[leg['b']]
+        if not leg['fill']:
+            total += _polyline_len(leg['coords'])
+            continue
+        pts, length = points_along(leg['coords'], a['timestamp'], b['timestamp'],
+                                   v_start=a['speed'], v_end=b['speed'])
+        out.extend(pts)
+        total += length
+    return out[:MAX_POINTS_PER_ROUTE * 4], total
