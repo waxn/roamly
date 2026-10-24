@@ -34,6 +34,13 @@
 .fl-year-bar { width: 100%; max-width: 46px; background: var(--primary); min-height: 2px; position: relative; }
 .fl-year-bar span { position: absolute; top: -1.15rem; left: 50%; transform: translateX(-50%); font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); }
 .fl-year-lbl { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); }
+.fl-ac-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-bottom: 1rem; }
+.fl-ac-tiles div { border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem; }
+.fl-ac-tiles b { display: block; font-family: var(--font-mono); font-size: 1.3rem; }
+.fl-ac-tiles span { font-size: 0.72rem; color: var(--text-muted); }
+.fl-ac-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.25rem; }
+.fl-ac-sub { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem; }
+@media (max-width: 640px) { .fl-ac-tiles { grid-template-columns: repeat(2, 1fr); } .fl-ac-grid { grid-template-columns: 1fr; } }
 .fl-fact { display: flex; justify-content: space-between; gap: 1rem; padding: 0.45rem 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
 .fl-fact:last-child { border-bottom: none; }
 .fl-fact b { font-family: var(--font-mono); font-weight: 600; text-align: right; }
@@ -137,7 +144,22 @@
             <div class="card"><div class="card-header">Top airports</div><div class="fl-bars" id="st-top-airports"></div></div>
             <div class="card"><div class="card-header">Top routes</div><div class="fl-bars" id="st-top-routes"></div></div>
             <div class="card"><div class="card-header">Airlines</div><div class="fl-bars" id="st-top-airlines"></div></div>
-            <div class="card"><div class="card-header">Aircraft</div><div class="fl-bars" id="st-top-aircraft"></div></div>
+            <div class="card" style="grid-column: 1 / -1;">
+                <div class="card-header">Aircraft</div>
+                <div class="fl-ac-tiles">
+                    <div><b id="st-ac-types">–</b><span>types</span></div>
+                    <div><b id="st-ac-families">–</b><span>families</span></div>
+                    <div><b id="st-ac-makers">–</b><span>manufacturers</span></div>
+                    <div><b id="st-ac-tails">–</b><span>individual aircraft</span></div>
+                </div>
+                <div class="fl-ac-grid">
+                    <div><div class="fl-ac-sub">Most flown types</div><div class="fl-bars" id="st-top-aircraft"></div></div>
+                    <div><div class="fl-ac-sub">Families</div><div class="fl-bars" id="st-ac-family"></div></div>
+                    <div><div class="fl-ac-sub">Manufacturers</div><div class="fl-bars" id="st-ac-maker"></div></div>
+                    <div><div class="fl-ac-sub">Tails flown more than once</div><div class="fl-bars" id="st-ac-tail"></div></div>
+                </div>
+                <div id="st-ac-records" style="margin-top:0.75rem;"></div>
+            </div>
             <div class="card"><div class="card-header">Seat class</div><div class="fl-bars" id="st-class"></div></div>
             <div class="card"><div class="card-header">Why you flew</div><div class="fl-bars" id="st-reason"></div></div>
             <div class="card" style="grid-column: 1 / -1;"><div class="card-header">Records</div><div id="st-records"></div></div>
@@ -529,7 +551,7 @@ function renderStats() {
     bars('st-top-airports', [...apVisits.entries()].sort((a, b) => b[1] - a[1]), 8, n => `${n} visit${n === 1 ? '' : 's'}`);
     bars('st-top-routes', tally(rows, f => [code(f, 'dep'), code(f, 'arr')].sort().join(' ⇄ ')));
     bars('st-top-airlines', tally(rows, f => f.airline_name));
-    bars('st-top-aircraft', tally(rows, f => f.aircraft_model));
+    renderAircraft(rows);
     const CLASS = { economy: 'Economy', premium: 'Premium economy', business: 'Business', first: 'First', private: 'Private' };
     const REASON = { leisure: 'Leisure', business: 'Business', crew: 'Crew', other: 'Other' };
     bars('st-class', tally(rows, f => CLASS[f.seat_class]));
@@ -558,6 +580,56 @@ function renderStats() {
         ? facts.map(([k, v]) => `<div class="fl-fact"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')
         : '<div class="fl-sub">Nothing to show yet.</div>';
     document.getElementById('st-dist-lbl').textContent = isMiles() ? 'miles flown' : 'kilometres flown';
+}
+
+// ---- Aircraft --------------------------------------------------------------
+// AeroDataBox names models like "Boeing 737-800", "Airbus A321neo",
+// "Embraer 175", "Bombardier CRJ-900". The family is the type without its
+// variant ("Boeing 737", "Airbus A321"), the manufacturer the first word.
+function acFamily(model) {
+    const m = (model || '').trim();
+    if (!m) return '';
+    const [maker, type = ''] = m.split(/\s+/, 2);
+    const base = (type.match(/^[A-Za-z]*\d+/) || [type.split(/[-(]/)[0]])[0];
+    return base ? `${maker} ${base}` : maker;
+}
+const acMaker = model => ((model || '').trim().split(/\s+/)[0] || '');
+function renderAircraft(rows) {
+    const set = (id, v) => { document.getElementById(id).textContent = v; };
+    const withAc = rows.filter(f => f.aircraft_model);
+    set('st-ac-types', new Set(withAc.map(f => f.aircraft_model)).size.toLocaleString());
+    set('st-ac-families', new Set(withAc.map(f => acFamily(f.aircraft_model))).size.toLocaleString());
+    set('st-ac-makers', new Set(withAc.map(f => acMaker(f.aircraft_model))).size.toLocaleString());
+    set('st-ac-tails', new Set(rows.map(f => f.registration).filter(Boolean)).size.toLocaleString());
+    bars('st-top-aircraft', tally(rows, f => f.aircraft_model));
+    bars('st-ac-family', tally(rows, f => acFamily(f.aircraft_model)));
+    bars('st-ac-maker', tally(rows, f => acMaker(f.aircraft_model)));
+    const models = new Map(rows.filter(f => f.registration).map(f => [f.registration, f.aircraft_model]));
+    bars('st-ac-tail', tally(rows, f => f.registration).filter(([, n]) => n > 1)
+        .map(([r, n]) => [models.get(r) ? `${r} · ${models.get(r)}` : r, n]));
+
+    // Per type: distance and time aloft, and the longest flight on it.
+    const facts = [];
+    const byType = new Map();
+    withAc.forEach(f => {
+        const t = byType.get(f.aircraft_model) || { km: 0, min: 0, n: 0, longest: null };
+        t.n++; t.km += f.distance_km || 0; t.min += durationMin(f) || 0;
+        if (f.distance_km != null && (!t.longest || f.distance_km > t.longest.distance_km)) t.longest = f;
+        byType.set(f.aircraft_model, t);
+    });
+    const types = [...byType.entries()];
+    if (types.length) {
+        const far = types.reduce((a, b) => b[1].km > a[1].km ? b : a);
+        facts.push(['Most distance on one type', `${far[0]} · ${fmtDist(far[1].km)} over ${far[1].n} flight${far[1].n === 1 ? '' : 's'}`]);
+        const aloft = types.reduce((a, b) => b[1].min > a[1].min ? b : a);
+        if (aloft[1].min) facts.push(['Most time aloft on one type', `${aloft[0]} · ${fmtDur(aloft[1].min)}`]);
+        const longest = withAc.filter(f => f.distance_km != null).reduce((a, b) => !a || b.distance_km > a.distance_km ? b : a, null);
+        if (longest) facts.push(['Longest flight by aircraft', `${longest.aircraft_model} · ${code(longest, 'dep')} → ${code(longest, 'arr')} · ${fmtDist(longest.distance_km)}`]);
+        const missing = rows.length - withAc.length;
+        if (missing) facts.push(['Flights without an aircraft', `${missing} (fill them in, or use Look up)`]);
+    }
+    document.getElementById('st-ac-records').innerHTML = facts
+        .map(([k, v]) => `<div class="fl-fact"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
 }
 
 // ---- Map -------------------------------------------------------------------
