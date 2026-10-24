@@ -2510,6 +2510,19 @@ class Flight(models.Model):
     # The barcode text exactly as read, so nothing the parser skipped is lost.
     bcbp_raw = models.TextField(blank=True, default='')
     boarding_pass_image = models.ImageField(upload_to='boarding_passes/', blank=True, null=True)
+
+    # The recorded GPS track of this flight, if the user's history has one:
+    # a *link* (device + window), never a copy, so editing or deleting those
+    # points can't leave a stale duplicate here. Found by
+    # flight_detect.match_track on save (and on demand). track_auto=False means
+    # the user unlinked it, so saves stop re-matching.
+    track_device = models.ForeignKey('Device', on_delete=models.SET_NULL, null=True, blank=True,
+                                     related_name='flight_tracks')
+    track_start = models.DateTimeField(null=True, blank=True)
+    track_end = models.DateTimeField(null=True, blank=True)
+    # Distance along the recorded points, as against distance_km (airport to airport).
+    track_distance_km = models.FloatField(null=True, blank=True)
+    track_auto = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

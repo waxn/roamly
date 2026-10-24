@@ -306,7 +306,7 @@ def _build_edit_batches_data(user):
 
 
 def _build_flights_data(user):
-    """Build serializable flight-log rows for a user's backup (v20+; pass details v22+).
+    """Build serializable flight-log rows for a user's backup (v20+; pass details v22+; track link v23+).
 
     Every field restore needs, airports included in full, so a restored flight
     does not depend on the bundled airport dataset still matching. Distance is
@@ -321,7 +321,11 @@ def _build_flights_data(user):
               # Boarding-pass details (v22+). The photo is a media file: its
               # path rides here and the file itself in the zip's media/ tree.
               'booking_ref', 'passenger_name', 'checkin_seq', 'ticket_number',
-              'frequent_flyer', 'bcbp_raw', 'boarding_pass_image']
+              'frequent_flyer', 'bcbp_raw', 'boarding_pass_image',
+              # The recorded-track link (v23+): a device and a window, never
+              # points — those are already in the locations section.
+              'track_device__device_id', 'track_start', 'track_end',
+              'track_distance_km', 'track_auto']
     for side in ('dep', 'arr'):
         fields += [f'{side}_{k}' for k in ('iata', 'icao', 'name', 'city', 'country', 'lat', 'lon', 'tz')]
     return list(Flight.objects.filter(user=user).order_by('date', 'id').values(*fields))

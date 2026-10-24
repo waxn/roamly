@@ -7771,7 +7771,7 @@ def _write_backup_json(user, f, progress=None):
     loc_total += hidden_qs.count()
 
     report('Collecting devices')
-    meta = {'version': 22, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 23, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # The single backup builder: the scheduled S3 backup calls this too, so the
@@ -9176,6 +9176,16 @@ def restore_backup(request):
                     img = row.get('boarding_pass_image') or ''
                     if _BOARDING_PASS_PATH_RE.match(img):
                         flight.boarding_pass_image.name = img
+                    # Track link (v23+), resolved through this restore's own
+                    # devices so it can only ever point at the user's points.
+                    tdev = device_map.get(row.get('track_device__device_id') or '')
+                    tstart = _parse_timestamp(row.get('track_start')) if row.get('track_start') else None
+                    tend = _parse_timestamp(row.get('track_end')) if row.get('track_end') else None
+                    if tdev and tstart and tend and tend > tstart:
+                        flight.track_device, flight.track_start, flight.track_end = tdev, tstart, tend
+                        flight.track_distance_km = _safe_float(row.get('track_distance_km'))
+                    if row.get('track_auto') is False:
+                        flight.track_auto = False
                     flight.save()
                     counts['flights'] += 1
                 except Exception as e:
@@ -17040,6 +17050,9 @@ def _flight_payload(f):
         'checkin_seq': f.checkin_seq, 'ticket_number': f.ticket_number,
         'frequent_flyer': f.frequent_flyer, 'bcbp_raw': f.bcbp_raw,
         'has_boarding_pass_image': bool(f.boarding_pass_image),
+        'has_track': bool(f.track_device_id and f.track_start),
+        'track_distance_km': f.track_distance_km,
+        'track_auto': f.track_auto,
     }
     for side in ('dep', 'arr'):
         for k in _FLIGHT_AIRPORT_KEYS:
@@ -17227,6 +17240,7 @@ def flights_api(request):
             return JsonResponse({'error': 'This flight is already in your log.',
                                  'existing_id': dup.id}, status=409)
     f.save()
+    _match_flight_track(f)
     return JsonResponse({'flight': _flight_payload(f)})
 
 
@@ -17245,7 +17259,83 @@ def flight_update_api(request, flight_id):
     if err:
         return JsonResponse({'error': err}, status=400)
     f.save()
+    _match_flight_track(f)
     return JsonResponse({'flight': _flight_payload(f)})
+
+
+def _match_flight_track(f, force=False):
+    """Link the flight to its recorded track (flight_detect.apply_track).
+    Best-effort: a matching failure must never fail the save it follows."""
+    from . import flight_detect
+    try:
+        flight_detect.apply_track(f, force=force)
+    except Exception:
+        logger.exception('flight track matching failed for flight %s', f.pk)
+
+
+@csrf_exempt
+@login_required
+@require_POST
+def flight_track_api(request, flight_id):
+    """Re-run track matching for one flight, overriding an earlier unlink."""
+    err = _require_api_intent(request)
+    if err:
+        return err
+    f = get_object_or_404(Flight, id=flight_id, user=request.user)
+    _match_flight_track(f, force=True)
+    f.refresh_from_db()
+    return JsonResponse({'flight': _flight_payload(f)})
+
+
+@csrf_exempt
+@login_required
+@require_POST
+def flight_track_unlink_api(request, flight_id):
+    """Detach the recorded track; later saves stop re-matching it."""
+    err = _require_api_intent(request)
+    if err:
+        return err
+    f = get_object_or_404(Flight, id=flight_id, user=request.user)
+    Flight.objects.filter(pk=f.pk).update(track_device=None, track_start=None, track_end=None,
+                                          track_distance_km=None, track_auto=False)
+    f.refresh_from_db()
+    return JsonResponse({'flight': _flight_payload(f)})
+
+
+@csrf_exempt
+@login_required
+@require_POST
+def flights_tracks_match_api(request):
+    """Match every flight that has no track yet (and wasn't unlinked) —
+    for flights logged before their GPS points were imported."""
+    from . import flight_detect
+    err = _require_api_intent(request)
+    if err:
+        return err
+    qs = Flight.objects.filter(user=request.user, track_auto=True, track_device__isnull=True)
+    matched = 0
+    for f in qs.order_by('-date')[:500]:
+        try:
+            matched += bool(flight_detect.apply_track(f))
+        except Exception:
+            logger.exception('flight track matching failed for flight %s', f.pk)
+    return JsonResponse({'matched': matched})
+
+
+@login_required
+def flights_tracks_api(request):
+    """Every linked track as {flight_id: [[lon, lat], ...]}, simplified for a
+    whole-log map. One request for the map rather than one per flight."""
+    from . import flight_detect
+    out = {}
+    for f in Flight.objects.filter(user=request.user, track_device__isnull=False,
+                                   track_start__isnull=False)[:2000]:
+        pts = flight_detect.track_points(f, max_points=400)
+        if len(pts) >= 2:
+            out[str(f.id)] = pts
+    resp = JsonResponse({'tracks': out})
+    resp['Cache-Control'] = 'private, no-store'
+    return resp
 
 
 @csrf_exempt
