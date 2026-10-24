@@ -4,6 +4,12 @@
 
 {% block extra_css %}
 .fl-pane[hidden] { display: none; }
+/* The year select is a RoamlyForms trigger and Add flight a .btn; pin both to
+   one height and type size so the toolbar reads as a matched pair. */
+.fl-toolbar .rly-select-trigger, .fl-toolbar select, .fl-toolbar .btn {
+    box-sizing: border-box; height: 2.4rem; font-size: 0.85rem;
+    padding-top: 0; padding-bottom: 0; display: inline-flex; align-items: center;
+}
 .fl-table td, .fl-table th { white-space: nowrap; }
 .fl-table tbody tr { cursor: pointer; }
 .fl-route { font-family: var(--font-mono); font-weight: 600; }
@@ -66,11 +72,11 @@
             <h1>Flights</h1>
             <p class="page-lead" style="margin-bottom:0;">Your flight log: every flight you've taken, mapped and counted.</p>
         </div>
-        <div class="toolbar-actions">
+        <div class="toolbar-actions fl-toolbar">
             <select id="fl-year" class="form-control" style="width:auto;" aria-label="Year">
                 <option value="">All years</option>
             </select>
-            <button class="btn btn-primary btn-sm" onclick="openFlight(null)">Add flight</button>
+            <button class="btn btn-primary" onclick="openFlight(null)">Add flight</button>
         </div>
     </div>
 
