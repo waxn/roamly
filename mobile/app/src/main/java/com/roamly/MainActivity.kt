@@ -45,6 +45,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         handleIntent(intent)
+        // Only on a fresh launch: a recreated Activity (rotation, sign-out)
+        // still carries the original intent and must not reopen the scanner.
+        if (savedInstanceState == null) com.roamly.flights.IncomingShare.offer(intent)
         setContent {
             val prefDarkMode by prefs.darkMode.collectAsState(initial = null)
             val systemDark = isSystemInDarkTheme()
@@ -106,6 +109,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleIntent(intent)
+        com.roamly.flights.IncomingShare.offer(intent)
     }
 
     private fun handleIntent(intent: Intent?) {
