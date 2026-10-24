@@ -10,8 +10,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoStories
-import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Search
@@ -56,6 +55,16 @@ import com.roamly.ui.map.MapViewModel
 import com.roamly.ui.settings.SettingsScreen
 import com.roamly.ui.search.SearchTabScreen
 import com.roamly.ui.stats.StatsScreen
+import com.roamly.ui.data.DataHubScreen
+import com.roamly.ui.data.DataPage
+import com.roamly.ui.flights.FlightEditScreen
+import com.roamly.ui.flights.FlightsScreen
+import com.roamly.ui.flights.FlightsViewModel
+import com.roamly.ui.flights.ScanPassScreen
+import com.roamly.ui.health.HealthScreen
+import com.roamly.ui.settings.LocationTableScreen
+import com.roamly.ui.trips.TripsTabScreen
+import com.roamly.flights.IncomingShare
 import com.roamly.ui.stats.StatsViewModel
 import com.roamly.ui.record.RecordScreen
 import com.roamly.ui.tracker.TrackerScreen
@@ -68,8 +77,9 @@ sealed class Screen(val route: String, val label: String) {
     object Map        : Screen("map",         "Map")
     object Adventures : Screen("adventures",  "Trips")   // shorter label to avoid truncation
     object Search     : Screen("search",      "Search")
-    object Journal    : Screen("journal",     "Journal")
-    object Stats      : Screen("stats",       "Stats")
+    // Stats, Flights, Health and Location data, behind chips (DataHubScreen).
+    // Journal is no longer a tab of its own: it sits under Trips.
+    object Data       : Screen("data",        "Data")
     object Settings   : Screen("settings",    "Settings")
     object Login      : Screen("login",       "Login")
     object TripDetail : Screen("trips/{tripId}", "Trip")
@@ -82,12 +92,19 @@ sealed class Screen(val route: String, val label: String) {
     // The Roamly Tracker (BLE). Only in the bar once a tracker is paired —
     // before that it is reached from Settings → Roamly Tracker to pair one.
     object Tracker    : Screen("tracker",     "Tracker")
+    // Boarding-pass scanning and the flight editor: routes with no tab, like
+    // Record. `uri` is a file shared into Roamly (IncomingShare).
+    object FlightScan : Screen("flights/scan?uri={uri}", "Scan")
+    object FlightEdit : Screen("flights/edit", "Flight")
 }
 
 // Search sits in the middle slot always — it hosts history search, plus the AI
 // Ask chat when the user has a provider configured (see SearchTabScreen).
+// Five tabs: Trips hosts Journal (TripsTabScreen) and Data hosts Stats,
+// Flights, Health and Location data (DataHubScreen), so nothing is buried in
+// Settings any more and the bar fits a phone even with the Tracker tab added.
 private val advancedNavItems: List<Screen> =
-    listOf(Screen.Map, Screen.Adventures, Screen.Search, Screen.Journal, Screen.Stats, Screen.Settings)
+    listOf(Screen.Map, Screen.Adventures, Screen.Search, Screen.Data, Screen.Settings)
 
 // Simple Mode: a non-technical family member gets just enough to see the
 // family map and reach Settings (where Family Circle itself lives, alongside
@@ -101,8 +118,7 @@ private fun iconFor(screen: Screen): ImageVector = when (screen) {
     Screen.Map        -> Icons.Rounded.Map
     Screen.Adventures -> Icons.Rounded.Explore
     Screen.Search     -> Icons.Rounded.Search
-    Screen.Journal    -> Icons.Rounded.AutoStories
-    Screen.Stats      -> Icons.Rounded.BarChart
+    Screen.Data       -> Icons.Rounded.Insights
     Screen.Tracker    -> Icons.Rounded.Watch
     else              -> Icons.Rounded.Settings
 }
@@ -115,6 +131,10 @@ fun RoamlyNavHost() {
     val mapViewModel: MapViewModel   = hiltViewModel()
     val updateViewModel: UpdateViewModel = hiltViewModel()
     val askViewModel: AskViewModel = hiltViewModel()
+    // Activity-scoped like MapViewModel: the scanner hands its draft to the
+    // editor through it, across two routes. Only one-shot loads in its init
+    // (none, in fact), so the rule about continuous collectors holds.
+    val flightsViewModel: FlightsViewModel = hiltViewModel()
 
     // The Activity's ViewModelStoreOwner, captured out here where
     // LocalViewModelStoreOwner still resolves to the Activity rather than to a
@@ -175,7 +195,19 @@ fun RoamlyNavHost() {
 
     val showBottomBar = currentDestination?.route != Screen.Login.route &&
             currentDestination?.route != Screen.TripDetail.route &&
-            currentDestination?.route != Screen.Record.route
+            currentDestination?.route != Screen.Record.route &&
+            currentDestination?.route != Screen.FlightScan.route &&
+            currentDestination?.route != Screen.FlightEdit.route
+
+    // A boarding pass shared into Roamly opens the scanner on it, once signed in.
+    val sharedUri by IncomingShare.uri.collectAsState()
+    LaunchedEffect(sharedUri, isLoggedIn, currentDestination) {
+        val uri = sharedUri ?: return@LaunchedEffect
+        if (isLoggedIn != true || currentDestination == null ||
+            currentDestination?.route == Screen.Login.route) return@LaunchedEffect
+        IncomingShare.consume()
+        navController.navigate("flights/scan?uri=" + android.net.Uri.encode(uri.toString()))
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -261,9 +293,28 @@ fun RoamlyNavHost() {
                 // only show one when there is nothing cached to show), so the
                 // switch stays instant and the data still catches up.
                 LaunchedEffect(Unit) { vm.loadTrips() }
-                GroupsScreen(
-                    tripsViewModel = vm,
-                    onTripClick = { id -> navController.navigate("trips/$id") },
+                TripsTabScreen(
+                    trips = {
+                        GroupsScreen(
+                            tripsViewModel = vm,
+                            onTripClick = { id -> navController.navigate("trips/$id") },
+                        )
+                    },
+                    journal = {
+                        val jvm = hiltViewModel<JournalsViewModel>(activityOwner)
+                        LaunchedEffect(Unit) { jvm.refresh() }
+                        JournalsScreen(
+                            viewModel = jvm,
+                            onOpenMap = { dateStr ->
+                                mapViewModel.navigateToDate(dateStr)
+                                navController.navigate(Screen.Map.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            },
+                        )
+                    },
                 )
             }
             composable(
@@ -286,25 +337,60 @@ fun RoamlyNavHost() {
                     onFocusMap = { lat, lng -> mapViewModel.focusOn(lat, lng, zoom = 16.0); toMap() },
                 )
             }
-            composable(Screen.Journal.route) {
-                val vm = hiltViewModel<JournalsViewModel>(activityOwner)
-                LaunchedEffect(Unit) { vm.refresh() }
-                JournalsScreen(
-                    viewModel = vm,
-                    onOpenMap = { dateStr ->
-                        mapViewModel.navigateToDate(dateStr)
-                        navController.navigate(Screen.Map.route) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+            composable(Screen.Data.route) {
+                val toMapDate = { dateStr: String ->
+                    mapViewModel.navigateToDate(dateStr)
+                    navController.navigate(Screen.Map.route) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
                     }
+                }
+                // The app has no distance-unit setting of its own, so follow the
+                // phone's region for the flight figures.
+                val useMiles = java.util.Locale.getDefault().country in setOf("US", "LR", "MM")
+                DataHubScreen { page ->
+                    when (page) {
+                        DataPage.STATS -> {
+                            val vm = hiltViewModel<StatsViewModel>(activityOwner)
+                            LaunchedEffect(Unit) { vm.load() }
+                            StatsScreen(viewModel = vm, onNavigateToMap = toMapDate)
+                        }
+                        DataPage.FLIGHTS -> FlightsScreen(
+                            viewModel = flightsViewModel,
+                            useMiles = useMiles,
+                            onScan = { navController.navigate("flights/scan") },
+                            onAdd = { flightsViewModel.startNew(); navController.navigate(Screen.FlightEdit.route) },
+                            onOpen = { id -> flightsViewModel.startEdit(id); navController.navigate(Screen.FlightEdit.route) },
+                        )
+                        // Back-stack scoped on purpose: Health's ViewModel is not a
+                        // one-shot load (see the Settings comment below).
+                        DataPage.HEALTH -> HealthScreen()
+                        DataPage.LOCATIONS -> LocationTableScreen()
+                    }
+                }
+            }
+            composable(
+                route = Screen.FlightScan.route,
+                arguments = listOf(navArgument("uri") { type = NavType.StringType; nullable = true; defaultValue = null }),
+            ) { back ->
+                val uri = back.arguments?.getString("uri")?.let(android.net.Uri::parse)
+                ScanPassScreen(
+                    initialUri = uri,
+                    onBack = { navController.popBackStack() },
+                    onFound = { pass, leg, photo ->
+                        flightsViewModel.startFromPass(pass, leg, photo)
+                        navController.navigate(Screen.FlightEdit.route) {
+                            popUpTo(Screen.FlightScan.route) { inclusive = true }
+                        }
+                    },
                 )
             }
-            composable(Screen.Stats.route)    {
-                val vm = hiltViewModel<StatsViewModel>(activityOwner)
-                LaunchedEffect(Unit) { vm.load() }
-                StatsScreen(viewModel = vm, onNavigateToMap = { dateStr -> mapViewModel.navigateToDate(dateStr); navController.navigate(Screen.Map.route) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true } })
+            composable(Screen.FlightEdit.route) {
+                FlightEditScreen(
+                    viewModel = flightsViewModel,
+                    onDone = { navController.popBackStack() },
+                )
             }
             composable(Screen.Tracker.route) {
                 // Back-stack scoped: the screen opens a BLE session for as long

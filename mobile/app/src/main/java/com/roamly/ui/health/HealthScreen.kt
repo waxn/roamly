@@ -32,7 +32,8 @@ private val TIME_FMT = SimpleDateFormat("MMM d, HH:mm", Locale.getDefault())
 
 @Composable
 fun HealthScreen(
-    onBack: () -> Unit,
+    /** Null when hosted in the Data tab, which needs no back arrow. */
+    onBack: (() -> Unit)? = null,
     viewModel: HealthViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -94,7 +95,7 @@ fun HealthScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "Back") }
+                if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "Back") }
                 Text("Health", style = MaterialTheme.typography.titleLarge,
                      color = MaterialTheme.colorScheme.onBackground)
             }

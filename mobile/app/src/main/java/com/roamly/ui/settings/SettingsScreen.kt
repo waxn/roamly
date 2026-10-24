@@ -60,16 +60,6 @@ fun SettingsScreen(
         DiagnosticsScreen(viewModel = viewModel, onBack = { showDiagnostics = false })
         return
     }
-    var showDataTable by remember { mutableStateOf(false) }
-    if (showDataTable) {
-        LocationTableScreen(onBack = { showDataTable = false })
-        return
-    }
-    var showHealth by remember { mutableStateOf(false) }
-    if (showHealth) {
-        com.roamly.ui.health.HealthScreen(onBack = { showHealth = false })
-        return
-    }
     var showTracker by remember { mutableStateOf(false) }
     if (showTracker) {
         com.roamly.ui.tracker.TrackerScreen(onBack = { showTracker = false })
@@ -737,30 +727,6 @@ fun SettingsScreen(
                 Spacer(Modifier.width(8.dp))
                 Text("Diagnostics", fontWeight = FontWeight.Bold)
             }
-
-            Spacer(Modifier.height(10.dp))
-            ClayButton(
-                onClick = { showDataTable = true },
-                gradient = clay.secondaryGradient,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.Rounded.Storage, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Location Data", fontWeight = FontWeight.Bold)
-            }
-
-            Spacer(Modifier.height(10.dp))
-            ClayButton(
-                onClick = { showHealth = true },
-                gradient = clay.secondaryGradient,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.Rounded.MonitorHeart, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Health", fontWeight = FontWeight.Bold)
-            }
         }
 
         // ── Roamly Tracker (BLE) ────────────────────────────────────────────
@@ -808,7 +774,7 @@ fun SettingsScreen(
             Spacer(Modifier.height(14.dp))
             ToggleRow(
                 title = "Simple Mode",
-                subtitle = "Show just Map, Family and Settings — hides Trips, Search, Journal and Stats. Switch back any time, right here.",
+                subtitle = "Show just Map and Settings — hides Trips, Search and Data. Family Circle stays here. Switch back any time, right here.",
                 checked = state.simpleModeEnabled,
                 onCheckedChange = viewModel::setSimpleModeEnabled,
             )
