@@ -59,6 +59,9 @@
 .fl-ap-opt:hover, .fl-ap-opt.on { background: var(--bg-elevated); }
 .fl-ap-opt code { font-family: var(--font-mono); font-weight: 600; color: var(--primary); margin-right: 0.4rem; }
 .fl-actions { display: flex; gap: 0.5rem; margin-top: 1.25rem; }
+.fl-adv { margin-top: 1rem; padding-top: 0.9rem; border-top: 1px solid var(--border); }
+.fl-adv summary { cursor: pointer; font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.6rem; }
+.fl-pass-img { display: block; max-width: 100%; max-height: 260px; border: 1px solid var(--border); border-radius: 6px; }
 .fl-actions .spacer { flex: 1; }
 @media (max-width: 640px) {
     .fl-grid, .fl-lookup-row { grid-template-columns: 1fr; }
@@ -247,6 +250,48 @@
                 <textarea class="form-control" id="f-notes" rows="2" maxlength="5000"></textarea>
             </div>
         </div>
+
+        <details class="fl-adv" id="f-adv">
+            <summary>Advanced</summary>
+            <p class="fl-hint">Details from the boarding pass. The booking reference can be used to manage the booking, so keep this to yourself.</p>
+            <div class="fl-grid">
+                <div class="form-group">
+                    <label for="f-booking">Booking reference</label>
+                    <input class="form-control" id="f-booking" maxlength="8" style="text-transform:uppercase;font-family:var(--font-mono);">
+                </div>
+                <div class="form-group">
+                    <label for="f-pax">Passenger name</label>
+                    <input class="form-control" id="f-pax" maxlength="64">
+                </div>
+                <div class="form-group">
+                    <label for="f-seq">Check-in sequence</label>
+                    <input class="form-control" id="f-seq" maxlength="5" style="font-family:var(--font-mono);">
+                </div>
+                <div class="form-group">
+                    <label for="f-ticket">Ticket number</label>
+                    <input class="form-control" id="f-ticket" maxlength="16" style="font-family:var(--font-mono);">
+                </div>
+                <div class="form-group full">
+                    <label for="f-ff">Frequent flyer</label>
+                    <input class="form-control" id="f-ff" maxlength="24" style="text-transform:uppercase;font-family:var(--font-mono);">
+                </div>
+                <div class="form-group full" id="f-raw-wrap" hidden>
+                    <label for="f-raw">Raw barcode</label>
+                    <textarea class="form-control" id="f-raw" rows="2" readonly style="font-family:var(--font-mono);font-size:0.75rem;"></textarea>
+                    <button type="button" class="btn btn-outline btn-sm" style="margin-top:0.4rem;" onclick="copyRaw()">Copy</button>
+                </div>
+                <div class="form-group full" id="f-pass-wrap" hidden>
+                    <label>Boarding pass photo</label>
+                    <div id="f-pass-box"></div>
+                    <div style="display:flex;gap:0.5rem;margin-top:0.4rem;">
+                        <label class="btn btn-outline btn-sm" style="margin:0;cursor:pointer;">Upload photo
+                            <input type="file" accept="image/*" id="f-pass-file" hidden>
+                        </label>
+                        <button type="button" class="btn btn-outline btn-sm" id="f-pass-remove" style="color:var(--danger);" onclick="removePass()" hidden>Remove</button>
+                    </div>
+                </div>
+            </div>
+        </details>
 
         <div class="fl-actions">
             <button class="btn btn-outline" id="f-delete" onclick="deleteFlight()" style="color:var(--danger);" hidden>Delete</button>
@@ -649,7 +694,51 @@ function fillForm(f) {
     if (f.seat_type !== undefined) F('f-seat-type').value = f.seat_type || '';
     if (f.reason !== undefined) F('f-reason').value = f.reason || '';
     if (f.notes !== undefined) F('f-notes').value = f.notes || '';
+    const adv = { 'f-booking': 'booking_ref', 'f-pax': 'passenger_name', 'f-seq': 'checkin_seq',
+                  'f-ticket': 'ticket_number', 'f-ff': 'frequent_flyer' };
+    Object.entries(adv).forEach(([id, k]) => { if (f[k] !== undefined) F(id).value = f[k] || ''; });
+    if (f.bcbp_raw !== undefined) F('f-raw').value = f.bcbp_raw || '';
+    F('f-raw-wrap').hidden = !F('f-raw').value;
 }
+function renderPass() {
+    const f = editing;
+    F('f-pass-wrap').hidden = !f;   // a photo needs a saved flight to attach to
+    if (!f) return;
+    F('f-pass-box').innerHTML = f.has_boarding_pass_image
+        ? `<a href="/api/flights/${f.id}/pass/" target="_blank" rel="noopener"><img class="fl-pass-img" src="/api/flights/${f.id}/pass/?v=${Date.now()}" alt="Boarding pass"></a>`
+        : '<span class="fl-sub">No photo.</span>';
+    F('f-pass-remove').hidden = !f.has_boarding_pass_image;
+}
+async function copyRaw() {
+    try { await navigator.clipboard.writeText(F('f-raw').value); roamlyToast('Copied.'); }
+    catch (e) { F('f-raw').select(); }
+}
+function adoptFlight(flight) {
+    // Swap the edited flight for the server's copy and keep the list in step.
+    editing = flight;
+    const i = flights.findIndex(x => x.id === flight.id);
+    if (i >= 0) flights[i] = flight;
+    renderPass();
+}
+async function removePass() {
+    if (!editing || !await roamlyConfirm('Remove the boarding pass photo?', { danger: true, confirmText: 'Remove' })) return;
+    const r = await fetch(`/api/flights/${editing.id}/pass/delete/`, { method: 'POST', headers: { 'X-CSRFToken': CSRF } });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { roamlyToast(d.error || 'Could not remove the photo.', { type: 'error' }); return; }
+    adoptFlight(d.flight);
+}
+F('f-pass-file').addEventListener('change', async e => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file || !editing) return;
+    const fd = new FormData();
+    fd.append('image', file);
+    const r = await fetch(`/api/flights/${editing.id}/pass/`, { method: 'POST', headers: { 'X-CSRFToken': CSRF }, body: fd });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { roamlyToast(d.error || 'Could not upload the photo.', { type: 'error' }); return; }
+    adoptFlight(d.flight);
+    roamlyToast('Photo saved.');
+});
 function setStatus(text, kind) {
     const el = F('f-status');
     el.textContent = text || '';
@@ -661,9 +750,11 @@ function openFlight(f) {
     F('fl-modal-title').textContent = f ? 'Edit flight' : 'Add flight';
     F('f-legs').innerHTML = '';
     setStatus('');
-    ['f-seat', 'f-notes'].forEach(id => { F(id).value = ''; });
+    ['f-seat', 'f-notes', 'f-booking', 'f-pax', 'f-seq', 'f-ticket', 'f-ff', 'f-raw'].forEach(id => { F(id).value = ''; });
+    F('f-adv').open = false;
     ['f-class', 'f-seat-type', 'f-reason'].forEach(id => { F(id).value = ''; });
     fillForm(f || { date: new Date().toISOString().slice(0, 10) });
+    renderPass();
     F('f-delete').hidden = !f;
     F('f-fr24').hidden = !(f && f.fr24_url);
     if (f && f.fr24_url) F('f-fr24').href = f.fr24_url;
@@ -720,6 +811,8 @@ async function saveFlight() {
         airline_name: F('f-airline').value, aircraft_model: F('f-aircraft').value,
         registration: F('f-reg').value, seat: F('f-seat').value, seat_class: F('f-class').value,
         seat_type: F('f-seat-type').value, reason: F('f-reason').value, notes: F('f-notes').value,
+        booking_ref: F('f-booking').value, passenger_name: F('f-pax').value, checkin_seq: F('f-seq').value,
+        ticket_number: F('f-ticket').value, frequent_flyer: F('f-ff').value,
     };
     // Airport detail: the lookup's own record where the code still matches it,
     // the stored one when editing an unchanged airport, else just the code and
