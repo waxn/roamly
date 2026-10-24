@@ -491,8 +491,8 @@
         .notif-meta { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); margin-bottom: 0.4rem; }
         .notif-text { font-size: 0.8rem; color: var(--text-muted); line-height: 1.45; margin-bottom: 0.55rem; }
         .notif-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
-        .notif-actions a { font-size: 0.75rem; color: var(--primary); text-decoration: none; margin-left: auto; }
-        .notif-actions a:hover { text-decoration: underline; }
+        .notif-actions a:not(.btn) { font-size: 0.75rem; color: var(--primary); text-decoration: none; margin-left: auto; }
+        .notif-actions a:not(.btn):hover { text-decoration: underline; }
         @media (max-width: 768px) {
             .notif-panel {
                 position: fixed; top: calc(var(--nav-h) + 0.25rem);
