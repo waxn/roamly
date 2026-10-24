@@ -26,6 +26,11 @@ class FlightRepository @Inject constructor(
 
     suspend fun delete(id: Int) = safeApiCall { api.deleteFlight(id) }
 
+    suspend fun tracks() = safeApiCall { api.getFlightTracks() }
+    suspend fun matchTrack(id: Int) = safeApiCall { api.matchFlightTrack(id) }
+    suspend fun unlinkTrack(id: Int) = safeApiCall { api.unlinkFlightTrack(id) }
+    suspend fun matchAllTracks() = safeApiCall { api.matchAllFlightTracks() }
+
     /** AeroDataBox legs, or the server's own explanation when it refused. */
     suspend fun lookup(number: String, date: String): Result<FlightLookupResponse> = try {
         val r = api.lookupFlight(number, date)

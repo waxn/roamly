@@ -55,10 +55,17 @@ data class FlightDraft(
     val airlineIata: String = "",
     val airlineIcao: String = "",
     val hasPassImage: Boolean = false,
+    val hasTrack: Boolean = false,
+    val trackDistanceKm: Double? = null,
+    val trackAuto: Boolean = true,
 )
 
 data class FlightsUiState(
     val flights: List<FlightDto> = emptyList(),
+    /** Recorded tracks by flight id, [[lon, lat], ...] (longitudes unwrapped). */
+    val tracks: Map<Int, List<List<Double>>> = emptyMap(),
+    /** Result of the last "match tracks" run, for a one-off message. */
+    val trackMessage: String? = null,
     val loading: Boolean = false,
     val loaded: Boolean = false,
     /**
@@ -98,6 +105,12 @@ class FlightsViewModel @Inject constructor(
 
     private suspend fun fetch() {
         _state.update { it.copy(loading = !it.loaded, error = null) }
+        when (val t = repo.tracks()) {
+            is Result.Success -> _state.update { s ->
+                s.copy(tracks = t.data.tracks.mapNotNull { (k, v) -> k.toIntOrNull()?.let { it to v } }.toMap())
+            }
+            is Result.Error -> {}   // the map falls back to great-circle arcs
+        }
         when (val r = repo.list()) {
             is Result.Success -> _state.update {
                 it.copy(flights = r.data.flights, lookupEnabled = r.data.lookupEnabled,
@@ -252,6 +265,43 @@ class FlightsViewModel @Inject constructor(
 
     fun dismissDuplicate() = _state.update { it.copy(duplicateOf = null) }
 
+    // ── Recorded tracks ─────────────────────────────────────────────────────
+
+    /** Find (or, with [unlink], detach) the recorded track of the flight being edited. */
+    fun trackAction(unlink: Boolean) {
+        val id = _state.value.draft.id ?: return
+        viewModelScope.launch {
+            when (val r = if (unlink) repo.unlinkTrack(id) else repo.matchTrack(id)) {
+                is Result.Success -> r.data.flight?.let { f ->
+                    _state.update { s ->
+                        s.copy(draft = s.draft.copy(hasTrack = f.hasTrack, trackDistanceKm = f.trackDistanceKm,
+                                                    trackAuto = f.trackAuto,
+                                                    actualDep = s.draft.actualDep.ifBlank { f.actualDepLocal.replace('T', ' ') },
+                                                    actualArr = s.draft.actualArr.ifBlank { f.actualArrLocal.replace('T', ' ') }))
+                    }
+                    if (!unlink) setStatus(if (f.hasTrack) "Recorded track found and linked." else "No recorded track found for this flight.",
+                                           error = !f.hasTrack)
+                    fetch()
+                }
+                is Result.Error -> setStatus(r.message, error = true)
+            }
+        }
+    }
+
+    fun matchAllTracks() {
+        viewModelScope.launch {
+            val msg = when (val r = repo.matchAllTracks()) {
+                is Result.Success -> if (r.data.matched > 0)
+                    "Linked ${r.data.matched} recorded track${if (r.data.matched == 1) "" else "s"}." else "No new tracks found."
+                is Result.Error -> r.message
+            }
+            _state.update { it.copy(trackMessage = msg) }
+            fetch()
+        }
+    }
+
+    fun clearTrackMessage() = _state.update { it.copy(trackMessage = null) }
+
     fun delete(id: Int, onDone: () -> Unit) {
         viewModelScope.launch {
             when (val r = repo.delete(id)) {
@@ -280,6 +330,7 @@ class FlightsViewModel @Inject constructor(
         ticketNumber = f.ticketNumber, frequentFlyer = f.frequentFlyer, bcbpRaw = f.bcbpRaw,
         source = f.source.ifBlank { "manual" }, depDetail = f, arrDetail = f,
         airlineIata = f.airlineIata, airlineIcao = f.airlineIcao, hasPassImage = f.hasBoardingPassImage,
+        hasTrack = f.hasTrack, trackDistanceKm = f.trackDistanceKm, trackAuto = f.trackAuto,
     )
 
     private fun toFields(d: FlightDraft): Map<String, Any?> {

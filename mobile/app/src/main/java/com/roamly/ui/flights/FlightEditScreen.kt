@@ -129,6 +129,23 @@ fun FlightEditScreen(viewModel: FlightsViewModel, onDone: () -> Unit) {
                 }
                 Text("Times are the clock at each airport, as printed on the pass.",
                      style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (d.id != null) {
+                    Spacer(Modifier.size(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            when {
+                                d.hasTrack -> "Recorded track linked" +
+                                    (d.trackDistanceKm?.let { " · %,d km flown".format(it.toLong()) } ?: "")
+                                d.trackAuto -> "No recorded track found."
+                                else -> "Track unlinked."
+                            },
+                            style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { viewModel.trackAction(unlink = d.hasTrack) }) {
+                            Text(if (d.hasTrack) "Unlink" else "Find track")
+                        }
+                    }
+                }
             }
 
             ClayCard {

@@ -1061,7 +1061,18 @@ data class FlightDto(
     @SerializedName("frequent_flyer") val frequentFlyer: String = "",
     @SerializedName("bcbp_raw") val bcbpRaw: String = "",
     @SerializedName("has_boarding_pass_image") val hasBoardingPassImage: Boolean = false,
+    /** A recorded GPS track (phone or imported KML) is linked to this flight. */
+    @SerializedName("has_track") val hasTrack: Boolean = false,
+    @SerializedName("track_distance_km") val trackDistanceKm: Double? = null,
+    /** False once the user unlinked the track; saving then stops re-matching. */
+    @SerializedName("track_auto") val trackAuto: Boolean = true,
 )
+
+/** GET /api/flights/tracks/ — flight id -> recorded track as [[lon, lat], ...],
+ *  longitudes unwrapped across the date line (may exceed ±180). */
+data class FlightTracksResponse(val tracks: Map<String, List<List<Double>>> = emptyMap())
+
+data class FlightMatchResponse(val matched: Int = 0)
 
 data class FlightsResponse(
     val flights: List<FlightDto> = emptyList(),

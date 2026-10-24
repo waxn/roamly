@@ -489,6 +489,20 @@ interface RoamlyApi {
     @GET("api/flights/lookup/")
     suspend fun lookupFlight(@Query("number") number: String, @Query("date") date: String): Response<FlightLookupResponse>
 
+    @GET("api/flights/tracks/")
+    suspend fun getFlightTracks(): Response<FlightTracksResponse>
+
+    /** Re-run track matching for one flight (overrides an earlier unlink). */
+    @POST("api/flights/{id}/track/")
+    suspend fun matchFlightTrack(@Path("id") id: Int, @Body body: Map<String, String> = emptyMap()): Response<FlightResponse>
+
+    @POST("api/flights/{id}/track/unlink/")
+    suspend fun unlinkFlightTrack(@Path("id") id: Int, @Body body: Map<String, String> = emptyMap()): Response<FlightResponse>
+
+    /** Match every flight with no track yet. */
+    @POST("api/flights/tracks/match/")
+    suspend fun matchAllFlightTracks(@Body body: Map<String, String> = emptyMap()): Response<FlightMatchResponse>
+
     @Multipart
     @POST("api/flights/{id}/pass/")
     suspend fun uploadBoardingPass(@Path("id") id: Int, @Part image: okhttp3.MultipartBody.Part): Response<FlightResponse>
