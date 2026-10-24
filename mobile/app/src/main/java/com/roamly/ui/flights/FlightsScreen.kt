@@ -378,7 +378,7 @@ private fun FlightStats(flights: List<FlightDto>, miles: Boolean) {
         }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.map { it.key to it.value }, "visit")
         Bars("Top routes", tally { listOf(code(it, true), code(it, false)).sorted().joinToString(" ⇄ ") })
         Bars("Airlines", tally { it.airlineName })
-        Bars("Aircraft", tally { it.aircraftModel })
+        AircraftStats(flights, miles)
         Bars("Seat class", tally { it.seatClass.replaceFirstChar { c -> c.uppercase() } })
 
         val withDist = flights.filter { it.distanceKm != null }
@@ -391,6 +391,56 @@ private fun FlightStats(flights: List<FlightDto>, miles: Boolean) {
             Fact("Shortest", "${code(lo, true)} → ${code(lo, false)} · ${fmtDist(lo.distanceKm, miles)}")
             Fact("Average", fmtDist(totalKm / withDist.size, miles))
         }
+    }
+}
+
+/** "Boeing 737-800" -> "Boeing 737", "Airbus A321neo" -> "Airbus A321". */
+internal fun acFamily(model: String): String {
+    val parts = model.trim().split(Regex("\\s+"), limit = 3)
+    if (parts.isEmpty() || parts[0].isBlank()) return ""
+    val type = parts.getOrNull(1).orEmpty()
+    val base = Regex("^[A-Za-z]*\\d+").find(type)?.value ?: type.split('-', '(').first()
+    return if (base.isBlank()) parts[0] else "${parts[0]} $base"
+}
+
+@Composable
+private fun AircraftStats(flights: List<FlightDto>, miles: Boolean) {
+    val withAc = flights.filter { it.aircraftModel.isNotBlank() }
+    if (withAc.isEmpty() && flights.none { it.registration.isNotBlank() }) return
+    fun count(key: (FlightDto) -> String) = flights.map(key).filter { it.isNotBlank() }
+        .groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.map { it.key to it.value }
+
+    ClayCard {
+        Text("Aircraft", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MiniStat("${withAc.map { it.aircraftModel }.toSet().size}", "types", Modifier.weight(1f))
+            MiniStat("${withAc.map { acFamily(it.aircraftModel) }.toSet().size}", "families", Modifier.weight(1f))
+            MiniStat("${flights.map { it.registration }.filter { it.isNotBlank() }.toSet().size}", "tails", Modifier.weight(1f))
+        }
+        val byType = withAc.groupBy { it.aircraftModel }
+        if (byType.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            val far = byType.maxBy { (_, fs) -> fs.sumOf { it.distanceKm ?: 0.0 } }
+            Fact("Most distance on one type", "${far.key} · ${fmtDist(far.value.sumOf { it.distanceKm ?: 0.0 }, miles)}")
+            val aloft = byType.maxBy { (_, fs) -> fs.sumOf { durationMin(it) ?: 0L } }
+            val aloftMin = aloft.value.sumOf { durationMin(it) ?: 0L }
+            if (aloftMin > 0) Fact("Most time aloft on one type", "${aloft.key} · ${fmtDur(aloftMin)}")
+        }
+    }
+    Bars("Most flown types", count { it.aircraftModel })
+    Bars("Aircraft families", count { acFamily(it.aircraftModel) })
+    Bars("Manufacturers", count { it.aircraftModel.trim().substringBefore(' ') })
+    val modelOf = flights.filter { it.registration.isNotBlank() }.associate { it.registration to it.aircraftModel }
+    Bars("Tails flown more than once", count { it.registration }.filter { it.second > 1 }
+        .map { (r, n) -> (modelOf[r]?.takeIf { m -> m.isNotBlank() }?.let { "$r · $it" } ?: r) to n })
+}
+
+@Composable
+private fun MiniStat(value: String, label: String, modifier: Modifier) {
+    Column(modifier) {
+        Text(value, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
