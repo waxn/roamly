@@ -29,7 +29,7 @@ jobs:
         run: |
           set -o pipefail
           status=0
-          ./gradlew compileDebugKotlin --console=plain 2>&1 | tee build.log || status=$?
+          ./gradlew compileDebugKotlin testDebugUnitTest --console=plain 2>&1 | tee build.log || status=$?
           set +e  # a grep that matches nothing must not end the script
           grep -E '^e: ' build.log | head -50 | while IFS= read -r line; do
             msg="${line#e: }"

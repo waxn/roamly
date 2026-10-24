@@ -4,6 +4,10 @@
 
     <!-- Network -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Boarding-pass scanning. Optional hardware: without a camera the
+         scanner still reads screenshots, photos and shared .pkpass files. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Install a downloaded APK update (in-app updater) -->

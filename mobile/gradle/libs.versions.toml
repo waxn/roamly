@@ -33,6 +33,11 @@ coil = "2.7.0"
 healthConnect = "1.1.0"
 googleServices = "4.5.0"
 firebaseBom = "34.19.0"
+# Boarding-pass scanning. ML Kit is the *bundled* barcode artifact (model in
+# the APK, ~2-3 MB) rather than play-services-mlkit-barcode-scanning, so it
+# also works on de-Googled phones — the same reason LocationSource exists.
+camerax = "1.6.2"
+mlkitBarcode = "17.3.0"
 
 [libraries]
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
@@ -73,6 +78,12 @@ hilt-work = { group = "androidx.hilt", name = "hilt-work", version.ref = "hiltWo
 hilt-work-compiler = { group = "androidx.hilt", name = "hilt-compiler", version.ref = "hiltWork" }
 health-connect-client = { group = "androidx.health.connect", name = "connect-client", version.ref = "healthConnect" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
+camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+camera-mlkit-vision = { group = "androidx.camera", name = "camera-mlkit-vision", version.ref = "camerax" }
+mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning", version.ref = "mlkitBarcode" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

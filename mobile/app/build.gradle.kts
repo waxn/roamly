@@ -148,6 +148,14 @@ dependencies {
     // Health Connect (steps / distance / calories / workouts)
     implementation(libs.health.connect.client)
 
+    // Boarding-pass scanning (camera + bundled ML Kit barcode model)
+    implementation(libs.camera.core)
+    implementation(libs.camera.camera2)
+    implementation(libs.camera.lifecycle)
+    implementation(libs.camera.view)
+    implementation(libs.camera.mlkit.vision)
+    implementation(libs.mlkit.barcode.scanning)
+
     // Push notifications (Family Circle place alerts). Safe to declare even
     // when google-services.json is absent -- FirebaseApp simply never
     // auto-initializes at runtime without it, and FamilyPushService's own
