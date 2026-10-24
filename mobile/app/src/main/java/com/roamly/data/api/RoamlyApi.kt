@@ -469,4 +469,27 @@ interface RoamlyApi {
 
     @POST("api/family/push-token/unregister/")
     suspend fun unregisterFamilyPushToken(@Body body: FamilyPushTokenUnregisterRequest): Response<ResponseBody>
+
+    // --- Flights ---
+
+    @GET("api/flights/")
+    suspend fun getFlights(): Response<FlightsResponse>
+
+    /** Body is the flight's fields (see views._apply_flight); a 409 carries
+     *  `existing_id` when that flight is already logged. */
+    @POST("api/flights/")
+    suspend fun createFlight(@Body body: Map<String, @JvmSuppressWildcards Any>): Response<FlightResponse>
+
+    @POST("api/flights/{id}/update/")
+    suspend fun updateFlight(@Path("id") id: Int, @Body body: Map<String, @JvmSuppressWildcards Any>): Response<FlightResponse>
+
+    @POST("api/flights/{id}/delete/")
+    suspend fun deleteFlight(@Path("id") id: Int, @Body body: Map<String, String> = emptyMap()): Response<ResponseBody>
+
+    @GET("api/flights/lookup/")
+    suspend fun lookupFlight(@Query("number") number: String, @Query("date") date: String): Response<FlightLookupResponse>
+
+    @Multipart
+    @POST("api/flights/{id}/pass/")
+    suspend fun uploadBoardingPass(@Path("id") id: Int, @Part image: okhttp3.MultipartBody.Part): Response<FlightResponse>
 }

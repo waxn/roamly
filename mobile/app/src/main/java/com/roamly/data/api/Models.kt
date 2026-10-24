@@ -1008,3 +1008,67 @@ data class NotificationDevice(
     val name: String = "",
     val points: Int = 0,
 )
+
+// ── Flights (flight log; boarding-pass scanning) ─────────────────────────────
+
+/** One flight as GET /api/flights/ returns it. Times are UTC ISO; *_local are the
+ *  wall clock at that airport ("yyyy-MM-ddTHH:mm"), what the edit form shows. */
+data class FlightDto(
+    val id: Int = 0,
+    @SerializedName("flight_number") val flightNumber: String = "",
+    val date: String = "",
+    @SerializedName("airline_name") val airlineName: String = "",
+    @SerializedName("airline_iata") val airlineIata: String = "",
+    @SerializedName("airline_icao") val airlineIcao: String = "",
+    @SerializedName("dep_iata") val depIata: String = "",
+    @SerializedName("dep_icao") val depIcao: String = "",
+    @SerializedName("dep_name") val depName: String = "",
+    @SerializedName("dep_city") val depCity: String = "",
+    @SerializedName("dep_country") val depCountry: String = "",
+    @SerializedName("dep_lat") val depLat: Double? = null,
+    @SerializedName("dep_lon") val depLon: Double? = null,
+    @SerializedName("dep_tz") val depTz: String = "",
+    @SerializedName("arr_iata") val arrIata: String = "",
+    @SerializedName("arr_icao") val arrIcao: String = "",
+    @SerializedName("arr_name") val arrName: String = "",
+    @SerializedName("arr_city") val arrCity: String = "",
+    @SerializedName("arr_country") val arrCountry: String = "",
+    @SerializedName("arr_lat") val arrLat: Double? = null,
+    @SerializedName("arr_lon") val arrLon: Double? = null,
+    @SerializedName("arr_tz") val arrTz: String = "",
+    @SerializedName("sched_dep") val schedDep: String? = null,
+    @SerializedName("sched_arr") val schedArr: String? = null,
+    @SerializedName("actual_dep") val actualDep: String? = null,
+    @SerializedName("actual_arr") val actualArr: String? = null,
+    @SerializedName("sched_dep_local") val schedDepLocal: String = "",
+    @SerializedName("sched_arr_local") val schedArrLocal: String = "",
+    @SerializedName("actual_dep_local") val actualDepLocal: String = "",
+    @SerializedName("actual_arr_local") val actualArrLocal: String = "",
+    @SerializedName("aircraft_model") val aircraftModel: String = "",
+    val registration: String = "",
+    val seat: String = "",
+    @SerializedName("seat_class") val seatClass: String = "",
+    @SerializedName("seat_type") val seatType: String = "",
+    val reason: String = "",
+    val notes: String = "",
+    @SerializedName("distance_km") val distanceKm: Double? = null,
+    val source: String = "",
+    @SerializedName("fr24_url") val fr24Url: String = "",
+    @SerializedName("booking_ref") val bookingRef: String = "",
+    @SerializedName("passenger_name") val passengerName: String = "",
+    @SerializedName("checkin_seq") val checkinSeq: String = "",
+    @SerializedName("ticket_number") val ticketNumber: String = "",
+    @SerializedName("frequent_flyer") val frequentFlyer: String = "",
+    @SerializedName("bcbp_raw") val bcbpRaw: String = "",
+    @SerializedName("has_boarding_pass_image") val hasBoardingPassImage: Boolean = false,
+)
+
+data class FlightsResponse(
+    val flights: List<FlightDto> = emptyList(),
+    @SerializedName("lookup_enabled") val lookupEnabled: Boolean = false,
+)
+
+data class FlightResponse(val flight: FlightDto? = null)
+
+/** GET /api/flights/lookup/ — AeroDataBox legs, in FlightDto's shape (UTC times). */
+data class FlightLookupResponse(val legs: List<FlightDto> = emptyList(), val error: String? = null)
