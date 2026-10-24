@@ -11,7 +11,9 @@ that have none. That covers essentially every airport a passenger flight
 uses, and leaves out the ~70k heliports, strips and seaplane bases that
 would only make the autocomplete noisy and the file large.
 
-Each row is compact: [iata, icao, name, city, country_code, lat, lon].
+Each row is compact: [iata, icao, name, city, country_code, lat, lon, size],
+size being 2 for a large airport, 1 for medium and 0 for anything smaller —
+used to prefer the real airport over a nearby strip when matching a position.
 """
 import csv
 import io
@@ -47,8 +49,9 @@ def main():
             lon = round(float(a['longitude_deg']), 4)
         except (KeyError, TypeError, ValueError):
             continue
+        size = {'large_airport': 2, 'medium_airport': 1}.get(kind, 0)
         rows.append([iata, icao, a.get('name') or '', a.get('municipality') or '',
-                     (a.get('iso_country') or '').upper(), lat, lon])
+                     (a.get('iso_country') or '').upper(), lat, lon, size])
 
     # IATA codes first (the ones people type). A few IATA codes are claimed by
     # more than one record (usually a field the dataset still lists as open);
