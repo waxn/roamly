@@ -14,6 +14,8 @@
 .fl-table tbody tr { cursor: pointer; }
 .fl-route { font-family: var(--font-mono); font-weight: 600; }
 .fl-route .fl-arrow { color: var(--text-muted); margin: 0 0.3rem; }
+.fl-tracked { display: inline-block; margin-left: 0.4rem; padding: 0 0.35rem; font-family: var(--font-mono); font-size: 0.65rem; border: 1px solid var(--clay-sky); color: var(--clay-sky); border-radius: 4px; vertical-align: middle; }
+.fl-track-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; font-size: 0.85rem; margin: -0.2rem 0 0.8rem; }
 .fl-sub { font-size: 0.75rem; color: var(--text-muted); }
 .fl-num a { font-family: var(--font-mono); font-weight: 600; }
 .fl-empty { padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); }
@@ -79,6 +81,7 @@
             <select id="fl-year" class="form-control" style="width:auto;" aria-label="Year">
                 <option value="">All years</option>
             </select>
+            <button class="btn btn-outline" id="fl-match" onclick="matchAllTracks()" title="Look for recorded GPS tracks (your phone, or imported KML) of flights that don't have one yet">Match tracks</button>
             <button class="btn btn-primary" onclick="openFlight(null)">Add flight</button>
         </div>
     </div>
@@ -111,7 +114,7 @@
 
     <section class="fl-pane" id="pane-map" hidden>
         <div id="fl-map"></div>
-        <p class="fl-map-note">Great-circle routes between airports. Thicker, brighter lines are routes you flew more often; airport dots grow with visits. Click either for details.</p>
+        <p class="fl-map-note">Orange lines are great-circle routes between airports; blue lines are recorded tracks, the path actually flown (from your phone or an imported KML). Thicker, brighter lines are routes you flew more often; airport dots grow with visits. Click either for details.</p>
     </section>
 
     <section class="fl-pane" id="pane-stats" hidden>
@@ -167,6 +170,7 @@
         {% endif %}
 
         <div class="fl-section">Route</div>
+        <div class="fl-track-row" id="f-track-row" hidden></div>
         <div class="fl-grid">
             <div class="form-group fl-ap-wrap">
                 <label for="f-dep">From</label>
@@ -414,9 +418,16 @@ function setAirport(side, f) {
 }
 
 // ---- Loading + rendering ---------------------------------------------------
+let tracks = {};   // flight id -> recorded track [[lon, lat], ...]
+async function loadTracks() {
+    try {
+        const r = await fetch('/api/flights/tracks/');
+        if (r.ok) tracks = (await r.json()).tracks || {};
+    } catch (e) { tracks = {}; }
+}
 async function loadFlights() {
     try {
-        const r = await fetch('/api/flights/');
+        const [r] = await Promise.all([fetch('/api/flights/'), loadTracks()]);
         if (!r.ok) throw new Error('HTTP ' + r.status);
         flights = (await r.json()).flights || [];
     } catch (e) {
@@ -452,7 +463,7 @@ function renderList() {
     body.innerHTML = rows.map(f => `<tr data-id="${f.id}">
         <td>${esc(new Date(f.date + 'T00:00').toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }))}</td>
         <td class="fl-num">${f.fr24_url ? `<a href="${esc(f.fr24_url)}" target="_blank" rel="noopener noreferrer" title="Open on Flightradar24" onclick="event.stopPropagation()">${esc(f.flight_number)}</a>` : '<span class="fl-sub">–</span>'}</td>
-        <td><span class="fl-route">${esc(code(f, 'dep'))}<span class="fl-arrow">→</span>${esc(code(f, 'arr'))}</span>
+        <td><span class="fl-route">${esc(code(f, 'dep'))}<span class="fl-arrow">→</span>${esc(code(f, 'arr'))}</span>${f.has_track ? '<span class="fl-tracked" title="A recorded GPS track is linked">TRACK</span>' : ''}
             <div class="fl-sub">${esc(apLabel(f, 'dep'))} → ${esc(apLabel(f, 'arr'))}</div></td>
         <td>${esc(f.airline_name) || '<span class="fl-sub">–</span>'}</td>
         <td>${esc(f.aircraft_model) || '<span class="fl-sub">–</span>'}${f.registration ? `<div class="fl-sub">${esc(f.registration)}</div>` : ''}</td>
@@ -534,6 +545,8 @@ function renderStats() {
         const hi = withDur.reduce((a, b) => durationMin(b) > durationMin(a) ? b : a);
         facts.push(['Longest time aloft', `${desc(hi)} · ${fmtDur(durationMin(hi))}`]);
     }
+    const tracked = rows.filter(f => f.has_track);
+    if (tracked.length) facts.push(['Recorded tracks', `${tracked.length} of ${rows.length} · ${fmtDist(tracked.reduce((t, f) => t + (f.track_distance_km || 0), 0))} flown`]);
     const seats = tally(rows, f => ({ window: 'Window', middle: 'Middle', aisle: 'Aisle' })[f.seat_type]);
     if (seats.length) facts.push(['Favourite seat', `${seats[0][0]} (${seats[0][1]})`]);
     document.getElementById('st-records').innerHTML = facts.length
@@ -572,8 +585,11 @@ function mapData() {
         if (f.dep_lat == null || f.arr_lat == null) return;
         const a = code(f, 'dep'), b = code(f, 'arr');
         const key = [a, b].sort().join('-');
-        const r = routes.get(key) || { f, n: 0, list: [] };
+        const r = routes.get(key) || { f, n: 0, list: [], recorded: [] };
         r.n++; r.list.push(f);
+        // A flight with a recorded track is drawn along the path actually
+        // flown; the route's great-circle arc covers only its untracked ones.
+        if (tracks[f.id]) r.recorded.push(tracks[f.id]);
         routes.set(key, r);
         ['dep', 'arr'].forEach(s => {
             const c = code(f, s);
@@ -585,11 +601,18 @@ function mapData() {
     const maxR = Math.max(1, ...[...routes.values()].map(r => r.n));
     const maxA = Math.max(1, ...[...aps.values()].map(a => a.n));
     return {
-        lines: { type: 'FeatureCollection', features: [...routes.entries()].map(([key, r]) => ({
-            type: 'Feature',
-            properties: { key, n: r.n, w: r.n / maxR, label: key.replace('-', ' ⇄ ') },
-            geometry: { type: 'LineString', coordinates: arc(r.f.dep_lon, r.f.dep_lat, r.f.arr_lon, r.f.arr_lat) },
-        })) },
+        lines: { type: 'FeatureCollection', features: [...routes.entries()].flatMap(([key, r]) => {
+            const props = { key, n: r.n, w: r.n / maxR, label: key.replace('-', ' ⇄ ') };
+            const out = r.recorded.map(coords => ({
+                type: 'Feature', properties: { ...props, rec: 1 },
+                geometry: { type: 'LineString', coordinates: coords },
+            }));
+            if (r.recorded.length < r.n) out.push({
+                type: 'Feature', properties: { ...props, rec: 0 },
+                geometry: { type: 'LineString', coordinates: arc(r.f.dep_lon, r.f.dep_lat, r.f.arr_lon, r.f.arr_lat) },
+            });
+            return out;
+        }) },
         points: { type: 'FeatureCollection', features: [...aps.values()].map(a => ({
             type: 'Feature',
             properties: { c: a.c, name: a.name || '', city: a.city || '', n: a.n, w: a.n / maxA },
@@ -630,7 +653,7 @@ function initMap() {
         flMap.addSource('fl-aps', { type: 'geojson', data: empty });
         flMap.addLayer({ id: 'fl-lines', type: 'line', source: 'fl-lines',
             layout: { 'line-cap': 'round' },
-            paint: { 'line-color': '#e8763d',
+            paint: { 'line-color': ['case', ['==', ['get', 'rec'], 1], '#6fb4dd', '#e8763d'],
                      'line-width': ['interpolate', ['linear'], ['get', 'w'], 0, 1.2, 1, 4],
                      'line-opacity': ['interpolate', ['linear'], ['get', 'w'], 0, 0.45, 1, 0.95] } });
         flMap.addLayer({ id: 'fl-aps', type: 'circle', source: 'fl-aps',
@@ -700,6 +723,43 @@ function fillForm(f) {
     if (f.bcbp_raw !== undefined) F('f-raw').value = f.bcbp_raw || '';
     F('f-raw-wrap').hidden = !F('f-raw').value;
 }
+function renderTrack() {
+    const row = F('f-track-row'), f = editing;
+    row.hidden = !f;
+    if (!f) return;
+    row.innerHTML = f.has_track
+        ? `<span>Recorded track linked · ${fmtDist(f.track_distance_km)} flown</span>
+           <button type="button" class="btn btn-outline btn-sm" onclick="trackAction('unlink')">Unlink</button>`
+        : `<span class="fl-sub">${f.track_auto ? 'No recorded track found for this flight.' : 'Track unlinked.'}</span>
+           <button type="button" class="btn btn-outline btn-sm" onclick="trackAction('match')">Find track</button>`;
+}
+async function trackAction(kind) {
+    if (!editing) return;
+    const url = kind === 'unlink' ? `/api/flights/${editing.id}/track/unlink/` : `/api/flights/${editing.id}/track/`;
+    const r = await fetch(url, { method: 'POST', headers: { 'X-CSRFToken': CSRF } });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { roamlyToast(d.error || 'Could not update the track.', { type: 'error' }); return; }
+    adoptFlight(d.flight);
+    if (kind === 'match') roamlyToast(d.flight.has_track ? 'Track found and linked.' : 'No recorded track found.',
+                                      { type: d.flight.has_track ? 'success' : 'error' });
+    await loadTracks();
+    renderAll();
+}
+async function matchAllTracks() {
+    const btn = F('fl-match');
+    btn.disabled = true;
+    try {
+        const r = await fetch('/api/flights/tracks/match/', { method: 'POST', headers: { 'X-CSRFToken': CSRF } });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
+        roamlyToast(d.matched ? `Linked ${d.matched} recorded track${d.matched === 1 ? '' : 's'}.` : 'No new tracks found.');
+        await loadFlights();
+    } catch (e) {
+        roamlyToast('Could not match tracks.', { type: 'error' });
+    } finally {
+        btn.disabled = false;
+    }
+}
 function renderPass() {
     const f = editing;
     F('f-pass-wrap').hidden = !f;   // a photo needs a saved flight to attach to
@@ -719,6 +779,7 @@ function adoptFlight(flight) {
     const i = flights.findIndex(x => x.id === flight.id);
     if (i >= 0) flights[i] = flight;
     renderPass();
+    renderTrack();
 }
 async function removePass() {
     if (!editing || !await roamlyConfirm('Remove the boarding pass photo?', { danger: true, confirmText: 'Remove' })) return;
@@ -755,6 +816,7 @@ function openFlight(f) {
     ['f-class', 'f-seat-type', 'f-reason'].forEach(id => { F(id).value = ''; });
     fillForm(f || { date: new Date().toISOString().slice(0, 10) });
     renderPass();
+    renderTrack();
     F('f-delete').hidden = !f;
     F('f-fr24').hidden = !(f && f.fr24_url);
     if (f && f.fr24_url) F('f-fr24').href = f.fr24_url;
