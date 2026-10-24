@@ -2493,8 +2493,23 @@ class Flight(models.Model):
 
     # Great-circle airport-to-airport distance, recomputed on save.
     distance_km = models.FloatField(null=True, blank=True)
-    SOURCE_CHOICES = [('manual', 'Manual'), ('aerodatabox', 'AeroDataBox')]
-    source = models.CharField(max_length=12, choices=SOURCE_CHOICES, default='manual')
+    SOURCE_CHOICES = [('manual', 'Manual'), ('aerodatabox', 'AeroDataBox'),
+                      ('boarding_pass', 'Boarding pass')]
+    source = models.CharField(max_length=16, choices=SOURCE_CHOICES, default='manual')
+
+    # From a scanned boarding pass (the app's scanner, IATA BCBP barcode).
+    # Kept because the pass carries them, shown under "Advanced" on the web.
+    # The booking reference can manage the booking, so none of this — and in
+    # particular the pass photo — is ever served outside the owner's own
+    # requests (see flight_pass_api).
+    booking_ref = models.CharField(max_length=8, blank=True, default='')
+    passenger_name = models.CharField(max_length=64, blank=True, default='')
+    checkin_seq = models.CharField(max_length=5, blank=True, default='')
+    ticket_number = models.CharField(max_length=16, blank=True, default='')
+    frequent_flyer = models.CharField(max_length=24, blank=True, default='')
+    # The barcode text exactly as read, so nothing the parser skipped is lost.
+    bcbp_raw = models.TextField(blank=True, default='')
+    boarding_pass_image = models.ImageField(upload_to='boarding_passes/', blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

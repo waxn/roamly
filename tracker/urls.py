@@ -258,6 +258,8 @@ urlpatterns = [
     path('api/flights/lookup/', views.flight_lookup_api, name='flight_lookup'),
     path('api/flights/<int:flight_id>/update/', views.flight_update_api, name='flight_update'),
     path('api/flights/<int:flight_id>/delete/', views.flight_delete_api, name='flight_delete'),
+    path('api/flights/<int:flight_id>/pass/', views.flight_pass_api, name='flight_pass'),
+    path('api/flights/<int:flight_id>/pass/delete/', views.flight_pass_delete_api, name='flight_pass_delete'),
 
     # Geocoding
     path('api/geocode/', views.geocode_api, name='geocode_api'),

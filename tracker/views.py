@@ -17026,6 +17026,10 @@ def _flight_payload(f):
         'seat': f.seat, 'seat_class': f.seat_class, 'seat_type': f.seat_type,
         'reason': f.reason, 'notes': f.notes, 'distance_km': f.distance_km,
         'source': f.source, 'fr24_url': f.fr24_url,
+        'booking_ref': f.booking_ref, 'passenger_name': f.passenger_name,
+        'checkin_seq': f.checkin_seq, 'ticket_number': f.ticket_number,
+        'frequent_flyer': f.frequent_flyer, 'bcbp_raw': f.bcbp_raw,
+        'has_boarding_pass_image': bool(f.boarding_pass_image),
     }
     for side in ('dep', 'arr'):
         for k in _FLIGHT_AIRPORT_KEYS:
@@ -17126,7 +17130,15 @@ def _apply_flight(f, data):
                            ('reason', FLIGHT_REASONS)):
         v = (data.get(field) or '').strip()
         setattr(f, field, v if v in dict(choices) else '')
-    if data.get('source') in ('manual', 'aerodatabox'):
+    for field, n, upper in (('booking_ref', 8, True), ('passenger_name', 64, False),
+                            ('checkin_seq', 5, False), ('ticket_number', 16, False),
+                            ('frequent_flyer', 24, True)):
+        if field in data:
+            v = (data.get(field) or '').strip()[:n]
+            setattr(f, field, v.upper() if upper else v)
+    if 'bcbp_raw' in data:
+        f.bcbp_raw = (data.get('bcbp_raw') or '')[:2000]
+    if data.get('source') in dict(Flight.SOURCE_CHOICES):
         f.source = data['source']
     return None
 
@@ -17170,13 +17182,22 @@ def flight_lookup_api(request):
     return JsonResponse({'legs': legs})
 
 
+@csrf_exempt
 @login_required
 def flights_api(request):
+    # Also the app's (Bearer, no CSRF token): see _require_api_intent.
     if request.method == 'GET':
+        from . import flight_lookup
         flights = Flight.objects.filter(user=request.user).order_by('-date', '-sched_dep', '-id')
-        return JsonResponse({'flights': [_flight_payload(f) for f in flights]})
+        return JsonResponse({
+            'flights': [_flight_payload(f) for f in flights],
+            'lookup_enabled': flight_lookup.configured(SiteConfig.load()),
+        })
     if request.method != 'POST':
         return JsonResponse({'error': 'Method not allowed.'}, status=405)
+    err = _require_api_intent(request)
+    if err:
+        return err
     data = _flight_json(request)
     if data is None:
         return JsonResponse({'error': 'Invalid request.'}, status=400)
@@ -17186,13 +17207,26 @@ def flights_api(request):
     err = _apply_flight(f, data)
     if err:
         return JsonResponse({'error': err}, status=400)
+    # Scanning the same boarding pass twice must not log the flight twice: the
+    # caller gets the existing one back and decides (the app offers to update
+    # it). allow_duplicate is the escape hatch for a genuinely repeated flight.
+    if f.flight_number and not data.get('allow_duplicate'):
+        dup = Flight.objects.filter(user=request.user, flight_number=f.flight_number,
+                                    date=f.date, dep_iata=f.dep_iata, arr_iata=f.arr_iata).first()
+        if dup:
+            return JsonResponse({'error': 'This flight is already in your log.',
+                                 'existing_id': dup.id}, status=409)
     f.save()
     return JsonResponse({'flight': _flight_payload(f)})
 
 
+@csrf_exempt
 @login_required
 @require_POST
 def flight_update_api(request, flight_id):
+    err = _require_api_intent(request)
+    if err:
+        return err
     f = get_object_or_404(Flight, id=flight_id, user=request.user)
     data = _flight_json(request)
     if data is None:
@@ -17204,11 +17238,72 @@ def flight_update_api(request, flight_id):
     return JsonResponse({'flight': _flight_payload(f)})
 
 
+@csrf_exempt
 @login_required
 @require_POST
 def flight_delete_api(request, flight_id):
-    get_object_or_404(Flight, id=flight_id, user=request.user).delete()
+    err = _require_api_intent(request)
+    if err:
+        return err
+    f = get_object_or_404(Flight, id=flight_id, user=request.user)
+    if f.boarding_pass_image:
+        f.boarding_pass_image.delete(save=False)
+    f.delete()
     return JsonResponse({'ok': True})
+
+
+@csrf_exempt
+@login_required
+def flight_pass_api(request, flight_id):
+    """The boarding-pass photo: GET serves it, POST (multipart ``image``)
+    replaces it. Owner-only, and never linked by its /media/ path — the pass
+    shows a booking reference, which is enough to manage the booking."""
+    f = get_object_or_404(Flight, id=flight_id, user=request.user)
+    if request.method == 'GET':
+        if not f.boarding_pass_image:
+            return JsonResponse({'error': 'No boarding pass photo.'}, status=404)
+        try:
+            resp = FileResponse(f.boarding_pass_image.open('rb'), content_type='image/jpeg')
+        except (OSError, ValueError):
+            return JsonResponse({'error': 'The photo file is missing.'}, status=404)
+        resp['Cache-Control'] = 'private, no-store'
+        resp['X-Content-Type-Options'] = 'nosniff'
+        return resp
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed.'}, status=405)
+    err = _require_api_intent(request)
+    if err:
+        return err
+    upload = request.FILES.get('image')
+    if not upload:
+        return JsonResponse({'error': 'No image uploaded.'}, status=400)
+    if upload.size > 15 * 1024 * 1024:
+        return JsonResponse({'error': 'That image is too large.'}, status=400)
+    try:
+        # Wider than the usual 1200px so the barcode stays readable later.
+        full, _thumb = resize_photo(upload, max_width=2000, quality=88)
+    except Exception:
+        return JsonResponse({'error': 'That file is not an image Roamly can read.'}, status=400)
+    if f.boarding_pass_image:
+        f.boarding_pass_image.delete(save=False)
+    f.boarding_pass_image.save(full.name, full, save=False)
+    f.save(update_fields=['boarding_pass_image', 'updated_at'])
+    return JsonResponse({'flight': _flight_payload(f)})
+
+
+@csrf_exempt
+@login_required
+@require_POST
+def flight_pass_delete_api(request, flight_id):
+    err = _require_api_intent(request)
+    if err:
+        return err
+    f = get_object_or_404(Flight, id=flight_id, user=request.user)
+    if f.boarding_pass_image:
+        f.boarding_pass_image.delete(save=False)
+        f.boarding_pass_image = None
+        f.save(update_fields=['boarding_pass_image', 'updated_at'])
+    return JsonResponse({'flight': _flight_payload(f)})
 
 
 # ---------------------------------------------------------------------------
