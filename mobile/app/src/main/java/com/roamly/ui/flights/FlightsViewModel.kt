@@ -142,7 +142,12 @@ class FlightsViewModel @Inject constructor(
         viewModelScope.launch {
             // Opened straight from a share, the list may not have loaded yet,
             // and it is what says whether lookup is available.
-            if (!_state.value.loaded) fetch()
+            if (!_state.value.loaded) {
+                fetch()
+                // Say so rather than quietly skipping the lookup: this is what
+                // made a failing list request look like "lookup does nothing".
+                _state.value.error?.let { setStatus("Couldn't reach the server for flight details: $it", error = true) }
+            }
             if (lookupPossible) lookup()
         }
     }
