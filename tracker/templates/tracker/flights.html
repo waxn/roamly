@@ -279,6 +279,11 @@
                     <label for="f-ff">Frequent flyer</label>
                     <input class="form-control" id="f-ff" maxlength="24" style="text-transform:uppercase;font-family:var(--font-mono);">
                 </div>
+                <div class="form-group full" id="f-rematch-wrap" hidden>
+                    <label>Recorded track</label>
+                    <button type="button" class="btn btn-outline btn-sm" onclick="trackAction('match')">Re-match track</button>
+                    <p class="fl-hint">Searches your GPS history for this flight again and links the fullest recording, replacing the current one.</p>
+                </div>
                 <div class="form-group full" id="f-raw-wrap" hidden>
                     <label for="f-raw">Raw barcode</label>
                     <textarea class="form-control" id="f-raw" rows="2" readonly style="font-family:var(--font-mono);font-size:0.75rem;"></textarea>
@@ -726,6 +731,7 @@ function fillForm(f) {
 function renderTrack() {
     const row = F('f-track-row'), f = editing;
     row.hidden = !f;
+    F('f-rematch-wrap').hidden = !f;
     if (!f) return;
     row.innerHTML = f.has_track
         ? `<span>Recorded track linked · ${fmtDist(f.track_distance_km)} flown</span>
@@ -740,7 +746,7 @@ async function trackAction(kind) {
     const d = await r.json().catch(() => ({}));
     if (!r.ok) { roamlyToast(d.error || 'Could not update the track.', { type: 'error' }); return; }
     adoptFlight(d.flight);
-    if (kind === 'match') roamlyToast(d.flight.has_track ? 'Track found and linked.' : 'No recorded track found.',
+    if (kind === 'match') roamlyToast(d.flight.has_track ? `Track linked · ${fmtDist(d.flight.track_distance_km)} flown.` : 'No recorded track found.',
                                       { type: d.flight.has_track ? 'success' : 'error' });
     await loadTracks();
     renderAll();

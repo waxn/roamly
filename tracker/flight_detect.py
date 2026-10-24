@@ -265,8 +265,15 @@ def match_track(flight):
         if len(points) < TRACK_MIN_POINTS:
             continue
         m = _match_in(points, dep, arr, route_km)
-        if m and (best is None or m[2] < best[3]):
-            best = (dev, points, m[0], m[1], m[2])
+        if m is None:
+            continue
+        # The densest recording wins, endpoint closeness only breaking ties: a
+        # phone that caught a few fixes at the gates and in the air sits
+        # nearer the airports than a KML that starts on the runway or already
+        # airborne, and picking it drew a 5-point line instead of the import.
+        rank = (-(m[1] - m[0] + 1), m[2])
+        if best is None or rank < best[4]:
+            best = (dev, points, m[0], m[1], rank)
     if best is None:
         return None
 
