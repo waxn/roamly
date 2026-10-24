@@ -17255,12 +17255,23 @@ def flight_update_api(request, flight_id):
     data = _flight_json(request)
     if data is None:
         return JsonResponse({'error': 'Invalid request.'}, status=400)
+    before = _flight_track_key(f)
     err = _apply_flight(f, data)
     if err:
         return JsonResponse({'error': err}, status=400)
     f.save()
-    _match_flight_track(f)
+    # A linked track is left alone unless the edit changed which flight this
+    # is: re-matching on every save (a note, a seat) could swap or drop a
+    # track the user is happy with.
+    if not f.track_device_id or _flight_track_key(f) != before:
+        _match_flight_track(f)
     return JsonResponse({'flight': _flight_payload(f)})
+
+
+def _flight_track_key(f):
+    """What track matching depends on: when unchanged, the match would be too."""
+    return (f.date, f.dep_iata, f.dep_icao, f.arr_iata, f.arr_icao,
+            f.sched_dep, f.sched_arr, f.actual_dep, f.actual_arr)
 
 
 def _match_flight_track(f, force=False):
