@@ -469,7 +469,15 @@
             font-family: var(--font-mono); font-size: 0.7rem;
             letter-spacing: 0.06em; text-transform: uppercase;
             color: var(--text-muted);
+            display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
         }
+        .notif-clear {
+            background: none; border: none; padding: 0; cursor: pointer;
+            font: inherit; letter-spacing: inherit; text-transform: inherit;
+            color: var(--primary);
+        }
+        .notif-clear:hover { text-decoration: underline; }
+        .notif-clear:disabled { opacity: 0.5; cursor: default; text-decoration: none; }
         .notif-section {
             padding: 0.5rem 0.85rem 0.2rem;
             font-family: var(--font-mono); font-size: 0.65rem;
@@ -1350,7 +1358,7 @@
                     <span class="notif-dot" id="notif-dot" hidden></span>
                 </button>
                 <div class="notif-panel" id="notif-panel" role="dialog" aria-label="Notifications" hidden>
-                    <div class="notif-head">Notifications</div>
+                    <div class="notif-head"><span>Notifications</span><button type="button" class="notif-clear" id="notif-clear" hidden>Clear all</button></div>
                     <div class="notif-body" id="notif-body"></div>
                 </div>
             </div>
@@ -2552,6 +2560,7 @@
             const panel = document.getElementById('notif-panel');
             const body = document.getElementById('notif-body');
             const dot = document.getElementById('notif-dot');
+            const clearBtn = document.getElementById('notif-clear');
             const CSRF = '{{ csrf_token }}';
             let data = null;
 
@@ -2636,6 +2645,7 @@
                 </div>`;
             }
             function render() {
+                clearBtn.hidden = !(data && data.items.length);
                 if (!data) {
                     body.innerHTML = '<div class="notif-empty"><span class="spinner"></span></div>';
                     return;
@@ -2676,6 +2686,24 @@
                 } catch (err) {
                     item.querySelectorAll('button').forEach(b => b.disabled = false);
                 }
+            });
+
+            clearBtn.addEventListener('click', async function(e) {
+                e.stopPropagation();
+                const n = data ? data.items.length : 0;
+                if (!n) return;
+                const ok = await roamlyConfirm(
+                    `Keep both tracks for ${n === 1 ? 'this overlap' : `all ${n} overlaps`}? Nothing is hidden, and they won't be asked about again.`,
+                    {title: 'Clear all notifications', confirmText: 'Clear all'});
+                if (!ok) return;
+                clearBtn.disabled = true;
+                try {
+                    await roamlyFetch('/api/notifications/clear/', {
+                        method: 'POST', headers: {'X-CSRFToken': CSRF}, json: {},
+                    });
+                    await load();
+                } catch (err) { /* roamlyFetch already toasted */ }
+                clearBtn.disabled = false;
             });
 
             function open(on) {

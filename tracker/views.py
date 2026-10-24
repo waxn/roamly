@@ -14071,6 +14071,18 @@ def notifications_api(request):
     })
 
 
+@login_required
+@require_http_methods(["POST"])
+def notifications_clear_api(request):
+    """"Clear all": keep both tracks for every pending overlap. The
+    non-destructive answer, so clearing never hides a point; the hidden list
+    is undo history, not a notification, and is left alone."""
+    from .models import DeviceOverlap
+    n = DeviceOverlap.objects.filter(user=request.user, status='pending').update(
+        status='dismissed', resolved_at=timezone.now())
+    return JsonResponse({'status': 'ok', 'cleared': n})
+
+
 def _own_overlap(request, overlap_id):
     from .models import DeviceOverlap
     return get_object_or_404(DeviceOverlap, id=overlap_id, user=request.user)
