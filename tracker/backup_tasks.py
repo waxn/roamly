@@ -279,6 +279,32 @@ def _build_activities_data(user):
     ]
 
 
+def _build_edit_batches_data(user):
+    """Map-editor generated points, grouped by the edit that made them (v21+).
+
+    Only batches that wrote InferredLocation rows and are still in effect.
+    Batches that pasted *real* data are left out: their points are ordinary
+    Location rows already in the ``locations`` section, and the ``location_ids``
+    their undo relies on cannot survive a restore into new ids. ``delete``
+    batches are trash bookkeeping, not points. Small by nature — an edit caps
+    at a few hundred points — so a list, not a stream.
+    """
+    from .models import EditBatch, InferredLocation
+
+    batches = list(EditBatch.objects.filter(user=user, target='inferred', undone=False)
+                   .exclude(kind='delete').select_related('device').order_by('created_at'))
+    pts = {}
+    for bid, ts, lat, lon in (InferredLocation.objects.filter(batch__in=batches)
+                              .order_by('batch_id', 'timestamp')
+                              .values_list('batch_id', 'timestamp', 'latitude', 'longitude')):
+        pts.setdefault(bid, []).append([ts, lat, lon])
+    return [
+        {'device_id': b.device.device_id, 'kind': b.kind, 'note': b.note,
+         'created_at': b.created_at, 'points': pts[b.id]}
+        for b in batches if pts.get(b.id)
+    ]
+
+
 def _build_flights_data(user):
     """Build serializable flight-log rows for a user's backup (v20+).
 

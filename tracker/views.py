@@ -84,6 +84,7 @@ from .backup_tasks import (
     _build_activities_data,
     _build_family_data,
     _build_flights_data,
+    _build_edit_batches_data,
     _build_device_overlaps_data,
 )
 
@@ -7770,7 +7771,7 @@ def _write_backup_json(user, f, progress=None):
     loc_total += hidden_qs.count()
 
     report('Collecting devices')
-    meta = {'version': 20, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 21, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # The single backup builder: the scheduled S3 backup calls this too, so the
@@ -7798,6 +7799,7 @@ def _write_backup_json(user, f, progress=None):
     family_circles = _build_family_data(user)
     device_overlaps = _build_device_overlaps_data(user)
     flights = _build_flights_data(user)
+    edit_batches = _build_edit_batches_data(user)
     health_total = HealthSample.objects.filter(user=user).count()
     cell_total = CellSample.objects.filter(user=user).count()
 
@@ -7812,6 +7814,7 @@ def _write_backup_json(user, f, progress=None):
     f.write(b'"family_circles":' + encoder.encode(family_circles).encode() + b',')
     f.write(b'"device_overlaps":' + encoder.encode(device_overlaps).encode() + b',')
     f.write(b'"flights":' + encoder.encode(flights).encode() + b',')
+    f.write(b'"edit_batches":' + encoder.encode(edit_batches).encode() + b',')
 
     # Recorded activity tracks (v17+), one at a time — a long ride is hundreds
     # of KB, so building them all into one list first is the OOM the
@@ -7959,6 +7962,7 @@ def _write_backup_json(user, f, progress=None):
         'family_circles': len(family_circles),
         'device_overlaps': len(device_overlaps),
         'flights': len(flights),
+        'edit_batches': len(edit_batches),
     }).encode() + b'}')
     report('Writing cell samples', cell_total, cell_total)
 
@@ -8399,7 +8403,7 @@ def restore_backup(request):
               'custom_places': 0, 'media_files': 0,
               'health_samples': 0, 'health_workouts': 0, 'activities': 0,
               'activity_tracks': 0, 'family_circles': 0, 'cell_samples': 0,
-              'flights': 0}
+              'flights': 0, 'edit_batches': 0}
     errors = 0
 
     # Split the bar by rough cost: one unit per streamed row, the small
@@ -9167,6 +9171,41 @@ def restore_backup(request):
                 except Exception as e:
                     errors += 1
                     logger.warning(f"Backup restore flight error: {e}")
+
+            # Map-editor generated points (v21+), one EditBatch per edit so each
+            # restored edit can still be undone as a unit. Idempotent on the
+            # batch's first point: an InferredLocation on that device at that
+            # instant in a batch of the same kind means this edit is already here.
+            for eb in data.get('edit_batches', []):
+                try:
+                    device = device_map.get(eb.get('device_id'))
+                    kind = eb.get('kind')
+                    if not device or kind not in dict(EditBatch.KIND_CHOICES) or kind == 'delete':
+                        errors += 1
+                        continue
+                    rows = []
+                    for p in (eb.get('points') or [])[:5000]:
+                        ts = _parse_timestamp(p[0]) if p else None
+                        lat, lon = _safe_float(p[1]), _safe_float(p[2])
+                        if ts and lat is not None and lon is not None \
+                                and -90 <= lat <= 90 and -180 <= lon <= 180:
+                            rows.append((ts, lat, lon))
+                    if not rows:
+                        continue
+                    if InferredLocation.objects.filter(device=device, timestamp=rows[0][0],
+                                                       batch__kind=kind, batch__undone=False).exists():
+                        continue
+                    batch = EditBatch.objects.create(
+                        user=user, device=device, kind=kind, target='inferred',
+                        note=(eb.get('note') or '')[:200], point_count=len(rows))
+                    InferredLocation.objects.bulk_create([
+                        InferredLocation(batch=batch, device=device, timestamp=ts,
+                                         latitude=lat, longitude=lon)
+                        for ts, lat, lon in rows])
+                    counts['edit_batches'] += 1
+                except Exception as e:
+                    errors += 1
+                    logger.warning(f"Backup restore edit batch error: {e}")
 
     except Exception as e:
         logger.error(f"Backup restore failed: {e}")
