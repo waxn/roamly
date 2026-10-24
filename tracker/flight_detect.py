@@ -182,6 +182,20 @@ TRACK_MIN_FAST_HOPS = 3
 TRACK_MAX_POINTS_SCANNED = 50000
 TAKEOFF_MAX_GAP_S = 300       # only infer takeoff/landing from dense sampling
 
+# Taxiing. The match ends at the first point near the arrival airport, which
+# is roughly touchdown, so the ground roll and taxi in (and, at the other end,
+# the taxi out before the last point "at" the departure airport) are cut off.
+# They are recovered from the same device only, as the continuous stretch of
+# ground movement at that airport, and stop at the first of: the aircraft
+# coming to rest (TAXI_STILL_HOPS hops under TAXI_STILL_MPS — the gate), a
+# sampling gap, leaving the airport, or TAXI_MAX_S. That keeps the walk
+# through the terminal and the drive home out of the flight.
+TAXI_RADIUS_KM = 8.0
+TAXI_MAX_GAP_S = 300
+TAXI_MAX_S = 45 * 60
+TAXI_STILL_MPS = 0.7
+TAXI_STILL_HOPS = 3
+
 
 def _track_window(flight):
     from datetime import datetime, time as dtime
@@ -239,6 +253,40 @@ def _match_in(points, dep, arr, route_km):
     return None
 
 
+def _extend_taxi(points, k, airport, step):
+    """Extend index `k` through the taxi at `airport`, walking by `step` (+1
+    after landing, -1 before takeoff). Returns the new end index."""
+    n = len(points)
+    start_t = points[k][0]
+    still = 0
+    last_moving = k
+    cur = k
+    while 0 <= cur + step < n:
+        nxt = cur + step
+        a, b = (points[cur], points[nxt]) if step > 0 else (points[nxt], points[cur])
+        gap = (b[0] - a[0]).total_seconds()
+        if gap <= 0 or gap > TAXI_MAX_GAP_S:
+            break
+        if abs((points[nxt][0] - start_t).total_seconds()) > TAXI_MAX_S:
+            break
+        if _km(points[nxt][1], points[nxt][2], airport[0], airport[1]) > TAXI_RADIUS_KM:
+            break
+        # No upper speed limit: the match's ends are often still on final
+        # approach or the takeoff roll, which is exactly what must be kept.
+        # TAXI_RADIUS_KM bounds it instead.
+        v = _hop_mps(a, b)
+        if v < TAXI_STILL_MPS:
+            still += 1
+            if still >= TAXI_STILL_HOPS:
+                break
+        else:
+            still = 0
+            last_moving = nxt
+        cur = nxt
+    # End where it last moved: the parked stretch at the gate is not taxiing.
+    return last_moving
+
+
 def match_track(flight):
     """The best recording of `flight` in its owner's history, or None.
 
@@ -278,9 +326,14 @@ def match_track(flight):
         return None
 
     dev, points, i, j = best[:4]
+    # Fast-hop indices are found before extending, so takeoff and landing
+    # still come from the flight itself, not the taxi.
+    core = points[i:j + 1]
+    i = _extend_taxi(points, i, dep, -1)
+    j = _extend_taxi(points, j, arr, +1)
     seg = points[i:j + 1]
     km = sum(_km(a[1], a[2], b[1], b[2]) for a, b in zip(seg, seg[1:]))
-    hops = list(zip(seg, seg[1:]))
+    hops = list(zip(core, core[1:]))
     fast = [k for k, (a, b) in enumerate(hops) if FAST_MPS <= _hop_mps(a, b) <= MAX_MPS]
     takeoff = landing = None
     if fast:
