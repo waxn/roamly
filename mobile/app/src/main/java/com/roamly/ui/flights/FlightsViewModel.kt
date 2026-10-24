@@ -61,7 +61,13 @@ data class FlightsUiState(
     val flights: List<FlightDto> = emptyList(),
     val loading: Boolean = false,
     val loaded: Boolean = false,
-    val lookupEnabled: Boolean = false,
+    /**
+     * Whether the server can look flights up. Null = not known yet (list not
+     * loaded, failed, or a server without the field): treated as "try", so the
+     * only thing that hides lookup is the server saying no. The server answers
+     * a lookup it can't do with a clear error anyway.
+     */
+    val lookupEnabled: Boolean? = null,
     val error: String? = null,
     val draft: FlightDraft = FlightDraft(),
     /** JPEG of the boarding pass to attach on save (camera frame or picked image). */
@@ -101,6 +107,9 @@ class FlightsViewModel @Inject constructor(
         }
     }
 
+    /** False only when the server has said lookup is off. */
+    val lookupPossible: Boolean get() = _state.value.lookupEnabled != false
+
     // ── Starting a draft ────────────────────────────────────────────────────
 
     private fun reset(draft: FlightDraft, image: ByteArray? = null) = _state.update {
@@ -134,7 +143,7 @@ class FlightsViewModel @Inject constructor(
             // Opened straight from a share, the list may not have loaded yet,
             // and it is what says whether lookup is available.
             if (!_state.value.loaded) fetch()
-            if (_state.value.lookupEnabled) lookup()
+            if (lookupPossible) lookup()
         }
     }
 

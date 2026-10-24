@@ -90,7 +90,7 @@ fun FlightEditScreen(viewModel: FlightsViewModel, onDone: () -> Unit) {
                     Field("Flight number", d.flightNumber, Modifier.weight(1f), caps = true) { v -> viewModel.edit { it.copy(flightNumber = v) } }
                     Field("Date (yyyy-mm-dd)", d.date, Modifier.weight(1f)) { v -> viewModel.edit { it.copy(date = v) } }
                 }
-                if (state.lookupEnabled) {
+                if (state.lookupEnabled != false) {
                     Spacer(Modifier.size(10.dp))
                     ClayOutlinedButton(onClick = viewModel::lookup, enabled = !state.lookingUp,
                                        modifier = Modifier.fillMaxWidth()) {

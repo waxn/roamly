@@ -1065,7 +1065,8 @@ data class FlightDto(
 
 data class FlightsResponse(
     val flights: List<FlightDto> = emptyList(),
-    @SerializedName("lookup_enabled") val lookupEnabled: Boolean = false,
+    /** Null from a server that predates the field: unknown, so the app tries. */
+    @SerializedName("lookup_enabled") val lookupEnabled: Boolean? = null,
 )
 
 data class FlightResponse(val flight: FlightDto? = null)
