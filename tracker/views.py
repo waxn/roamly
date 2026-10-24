@@ -14092,9 +14092,15 @@ def notifications_api(request):
     """``?summary=1`` → just the pending count (every page load); otherwise the
     full panel: pending items plus recently hidden overlaps, which can be undone."""
     from .models import DeviceOverlap
+    from . import flight_detect
     pending_qs = DeviceOverlap.objects.filter(user=request.user, status='pending')
+    # Detected flights ride in their own keys, not in `items`/`unread`: the
+    # app's Tracker tab reads those and expects every entry to be an overlap.
+    # Reading them is a cache hit plus two small queries; the history scan
+    # behind them runs in the background (flight_detect.candidates).
+    flights_pending = flight_detect.pending(request.user)
     if request.GET.get('summary'):
-        return JsonResponse({'unread': pending_qs.count()})
+        return JsonResponse({'unread': pending_qs.count(), 'flight_unread': len(flights_pending)})
     names = {d.id: (d.name or d.device_id)
              for d in Device.objects.filter(user=request.user)}
     pending = list(pending_qs.order_by('-start_time')[:50])
@@ -14107,7 +14113,22 @@ def notifications_api(request):
         'tracker_devices': list(HardwareTracker.objects.filter(user=request.user)
                                 .values_list('device_id', flat=True)),
         'hidden': [_overlap_item(o, names) for o in hidden],
+        'flight_suggestions': flights_pending[:20],
+        'flight_unread': len(flights_pending),
     })
+
+
+@login_required
+@require_POST
+def flight_suggestion_dismiss_api(request):
+    """"Not a flight": stop suggesting this one. Web-only, so CSRF-checked."""
+    from .models import DismissedFlightSuggestion
+    data = _flight_json(request) or {}
+    key = (data.get('key') or '').strip()
+    if not re.match(r'^\d{4}-\d{2}-\d{2}:[A-Z0-9]{3}:[A-Z0-9]{3}$', key):
+        return JsonResponse({'error': 'Bad suggestion key.'}, status=400)
+    DismissedFlightSuggestion.objects.get_or_create(user=request.user, key=key)
+    return JsonResponse({'status': 'ok'})
 
 
 @login_required

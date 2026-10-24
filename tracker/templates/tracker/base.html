@@ -2644,6 +2644,22 @@
                     </div>
                 </div>`;
             }
+            function flightSuggestion(it) {
+                // A run of fast hops from one airport to another in the GPS
+                // history (flight_detect.py) that is not in the flight log yet.
+                const q = new URLSearchParams({add: '1', dep: it.dep.iata, arr: it.arr.iata, date: it.date});
+                const place = a => esc(a.city || a.name);
+                return `<div class="notif-item" data-flight="${esc(it.key)}">
+                    <div class="notif-title">Did you fly ${esc(it.dep.iata)} → ${esc(it.arr.iata)}?</div>
+                    <div class="notif-meta">${esc(new Date(it.date + 'T00:00').toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'}))} · ${place(it.dep)} → ${place(it.arr)} · ${Math.round(it.distance_km).toLocaleString()} km</div>
+                    <div class="notif-text">Your track jumped between these two airports faster than any ground travel. Add it to your flight log?</div>
+                    <div class="notif-actions">
+                        <a class="btn btn-primary btn-sm" href="/flights/?${q}#list">Add flight</a>
+                        <button type="button" class="btn btn-outline btn-sm" data-act="flight-dismiss">Not a flight</button>
+                        <a href="/map/?start=${localDate(it.left_at)}&end=${localDate(it.arrived_at)}">View on map</a>
+                    </div>
+                </div>`;
+            }
             function render() {
                 clearBtn.hidden = !(data && data.items.length);
                 if (!data) {
@@ -2651,8 +2667,13 @@
                     return;
                 }
                 let html = '';
+                const flights = data.flight_suggestions || [];
                 if (data.items.length) html += data.items.map(overlapPending).join('');
-                else html += '<div class="notif-empty">You\'re all caught up.</div>';
+                if (flights.length) {
+                    html += (data.items.length ? '<div class="notif-section">Possible flights</div>' : '')
+                        + flights.map(flightSuggestion).join('');
+                }
+                if (!data.items.length && !flights.length) html += '<div class="notif-empty">You\'re all caught up.</div>';
                 if (data.hidden.length) {
                     html += '<div class="notif-section">Hidden overlaps</div>'
                         + data.hidden.map(overlapHidden).join('');
@@ -2662,7 +2683,7 @@
             async function load() {
                 try {
                     data = await roamlyFetch('/api/notifications/', {busy: body, retry: load, toast: false});
-                    setUnread(data.unread);
+                    setUnread(data.unread + (data.flight_unread || 0));
                     render();
                 } catch (e) { /* busy: already shows the error + Retry */ }
             }
@@ -2674,6 +2695,17 @@
                 const id = item.dataset.id;
                 const act = btn.dataset.act;
                 item.querySelectorAll('button').forEach(b => b.disabled = true);
+                if (act === 'flight-dismiss') {
+                    try {
+                        await roamlyFetch('/api/notifications/flight/dismiss/', {
+                            method: 'POST', headers: {'X-CSRFToken': CSRF}, json: {key: item.dataset.flight},
+                        });
+                        await load();
+                    } catch (err) {
+                        item.querySelectorAll('button').forEach(b => b.disabled = false);
+                    }
+                    return;
+                }
                 try {
                     const r = await roamlyFetch(`/api/notifications/overlap/${id}/${act}/`, {
                         method: 'POST',
@@ -2728,7 +2760,7 @@
             function poll() {
                 fetch('/api/notifications/?summary=1', {credentials: 'same-origin'})
                     .then(r => r.ok ? r.json() : null)
-                    .then(d => { if (d) setUnread(d.unread); })
+                    .then(d => { if (d) setUnread(d.unread + (d.flight_unread || 0)); })
                     .catch(() => {});
             }
             poll();

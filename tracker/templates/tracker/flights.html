@@ -768,5 +768,25 @@ wireAirport('dep');
 wireAirport('arr');
 showTab((location.hash || '#list').slice(1));
 loadFlights();
+
+// Arriving from a bell suggestion (?add=1&dep=&arr=&date=): open the form with
+// the detected route filled in, then drop the params so a reload doesn't
+// reopen it. The flight number is left for the user (and the lookup).
+(async () => {
+    const q = new URLSearchParams(location.search);
+    if (q.get('add') !== '1') return;
+    history.replaceState(null, '', location.pathname + location.hash);
+    await loadAirports();
+    const pre = { date: /^\d{4}-\d{2}-\d{2}$/.test(q.get('date') || '') ? q.get('date') : '' };
+    for (const side of ['dep', 'arr']) {
+        const c = (q.get(side) || '').toUpperCase();
+        const a = airportsByCode.get(c);
+        if (a) { pre[side + '_iata'] = a.iata; pre[side + '_city'] = a.city || a.name; }
+    }
+    openFlight(null);
+    fillForm(Object.assign({ date: pre.date || F('f-date').value }, pre));
+    setStatus(LOOKUP_ON ? 'Detected from your track. Add the flight number and press Look up to fill in the rest.'
+                        : 'Detected from your track. Add the flight number and times if you have them.');
+})();
 </script>
 {% endblock %}

@@ -2518,3 +2518,19 @@ class Flight(models.Model):
 
     def __str__(self):
         return f"{self.flight_number or 'Flight'} {self.dep_iata}-{self.arr_iata} {self.date}"
+
+
+class DismissedFlightSuggestion(models.Model):
+    """A detected flight the user said was not one (or did not want logged).
+
+    Suggestions themselves are derived on the fly by flight_detect.py; this is
+    the only state worth keeping, the same shape as DismissedSuggestion for
+    places. ``key`` is the suggestion's own ``"<date>:<dep>:<arr>"``. User
+    intent, not content ⇒ excluded from backups, like DismissedSuggestion.
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='dismissed_flight_suggestions')
+    key = models.CharField(max_length=32)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['user', 'key']
