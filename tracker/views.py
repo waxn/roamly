@@ -7771,7 +7771,7 @@ def _write_backup_json(user, f, progress=None):
     loc_total += hidden_qs.count()
 
     report('Collecting devices')
-    meta = {'version': 21, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 22, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # The single backup builder: the scheduled S3 backup calls this too, so the
@@ -8186,6 +8186,10 @@ def _restored_media(model, field_name, name):
 # (a long ride is hundreds of KB); everything else scales with what the user
 # wrote and is small enough to build normally.
 _STREAMED_BACKUP_KEYS = ('locations', 'cell_samples', 'activity_tracks')
+
+# What resize_photo writes for a boarding-pass photo (12 hex chars; Django may
+# add a 7-char suffix on a name collision).
+_BOARDING_PASS_PATH_RE = re.compile(r'^boarding_passes/[0-9a-f]{12}(_[A-Za-z0-9]{7})?\.jpg$')
 
 
 def _open_backup_json(zf):
@@ -9166,6 +9170,12 @@ def restore_backup(request):
                                              date=flight.date, dep_iata=flight.dep_iata,
                                              arr_iata=flight.arr_iata).exists():
                         continue
+                    # The pass photo's path is taken from the file, so accept
+                    # only the exact shape resize_photo writes: anything else
+                    # could point this flight at another account's media.
+                    img = row.get('boarding_pass_image') or ''
+                    if _BOARDING_PASS_PATH_RE.match(img):
+                        flight.boarding_pass_image.name = img
                     flight.save()
                     counts['flights'] += 1
                 except Exception as e:

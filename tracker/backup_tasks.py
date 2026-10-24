@@ -306,7 +306,7 @@ def _build_edit_batches_data(user):
 
 
 def _build_flights_data(user):
-    """Build serializable flight-log rows for a user's backup (v20+).
+    """Build serializable flight-log rows for a user's backup (v20+; pass details v22+).
 
     Every field restore needs, airports included in full, so a restored flight
     does not depend on the bundled airport dataset still matching. Distance is
@@ -317,7 +317,11 @@ def _build_flights_data(user):
     fields = ['flight_number', 'date', 'airline_name', 'airline_iata', 'airline_icao',
               'sched_dep', 'sched_arr', 'actual_dep', 'actual_arr',
               'aircraft_model', 'registration', 'seat', 'seat_class', 'seat_type',
-              'reason', 'notes', 'source']
+              'reason', 'notes', 'source',
+              # Boarding-pass details (v22+). The photo is a media file: its
+              # path rides here and the file itself in the zip's media/ tree.
+              'booking_ref', 'passenger_name', 'checkin_seq', 'ticket_number',
+              'frequent_flyer', 'bcbp_raw', 'boarding_pass_image']
     for side in ('dep', 'arr'):
         fields += [f'{side}_{k}' for k in ('iata', 'icao', 'name', 'city', 'country', 'lat', 'lon', 'tz')]
     return list(Flight.objects.filter(user=user).order_by('date', 'id').values(*fields))
@@ -692,6 +696,11 @@ def _get_user_media_files(user):
             files.append(photo.thumbnail.name)
         if photo.video:
             files.append(photo.video.name)
+
+    from .models import Flight
+    files.extend(Flight.objects.filter(user=user).exclude(boarding_pass_image='')
+                 .exclude(boarding_pass_image__isnull=True)
+                 .values_list('boarding_pass_image', flat=True))
 
     for photo in JournalPhoto.objects.filter(entry__user=user):
         if photo.image:
