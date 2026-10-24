@@ -181,6 +181,14 @@ fun FlightEditScreen(viewModel: FlightsViewModel, onDone: () -> Unit) {
                         Field("Ticket", d.ticketNumber, Modifier.weight(1f)) { v -> viewModel.edit { it.copy(ticketNumber = v) } }
                     }
                     Field("Frequent flyer", d.frequentFlyer, caps = true) { v -> viewModel.edit { it.copy(frequentFlyer = v) } }
+                    if (d.id != null) {
+                        ClayOutlinedButton(onClick = { viewModel.trackAction(unlink = false) },
+                                           modifier = Modifier.fillMaxWidth()) {
+                            Text("Re-match recorded track")
+                        }
+                        Text("Searches your GPS history for this flight again and links the fullest recording.",
+                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     val photo = when {
                         state.passImage != null -> "A photo of the pass will be saved with this flight."
                         d.hasPassImage -> "A photo of the pass is saved (view it on the website)."
