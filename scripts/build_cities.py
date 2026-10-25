@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Build tracker/data/places.json.gz, the offline reverse-geocoding dataset.
+"""Build tracker/data/places.json.gz, the geocoder's border-check dataset.
 
 GeoNames (https://www.geonames.org/, CC BY 4.0) `cities500`: every populated
-place with at least 500 people. The `reverse_geocode` package bundles
-`cities1000`, which is missing exactly the small places people actually stop
-at — a point on Campobello Island (whose villages are a few hundred people
-each) was labelled after the nearest town it did have, Eastport, Maine, which
-is in another country.
+place with at least 500 people. Ordinary geocoding still uses the
+`reverse_geocode` package's `cities1000`; this file is consulted only when that
+answer is across a border from the point (see ``tracker/offline_geocode.py``).
+`cities1000` has none of Campobello Island's villages, so a drive there was
+labelled Eastport, Maine — the border check needs the small places to name the
+right side.
 
     python3 scripts/build_cities.py
 
@@ -20,7 +21,7 @@ Output (gzipped JSON):
     {"countries": {cc: name},
      "admin1": [name, ...],
      "tz_country": {zone: cc},
-     "rows": [[lat, lon, cc, city, admin1_index, population], ...]}
+     "rows": [[lat, lon, cc, city, admin1_index], ...]}
 
 City and state strings are GeoNames' `name` columns and country names are
 taken from `reverse_geocode`'s countries.csv (run this where that package is
@@ -89,11 +90,7 @@ def main():
         if state not in admin1_idx:
             admin1_idx[state] = len(admin1)
             admin1.append(state)
-        try:
-            pop = int(row[14] or 0)
-        except ValueError:
-            pop = 0
-        rows.append([lat, lon, cc, row[1], admin1_idx[state], pop])
+        rows.append([lat, lon, cc, row[1], admin1_idx[state]])
 
     tz_country = {}
     with open(zone_tab, encoding='utf-8') as f:
