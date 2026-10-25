@@ -2,9 +2,11 @@
 
     python manage.py regeocode                 # every account
     python manage.py regeocode --user linus    # one account
+    python manage.py regeocode --rebuild       # replace every label (recovery)
 
-Writes only the rows whose label changed, then busts each changed account's
-caches and recomputes its stats snapshot. The same run is in Settings →
+Writes only the rows whose label should change (``--rebuild``: every label that
+differs), then busts each changed account's caches and recomputes its stats
+snapshot. The same run is in Settings →
 Background Jobs → Re-geocode All Points for the signed-in account. See
 ``tracker/regeocode_tasks.py``.
 """
@@ -19,6 +21,10 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--user', help='Only this username')
+        parser.add_argument('--rebuild', action='store_true',
+                            help='Replace every label with the geocoder\'s answer, not only '
+                                 'boundary matches, missing and wrong-country labels. For '
+                                 'recovery; load the boundaries first.')
 
     def handle(self, *args, **opts):
         user_ids = None
@@ -28,7 +34,7 @@ class Command(BaseCommand):
                 raise CommandError(f"No user '{opts['user']}'")
             user_ids = [u.id]
 
-        done, changed, users = regeocode(user_ids, log=self.stdout.write)
+        done, changed, users = regeocode(user_ids, log=self.stdout.write, rebuild=opts['rebuild'])
         if users:
             self.stdout.write(f"Recomputing stats for {len(users)} account(s)…")
             refresh_after(users)

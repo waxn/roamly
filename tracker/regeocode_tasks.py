@@ -11,8 +11,8 @@ which runs it in a background thread with progress in the cache.
 
 Caches one lookup per ~111m cell across the pass and writes only the rows whose
 label should change (see ``_should_replace``: a containment match, a missing
-label, or one in the wrong country — never just a different nearest-place
-guess), so a 1.4M-point history takes a few minutes and leaves
+label, or one in the wrong country — never just a different nearest-city
+guess; ``rebuild`` replaces every label, for recovery), so a 1.4M-point history takes a few minutes and leaves
 everything else untouched. A run is all or nothing: it finds every change
 before writing any, then applies them in one transaction, so stopping it (or a
 crash) leaves every point as it was.
@@ -55,7 +55,7 @@ class _Stopped(Exception):
     pass
 
 
-def regeocode(user_ids=None, log=None, progress=None, should_stop=None, tally=None):
+def regeocode(user_ids=None, log=None, progress=None, should_stop=None, tally=None, rebuild=False):
     """Relabel locations (all, or those of ``user_ids``); returns
     ``(rows_scanned, rows_changed, changed_user_ids)``.
 
@@ -68,6 +68,10 @@ def regeocode(user_ids=None, log=None, progress=None, should_stop=None, tally=No
     (an ``array``, 8 bytes each), and keeping the transaction to the short write
     phase means it never holds row locks for the minutes the scan takes.
 
+    ``rebuild`` replaces *every* label with the geocoder's answer instead of
+    only the ones ``_should_replace`` allows — for putting labels back after
+    they were damaged, once the boundaries they came from are loaded again.
+
     ``progress(phase, done, total, changed)`` reports ``'scan'`` per chunk read
     and ``'apply'`` per chunk written. ``tally``, a :class:`Tally`, collects
     which places came and went.
@@ -75,7 +79,7 @@ def regeocode(user_ids=None, log=None, progress=None, should_stop=None, tally=No
     from array import array
     from django.db import transaction
     from .models import Location
-    from .offline_geocode import local_reverse_geocode, v082_guess
+    from .offline_geocode import local_reverse_geocode
 
     def check_stop():
         if should_stop and should_stop():
@@ -113,20 +117,13 @@ def regeocode(user_ids=None, log=None, progress=None, should_stop=None, tally=No
                 res = local_reverse_geocode(lat, lon) or dict.fromkeys(_FIELDS, '')
                 # Never store city='' — the geocoding worker selects on it and
                 # would re-label the point forever.
-                source, zone_cc = res.get('source', 'nearest'), res.get('zone_cc', '')
-                legacy = None
-                if source != 'boundary':
-                    g = v082_guess(lat, lon, zone_cc)
-                    if g:
-                        legacy = (g['city'] or 'Unknown', g['state'], g['country'],
-                                  g['country_code'], g['place_name'])
                 hit = ((res['city'] or 'Unknown', res['state'], res['country'],
                         res['country_code'], res['place_name']),
-                       source, zone_cc, legacy)
+                       res.get('source', 'nearest'), res.get('zone_cc', ''))
                 cell_cache[cell] = hit
-            new, source, zone_cc, legacy = hit
+            new, source, zone_cc = hit
             stored = tuple(stored)
-            if stored != new and _should_replace(stored, source, zone_cc, legacy):
+            if stored != new and (rebuild or _should_replace(stored, source, zone_cc)):
                 changes[new].append(loc_id)
                 changed_users.add(uid)
                 found += 1
@@ -161,36 +158,28 @@ def regeocode(user_ids=None, log=None, progress=None, should_stop=None, tally=No
     return done, found, changed_users
 
 
-def _should_replace(stored, source, zone_cc, legacy=None):
+def _should_replace(stored, source, zone_cc):
     """Whether a re-geocode may overwrite ``stored`` with a new label.
 
     Only for a reason better than "the geocoder now guesses differently". A
     stored label may have come from a containment match (a US town boundary,
     since cleared or never loaded here) or from the old online geocoder, and
-    both beat a nearest-place guess: v0.82.0's re-geocode, which replaced any
-    label that differed, relabelled 810k points at home in Waldo, Maine as
-    neighbouring Morrill, whose centre happened to be closer. So a label is
+    both beat a nearest-city guess: a re-geocode that replaced any label that
+    differed, run with no boundaries loaded, relabelled 810k points at home in
+    Waldo, Maine as neighbouring Morrill, whose centre was closer. So a label is
     replaced only when:
 
       - the new one is a ``'boundary'`` match — the point is *inside* that town;
       - the stored one is empty or 'Unknown' — there is nothing to lose;
       - the stored country disagrees with the point's timezone country — the
-        label is on the wrong side of a border (Campobello labelled Eastport);
-      - the stored one is exactly what v0.82.0 guessed (``legacy``) — a label
-        that release wrote, preferring a hamlet over the town people name
-        (Silverdale for Sellersville), and that a better guess may undo. A
-        boundary-derived label that happens to equal it is the risk here, which
-        is why the boundaries should be imported before re-geocoding: with them
-        loaded, such a point gets a ``'boundary'`` answer instead.
+        label is on the wrong side of a border (Campobello labelled Eastport).
     """
     city, cc = stored[0], stored[3]
     if source == 'boundary':
         return True
     if not city or city == 'Unknown':
         return True
-    if zone_cc and cc and cc != zone_cc:
-        return True
-    return legacy is not None and stored == legacy
+    return bool(zone_cc and cc and cc != zone_cc)
 
 
 class Tally:
@@ -272,7 +261,7 @@ def get_status(user_id):
     return {k: job.get(k) for k in ('status', 'done', 'total', 'changed', 'applied', 'error', 'summary', 'finished')}
 
 
-def start(user_id):
+def start(user_id, rebuild=False):
     """Start a run for ``user_id`` unless one is already going. Returns the status."""
     current = get_status(user_id)
     if current['status'] in _ACTIVE:
@@ -284,7 +273,7 @@ def start(user_id):
     _write(user_id, status='running', done=0, total=0, changed=0, applied=0, error='', summary=None, finished=None)
 
     from .scheduler_utils import db_thread
-    db_thread(_run, args=(user_id,), name=f"regeocode-{user_id}").start()
+    db_thread(_run, args=(user_id, rebuild), name=f"regeocode-{user_id}").start()
     return get_status(user_id)
 
 
@@ -296,7 +285,7 @@ def stop(user_id):
     return True
 
 
-def _run(user_id):
+def _run(user_id, rebuild=False):
     tally = Tally()
 
     def progress(phase, d, t, c):
@@ -311,6 +300,7 @@ def _run(user_id):
             progress=progress,
             should_stop=lambda: bool(cache.get(_stop_key(user_id))),
             tally=tally,
+            rebuild=rebuild,
         )
         if users:
             _write(user_id, status='refreshing')

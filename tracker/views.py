@@ -7813,7 +7813,11 @@ def geocode_stop(request):
 def regeocode_start_api(request):
     """Relabel every stored point of this account with the current geocoder."""
     from . import regeocode_tasks
-    return JsonResponse(regeocode_tasks.start(request.user.id))
+    try:
+        body = json.loads(request.body or b'{}')
+    except ValueError:
+        body = {}
+    return JsonResponse(regeocode_tasks.start(request.user.id, rebuild=bool(body.get('rebuild'))))
 
 
 @login_required
