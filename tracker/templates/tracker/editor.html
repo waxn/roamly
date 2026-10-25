@@ -103,6 +103,15 @@
 
 .ed-box { position:absolute; border:1px dashed var(--primary); background:rgba(232,118,61,0.12);
     pointer-events:none; z-index:9; display:none; }
+/* Pencil select: the stroke is drawn in viewport coordinates, so it lines up
+   with the pointer wherever the map sits. */
+.ed-brush { position:fixed; inset:0; width:100vw; height:100vh; pointer-events:none; z-index:9; display:none; }
+.ed-brush polyline { fill:none; stroke:var(--primary); stroke-opacity:0.28; stroke-linecap:round; stroke-linejoin:round; }
+.tool-btn.active { border-color:var(--primary); color:var(--primary); background:rgba(232,118,61,0.10); }
+.tool-btn svg { width:15px; height:15px; flex:0 0 auto; margin-right:6px; vertical-align:-2px; }
+.ed-brush-size { display:flex; align-items:center; gap:0.5rem; font-size:0.75rem; color:var(--text-muted); margin-top:0.35rem; }
+.ed-brush-size input { flex:1; accent-color:var(--primary); }
+body.ed-pencil .maplibregl-canvas { cursor:crosshair !important; }
 {% endblock %}
 
 {% block content %}
@@ -167,6 +176,12 @@
             <div class="sidebar-section">
                 <div class="sidebar-label">selection <span id="sel-count" class="tool-btn-badge"></span></div>
                 <div class="sidebar-tools">
+                    <button class="tool-btn" id="btn-pencil" type="button" title="Draw over points to select them. Hold Ctrl/⌘ to add to the selection, Alt to remove from it. Esc to stop.">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>draw to select
+                    </button>
+                    <div class="ed-brush-size" id="brush-size-row" style="display:none;">
+                        <span>brush</span><input type="range" id="brush-size" min="6" max="80" step="2" value="24"><span id="brush-size-val">24px</span>
+                    </div>
                     <button class="tool-btn" id="btn-clear-sel" type="button" disabled>clear selection</button>
                     <button class="tool-btn" id="btn-route" type="button" disabled>
                         connect via roads<span class="tool-btn-badge">start + end</span>
@@ -271,6 +286,7 @@
     </div>
     <div class="ed-status" id="ed-status"></div>
     <div class="ed-box" id="ed-box"></div>
+    <svg class="ed-brush" id="ed-brush" aria-hidden="true"><polyline id="ed-brush-line" points=""/></svg>
     <div id="map"></div>
 </div>
 {% endblock %}
@@ -447,6 +463,7 @@ function featureToPoint(f) {
 }
 
 map.on('click', e => {
+    if (pencilOn && Date.now() - lastStrokeAt < 400) return;
     if (mode === 'add-single' || mode === 'add-run') {
         pendingCoords.push([e.lngLat.lng, e.lngLat.lat]);
         document.getElementById('add-hint').textContent =
@@ -475,7 +492,7 @@ map.on('click', e => {
 const boxEl = document.getElementById('ed-box');
 let boxStart = null;
 map.getCanvas().addEventListener('mousedown', ev => {
-    if (!ev.shiftKey || mode) return;
+    if (!ev.shiftKey || mode || pencilOn) return;
     ev.preventDefault();
     map.dragPan.disable();
     boxStart = [ev.clientX, ev.clientY];
@@ -512,6 +529,118 @@ window.addEventListener('mouseup', ev => {
 });
 
 document.getElementById('btn-clear-sel').addEventListener('click', () => { selected.clear(); repaintSel(); });
+
+// ── Pencil select ───────────────────────────────────────────────────────────
+// Drag over the points to select them: everything within the brush radius of
+// the stroke, for a long messy run where a box would catch the wrong half.
+// Uses the same rendered-feature hit-test as the box, then keeps only points
+// whose screen position lies within `radius` of the drawn path.
+let pencilOn = false;
+let stroke = null;          // [[x, y], ...] in canvas pixels while drawing
+let strokeOp = 'replace';   // replace | add | remove
+const brushSvg = document.getElementById('ed-brush');
+const brushLine = document.getElementById('ed-brush-line');
+const brushInput = document.getElementById('brush-size');
+try {
+    const saved = parseInt(localStorage.getItem('roamly_editor_brush'), 10);
+    if (saved >= 6 && saved <= 80) brushInput.value = saved;
+} catch (e) {}
+function brushRadius() { return parseInt(brushInput.value, 10) / 2; }
+function showBrushSize() { document.getElementById('brush-size-val').textContent = brushInput.value + 'px'; }
+showBrushSize();
+brushInput.addEventListener('input', () => {
+    showBrushSize();
+    try { localStorage.setItem('roamly_editor_brush', brushInput.value); } catch (e) {}
+});
+function setPencil(on) {
+    pencilOn = on;
+    if (on) closePanels();
+    document.getElementById('btn-pencil').classList.toggle('active', on);
+    document.getElementById('brush-size-row').style.display = on ? '' : 'none';
+    document.body.classList.toggle('ed-pencil', on);
+    if (on) { map.dragPan.disable(); say('Draw over the points to select them. Ctrl/⌘ adds, Alt removes, Esc stops.'); }
+    else { map.dragPan.enable(); }
+}
+document.getElementById('btn-pencil').addEventListener('click', () => setPencil(!pencilOn));
+
+function segDist2(px, py, a, b) {
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const l2 = dx * dx + dy * dy;
+    let t = l2 ? ((px - a[0]) * dx + (py - a[1]) * dy) / l2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const ex = px - (a[0] + t * dx), ey = py - (a[1] + t * dy);
+    return ex * ex + ey * ey;
+}
+const canvasEl = map.getCanvas();
+canvasEl.addEventListener('pointerdown', ev => {
+    if (!pencilOn || ev.button !== 0) return;
+    ev.preventDefault();
+    canvasEl.setPointerCapture(ev.pointerId);
+    const r = canvasEl.getBoundingClientRect();
+    stroke = [[ev.clientX - r.left, ev.clientY - r.top]];
+    strokeOp = ev.altKey ? 'remove' : (ev.ctrlKey || ev.metaKey) ? 'add' : 'replace';
+    brushLine.setAttribute('stroke-width', brushRadius() * 2);
+    brushLine.setAttribute('points', `${ev.clientX},${ev.clientY}`);
+    brushSvg.style.display = 'block';
+});
+canvasEl.addEventListener('pointermove', ev => {
+    if (!stroke) return;
+    const r = canvasEl.getBoundingClientRect();
+    const last = stroke[stroke.length - 1];
+    const x = ev.clientX - r.left, y = ev.clientY - r.top;
+    if (Math.abs(x - last[0]) + Math.abs(y - last[1]) < 3) return;   // thin the path
+    stroke.push([x, y]);
+    brushLine.setAttribute('points', brushLine.getAttribute('points') + ` ${ev.clientX},${ev.clientY}`);
+});
+function endStroke(ev) {
+    if (!stroke) return;
+    const path = stroke;
+    stroke = null;
+    brushSvg.style.display = 'none';
+    brushLine.setAttribute('points', '');
+    try { canvasEl.releasePointerCapture(ev.pointerId); } catch (e) {}
+    const layers = pickableLayers();
+    if (!layers.length) return;
+    const rad = brushRadius(), r2 = rad * rad;
+    const xs = path.map(p => p[0]), ys = path.map(p => p[1]);
+    const bbox = [[Math.min(...xs) - rad, Math.min(...ys) - rad], [Math.max(...xs) + rad, Math.max(...ys) + rad]];
+    if (strokeOp === 'replace') selected.clear();
+    let n = 0;
+    const seen = new Set();
+    map.queryRenderedFeatures(bbox, { layers }).forEach(f => {
+        if (!f.properties || f.properties.id === undefined || f.properties.id === null) return;
+        const pt = featureToPoint(f);
+        const key = (pt.inferred ? 'i' : 'r') + pt.id;
+        if (seen.has(key)) return;   // the same point can render on more than one tile
+        seen.add(key);
+        const px = map.project([pt.lng, pt.lat]);
+        let hit = path.length === 1 ? segDist2(px.x, px.y, path[0], path[0]) <= r2 : false;
+        for (let i = 1; !hit && i < path.length; i++) hit = segDist2(px.x, px.y, path[i - 1], path[i]) <= r2;
+        if (!hit) return;
+        n++;
+        if (strokeOp === 'remove') selected.delete(pt.id); else selected.set(pt.id, pt);
+    });
+    repaintSel();
+    say(strokeOp === 'remove' ? `Removed ${n} point(s); ${selected.size} selected.`
+                              : `${selected.size} point(s) selected.`);
+}
+canvasEl.addEventListener('pointerup', endStroke);
+canvasEl.addEventListener('pointercancel', endStroke);
+// A stroke ends in a mouseup that maplibre may read as a click: don't let
+// that click clear what the stroke just selected.
+let lastStrokeAt = 0;
+canvasEl.addEventListener('pointerup', () => { if (pencilOn) lastStrokeAt = Date.now(); }, true);
+
+document.addEventListener('keydown', ev => {
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((ev.target && ev.target.tagName) || '') || (ev.target && ev.target.isContentEditable);
+    if (typing) return;
+    if (ev.key === 'Escape' && pencilOn) { setPencil(false); say('Pencil off.'); }
+    // Delete / Backspace deletes the selection, like the button.
+    if ((ev.key === 'Delete' || ev.key === 'Backspace') && selected.size) {
+        const btn = document.getElementById('btn-delete');
+        if (!btn.disabled) { ev.preventDefault(); btn.click(); }
+    }
+});
 
 // ── Inferred layer ──────────────────────────────────────────────────────────
 function loadInferred() {
@@ -699,6 +828,9 @@ function openPanel(which) {
     });
 }
 function closePanels() { openPanel(null); mode = null; pendingCoords = []; movePos = null; }
+// Any other tool takes over from the pencil.
+document.querySelectorAll('#btn-add-single, #btn-add-run, #btn-move, #btn-route, #btn-copy').forEach(b =>
+    b.addEventListener('click', () => { if (pencilOn) setPencil(false); }, true));
 
 document.getElementById('btn-add-single').addEventListener('click', () => {
     mode = 'add-single'; pendingCoords = [];
