@@ -10075,6 +10075,96 @@ def _fr24_kml_meta(name, desc):
     return out
 
 
+def _parse_track_csv(f):
+    """A track CSV as the same point tuples _parse_kml_upload returns.
+
+    Flightradar24's CSV export is `Timestamp,UTC,Callsign,Position,Altitude,
+    Speed,Direction`, with Position a quoted "lat,lon" pair, altitude in feet
+    and speed in knots. Anything else goes through the location importer's
+    column aliases (lat/lon/time/altitude/speed).
+    """
+    err = _reject_oversize_upload(f)
+    if err:
+        return None, err
+    raw = f.read()
+    try:
+        text = raw.decode('utf-8-sig')
+    except UnicodeDecodeError:
+        text = raw.decode('latin-1')
+    reader = csv.DictReader(io.StringIO(text))
+    headers = {h.strip().lower() for h in (reader.fieldnames or []) if h}
+    fr24 = 'position' in headers
+    points = []
+    for row in reader:
+        if fr24:
+            pos = (_get_csv_field(row, 'Position') or '').split(',')
+            lat = _safe_float(pos[0]) if len(pos) == 2 else None
+            lon = _safe_float(pos[1]) if len(pos) == 2 else None
+            ts = _parse_timestamp(_get_csv_field(row, 'UTC'))
+            if ts is None:
+                unix = _safe_float(_get_csv_field(row, 'Timestamp'))
+                ts = datetime.fromtimestamp(unix, tz=dt_timezone.utc) if unix else None
+            ft = _safe_float(_get_csv_field(row, 'Altitude'))
+            kt = _safe_float(_get_csv_field(row, 'Speed'))
+            alt = ft / 3.28084 if ft is not None else None
+            speed = kt * 0.514444 if kt is not None else None
+        else:
+            lat = _safe_float(_get_csv_field(row, 'latitude', 'lat', 'y'))
+            lon = _safe_float(_get_csv_field(row, 'longitude', 'lng', 'lon', 'long', 'x'))
+            ts = _parse_timestamp(_get_csv_field(row, 'timestamp', 'time', 'datetime', 'utc', 'date'))
+            alt = _safe_float(_get_csv_field(row, 'altitude', 'alt', 'elevation', 'ele'))
+            speed = _safe_float(_get_csv_field(row, 'speed', 'velocity', 'ground_speed'))
+        if lat is None or lon is None or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            continue
+        points.append((lat, lon, None, ts, alt, speed))
+    if not points:
+        return None, JsonResponse({'error': 'No track points found in that CSV. It needs latitude and '
+                                            'longitude columns (or Flightradar24\'s Position).'}, status=400)
+    return points, None
+
+
+def _read_track_upload(f):
+    """(points, meta, error_response) for an uploaded KML, KMZ or CSV track.
+    `meta` is what a Flightradar24 KML's header says about the flight."""
+    name = (getattr(f, 'name', '') or '').lower()
+    head = f.read(512)
+    f.seek(0)
+    if name.endswith('.csv') or (b'<' not in head and b',' in head):
+        points, err = _parse_track_csv(f)
+        return points, {}, err
+    meta = {}
+    points, err = _parse_kml_upload(f, meta=meta)
+    return points, meta, err
+
+
+def _attach_track_file(user, f, points, meta):
+    """Store an uploaded flight track and make it this flight's recording.
+
+    Fills only blank fields from a Flightradar24 header, and warns instead
+    when the file is for a different route. Returns the response payload.
+    """
+    device, _ = Device.objects.get_or_create(
+        user=user, device_id=_FLIGHT_KML_DEVICE, defaults={'name': 'Imported flight tracks'})
+    count, errors, _first = _store_kml_points(user, device, points)
+    _bust_user_cache(user.id)
+    filled, mismatch = [], None
+    if meta.get('dep_iata') and meta.get('arr_iata') and \
+            (meta['dep_iata'], meta['arr_iata']) != (f.dep_iata, f.arr_iata):
+        mismatch = f"This file is for {meta['dep_iata']} → {meta['arr_iata']}, not {f.dep_iata} → {f.arr_iata}."
+    else:
+        for field in ('flight_number', 'airline_name', 'aircraft_model', 'registration',
+                      'sched_dep', 'sched_arr', 'actual_dep', 'actual_arr'):
+            if meta.get(field) and not getattr(f, field):
+                setattr(f, field, meta[field])
+                filled.append(field)
+        if filled:
+            f.save()
+    _match_flight_track(f, force=True)
+    f.refresh_from_db()
+    return {'flight': _flight_payload(f), 'imported': count, 'errors': errors,
+            'filled': filled, 'warning': mismatch}
+
+
 def _store_kml_points(user, device, points):
     """Save parsed KML points under `device`. Returns (count, errors, first_error)."""
     buf = _ImportBuffer()
@@ -17501,9 +17591,10 @@ _FLIGHT_KML_DEVICE = 'flight-kml'
 @login_required
 @require_POST
 def flight_kml_api(request, flight_id):
-    """Upload a KML (e.g. from Flightradar24) for this flight: its points are
-    imported like any other KML, then the flight is re-matched, so the upload
-    becomes the flight's recorded track — ahead of OpenSky's."""
+    """Upload a track file for this flight — a Flightradar24 KML/KMZ or CSV,
+    or any tracker's: its points are imported like any other import, then the
+    flight is re-matched, so the file becomes the flight's recorded track,
+    ahead of OpenSky's."""
     err = _require_api_intent(request)
     if err:
         return err
@@ -17511,38 +17602,68 @@ def flight_kml_api(request, flight_id):
     upload = request.FILES.get('file')
     if not upload:
         return JsonResponse({'error': 'No file uploaded.'}, status=400)
-    meta = {}
-    points, perr = _parse_kml_upload(upload, meta=meta)
+    points, meta, perr = _read_track_upload(upload)
     if perr:
         return perr
     if not any(p[3] for p in points):
-        return JsonResponse({'error': 'That KML has no timestamps, so it cannot be matched to the flight. '
-                                      'Flightradar24\'s KML download has them.'}, status=400)
-    device, _ = Device.objects.get_or_create(
-        user=request.user, device_id=_FLIGHT_KML_DEVICE,
-        defaults={'name': 'Imported flight tracks'})
-    count, errors, _first = _store_kml_points(request.user, device, points)
-    _bust_user_cache(request.user.id)
+        return JsonResponse({'error': 'That file has no timestamps, so it cannot be matched to the flight. '
+                                      'Flightradar24\'s KML and CSV downloads both have them.'}, status=400)
+    return JsonResponse(_attach_track_file(request.user, f, points, meta))
 
-    # A Flightradar24 KML says which flight it is: fill in only what the
-    # flight is missing (never overwrite what the user or AeroDataBox set), and
-    # say so when it describes a different route.
-    filled, mismatch = [], None
-    if meta.get('dep_iata') and meta.get('arr_iata') and \
-            (meta['dep_iata'], meta['arr_iata']) != (f.dep_iata, f.arr_iata):
-        mismatch = f"This KML is for {meta['dep_iata']} → {meta['arr_iata']}, not {f.dep_iata} → {f.arr_iata}."
-    else:
-        for field in ('flight_number', 'airline_name', 'aircraft_model', 'registration',
-                      'sched_dep', 'sched_arr', 'actual_dep', 'actual_arr'):
-            if meta.get(field) and not getattr(f, field):
-                setattr(f, field, meta[field])
-                filled.append(field)
-        if filled:
-            f.save()
-    _match_flight_track(f, force=True)
-    f.refresh_from_db()
-    return JsonResponse({'flight': _flight_payload(f), 'imported': count, 'errors': errors,
-                         'filled': filled, 'warning': mismatch})
+
+@csrf_exempt
+@login_required
+@require_POST
+def flights_import_file_api(request):
+    """Create a flight from a Flightradar24 KML alone: its header says the
+    flight number, airports, times, airline and aircraft, and its points
+    become the track. For a blank Add form; a file that doesn't say which
+    flight it is gets a 400 asking for the airports first."""
+    from . import airports
+    from .tz_utils import zone_name_for_point
+    from zoneinfo import ZoneInfo
+    err = _require_api_intent(request)
+    if err:
+        return err
+    upload = request.FILES.get('file')
+    if not upload:
+        return JsonResponse({'error': 'No file uploaded.'}, status=400)
+    points, meta, perr = _read_track_upload(upload)
+    if perr:
+        return perr
+    if not (meta.get('dep_iata') and meta.get('arr_iata')):
+        return JsonResponse({'error': "This file doesn't say which flight it is. Fill in the airports and "
+                                      "date first, then upload it."}, status=400)
+    if not any(p[3] for p in points):
+        return JsonResponse({'error': 'That file has no timestamps.'}, status=400)
+    # The flight's date is the local date of departure at the departure airport.
+    when = meta.get('actual_dep') or meta.get('sched_dep') or min(p[3] for p in points if p[3])
+    ap = airports.lookup(meta['dep_iata'])
+    try:
+        tz = ZoneInfo(zone_name_for_point(ap['lat'], ap['lon']) or 'UTC') if ap else ZoneInfo('UTC')
+    except Exception:
+        tz = ZoneInfo('UTC')
+    day = when.astimezone(tz).date()
+    data = {k: meta.get(k, '') for k in ('flight_number', 'airline_name', 'aircraft_model', 'registration',
+                                          'dep_iata', 'arr_iata')}
+    data['date'] = day.isoformat()
+    for k in ('sched_dep', 'sched_arr', 'actual_dep', 'actual_arr'):
+        if meta.get(k):
+            data[k] = meta[k].isoformat()
+    # Already logged? Attach to that flight rather than logging it twice.
+    f = Flight.objects.filter(user=request.user, date=day, dep_iata=meta['dep_iata'],
+                              arr_iata=meta['arr_iata'],
+                              flight_number=data.get('flight_number') or '').first()
+    created = f is None
+    if created:
+        f = Flight(user=request.user)
+        aerr = _apply_flight(f, data)
+        if aerr:
+            return JsonResponse({'error': aerr}, status=400)
+        f.save()
+    payload = _attach_track_file(request.user, f, points, meta)
+    payload['created'] = created
+    return JsonResponse(payload)
 
 
 def _flight_track_key(f):

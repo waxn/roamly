@@ -332,17 +332,18 @@
             </div>
         </details>
 
-        <div id="f-trk" hidden>
+        <div id="f-trk">
             <div class="fl-section">Flight track</div>
             <div class="fl-trk-map" id="f-trk-map"></div>
             <div class="fl-trk-src" id="f-trk-src"></div>
             <div class="fl-trk-actions">
-                <a class="btn btn-outline btn-sm" id="f-trk-fr24" target="_blank" rel="noopener noreferrer" hidden>Flightradar24 &nearr;</a>
-                <label class="btn btn-outline btn-sm" style="margin:0;cursor:pointer;" title="A KML from Flightradar24 (or any tracker) becomes this flight's track, ahead of OpenSky's">Upload KML
-                    <input type="file" accept=".kml,.kmz,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz" id="f-kml-file" hidden>
+                <button type="button" class="btn btn-outline btn-sm" id="f-osk-btn" onclick="fetchOpenSky()"
+                    {% if not OPENSKY_ENABLED %}disabled title="OpenSky isn't set up on this instance (Admin Panel → Flight data)"{% else %}title="Fetch this flight's track from the OpenSky Network (flights in the last 30 days)"{% endif %}>Find track</button>
+                <label class="btn btn-outline btn-sm" style="margin:0;cursor:pointer;" title="A KML, KMZ or CSV from Flightradar24 or any tracker. It becomes this flight's track, ahead of OpenSky's. On an empty form, a Flightradar24 KML fills in the whole flight.">Upload file
+                    <input type="file" accept=".kml,.kmz,.csv,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz,text/csv" id="f-kml-file" hidden>
                 </label>
-                {% if OPENSKY_ENABLED %}<button type="button" class="btn btn-outline btn-sm" id="f-osk-btn" onclick="fetchOpenSky()">Fetch from OpenSky</button>{% endif %}
-                <button type="button" class="btn btn-outline btn-sm" onclick="trackAction('match')">Re-match</button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="trackAction('match')" title="Look for this flight in the locations already stored: your phone's, and any track files imported before">Use existing locations</button>
+                <a class="btn btn-outline btn-sm" id="f-trk-fr24" target="_blank" rel="noopener noreferrer" hidden>Flightradar24 &nearr;</a>
                 <button type="button" class="btn btn-outline btn-sm" id="f-trk-unlink" onclick="trackAction('unlink')" hidden>Unlink recording</button>
             </div>
         </div>
@@ -851,12 +852,19 @@ function trkMapReady() {
     });
 }
 async function renderTrack() {
-    const box = F('f-trk'), f = editing;
-    box.hidden = !f;
+    const f = editing;
     F('f-rematch-wrap').hidden = !f;
-    if (!f) return;
-    F('f-trk-fr24').hidden = !f.fr24_url;
-    if (f.fr24_url) F('f-trk-fr24').href = f.fr24_url;
+    const num = F('f-number').value.replace(/\s+/g, '').toLowerCase();
+    F('f-trk-fr24').hidden = !num;
+    if (num) F('f-trk-fr24').href = `https://www.flightradar24.com/data/flights/${encodeURIComponent(num)}`;
+    if (!f) {
+        F('f-trk-unlink').hidden = true;
+        F('f-trk-map').hidden = true;
+        F('f-trk-src').innerHTML = 'Not saved yet. <b>Find track</b> or <b>Use existing locations</b> saves the flight first; '
+            + '<b>Upload file</b> on an empty form creates the flight from a Flightradar24 KML.';
+        return;
+    }
+    F('f-trk-map').hidden = false;
     F('f-trk-unlink').hidden = !f.has_track;
     const osk = { ok: '', pending: 'OpenSky: waiting for the flight to land.', none: 'OpenSky has no track for this flight.',
                   too_old: 'Older than OpenSky\'s 30 days. Upload a KML from Flightradar24.', no_aircraft: f.opensky_message,
@@ -889,7 +897,7 @@ async function renderTrack() {
     }
 }
 async function fetchOpenSky() {
-    if (!editing) return;
+    if (!await ensureSaved()) return;
     const btn = F('f-osk-btn');
     btn.disabled = true; btn.textContent = 'Fetching…';
     try {
@@ -907,13 +915,25 @@ async function fetchOpenSky() {
 F('f-kml-file').addEventListener('change', async e => {
     const file = e.target.files[0];
     e.target.value = '';
-    if (!file || !editing) return;
+    if (!file) return;
+    // An empty form: let the file say which flight it is. Otherwise save what
+    // the form says and attach the file to that flight.
+    const blank = !editing && !airportCode('dep') && !airportCode('arr');
+    if (!blank && !await ensureSaved()) return;
     const fd = new FormData();
     fd.append('file', file);
-    F('f-trk-src').textContent = 'Importing the KML…';
-    const r = await fetch(`/api/flights/${editing.id}/kml/`, { method: 'POST', headers: { 'X-CSRFToken': CSRF }, body: fd });
+    F('f-trk-src').textContent = 'Importing the file…';
+    const url = blank ? '/api/flights/import-file/' : `/api/flights/${editing.id}/kml/`;
+    const r = await fetch(url, { method: 'POST', headers: { 'X-CSRFToken': CSRF }, body: fd });
     const d = await r.json().catch(() => ({}));
-    if (!r.ok) { roamlyToast(d.error || 'Could not import that KML.', { type: 'error' }); renderTrack(); return; }
+    if (!r.ok) { roamlyToast(d.error || 'Could not import that file.', { type: 'error' }); renderTrack(); return; }
+    if (blank) {
+        flights.unshift(d.flight);
+        F('fl-modal-title').textContent = 'Edit flight';
+        F('f-delete').hidden = false;
+        fillForm(d.flight);
+        if (!d.created) roamlyToast('That flight was already in your log; the file was added to it.');
+    }
     adoptFlight(d.flight);
     const NAMES = { flight_number: 'flight number', airline_name: 'airline', aircraft_model: 'aircraft',
                     registration: 'registration', sched_dep: 'scheduled departure', sched_arr: 'scheduled arrival',
@@ -924,11 +944,11 @@ F('f-kml-file').addEventListener('change', async e => {
                                     : `Imported ${d.imported.toLocaleString()} points, but they don't line up with this flight's airports and date.`)
                 + (filled.length ? ` Filled in: ${filled.join(', ')}.` : ''),
                 { type: d.flight.has_track ? 'success' : 'error' });
-    if (filled.length) fillForm(d.flight);
+    if (filled.length && !blank) fillForm(d.flight);
     await loadTracks(); renderAll();
 });
 async function trackAction(kind) {
-    if (!editing) return;
+    if (!await ensureSaved()) return;
     const url = kind === 'unlink' ? `/api/flights/${editing.id}/track/unlink/` : `/api/flights/${editing.id}/track/`;
     const r = await fetch(url, { method: 'POST', headers: { 'X-CSRFToken': CSRF } });
     const d = await r.json().catch(() => ({}));
@@ -1053,10 +1073,10 @@ async function lookupFlight() {
     }
 }
 
-async function saveFlight() {
+function flightBody() {
     const dep = airportCode('dep'), arr = airportCode('arr');
-    if (!F('f-date').value) { setStatus('A date is required.', 'error'); return; }
-    if (!dep || !arr) { setStatus('Pick both airports (type a code like JFK, or search by city).', 'error'); return; }
+    if (!F('f-date').value) { setStatus('A date is required.', 'error'); return null; }
+    if (!dep || !arr) { setStatus('Pick both airports (type a code like JFK, or search by city).', 'error'); return null; }
     const body = {
         flight_number: F('f-number').value,
         date: F('f-date').value,
@@ -1084,21 +1104,47 @@ async function saveFlight() {
         body.source = editing.source;
         ['airline_iata', 'airline_icao'].forEach(k => { body[k] = editing[k]; });
     }
+    return body;
+}
+/** POST the form. Returns the saved flight, or null (the error is shown). */
+async function postFlight() {
+    const body = flightBody();
+    if (!body) return null;
     const btn = F('f-save');
     btn.disabled = true;
     try {
         const url = editing ? `/api/flights/${editing.id}/update/` : '/api/flights/';
         const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF }, body: JSON.stringify(body) });
         const d = await r.json().catch(() => ({}));
-        if (!r.ok) { setStatus(d.error || 'Could not save.', 'error'); return; }
-        closeFlight();
-        roamlyToast(editing ? 'Flight updated.' : 'Flight added.');
-        await loadFlights();
+        if (!r.ok) { setStatus(d.error || 'Could not save.', 'error'); return null; }
+        return d.flight;
     } catch (e) {
         setStatus('Could not save. Check your connection.', 'error');
+        return null;
     } finally {
         btn.disabled = false;
     }
+}
+async function saveFlight() {
+    const wasEditing = !!editing;
+    const flight = await postFlight();
+    if (!flight) return;
+    closeFlight();
+    roamlyToast(wasEditing ? 'Flight updated.' : 'Flight added.');
+    await loadFlights();
+}
+/** The track buttons work on a saved flight: save a new one first and keep
+ *  the form open, now editing it. */
+async function ensureSaved() {
+    if (editing) return editing;
+    const flight = await postFlight();
+    if (!flight) return null;
+    pendingLeg = null;
+    flights.unshift(flight);
+    adoptFlight(flight);
+    F('fl-modal-title').textContent = 'Edit flight';
+    F('f-delete').hidden = false;
+    return flight;
 }
 async function deleteFlight() {
     if (!editing) return;
@@ -1111,6 +1157,11 @@ async function deleteFlight() {
 }
 
 F('f-number').addEventListener('keydown', e => { if (e.key === 'Enter' && LOOKUP_ON) { e.preventDefault(); lookupFlight(); } });
+F('f-number').addEventListener('input', () => {
+    const num = F('f-number').value.replace(/\s+/g, '').toLowerCase();
+    F('f-trk-fr24').hidden = !num;
+    if (num) F('f-trk-fr24').href = `https://www.flightradar24.com/data/flights/${encodeURIComponent(num)}`;
+});
 document.getElementById('fl-year').addEventListener('change', renderAll);
 wireAirport('dep');
 wireAirport('arr');

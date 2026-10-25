@@ -263,6 +263,7 @@ urlpatterns = [
     path('api/flights/<int:flight_id>/track/points/', views.flight_track_points_api, name='flight_track_points'),
     path('api/flights/<int:flight_id>/opensky/', views.flight_opensky_api, name='flight_opensky'),
     path('api/flights/<int:flight_id>/kml/', views.flight_kml_api, name='flight_kml'),
+    path('api/flights/import-file/', views.flights_import_file_api, name='flights_import_file'),
     path('api/flights/<int:flight_id>/update/', views.flight_update_api, name='flight_update'),
     path('api/flights/<int:flight_id>/delete/', views.flight_delete_api, name='flight_delete'),
     path('api/flights/<int:flight_id>/pass/', views.flight_pass_api, name='flight_pass'),
