@@ -191,10 +191,26 @@ class FlightsViewModel @Inject constructor(
             _state.update { it.copy(trackBusy = true) }
             when (val r = repo.uploadKml(id, name, bytes)) {
                 is Result.Success -> r.data.flight?.let { f ->
+                    // The KML's header may have filled blanks: take the server's copy of those.
+                    if (r.data.filled.isNotEmpty()) _state.update { st ->
+                        val d = st.draft
+                        st.copy(draft = d.copy(
+                            flightNumber = d.flightNumber.ifBlank { f.flightNumber },
+                            airlineName = d.airlineName.ifBlank { f.airlineName },
+                            aircraftModel = d.aircraftModel.ifBlank { f.aircraftModel },
+                            registration = d.registration.ifBlank { f.registration },
+                            schedDep = d.schedDep.ifBlank { f.schedDepLocal.replace('T', ' ') },
+                            schedArr = d.schedArr.ifBlank { f.schedArrLocal.replace('T', ' ') },
+                            actualDep = d.actualDep.ifBlank { f.actualDepLocal.replace('T', ' ') },
+                            actualArr = d.actualArr.ifBlank { f.actualArrLocal.replace('T', ' ') },
+                        ))
+                    }
                     adopt(f)
-                    setStatus(if (f.hasTrack) "Imported ${r.data.imported} points; the KML is now this flight's track."
-                              else "Imported ${r.data.imported} points, but they don't line up with this flight's airports and date.",
-                              error = !f.hasTrack)
+                    val base = if (f.hasTrack) "Imported ${r.data.imported} points; the KML is now this flight's track."
+                               else "Imported ${r.data.imported} points, but they don't line up with this flight's airports and date."
+                    val extra = if (r.data.filled.isNotEmpty()) " Filled in ${r.data.filled.size} missing detail${if (r.data.filled.size == 1) "" else "s"} from it." else ""
+                    setStatus(listOfNotNull(r.data.warning, base + extra).joinToString(" "),
+                              error = !f.hasTrack || r.data.warning != null)
                 }
                 is Result.Error -> setStatus(r.message, error = true)
             }

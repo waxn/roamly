@@ -1086,7 +1086,15 @@ data class FlightTracksResponse(
 /** GET /api/flights/<id>/track/points/ — the one track that flight's map shows. */
 data class FlightTrackPointsResponse(val source: String = "", val coords: List<List<Double>> = emptyList())
 
-data class FlightKmlResponse(val flight: FlightDto? = null, val imported: Int = 0, val error: String? = null)
+data class FlightKmlResponse(
+    val flight: FlightDto? = null,
+    val imported: Int = 0,
+    val error: String? = null,
+    /** Fields a Flightradar24 KML's header filled in (only blank ones). */
+    val filled: List<String> = emptyList(),
+    /** Set when the KML describes a different route. */
+    val warning: String? = null,
+)
 
 data class FlightMatchResponse(val matched: Int = 0)
 
