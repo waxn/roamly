@@ -85,6 +85,7 @@ urlpatterns = [
     path('api/visits/', views.visits_api, name='visits_api'),
     path('api/countries/', views.countries_api, name='countries_api'),
     path('api/fog/', views.fog_api, name='fog_api'),
+    path('api/map/overview/', views.map_overview_api, name='map_overview_api'),
     path('api/distance/', views.distance_api, name='distance_api'),
     path('api/diagnostics/location/', views.location_diagnostics_api, name='location_diagnostics_api'),
     path('api/diagnostics/detail/', views.location_diagnostics_detail_api, name='location_diagnostics_detail_api'),
