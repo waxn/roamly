@@ -792,11 +792,14 @@ A self-hosted answer to Life360/Paralino — a mutual location-sharing group whe
 
 ## Map rendering
 
-Two modes selected by `roamly_map_renderer`:
-- **Vector tile mode** (PostGIS only): `/api/tiles/<z>/<x>/<y>.pbf`
-- **Classic mode** (SQLite/fallback): GeoJSON from `/api/track/`, decimated to configurable point limit
+`roamly_map_renderer` (Settings) is vestigial: nothing reads it. What decides the path is the range:
 
-Detail points load progressively via `/api/locations/` as user pans/zooms (viewport bbox). Accumulate in client-side `accMap` (deduped by `"deviceId:timestamp"`).
+- **Any bounded range**: GeoJSON from `/api/track/`, decimated, plus detail points that load progressively via `/api/locations/` as the user pans/zooms (viewport bbox), accumulated in client-side `accMap` (deduped by `"deviceId:timestamp"`).
+- **All time on `/map/` with PostGIS** (`ROAMLY_MAP_CFG.allTimeOverview`): an overview + vector tiles. `/api/track/?all=1` walked the whole history in Python, keyed on `cache_gen` (so never cached while tracking), thinned to 4000 points a device (dropping exactly the one-off places), and then waited on road snapping. Now `GET /api/map/overview/` (`map_overview_api`) returns every ~110m cell ever visited with a point count (`[gy, gx, n, …]` + `bounds` + `version`), from **`_visited_cells`**, which `fog_api` shares, so one whole-history `GROUP BY` (~0.4s on 1.4M points) serves both, cached 1h, not on `cache_gen`. It draws at once as a log-weighted heatmap + one dot per cell, and from `DETAIL_MIN_ZOOM` crossfades into the PostGIS vector tiles (`/api/tiles/z/x/y.pbf?all=1&v=<version>`), which MapLibre loads and drops per viewport itself. **No road snapping in All time**: points sit where they were recorded, which is what you want for "which shop was that". `maybeLoadViewport`, the load-more panel and `lastTrackData` are inert in this mode. The editor and SQLite keep `loadTrack`.
+
+**Vector tiles** (`_render_tile`, shared by `vector_tile` and the warm-up). Every zoom is thinned to one point per grid cell about a CSS pixel wide (`360/2^z/512`°), so a place visited once keeps its dot at every zoom. The query **thins first on the bare id** (`GROUP BY floor(lat/g), floor(lon/g)` → `min(id)`, device ids resolved in Python, bbox `&&` only) **and joins the display columns back for the survivors**. The old `DISTINCT ON (ST_SnapToGrid(...))` sorted every full row in the tile to disk, plus an exact geography `ST_Intersects` and a per-row device join: 4.6s on a z12 tile holding 800k home fixes, ~0.3s now. Tiles carry `poi_name` + `place_name`, which `showPointPopup` puts at the top. Cache key comes from `_tile_filters` (shared, so a warmed tile is hit by the browser's request); All-time tiles key on **`_slow_gen`** with a 1h TTL. `Cache-Control` is **`private`** (per-user data, behind a tunnel), and a versioned All-time URL gets `max-age=3600`.
+
+**Predictive tile pre-caching.** (a) The first overview request per data version (`tilewarm:` lock) starts `_warm_tiles` in a `db_thread`, which renders the tiles over the 25 busiest cells at z6–15 (≤200 tiles) into Redis. (b) `tilePrefetcher` in `map-core.js` low-priority-`fetch`es (2 in flight) the next zoom levels' tiles under a wheel/pinch/double-click target, under a mouse resting 350ms, and around the centre on `idle`. It only takes **tiles containing an overview cell** (0.1° bucket index), and skips anything when `saveData` is set. The versioned URL + `private, max-age` is what lets MapLibre's later request for the same tile come from the browser cache.
 
 Adventure map loads from `/api/trips/<id>/` (capped 30k). Under 20k: all dots immediately; over 20k: heatmap-first, dots on zoom.
 
