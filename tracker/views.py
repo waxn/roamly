@@ -10143,6 +10143,11 @@ def _attach_track_file(user, f, points, meta):
     Fills only blank fields from a Flightradar24 header, and warns instead
     when the file is for a different route. Returns the response payload.
     """
+    from . import flight_detect
+    if not flight_detect.matches_points(f, [(p[3], p[0], p[1]) for p in points if p[3]]):
+        return {'flight': _flight_payload(f), 'imported': 0, 'errors': 0, 'filled': [],
+                'warning': "Nothing was imported: the file's points don't line up with this flight's "
+                           "airports and times."}
     device, _ = Device.objects.get_or_create(
         user=user, device_id=_FLIGHT_KML_DEVICE, defaults={'name': 'Imported flight tracks'})
     count, errors, _first = _store_kml_points(user, device, points)
@@ -17637,9 +17642,42 @@ def flight_track_preview_file_api(request):
         tf = Flight(user=request.user)
         if not _apply_flight(tf, fdata):
             flight = _flight_payload(tf)
+    # Checked against the form's flight now, rather than discovered after
+    # Save: the usual miss is a Flightradar24 download of the same flight
+    # number on the wrong day, since FR24 lists flights by UTC date.
+    matches, mismatch = None, None
+    form = request.POST.get('flight')
+    if form:
+        from . import flight_detect
+        try:
+            fdata = json.loads(form)
+        except (TypeError, ValueError):
+            fdata = None
+        if isinstance(fdata, dict):
+            ff = Flight(user=request.user)
+            if not _apply_flight(ff, fdata):
+                matches = flight_detect.matches_points(ff, [(p[3], p[0], p[1]) for p in timed])
+                if not matches:
+                    mismatch = _track_file_mismatch(ff, flight)
     return JsonResponse({'source': 'recorded', 'coords': coords, 'token': token, 'imported': len(points),
-                         'flight': flight,
+                         'flight': flight, 'matches': matches, 'mismatch': mismatch,
                          'message': f'{len(points):,} points in this file. They are imported when you save.'})
+
+
+def _track_file_mismatch(form_flight, file_flight):
+    """Why a track file doesn't fit the form's flight, in words, or a generic
+    reason. `file_flight` is the payload of what its header says, if any."""
+    if file_flight and file_flight.get('dep_iata') and file_flight.get('arr_iata') and \
+            (file_flight['dep_iata'], file_flight['arr_iata']) != (form_flight.dep_iata, form_flight.arr_iata):
+        return (f"This file is for {file_flight['dep_iata']} → {file_flight['arr_iata']}, "
+                f"not {form_flight.dep_iata} → {form_flight.arr_iata}.")
+    if file_flight and file_flight.get('date') and file_flight['date'] != form_flight.date.isoformat():
+        when = file_flight.get('actual_dep_local') or file_flight.get('sched_dep_local') or ''
+        local = when.replace('T', ' ') if when else file_flight['date']
+        return (f"This file is for the {file_flight.get('flight_number') or 'flight'} that left "
+                f"{file_flight.get('dep_iata') or ''} on {local} local time, not {form_flight.date.isoformat()}. "
+                "Flightradar24 lists flights by UTC date, so an evening flight shows up under the next day there.")
+    return "This file's points don't line up with this flight's airports and times."
 
 
 def _apply_track_change(user, f, data):
@@ -17679,10 +17717,17 @@ def _apply_track_change(user, f, data):
         opensky.store(f, payload.get('status') or 'ok', payload.get('message') or '',
                       payload.get('track'), True)
     elif kind == 'file':
+        from . import flight_detect
         points = []
         for p in payload.get('points') or []:
             ts = datetime.fromisoformat(p[3]) if p[3] else None
             points.append((p[0], p[1], p[2], ts, p[4], p[5]))
+        # Only a file that is this flight goes into the user's history: storing
+        # first and finding out afterwards left a different day's flight in
+        # their locations.
+        if not flight_detect.matches_points(f, [(p[3], p[0], p[1]) for p in points if p[3]]):
+            return ("Nothing was imported: the file's points don't line up with this flight's airports "
+                    "and times. A Flightradar24 download for the wrong day is the usual cause.")
         device, _ = Device.objects.get_or_create(
             user=user, device_id=_FLIGHT_KML_DEVICE, defaults={'name': 'Imported flight tracks'})
         _store_kml_points(user, device, points)

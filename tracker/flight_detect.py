@@ -417,3 +417,19 @@ def window_points(device_id, start, end, max_points=2000):
             tol *= 2
             keep = simplify(seg, tol)
     return [[round(seg[k][2], 5), round(seg[k][1], 5)] for k in keep]
+
+
+def matches_points(flight, points):
+    """Whether `points` — (timestamp, lat, lon) tuples, e.g. an uploaded file's,
+    not yet stored — contain a recording of `flight`, by the same rules
+    match_track applies to stored points. Lets an upload be checked before
+    anything is written to the user's history."""
+    if None in (flight.dep_lat, flight.dep_lon, flight.arr_lat, flight.arr_lon):
+        return False
+    lo, hi = _track_window(flight)
+    pts = sorted((p for p in points if p[0] and lo <= p[0] <= hi), key=lambda p: p[0])
+    if len(pts) < TRACK_MIN_POINTS:
+        return False
+    dep = (flight.dep_lat, flight.dep_lon)
+    arr = (flight.arr_lat, flight.arr_lon)
+    return _match_in(pts, dep, arr, _km(dep[0], dep[1], arr[0], arr[1])) is not None

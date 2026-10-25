@@ -942,6 +942,18 @@ async function previewTrack(action) {
         btn.disabled = false; btn.textContent = label;
     }
 }
+/** Take the route, date, times and aircraft from a Flightradar24 file's header,
+ *  leaving the seat, notes and pass details the user typed alone. */
+function applyFileFlight(ff) {
+    const keep = ['flight_number', 'date', 'dep_iata', 'dep_icao', 'dep_name', 'dep_city', 'arr_iata', 'arr_icao',
+                  'arr_name', 'arr_city', 'sched_dep', 'sched_arr', 'actual_dep', 'actual_arr',
+                  'sched_dep_local', 'sched_arr_local', 'actual_dep_local', 'actual_arr_local',
+                  'dep_tz', 'arr_tz', 'airline_name', 'aircraft_model', 'registration'];
+    const part = {};
+    keep.forEach(k => { if (ff[k] !== undefined && ff[k] !== null && ff[k] !== '') part[k] = ff[k]; });
+    fillForm(Object.assign({ date: F('f-date').value }, part));
+    fileFlight = ff;   // its airport detail travels with the save
+}
 function removeTrack() {
     trackChange = { remove: true };
     renderTrack();
@@ -953,19 +965,29 @@ F('f-kml-file').addEventListener('change', async e => {
     const blank = !editing && !airportCode('dep') && !airportCode('arr');
     const fd = new FormData();
     fd.append('file', file);
+    if (!blank) {
+        // So the server can say straight away whether the file is this flight.
+        const body = flightBody();
+        if (body) { delete body.track_token; delete body.track_remove; fd.append('flight', JSON.stringify(body)); }
+    }
     F('f-trk-src').textContent = 'Reading the file…';
     const r = await fetch('/api/flights/track/preview-file/', { method: 'POST', headers: { 'X-CSRFToken': CSRF }, body: fd });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) { roamlyToast(d.error || 'Could not read that file.', { type: 'error' }); renderTrack(); return; }
     // A Flightradar24 file says which flight it is: fill an empty form from it.
-    if (d.flight) {
-        if (blank) {
-            fillForm(d.flight);
-            fileFlight = d.flight;   // its airport detail travels with the save
-        } else if ((d.flight.dep_iata && d.flight.dep_iata !== airportCode('dep')) ||
-                   (d.flight.arr_iata && d.flight.arr_iata !== airportCode('arr'))) {
-            roamlyToast(`This file is for ${d.flight.dep_iata} → ${d.flight.arr_iata}, not the airports in the form.`,
-                        { type: 'error', duration: 8000 });
+    if (d.flight && blank) {
+        applyFileFlight(d.flight);
+    } else if (d.matches === false) {
+        // Not this flight. Most often a Flightradar24 download of the same
+        // flight number on another day; offer to make the form that flight.
+        if (d.flight && await roamlyConfirm(`${d.mismatch}\n\nChange this flight to the one in the file?`,
+                                            { title: "The file is a different flight", confirmText: 'Use the file\'s flight' })) {
+            applyFileFlight(d.flight);
+        } else {
+            roamlyToast((d.mismatch || "This file doesn't line up with this flight.") + ' Nothing will be imported.',
+                        { type: 'error', duration: 9000 });
+            renderTrack();
+            return;
         }
     }
     trackChange = d;
