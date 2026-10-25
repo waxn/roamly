@@ -834,6 +834,24 @@
 
                 <div style="border-top:1px solid var(--border);"></div>
 
+                <!-- Re-geocode everything -->
+                <div>
+                    <div style="font-size:0.875rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">Re-geocode All Points</div>
+                    <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;">Relabel your whole history with the current geocoder — after an update to it, or when places near a border were labelled with the wrong town or country. Only points whose label changes are rewritten; Visits and Stats are refreshed when it finishes.</div>
+                    <div class="settings-actions">
+                        <button class="btn btn-primary btn-sm" id="regeocode-btn" onclick="startRegeocode()">Start</button>
+                        <button class="btn btn-outline btn-sm" id="regeocode-stop-btn" onclick="stopRegeocode()" style="display:none;">Stop</button>
+                    </div>
+                    <div id="regeocode-progress-wrap" style="margin-top:0.6rem;display:none;">
+                        <div style="background:var(--bg-input);border-radius:0;height:6px;overflow:hidden;margin-bottom:0.35rem;">
+                            <div id="regeocode-bar" style="height:100%;width:0%;background:var(--primary);border-radius:0;transition:width 0.4s ease;"></div>
+                        </div>
+                        <div id="regeocode-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
+                    </div>
+                </div>
+
+                <div style="border-top:1px solid var(--border);"></div>
+
                 <!-- Match POIs to points -->
                 <div>
                     <div style="font-size:0.875rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">Match POIs to Points</div>
@@ -1768,6 +1786,93 @@ fetch('/api/geocode/status/')
         }
     })
     .catch(() => {});
+
+// ── Re-geocode all points ────────────────────────────────────────────────────
+let regeocodeTimer = null;
+let regeocodeStartTime = null;
+
+function setRegeocodeUI(running) {
+    const btn = document.getElementById('regeocode-btn');
+    btn.disabled = running;
+    btn.style.opacity = running ? '0.5' : '';
+    const stopBtn = document.getElementById('regeocode-stop-btn');
+    stopBtn.style.display = running ? 'inline-block' : 'none';
+    stopBtn.disabled = false;
+}
+
+function renderRegeocode(data) {
+    const wrap = document.getElementById('regeocode-progress-wrap');
+    const bar = document.getElementById('regeocode-bar');
+    const statusEl = document.getElementById('regeocode-status');
+    if (!data || data.status === 'idle') return;
+    wrap.style.display = 'block';
+    const done = data.done || 0, total = data.total || 0, changed = data.changed || 0;
+    const pct = total > 0 ? Math.round(done / total * 100) : 0;
+    const counts = `${done.toLocaleString()}/${total.toLocaleString()} points checked, ${changed.toLocaleString()} relabelled`;
+
+    if (data.status === 'running') {
+        bar.style.background = 'var(--primary)';
+        bar.style.width = pct + '%';
+        let eta = '';
+        if (regeocodeStartTime && done > 0 && total > done) {
+            const secs = Math.round((total - done) * ((Date.now() - regeocodeStartTime) / 1000) / done);
+            eta = secs < 60 ? ` — ~${secs}s left` : ` — ~${Math.round(secs / 60)}m left`;
+        }
+        statusEl.innerHTML = `<span class="spinner"></span> ${counts}${total ? ' (' + pct + '%)' : ''}${eta}`;
+    } else if (data.status === 'refreshing') {
+        bar.style.width = '100%';
+        statusEl.innerHTML = `<span class="spinner"></span> ${counts} — refreshing Visits and Stats…`;
+    } else {
+        bar.style.width = data.status === 'completed' ? '100%' : pct + '%';
+        bar.style.background = data.status === 'completed' ? 'var(--success)'
+            : data.status === 'failed' ? 'var(--danger)' : 'var(--text-muted)';
+        statusEl.textContent = data.status === 'completed' ? `done — ${counts}`
+            : data.status === 'stopped' ? `stopped — ${counts}`
+            : `failed — ${data.error || 'unknown error'}`;
+    }
+    const running = data.status === 'running' || data.status === 'refreshing';
+    setRegeocodeUI(running);
+    document.getElementById('regeocode-stop-btn').style.display = data.status === 'running' ? 'inline-block' : 'none';
+    if (running && !regeocodeTimer) {
+        regeocodeTimer = setInterval(pollRegeocode, 2000);
+    } else if (!running && regeocodeTimer) {
+        clearInterval(regeocodeTimer);
+        regeocodeTimer = null;
+    }
+}
+
+function pollRegeocode() {
+    fetch('/api/geocode/relabel/status/')
+        .then(r => r.ok ? r.json() : null)
+        .then(renderRegeocode)
+        .catch(() => {});
+}
+
+async function startRegeocode() {
+    const ok = await roamlyConfirm(
+        'Relabel the town, state and country of every point you have recorded with the current geocoder? Points whose label is unchanged are left alone.',
+        { title: 'Re-geocode all points', confirmText: 'Start' });
+    if (!ok) return;
+    regeocodeStartTime = Date.now();
+    setRegeocodeUI(true);
+    document.getElementById('regeocode-progress-wrap').style.display = 'block';
+    document.getElementById('regeocode-bar').style.width = '0%';
+    document.getElementById('regeocode-status').innerHTML = '<span class="spinner"></span> starting…';
+    fetch('/api/geocode/relabel/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
+        .then(r => r.ok ? r.json() : null)
+        .then(renderRegeocode)
+        .catch(() => setRegeocodeUI(false));
+}
+
+function stopRegeocode() {
+    document.getElementById('regeocode-stop-btn').disabled = true;
+    document.getElementById('regeocode-status').innerHTML = '<span class="spinner"></span> stopping…';
+    fetch('/api/geocode/relabel/stop/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } });
+}
+
+// Resume (or show the last result) on page load. ETA is only shown for a run
+// started from this page, since there is no start time to measure from otherwise.
+pollRegeocode();
 
 // ── Match POIs to points ─────────────────────────────────────────────────────
 let poiMatchStartTime = null;
