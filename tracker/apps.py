@@ -59,3 +59,8 @@ class TrackerConfig(AppConfig):
                 start_overlap_scheduler()
             except Exception:
                 pass
+            try:
+                from .opensky import start_opensky_scheduler
+                start_opensky_scheduler()
+            except Exception:
+                pass

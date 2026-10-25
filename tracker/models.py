@@ -1498,6 +1498,11 @@ class SiteConfig(models.Model):
     aerodatabox_provider = models.CharField(max_length=12, default='rapidapi',
                                             choices=[('rapidapi', 'RapidAPI'), ('apimarket', 'API.Market')])
     aerodatabox_key = models.CharField(max_length=255, blank=True, default='')
+    # OpenSky Network API client (OAuth2 client credentials), for fetching a
+    # flight's track when the user has no recording of it. The secret is masked
+    # like the other server-side secrets. Config ⇒ not backed up.
+    opensky_client_id = models.CharField(max_length=200, blank=True, default='')
+    opensky_client_secret = models.CharField(max_length=255, blank=True, default='')
     updated_at = models.DateTimeField(auto_now=True)
 
     @classmethod
@@ -2523,6 +2528,24 @@ class Flight(models.Model):
     # Distance along the recorded points, as against distance_km (airport to airport).
     track_distance_km = models.FloatField(null=True, blank=True)
     track_auto = models.BooleanField(default=True)
+
+    # The aircraft's 24-bit ICAO transponder address (lowercase hex), from
+    # AeroDataBox (aircraft.modeS) or found via OpenSky's departures list.
+    # It is what OpenSky indexes tracks by.
+    icao24 = models.CharField(max_length=6, blank=True, default='')
+    # A track fetched from the OpenSky Network (opensky.py): stored on the
+    # flight, deliberately NOT as Location rows, so it never appears in the
+    # user's own history, map or distance. [[unix_s, lat, lon, alt_m], ...].
+    # Shown only when there is no recorded track — a recording of the user's
+    # own, or a KML they uploaded, always wins.
+    opensky_track = models.JSONField(null=True, blank=True)
+    # '' never tried / 'ok' / 'pending' (not landed long enough ago) /
+    # 'none' (OpenSky has nothing) / 'too_old' (past its 30-day window) /
+    # 'no_aircraft' (no icao24 and none found) / 'error'.
+    opensky_status = models.CharField(max_length=16, blank=True, default='')
+    opensky_message = models.CharField(max_length=200, blank=True, default='')
+    opensky_attempts = models.PositiveSmallIntegerField(default=0)
+    opensky_checked_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

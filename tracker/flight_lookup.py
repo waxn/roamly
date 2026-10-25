@@ -86,6 +86,8 @@ def _leg(raw, number, date_str):
         'airline_icao': airline.get('icao') or '',
         'aircraft_model': aircraft.get('model') or '',
         'registration': aircraft.get('reg') or '',
+        # The transponder address OpenSky indexes tracks by.
+        'icao24': (aircraft.get('modeS') or '').strip().lower()[:6],
         'sched_dep': _when(dep, 'scheduledTime'),
         'sched_arr': _when(arr, 'scheduledTime'),
         # Wheels-off/on beats a revised estimate, which beats nothing.

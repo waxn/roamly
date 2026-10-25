@@ -2177,6 +2177,43 @@ def site_turnstile_api(request):
 
 @login_required
 @require_http_methods(["POST"])
+def site_opensky_api(request):
+    """Save (or with {"test": true}, try) the OpenSky API client. Admins only.
+
+    OpenSky uses OAuth2 client credentials: the admin creates an API client on
+    their OpenSky account page and pastes its client id and secret here; this
+    server exchanges them for short-lived tokens itself (opensky.py). The
+    secret is masked like turnstile_secret_key and only overwritten when the
+    submitted value differs from the mask; a blank one clears it.
+    """
+    from . import opensky
+    err = _require_admin(request)
+    if err:
+        return err
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+    config = SiteConfig.load()
+    if data.get('test'):
+        if not opensky.configured(config):
+            return JsonResponse({'ok': False, 'error': 'Save a client id and secret first.'})
+        try:
+            rem = opensky.test(config)
+        except opensky.OpenSkyError as e:
+            return JsonResponse({'ok': False, 'error': str(e)})
+        return JsonResponse({'ok': True, 'usage': rem})
+    config.opensky_client_id = (data.get('opensky_client_id') or '').strip()[:200]
+    secret = (data.get('opensky_client_secret') or '').strip()
+    if secret != _AI_KEY_MASK:
+        config.opensky_client_secret = secret[:255]
+    config.save(update_fields=['opensky_client_id', 'opensky_client_secret', 'updated_at'])
+    cache.delete(opensky.TOKEN_KEY)   # new credentials: don't reuse the old token
+    return JsonResponse({'ok': True, 'configured': opensky.configured(config)})
+
+
+@login_required
+@require_http_methods(["POST"])
 def site_aerodatabox_api(request):
     """Save (or, with {"test": true}, try) the AeroDataBox config. Admins only.
 
@@ -7771,7 +7808,7 @@ def _write_backup_json(user, f, progress=None):
     loc_total += hidden_qs.count()
 
     report('Collecting devices')
-    meta = {'version': 23, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 24, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # The single backup builder: the scheduled S3 backup calls this too, so the
@@ -9186,6 +9223,14 @@ def restore_backup(request):
                         flight.track_distance_km = _safe_float(row.get('track_distance_km'))
                     if row.get('track_auto') is False:
                         flight.track_auto = False
+                    # OpenSky track (v24+), through the same cleaner a fetch uses.
+                    if isinstance(row.get('opensky_track'), list):
+                        from .opensky import _clean_path
+                        track = _clean_path(row['opensky_track'])
+                        if len(track) >= 2:
+                            flight.opensky_track = track
+                            flight.opensky_status = 'ok'
+                            flight.opensky_message = (row.get('opensky_message') or '')[:200]
                     flight.save()
                     counts['flights'] += 1
                 except Exception as e:
@@ -12227,6 +12272,9 @@ def admin_panel_view(request):
         'site_fcm_configured': bool(site_config.fcm_service_account_json),
         'site_aerodatabox_provider': site_config.aerodatabox_provider,
         'site_aerodatabox_set': bool(site_config.aerodatabox_key),
+        'site_opensky_client_id': site_config.opensky_client_id,
+        'site_opensky_secret_set': bool(site_config.opensky_client_secret),
+        'opensky_usage': _opensky_usage(),
         'auto_download_roads': site_config.auto_download_roads,
         'auto_download_subway': site_config.auto_download_subway,
         'auto_download_pois': site_config.auto_download_pois,
@@ -17069,6 +17117,14 @@ def _flight_payload(f):
         'has_track': bool(f.track_device_id and f.track_start),
         'track_distance_km': f.track_distance_km,
         'track_auto': f.track_auto,
+        'icao24': f.icao24,
+        'has_opensky_track': bool(f.opensky_track),
+        'opensky_status': f.opensky_status,
+        'opensky_message': f.opensky_message,
+        # What the flight's map shows: the user's own recording wins over
+        # OpenSky, which wins over the great-circle route.
+        'track_source': ('recorded' if f.track_device_id and f.track_start
+                         else 'opensky' if f.opensky_track else ''),
     }
     for side in ('dep', 'arr'):
         for k in _FLIGHT_AIRPORT_KEYS:
@@ -17177,6 +17233,11 @@ def _apply_flight(f, data):
             setattr(f, field, v.upper() if upper else v)
     if 'bcbp_raw' in data:
         f.bcbp_raw = (data.get('bcbp_raw') or '')[:2000]
+    if 'icao24' in data:
+        hexid = (data.get('icao24') or '').strip().lower()
+        if hexid and not re.match(r'^[0-9a-f]{6}$', hexid):
+            return "The Mode S address is six hex digits (e.g. a1b2c3)."
+        f.icao24 = hexid
     if data.get('source') in dict(Flight.SOURCE_CHOICES):
         f.source = data['source']
     return None
@@ -17196,6 +17257,7 @@ def flights_view(request):
     return render(request, 'tracker/flights.html', {
         # Only whether lookup works — the key itself never reaches a template.
         'FLIGHT_LOOKUP_ENABLED': flight_lookup.configured(SiteConfig.load()),
+        'OPENSKY_ENABLED': __import__('tracker.opensky', fromlist=['configured']).configured(SiteConfig.load()),
     })
 
 
@@ -17257,6 +17319,7 @@ def flights_api(request):
                                  'existing_id': dup.id}, status=409)
     f.save()
     _match_flight_track(f)
+    _kick_opensky(f)
     return JsonResponse({'flight': _flight_payload(f)})
 
 
@@ -17272,16 +17335,139 @@ def flight_update_api(request, flight_id):
     if data is None:
         return JsonResponse({'error': 'Invalid request.'}, status=400)
     before = _flight_track_key(f)
+    before_icao = f.icao24
     err = _apply_flight(f, data)
     if err:
         return JsonResponse({'error': err}, status=400)
+    if _flight_track_key(f) != before or f.icao24 != before_icao:
+        # A different flight now: whatever OpenSky said about the old one no
+        # longer applies.
+        f.opensky_track = None
+        f.opensky_status = f.opensky_message = ''
+        f.opensky_attempts = 0
+        f.opensky_checked_at = None
     f.save()
     # A linked track is left alone unless the edit changed which flight this
     # is: re-matching on every save (a note, a seat) could swap or drop a
     # track the user is happy with.
     if not f.track_device_id or _flight_track_key(f) != before:
         _match_flight_track(f)
+    _kick_opensky(f)
     return JsonResponse({'flight': _flight_payload(f)})
+
+
+def _opensky_usage():
+    from . import opensky
+    try:
+        return opensky.remaining()
+    except Exception:
+        return None
+
+
+def _kick_opensky(f):
+    """Fetch an OpenSky track in the background when the flight has no
+    recording of its own (opensky.due decides; the save never waits)."""
+    from . import opensky
+    try:
+        if opensky.configured(SiteConfig.load()) and opensky.due(f):
+            opensky.kick(f.id)
+    except Exception:
+        logger.exception('could not start the OpenSky fetch for flight %s', f.pk)
+
+
+@csrf_exempt
+@login_required
+@require_POST
+def flight_opensky_api(request, flight_id):
+    """Fetch this flight's OpenSky track now (the editor's button)."""
+    from . import opensky
+    err = _require_api_intent(request)
+    if err:
+        return err
+    f = get_object_or_404(Flight, id=flight_id, user=request.user)
+    if not opensky.configured(SiteConfig.load()):
+        return JsonResponse({'error': 'OpenSky is not set up on this instance (Admin Panel → Flight data).'},
+                            status=400)
+    if _rate_limited(request, 'opensky_fetch', 40, 86400,
+                     identifier=str(request.user.id), include_ip=False):
+        return JsonResponse({'error': 'OpenSky fetch limit reached for today.'}, status=429)
+    opensky.fetch(f, force=True)
+    f.refresh_from_db()
+    return JsonResponse({'flight': _flight_payload(f)})
+
+
+@login_required
+def flight_track_points_api(request, flight_id):
+    """The track the flight's own map shows: {source, coords:[[lon, lat], ...]}.
+    Recorded beats OpenSky; with neither, source is '' and the page draws the
+    great-circle route itself."""
+    from . import flight_detect
+    f = get_object_or_404(Flight, id=flight_id, user=request.user)
+    coords, source = [], ''
+    if f.track_device_id and f.track_start:
+        coords, source = flight_detect.track_points(f, max_points=1500), 'recorded'
+    if len(coords) < 2 and f.opensky_track:
+        coords, source = _opensky_coords(f.opensky_track), 'opensky'
+    if len(coords) < 2:
+        coords, source = [], ''
+    resp = JsonResponse({'source': source, 'coords': coords})
+    resp['Cache-Control'] = 'private, no-store'
+    return resp
+
+
+def _opensky_coords(track, max_points=1500):
+    """An OpenSky track as [[lon, lat], ...], longitudes unwrapped across the
+    date line and evenly thinned."""
+    pts = [p for p in track or [] if isinstance(p, list) and len(p) >= 3]
+    if len(pts) > max_points:
+        step = len(pts) / max_points
+        pts = [pts[int(i * step)] for i in range(max_points)] + [pts[-1]]
+    out, prev = [], None
+    for p in pts:
+        lon = p[2]
+        if prev is not None:
+            while lon - prev > 180:
+                lon -= 360
+            while lon - prev < -180:
+                lon += 360
+        prev = lon
+        out.append([round(lon, 5), round(p[1], 5)])
+    return out
+
+
+# The device a flight-form KML upload lands under, so imported flight tracks
+# are one tidy device rather than mixed into a phone's history.
+_FLIGHT_KML_DEVICE = 'flight-kml'
+
+
+@csrf_exempt
+@login_required
+@require_POST
+def flight_kml_api(request, flight_id):
+    """Upload a KML (e.g. from Flightradar24) for this flight: its points are
+    imported like any other KML, then the flight is re-matched, so the upload
+    becomes the flight's recorded track — ahead of OpenSky's."""
+    err = _require_api_intent(request)
+    if err:
+        return err
+    f = get_object_or_404(Flight, id=flight_id, user=request.user)
+    upload = request.FILES.get('file')
+    if not upload:
+        return JsonResponse({'error': 'No file uploaded.'}, status=400)
+    points, perr = _parse_kml_upload(upload)
+    if perr:
+        return perr
+    if not any(p[3] for p in points):
+        return JsonResponse({'error': 'That KML has no timestamps, so it cannot be matched to the flight. '
+                                      'Flightradar24\'s KML download has them.'}, status=400)
+    device, _ = Device.objects.get_or_create(
+        user=request.user, device_id=_FLIGHT_KML_DEVICE,
+        defaults={'name': 'Imported flight tracks'})
+    count, errors, _first = _store_kml_points(request.user, device, points)
+    _bust_user_cache(request.user.id)
+    _match_flight_track(f, force=True)
+    f.refresh_from_db()
+    return JsonResponse({'flight': _flight_payload(f), 'imported': count, 'errors': errors})
 
 
 def _flight_track_key(f):
@@ -17354,13 +17540,22 @@ def flights_tracks_api(request):
     """Every linked track as {flight_id: [[lon, lat], ...]}, simplified for a
     whole-log map. One request for the map rather than one per flight."""
     from . import flight_detect
-    out = {}
+    out, sources = {}, {}
     for f in Flight.objects.filter(user=request.user, track_device__isnull=False,
                                    track_start__isnull=False)[:2000]:
         pts = flight_detect.track_points(f, max_points=400)
         if len(pts) >= 2:
             out[str(f.id)] = pts
-    resp = JsonResponse({'tracks': out})
+            sources[str(f.id)] = 'recorded'
+    # OpenSky tracks for the rest: a recording always takes precedence.
+    for f in Flight.objects.filter(user=request.user, opensky_track__isnull=False)[:2000]:
+        if str(f.id) in out:
+            continue
+        pts = _opensky_coords(f.opensky_track, max_points=400)
+        if len(pts) >= 2:
+            out[str(f.id)] = pts
+            sources[str(f.id)] = 'opensky'
+    resp = JsonResponse({'tracks': out, 'sources': sources})
     resp['Cache-Control'] = 'private, no-store'
     return resp
 
