@@ -7,6 +7,10 @@
 {% block extra_css %}
 .tab-content { display: none; }
 .tab-content.active { display: block; }
+tr.vrow { cursor: pointer; }
+tr.vrow:hover td { background: var(--bg-elevated); }
+tr.vrow a { color: var(--link); text-decoration: none; font-weight: 600; }
+tr.vrow:hover a { color: var(--link-hover); text-decoration: underline; }
 {% endblock %}
 
 {% block content %}
@@ -14,7 +18,7 @@
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.75rem;">
         <div>
             <h1>Visits</h1>
-            <p class="page-lead">dwell time and visit counts by country, state, and city — from your geocoded track history.</p>
+            <p class="page-lead">dwell time and visit counts by country, state, and city — from your geocoded track history. click a row to see it on the map.</p>
         </div>
         <div id="snapshot-bar" style="display:inline-flex;align-items:center;gap:0.6rem;flex-shrink:0;">
             <span id="snapshot-updated" style="font-size:0.75rem;color:var(--text-muted);font-weight:600;white-space:nowrap;">updated …</span>
@@ -113,6 +117,28 @@ function formatDuration(seconds) {
     return `${m}m`;
 }
 
+function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// The map, filtered to points geocoded to this place (all time). Blank fields
+// are left off, so a country row matches every state and city in it.
+function mapHref(place) {
+    const p = new URLSearchParams();
+    ['city', 'state', 'country'].forEach(f => { if (place[f]) p.set(f, place[f]); });
+    return esc(`/map/?${p.toString()}`);
+}
+
+// A click anywhere on a row opens its place on the map; the link in the first
+// cell is there for keyboard users and middle-click.
+['countries', 'states', 'cities'].forEach(table => {
+    document.getElementById(`${table}-table`).addEventListener('click', e => {
+        if (e.target.closest('a')) return;
+        const row = e.target.closest('tr.vrow');
+        if (row) window.location.href = row.dataset.href;
+    });
+});
+
 // Store raw data and sort state per table
 const tableData = { countries: [], states: [], cities: [] };
 const sortState = {
@@ -176,18 +202,18 @@ function renderTable(table) {
 
     let html = '';
     if (table === 'countries') {
-        html = rows.map(c => `<tr>
-            <td>${c.country}</td>
-            <td><code>${c.country_code}</code></td>
+        html = rows.map(c => `<tr class="vrow" data-href="${mapHref({country: c.country})}">
+            <td><a href="${mapHref({country: c.country})}">${esc(c.country)}</a></td>
+            <td><code>${esc(c.country_code)}</code></td>
             <td>${c.city_count}</td>
             <td>${c.state_count}</td>
             <td>${c.location_count.toLocaleString()}</td>
             <td style="white-space:nowrap">${formatDuration(c.time_spent)}</td>
         </tr>`).join('');
     } else if (table === 'states') {
-        html = rows.map(s => `<tr>
-            <td>${s.state}</td>
-            <td>${s.country}</td>
+        html = rows.map(s => `<tr class="vrow" data-href="${mapHref({state: s.state, country: s.country})}">
+            <td><a href="${mapHref({state: s.state, country: s.country})}">${esc(s.state)}</a></td>
+            <td>${esc(s.country)}</td>
             <td>${s.city_count}</td>
             <td>${s.location_count.toLocaleString()}</td>
             <td style="white-space:nowrap">${formatDuration(s.time_spent)}</td>
@@ -196,10 +222,11 @@ function renderTable(table) {
         html = rows.map(c => {
             const first = c.first_seen ? new Date(c.first_seen).toLocaleDateString() : '-';
             const last = c.last_seen ? new Date(c.last_seen).toLocaleDateString() : '-';
-            return `<tr>
-                <td>${c.city}</td>
-                <td>${c.state}</td>
-                <td>${c.country}</td>
+            const href = mapHref({city: c.city, state: c.state, country: c.country});
+            return `<tr class="vrow" data-href="${href}">
+                <td><a href="${href}">${esc(c.city)}</a></td>
+                <td>${esc(c.state)}</td>
+                <td>${esc(c.country)}</td>
                 <td>${c.visit_count.toLocaleString()}</td>
                 <td style="color:var(--text-muted)">${first}</td>
                 <td style="color:var(--text-muted)">${last}</td>
