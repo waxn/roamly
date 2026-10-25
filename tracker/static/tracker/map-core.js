@@ -259,6 +259,33 @@ function showPointPopup(pt, coords) {
 }
 
 // ── Filter params ──
+// Place filter ({city, state, country}) from the URL — what a click on a Visits
+// row opens. Narrows every map request to points geocoded to that place.
+let placeFilter = {};
+const PLACE_FIELDS = ['city', 'state', 'country'];
+function appendPlaceParams(params) {
+    PLACE_FIELDS.forEach(f => { if (placeFilter[f]) params.set(f, placeFilter[f]); });
+}
+
+function renderPlaceFilter() {
+    const box = document.getElementById('place-filter');
+    if (!box) return;
+    const label = PLACE_FIELDS.map(f => placeFilter[f]).filter(Boolean).join(', ');
+    box.hidden = !label;
+    const text = document.getElementById('place-filter-label');
+    if (text) text.textContent = label;
+}
+
+function clearPlaceFilter() {
+    placeFilter = {};
+    const url = new URL(window.location.href);
+    PLACE_FIELDS.forEach(f => url.searchParams.delete(f));
+    history.replaceState(null, '', url.pathname + url.search + url.hash);
+    renderPlaceFilter();
+    clearAccumulated();
+    loadCurrentMode(true);
+}
+
 function buildFilterParams() {
     const timeRange = document.getElementById('time-range').value;
     const deviceId  = document.getElementById('device-filter').value;
@@ -278,6 +305,7 @@ function buildFilterParams() {
         params.set('hours', timeRange);
     }
     if (deviceId) params.set('device_id', deviceId);
+    appendPlaceParams(params);
     return params.toString();
 }
 
@@ -997,6 +1025,7 @@ function overviewTileUrl(data) {
     p.set('all', '1');
     const dev = document.getElementById('device-filter').value;
     if (dev) p.set('device_id', dev);
+    appendPlaceParams(p);
     // The data version: the URL changes whenever the data does, which is what
     // makes the long browser cache (and so prefetching) safe.
     p.set('v', String(data.version || 0));
@@ -1028,6 +1057,7 @@ function loadAllTimeOverview(autoFit) {
     const p = new URLSearchParams();
     const dev = document.getElementById('device-filter').value;
     if (dev) p.set('device_id', dev);
+    appendPlaceParams(p);
     fetch(`/api/map/overview/?${p.toString()}`, { signal: overviewFetch.signal })
         .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
         .then(data => {
@@ -1608,6 +1638,15 @@ if (TRIP_LINES_ENABLED) {
 
 (function() {
     const p = new URLSearchParams(window.location.search);
+    PLACE_FIELDS.forEach(f => { if (p.get(f)) placeFilter[f] = p.get(f); });
+    if (Object.keys(placeFilter).length) {
+        // A place link means "everything I did there", so start from all time;
+        // an explicit start/end/date below still narrows it.
+        document.getElementById('time-range').value = 'all';
+        const clearBtn = document.getElementById('place-filter-clear');
+        if (clearBtn) clearBtn.addEventListener('click', clearPlaceFilter);
+    }
+    renderPlaceFilter();
     if (p.get('start') && p.get('end')) {
         document.getElementById('start-date').value = p.get('start');
         document.getElementById('end-date').value = p.get('end');

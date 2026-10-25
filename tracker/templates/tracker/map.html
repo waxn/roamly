@@ -101,6 +101,29 @@
     letter-spacing: 0.02em;
     padding: 1px 2px;
 }
+.place-filter[hidden] { display: none; }
+.place-filter-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--primary);
+    background: rgba(232, 118, 61, 0.12);
+    padding: 4px 4px 4px 8px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text);
+}
+.place-filter-chip span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.place-filter-chip button {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0 4px;
+    cursor: pointer;
+}
+.place-filter-chip button:hover { color: var(--text); }
 .date-reset-btn {
     width: 100%;
     background: rgba(0, 0, 0, 0.18);
@@ -618,6 +641,14 @@
                     <input type="date" id="end-date" title="End day (optional) — set both for an exact range">
                     <div class="date-hint" id="date-hint" hidden></div>
                     <button class="date-reset-btn" id="date-reset" type="button" hidden>reset to default view</button>
+                </div>
+            </div>
+
+            <div class="sidebar-section place-filter" id="place-filter" hidden>
+                <div class="sidebar-label">place</div>
+                <div class="place-filter-chip">
+                    <span id="place-filter-label"></span>
+                    <button type="button" id="place-filter-clear" title="Show everywhere again" aria-label="Clear place filter">&times;</button>
                 </div>
             </div>
 
