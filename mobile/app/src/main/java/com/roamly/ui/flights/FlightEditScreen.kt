@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -46,6 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
@@ -66,6 +68,17 @@ fun FlightEditScreen(viewModel: FlightsViewModel, onDone: () -> Unit) {
     var showAdvanced by rememberSaveable { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     val startSaved = remember { state.savedCount }
+    val kmlPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        val name = runCatching {
+            context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        }.getOrNull() ?: "flight.kml"
+        val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+        if (bytes != null) viewModel.uploadKml(name, bytes)
+    }
 
     LaunchedEffect(state.savedCount) { if (state.savedCount != startSaved) onDone() }
 
@@ -129,23 +142,6 @@ fun FlightEditScreen(viewModel: FlightsViewModel, onDone: () -> Unit) {
                 }
                 Text("Times are the clock at each airport, as printed on the pass.",
                      style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (d.id != null) {
-                    Spacer(Modifier.size(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            when {
-                                d.hasTrack -> "Recorded track linked" +
-                                    (d.trackDistanceKm?.let { " · %,d km flown".format(it.toLong()) } ?: "")
-                                d.trackAuto -> "No recorded track found."
-                                else -> "Track unlinked."
-                            },
-                            style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f),
-                        )
-                        TextButton(onClick = { viewModel.trackAction(unlink = d.hasTrack) }) {
-                            Text(if (d.hasTrack) "Unlink" else "Find track")
-                        }
-                    }
-                }
             }
 
             ClayCard {
@@ -181,6 +177,7 @@ fun FlightEditScreen(viewModel: FlightsViewModel, onDone: () -> Unit) {
                         Field("Ticket", d.ticketNumber, Modifier.weight(1f)) { v -> viewModel.edit { it.copy(ticketNumber = v) } }
                     }
                     Field("Frequent flyer", d.frequentFlyer, caps = true) { v -> viewModel.edit { it.copy(frequentFlyer = v) } }
+                    Field("Mode S address (e.g. a1b2c3)", d.icao24) { v -> viewModel.edit { it.copy(icao24 = v.lowercase()) } }
                     if (d.id != null) {
                         ClayOutlinedButton(onClick = { viewModel.trackAction(unlink = false) },
                                            modifier = Modifier.fillMaxWidth()) {
@@ -200,13 +197,21 @@ fun FlightEditScreen(viewModel: FlightsViewModel, onDone: () -> Unit) {
                 }
             }
 
-            if (d.flightNumber.isNotBlank()) {
-                TextButton(onClick = {
-                    runCatching {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(
-                            "https://www.flightradar24.com/data/flights/" + d.flightNumber.replace(" ", "").lowercase())))
-                    }
-                }) { Text("Open on Flightradar24 ↗") }
+            if (d.id != null) {
+                FlightTrackCard(
+                    state = state,
+                    onFr24 = {
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(
+                                "https://www.flightradar24.com/data/flights/" + d.flightNumber.replace(" ", "").lowercase())))
+                        }
+                    },
+                    onKml = { kmlPicker.launch(arrayOf("application/vnd.google-earth.kml+xml",
+                        "application/vnd.google-earth.kmz", "application/xml", "text/xml", "application/octet-stream")) },
+                    onOpenSky = viewModel::fetchOpenSky,
+                    onRematch = { viewModel.trackAction(unlink = false) },
+                    onUnlink = { viewModel.trackAction(unlink = true) },
+                )
             }
             Spacer(Modifier.size(8.dp))
         }
@@ -307,4 +312,100 @@ private fun Choice(
             }
         }
     }
+}
+
+
+/** The flight's track: recorded (own points or uploaded KML), else OpenSky's,
+ *  else the great-circle route, with the ways to get a better one. */
+@Composable
+private fun FlightTrackCard(
+    state: FlightsUiState,
+    onFr24: () -> Unit,
+    onKml: () -> Unit,
+    onOpenSky: () -> Unit,
+    onRematch: () -> Unit,
+    onUnlink: () -> Unit,
+) {
+    val d = state.draft
+    ClayCard {
+        Section("Flight track")
+        TrackMiniMap(state)
+        Spacer(Modifier.size(8.dp))
+        val text = when (d.trackSource) {
+            "recorded" -> "Recorded track, from your own points or an uploaded KML" +
+                (d.trackDistanceKm?.let { " · %,d km flown".format(it.toLong()) } ?: "")
+            "opensky" -> "OpenSky track · ${d.openskyMessage} Upload a KML to replace it."
+            else -> "No track yet: showing the great-circle route. " + when (d.openskyStatus) {
+                "pending" -> "OpenSky: waiting for the flight to land."
+                "none" -> "OpenSky has no track for this flight."
+                "too_old" -> "Older than OpenSky's 30 days. Upload a KML from Flightradar24."
+                "no_aircraft", "error" -> d.openskyMessage
+                else -> ""
+            }
+        }
+        Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.size(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ClayOutlinedButton(onClick = onFr24, enabled = d.flightNumber.isNotBlank(), modifier = Modifier.weight(1f)) { Text("Flightradar24 ↗") }
+            ClayOutlinedButton(onClick = onKml, enabled = !state.trackBusy, modifier = Modifier.weight(1f)) { Text("Upload KML") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ClayOutlinedButton(onClick = onOpenSky, enabled = !state.trackBusy, modifier = Modifier.weight(1f)) {
+                if (state.trackBusy) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp) else Text("From OpenSky")
+            }
+            ClayOutlinedButton(onClick = if (d.hasTrack) onUnlink else onRematch, enabled = !state.trackBusy,
+                               modifier = Modifier.weight(1f)) { Text(if (d.hasTrack) "Unlink" else "Re-match") }
+        }
+    }
+}
+
+@Composable
+private fun TrackMiniMap(state: FlightsUiState) {
+    val context = LocalContext.current
+    val d = state.draft
+    val recorded = com.roamly.ui.theme.Clay.colors.mapBlue.toArgb()
+    val opensky = com.roamly.ui.theme.Clay.colors.mauve.toArgb()
+    val route = MaterialTheme.colorScheme.primary.toArgb()
+    val mapView = remember {
+        org.osmdroid.config.Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
+        org.osmdroid.config.Configuration.getInstance().userAgentValue = "Roamly/1.0"
+        org.osmdroid.views.MapView(context).apply {
+            setTileSource(org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK)
+            setMultiTouchControls(true)
+            setDestroyMode(false)
+            controller.setZoom(2.0)
+        }
+    }
+    LaunchedEffect(state.editTrack, d.depDetail, d.arrDetail) {
+        mapView.overlays.clear()
+        val fit = mutableListOf<org.osmdroid.util.GeoPoint>()
+        val runs = if (state.editTrack.size >= 2) wrappedRuns(state.editTrack) else {
+            val dep = d.depDetail; val arr = d.arrDetail
+            if (dep?.depLat != null && dep.depLon != null && arr?.arrLat != null && arr.arrLon != null)
+                listOf(listOf(org.osmdroid.util.GeoPoint(dep.depLat, dep.depLon), org.osmdroid.util.GeoPoint(arr.arrLat, arr.arrLon)))
+            else emptyList()
+        }
+        runs.forEach { run ->
+            fit += run
+            mapView.overlays.add(org.osmdroid.views.overlay.Polyline(mapView).apply {
+                setPoints(run)
+                if (state.editTrack.size < 2) setGeodesic(true)
+                outlinePaint.color = when (state.editTrackSource) { "recorded" -> recorded; "opensky" -> opensky; else -> route }
+                outlinePaint.strokeWidth = 6f
+                outlinePaint.isAntiAlias = true
+            })
+        }
+        mapView.invalidate()
+        if (fit.size >= 2) mapView.post {
+            runCatching { mapView.zoomToBoundingBox(org.osmdroid.util.BoundingBox.fromGeoPoints(fit), false, 48) }
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(mapView) {
+        mapView.onResume()
+        onDispose { mapView.onPause() }
+    }
+    androidx.compose.ui.viewinterop.AndroidView(
+        factory = { (mapView.parent as? android.view.ViewGroup)?.removeView(mapView); mapView },
+        modifier = Modifier.fillMaxWidth().height(200.dp),
+    )
 }

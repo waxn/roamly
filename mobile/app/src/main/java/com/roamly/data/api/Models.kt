@@ -1066,11 +1066,27 @@ data class FlightDto(
     @SerializedName("track_distance_km") val trackDistanceKm: Double? = null,
     /** False once the user unlinked the track; saving then stops re-matching. */
     @SerializedName("track_auto") val trackAuto: Boolean = true,
+    /** The aircraft's Mode S (ICAO 24-bit) address, which OpenSky indexes by. */
+    val icao24: String = "",
+    @SerializedName("has_opensky_track") val hasOpenskyTrack: Boolean = false,
+    @SerializedName("opensky_status") val openskyStatus: String = "",
+    @SerializedName("opensky_message") val openskyMessage: String = "",
+    /** "recorded" (own points or uploaded KML) beats "opensky"; "" = neither. */
+    @SerializedName("track_source") val trackSource: String = "",
 )
 
 /** GET /api/flights/tracks/ — flight id -> recorded track as [[lon, lat], ...],
  *  longitudes unwrapped across the date line (may exceed ±180). */
-data class FlightTracksResponse(val tracks: Map<String, List<List<Double>>> = emptyMap())
+data class FlightTracksResponse(
+    val tracks: Map<String, List<List<Double>>> = emptyMap(),
+    /** flight id -> "recorded" | "opensky" */
+    val sources: Map<String, String> = emptyMap(),
+)
+
+/** GET /api/flights/<id>/track/points/ — the one track that flight's map shows. */
+data class FlightTrackPointsResponse(val source: String = "", val coords: List<List<Double>> = emptyList())
+
+data class FlightKmlResponse(val flight: FlightDto? = null, val imported: Int = 0, val error: String? = null)
 
 data class FlightMatchResponse(val matched: Int = 0)
 

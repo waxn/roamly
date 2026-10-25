@@ -58,6 +58,10 @@ data class FlightDraft(
     val hasTrack: Boolean = false,
     val trackDistanceKm: Double? = null,
     val trackAuto: Boolean = true,
+    val icao24: String = "",
+    val trackSource: String = "",
+    val openskyStatus: String = "",
+    val openskyMessage: String = "",
 )
 
 data class FlightsUiState(
@@ -66,6 +70,12 @@ data class FlightsUiState(
     val tracks: Map<Int, List<List<Double>>> = emptyMap(),
     /** Result of the last "match tracks" run, for a one-off message. */
     val trackMessage: String? = null,
+    /** flight id -> "recorded" | "opensky", for the map's colours. */
+    val trackSources: Map<Int, String> = emptyMap(),
+    /** The track the open flight's mini map shows, [[lon, lat], ...], and its source. */
+    val editTrack: List<List<Double>> = emptyList(),
+    val editTrackSource: String = "",
+    val trackBusy: Boolean = false,
     val loading: Boolean = false,
     val loaded: Boolean = false,
     /**
@@ -107,7 +117,8 @@ class FlightsViewModel @Inject constructor(
         _state.update { it.copy(loading = !it.loaded, error = null) }
         when (val t = repo.tracks()) {
             is Result.Success -> _state.update { s ->
-                s.copy(tracks = t.data.tracks.mapNotNull { (k, v) -> k.toIntOrNull()?.let { it to v } }.toMap())
+                s.copy(tracks = t.data.tracks.mapNotNull { (k, v) -> k.toIntOrNull()?.let { it to v } }.toMap(),
+                       trackSources = t.data.sources.mapNotNull { (k, v) -> k.toIntOrNull()?.let { it to v } }.toMap())
             }
             is Result.Error -> {}   // the map falls back to great-circle arcs
         }
@@ -127,7 +138,69 @@ class FlightsViewModel @Inject constructor(
 
     private fun reset(draft: FlightDraft, image: ByteArray? = null) = _state.update {
         it.copy(draft = draft, passImage = image, status = null, statusIsError = false,
-                legChoices = emptyList(), duplicateOf = null, lookingUp = false, saving = false)
+                legChoices = emptyList(), duplicateOf = null, lookingUp = false, saving = false,
+                editTrack = emptyList(), editTrackSource = "", trackBusy = false)
+    }
+
+    /** Load the open flight's track for its mini map. */
+    fun loadEditTrack() {
+        val id = _state.value.draft.id ?: return
+        viewModelScope.launch {
+            when (val r = repo.trackPoints(id)) {
+                is Result.Success -> if (_state.value.draft.id == id) _state.update {
+                    it.copy(editTrack = r.data.coords, editTrackSource = r.data.source)
+                }
+                is Result.Error -> {}
+            }
+        }
+    }
+
+    private fun adopt(f: FlightDto) {
+        _state.update { s ->
+            s.copy(draft = s.draft.copy(
+                hasTrack = f.hasTrack, trackDistanceKm = f.trackDistanceKm, trackAuto = f.trackAuto,
+                trackSource = f.trackSource, openskyStatus = f.openskyStatus, openskyMessage = f.openskyMessage,
+                icao24 = f.icao24.ifBlank { s.draft.icao24 },
+                actualDep = s.draft.actualDep.ifBlank { f.actualDepLocal.replace('T', ' ') },
+                actualArr = s.draft.actualArr.ifBlank { f.actualArrLocal.replace('T', ' ') }))
+        }
+        loadEditTrack()
+    }
+
+    fun fetchOpenSky() {
+        val id = _state.value.draft.id ?: return
+        viewModelScope.launch {
+            _state.update { it.copy(trackBusy = true) }
+            when (val r = repo.fetchOpenSky(id)) {
+                is Result.Success -> r.data?.let { f ->
+                    adopt(f)
+                    setStatus(if (f.hasOpenskyTrack) "Track fetched from OpenSky." else f.openskyMessage.ifBlank { "No track from OpenSky." },
+                              error = !f.hasOpenskyTrack)
+                }
+                is Result.Error -> setStatus(r.message, error = true)
+            }
+            _state.update { it.copy(trackBusy = false) }
+            fetch()
+        }
+    }
+
+    /** A KML for this flight: imported, then it becomes the flight's recorded track. */
+    fun uploadKml(name: String, bytes: ByteArray) {
+        val id = _state.value.draft.id ?: return
+        viewModelScope.launch {
+            _state.update { it.copy(trackBusy = true) }
+            when (val r = repo.uploadKml(id, name, bytes)) {
+                is Result.Success -> r.data.flight?.let { f ->
+                    adopt(f)
+                    setStatus(if (f.hasTrack) "Imported ${r.data.imported} points; the KML is now this flight's track."
+                              else "Imported ${r.data.imported} points, but they don't line up with this flight's airports and date.",
+                              error = !f.hasTrack)
+                }
+                is Result.Error -> setStatus(r.message, error = true)
+            }
+            _state.update { it.copy(trackBusy = false) }
+            fetch()
+        }
     }
 
     fun startNew() = reset(FlightDraft(date = java.time.LocalDate.now().toString()))
@@ -135,6 +208,7 @@ class FlightsViewModel @Inject constructor(
     fun startEdit(id: Int) {
         val f = _state.value.flights.firstOrNull { it.id == id } ?: return
         reset(fromDto(f))
+        loadEditTrack()
     }
 
     /** A scanned pass: fill what it carries, then ask AeroDataBox for the rest. */
@@ -218,6 +292,7 @@ class FlightsViewModel @Inject constructor(
                 airlineIcao = leg.airlineIcao.ifBlank { d.airlineIcao },
                 aircraftModel = leg.aircraftModel.ifBlank { d.aircraftModel },
                 registration = leg.registration.ifBlank { d.registration },
+                icao24 = leg.icao24.ifBlank { d.icao24 },
                 depDetail = leg, arrDetail = leg,
             ))
         }
@@ -273,12 +348,7 @@ class FlightsViewModel @Inject constructor(
         viewModelScope.launch {
             when (val r = if (unlink) repo.unlinkTrack(id) else repo.matchTrack(id)) {
                 is Result.Success -> r.data.flight?.let { f ->
-                    _state.update { s ->
-                        s.copy(draft = s.draft.copy(hasTrack = f.hasTrack, trackDistanceKm = f.trackDistanceKm,
-                                                    trackAuto = f.trackAuto,
-                                                    actualDep = s.draft.actualDep.ifBlank { f.actualDepLocal.replace('T', ' ') },
-                                                    actualArr = s.draft.actualArr.ifBlank { f.actualArrLocal.replace('T', ' ') }))
-                    }
+                    adopt(f)
                     if (!unlink) setStatus(if (f.hasTrack) "Recorded track found and linked." else "No recorded track found for this flight.",
                                            error = !f.hasTrack)
                     fetch()
@@ -331,6 +401,8 @@ class FlightsViewModel @Inject constructor(
         source = f.source.ifBlank { "manual" }, depDetail = f, arrDetail = f,
         airlineIata = f.airlineIata, airlineIcao = f.airlineIcao, hasPassImage = f.hasBoardingPassImage,
         hasTrack = f.hasTrack, trackDistanceKm = f.trackDistanceKm, trackAuto = f.trackAuto,
+        icao24 = f.icao24, trackSource = f.trackSource,
+        openskyStatus = f.openskyStatus, openskyMessage = f.openskyMessage,
     )
 
     private fun toFields(d: FlightDraft): Map<String, Any?> {
@@ -348,6 +420,7 @@ class FlightsViewModel @Inject constructor(
             "booking_ref" to d.bookingRef, "passenger_name" to d.passengerName,
             "checkin_seq" to d.checkinSeq, "ticket_number" to d.ticketNumber,
             "frequent_flyer" to d.frequentFlyer, "bcbp_raw" to d.bcbpRaw,
+            "icao24" to d.icao24.trim().lowercase(),
             "source" to d.source,
         )
         airport(m, "dep", d.dep, d.depDetail)

@@ -117,7 +117,7 @@ fun FlightsScreen(
             state.loading && state.flights.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
             state.flights.isEmpty() -> Empty(state.error)
             tab == 0 -> FlightList(state.flights, useMiles, onOpen)
-            tab == 1 -> FlightMap(state.flights, state.tracks)
+            tab == 1 -> FlightMap(state.flights, state.tracks, state.trackSources)
             else -> FlightStats(state.flights, useMiles)
         }
     }
@@ -167,9 +167,10 @@ private fun FlightList(flights: List<FlightDto>, miles: Boolean, onOpen: (Int) -
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("${code(f, true)} → ${code(f, false)}", fontFamily = FontFamily.Monospace,
                                  fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
-                            if (f.hasTrack) {
+                            if (f.trackSource.isNotBlank()) {
                                 Spacer(Modifier.width(8.dp))
-                                Text("TRACK", fontFamily = FontFamily.Monospace, color = Clay.colors.mapBlue,
+                                Text(if (f.trackSource == "opensky") "OPENSKY" else "TRACK", fontFamily = FontFamily.Monospace,
+                                     color = if (f.trackSource == "opensky") Clay.colors.mauve else Clay.colors.mapBlue,
                                      style = MaterialTheme.typography.labelSmall)
                             }
                         }
@@ -197,12 +198,13 @@ private fun FlightList(flights: List<FlightDto>, miles: Boolean, onOpen: (Int) -
 // ── Map ──────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun FlightMap(flights: List<FlightDto>, tracks: Map<Int, List<List<Double>>>) {
+private fun FlightMap(flights: List<FlightDto>, tracks: Map<Int, List<List<Double>>>, sources: Map<Int, String>) {
     val context = LocalContext.current
     val density = LocalDensity.current
     val accent = Clay.colors.rust.toArgb()
     val airportColor = Clay.colors.ochre.toArgb()
     val recordedColor = Clay.colors.mapBlue.toArgb()
+    val openskyColor = Clay.colors.mauve.toArgb()
     val mapView = remember {
         Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
         Configuration.getInstance().userAgentValue = "Roamly/1.0"
@@ -217,7 +219,7 @@ private fun FlightMap(flights: List<FlightDto>, tracks: Map<Int, List<List<Doubl
         }
     }
 
-    LaunchedEffect(flights, tracks) {
+    LaunchedEffect(flights, tracks, sources) {
         mapView.overlays.clear()
         data class Ap(val code: String, val name: String, val lat: Double, val lon: Double, var n: Int = 0)
         val airports = mutableMapOf<String, Ap>()
@@ -232,23 +234,26 @@ private fun FlightMap(flights: List<FlightDto>, tracks: Map<Int, List<List<Doubl
             // A recorded flight is drawn along the path actually flown; the
             // route's great-circle line covers only its untracked flights.
             val t = tracks[f.id]
-            if (t != null && t.size >= 2) recorded += key to t else untracked += key
+            if (t != null && t.size >= 2) recorded += (if (sources[f.id] == "opensky") "osk:" else "") + key to t
+            else untracked += key
             airports.getOrPut(a) { Ap(a, f.depName, f.depLat, f.depLon) }.n++
             airports.getOrPut(b) { Ap(b, f.arrName, f.arrLat, f.arrLon) }.n++
         }
         val maxRoute = (routes.values.maxOfOrNull { it.second } ?: 1).toFloat()
         val fit = mutableListOf<GeoPoint>()
-        recorded.forEach { (key, coords) ->
+        recorded.forEach { (tagged, coords) ->
+            val osk = tagged.startsWith("osk:")
+            val key = tagged.removePrefix("osk:")
             val n = routes[key]?.second ?: 1
             val w = n / maxRoute
             wrappedRuns(coords).forEach { run ->
                 mapView.overlays.add(Polyline(mapView).apply {
                     setPoints(run)
-                    outlinePaint.color = recordedColor
+                    outlinePaint.color = if (osk) openskyColor else recordedColor
                     outlinePaint.alpha = (140 + 115 * w).toInt()
                     outlinePaint.strokeWidth = with(density) { (1.5f + 2.5f * w).dp.toPx() }
                     outlinePaint.isAntiAlias = true
-                    title = "${key.replace("-", " ⇄ ")} · recorded track"
+                    title = "${key.replace("-", " ⇄ ")} · ${if (osk) "OpenSky track" else "recorded track"}"
                 })
             }
         }
@@ -303,7 +308,7 @@ private fun FlightMap(flights: List<FlightDto>, tracks: Map<Int, List<List<Doubl
  * line split wherever it crosses the date line, since osmdroid (unlike the
  * web map) draws a coordinate past 180 nowhere useful.
  */
-private fun wrappedRuns(coords: List<List<Double>>): List<List<GeoPoint>> {
+internal fun wrappedRuns(coords: List<List<Double>>): List<List<GeoPoint>> {
     val runs = mutableListOf<MutableList<GeoPoint>>()
     var cur = mutableListOf<GeoPoint>()
     var prevLon: Double? = null

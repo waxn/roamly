@@ -499,6 +499,18 @@ interface RoamlyApi {
     @POST("api/flights/{id}/track/unlink/")
     suspend fun unlinkFlightTrack(@Path("id") id: Int, @Body body: Map<String, String> = emptyMap()): Response<FlightResponse>
 
+    @GET("api/flights/{id}/track/points/")
+    suspend fun getFlightTrackPoints(@Path("id") id: Int): Response<FlightTrackPointsResponse>
+
+    /** Fetch the flight's track from OpenSky now. */
+    @POST("api/flights/{id}/opensky/")
+    suspend fun fetchFlightOpenSky(@Path("id") id: Int, @Body body: Map<String, String> = emptyMap()): Response<FlightResponse>
+
+    /** Upload a KML (e.g. from Flightradar24): it becomes the flight's recorded track. */
+    @Multipart
+    @POST("api/flights/{id}/kml/")
+    suspend fun uploadFlightKml(@Path("id") id: Int, @Part file: okhttp3.MultipartBody.Part): Response<FlightKmlResponse>
+
     /** Match every flight with no track yet. */
     @POST("api/flights/tracks/match/")
     suspend fun matchAllFlightTracks(@Body body: Map<String, String> = emptyMap()): Response<FlightMatchResponse>

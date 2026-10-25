@@ -30,6 +30,25 @@ class FlightRepository @Inject constructor(
     suspend fun matchTrack(id: Int) = safeApiCall { api.matchFlightTrack(id) }
     suspend fun unlinkTrack(id: Int) = safeApiCall { api.unlinkFlightTrack(id) }
     suspend fun matchAllTracks() = safeApiCall { api.matchAllFlightTracks() }
+    suspend fun trackPoints(id: Int) = safeApiCall { api.getFlightTrackPoints(id) }
+
+    suspend fun fetchOpenSky(id: Int): Result<FlightDto?> = try {
+        val r = api.fetchFlightOpenSky(id)
+        if (r.isSuccessful) Result.Success(r.body()?.flight)
+        else Result.Error(errorMessage(r.errorBody()?.string()) ?: "OpenSky fetch failed (${r.code()}).")
+    } catch (e: Exception) {
+        Result.Error(e.message ?: "OpenSky fetch failed.")
+    }
+
+    suspend fun uploadKml(id: Int, name: String, bytes: ByteArray): Result<com.roamly.data.api.FlightKmlResponse> = try {
+        val part = MultipartBody.Part.createFormData(
+            "file", name, bytes.toRequestBody("application/vnd.google-earth.kml+xml".toMediaTypeOrNull()))
+        val r = api.uploadFlightKml(id, part)
+        if (r.isSuccessful) Result.Success(r.body() ?: com.roamly.data.api.FlightKmlResponse())
+        else Result.Error(errorMessage(r.errorBody()?.string()) ?: "KML upload failed (${r.code()}).")
+    } catch (e: Exception) {
+        Result.Error(e.message ?: "KML upload failed.")
+    }
 
     /** AeroDataBox legs, or the server's own explanation when it refused. */
     suspend fun lookup(number: String, date: String): Result<FlightLookupResponse> = try {
