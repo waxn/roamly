@@ -935,6 +935,14 @@ async function previewTrack(action) {
         const d = await r.json().catch(() => ({}));
         if (!r.ok) { roamlyToast(d.error || 'Could not search for a track.', { type: 'error' }); return; }
         if (!d.token) { roamlyToast(d.message || 'No track found.', { type: 'error' }); return; }
+        if (d.other_day) {
+            // The recording is on another day. Either the flight's date is
+            // wrong or the file was; only the user knows which.
+            const ok = await roamlyConfirm(`${d.other_day.message}\n\nIf that was this flight, use the recording and move `
+                + `this flight to ${d.other_day.date}?`, { title: 'Recording found on another day', confirmText: 'Use it and move the date' });
+            if (!ok) { roamlyToast('No recording at this flight\'s time. Nothing changed.', { type: 'error' }); return; }
+            shiftFormDays(d.other_day.days);
+        }
         trackChange = d;
         if (d.icao24 && !F('f-icao24').value) F('f-icao24').value = d.icao24;
         renderTrack();
@@ -953,6 +961,17 @@ function applyFileFlight(ff) {
     keep.forEach(k => { if (ff[k] !== undefined && ff[k] !== null && ff[k] !== '') part[k] = ff[k]; });
     fillForm(Object.assign({ date: F('f-date').value }, part));
     fileFlight = ff;   // its airport detail travels with the save
+}
+/** Move the form's date and times by whole days, keeping the clock times. */
+function shiftFormDays(days) {
+    if (!days) return;
+    const shiftDate = v => { const d = new Date(v + 'T00:00'); d.setDate(d.getDate() + days);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+    F('f-date').value = shiftDate(F('f-date').value);
+    ['f-sched-dep', 'f-sched-arr', 'f-actual-dep', 'f-actual-arr'].forEach(id => {
+        const v = F(id).value;
+        if (v) F(id).value = shiftDate(v.slice(0, 10)) + v.slice(10);
+    });
 }
 function removeTrack() {
     trackChange = { remove: true };

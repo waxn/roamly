@@ -287,8 +287,12 @@ def _extend_taxi(points, k, airport, step):
     return last_moving
 
 
-def match_track(flight):
+def match_track(flight, window=None):
     """The best recording of `flight` in its owner's history, or None.
+
+    `window` (lo, hi) overrides the flight's own time window — used to look a
+    couple of days either side when nothing fits the flight's date, which is
+    what a Flightradar24 download of the wrong day looks like.
 
     Returns a dict: device, start, end, km, takeoff, landing (the last two
     None unless the sampling was dense enough to say).
@@ -302,7 +306,7 @@ def match_track(flight):
     route_km = _km(dep[0], dep[1], arr[0], arr[1])
     if route_km < 20:
         return None
-    lo, hi = _track_window(flight)
+    lo, hi = window or _track_window(flight)
 
     best = None
     for dev in Device.objects.filter(user_id=flight.user_id):
@@ -417,6 +421,17 @@ def window_points(device_id, start, end, max_points=2000):
             tol *= 2
             keep = simplify(seg, tol)
     return [[round(seg[k][2], 5), round(seg[k][1], 5)] for k in keep]
+
+
+NEARBY_DAYS = 2
+
+
+def nearby_recording(flight):
+    """A recording of the flight's route within NEARBY_DAYS of its date, when
+    none fits the date itself — usually a Flightradar24 file for the wrong day
+    (FR24 lists flights by UTC date), or a flight logged on the wrong date."""
+    lo, hi = _track_window(flight)
+    return match_track(flight, window=(lo - timedelta(days=NEARBY_DAYS), hi + timedelta(days=NEARBY_DAYS)))
 
 
 def matches_points(flight, points):

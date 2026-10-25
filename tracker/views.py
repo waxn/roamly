@@ -17568,9 +17568,32 @@ def flight_track_preview_api(request):
     action = data.get('action')
     if action == 'match':
         m = flight_detect.match_track(f)
+        other_day = None
         if m is None:
-            return JsonResponse({'source': '', 'coords': [],
-                                 'message': 'None of your stored locations line up with this flight.'})
+            # Nothing at the flight's own time: look a couple of days either
+            # side and say what is there, rather than a bare "doesn't line up".
+            m = flight_detect.nearby_recording(f)
+            if m is None:
+                return JsonResponse({'source': '', 'coords': [],
+                                     'message': "None of your stored locations line up with this flight's "
+                                                "airports, even a couple of days either side."})
+            from zoneinfo import ZoneInfo
+            try:
+                tz = ZoneInfo(f.dep_tz) if f.dep_tz else ZoneInfo('UTC')
+            except Exception:
+                tz = ZoneInfo('UTC')
+            local = m['start'].astimezone(tz)
+            days = (local.date() - f.date).days
+            other_day = {
+                'date': local.date().isoformat(),
+                'when': local.strftime('%b %-d, %-I:%M %p'),
+                'days': days,
+                'message': (f"There's no recording at this flight's time, but there is one of "
+                            f"{f.dep_iata or f.dep_icao} → {f.arr_iata or f.arr_icao} on {local.strftime('%b %-d at %-I:%M %p')} "
+                            f"local time, {abs(days)} day{'s' if abs(days) != 1 else ''} "
+                            f"{'earlier' if days < 0 else 'later'}. Flightradar24 lists flights by UTC date, "
+                            f"so its download for an evening flight is often the day before or after."),
+            }
         coords = flight_detect.window_points(m['device'].id, m['start'], m['end'], max_points=1500)
         token = _stash_track_preview(request.user, {
             'kind': 'recorded', 'device_id': m['device'].id,
@@ -17578,6 +17601,7 @@ def flight_track_preview_api(request):
             'takeoff': m['takeoff'].isoformat() if m['takeoff'] else None,
             'landing': m['landing'].isoformat() if m['landing'] else None})
         return JsonResponse({'source': 'recorded', 'coords': coords, 'token': token, 'km': m['km'],
+                             'other_day': other_day,
                              'message': f"Found in your locations ({m['device'].name or m['device'].device_id})."})
     if action == 'opensky':
         if not opensky.configured(SiteConfig.load()):
