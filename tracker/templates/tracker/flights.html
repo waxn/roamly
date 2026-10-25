@@ -14,6 +14,11 @@
 .fl-table tbody tr { cursor: pointer; }
 .fl-route { font-family: var(--font-mono); font-weight: 600; }
 .fl-route .fl-arrow { color: var(--text-muted); margin: 0 0.3rem; }
+.fl-trk-map { height: 220px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.fl-trk-src { font-size: 0.8rem; color: var(--text-muted); margin: 0.5rem 0; }
+.fl-trk-src b { color: var(--text); font-weight: 600; }
+.fl-trk-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.fl-tracked.osk { border-color: var(--clay-lavender); color: var(--clay-lavender); }
 .fl-tracked { display: inline-block; margin-left: 0.4rem; padding: 0 0.35rem; font-family: var(--font-mono); font-size: 0.65rem; border: 1px solid var(--clay-sky); color: var(--clay-sky); border-radius: 4px; vertical-align: middle; }
 .fl-track-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; font-size: 0.85rem; margin: -0.2rem 0 0.8rem; }
 .fl-sub { font-size: 0.75rem; color: var(--text-muted); }
@@ -121,7 +126,7 @@
 
     <section class="fl-pane" id="pane-map" hidden>
         <div id="fl-map"></div>
-        <p class="fl-map-note">Orange lines are great-circle routes between airports; blue lines are recorded tracks, the path actually flown (from your phone or an imported KML). Thicker, brighter lines are routes you flew more often; airport dots grow with visits. Click either for details.</p>
+        <p class="fl-map-note">Orange lines are great-circle routes between airports; blue lines are recorded tracks, the path actually flown (from your phone or an imported KML); purple lines are tracks fetched from OpenSky. Thicker, brighter lines are routes you flew more often; airport dots grow with visits. Click either for details.</p>
     </section>
 
     <section class="fl-pane" id="pane-stats" hidden>
@@ -192,7 +197,6 @@
         {% endif %}
 
         <div class="fl-section">Route</div>
-        <div class="fl-track-row" id="f-track-row" hidden></div>
         <div class="fl-grid">
             <div class="form-group fl-ap-wrap">
                 <label for="f-dep">From</label>
@@ -297,7 +301,11 @@
                     <label for="f-ticket">Ticket number</label>
                     <input class="form-control" id="f-ticket" maxlength="16" style="font-family:var(--font-mono);">
                 </div>
-                <div class="form-group full">
+                <div class="form-group">
+                    <label for="f-icao24">Mode S address</label>
+                    <input class="form-control" id="f-icao24" maxlength="6" placeholder="a1b2c3" style="font-family:var(--font-mono);text-transform:lowercase;">
+                </div>
+                <div class="form-group">
                     <label for="f-ff">Frequent flyer</label>
                     <input class="form-control" id="f-ff" maxlength="24" style="text-transform:uppercase;font-family:var(--font-mono);">
                 </div>
@@ -324,9 +332,23 @@
             </div>
         </details>
 
+        <div id="f-trk" hidden>
+            <div class="fl-section">Flight track</div>
+            <div class="fl-trk-map" id="f-trk-map"></div>
+            <div class="fl-trk-src" id="f-trk-src"></div>
+            <div class="fl-trk-actions">
+                <a class="btn btn-outline btn-sm" id="f-trk-fr24" target="_blank" rel="noopener noreferrer" hidden>Flightradar24 &nearr;</a>
+                <label class="btn btn-outline btn-sm" style="margin:0;cursor:pointer;" title="A KML from Flightradar24 (or any tracker) becomes this flight's track, ahead of OpenSky's">Upload KML
+                    <input type="file" accept=".kml,.kmz,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz" id="f-kml-file" hidden>
+                </label>
+                {% if OPENSKY_ENABLED %}<button type="button" class="btn btn-outline btn-sm" id="f-osk-btn" onclick="fetchOpenSky()">Fetch from OpenSky</button>{% endif %}
+                <button type="button" class="btn btn-outline btn-sm" onclick="trackAction('match')">Re-match</button>
+                <button type="button" class="btn btn-outline btn-sm" id="f-trk-unlink" onclick="trackAction('unlink')" hidden>Unlink recording</button>
+            </div>
+        </div>
+
         <div class="fl-actions">
             <button class="btn btn-outline" id="f-delete" onclick="deleteFlight()" style="color:var(--danger);" hidden>Delete</button>
-            <a class="btn btn-outline" id="f-fr24" target="_blank" rel="noopener noreferrer" hidden>Flightradar24 &nearr;</a>
             <span class="spacer"></span>
             <button class="btn btn-outline" onclick="closeFlight()">Cancel</button>
             <button class="btn btn-primary" id="f-save" onclick="saveFlight()">Save</button>
@@ -445,12 +467,13 @@ function setAirport(side, f) {
 }
 
 // ---- Loading + rendering ---------------------------------------------------
-let tracks = {};   // flight id -> recorded track [[lon, lat], ...]
+let tracks = {};        // flight id -> track [[lon, lat], ...]
+let trackSources = {};  // flight id -> 'recorded' | 'opensky'
 async function loadTracks() {
     try {
         const r = await fetch('/api/flights/tracks/');
-        if (r.ok) tracks = (await r.json()).tracks || {};
-    } catch (e) { tracks = {}; }
+        if (r.ok) { const d = await r.json(); tracks = d.tracks || {}; trackSources = d.sources || {}; }
+    } catch (e) { tracks = {}; trackSources = {}; }
 }
 async function loadFlights() {
     try {
@@ -490,7 +513,7 @@ function renderList() {
     body.innerHTML = rows.map(f => `<tr data-id="${f.id}">
         <td>${esc(new Date(f.date + 'T00:00').toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }))}</td>
         <td class="fl-num">${f.fr24_url ? `<a href="${esc(f.fr24_url)}" target="_blank" rel="noopener noreferrer" title="Open on Flightradar24" onclick="event.stopPropagation()">${esc(f.flight_number)}</a>` : '<span class="fl-sub">–</span>'}</td>
-        <td><span class="fl-route">${esc(code(f, 'dep'))}<span class="fl-arrow">→</span>${esc(code(f, 'arr'))}</span>${f.has_track ? '<span class="fl-tracked" title="A recorded GPS track is linked">TRACK</span>' : ''}
+        <td><span class="fl-route">${esc(code(f, 'dep'))}<span class="fl-arrow">→</span>${esc(code(f, 'arr'))}</span>${f.track_source === 'recorded' ? '<span class="fl-tracked" title="A recorded GPS track is linked">TRACK</span>' : f.track_source === 'opensky' ? '<span class="fl-tracked osk" title="Track from the OpenSky Network">OPENSKY</span>' : ''}
             <div class="fl-sub">${esc(apLabel(f, 'dep'))} → ${esc(apLabel(f, 'arr'))}</div></td>
         <td>${esc(f.airline_name) || '<span class="fl-sub">–</span>'}</td>
         <td>${esc(f.aircraft_model) || '<span class="fl-sub">–</span>'}${f.registration ? `<div class="fl-sub">${esc(f.registration)}</div>` : ''}</td>
@@ -666,7 +689,7 @@ function mapData() {
         r.n++; r.list.push(f);
         // A flight with a recorded track is drawn along the path actually
         // flown; the route's great-circle arc covers only its untracked ones.
-        if (tracks[f.id]) r.recorded.push(tracks[f.id]);
+        if (tracks[f.id]) r.recorded.push({ coords: tracks[f.id], src: trackSources[f.id] === 'opensky' ? 2 : 1 });
         routes.set(key, r);
         ['dep', 'arr'].forEach(s => {
             const c = code(f, s);
@@ -680,9 +703,9 @@ function mapData() {
     return {
         lines: { type: 'FeatureCollection', features: [...routes.entries()].flatMap(([key, r]) => {
             const props = { key, n: r.n, w: r.n / maxR, label: key.replace('-', ' ⇄ ') };
-            const out = r.recorded.map(coords => ({
-                type: 'Feature', properties: { ...props, rec: 1 },
-                geometry: { type: 'LineString', coordinates: coords },
+            const out = r.recorded.map(t => ({
+                type: 'Feature', properties: { ...props, rec: t.src },
+                geometry: { type: 'LineString', coordinates: t.coords },
             }));
             if (r.recorded.length < r.n) out.push({
                 type: 'Feature', properties: { ...props, rec: 0 },
@@ -730,7 +753,7 @@ function initMap() {
         flMap.addSource('fl-aps', { type: 'geojson', data: empty });
         flMap.addLayer({ id: 'fl-lines', type: 'line', source: 'fl-lines',
             layout: { 'line-cap': 'round' },
-            paint: { 'line-color': ['case', ['==', ['get', 'rec'], 1], '#6fb4dd', '#e8763d'],
+            paint: { 'line-color': ['match', ['get', 'rec'], 1, '#6fb4dd', 2, '#b48ad6', '#e8763d'],
                      'line-width': ['interpolate', ['linear'], ['get', 'w'], 0, 1.2, 1, 4],
                      'line-opacity': ['interpolate', ['linear'], ['get', 'w'], 0, 0.45, 1, 0.95] } });
         flMap.addLayer({ id: 'fl-aps', type: 'circle', source: 'fl-aps',
@@ -795,22 +818,108 @@ function fillForm(f) {
     if (f.reason !== undefined) F('f-reason').value = f.reason || '';
     if (f.notes !== undefined) F('f-notes').value = f.notes || '';
     const adv = { 'f-booking': 'booking_ref', 'f-pax': 'passenger_name', 'f-seq': 'checkin_seq',
-                  'f-ticket': 'ticket_number', 'f-ff': 'frequent_flyer' };
+                  'f-ticket': 'ticket_number', 'f-ff': 'frequent_flyer', 'f-icao24': 'icao24' };
     Object.entries(adv).forEach(([id, k]) => { if (f[k] !== undefined) F(id).value = f[k] || ''; });
     if (f.bcbp_raw !== undefined) F('f-raw').value = f.bcbp_raw || '';
     F('f-raw-wrap').hidden = !F('f-raw').value;
 }
-function renderTrack() {
-    const row = F('f-track-row'), f = editing;
-    row.hidden = !f;
+// The flight's own track, at the bottom of the form: the user's recording
+// first, else OpenSky's, else just the great-circle route.
+let trkMap = null, trkReq = 0;
+const TRK_COLOR = { recorded: '#6fb4dd', opensky: '#b48ad6', '': '#e8763d' };
+function trkMapReady() {
+    if (trkMap) { trkMap.resize(); return Promise.resolve(trkMap); }
+    return new Promise(resolve => {
+        trkMap = new maplibregl.Map({
+            container: 'f-trk-map',
+            style: { version: 8, sources: { base: { type: 'raster', tileSize: 256,
+                attribution: '&copy; OpenStreetMap &copy; CARTO',
+                tiles: ['https://basemaps.cartocdn.com/' + (theme === 'light' ? 'light_all' : 'dark_all') + '/{z}/{x}/{y}.png{{ CARTO_TILE_QS|escapejs }}'] } },
+                layers: [{ id: 'base', type: 'raster', source: 'base' }] },
+            center: [0, 20], zoom: 1, attributionControl: false,
+        });
+        trkMap.on('load', () => {
+            trkMap.addSource('trk', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            trkMap.addLayer({ id: 'trk', type: 'line', source: 'trk', layout: { 'line-cap': 'round', 'line-join': 'round' },
+                paint: { 'line-color': ['get', 'color'], 'line-width': 2.5,
+                         'line-dasharray': ['case', ['==', ['get', 'arc'], 1], ['literal', [2, 2]], ['literal', [1, 0]]] } });
+            trkMap.addSource('trk-ap', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            trkMap.addLayer({ id: 'trk-ap', type: 'circle', source: 'trk-ap',
+                paint: { 'circle-radius': 5, 'circle-color': '#cf9a44', 'circle-stroke-color': '#0e1116', 'circle-stroke-width': 1.5 } });
+            resolve(trkMap);
+        });
+    });
+}
+async function renderTrack() {
+    const box = F('f-trk'), f = editing;
+    box.hidden = !f;
     F('f-rematch-wrap').hidden = !f;
     if (!f) return;
-    row.innerHTML = f.has_track
-        ? `<span>Recorded track linked · ${fmtDist(f.track_distance_km)} flown</span>
-           <button type="button" class="btn btn-outline btn-sm" onclick="trackAction('unlink')">Unlink</button>`
-        : `<span class="fl-sub">${f.track_auto ? 'No recorded track found for this flight.' : 'Track unlinked.'}</span>
-           <button type="button" class="btn btn-outline btn-sm" onclick="trackAction('match')">Find track</button>`;
+    F('f-trk-fr24').hidden = !f.fr24_url;
+    if (f.fr24_url) F('f-trk-fr24').href = f.fr24_url;
+    F('f-trk-unlink').hidden = !f.has_track;
+    const osk = { ok: '', pending: 'OpenSky: waiting for the flight to land.', none: 'OpenSky has no track for this flight.',
+                  too_old: 'Older than OpenSky\'s 30 days. Upload a KML from Flightradar24.', no_aircraft: f.opensky_message,
+                  error: 'OpenSky: ' + (f.opensky_message || 'error.') }[f.opensky_status] || '';
+    const src = f.track_source === 'recorded'
+        ? `<b>Recorded track</b>, from your own points or an uploaded KML · ${fmtDist(f.track_distance_km)} flown`
+        : f.track_source === 'opensky' ? `<b>OpenSky track</b> · ${esc(f.opensky_message)} Upload a KML to replace it.`
+        : `<b>No track yet</b>: showing the great-circle route. ${esc(osk)}`;
+    F('f-trk-src').innerHTML = src;
+
+    const req = ++trkReq;
+    const [map, data] = await Promise.all([
+        trkMapReady(),
+        fetch(`/api/flights/${f.id}/track/points/`).then(r => r.ok ? r.json() : { source: '', coords: [] }).catch(() => ({ source: '', coords: [] })),
+    ]);
+    if (req !== trkReq || editing !== f) return;
+    let coords = data.coords || [], isArc = 0;
+    if (coords.length < 2 && f.dep_lat != null && f.arr_lat != null) {
+        coords = arc(f.dep_lon, f.dep_lat, f.arr_lon, f.arr_lat); isArc = 1;
+    }
+    map.getSource('trk').setData({ type: 'FeatureCollection', features: coords.length >= 2 ? [{
+        type: 'Feature', properties: { color: TRK_COLOR[data.source || ''], arc: isArc },
+        geometry: { type: 'LineString', coordinates: coords } }] : [] });
+    map.getSource('trk-ap').setData({ type: 'FeatureCollection', features: ['dep', 'arr']
+        .filter(sd => f[sd + '_lat'] != null)
+        .map(sd => ({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [f[sd + '_lon'], f[sd + '_lat']] } })) });
+    if (coords.length >= 2) {
+        const b = coords.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
+        map.fitBounds(b, { padding: 24, maxZoom: 9, duration: 0 });
+    }
 }
+async function fetchOpenSky() {
+    if (!editing) return;
+    const btn = F('f-osk-btn');
+    btn.disabled = true; btn.textContent = 'Fetching…';
+    try {
+        const r = await fetch(`/api/flights/${editing.id}/opensky/`, { method: 'POST', headers: { 'X-CSRFToken': CSRF } });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { roamlyToast(d.error || 'OpenSky fetch failed.', { type: 'error' }); return; }
+        adoptFlight(d.flight);
+        roamlyToast(d.flight.has_opensky_track ? 'Track fetched from OpenSky.' : (d.flight.opensky_message || 'No track from OpenSky.'),
+                    { type: d.flight.has_opensky_track ? 'success' : 'error' });
+        await loadTracks(); renderAll();
+    } finally {
+        btn.disabled = false; btn.textContent = 'Fetch from OpenSky';
+    }
+}
+F('f-kml-file').addEventListener('change', async e => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file || !editing) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    F('f-trk-src').textContent = 'Importing the KML…';
+    const r = await fetch(`/api/flights/${editing.id}/kml/`, { method: 'POST', headers: { 'X-CSRFToken': CSRF }, body: fd });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { roamlyToast(d.error || 'Could not import that KML.', { type: 'error' }); renderTrack(); return; }
+    adoptFlight(d.flight);
+    roamlyToast(d.flight.has_track ? `Imported ${d.imported.toLocaleString()} points; the KML is now this flight's track.`
+                                   : `Imported ${d.imported.toLocaleString()} points, but they don't line up with this flight's airports and date.`,
+                { type: d.flight.has_track ? 'success' : 'error' });
+    await loadTracks(); renderAll();
+});
 async function trackAction(kind) {
     if (!editing) return;
     const url = kind === 'unlink' ? `/api/flights/${editing.id}/track/unlink/` : `/api/flights/${editing.id}/track/`;
@@ -889,16 +998,14 @@ function openFlight(f) {
     F('fl-modal-title').textContent = f ? 'Edit flight' : 'Add flight';
     F('f-legs').innerHTML = '';
     setStatus('');
-    ['f-seat', 'f-notes', 'f-booking', 'f-pax', 'f-seq', 'f-ticket', 'f-ff', 'f-raw'].forEach(id => { F(id).value = ''; });
+    ['f-seat', 'f-notes', 'f-booking', 'f-pax', 'f-seq', 'f-ticket', 'f-ff', 'f-raw', 'f-icao24'].forEach(id => { F(id).value = ''; });
     F('f-adv').open = false;
     ['f-class', 'f-seat-type', 'f-reason'].forEach(id => { F(id).value = ''; });
     fillForm(f || { date: new Date().toISOString().slice(0, 10) });
     renderPass();
-    renderTrack();
     F('f-delete').hidden = !f;
-    F('f-fr24').hidden = !(f && f.fr24_url);
-    if (f && f.fr24_url) F('f-fr24').href = f.fr24_url;
     F('fl-overlay').classList.add('open');
+    renderTrack();   // after the dialog is visible, so the mini map gets a real size
     loadAirports();
     setTimeout(() => F('f-number').focus(), 30);
 }
@@ -953,6 +1060,7 @@ async function saveFlight() {
         seat_type: F('f-seat-type').value, reason: F('f-reason').value, notes: F('f-notes').value,
         booking_ref: F('f-booking').value, passenger_name: F('f-pax').value, checkin_seq: F('f-seq').value,
         ticket_number: F('f-ticket').value, frequent_flyer: F('f-ff').value,
+        icao24: F('f-icao24').value.trim().toLowerCase(),
     };
     // Airport detail: the lookup's own record where the code still matches it,
     // the stored one when editing an unchanged airport, else just the code and
