@@ -17466,8 +17466,10 @@ def flights_api(request):
                                  'existing_id': dup.id}, status=409)
     f.save()
     _match_flight_track(f)
+    note = _apply_track_change(request.user, f, data)
     _kick_opensky(f)
-    return JsonResponse({'flight': _flight_payload(f)})
+    f.refresh_from_db()
+    return JsonResponse({'flight': _flight_payload(f), 'track_note': note})
 
 
 @csrf_exempt
@@ -17499,8 +17501,199 @@ def flight_update_api(request, flight_id):
     # track the user is happy with.
     if not f.track_device_id or _flight_track_key(f) != before:
         _match_flight_track(f)
+    note = _apply_track_change(request.user, f, data)
     _kick_opensky(f)
-    return JsonResponse({'flight': _flight_payload(f)})
+    f.refresh_from_db()
+    return JsonResponse({'flight': _flight_payload(f), 'track_note': note})
+
+
+# ---------------------------------------------------------------------------
+# Track previews: the form's track buttons change nothing until Save
+# ---------------------------------------------------------------------------
+#
+# Find track (OpenSky), Use existing locations (re-match) and Upload file used
+# to write to the flight the moment they were pressed — and on a new flight,
+# save the flight first — so closing the form without saving still kept the
+# result. They now run as previews: the result is drawn on the form's map and
+# held server-side under a one-hour token, and Save commits it
+# (`track_token`), or a removal (`track_remove`). Cancel commits nothing; the
+# only cost left behind is the OpenSky credits a preview spent.
+
+_TRACK_PREVIEW_TTL = 3600
+
+
+def _track_preview_key(user_id, token):
+    return f'trkprev:{user_id}:{token}'
+
+
+def _stash_track_preview(user, payload):
+    token = secrets.token_urlsafe(12)
+    cache.set(_track_preview_key(user.id, token), payload, _TRACK_PREVIEW_TTL)
+    return token
+
+
+def _preview_flight(request, data):
+    """An unsaved Flight from the form, for previewing against. Starts from
+    the stored flight when editing so fields the form doesn't send survive."""
+    fid = data.get('id')
+    f = None
+    if fid:
+        f = Flight.objects.filter(id=fid, user=request.user).first()
+    f = f or Flight(user=request.user)
+    err = _apply_flight(f, data.get('flight') or {})
+    return f, err
+
+
+@csrf_exempt
+@login_required
+@require_POST
+def flight_track_preview_api(request):
+    """Preview a track for the form without saving: {action: 'match' |
+    'opensky', flight: <form fields>, id?} -> {source, coords, message, token}."""
+    from . import flight_detect, opensky
+    err = _require_api_intent(request)
+    if err:
+        return err
+    data = _flight_json(request)
+    if data is None:
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+    f, ferr = _preview_flight(request, data)
+    if ferr:
+        return JsonResponse({'error': ferr}, status=400)
+    action = data.get('action')
+    if action == 'match':
+        m = flight_detect.match_track(f)
+        if m is None:
+            return JsonResponse({'source': '', 'coords': [],
+                                 'message': 'None of your stored locations line up with this flight.'})
+        coords = flight_detect.window_points(m['device'].id, m['start'], m['end'], max_points=1500)
+        token = _stash_track_preview(request.user, {
+            'kind': 'recorded', 'device_id': m['device'].id,
+            'start': m['start'].isoformat(), 'end': m['end'].isoformat(), 'km': m['km'],
+            'takeoff': m['takeoff'].isoformat() if m['takeoff'] else None,
+            'landing': m['landing'].isoformat() if m['landing'] else None})
+        return JsonResponse({'source': 'recorded', 'coords': coords, 'token': token, 'km': m['km'],
+                             'message': f"Found in your locations ({m['device'].name or m['device'].device_id})."})
+    if action == 'opensky':
+        if not opensky.configured(SiteConfig.load()):
+            return JsonResponse({'error': 'OpenSky is not set up on this instance (Admin Panel → Flight data).'},
+                                status=400)
+        if _rate_limited(request, 'opensky_fetch', 40, 86400,
+                         identifier=str(request.user.id), include_ip=False):
+            return JsonResponse({'error': 'OpenSky fetch limit reached for today.'}, status=429)
+        status, message, track, _attempted = opensky.compute(f, force=True)
+        if not track:
+            return JsonResponse({'source': '', 'coords': [], 'message': message, 'status': status})
+        token = _stash_track_preview(request.user, {
+            'kind': 'opensky', 'status': status, 'message': message, 'track': track, 'icao24': f.icao24})
+        return JsonResponse({'source': 'opensky', 'coords': _opensky_coords(track), 'token': token,
+                             'message': message, 'icao24': f.icao24})
+    return JsonResponse({'error': 'Unknown preview.'}, status=400)
+
+
+@csrf_exempt
+@login_required
+@require_POST
+def flight_track_preview_file_api(request):
+    """Parse an uploaded KML/KMZ/CSV without storing it: {coords, token,
+    flight?} where `flight` is what a Flightradar24 header says, for filling
+    an empty form. The points are only stored on Save."""
+    err = _require_api_intent(request)
+    if err:
+        return err
+    upload = request.FILES.get('file')
+    if not upload:
+        return JsonResponse({'error': 'No file uploaded.'}, status=400)
+    points, meta, perr = _read_track_upload(upload)
+    if perr:
+        return perr
+    if not any(p[3] for p in points):
+        return JsonResponse({'error': 'That file has no timestamps, so it cannot be matched to a flight. '
+                                      'Flightradar24\'s KML and CSV downloads both have them.'}, status=400)
+    timed = sorted((p for p in points if p[3]), key=lambda p: p[3])
+    coords = _opensky_coords([[0, p[0], p[1]] for p in timed])
+    token = _stash_track_preview(request.user, {
+        'kind': 'file',
+        'points': [[p[0], p[1], p[2], p[3].isoformat() if p[3] else None, p[4], p[5]] for p in points],
+        'meta': {k: (v.isoformat() if hasattr(v, 'isoformat') else v) for k, v in meta.items()}})
+    flight = None
+    if meta.get('dep_iata') and meta.get('arr_iata'):
+        # What the file says, as a flight the form can fill itself from.
+        from . import airports
+        from .tz_utils import zone_name_for_point
+        from zoneinfo import ZoneInfo
+        when = meta.get('actual_dep') or meta.get('sched_dep') or timed[0][3]
+        ap = airports.lookup(meta['dep_iata'])
+        try:
+            tz = ZoneInfo(zone_name_for_point(ap['lat'], ap['lon']) or 'UTC') if ap else ZoneInfo('UTC')
+        except Exception:
+            tz = ZoneInfo('UTC')
+        fdata = {k: meta.get(k, '') for k in ('flight_number', 'airline_name', 'aircraft_model',
+                                               'registration', 'dep_iata', 'arr_iata')}
+        fdata['date'] = when.astimezone(tz).date().isoformat()
+        for k in ('sched_dep', 'sched_arr', 'actual_dep', 'actual_arr'):
+            if meta.get(k):
+                fdata[k] = meta[k].isoformat()
+        tf = Flight(user=request.user)
+        if not _apply_flight(tf, fdata):
+            flight = _flight_payload(tf)
+    return JsonResponse({'source': 'recorded', 'coords': coords, 'token': token, 'imported': len(points),
+                         'flight': flight,
+                         'message': f'{len(points):,} points in this file. They are imported when you save.'})
+
+
+def _apply_track_change(user, f, data):
+    """Commit the form's staged track change on Save. Returns a note for the
+    user, or None."""
+    from . import opensky
+    if data.get('track_remove'):
+        Flight.objects.filter(pk=f.pk).update(
+            track_device=None, track_start=None, track_end=None, track_distance_km=None,
+            track_auto=False, opensky_track=None, opensky_status='removed',
+            opensky_message='Removed. Find track or Upload file to add one again.')
+        return None
+    token = data.get('track_token')
+    if not token or not isinstance(token, str):
+        return None
+    key = _track_preview_key(user.id, token)
+    payload = cache.get(key)
+    if payload is None:
+        return 'The track preview expired before you saved, so it was not added. Run it again.'
+    cache.delete(key)
+    kind = payload.get('kind')
+    if kind == 'recorded':
+        dev = Device.objects.filter(id=payload.get('device_id'), user=user).first()
+        if dev is None:
+            return None
+        upd = {'track_device': dev, 'track_start': datetime.fromisoformat(payload['start']),
+               'track_end': datetime.fromisoformat(payload['end']),
+               'track_distance_km': payload.get('km'), 'track_auto': True}
+        if f.actual_dep is None and payload.get('takeoff'):
+            upd['actual_dep'] = datetime.fromisoformat(payload['takeoff'])
+        if f.actual_arr is None and payload.get('landing'):
+            upd['actual_arr'] = datetime.fromisoformat(payload['landing'])
+        Flight.objects.filter(pk=f.pk).update(**upd)
+    elif kind == 'opensky':
+        if payload.get('icao24') and not f.icao24:
+            f.icao24 = payload['icao24']
+        opensky.store(f, payload.get('status') or 'ok', payload.get('message') or '',
+                      payload.get('track'), True)
+    elif kind == 'file':
+        points = []
+        for p in payload.get('points') or []:
+            ts = datetime.fromisoformat(p[3]) if p[3] else None
+            points.append((p[0], p[1], p[2], ts, p[4], p[5]))
+        device, _ = Device.objects.get_or_create(
+            user=user, device_id=_FLIGHT_KML_DEVICE, defaults={'name': 'Imported flight tracks'})
+        _store_kml_points(user, device, points)
+        _bust_user_cache(user.id)
+        Flight.objects.filter(pk=f.pk).update(track_auto=True)
+        f.refresh_from_db()
+        _match_flight_track(f, force=True)
+        f.refresh_from_db()
+        if not f.track_device_id:
+            return "The file's points were imported, but they don't line up with this flight's airports and date."
+    return None
 
 
 def _opensky_usage():
@@ -17705,8 +17898,12 @@ def flight_track_unlink_api(request, flight_id):
     if err:
         return err
     f = get_object_or_404(Flight, id=flight_id, user=request.user)
+    # Remove whatever track the flight shows: clearing only the recording left
+    # an OpenSky track in its place, so the button looked like it did nothing.
     Flight.objects.filter(pk=f.pk).update(track_device=None, track_start=None, track_end=None,
-                                          track_distance_km=None, track_auto=False)
+                                          track_distance_km=None, track_auto=False,
+                                          opensky_track=None, opensky_status='removed',
+                                          opensky_message='Removed. Find track or Upload file to add one again.')
     f.refresh_from_db()
     return JsonResponse({'flight': _flight_payload(f)})
 

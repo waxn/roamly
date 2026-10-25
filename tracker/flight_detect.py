@@ -382,14 +382,20 @@ def apply_track(flight, force=False):
 def track_points(flight, max_points=2000):
     """The linked track as [[lon, lat], ...], longitudes unwrapped so a route
     over the date line stays one continuous line, simplified to <= max_points."""
+    if not (flight.track_device_id and flight.track_start and flight.track_end):
+        return []
+    return window_points(flight.track_device_id, flight.track_start, flight.track_end, max_points)
+
+
+def window_points(device_id, start, end, max_points=2000):
+    """One device's points in [start, end], as track_points returns them — so
+    the form can draw a match it hasn't saved yet."""
     from .models import Location
     from .activity_track import simplify
 
-    if not (flight.track_device_id and flight.track_start and flight.track_end):
-        return []
-    rows = list(Location.objects.filter(device_id=flight.track_device_id,
-                                        timestamp__gte=flight.track_start,
-                                        timestamp__lte=flight.track_end)
+    rows = list(Location.objects.filter(device_id=device_id,
+                                        timestamp__gte=start,
+                                        timestamp__lte=end)
                 .exclude(accuracy__gt=MAX_ACCURACY_M)
                 .order_by('timestamp')
                 .values_list('timestamp', 'latitude', 'longitude')[:TRACK_MAX_POINTS_SCANNED])

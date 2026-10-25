@@ -204,59 +204,66 @@ def _clean_path(path):
     return out[:MAX_POINTS]
 
 
-def fetch(flight, cfg=None, force=False):
-    """Fetch and store the OpenSky track for `flight`. Returns its status.
+def compute(flight, cfg=None, force=False):
+    """Ask OpenSky for `flight`'s track without storing anything.
 
-    Without `force`, a flight that already has a recorded or fetched track,
-    is outside OpenSky's window, or was tried recently is left alone.
+    Returns (status, message, track, attempted): `track` is the cleaned
+    waypoint list or None, `attempted` whether OpenSky was actually asked (and
+    so whether it counts as a try). May set flight.icao24 in memory when the
+    departures list identified the aircraft. Works on an unsaved Flight too,
+    which is what the form's preview uses.
     """
     from .models import SiteConfig
     cfg = cfg or SiteConfig.load()
     now = timezone.now()
-
-    def done(status, message='', track=None, attempt=True):
-        flight.opensky_status = status
-        flight.opensky_message = message[:200]
-        flight.opensky_checked_at = now
-        fields = ['opensky_status', 'opensky_message', 'opensky_checked_at', 'icao24']
-        if attempt:
-            flight.opensky_attempts = (flight.opensky_attempts or 0) + 1
-            fields.append('opensky_attempts')
-        if track is not None:
-            flight.opensky_track = track
-            fields.append('opensky_track')
-        type(flight).objects.filter(pk=flight.pk).update(**{f: getattr(flight, f) for f in fields})
-        return status
-
     if not configured(cfg):
-        return done('', 'OpenSky is not set up on this instance.', attempt=False)
+        return '', 'OpenSky is not set up on this instance.', None, False
     dep, arr = _times(flight)
     when = arr or (dep + timedelta(hours=3) if dep else None)
     if when is None:
-        return done('error', 'The flight needs a departure or arrival time to find its track.', attempt=False)
+        return 'error', 'The flight needs a departure or arrival time to find its track.', None, False
     if now - when > MAX_AGE:
-        return done('too_old', 'OpenSky only keeps tracks for 30 days. Upload a KML instead.', attempt=False)
+        return 'too_old', 'OpenSky only keeps tracks for 30 days. Upload a KML instead.', None, False
     if now - when < SETTLE:
-        return done('pending', 'Waiting for the flight to land before asking OpenSky.', attempt=False)
-
+        return 'pending', 'Waiting for the flight to land before asking OpenSky.', None, False
     try:
         if not flight.icao24:
             if now - (dep or when) < DEPARTURES_SETTLE and not force:
-                return done('pending', "OpenSky's departure lists are published the next day; will retry.",
-                            attempt=False)
+                return ('pending', "OpenSky's departure lists are published the next day; will retry.",
+                        None, False)
             flight.icao24 = find_icao24(cfg, flight)
             if not flight.icao24:
-                return done('no_aircraft', "OpenSky has no aircraft matching this flight. Add the "
-                            "aircraft's Mode S hex under Advanced, or upload a KML.")
+                return ('no_aircraft', "OpenSky has no aircraft matching this flight. Add the "
+                        "aircraft's Mode S hex under Advanced, or upload a KML.", None, True)
         mid = dep + (arr - dep) / 2 if dep and arr else when - timedelta(hours=1)
         body = _get(cfg, '/tracks/all', {'icao24': flight.icao24, 'time': int(mid.timestamp())})
     except OpenSkyError as e:
-        return done('error', str(e))
-
+        return 'error', str(e), None, True
     track = _clean_path((body or {}).get('path'))
     if len(track) < 2:
-        return done('none', 'OpenSky has no track for this flight.', track=None)
-    return done('ok', f'{len(track)} waypoints from OpenSky.', track=track)
+        return 'none', 'OpenSky has no track for this flight.', None, True
+    return 'ok', f'{len(track)} waypoints from OpenSky.', track, True
+
+
+def store(flight, status, message, track, attempted):
+    """Persist a compute() result on a saved flight."""
+    flight.opensky_status = status
+    flight.opensky_message = (message or '')[:200]
+    flight.opensky_checked_at = timezone.now()
+    fields = ['opensky_status', 'opensky_message', 'opensky_checked_at', 'icao24']
+    if attempted:
+        flight.opensky_attempts = (flight.opensky_attempts or 0) + 1
+        fields.append('opensky_attempts')
+    if track is not None:
+        flight.opensky_track = track
+        fields.append('opensky_track')
+    type(flight).objects.filter(pk=flight.pk).update(**{f: getattr(flight, f) for f in fields})
+    return status
+
+
+def fetch(flight, cfg=None, force=False):
+    """Fetch and store the OpenSky track for a saved `flight`. Returns its status."""
+    return store(flight, *compute(flight, cfg, force))
 
 
 def due(flight, now=None):
@@ -264,7 +271,8 @@ def due(flight, now=None):
     now = now or timezone.now()
     if flight.track_device_id or flight.opensky_track:
         return False
-    if flight.opensky_status in ('ok', 'too_old'):
+    # 'removed': the user took the track off; only their own button brings it back.
+    if flight.opensky_status in ('ok', 'too_old', 'removed'):
         return False
     if (flight.opensky_attempts or 0) >= MAX_ATTEMPTS:
         return False
