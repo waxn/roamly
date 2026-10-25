@@ -1124,7 +1124,11 @@ data class FlightTrackPreview(
     /** File previews checked against the form: false = not this flight. */
     val matches: Boolean? = null,
     val mismatch: String? = null,
+    /** "Use existing locations" found the route only on another day. */
+    @SerializedName("other_day") val otherDay: OtherDayRecording? = null,
 )
+
+data class OtherDayRecording(val date: String = "", val days: Int = 0, val message: String = "")
 
 /** GET /api/flights/lookup/ — AeroDataBox legs, in FlightDto's shape (UTC times). */
 data class FlightLookupResponse(val legs: List<FlightDto> = emptyList(), val error: String? = null)

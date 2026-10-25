@@ -174,7 +174,12 @@ class FlightsViewModel @Inject constructor(
             when (val r = repo.previewTrack(action, d.id, toFields(d))) {
                 is Result.Success -> {
                     val p = r.data
-                    if (p.token != null) {
+                    if (p.otherDay != null) {
+                        // Only on another day: say where, and let the user fix the date
+                        // (then search again) rather than linking the wrong day.
+                        setStatus(p.otherDay.message + " If that was this flight, change its date and search again.",
+                                  error = true)
+                    } else if (p.token != null) {
                         _state.update { st -> st.copy(pendingTrack = p, pendingRemove = false,
                             draft = st.draft.copy(icao24 = st.draft.icao24.ifBlank { p.icao24 })) }
                         setStatus("${p.message} Save to keep it.")
