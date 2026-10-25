@@ -915,9 +915,16 @@ F('f-kml-file').addEventListener('change', async e => {
     const d = await r.json().catch(() => ({}));
     if (!r.ok) { roamlyToast(d.error || 'Could not import that KML.', { type: 'error' }); renderTrack(); return; }
     adoptFlight(d.flight);
-    roamlyToast(d.flight.has_track ? `Imported ${d.imported.toLocaleString()} points; the KML is now this flight's track.`
-                                   : `Imported ${d.imported.toLocaleString()} points, but they don't line up with this flight's airports and date.`,
+    const NAMES = { flight_number: 'flight number', airline_name: 'airline', aircraft_model: 'aircraft',
+                    registration: 'registration', sched_dep: 'scheduled departure', sched_arr: 'scheduled arrival',
+                    actual_dep: 'actual departure', actual_arr: 'actual arrival' };
+    const filled = (d.filled || []).map(k => NAMES[k] || k);
+    if (d.warning) roamlyToast(d.warning, { type: 'error', duration: 8000 });
+    roamlyToast((d.flight.has_track ? `Imported ${d.imported.toLocaleString()} points; the KML is now this flight's track.`
+                                    : `Imported ${d.imported.toLocaleString()} points, but they don't line up with this flight's airports and date.`)
+                + (filled.length ? ` Filled in: ${filled.join(', ')}.` : ''),
                 { type: d.flight.has_track ? 'success' : 'error' });
+    if (filled.length) fillForm(d.flight);
     await loadTracks(); renderAll();
 });
 async function trackAction(kind) {

@@ -9844,13 +9844,14 @@ def import_json(request):
     return JsonResponse(result)
 
 
-def _parse_kml_upload(f):
+def _parse_kml_upload(f, meta=None):
     """Parse an uploaded KML/KMZ (FlightRadar24, Google Earth, ...) into
     (lat, lon, coord_alt, ts, desc_alt, speed) tuples.
 
     Returns (points, None), or (None, error_response). Shared by the history
     import and the flight form's own KML upload, so both read a file the same
-    way.
+    way. Pass a dict as `meta` to also receive the flight details a
+    Flightradar24 KML carries in its header (_fr24_kml_meta).
     """
     err = _reject_oversize_upload(f)
     if err:
@@ -9904,6 +9905,13 @@ def _parse_kml_upload(f):
 
     GX_NS = '{http://www.google.com/kml/ext/2.2}'
 
+    if meta is not None:
+        # The <Document>'s own name + description: the first of each in
+        # document order, before any Placemark's.
+        doc_name = next((el.text for el in root.iter() if el.tag in (f'{kml_ns}name', 'name')), '') or ''
+        doc_desc = next((el.text for el in root.iter() if el.tag in (f'{kml_ns}description', 'description')), '') or ''
+        meta.update(_fr24_kml_meta(doc_name, doc_desc))
+
     def _ns(tag):
         """Try element search with detected KML namespace, then bare tag."""
         return f'{kml_ns}{tag}' if kml_ns else tag
@@ -9942,18 +9950,22 @@ def _parse_kml_upload(f):
             return None, None
         alt_m = None
         speed_ms = None
+        # FR24 wraps the label in its own span — `<span><b>Altitude:</b></span>
+        # <span>35,975 ft</span>` — so the value follows any run of tags, not
+        # one closing tag. Requiring exactly one (as this used to) matched
+        # nothing, and every FR24 point lost its altitude and speed.
         alt_match = _re.search(
-            r'Altitude[^<]*</[^>]+>\s*<span>([\d.]+)\s*ft</span>', text, _re.IGNORECASE
+            r'Altitude:?\s*(?:<[^>]+>\s*)*([\d.,]+)\s*ft\b', text, _re.IGNORECASE
         )
         if alt_match:
-            ft = _safe_float(alt_match.group(1))
+            ft = _safe_float(alt_match.group(1).replace(',', ''))
             if ft is not None:
                 alt_m = ft / 3.28084
         speed_match = _re.search(
-            r'Speed[^<]*</[^>]+>\s*<span>([\d.]+)\s*kt</span>', text, _re.IGNORECASE
+            r'Speed:?\s*(?:<[^>]+>\s*)*([\d.,]+)\s*kt\b', text, _re.IGNORECASE
         )
         if speed_match:
-            kt = _safe_float(speed_match.group(1))
+            kt = _safe_float(speed_match.group(1).replace(',', ''))
             if kt is not None:
                 speed_ms = kt * 0.514444
         return alt_m, speed_ms
@@ -10016,6 +10028,51 @@ def _parse_kml_upload(f):
             status=400,
         )
     return points, None
+
+
+def _fr24_kml_meta(name, desc):
+    """The flight details in a Flightradar24 KML's header, as Flight fields.
+
+    FR24 names the document `IB342/IBE03CY` (flight / callsign) and puts an
+    HTML card in its description: airline, departure/arrival airport links,
+    STD/ATD/STA/ATA (and ETA) in UTC, aircraft type and registration. Anything
+    not found is simply absent. Times are aware UTC datetimes.
+    """
+    import re as _re
+    out = {}
+    num = (name or '').split('/')[0].strip().upper().replace(' ', '')
+    if _FLIGHT_NO_RE.match(num):
+        out['flight_number'] = num
+    if not desc or 'flightradar24' not in desc.lower():
+        return out
+    m = _re.search(r'</span>\s*/\s*[A-Z0-9]+\s*<br\s*/?>\s*([^<]+?)\s*</div>', desc)
+    if m:
+        out['airline_name'] = m.group(1).strip()[:120]
+    m = _re.search(r'/airport/([a-z0-9]{3})/departures', desc, _re.I)
+    if m:
+        out['dep_iata'] = m.group(1).upper()
+    m = _re.search(r'/airport/([a-z0-9]{3})/arrivals', desc, _re.I)
+    if m:
+        out['arr_iata'] = m.group(1).upper()
+    fields = {('Scheduled', 'Departure'): 'sched_dep', ('Actual', 'Departure'): 'actual_dep',
+              ('Scheduled', 'Arrival'): 'sched_arr', ('Actual', 'Arrival'): 'actual_arr'}
+    for kind, leg, when in _re.findall(
+            r'title="(Scheduled|Actual|Estimated) Time of (Departure|Arrival)"[^>]*>[^<]*</span>\s*'
+            r'<span title="(\d{4}-\d{2}-\d{2} \d{2}:\d{2})"', desc):
+        key = fields.get((kind, leg))
+        if key:
+            try:
+                out[key] = datetime.strptime(when, '%Y-%m-%d %H:%M').replace(tzinfo=dt_timezone.utc)
+            except ValueError:
+                pass
+    m = _re.search(r'Aircraft\s*<span[^>]*>\(([A-Z0-9]{2,4})\)</span>\s*<br\s*/?>\s*<span[^>]*>([^<]+)</span>', desc)
+    if m:
+        out['aircraft_type'] = m.group(1)
+        out['aircraft_model'] = m.group(2).strip()[:120]
+    m = _re.search(r'/reg/[^"]+"[^>]*>\s*([A-Z0-9-]{3,10})\s*</a>', desc, _re.I)
+    if m:
+        out['registration'] = m.group(1).upper()
+    return out
 
 
 def _store_kml_points(user, device, points):
@@ -17454,7 +17511,8 @@ def flight_kml_api(request, flight_id):
     upload = request.FILES.get('file')
     if not upload:
         return JsonResponse({'error': 'No file uploaded.'}, status=400)
-    points, perr = _parse_kml_upload(upload)
+    meta = {}
+    points, perr = _parse_kml_upload(upload, meta=meta)
     if perr:
         return perr
     if not any(p[3] for p in points):
@@ -17465,9 +17523,26 @@ def flight_kml_api(request, flight_id):
         defaults={'name': 'Imported flight tracks'})
     count, errors, _first = _store_kml_points(request.user, device, points)
     _bust_user_cache(request.user.id)
+
+    # A Flightradar24 KML says which flight it is: fill in only what the
+    # flight is missing (never overwrite what the user or AeroDataBox set), and
+    # say so when it describes a different route.
+    filled, mismatch = [], None
+    if meta.get('dep_iata') and meta.get('arr_iata') and \
+            (meta['dep_iata'], meta['arr_iata']) != (f.dep_iata, f.arr_iata):
+        mismatch = f"This KML is for {meta['dep_iata']} → {meta['arr_iata']}, not {f.dep_iata} → {f.arr_iata}."
+    else:
+        for field in ('flight_number', 'airline_name', 'aircraft_model', 'registration',
+                      'sched_dep', 'sched_arr', 'actual_dep', 'actual_arr'):
+            if meta.get(field) and not getattr(f, field):
+                setattr(f, field, meta[field])
+                filled.append(field)
+        if filled:
+            f.save()
     _match_flight_track(f, force=True)
     f.refresh_from_db()
-    return JsonResponse({'flight': _flight_payload(f), 'imported': count, 'errors': errors})
+    return JsonResponse({'flight': _flight_payload(f), 'imported': count, 'errors': errors,
+                         'filled': filled, 'warning': mismatch})
 
 
 def _flight_track_key(f):
