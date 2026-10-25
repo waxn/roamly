@@ -19,10 +19,15 @@ near one can take the label of a bigger town across it. The timezone polygons
 ``timezonefinder`` already loads for ``tz_utils`` follow real borders
 (Campobello keeps Atlantic time, America/Moncton; Eastport is America/New_York),
 and IANA's zone.tab maps every land zone to one country. When the nearest place
-is in a different country from the point's zone, the nearest place *in the
-zone's country* is used instead — or, if none is within ``_BORDER_MAX_KM``, just
-that country's state and name with no town, rather than naming a town the point
-was never in. Ocean (``Etc/*``) and unmapped zones skip the check.
+is in a different country from the point's zone, candidates are restricted to
+the zone's country — or, if none is within ``_BORDER_MAX_KM`` and a town across
+the border is nearer, the label is just that country's state and name with no
+town, rather than a town the point was never in. Ocean (``Etc/*``) and unmapped
+zones skip the check.
+
+**Town size.** A town of 1000+ within ``_TOWN_PREFER_KM`` wins over a nearer
+hamlet; smaller places are used only when no town is that close. See
+``_TOWN_MIN_POP``.
 
 Everything is built lazily on first use and kept for the process lifetime, so
 only a process that actually geocodes pays the (one-off, couple-second) load.
@@ -38,9 +43,20 @@ logger = logging.getLogger(__name__)
 
 _DATA_PATH = os.path.join(os.path.dirname(__file__), 'data', 'places.json.gz')
 
-# How far the nearest same-country place may be when the border check swaps
-# countries. Past it the town is left blank: across a strait, the nearest town
-# in the right country is usually a different community altogether.
+# Towns of this size are preferred whenever one is within _TOWN_PREFER_KM.
+# cities500 adds hamlets of a few hundred people right next to the town people
+# actually name (Silverdale beside Sellersville, Pennsylvania), and nearest-only
+# matching would hand every point between them to whichever centre is closer.
+# Below this size a place is used only when no town is that close — which is
+# what Campobello Island (villages of a few hundred, the nearest Canadian town
+# 20 km over the water) needs. 1000 is the old cities1000 cut-off, so labels
+# where a town is close come out as they always did.
+_TOWN_MIN_POP = 1000
+_TOWN_PREFER_KM = 8.0
+
+# How far the nearest place in the point's own country may be when nothing
+# bigger is close. Past it the town is left blank if the only nearer town is in
+# another country: across a strait, that is a different community altogether.
 _BORDER_MAX_KM = 12.0
 
 _EARTH_KM = 6371.0088
@@ -65,8 +81,6 @@ def _chord_km(chord):
 
 class _Places:
     def __init__(self, data):
-        from scipy.spatial import cKDTree
-
         self.countries = data['countries']
         self.admin1 = data['admin1']
         self.tz_country = data['tz_country']
@@ -74,29 +88,32 @@ class _Places:
         self.cc = [r[2] for r in rows]
         self.city = [r[3] for r in rows]
         self.state = [r[4] for r in rows]
+        self.pop = [r[5] if len(r) > 5 else 0 for r in rows]
         self.points = [_xyz(r[0], r[1]) for r in rows]
-        self.tree = cKDTree(self.points)
-        self._country_trees = {}
-        self._country_lock = threading.Lock()
+        self._trees = {}
+        self._trees_lock = threading.Lock()
 
-    def nearest(self, xyz):
-        d, i = self.tree.query(xyz)
-        return int(i), float(d)
-
-    def nearest_in(self, xyz, cc):
-        """Nearest place in country ``cc`` → (index, chord) or (None, None)."""
-        with self._country_lock:
-            entry = self._country_trees.get(cc)
+    def _tree(self, cc, big):
+        """k-d tree over the places of country ``cc`` (None = everywhere),
+        only those of ``_TOWN_MIN_POP``+ people when ``big``. Built on first use."""
+        key = (cc, big)
+        with self._trees_lock:
+            entry = self._trees.get(key)
             if entry is None:
                 from scipy.spatial import cKDTree
-                idx = [i for i, c in enumerate(self.cc) if c == cc]
+                idx = [i for i in range(len(self.cc))
+                       if (cc is None or self.cc[i] == cc) and (not big or self.pop[i] >= _TOWN_MIN_POP)]
                 entry = (cKDTree([self.points[i] for i in idx]), idx) if idx else (None, None)
-                self._country_trees[cc] = entry
-        tree, idx = entry
+                self._trees[key] = entry
+        return entry
+
+    def nearest(self, xyz, cc=None, big=False):
+        """Nearest place → (index, km), or (None, None) if there is none."""
+        tree, idx = self._tree(cc, big)
         if tree is None:
             return None, None
         d, j = tree.query(xyz)
-        return idx[int(j)], float(d)
+        return idx[int(j)], _chord_km(float(d))
 
     def label(self, i, with_city=True):
         cc = self.cc[i]
@@ -146,7 +163,11 @@ def offline_reverse_geocode(coords):
     """Reverse-geocode a list of ``(lat, lon)`` tuples to place labels.
 
     Returns a list parallel to ``coords`` of dicts:
-        ``{city, state, country, country_code, place_name}``
+        ``{city, state, country, country_code, place_name, source, zone_cc}``
+
+    ``source`` is ``'nearest'``: a nearest-place guess (see ``_nearest_label``
+    and ``regeocode``). ``zone_cc`` is the timezone polygon's country, or ''
+    when unknown.
 
     Raises ``ImportError`` if neither the bundled dataset nor the
     ``reverse_geocode`` package can be loaded — callers should catch it and
@@ -158,19 +179,52 @@ def offline_reverse_geocode(coords):
     places = _get_places()
     if places is None:
         return _package_reverse_geocode(coords)
+    return [_nearest_label(places, lat, lon, zone_country(lat, lon)) for lat, lon in coords]
 
-    out = []
-    for lat, lon in coords:
-        xyz = _xyz(lat, lon)
-        i, _ = places.nearest(xyz)
-        tz_cc = zone_country(lat, lon)
-        if tz_cc and tz_cc != places.cc[i]:
-            j, chord = places.nearest_in(xyz, tz_cc)
-            if j is not None:
-                out.append(places.label(j, with_city=_chord_km(chord) <= _BORDER_MAX_KM))
-                continue
-        out.append(places.label(i))
-    return out
+
+def _nearest_label(places, lat, lon, tz_cc):
+    """Label a point from the place list. ``tz_cc`` is its timezone country
+    ('' over the ocean or where unknown), which every candidate must share."""
+    xyz = _xyz(lat, lon)
+    cc = tz_cc or None
+
+    # 1. A town of 1000+ close by, in the point's own country.
+    town, town_km = places.nearest(xyz, cc, big=True)
+    if town is not None and (town_km <= _TOWN_PREFER_KM or cc is None):
+        return dict(places.label(town), source='nearest', zone_cc=tz_cc)
+
+    # 2. Any place close by, however small (Campobello Island).
+    small, small_km = places.nearest(xyz, cc, big=False)
+    if small is not None and small_km <= _BORDER_MAX_KM:
+        return dict(places.label(small), source='nearest', zone_cc=tz_cc)
+
+    # 3. Nothing close. The nearest town in this country is fine — unless a
+    #    town in another country is nearer, in which case name only the state,
+    #    rather than a town across the border or the water.
+    anywhere, anywhere_km = places.nearest(xyz, None, big=True)
+    if town is not None and not (anywhere is not None and places.cc[anywhere] != cc
+                                 and anywhere_km < town_km):
+        return dict(places.label(town), source='nearest', zone_cc=tz_cc)
+    if small is not None:
+        return dict(places.label(small, with_city=False), source='nearest', zone_cc=tz_cc)
+    return dict(places.label(anywhere), source='nearest', zone_cc=tz_cc)
+
+
+def v082_guess(lat, lon, tz_cc):
+    """The label v0.82.0 gave a point: the nearest place of any size, swapped
+    for the nearest in the timezone's country across a border. Kept only so a
+    re-geocode can recognise — and replace — labels that release wrote, since
+    it preferred hamlets over the towns people name (see ``regeocode``)."""
+    places = _get_places()
+    if places is None:
+        return None
+    xyz = _xyz(lat, lon)
+    i, _ = places.nearest(xyz)
+    if tz_cc and tz_cc != places.cc[i]:
+        j, km = places.nearest(xyz, tz_cc)
+        if j is not None:
+            return places.label(j, with_city=km <= _BORDER_MAX_KM)
+    return places.label(i)
 
 
 def _package_reverse_geocode(coords):
@@ -183,7 +237,8 @@ def _package_reverse_geocode(coords):
         raw = reverse_geocode.search(list(coords))
     else:  # very old versions only expose a single-point get()
         raw = [reverse_geocode.get(c) for c in coords]
-    return [_label(r.get('city'), r.get('state'), r.get('country'), r.get('country_code'))
+    return [dict(_label(r.get('city'), r.get('state'), r.get('country'), r.get('country_code')),
+                 source='nearest', zone_cc='')
             for r in (r or {} for r in raw)]
 
 
@@ -192,29 +247,30 @@ def local_reverse_geocode(lat, lon):
 
     US points resolve by **point-in-polygon** against the TIGER boundaries loaded
     into PostGIS by the ``import_boundaries`` command — i.e. the town that actually
-    *contains* the point (Waldo), not the nearest centroid (Belfast). Incorporated
-    places / CDPs (Charlottesville, Ruckersville) are tried first, then county
-    subdivisions (New England towns like Waldo). Anything with no US boundary match
-    — i.e. abroad, or before boundaries are imported — falls back to nearest-city
-    offline geocoding, so international travel is still labelled.
+    *contains* the point (Waldo), not the nearest centroid (Belfast or Morrill).
+    Incorporated places / CDPs (Charlottesville, Ruckersville) are tried first,
+    then county subdivisions (New England towns like Waldo). Anything with no US
+    boundary match — abroad, or before boundaries are imported — falls back to
+    the nearest place, so international travel is still labelled.
 
-    Returns ``{city, state, country, country_code, place_name}`` or ``None``.
+    Returns ``{city, state, country, country_code, place_name, source, zone_cc}``
+    or ``None``. ``source`` is ``'boundary'`` for a containment match, the one
+    answer that is authoritative; see ``offline_reverse_geocode`` for the rest.
     """
+    zone_cc = zone_country(lat, lon)
     try:
         from django.conf import settings
         has_postgis = "postgis" in settings.DATABASES.get("default", {}).get("ENGINE", "")
-        if has_postgis:
+        # A generalised (1:500k) boundary can reach a little past the border;
+        # the timezone polygons are the finer test of which side the point is
+        # on, so a point another country's zone claims skips the US lookup.
+        if has_postgis and zone_cc in ('', 'US'):
             from django.contrib.gis.geos import Point
             from .models import Boundary
 
             pt = Point(lon, lat, srid=4326)
             b = (Boundary.objects.filter(kind="place", geom__contains=pt).first()
                  or Boundary.objects.filter(kind="cousub", geom__contains=pt).first())
-            # A generalised (1:500k) boundary can reach a little past the
-            # border; the timezone polygons are the finer test of which side
-            # the point is on.
-            if b and zone_country(lat, lon) not in ('', 'US'):
-                b = None
             if b:
                 parts = [p for p in (b.name, b.state, "United States") if p]
                 return {
@@ -223,10 +279,15 @@ def local_reverse_geocode(lat, lon):
                     "country": "United States",
                     "country_code": "US",
                     "place_name": ", ".join(parts),
+                    "source": "boundary",
+                    "zone_cc": zone_cc,
                 }
     except Exception as e:
         logger.warning("Boundary lookup failed for %s,%s: %s", lat, lon, e)
 
-    # International / no US match / boundaries not loaded yet → nearest-city offline.
+    # International / no US match / boundaries not loaded yet → nearest place.
+    places = _get_places()
+    if places is not None:
+        return _nearest_label(places, lat, lon, zone_cc)
     res = offline_reverse_geocode([(lat, lon)])
     return res[0] if res else None

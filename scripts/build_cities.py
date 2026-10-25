@@ -20,7 +20,7 @@ Output (gzipped JSON):
     {"countries": {cc: name},
      "admin1": [name, ...],
      "tz_country": {zone: cc},
-     "rows": [[lat, lon, cc, city, admin1_index], ...]}
+     "rows": [[lat, lon, cc, city, admin1_index, population], ...]}
 
 City and state strings are GeoNames' `name` columns and country names are
 taken from `reverse_geocode`'s countries.csv (run this where that package is
@@ -89,7 +89,11 @@ def main():
         if state not in admin1_idx:
             admin1_idx[state] = len(admin1)
             admin1.append(state)
-        rows.append([lat, lon, cc, row[1], admin1_idx[state]])
+        try:
+            pop = int(row[14] or 0)
+        except ValueError:
+            pop = 0
+        rows.append([lat, lon, cc, row[1], admin1_idx[state], pop])
 
     tz_country = {}
     with open(zone_tab, encoding='utf-8') as f:
