@@ -850,7 +850,7 @@
                 <!-- Re-geocode everything -->
                 <div>
                     <div style="font-size:0.875rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">Re-geocode All Points</div>
-                    <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;">Relabel your whole history with the current geocoder — after an update to it, or when places near a border were labelled with the wrong town or country. Every change is found first and then applied in one go, so stopping it leaves your points exactly as they were. Only points whose label changes are rewritten; Visits and Stats are refreshed when it finishes.</div>
+                    <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;">Relabel your history after the geocoder improves. It only replaces a label when it has a better reason than a different guess: the point lies inside a US town boundary (if your admin has imported them), the label is in the wrong country, or there was no label. Every change is found first and then applied in one go, so stopping it leaves your points exactly as they were. Visits and Stats are refreshed when it finishes.</div>
                     <div class="settings-actions">
                         <button class="btn btn-primary btn-sm" id="regeocode-btn" onclick="startRegeocode()">Start</button>
                         <button class="btn btn-outline btn-sm" id="regeocode-stop-btn" onclick="stopRegeocode()" style="display:none;">Stop</button>

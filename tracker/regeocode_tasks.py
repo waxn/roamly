@@ -10,7 +10,9 @@ Settings → Background Jobs → **Re-geocode All Points** (the signed-in accoun
 which runs it in a background thread with progress in the cache.
 
 Caches one lookup per ~111m cell across the pass and writes only the rows whose
-label actually changed, so a 1.4M-point history takes a few minutes and leaves
+label should change (see ``_should_replace``: a containment match, a missing
+label, or one in the wrong country — never just a different nearest-place
+guess), so a 1.4M-point history takes a few minutes and leaves
 everything else untouched. A run is all or nothing: it finds every change
 before writing any, then applies them in one transaction, so stopping it (or a
 crash) leaves every point as it was.
@@ -73,7 +75,7 @@ def regeocode(user_ids=None, log=None, progress=None, should_stop=None, tally=No
     from array import array
     from django.db import transaction
     from .models import Location
-    from .offline_geocode import local_reverse_geocode
+    from .offline_geocode import local_reverse_geocode, v082_guess
 
     def check_stop():
         if should_stop and should_stop():
@@ -106,20 +108,33 @@ def regeocode(user_ids=None, log=None, progress=None, should_stop=None, tally=No
 
         for loc_id, lat, lon, uid, *stored in rows:
             cell = (round(lat, _CELL_PRECISION), round(lon, _CELL_PRECISION))
-            new = cell_cache.get(cell)
-            if new is None:
+            hit = cell_cache.get(cell)
+            if hit is None:
                 res = local_reverse_geocode(lat, lon) or dict.fromkeys(_FIELDS, '')
                 # Never store city='' — the geocoding worker selects on it and
                 # would re-label the point forever.
-                new = (res['city'] or 'Unknown', res['state'], res['country'],
-                       res['country_code'], res['place_name'])
-                cell_cache[cell] = new
-            if tuple(stored) != new:
+                source, zone_cc = res.get('source', 'nearest'), res.get('zone_cc', '')
+                legacy = None
+                if source != 'boundary':
+                    g = v082_guess(lat, lon, zone_cc)
+                    if g:
+                        legacy = (g['city'] or 'Unknown', g['state'], g['country'],
+                                  g['country_code'], g['place_name'])
+                hit = ((res['city'] or 'Unknown', res['state'], res['country'],
+                        res['country_code'], res['place_name']),
+                       source, zone_cc, legacy)
+                cell_cache[cell] = hit
+            new, source, zone_cc, legacy = hit
+            stored = tuple(stored)
+            if stored != new and _should_replace(stored, source, zone_cc, legacy):
                 changes[new].append(loc_id)
                 changed_users.add(uid)
                 found += 1
+                final = new
+            else:
+                final = stored
             if tally is not None:
-                tally.add(stored[4], new[4])
+                tally.add(stored[4], final[4])
 
         done += len(rows)
         if log:
@@ -144,6 +159,38 @@ def regeocode(user_ids=None, log=None, progress=None, should_stop=None, tally=No
                         progress('apply', applied, found, found)
 
     return done, found, changed_users
+
+
+def _should_replace(stored, source, zone_cc, legacy=None):
+    """Whether a re-geocode may overwrite ``stored`` with a new label.
+
+    Only for a reason better than "the geocoder now guesses differently". A
+    stored label may have come from a containment match (a US town boundary,
+    since cleared or never loaded here) or from the old online geocoder, and
+    both beat a nearest-place guess: v0.82.0's re-geocode, which replaced any
+    label that differed, relabelled 810k points at home in Waldo, Maine as
+    neighbouring Morrill, whose centre happened to be closer. So a label is
+    replaced only when:
+
+      - the new one is a ``'boundary'`` match — the point is *inside* that town;
+      - the stored one is empty or 'Unknown' — there is nothing to lose;
+      - the stored country disagrees with the point's timezone country — the
+        label is on the wrong side of a border (Campobello labelled Eastport);
+      - the stored one is exactly what v0.82.0 guessed (``legacy``) — a label
+        that release wrote, preferring a hamlet over the town people name
+        (Silverdale for Sellersville), and that a better guess may undo. A
+        boundary-derived label that happens to equal it is the risk here, which
+        is why the boundaries should be imported before re-geocoding: with them
+        loaded, such a point gets a ``'boundary'`` answer instead.
+    """
+    city, cc = stored[0], stored[3]
+    if source == 'boundary':
+        return True
+    if not city or city == 'Unknown':
+        return True
+    if zone_cc and cc and cc != zone_cc:
+        return True
+    return legacy is not None and stored == legacy
 
 
 class Tally:
