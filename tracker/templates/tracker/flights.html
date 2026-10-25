@@ -286,14 +286,14 @@
             <div class="fl-trk-map" id="f-trk-map"></div>
             <div class="fl-trk-src" id="f-trk-src"></div>
             <div class="fl-trk-actions">
-                <button type="button" class="btn btn-outline btn-sm" id="f-osk-btn" onclick="fetchOpenSky()"
+                <button type="button" class="btn btn-outline btn-sm" id="f-osk-btn" onclick="previewTrack('opensky')"
                     {% if not OPENSKY_ENABLED %}disabled title="OpenSky isn't set up on this instance (Admin Panel → Flight data)"{% else %}title="Fetch this flight's track from the OpenSky Network (flights in the last 30 days)"{% endif %}>Find track</button>
                 <label class="btn btn-outline btn-sm" style="margin:0;cursor:pointer;" title="A KML, KMZ or CSV from Flightradar24 or any tracker. It becomes this flight's track, ahead of OpenSky's. On an empty form, a Flightradar24 KML fills in the whole flight.">Upload file
                     <input type="file" accept=".kml,.kmz,.csv,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz,text/csv" id="f-kml-file" hidden>
                 </label>
-                <button type="button" class="btn btn-outline btn-sm" onclick="trackAction('match')" title="Look for this flight in the locations already stored: your phone's, and any track files imported before">Use existing locations</button>
+                <button type="button" class="btn btn-outline btn-sm" id="f-match-btn" onclick="previewTrack('match')" title="Look for this flight in the locations already stored: your phone's, and any track files imported before">Use existing locations</button>
                 <a class="btn btn-outline btn-sm" id="f-trk-fr24" target="_blank" rel="noopener noreferrer" hidden>Flightradar24 &nearr;</a>
-                <button type="button" class="btn btn-outline btn-sm" id="f-trk-unlink" onclick="trackAction('unlink')" hidden>Unlink recording</button>
+                <button type="button" class="btn btn-outline btn-sm" id="f-trk-unlink" onclick="removeTrack()" hidden style="color:var(--danger);">Remove track</button>
             </div>
         </div>
 
@@ -328,8 +328,8 @@
                 </div>
                 <div class="form-group full" id="f-rematch-wrap" hidden>
                     <label>Recorded track</label>
-                    <button type="button" class="btn btn-outline btn-sm" onclick="trackAction('match')">Re-match track</button>
-                    <p class="fl-hint">Searches your GPS history for this flight again and links the fullest recording, replacing the current one.</p>
+                    <button type="button" class="btn btn-outline btn-sm" onclick="previewTrack('match')">Re-match track</button>
+                    <p class="fl-hint">Searches your GPS history for this flight again and shows the fullest recording; Save to use it.</p>
                 </div>
                 <div class="form-group full" id="f-raw-wrap" hidden>
                     <label for="f-raw">Raw barcode</label>
@@ -852,114 +852,125 @@ function trkMapReady() {
         });
     });
 }
+// Staged track change: what the track buttons found, held until Save.
+// {token, source, coords, message, km} from a preview, or {remove: true}.
+let trackChange = null;
+let fileFlight = null;   // what an uploaded Flightradar24 file said the flight is
+function drawTrack(coords, source, isArc) {
+    return trkMapReady().then(map => {
+        const f = editing || {};
+        map.getSource('trk').setData({ type: 'FeatureCollection', features: coords.length >= 2 ? [{
+            type: 'Feature', properties: { color: TRK_COLOR[source || ''], arc: isArc ? 1 : 0 },
+            geometry: { type: 'LineString', coordinates: coords } }] : [] });
+        map.getSource('trk-ap').setData({ type: 'FeatureCollection', features: ['dep', 'arr']
+            .filter(sd => f[sd + '_lat'] != null)
+            .map(sd => ({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [f[sd + '_lon'], f[sd + '_lat']] } })) });
+        if (coords.length >= 2) {
+            const b = coords.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
+            map.fitBounds(b, { padding: 24, maxZoom: 9, duration: 0 });
+        }
+    });
+}
+function routeArc(f) {
+    return f && f.dep_lat != null && f.arr_lat != null ? arc(f.dep_lon, f.dep_lat, f.arr_lon, f.arr_lat) : [];
+}
 async function renderTrack() {
     const f = editing;
     F('f-rematch-wrap').hidden = !f;
     const num = F('f-number').value.replace(/\s+/g, '').toLowerCase();
     F('f-trk-fr24').hidden = !num;
     if (num) F('f-trk-fr24').href = `https://www.flightradar24.com/data/flights/${encodeURIComponent(num)}`;
+    const pending = '<span class="fl-sub"> Not saved yet; press Save to keep it.</span>';
+
+    if (trackChange && trackChange.remove) {
+        F('f-trk-unlink').hidden = true;
+        F('f-trk-map').hidden = !f;
+        F('f-trk-src').innerHTML = '<b>Track will be removed</b> when you save.' + (f ? ' Showing the great-circle route.' : '');
+        if (f) drawTrack(routeArc(f), '', true);
+        return;
+    }
+    if (trackChange) {
+        F('f-trk-unlink').hidden = false;
+        F('f-trk-map').hidden = false;
+        const label = trackChange.source === 'opensky' ? 'OpenSky track' : 'Recorded track';
+        F('f-trk-src').innerHTML = `<b>${label}</b> · ${esc(trackChange.message || '')}` + pending;
+        drawTrack(trackChange.coords || [], trackChange.source, false);
+        return;
+    }
     if (!f) {
         F('f-trk-unlink').hidden = true;
         F('f-trk-map').hidden = true;
-        F('f-trk-src').innerHTML = 'Not saved yet. <b>Find track</b> or <b>Use existing locations</b> saves the flight first; '
-            + '<b>Upload file</b> on an empty form creates the flight from a Flightradar24 KML.';
+        F('f-trk-src').innerHTML = 'Find a track with the buttons below. <b>Upload file</b> on an empty form fills in the '
+            + 'whole flight from a Flightradar24 KML. Nothing is kept until you press Save.';
         return;
     }
     F('f-trk-map').hidden = false;
-    F('f-trk-unlink').hidden = !f.has_track;
+    F('f-trk-unlink').hidden = !f.track_source;
     const osk = { ok: '', pending: 'OpenSky: waiting for the flight to land.', none: 'OpenSky has no track for this flight.',
                   too_old: 'Older than OpenSky\'s 30 days. Upload a KML from Flightradar24.', no_aircraft: f.opensky_message,
-                  error: 'OpenSky: ' + (f.opensky_message || 'error.') }[f.opensky_status] || '';
-    const src = f.track_source === 'recorded'
-        ? `<b>Recorded track</b>, from your own points or an uploaded KML · ${fmtDist(f.track_distance_km)} flown`
-        : f.track_source === 'opensky' ? `<b>OpenSky track</b> · ${esc(f.opensky_message)} Upload a KML to replace it.`
-        : `<b>No track yet</b>: showing the great-circle route. ${esc(osk)}`;
-    F('f-trk-src').innerHTML = src;
-
+                  removed: '', error: 'OpenSky: ' + (f.opensky_message || 'error.') }[f.opensky_status] || '';
+    F('f-trk-src').innerHTML = f.track_source === 'recorded'
+        ? `<b>Recorded track</b>, from your own points or an uploaded file · ${fmtDist(f.track_distance_km)} flown`
+        : f.track_source === 'opensky' ? `<b>OpenSky track</b> · ${esc(f.opensky_message)} Upload a file to replace it.`
+        : `<b>No track</b>: showing the great-circle route. ${esc(osk)}`;
     const req = ++trkReq;
-    const [map, data] = await Promise.all([
-        trkMapReady(),
-        fetch(`/api/flights/${f.id}/track/points/`).then(r => r.ok ? r.json() : { source: '', coords: [] }).catch(() => ({ source: '', coords: [] })),
-    ]);
-    if (req !== trkReq || editing !== f) return;
-    let coords = data.coords || [], isArc = 0;
-    if (coords.length < 2 && f.dep_lat != null && f.arr_lat != null) {
-        coords = arc(f.dep_lon, f.dep_lat, f.arr_lon, f.arr_lat); isArc = 1;
-    }
-    map.getSource('trk').setData({ type: 'FeatureCollection', features: coords.length >= 2 ? [{
-        type: 'Feature', properties: { color: TRK_COLOR[data.source || ''], arc: isArc },
-        geometry: { type: 'LineString', coordinates: coords } }] : [] });
-    map.getSource('trk-ap').setData({ type: 'FeatureCollection', features: ['dep', 'arr']
-        .filter(sd => f[sd + '_lat'] != null)
-        .map(sd => ({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [f[sd + '_lon'], f[sd + '_lat']] } })) });
-    if (coords.length >= 2) {
-        const b = coords.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
-        map.fitBounds(b, { padding: 24, maxZoom: 9, duration: 0 });
+    const data = await fetch(`/api/flights/${f.id}/track/points/`).then(r => r.ok ? r.json() : { source: '', coords: [] })
+        .catch(() => ({ source: '', coords: [] }));
+    if (req !== trkReq || editing !== f || trackChange) return;
+    const coords = data.coords && data.coords.length >= 2 ? data.coords : routeArc(f);
+    drawTrack(coords, data.source, !(data.coords && data.coords.length >= 2));
+}
+/** Find track (OpenSky) or Use existing locations, as a preview of the form. */
+async function previewTrack(action) {
+    const flight = flightBody();
+    if (!flight) return;
+    delete flight.track_token; delete flight.track_remove;
+    const btn = F(action === 'opensky' ? 'f-osk-btn' : 'f-match-btn');
+    const label = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Searching…';
+    try {
+        const r = await fetch('/api/flights/track/preview/', { method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+            body: JSON.stringify({ action, flight, id: editing ? editing.id : null }) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { roamlyToast(d.error || 'Could not search for a track.', { type: 'error' }); return; }
+        if (!d.token) { roamlyToast(d.message || 'No track found.', { type: 'error' }); return; }
+        trackChange = d;
+        if (d.icao24 && !F('f-icao24').value) F('f-icao24').value = d.icao24;
+        renderTrack();
+    } finally {
+        btn.disabled = false; btn.textContent = label;
     }
 }
-async function fetchOpenSky() {
-    if (!await ensureSaved()) return;
-    const btn = F('f-osk-btn');
-    btn.disabled = true; btn.textContent = 'Fetching…';
-    try {
-        const r = await fetch(`/api/flights/${editing.id}/opensky/`, { method: 'POST', headers: { 'X-CSRFToken': CSRF } });
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok) { roamlyToast(d.error || 'OpenSky fetch failed.', { type: 'error' }); return; }
-        adoptFlight(d.flight);
-        roamlyToast(d.flight.has_opensky_track ? 'Track fetched from OpenSky.' : (d.flight.opensky_message || 'No track from OpenSky.'),
-                    { type: d.flight.has_opensky_track ? 'success' : 'error' });
-        await loadTracks(); renderAll();
-    } finally {
-        btn.disabled = false; btn.textContent = 'Fetch from OpenSky';
-    }
+function removeTrack() {
+    trackChange = { remove: true };
+    renderTrack();
 }
 F('f-kml-file').addEventListener('change', async e => {
     const file = e.target.files[0];
     e.target.value = '';
     if (!file) return;
-    // An empty form: let the file say which flight it is. Otherwise save what
-    // the form says and attach the file to that flight.
     const blank = !editing && !airportCode('dep') && !airportCode('arr');
-    if (!blank && !await ensureSaved()) return;
     const fd = new FormData();
     fd.append('file', file);
-    F('f-trk-src').textContent = 'Importing the file…';
-    const url = blank ? '/api/flights/import-file/' : `/api/flights/${editing.id}/kml/`;
-    const r = await fetch(url, { method: 'POST', headers: { 'X-CSRFToken': CSRF }, body: fd });
+    F('f-trk-src').textContent = 'Reading the file…';
+    const r = await fetch('/api/flights/track/preview-file/', { method: 'POST', headers: { 'X-CSRFToken': CSRF }, body: fd });
     const d = await r.json().catch(() => ({}));
-    if (!r.ok) { roamlyToast(d.error || 'Could not import that file.', { type: 'error' }); renderTrack(); return; }
-    if (blank) {
-        flights.unshift(d.flight);
-        F('fl-modal-title').textContent = 'Edit flight';
-        F('f-delete').hidden = false;
-        fillForm(d.flight);
-        if (!d.created) roamlyToast('That flight was already in your log; the file was added to it.');
+    if (!r.ok) { roamlyToast(d.error || 'Could not read that file.', { type: 'error' }); renderTrack(); return; }
+    // A Flightradar24 file says which flight it is: fill an empty form from it.
+    if (d.flight) {
+        if (blank) {
+            fillForm(d.flight);
+            fileFlight = d.flight;   // its airport detail travels with the save
+        } else if ((d.flight.dep_iata && d.flight.dep_iata !== airportCode('dep')) ||
+                   (d.flight.arr_iata && d.flight.arr_iata !== airportCode('arr'))) {
+            roamlyToast(`This file is for ${d.flight.dep_iata} → ${d.flight.arr_iata}, not the airports in the form.`,
+                        { type: 'error', duration: 8000 });
+        }
     }
-    adoptFlight(d.flight);
-    const NAMES = { flight_number: 'flight number', airline_name: 'airline', aircraft_model: 'aircraft',
-                    registration: 'registration', sched_dep: 'scheduled departure', sched_arr: 'scheduled arrival',
-                    actual_dep: 'actual departure', actual_arr: 'actual arrival' };
-    const filled = (d.filled || []).map(k => NAMES[k] || k);
-    if (d.warning) roamlyToast(d.warning, { type: 'error', duration: 8000 });
-    roamlyToast((d.flight.has_track ? `Imported ${d.imported.toLocaleString()} points; the KML is now this flight's track.`
-                                    : `Imported ${d.imported.toLocaleString()} points, but they don't line up with this flight's airports and date.`)
-                + (filled.length ? ` Filled in: ${filled.join(', ')}.` : ''),
-                { type: d.flight.has_track ? 'success' : 'error' });
-    if (filled.length && !blank) fillForm(d.flight);
-    await loadTracks(); renderAll();
+    trackChange = d;
+    renderTrack();
 });
-async function trackAction(kind) {
-    if (!await ensureSaved()) return;
-    const url = kind === 'unlink' ? `/api/flights/${editing.id}/track/unlink/` : `/api/flights/${editing.id}/track/`;
-    const r = await fetch(url, { method: 'POST', headers: { 'X-CSRFToken': CSRF } });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) { roamlyToast(d.error || 'Could not update the track.', { type: 'error' }); return; }
-    adoptFlight(d.flight);
-    if (kind === 'match') roamlyToast(d.flight.has_track ? `Track linked · ${fmtDist(d.flight.track_distance_km)} flown.` : 'No recorded track found.',
-                                      { type: d.flight.has_track ? 'success' : 'error' });
-    await loadTracks();
-    renderAll();
-}
 async function matchAllTracks() {
     const btn = F('fl-match');
     btn.disabled = true;
@@ -1023,6 +1034,8 @@ function setStatus(text, kind) {
 function openFlight(f) {
     editing = f;
     pendingLeg = null;
+    trackChange = null;
+    fileFlight = null;
     F('fl-modal-title').textContent = f ? 'Edit flight' : 'Add flight';
     F('f-legs').innerHTML = '';
     setStatus('');
@@ -1094,7 +1107,7 @@ function flightBody() {
     // the stored one when editing an unchanged airport, else just the code and
     // the server fills it from the airport dataset.
     for (const [side, c] of [['dep', dep], ['arr', arr]]) {
-        const src = [pendingLeg, editing].find(s => s && (s[side + '_iata'] === c || s[side + '_icao'] === c));
+        const src = [pendingLeg, fileFlight, editing].find(s => s && (s[side + '_iata'] === c || s[side + '_icao'] === c));
         if (src) ['iata', 'icao', 'name', 'city', 'country', 'lat', 'lon', 'tz'].forEach(k => { body[`${side}_${k}`] = src[`${side}_${k}`]; });
         else body[c.length === 4 ? `${side}_icao` : `${side}_iata`] = c;
     }
@@ -1105,6 +1118,8 @@ function flightBody() {
         body.source = editing.source;
         ['airline_iata', 'airline_icao'].forEach(k => { body[k] = editing[k]; });
     }
+    if (trackChange && trackChange.remove) body.track_remove = true;
+    else if (trackChange && trackChange.token) body.track_token = trackChange.token;
     return body;
 }
 /** POST the form. Returns the saved flight, or null (the error is shown). */
@@ -1118,6 +1133,7 @@ async function postFlight() {
         const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF }, body: JSON.stringify(body) });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) { setStatus(d.error || 'Could not save.', 'error'); return null; }
+        lastTrackNote = d.track_note || null;
         return d.flight;
     } catch (e) {
         setStatus('Could not save. Check your connection.', 'error');
@@ -1126,26 +1142,15 @@ async function postFlight() {
         btn.disabled = false;
     }
 }
+let lastTrackNote = null;
 async function saveFlight() {
     const wasEditing = !!editing;
     const flight = await postFlight();
     if (!flight) return;
     closeFlight();
     roamlyToast(wasEditing ? 'Flight updated.' : 'Flight added.');
+    if (lastTrackNote) roamlyToast(lastTrackNote, { type: 'error', duration: 8000 });
     await loadFlights();
-}
-/** The track buttons work on a saved flight: save a new one first and keep
- *  the form open, now editing it. */
-async function ensureSaved() {
-    if (editing) return editing;
-    const flight = await postFlight();
-    if (!flight) return null;
-    pendingLeg = null;
-    flights.unshift(flight);
-    adoptFlight(flight);
-    F('fl-modal-title').textContent = 'Edit flight';
-    F('f-delete').hidden = false;
-    return flight;
 }
 async function deleteFlight() {
     if (!editing) return;
