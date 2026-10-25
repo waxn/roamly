@@ -9799,16 +9799,17 @@ def import_json(request):
     return JsonResponse(result)
 
 
-@login_required
-@require_http_methods(["POST"])
-def import_kml(request):
-    """Import locations from KML file (FlightRadar24, Google Earth, etc.)."""
-    f = request.FILES.get('file')
-    if not f:
-        return JsonResponse({"error": "No file uploaded"}, status=400)
+def _parse_kml_upload(f):
+    """Parse an uploaded KML/KMZ (FlightRadar24, Google Earth, ...) into
+    (lat, lon, coord_alt, ts, desc_alt, speed) tuples.
+
+    Returns (points, None), or (None, error_response). Shared by the history
+    import and the flight form's own KML upload, so both read a file the same
+    way.
+    """
     err = _reject_oversize_upload(f)
     if err:
-        return err
+        return None, err
 
     import xml.etree.ElementTree as ET
     import re as _re
@@ -9825,20 +9826,20 @@ def import_kml(request):
             with _zipfile.ZipFile(_io.BytesIO(raw)) as zf:
                 kml_names = [n for n in zf.namelist() if n.lower().endswith('.kml')]
                 if not kml_names:
-                    return JsonResponse({"error": "No .kml file found inside KMZ archive"}, status=400)
+                    return None, JsonResponse({"error": "No .kml file found inside KMZ archive"}, status=400)
                 # Prefer doc.kml; otherwise take the first one
                 entry = next((n for n in kml_names if n.lower() == 'doc.kml'), kml_names[0])
                 _info = zf.getinfo(entry)
                 if _info.file_size > _KMZ_INFLATE_MAX:
-                    return _too_large_once_inflated()
+                    return None, _too_large_once_inflated()
                 # Read at most one byte past the cap rather than trusting the
                 # declared size in the header.
                 with zf.open(entry) as _kml:
                     raw = _kml.read(_KMZ_INFLATE_MAX + 1)
                 if len(raw) > _KMZ_INFLATE_MAX:
-                    return _too_large_once_inflated()
+                    return None, _too_large_once_inflated()
         except _zipfile.BadZipFile as e:
-            return JsonResponse({"error": f"Invalid KMZ archive: {e}"}, status=400)
+            return None, JsonResponse({"error": f"Invalid KMZ archive: {e}"}, status=400)
 
     try:
         content = raw.decode('utf-8-sig')
@@ -9848,7 +9849,7 @@ def import_kml(request):
     try:
         root = ET.fromstring(content)
     except ET.ParseError as e:
-        return JsonResponse({"error": f"Invalid KML XML: {e}"}, status=400)
+        return None, JsonResponse({"error": f"Invalid KML XML: {e}"}, status=400)
 
     # Detect KML namespace from root element tag
     root_tag = root.tag
@@ -9882,13 +9883,6 @@ def import_kml(request):
         if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
             return None
         return lat, lon, alt
-
-    device_id = request.POST.get('device_id', 'kml-import')
-    device, _ = Device.objects.get_or_create(
-        user=request.user, device_id=device_id,
-        defaults={'name': device_id}
-    )
-    buf = _ImportBuffer()
 
     points = []  # list of (lat, lon, alt_or_None, ts_or_None)
 
@@ -9972,11 +9966,16 @@ def import_kml(request):
                         points.append((*parsed, None, None, None))
 
     if not points:
-        return JsonResponse(
+        return None, JsonResponse(
             {"error": "No track points found in KML file", "imported": 0, "errors": 0},
             status=400,
         )
+    return points, None
 
+
+def _store_kml_points(user, device, points):
+    """Save parsed KML points under `device`. Returns (count, errors, first_error)."""
+    buf = _ImportBuffer()
     count = 0
     errors = 0
     first_error = None
@@ -9994,11 +9993,28 @@ def import_kml(request):
             if first_error is None:
                 first_error = str(e)
             logger.warning(f"KML import error: {e}")
-
     buf.flush()
     if count:
-        ensure_auto_geocode(request.user.id)
+        ensure_auto_geocode(user.id)
+    return count, errors, first_error
 
+
+@login_required
+@require_http_methods(["POST"])
+def import_kml(request):
+    """Import locations from KML file (FlightRadar24, Google Earth, etc.)."""
+    f = request.FILES.get('file')
+    if not f:
+        return JsonResponse({"error": "No file uploaded"}, status=400)
+    points, err = _parse_kml_upload(f)
+    if err:
+        return err
+    device_id = request.POST.get('device_id', 'kml-import')
+    device, _ = Device.objects.get_or_create(
+        user=request.user, device_id=device_id,
+        defaults={'name': device_id}
+    )
+    count, errors, first_error = _store_kml_points(request.user, device, points)
     result = {"status": "ok", "imported": count, "errors": errors}
     if first_error and errors > 0:
         result["first_error"] = first_error
