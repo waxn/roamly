@@ -624,6 +624,14 @@
     </div>
 
     <div id="tab-flight-data" style="display:none;">
+        {# Usage first: what is left of today's OpenSky credits, from the last
+           response any request got (opensky.REMAINING_KEY) — reading it costs nothing. #}
+        <div class="fd-usage" id="fd-usage">
+            <span class="fd-usage-label">OpenSky credits left today</span>
+            <span>Tracks <b id="fd-usage-tracks">{% if opensky_usage.tracks %}{{ opensky_usage.tracks.remaining }}{% else %}–{% endif %}</b></span>
+            <span>Flights <b id="fd-usage-flights">{% if opensky_usage.flights %}{{ opensky_usage.flights.remaining }}{% else %}–{% endif %}</b></span>
+            <span class="fd-usage-at" id="fd-usage-at" data-at="{{ opensky_usage.tracks.at|default:'' }}">{% if not opensky_usage.tracks %}not known yet. Press Test below to check{% endif %}</span>
+        </div>
         <div class="card" style="transition:none;">
             <div class="card-header">AeroDataBox flight lookup</div>
             <p class="settings-section-desc">
@@ -649,6 +657,32 @@
                 <span id="adb-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
             </div>
         </div>
+        <div class="card" style="transition:none;">
+            <div class="card-header">OpenSky flight tracks</div>
+            <p class="settings-section-desc">
+                Fetches the flown path of a flight nobody recorded, from the <a href="https://opensky-network.org/" target="_blank" rel="noopener">OpenSky Network</a> (free for non-commercial use). It runs by itself after a flight is saved and every few hours after that, but <strong>only within 30 days</strong> of the flight: OpenSky keeps tracks no longer than that, so older flights still need a KML. A recording of the user's own, or a KML they upload, always takes precedence.
+            </p>
+            <p class="settings-section-desc">
+                To set it up: sign in at opensky-network.org, open <strong>Account → API Client</strong>, create a client, and paste its <strong>client id</strong> and <strong>client secret</strong> below. Roamly swaps them for a short-lived token itself; there is nothing else to configure. A standard account gets 4,000 credits a day; one flight costs about 30.
+            </p>
+            <div class="form-group">
+                <label for="osk-id">Client id</label>
+                <input type="text" id="osk-id" class="form-control" autocomplete="off" value="{{ site_opensky_client_id }}"
+                    style="max-width:420px;font-family:var(--font-mono);font-size:0.8125rem;">
+            </div>
+            <div class="form-group">
+                <label for="osk-secret">Client secret</label>
+                <input type="password" id="osk-secret" class="form-control" autocomplete="off"
+                    value="{% if site_opensky_secret_set %}••••••••{% endif %}" placeholder="paste the client secret"
+                    style="max-width:420px;font-family:var(--font-mono);font-size:0.8125rem;">
+            </div>
+            <p class="settings-section-desc" style="margin-top:-0.35rem;">Clear both fields and save to turn OpenSky off. <strong>Test</strong> signs in and spends one credit, which also refreshes the count above.</p>
+            <div class="settings-actions" style="margin-top:0.75rem;">
+                <button class="btn btn-primary btn-sm" onclick="saveOskConfig()">Save</button>
+                <button class="btn btn-outline btn-sm" onclick="testOskConfig()">Test</button>
+                <span id="osk-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -656,6 +690,10 @@
 {% block extra_css %}
 <style>
 .tab-btn { min-width:90px; }
+.fd-usage { display:flex; flex-wrap:wrap; align-items:baseline; gap:0.4rem 0.75rem; padding:0.75rem 1rem; margin-bottom:1rem; border:1px solid var(--border); border-radius:var(--radius, 8px); background:var(--bg-card); }
+.fd-usage-label { font-family:var(--font-mono); font-size:0.7rem; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-muted); }
+.fd-usage b { font-family:var(--font-mono); font-size:1.15rem; }
+.fd-usage-at { font-size:0.78rem; color:var(--text-muted); }
 /* Edit-user dialog */
 .ue-overlay { position:fixed; inset:0; z-index:2000; background:rgba(4,8,18,0.72); display:none; align-items:center; justify-content:center; padding:1rem; }
 .ue-overlay.open { display:flex; }
@@ -1724,6 +1762,53 @@ async function testAdbConfig() {
     const [r, d] = await _adbPost({ test: true });
     if (r.ok && d.ok) _adbStatus('The key works.', true);
     else _adbStatus(d.error || 'Test failed.', false);
+}
+
+// ── OpenSky (flight tracks) ─────────────────────────────────────────────────
+function _oskUsage(u) {
+    if (!u) return;
+    for (const fam of ['tracks', 'flights']) {
+        if (u[fam]) document.getElementById('fd-usage-' + fam).textContent = Number(u[fam].remaining).toLocaleString();
+    }
+    const at = document.getElementById('fd-usage-at');
+    at.dataset.at = (u.tracks || u.flights || {}).at || '';
+    _oskUsageAge();
+}
+function _oskUsageAge() {
+    const at = document.getElementById('fd-usage-at');
+    if (!at || !at.dataset.at) return;
+    const mins = Math.round((Date.now() - new Date(at.dataset.at)) / 60000);
+    at.textContent = mins < 1 ? 'as of just now' : mins < 90 ? `as of ${mins} min ago` : `as of ${new Date(at.dataset.at).toLocaleString()}`;
+}
+_oskUsageAge();
+async function _oskPost(body) {
+    const r = await fetch('/api/site/opensky/', {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
+        body: JSON.stringify(body),
+    });
+    let d = {}; try { d = await r.json(); } catch(e) {}
+    return [r, d];
+}
+function _oskStatus(text, ok) {
+    const st = document.getElementById('osk-status');
+    st.textContent = text;
+    st.style.color = ok === undefined ? 'var(--text-muted)' : (ok ? 'var(--success)' : 'var(--danger)');
+}
+async function saveOskConfig() {
+    _oskStatus('Saving…');
+    const [r, d] = await _oskPost({
+        opensky_client_id: document.getElementById('osk-id').value.trim(),
+        opensky_client_secret: document.getElementById('osk-secret').value.trim(),
+    });
+    if (!r.ok) return _oskStatus(d.error || 'Error saving.', false);
+    _oskStatus(d.configured ? 'Saved. Track fetching is on.' : 'Saved. Track fetching is off.', true);
+    if (d.configured) document.getElementById('osk-secret').value = '••••••••';
+}
+async function testOskConfig() {
+    _oskStatus('Testing…');
+    const [r, d] = await _oskPost({ test: true });
+    if (r.ok && d.ok) { _oskStatus('Signed in. The client works.', true); _oskUsage(d.usage); }
+    else _oskStatus(d.error || 'Test failed.', false);
 }
 
 // ── Downloads (road / subway / POI — instance-wide, admin-only) ─────────────
