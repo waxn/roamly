@@ -4,6 +4,7 @@ import logging
 from .scheduler_utils import db_thread
 from collections import defaultdict
 
+from django.core.cache import cache
 from django.utils import timezone
 from django.db import close_old_connections
 
@@ -62,6 +63,17 @@ def _geocode_worker(user_id):
         job.save(update_fields=['total', 'processed', 'errors', 'updated_at'])
 
         logger.info(f"Geocoding user {user_id}: {total} points")
+
+        # Labels at home come from the Maine town boundaries; labelling against
+        # an empty table gives the nearest bigger town instead (Brooks, not
+        # Waldo). Load them if missing — at most one attempt an hour, since
+        # this runs on every push, and never blocking on another worker's load.
+        if cache.add('ensure_boundaries_attempt', 1, 3600):
+            try:
+                from .regeocode_tasks import ensure_boundaries
+                ensure_boundaries(wait=False)
+            except Exception as e:
+                logger.error(f"Loading town boundaries failed: {e}")
 
         while True:
             # Honour a stop request raised from the UI.

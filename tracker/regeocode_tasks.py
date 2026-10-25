@@ -48,7 +48,69 @@ _SUMMARY_PLACES = 200
 _SUMMARY_MOVES = 100
 
 
-_ACTIVE = ('running', 'applying', 'refreshing')
+_ACTIVE = ('boundaries', 'running', 'applying', 'refreshing')
+
+
+# US states whose Census town boundaries labels on this instance are built
+# from. The original labels at home in Waldo, Maine came from them, and without
+# them loaded the geocoder falls back to the nearest town of 1000+ (Brooks):
+# relabelling with the table empty turned 800k points at home into a neighbour,
+# twice. So both the re-geocode and the geocoding worker load these first
+# (``ensure_boundaries``). Outside these states labels are the nearest town, as
+# they always were here.
+BOUNDARY_STATES = {'ME': 'Maine'}
+
+
+class BoundaryError(Exception):
+    pass
+
+
+_BOUNDARY_LOCK = 'ensure_boundaries_lock'
+_BOUNDARY_LOCK_TTL_S = 900
+
+
+def ensure_boundaries(log=None, wait=True):
+    """Load the town boundaries for ``BOUNDARY_STATES`` that aren't in the
+    table yet. Raises ``BoundaryError`` if one still isn't there afterwards —
+    never relabel against a table that is missing them. No-op without PostGIS.
+
+    Single-flight across workers (a cache lock): with ``wait`` a second caller
+    waits for the first to finish; without it, it returns at once."""
+    import io
+    from django.conf import settings
+    from django.core.management import call_command
+    from .models import Boundary
+
+    if 'postgis' not in settings.DATABASES.get('default', {}).get('ENGINE', ''):
+        return
+    have = lambda name: Boundary.objects.filter(  # noqa: E731
+        country_code='US', state=name, kind__in=('place', 'cousub')).exists()
+    missing = [abbr for abbr, name in BOUNDARY_STATES.items() if not have(name)]
+    if not missing:
+        return
+    if not cache.add(_BOUNDARY_LOCK, 1, _BOUNDARY_LOCK_TTL_S):
+        if not wait:
+            return
+        deadline = time.time() + _BOUNDARY_LOCK_TTL_S
+        while cache.get(_BOUNDARY_LOCK) and time.time() < deadline:
+            time.sleep(3)
+        missing = [abbr for abbr, name in BOUNDARY_STATES.items() if not have(name)]
+        err = io.StringIO()
+    else:
+        try:
+            if log:
+                log(f"Loading town boundaries for {', '.join(BOUNDARY_STATES[a] for a in missing)}…")
+            out, err = io.StringIO(), io.StringIO()
+            # --keep: add these states only; never clear what is already loaded.
+            call_command('import_boundaries', states=','.join(missing), kinds='place,cousub',
+                         keep=True, stdout=out, stderr=err)
+        finally:
+            cache.delete(_BOUNDARY_LOCK)
+    still = [BOUNDARY_STATES[a] for a in missing if not have(BOUNDARY_STATES[a])]
+    if still:
+        raise BoundaryError(
+            f"Couldn't load the town boundaries for {', '.join(still)}, so nothing was "
+            f"relabelled. {err.getvalue().strip()[:300]}")
 
 
 class _Stopped(Exception):
@@ -84,6 +146,13 @@ def regeocode(user_ids=None, log=None, progress=None, should_stop=None, tally=No
     def check_stop():
         if should_stop and should_stop():
             raise _Stopped()
+
+    # Phase 0: the boundaries the labels come from. Writes reference data only,
+    # never a point, so stopping after it still leaves every point as it was.
+    if progress:
+        progress('boundaries', 0, 0, 0)
+    ensure_boundaries(log)
+    check_stop()
 
     base = Location.objects.all()
     if user_ids is not None:
@@ -255,7 +324,9 @@ def get_status(user_id):
     job = cache.get(_job_key(user_id))
     if not job:
         return {'status': 'idle', 'done': 0, 'total': 0, 'changed': 0}
-    limit = _STALE_REFRESHING_S if job.get('status') == 'refreshing' else _STALE_AFTER_S
+    # The stats refresh and the boundary download are long single calls with no
+    # progress of their own.
+    limit = _STALE_REFRESHING_S if job.get('status') in ('refreshing', 'boundaries') else _STALE_AFTER_S
     if job.get('status') in _ACTIVE and time.time() - job.get('updated', 0) > limit:
         job = _write(user_id, status='failed', error='The job stopped responding; start it again.')
     return {k: job.get(k) for k in ('status', 'done', 'total', 'changed', 'applied', 'error', 'summary', 'finished')}
@@ -279,7 +350,7 @@ def start(user_id, rebuild=False):
 
 def stop(user_id):
     # Once the stats refresh starts, the relabel has committed; too late to undo.
-    if get_status(user_id)['status'] not in ('running', 'applying'):
+    if get_status(user_id)['status'] not in ('boundaries', 'running', 'applying'):
         return False
     cache.set(_stop_key(user_id), 1, 3600)
     return True
@@ -289,7 +360,9 @@ def _run(user_id, rebuild=False):
     tally = Tally()
 
     def progress(phase, d, t, c):
-        if phase == 'scan':
+        if phase == 'boundaries':
+            _write(user_id, status='boundaries')
+        elif phase == 'scan':
             _write(user_id, status='running', done=d, total=t, changed=c)
         else:
             _write(user_id, status='applying', applied=d, changed=t)
