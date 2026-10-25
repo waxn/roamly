@@ -217,6 +217,44 @@ class FlightsViewModel @Inject constructor(
 
     fun removeTrack() = _state.update { it.copy(pendingTrack = null, pendingRemove = true) }
 
+    fun startNew() = reset(FlightDraft(date = java.time.LocalDate.now().toString()))
+
+    fun startEdit(id: Int) {
+        val f = _state.value.flights.firstOrNull { it.id == id } ?: return
+        reset(fromDto(f))
+        loadEditTrack()
+    }
+
+    /** A scanned pass: fill what it carries, then ask AeroDataBox for the rest. */
+    fun startFromPass(pass: Bcbp.Pass, leg: Bcbp.Leg, image: ByteArray?) {
+        reset(FlightDraft(
+            flightNumber = leg.flightNumber,
+            date = leg.date?.toString().orEmpty(),
+            dep = leg.from, arr = leg.to,
+            seat = leg.seat, seatClass = leg.seatClass,
+            bookingRef = leg.bookingRef, passengerName = pass.passengerName,
+            checkinSeq = leg.checkinSeq, ticketNumber = leg.ticketNumber,
+            frequentFlyer = leg.frequentFlyer, bcbpRaw = pass.raw,
+            airlineIata = leg.carrier.takeIf { it.length == 2 }.orEmpty(),
+            source = "boarding_pass",
+        ), image)
+        setStatus(if (leg.date == null) "Read from the boarding pass. Check the date." else "Read from the boarding pass.")
+        if (leg.date == null) return
+        viewModelScope.launch {
+            // Opened straight from a share, the list may not have loaded yet,
+            // and it is what says whether lookup is available.
+            if (!_state.value.loaded) {
+                fetch()
+                // Say so rather than quietly skipping the lookup: this is what
+                // made a failing list request look like "lookup does nothing".
+                _state.value.error?.let { setStatus("Couldn't reach the server for flight details: $it", error = true) }
+            }
+            if (lookupPossible) lookup()
+        }
+    }
+
+    fun edit(change: (FlightDraft) -> FlightDraft) = _state.update { it.copy(draft = change(it.draft)) }
+
     // ── AeroDataBox ─────────────────────────────────────────────────────────
 
     fun lookup() {
