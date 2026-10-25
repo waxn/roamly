@@ -281,6 +281,23 @@
             </div>
         </div>
 
+        <div id="f-trk">
+            <div class="fl-section">Flight track</div>
+            <div class="fl-trk-map" id="f-trk-map"></div>
+            <div class="fl-trk-src" id="f-trk-src"></div>
+            <div class="fl-trk-actions">
+                <button type="button" class="btn btn-outline btn-sm" id="f-osk-btn" onclick="fetchOpenSky()"
+                    {% if not OPENSKY_ENABLED %}disabled title="OpenSky isn't set up on this instance (Admin Panel → Flight data)"{% else %}title="Fetch this flight's track from the OpenSky Network (flights in the last 30 days)"{% endif %}>Find track</button>
+                <label class="btn btn-outline btn-sm" style="margin:0;cursor:pointer;" title="A KML, KMZ or CSV from Flightradar24 or any tracker. It becomes this flight's track, ahead of OpenSky's. On an empty form, a Flightradar24 KML fills in the whole flight.">Upload file
+                    <input type="file" accept=".kml,.kmz,.csv,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz,text/csv" id="f-kml-file" hidden>
+                </label>
+                <button type="button" class="btn btn-outline btn-sm" onclick="trackAction('match')" title="Look for this flight in the locations already stored: your phone's, and any track files imported before">Use existing locations</button>
+                <a class="btn btn-outline btn-sm" id="f-trk-fr24" target="_blank" rel="noopener noreferrer" hidden>Flightradar24 &nearr;</a>
+                <button type="button" class="btn btn-outline btn-sm" id="f-trk-unlink" onclick="trackAction('unlink')" hidden>Unlink recording</button>
+            </div>
+        </div>
+
+
         <details class="fl-adv" id="f-adv">
             <summary>Advanced</summary>
             <p class="fl-hint">Details from the boarding pass. The booking reference can be used to manage the booking, so keep this to yourself.</p>
@@ -331,22 +348,6 @@
                 </div>
             </div>
         </details>
-
-        <div id="f-trk">
-            <div class="fl-section">Flight track</div>
-            <div class="fl-trk-map" id="f-trk-map"></div>
-            <div class="fl-trk-src" id="f-trk-src"></div>
-            <div class="fl-trk-actions">
-                <button type="button" class="btn btn-outline btn-sm" id="f-osk-btn" onclick="fetchOpenSky()"
-                    {% if not OPENSKY_ENABLED %}disabled title="OpenSky isn't set up on this instance (Admin Panel → Flight data)"{% else %}title="Fetch this flight's track from the OpenSky Network (flights in the last 30 days)"{% endif %}>Find track</button>
-                <label class="btn btn-outline btn-sm" style="margin:0;cursor:pointer;" title="A KML, KMZ or CSV from Flightradar24 or any tracker. It becomes this flight's track, ahead of OpenSky's. On an empty form, a Flightradar24 KML fills in the whole flight.">Upload file
-                    <input type="file" accept=".kml,.kmz,.csv,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz,text/csv" id="f-kml-file" hidden>
-                </label>
-                <button type="button" class="btn btn-outline btn-sm" onclick="trackAction('match')" title="Look for this flight in the locations already stored: your phone's, and any track files imported before">Use existing locations</button>
-                <a class="btn btn-outline btn-sm" id="f-trk-fr24" target="_blank" rel="noopener noreferrer" hidden>Flightradar24 &nearr;</a>
-                <button type="button" class="btn btn-outline btn-sm" id="f-trk-unlink" onclick="trackAction('unlink')" hidden>Unlink recording</button>
-            </div>
-        </div>
 
         <div class="fl-actions">
             <button class="btn btn-outline" id="f-delete" onclick="deleteFlight()" style="color:var(--danger);" hidden>Delete</button>

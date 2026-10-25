@@ -162,6 +162,31 @@ fun FlightEditScreen(viewModel: FlightsViewModel, onDone: () -> Unit) {
                 Field("Notes", d.notes, singleLine = false) { v -> viewModel.edit { it.copy(notes = v) } }
             }
 
+            if (d.id != null) {
+                FlightTrackCard(
+                    state = state,
+                    onFr24 = {
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(
+                                "https://www.flightradar24.com/data/flights/" + d.flightNumber.replace(" ", "").lowercase())))
+                        }
+                    },
+                    onKml = { kmlPicker.launch(arrayOf("application/vnd.google-earth.kml+xml",
+                        "application/vnd.google-earth.kmz", "application/xml", "text/xml",
+                        "text/csv", "text/comma-separated-values", "application/octet-stream")) },
+                    onOpenSky = viewModel::fetchOpenSky,
+                    onRematch = { viewModel.trackAction(unlink = false) },
+                    onUnlink = { viewModel.trackAction(unlink = true) },
+                )
+            } else {
+                ClayCard {
+                    Section("Flight track")
+                    Text("Save the flight first, then find its track: from OpenSky, from a Flightradar24 " +
+                         "KML or CSV, or from the locations you already have.",
+                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
             ClayCard(onClick = { showAdvanced = !showAdvanced }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Advanced", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
@@ -197,30 +222,6 @@ fun FlightEditScreen(viewModel: FlightsViewModel, onDone: () -> Unit) {
                 }
             }
 
-            if (d.id != null) {
-                FlightTrackCard(
-                    state = state,
-                    onFr24 = {
-                        runCatching {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(
-                                "https://www.flightradar24.com/data/flights/" + d.flightNumber.replace(" ", "").lowercase())))
-                        }
-                    },
-                    onKml = { kmlPicker.launch(arrayOf("application/vnd.google-earth.kml+xml",
-                        "application/vnd.google-earth.kmz", "application/xml", "text/xml",
-                        "text/csv", "text/comma-separated-values", "application/octet-stream")) },
-                    onOpenSky = viewModel::fetchOpenSky,
-                    onRematch = { viewModel.trackAction(unlink = false) },
-                    onUnlink = { viewModel.trackAction(unlink = true) },
-                )
-            } else {
-                ClayCard {
-                    Section("Flight track")
-                    Text("Save the flight first, then find its track: from OpenSky, from a Flightradar24 " +
-                         "KML or CSV, or from the locations you already have.",
-                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
             Spacer(Modifier.size(8.dp))
         }
 
