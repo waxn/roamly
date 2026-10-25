@@ -207,11 +207,19 @@ fun FlightEditScreen(viewModel: FlightsViewModel, onDone: () -> Unit) {
                         }
                     },
                     onKml = { kmlPicker.launch(arrayOf("application/vnd.google-earth.kml+xml",
-                        "application/vnd.google-earth.kmz", "application/xml", "text/xml", "application/octet-stream")) },
+                        "application/vnd.google-earth.kmz", "application/xml", "text/xml",
+                        "text/csv", "text/comma-separated-values", "application/octet-stream")) },
                     onOpenSky = viewModel::fetchOpenSky,
                     onRematch = { viewModel.trackAction(unlink = false) },
                     onUnlink = { viewModel.trackAction(unlink = true) },
                 )
+            } else {
+                ClayCard {
+                    Section("Flight track")
+                    Text("Save the flight first, then find its track: from OpenSky, from a Flightradar24 " +
+                         "KML or CSV, or from the locations you already have.",
+                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             Spacer(Modifier.size(8.dp))
         }
@@ -346,15 +354,18 @@ private fun FlightTrackCard(
         Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.size(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ClayOutlinedButton(onClick = onFr24, enabled = d.flightNumber.isNotBlank(), modifier = Modifier.weight(1f)) { Text("Flightradar24 ↗") }
-            ClayOutlinedButton(onClick = onKml, enabled = !state.trackBusy, modifier = Modifier.weight(1f)) { Text("Upload KML") }
+            // Find track = OpenSky; the server explains if it isn't set up.
+            ClayOutlinedButton(onClick = onOpenSky, enabled = !state.trackBusy, modifier = Modifier.weight(1f)) {
+                if (state.trackBusy) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp) else Text("Find track")
+            }
+            ClayOutlinedButton(onClick = onKml, enabled = !state.trackBusy, modifier = Modifier.weight(1f)) { Text("Upload file") }
+        }
+        ClayOutlinedButton(onClick = onRematch, enabled = !state.trackBusy, modifier = Modifier.fillMaxWidth()) {
+            Text("Use existing locations")
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ClayOutlinedButton(onClick = onOpenSky, enabled = !state.trackBusy, modifier = Modifier.weight(1f)) {
-                if (state.trackBusy) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp) else Text("From OpenSky")
-            }
-            ClayOutlinedButton(onClick = if (d.hasTrack) onUnlink else onRematch, enabled = !state.trackBusy,
-                               modifier = Modifier.weight(1f)) { Text(if (d.hasTrack) "Unlink" else "Re-match") }
+            ClayOutlinedButton(onClick = onFr24, enabled = d.flightNumber.isNotBlank(), modifier = Modifier.weight(1f)) { Text("Flightradar24 ↗") }
+            if (d.hasTrack) ClayOutlinedButton(onClick = onUnlink, enabled = !state.trackBusy, modifier = Modifier.weight(1f)) { Text("Unlink") }
         }
     }
 }
