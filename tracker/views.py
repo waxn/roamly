@@ -1,6 +1,7 @@
 import base64
 import csv
 import gzip
+import hashlib
 import zlib
 import io
 import json
@@ -3205,6 +3206,28 @@ def push_location_batch(request):
     return JsonResponse({"status": "ok", "accepted": accepted, "submitted": len(to_create)})
 
 
+# Map place filter: ?city=&state=&country= narrows every map data endpoint to
+# points geocoded to that place — what a click on a Visits row opens. Exact
+# matches on the stored labels (each has its own index), because those are the
+# very strings the Visits page grouped by.
+_PLACE_FILTER_FIELDS = ('city', 'state', 'country')
+
+
+def _place_filter(get):
+    """The place filter in a request's query string, as {field: value}."""
+    out = {}
+    for f in _PLACE_FILTER_FIELDS:
+        v = (get.get(f) or '').strip()
+        if v:
+            out[f] = v[:200]
+    return out
+
+
+def _apply_place_filter(qs, get):
+    place = _place_filter(get)
+    return qs.filter(**place) if place else qs
+
+
 @login_required
 def locations_bounds_api(request):
     """Return the bounding box of all user locations matching current filters. Fast — no point data returned."""
@@ -3232,6 +3255,7 @@ def locations_bounds_api(request):
 
     if device_id:
         qs = qs.filter(device__device_id=device_id)
+    qs = _apply_place_filter(qs, request.GET)
 
     agg = qs.aggregate(
         min_lat=Min('latitude'), max_lat=Max('latitude'),
@@ -3332,6 +3356,7 @@ def track_api(request):
 
     if device_id:
         qs = qs.filter(device__device_id=device_id)
+    qs = _apply_place_filter(qs, request.GET)
 
     # Group by device, then decimate each device's track independently
     devices_map = {}
@@ -3914,6 +3939,7 @@ def trip_lines_api(request):
 
     if device_id:
         qs = qs.filter(device__device_id=device_id)
+    qs = _apply_place_filter(qs, request.GET)
 
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
 
@@ -4123,6 +4149,7 @@ def _locations_api_inner(request):
 
     if device_id:
         locations = locations.filter(device__device_id=device_id)
+    locations = _apply_place_filter(locations, request.GET)
 
     # Additional filter parameters
     q = request.GET.get('q')
@@ -4377,6 +4404,13 @@ def _tile_filters(user_id, get):
             cache_ttl = 30
 
     tag += f":{device_id or ''}"
+    place = _place_filter(get)
+    for f, v in place.items():
+        # Field names come from _PLACE_FILTER_FIELDS, never from the request.
+        extra_where.append(f"AND l.{f} = %(place_{f})s")
+        params[f"place_{f}"] = v
+    if place:
+        tag += ':' + hashlib.sha1('|'.join(place.get(f, '') for f in _PLACE_FILTER_FIELDS).encode()).hexdigest()[:16]
     return extra_where, params, tag, cache_ttl
 
 
@@ -4792,7 +4826,7 @@ def countries_api(request):
 _FOG_CELLS_PER_DEG = 1000
 
 
-def _visited_cells(user, device_id=None):
+def _visited_cells(user, device_id=None, place=None):
     """Distinct ~110m cells the user has ever been in, with a point count each.
 
     Shared by the fog of war and the map's All-time overview, so the
@@ -4804,7 +4838,9 @@ def _visited_cells(user, device_id=None):
 
     Returns ``{'cells': [gy, gx, n, ...], 'bounds': [[w, s], [e, n]] | None}``.
     """
-    cache_key = f"visited_cells:{user.id}:{device_id or 'all'}"
+    place = place or {}
+    place_tag = '|'.join(place.get(f, '') for f in _PLACE_FILTER_FIELDS)
+    cache_key = f"visited_cells:{user.id}:{device_id or 'all'}:{hashlib.sha1(place_tag.encode()).hexdigest()[:16] if place else ''}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -4812,6 +4848,8 @@ def _visited_cells(user, device_id=None):
     qs = Location.objects.filter(device__user=user)
     if device_id:
         qs = qs.filter(device__device_id=device_id)
+    if place:
+        qs = qs.filter(**place)
     # order_by() clears Location's Meta.ordering ['-timestamp']; without it the
     # inherited ordering is appended to the GROUP BY and shatters it per row.
     rows = (
@@ -4870,9 +4908,11 @@ def map_overview_api(request):
     device_id = request.GET.get('device_id') or None
     if device_id and not Device.objects.filter(user=request.user, device_id=device_id).exists():
         return JsonResponse({'cells': [], 'bounds': None, 'per_deg': _FOG_CELLS_PER_DEG, 'version': 0})
-    data = _visited_cells(request.user, device_id)
+    place = _place_filter(request.GET)
+    data = _visited_cells(request.user, device_id, place)
     version = _slow_gen(request.user.id)
-    if HAS_POSTGIS and data['cells']:
+    # Warm-up covers the everyday unfiltered view; a place filter is one-off.
+    if HAS_POSTGIS and data['cells'] and not place:
         _kick_tile_warmup(request.user.id, data['cells'], device_id, version)
     return JsonResponse({**data, 'per_deg': _FOG_CELLS_PER_DEG, 'version': version})
 
