@@ -161,6 +161,19 @@
             list-style: none;
         }
         .road-advanced > summary::-webkit-details-marker { display: none; }
+        .rg-summary { margin-top: 0.9rem; border: 1px solid var(--border); padding: 0.6rem 0.75rem; }
+        .rg-title { font-size: 0.8125rem; font-weight: 600; color: var(--text); margin-bottom: 0.35rem; }
+        .rg-section { border-top: 1px solid var(--border); padding: 0.35rem 0; }
+        .rg-section:first-of-type { border-top: none; }
+        .rg-section > summary { cursor: pointer; font-size: 0.8125rem; font-weight: 600; color: var(--text); }
+        .rg-badge { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); margin-left: 0.3rem; }
+        .rg-list { list-style: none; margin: 0.35rem 0 0; padding: 0; max-height: 260px; overflow-y: auto; }
+        .rg-list li { display: flex; justify-content: space-between; gap: 0.75rem; font-size: 0.8125rem; padding: 0.2rem 0; border-bottom: 1px solid var(--border); }
+        .rg-list li:last-child { border-bottom: none; }
+        .rg-list li > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+        .rg-count { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; }
+        .rg-arrow { color: var(--primary); }
+        .rg-more, .rg-empty { font-size: 0.8125rem; color: var(--text-muted); padding-top: 0.25rem; }
         .road-advanced > summary::before { content: '▸ '; }
         .road-advanced[open] > summary::before { content: '▾ '; }
         .road-advanced > summary:hover { color: var(--text); }
@@ -837,7 +850,7 @@
                 <!-- Re-geocode everything -->
                 <div>
                     <div style="font-size:0.875rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">Re-geocode All Points</div>
-                    <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;">Relabel your whole history with the current geocoder — after an update to it, or when places near a border were labelled with the wrong town or country. Only points whose label changes are rewritten; Visits and Stats are refreshed when it finishes.</div>
+                    <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;">Relabel your whole history with the current geocoder — after an update to it, or when places near a border were labelled with the wrong town or country. Every change is found first and then applied in one go, so stopping it leaves your points exactly as they were. Only points whose label changes are rewritten; Visits and Stats are refreshed when it finishes.</div>
                     <div class="settings-actions">
                         <button class="btn btn-primary btn-sm" id="regeocode-btn" onclick="startRegeocode()">Start</button>
                         <button class="btn btn-outline btn-sm" id="regeocode-stop-btn" onclick="stopRegeocode()" style="display:none;">Stop</button>
@@ -848,6 +861,7 @@
                         </div>
                         <div id="regeocode-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
                     </div>
+                    <div id="regeocode-summary" class="rg-summary" hidden></div>
                 </div>
 
                 <div style="border-top:1px solid var(--border);"></div>
@@ -1808,7 +1822,7 @@ function renderRegeocode(data) {
     wrap.style.display = 'block';
     const done = data.done || 0, total = data.total || 0, changed = data.changed || 0;
     const pct = total > 0 ? Math.round(done / total * 100) : 0;
-    const counts = `${done.toLocaleString()}/${total.toLocaleString()} points checked, ${changed.toLocaleString()} relabelled`;
+    const counts = `${done.toLocaleString()}/${total.toLocaleString()} points checked, ${changed.toLocaleString()} to relabel`;
 
     if (data.status === 'running') {
         bar.style.background = 'var(--primary)';
@@ -1818,27 +1832,67 @@ function renderRegeocode(data) {
             const secs = Math.round((total - done) * ((Date.now() - regeocodeStartTime) / 1000) / done);
             eta = secs < 60 ? ` — ~${secs}s left` : ` — ~${Math.round(secs / 60)}m left`;
         }
-        statusEl.innerHTML = `<span class="spinner"></span> ${counts}${total ? ' (' + pct + '%)' : ''}${eta}`;
+        statusEl.innerHTML = `<span class="spinner"></span> ${counts}${total ? ' (' + pct + '%)' : ''}${eta} — nothing changed yet`;
+    } else if (data.status === 'applying') {
+        const applied = data.applied || 0;
+        bar.style.background = 'var(--primary)';
+        bar.style.width = (changed ? Math.round(applied / changed * 100) : 100) + '%';
+        statusEl.innerHTML = `<span class="spinner"></span> relabelling ${applied.toLocaleString()}/${changed.toLocaleString()} points (stopping now undoes all of it)`;
     } else if (data.status === 'refreshing') {
         bar.style.width = '100%';
-        statusEl.innerHTML = `<span class="spinner"></span> ${counts} — refreshing Visits and Stats…`;
+        statusEl.innerHTML = `<span class="spinner"></span> ${changed.toLocaleString()} points relabelled — refreshing Visits and Stats…`;
     } else {
         bar.style.width = data.status === 'completed' ? '100%' : pct + '%';
         bar.style.background = data.status === 'completed' ? 'var(--success)'
             : data.status === 'failed' ? 'var(--danger)' : 'var(--text-muted)';
-        statusEl.textContent = data.status === 'completed' ? `done — ${counts}`
-            : data.status === 'stopped' ? `stopped — ${counts}`
-            : `failed — ${data.error || 'unknown error'}`;
+        const when = data.finished ? ` (${new Date(data.finished * 1000).toLocaleString()})` : '';
+        statusEl.textContent = data.status === 'completed'
+            ? `done${when} — ${done.toLocaleString()} points checked, ${changed.toLocaleString()} relabelled`
+            : data.status === 'stopped' ? `stopped${when} — no points were changed`
+            : `failed${when} — no points were changed. ${data.error || ''}`;
     }
-    const running = data.status === 'running' || data.status === 'refreshing';
+    renderRegeocodeSummary(data.status === 'completed' ? data.summary : null);
+
+    const running = ['running', 'applying', 'refreshing'].includes(data.status);
     setRegeocodeUI(running);
-    document.getElementById('regeocode-stop-btn').style.display = data.status === 'running' ? 'inline-block' : 'none';
+    document.getElementById('regeocode-stop-btn').style.display =
+        (data.status === 'running' || data.status === 'applying') ? 'inline-block' : 'none';
     if (running && !regeocodeTimer) {
         regeocodeTimer = setInterval(pollRegeocode, 2000);
     } else if (!running && regeocodeTimer) {
         clearInterval(regeocodeTimer);
         regeocodeTimer = null;
     }
+}
+
+// "Relabelled towns": places that exist now and didn't before, places that no
+// point carries any more, and the biggest old → new moves behind them.
+function renderRegeocodeSummary(sum) {
+    const box = document.getElementById('regeocode-summary');
+    if (!sum) { box.hidden = true; box.innerHTML = ''; return; }
+    const n = v => Number(v).toLocaleString();
+    const pts = c => `<span class="rg-count">${n(c)} pt${c === 1 ? '' : 's'}</span>`;
+    const more = (shown, total) => total > shown
+        ? `<li class="rg-more">…and ${n(total - shown)} more</li>` : '';
+    const list = (items, total, row, empty) => items.length
+        ? `<ul class="rg-list">${items.map(row).join('')}${more(items.length, total)}</ul>`
+        : `<div class="rg-empty">${empty}</div>`;
+    const section = (title, total, body, open) =>
+        `<details class="rg-section"${open ? ' open' : ''}><summary>${title} <span class="rg-badge">${n(total)}</span></summary>${body}</details>`;
+
+    box.innerHTML = `<div class="rg-title">Relabelled towns</div>` +
+        section('Added', sum.added_total,
+            list(sum.added, sum.added_total, ([p, c]) => `<li><span>${escapeHtml(p)}</span>${pts(c)}</li>`, 'No new places.'),
+            sum.added_total > 0) +
+        section('Removed', sum.removed_total,
+            list(sum.removed, sum.removed_total, ([p, c]) => `<li><span>${escapeHtml(p)}</span>${pts(c)}</li>`, 'No places removed.'),
+            sum.removed_total > 0) +
+        section('Moved', sum.moves_total,
+            list(sum.moves, sum.moves_total, ([o, nw, c]) =>
+                `<li><span>${escapeHtml(o)} <span class="rg-arrow">→</span> ${escapeHtml(nw)}</span>${pts(c)}</li>`,
+                'Nothing moved.'),
+            false);
+    box.hidden = false;
 }
 
 function pollRegeocode() {
