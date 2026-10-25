@@ -1,0 +1,1079 @@
+{% extends "tracker/base.html" %}
+{% load static %}
+{% block title %}Achievements - Roamly{% endblock %}
+
+{% block extra_css %}
+.ach { --t1: #b08d57; --t2: #a9b2ba; --t3: #d4a93a; --t4: #8fd3dc; }
+.ach-bar { display:flex; align-items:center; gap:0.6rem; justify-content:flex-end; margin:-0.5rem 0 1rem; flex-wrap:wrap; }
+.ach-bar .muted { font-size:0.75rem; color:var(--text-muted); font-weight:600; }
+.ach-job { flex:1 1 220px; max-width:360px; display:none; }
+.ach-job .track { background:var(--bg-input); height:6px; overflow:hidden; margin-bottom:0.25rem; }
+.ach-job .fill { height:100%; width:0; background:var(--primary); transition:width 0.4s ease; }
+.ach-job .lbl { font-size:0.75rem; color:var(--text-muted); }
+
+.sec { margin-top:2.25rem; }
+.sec-h { display:flex; align-items:baseline; gap:0.75rem; margin-bottom:0.9rem; border-bottom:1px solid var(--border); padding-bottom:0.45rem; }
+.sec-h h2 { font-family:var(--font-display); font-size:1.35rem; margin:0; color:var(--text); }
+.sec-h .em { font-size:1.3rem; }
+.sec-h .sub { font-size:0.8125rem; color:var(--text-muted); margin-left:auto; text-align:right; }
+.card h3 { font-size:0.8125rem; font-weight:600; color:var(--text-muted); margin:0 0 0.6rem; font-family:var(--font-body); }
+.mono { font-family:var(--font-mono); }
+.big { font-family:var(--font-display); font-size:2.2rem; line-height:1.05; color:var(--text); }
+.big small { font-size:0.95rem; color:var(--text-muted); font-family:var(--font-body); margin-left:0.2rem; }
+.note { font-size:0.8125rem; color:var(--text-muted); line-height:1.45; }
+.note a { color:var(--link); }
+.kv { display:grid; grid-template-columns:1fr auto; gap:0.3rem 0.75rem; font-size:0.8125rem; }
+.kv dt { color:var(--text-muted); }
+.kv dd { margin:0; font-family:var(--font-mono); color:var(--text); text-align:right; }
+.kv dd a { color:inherit; text-decoration:underline dotted; }
+
+.pbar { background:var(--bg-input); height:8px; overflow:hidden; }
+.pbar > span { display:block; height:100%; background:var(--primary); transition:width 0.6s ease; }
+.pct-tile .big { font-size:2.6rem; }
+.pct-tile .of { font-size:0.8125rem; color:var(--text-muted); margin:0.25rem 0 0.6rem; font-family:var(--font-mono); }
+
+/* Hero */
+.hero { display:grid; grid-template-columns:auto 1fr; gap:1.5rem; align-items:center; }
+@media (max-width:720px) { .hero { grid-template-columns:1fr; justify-items:center; text-align:center; } }
+.lvl-ring { position:relative; width:150px; height:150px; }
+.lvl-ring canvas { width:150px; height:150px; }
+.lvl-ring .in { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.lvl-ring .n { font-family:var(--font-display); font-size:2.6rem; line-height:1; }
+.lvl-ring .t { font-size:0.7rem; color:var(--text-muted); font-family:var(--font-mono); }
+.hero-title { font-family:var(--font-display); font-size:1.9rem; margin:0 0 0.15rem; }
+.hero-stats { display:flex; gap:1.5rem; flex-wrap:wrap; margin:0.75rem 0 0.9rem; }
+@media (max-width:720px) { .hero-stats { justify-content:center; } }
+.hero-stats div { font-size:0.75rem; color:var(--text-muted); }
+.hero-stats b { display:block; font-family:var(--font-display); font-size:1.4rem; color:var(--text); font-weight:600; }
+.strip { display:flex; gap:0.5rem; flex-wrap:wrap; }
+.chip { display:inline-flex; align-items:center; gap:0.35rem; border:1px solid var(--border); padding:0.25rem 0.55rem; font-size:0.75rem; background:var(--bg-elevated); }
+.chip .pip { width:8px; height:8px; border-radius:50%; }
+
+/* Badges */
+.badge-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:0.75rem; }
+.bdg { border:1px solid var(--border); background:var(--bg-card); padding:0.8rem 0.75rem 0.7rem; position:relative; display:flex; flex-direction:column; gap:0.35rem; min-height:150px; }
+.bdg .medal { width:46px; height:46px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:1.45rem; border:3px solid var(--border); background:var(--bg-elevated); }
+.bdg[data-tier="1"] .medal { border-color:var(--t1); }
+.bdg[data-tier="2"] .medal { border-color:var(--t2); }
+.bdg[data-tier="3"] .medal { border-color:var(--t3); box-shadow:0 0 0 3px rgba(212,169,58,0.18); }
+.bdg[data-tier="4"] .medal { border-color:var(--t4); box-shadow:0 0 0 4px rgba(143,211,220,0.22); }
+.bdg[data-tier="0"] { opacity:0.62; }
+.bdg[data-tier="0"] .medal { filter:grayscale(1); }
+.bdg .nm { font-weight:600; font-size:0.875rem; color:var(--text); }
+.bdg .bl { font-size:0.72rem; color:var(--text-muted); line-height:1.35; flex:1; }
+.bdg .val { font-family:var(--font-mono); font-size:0.75rem; color:var(--text); }
+.bdg .pips { display:flex; gap:3px; }
+.bdg .pips i { flex:1; height:4px; background:var(--bg-input); }
+.bdg .pips i.on1 { background:var(--t1); } .bdg .pips i.on2 { background:var(--t2); }
+.bdg .pips i.on3 { background:var(--t3); } .bdg .pips i.on4 { background:var(--t4); }
+.bdg .tiername { position:absolute; top:0.6rem; right:0.6rem; font-size:0.62rem; font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); }
+.bdg .nextp { height:3px; background:var(--bg-input); } .bdg .nextp span { display:block; height:100%; background:var(--primary); }
+.bdg-group-h { font-size:0.8125rem; font-weight:600; color:var(--text-muted); margin:1.2rem 0 0.55rem; }
+
+/* Tables */
+.tbl { width:100%; border-collapse:collapse; font-size:0.8125rem; }
+.tbl th { text-align:left; font-weight:600; color:var(--text-muted); padding:0.4rem 0.5rem; border-bottom:1px solid var(--border); cursor:pointer; white-space:nowrap; user-select:none; }
+.tbl td { padding:0.38rem 0.5rem; border-bottom:1px solid var(--border); vertical-align:middle; }
+.tbl td.n { font-family:var(--font-mono); text-align:right; white-space:nowrap; }
+.tbl .mini { width:90px; }
+.tbl-wrap { max-height:460px; overflow:auto; }
+
+.rank { list-style:none; padding:0; margin:0; counter-reset:r; }
+.rank li { display:grid; grid-template-columns:1.5rem 1fr auto; gap:0.5rem; padding:0.35rem 0; border-bottom:1px solid var(--border); font-size:0.8125rem; align-items:center; }
+.rank li:last-child { border-bottom:0; }
+.rank li::before { counter-increment:r; content:counter(r); font-family:var(--font-mono); color:var(--text-dim); font-size:0.75rem; }
+.rank .sub { display:block; font-size:0.7rem; color:var(--text-muted); }
+.rank .n { font-family:var(--font-mono); color:var(--text); font-size:0.75rem; text-align:right; }
+
+.mapbox { position:relative; height:300px; border:1px solid var(--border); background:var(--bg-elevated); }
+.mapbox.tall { height:380px; }
+.map-tip { position:absolute; pointer-events:none; background:var(--bg-card); border:1px solid var(--border); padding:0.3rem 0.5rem; font-size:0.75rem; opacity:0; transition:opacity 0.12s; z-index:3; white-space:nowrap; }
+
+.donut-wrap { display:grid; grid-template-columns:180px 1fr; gap:1rem; align-items:center; }
+@media (max-width:520px) { .donut-wrap { grid-template-columns:1fr; justify-items:center; } }
+.donut-wrap canvas { width:180px; height:180px; }
+.legend { list-style:none; padding:0; margin:0; font-size:0.8125rem; width:100%; }
+.legend li { display:grid; grid-template-columns:12px 1fr auto; gap:0.5rem; align-items:center; padding:0.22rem 0; }
+.legend li i { width:12px; height:12px; }
+.legend li span:last-child { font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted); }
+.legend li.dim { opacity:0.45; }
+
+.gauge canvas { width:100%; max-width:300px; height:170px; display:block; margin:0 auto; }
+
+.hw { display:grid; grid-template-columns:2.2rem repeat(24, 1fr); gap:2px; font-size:0.62rem; font-family:var(--font-mono); color:var(--text-dim); }
+.hw .c { aspect-ratio:1; background:var(--bg-input); }
+.hw .l { display:flex; align-items:center; }
+.hw .h { text-align:center; }
+
+.compass { display:grid; grid-template-columns:repeat(3, 1fr); gap:0.5rem; text-align:center; }
+.compass .c { border:1px solid var(--border); padding:0.6rem 0.4rem; font-size:0.75rem; background:var(--bg-elevated); }
+.compass .c b { display:block; font-family:var(--font-display); font-size:1.05rem; color:var(--text); }
+.compass .c a { color:inherit; }
+.compass .mid { display:flex; align-items:center; justify-content:center; font-size:2rem; border:0; background:none; }
+
+.alpha { display:grid; grid-template-columns:repeat(auto-fill, minmax(52px, 1fr)); gap:0.4rem; }
+.alpha .L { border:1px solid var(--border); text-align:center; padding:0.4rem 0.2rem; background:var(--bg-elevated); }
+.alpha .L b { display:block; font-family:var(--font-display); font-size:1.35rem; color:var(--text); }
+.alpha .L span { font-size:0.6rem; color:var(--text-muted); display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.alpha .L.off { opacity:0.3; }
+.alpha .L.off b { color:var(--text-dim); }
+
+.hemi { display:grid; grid-template-columns:1fr 1fr; gap:0.4rem; }
+.hemi div { border:1px solid var(--border); padding:0.7rem; text-align:center; font-family:var(--font-display); font-size:1.15rem; background:var(--bg-elevated); color:var(--text-dim); }
+.hemi div.on { background:var(--primary-soft); color:var(--text); border-color:var(--border-bright); }
+.lines { display:flex; flex-wrap:wrap; gap:0.4rem; margin-top:0.6rem; }
+
+.record { display:flex; gap:0.75rem; align-items:flex-start; }
+.record .ic { font-size:1.6rem; line-height:1; }
+.record .t { font-size:0.75rem; color:var(--text-muted); }
+.record .v { font-family:var(--font-display); font-size:1.4rem; color:var(--text); }
+.record .d { font-size:0.75rem; color:var(--text-muted); }
+.record .d a { color:var(--link); }
+
+.tile-row { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:0.75rem; }
+.tile { border:1px solid var(--border); background:var(--bg-card); padding:0.8rem; }
+.tile .ic { font-size:1.4rem; }
+.tile .v { font-family:var(--font-display); font-size:1.6rem; color:var(--text); }
+.tile .t { font-size:0.75rem; color:var(--text-muted); }
+.tile .s { font-size:0.7rem; color:var(--text-muted); margin-top:0.2rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+.timeline { list-style:none; padding:0; margin:0; border-left:2px solid var(--border); margin-left:0.6rem; }
+.timeline li { position:relative; padding:0 0 0.8rem 1.1rem; font-size:0.8125rem; }
+.timeline li::before { content:''; position:absolute; left:-7px; top:0.25rem; width:12px; height:12px; border-radius:50%; background:var(--bg-card); border:2px solid var(--tc, var(--primary)); }
+.timeline .when { font-family:var(--font-mono); font-size:0.7rem; color:var(--text-muted); display:block; }
+
+.empty { font-size:0.8125rem; color:var(--text-muted); padding:0.5rem 0; }
+.stamp { display:inline-block; border:1px solid var(--success); color:var(--success); font-size:0.62rem; padding:0 0.3rem; font-family:var(--font-mono); margin-left:0.3rem; }
+.chart-box { position:relative; height:220px; }
+.chart-box canvas { width:100%; height:100%; }
+.vs { display:flex; gap:1.5rem; align-items:flex-end; }
+.vs div { font-size:0.75rem; color:var(--text-muted); }
+.vs b { display:block; font-family:var(--font-display); font-size:1.5rem; color:var(--text); }
+.tag-list { display:flex; flex-wrap:wrap; gap:0.3rem; }
+.tag-list span { font-size:0.7rem; border:1px solid var(--border); padding:0.1rem 0.4rem; background:var(--bg-elevated); }
+{% endblock %}
+
+{% block content %}
+<div class="container ach">
+    <div class="page-toolbar">
+        <div>
+            <h1>Achievements</h1>
+            <p class="page-lead" style="margin-bottom:0;">how much of the world you have covered, your records, and the badges you have earned.</p>
+        </div>
+    </div>
+    <div class="ach-bar">
+        <div class="ach-job" id="ach-job"><div class="track"><div class="fill" id="ach-job-fill"></div></div><div class="lbl" id="ach-job-lbl"></div></div>
+        <span class="muted" id="ach-updated">loading…</span>
+        <button class="btn btn-outline btn-sm" id="ach-rescan" title="Run the scan again now">↻ rescan</button>
+        <button class="btn btn-outline btn-sm" id="ach-stop" style="display:none;">stop</button>
+    </div>
+
+    <div id="ach-pending" style="display:none;" class="card">
+        <div class="card-header">Building your achievements</div>
+        <p class="note">This is the first scan, so it reads your whole history: coverage, records, and which roads you have travelled. It runs in the background and can take a few minutes for a long history. You can leave the page and come back; it will be ready here.</p>
+    </div>
+
+    <div id="ach-root">
+        <!-- Hero -->
+        <div class="card hero" id="hero">
+            <div class="lvl-ring"><canvas id="lvl-ring" width="300" height="300"></canvas><div class="in"><span class="n" id="lvl-n"><span class="skeleton skel-statval"></span></span><span class="t">LEVEL</span></div></div>
+            <div>
+                <h2 class="hero-title" id="lvl-title"><span class="skeleton skel-line lg" style="width:12rem;display:inline-block;"></span></h2>
+                <div class="note" id="lvl-xp"></div>
+                <div class="pbar" style="margin-top:0.5rem;max-width:520px;"><span id="lvl-bar" style="width:0%;"></span></div>
+                <div class="hero-stats" id="hero-stats"></div>
+                <div class="note" style="margin-bottom:0.35rem;">Recently unlocked</div>
+                <div class="strip" id="hero-recent"><span class="skeleton skel-line" style="width:60%;"></span></div>
+                <div class="note" style="margin:0.75rem 0 0.35rem;">Almost there</div>
+                <div class="strip" id="hero-almost"></div>
+            </div>
+        </div>
+
+        <!-- Explorer -->
+        <section class="sec">
+            <div class="sec-h"><span class="em">🧭</span><h2>Explorer</h2><span class="sub" id="exp-sub"></span></div>
+            <div class="grid grid-4" id="exp-tiles">
+                <div class="card pct-tile"><h3>Countries</h3><div class="big skeleton skel-statval"></div></div>
+                <div class="card pct-tile"><h3>US states</h3><div class="big skeleton skel-statval"></div></div>
+                <div class="card pct-tile"><h3>US counties</h3><div class="big skeleton skel-statval"></div></div>
+                <div class="card pct-tile"><h3>US towns</h3><div class="big skeleton skel-statval"></div></div>
+            </div>
+            <div class="grid grid-2" style="margin-top:1rem;">
+                <div class="card"><h3>Countries visited</h3><div class="mapbox" id="map-world"><div class="map-tip" id="tip-world"></div></div></div>
+                <div class="card"><h3>US states</h3><div class="mapbox" id="map-states"><div class="map-tip" id="tip-states"></div></div></div>
+            </div>
+            <div class="card" style="margin-top:1rem;" id="county-card">
+                <h3>Counties in the states you have visited</h3>
+                <div class="mapbox tall" id="map-counties"><div class="map-tip" id="tip-counties"></div></div>
+                <div class="note" id="county-note" style="margin-top:0.5rem;"></div>
+            </div>
+            <div class="grid grid-2" style="margin-top:1rem;">
+                <div class="card"><h3>By state <span class="note">— click a column to sort</span></h3><div class="tbl-wrap" id="state-table"></div></div>
+                <div class="card"><h3>Countries</h3><div class="tbl-wrap" id="country-table"></div></div>
+            </div>
+            <div id="abroad"></div>
+        </section>
+
+        <!-- Road Warrior -->
+        <section class="sec">
+            <div class="sec-h"><span class="em">🛣️</span><h2>Road Warrior</h2><span class="sub" id="road-sub"></span></div>
+            <div id="roads"></div>
+        </section>
+
+        <!-- Speed & Distance -->
+        <section class="sec">
+            <div class="sec-h"><span class="em">🏎️</span><h2>Speed &amp; Distance</h2></div>
+            <div class="grid grid-3" id="speed"></div>
+        </section>
+
+        <!-- How You Move -->
+        <section class="sec">
+            <div class="sec-h"><span class="em">🚶</span><h2>How You Move</h2><span class="sub" id="move-sub"></span></div>
+            <div class="grid grid-2" id="move"></div>
+        </section>
+
+        <!-- Extremes -->
+        <section class="sec">
+            <div class="sec-h"><span class="em">🧊</span><h2>Extremes</h2></div>
+            <div class="grid grid-2" id="extremes"></div>
+        </section>
+
+        <!-- Regulars -->
+        <section class="sec">
+            <div class="sec-h"><span class="em">☕</span><h2>Your Regulars</h2><span class="sub" id="reg-sub"></span></div>
+            <div id="regulars"></div>
+        </section>
+
+        <!-- Rhythm -->
+        <section class="sec">
+            <div class="sec-h"><span class="em">⏰</span><h2>Rhythm</h2></div>
+            <div class="grid grid-2" id="rhythm"></div>
+        </section>
+
+        <!-- Big Days -->
+        <section class="sec">
+            <div class="sec-h"><span class="em">🌪️</span><h2>Big Days</h2></div>
+            <div class="grid grid-3" id="bigdays"></div>
+        </section>
+
+        <!-- Climber -->
+        <section class="sec">
+            <div class="sec-h"><span class="em">🏔️</span><h2>Climber</h2></div>
+            <div class="grid grid-3" id="climber"></div>
+        </section>
+
+        <!-- Journeys -->
+        <section class="sec">
+            <div class="sec-h"><span class="em">🧳</span><h2>Epic Journeys</h2><span class="sub" id="jr-sub"></span></div>
+            <div class="grid grid-3" id="journeys"></div>
+        </section>
+
+        <!-- Globe -->
+        <section class="sec">
+            <div class="sec-h"><span class="em">🌐</span><h2>Globe-trotter</h2></div>
+            <div class="grid grid-3" id="globe"></div>
+        </section>
+
+        <!-- Town collector -->
+        <section class="sec">
+            <div class="sec-h"><span class="em">🔤</span><h2>Town Collector</h2><span class="sub" id="col-sub"></span></div>
+            <div id="collector"></div>
+        </section>
+
+        <!-- Nature & Culture -->
+        <section class="sec">
+            <div class="sec-h"><span class="em">🌲</span><h2>Nature &amp; Culture</h2></div>
+            <div id="nature"></div>
+        </section>
+
+        <!-- Sky & Body -->
+        <section class="sec" id="sky-sec">
+            <div class="sec-h"><span class="em">✈️</span><h2>Sky &amp; Body</h2></div>
+            <div class="tile-row" id="sky"></div>
+        </section>
+
+        <!-- Seasons & Years -->
+        <section class="sec">
+            <div class="sec-h"><span class="em">🍂</span><h2>Seasons &amp; Years</h2></div>
+            <div class="grid grid-2" id="years"></div>
+        </section>
+
+        <!-- Timeline -->
+        <section class="sec">
+            <div class="sec-h"><span class="em">📜</span><h2>Milestones</h2><span class="sub">badges as you earned them</span></div>
+            <div class="card"><ul class="timeline" id="timeline"></ul></div>
+        </section>
+
+        <!-- Badge wall -->
+        <section class="sec" style="margin-bottom:3rem;">
+            <div class="sec-h"><span class="em">🏅</span><h2>Badge Wall</h2><span class="sub" id="wall-sub"></span></div>
+            <div id="wall"></div>
+        </section>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+const WORLD_URL = "{% static 'tracker/data/world-countries.json' %}";
+const STATES_URL = "{% static 'tracker/data/us-states.json' %}";
+const CSRF = '{{ csrf_token }}';
+const $ = id => document.getElementById(id);
+const css = n => (getComputedStyle(document.documentElement).getPropertyValue(n) || '').trim();
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num = (v, d = 0) => v == null ? '—' : Number(v).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: 0 });
+const imperial = () => (localStorage.getItem('roamly_speed_unit') || 'kmh') === 'mph';
+const km = (v, d = 0) => v == null ? '—' : imperial() ? `${num(v * 0.621371, d)} mi` : `${num(v, d)} km`;
+const kmh = v => v == null ? '—' : imperial() ? `${num(v * 0.621371)} mph` : `${num(v)} km/h`;
+const m = v => v == null ? '—' : imperial() ? `${num(v * 3.28084)} ft` : `${num(v)} m`;
+const pctS = v => v == null ? '—' : `${num(v, v < 10 ? 1 : 0)}%`;
+const fmtDate = s => { if (!s) return '—'; const d = new Date(s.length === 10 ? s + 'T12:00:00' : s); return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); };
+const dayLink = (d, label) => d ? `<a href="/map/?date=${esc(d)}">${esc(label || fmtDate(d))}</a>` : '—';
+const rangeLink = (a, b, label) => `<a href="/map/?start=${esc(a.slice(0,10))}&end=${esc(b.slice(0,10))}">${esc(label)}</a>`;
+const ptLink = (lat, lon, label, z = 14) => (lat == null) ? esc(label) : `<a href="/map/?lat=${lat}&lng=${lon}&zoom=${z}">${esc(label)}</a>`;
+const TIERS = ['', 'bronze', 'silver', 'gold', 'platinum'];
+const tierColor = t => css(`--t${t}`) || ['', '#b08d57', '#a9b2ba', '#d4a93a', '#8fd3dc'][t];
+const PALETTE = () => ['--primary', '--clay-sky', '--clay-mint', '--clay-amber', '--clay-lavender', '--clay-coral', '--text-dim'].map(css);
+const card = (title, body, extra = '') => `<div class="card" ${extra}><h3>${title}</h3>${body}</div>`;
+const pbar = (p, color) => `<div class="pbar"><span style="width:${Math.max(0, Math.min(100, p || 0))}%;${color ? 'background:' + color : ''}"></span></div>`;
+const dpr = () => window.devicePixelRatio || 1;
+
+function prepCanvas(c) {
+    const r = c.getBoundingClientRect();
+    const w = Math.max(10, r.width), h = Math.max(10, r.height);
+    c.width = w * dpr(); c.height = h * dpr();
+    const ctx = c.getContext('2d');
+    ctx.setTransform(dpr(), 0, 0, dpr(), 0, 0);
+    return { ctx, w, h };
+}
+
+// ── Charts: donut, gauge, ring, bars ───────────────────────────────────────
+function drawDonut(canvas, items, legendEl, fmt) {
+    const { ctx, w, h } = prepCanvas(canvas);
+    const total = items.reduce((s, i) => s + i.value, 0);
+    const cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 4, r = R * 0.6;
+    let hover = -1;
+    const segs = [];
+    function paint() {
+        ctx.clearRect(0, 0, w, h);
+        let a = -Math.PI / 2;
+        items.forEach((it, i) => {
+            const sweep = total ? it.value / total * Math.PI * 2 : 0;
+            segs[i] = [a, a + sweep];
+            ctx.beginPath();
+            ctx.arc(cx, cy, i === hover ? R + 3 : R, a, a + sweep);
+            ctx.arc(cx, cy, r, a + sweep, a, true);
+            ctx.closePath();
+            ctx.fillStyle = it.color;
+            ctx.globalAlpha = hover === -1 || hover === i ? 1 : 0.4;
+            ctx.fill();
+            a += sweep;
+        });
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = css('--text');
+        ctx.textAlign = 'center';
+        const it = hover >= 0 ? items[hover] : null;
+        ctx.font = `600 ${Math.round(R * 0.28)}px ${css('--font-display') || 'serif'}`;
+        ctx.fillText(it ? `${Math.round(it.value / total * 100)}%` : fmt(total), cx, cy + R * 0.06);
+        ctx.font = `${Math.round(R * 0.13)}px ${css('--font-body') || 'sans-serif'}`;
+        ctx.fillStyle = css('--text-muted');
+        ctx.fillText(it ? it.label : 'total', cx, cy + R * 0.28);
+    }
+    paint();
+    canvas.onmousemove = e => {
+        const b = canvas.getBoundingClientRect();
+        const x = e.clientX - b.left - cx, y = e.clientY - b.top - cy;
+        const d = Math.hypot(x, y);
+        let ang = Math.atan2(y, x); if (ang < -Math.PI / 2) ang += Math.PI * 2;
+        let hit = -1;
+        if (d >= r && d <= R + 4) segs.forEach((s, i) => { if (ang >= s[0] && ang < s[1]) hit = i; });
+        if (hit !== hover) { hover = hit; paint(); highlight(); }
+    };
+    canvas.onmouseleave = () => { hover = -1; paint(); highlight(); };
+    function highlight() {
+        if (!legendEl) return;
+        [...legendEl.children].forEach((li, i) => li.classList.toggle('dim', hover >= 0 && hover !== i));
+    }
+    if (legendEl) {
+        legendEl.innerHTML = items.map(it => `<li><i style="background:${it.color}"></i><span>${esc(it.label)}</span><span>${fmt(it.value)} · ${total ? Math.round(it.value / total * 100) : 0}%</span></li>`).join('');
+    }
+}
+
+function drawGauge(canvas, value, max, label) {
+    const { ctx, w, h } = prepCanvas(canvas);
+    const cx = w / 2, cy = h - 18, R = Math.min(w / 2 - 10, h - 30);
+    const a0 = Math.PI, a1 = Math.PI * 2;
+    ctx.lineWidth = 14; ctx.lineCap = 'butt';
+    ctx.strokeStyle = css('--bg-input');
+    ctx.beginPath(); ctx.arc(cx, cy, R, a0, a1); ctx.stroke();
+    const f = Math.max(0, Math.min(1, (value || 0) / max));
+    const g = ctx.createLinearGradient(cx - R, 0, cx + R, 0);
+    g.addColorStop(0, '#3b82f6'); g.addColorStop(0.45, '#22c55e'); g.addColorStop(0.75, '#f59e0b'); g.addColorStop(1, '#ef4444');
+    ctx.strokeStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, R, a0, a0 + Math.PI * f); ctx.stroke();
+    ctx.strokeStyle = css('--text-dim'); ctx.lineWidth = 1;
+    for (let i = 0; i <= 10; i++) {
+        const a = a0 + Math.PI * i / 10;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(a) * (R - 12), cy + Math.sin(a) * (R - 12));
+        ctx.lineTo(cx + Math.cos(a) * (R - 20), cy + Math.sin(a) * (R - 20));
+        ctx.stroke();
+    }
+    const na = a0 + Math.PI * f;
+    ctx.strokeStyle = css('--text'); ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(na) * (R - 24), cy + Math.sin(na) * (R - 24)); ctx.stroke();
+    ctx.fillStyle = css('--text'); ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.textAlign = 'center';
+    ctx.font = `600 22px ${css('--font-display') || 'serif'}`;
+    ctx.fillText(label, cx, cy - R * 0.38);
+}
+
+function drawRing(canvas, frac) {
+    const { ctx, w, h } = prepCanvas(canvas);
+    const cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 8;
+    ctx.lineWidth = 9;
+    ctx.strokeStyle = css('--bg-input');
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = css('--primary');
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(cx, cy, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0.01, frac)); ctx.stroke();
+}
+
+function drawRings(canvas, rings) {
+    const { ctx, w, h } = prepCanvas(canvas);
+    const cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 6;
+    const spec = [['1000', 1, '--clay-sky'], ['100', 0.66, '--clay-mint'], ['10', 0.33, '--primary']];
+    spec.forEach(([k, f, col]) => {
+        ctx.beginPath(); ctx.arc(cx, cy, R * f, 0, Math.PI * 2);
+        ctx.fillStyle = css(col); ctx.globalAlpha = 0.15 + (rings[k] || 0) / 100 * 0.5; ctx.fill();
+        ctx.globalAlpha = 1; ctx.strokeStyle = css(col); ctx.lineWidth = 1.5; ctx.stroke();
+    });
+    ctx.fillStyle = css('--text'); ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawBars(canvas, labels, series, fmt) {
+    const { ctx, w, h } = prepCanvas(canvas);
+    const pad = { l: 8, r: 8, t: 10, b: 22 };
+    const max = Math.max(1, ...series.flatMap(s => s.values));
+    const n = labels.length, gw = (w - pad.l - pad.r) / Math.max(1, n);
+    const bw = Math.min(28, gw * 0.7 / series.length);
+    ctx.font = `11px ${css('--font-mono') || 'monospace'}`;
+    ctx.textAlign = 'center';
+    labels.forEach((lab, i) => {
+        const x0 = pad.l + gw * i + gw / 2 - bw * series.length / 2;
+        series.forEach((s, j) => {
+            const v = s.values[i] || 0;
+            const bh = (h - pad.t - pad.b) * v / max;
+            ctx.fillStyle = s.color;
+            ctx.fillRect(x0 + j * bw, h - pad.b - bh, bw - 2, bh);
+        });
+        ctx.fillStyle = css('--text-muted');
+        ctx.fillText(lab, pad.l + gw * i + gw / 2, h - 6);
+    });
+    canvas.title = labels.map((l, i) => `${l}: ${series.map(s => `${s.name} ${fmt(s.values[i])}`).join(', ')}`).join('\n');
+}
+
+// ── Maps (blank style; no basemap tiles, like the admin country map) ────────
+const geoCache = {};
+const getGeo = url => geoCache[url] || (geoCache[url] = fetch(url).then(r => r.json()));
+const liveMaps = {};
+function choropleth(containerId, tipId, data, matchProp, visitedSet, opts = {}) {
+    if (!window.maplibregl) return;
+    const el = $(containerId); if (!el) return;
+    // A rescan re-renders the page; drop the old map rather than stacking a
+    // second WebGL context in the same box.
+    if (liveMaps[containerId]) { try { liveMaps[containerId].remove(); } catch (e) {} }
+    const map = liveMaps[containerId] = new maplibregl.Map({
+        container: containerId,
+        style: { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': css('--bg-elevated') } }] },
+        center: opts.center || [10, 25], zoom: opts.zoom == null ? 0.35 : opts.zoom,
+        attributionControl: false, dragRotate: false, pitchWithRotate: false,
+    });
+    map.touchZoomRotate.disableRotation();
+    map.on('load', async () => {
+        const gj = typeof data === 'string' ? await getGeo(data) : data;
+        map.addSource('s', { type: 'geojson', data: gj });
+        const isV = opts.flag ? ['==', ['get', 'v'], 1] : ['in', ['get', matchProp], ['literal', [...visitedSet]]];
+        map.addLayer({ id: 'f', type: 'fill', source: 's', paint: {
+            'fill-color': ['case', isV, css('--primary'), css('--bg-card')],
+            'fill-opacity': ['case', isV, 0.85, 1] } });
+        map.addLayer({ id: 'l', type: 'line', source: 's', paint: { 'line-color': css('--border'), 'line-width': 0.6 } });
+        if (opts.fit !== false) {
+            const b = new maplibregl.LngLatBounds();
+            let any = false;
+            (gj.features || []).forEach(f => {
+                if (opts.fitAll || (opts.flag ? f.properties.v : visitedSet.has(f.properties[matchProp]))) {
+                    walk(f.geometry.coordinates, c => { b.extend(c); any = true; });
+                }
+            });
+            if (any && opts.fitVisited !== false) map.fitBounds(b, { padding: 20, duration: 0, maxZoom: opts.maxZoom || 6 });
+        }
+        const tip = $(tipId);
+        map.on('mousemove', 'f', e => {
+            const p = e.features[0].properties;
+            const v = opts.flag ? p.v : visitedSet.has(p[matchProp]);
+            tip.innerHTML = `<strong>${esc(p.name)}</strong>${p.state ? ', ' + esc(p.state) : ''}<br>${v ? '✓ visited' : 'not yet'}`;
+            tip.style.opacity = '1'; tip.style.left = (e.point.x + 12) + 'px'; tip.style.top = (e.point.y + 12) + 'px';
+        });
+        map.on('mouseleave', 'f', () => { tip.style.opacity = '0'; });
+    });
+}
+function walk(coords, fn) {
+    if (typeof coords[0] === 'number') { if (Math.abs(coords[0]) <= 180) fn(coords); return; }
+    coords.forEach(c => walk(c, fn));
+}
+
+function sortableTable(el, cols, rows) {
+    let key = null, dir = -1;
+    function render() {
+        const sorted = key == null ? rows : [...rows].sort((a, b) => {
+            const x = a[key], y = b[key];
+            return (typeof x === 'string' ? x.localeCompare(y) : (x || 0) - (y || 0)) * dir;
+        });
+        el.innerHTML = `<table class="tbl"><thead><tr>${cols.map((c, i) => `<th data-i="${i}">${esc(c.label)}${key === c.key ? (dir < 0 ? ' ↓' : ' ↑') : ''}</th>`).join('')}</tr></thead><tbody>${
+            sorted.map(r => `<tr>${cols.map(c => `<td class="${c.num ? 'n' : ''}">${c.fmt ? c.fmt(r) : esc(r[c.key])}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+        el.querySelectorAll('th').forEach(th => th.onclick = () => {
+            const c = cols[+th.dataset.i];
+            if (key === c.key) dir = -dir; else { key = c.key; dir = c.num ? -1 : 1; }
+            render();
+        });
+    }
+    render();
+}
+
+// ── Sections ───────────────────────────────────────────────────────────────
+function renderHero(g, d) {
+    const L = g.level;
+    $('lvl-n').textContent = L.level;
+    $('lvl-title').textContent = L.title;
+    $('lvl-xp').innerHTML = `<span class="mono">${num(L.xp)} XP</span> · ${num(L.next_xp - L.xp)} XP to level ${L.level + 1}`;
+    $('lvl-bar').style.width = (L.progress * 100).toFixed(1) + '%';
+    drawRing($('lvl-ring'), L.progress);
+    const mt = d.metrics;
+    $('hero-stats').innerHTML = [
+        [`${g.unlocked}/${g.total}`, 'badges'], [`${g.tiers_earned}/${g.max_tiers}`, 'tiers'],
+        [num(mt.countries), 'countries'], [num(mt.towns), 'towns'], [km(mt.total_km), 'travelled'],
+        [num(mt.days_tracked), 'days tracked'],
+    ].map(([v, l]) => `<div><b>${v}</b>${l}</div>`).join('');
+    const byId = Object.fromEntries(g.badges.map(b => [b.id, b]));
+    $('hero-recent').innerHTML = g.recent.length ? g.recent.map(r =>
+        `<span class="chip" title="${esc(fmtDate(r.at))}"><span class="pip" style="background:${tierColor(r.tier)}"></span>${r.emoji} ${esc(r.name)} <span class="note">${TIERS[r.tier]}</span></span>`).join('')
+        : '<span class="note">Nothing yet. Go somewhere new!</span>';
+    $('hero-almost').innerHTML = g.almost.map(id => byId[id]).filter(Boolean).map(b =>
+        `<span class="chip">${b.emoji} ${esc(b.name)} <span class="mono">${Math.round(b.progress * 100)}%</span> → ${TIERS[b.tier + 1]}</span>`).join('') || '<span class="note">—</span>';
+}
+
+function pctTile(title, v, t, p, extra) {
+    const body = p == null
+        ? `<div class="big">${v ? num(v) : '—'}</div><div class="note" style="margin-top:0.4rem;">${extra || 'No data yet.'}</div>`
+        : `<div class="big">${pctS(p)}</div><div class="of">${num(v)} of ${num(t)}</div>${pbar(p)}${extra ? `<div class="note" style="margin-top:0.5rem;">${extra}</div>` : ''}`;
+    return `<div class="card pct-tile"><h3>${title}</h3>${body}</div>`;
+}
+
+function renderExplorer(d) {
+    const ex = d.explorer || {};
+    const us = ex.us || {};
+    $('exp-sub').textContent = `${num(d.metrics.cells)} distinct ~110m squares stood in`;
+    $('exp-tiles').innerHTML =
+        pctTile('Countries', ex.countries_v, ex.countries_t, ex.countries_pct) +
+        pctTile('US states', us.states_v, us.states_t, us.states_pct) +
+        (us.has_counties ? pctTile('US counties', us.counties_v, us.counties_t, us.counties_pct)
+            : pctTile('US counties', 0, 0, null, 'County outlines are not loaded yet. An admin can run <code>import_boundaries --kinds county</code>.')) +
+        (us.has_towns ? pctTile('US towns', us.towns_v, us.towns_t, us.towns_pct,
+            us.cousub_t ? `+ ${num(us.cousub_v)} of ${num(us.cousub_t)} townships` : '')
+            : pctTile('US towns', d.metrics.towns, 0, null, `${num(d.metrics.towns)} towns in your history. Town outlines are not loaded, so there is no percentage yet.`));
+
+    choropleth('map-world', 'tip-world', WORLD_URL, 'cc', new Set((ex.countries || []).map(c => c.cc)), { fitVisited: false });
+    choropleth('map-states', 'tip-states', STATES_URL, 'name', new Set(us.states || d.us_states_visited || []),
+        { center: [-97, 39], zoom: 1.9, fitVisited: false });
+    if (ex.county_geo && ex.county_geo.features.length) {
+        choropleth('map-counties', 'tip-counties', ex.county_geo, 'name', null, { flag: true, fitAll: true, maxZoom: 7 });
+        $('county-note').textContent = `${num(us.counties_v)} counties visited. ${us.home_state ? `In ${us.home_state}, you have been to ${pctS(d.metrics.home_state_town_pct)} of its towns.` : ''}`;
+    } else {
+        $('county-card').style.display = 'none';
+    }
+
+    const rows = (us.rows || []);
+    if (rows.length) {
+        sortableTable($('state-table'), [
+            { key: 'state', label: 'State', fmt: r => `${r.visited ? '✓ ' : ''}${esc(r.state)}` },
+            { key: 'place_v', label: 'Towns', num: true, fmt: r => r.place_t ? `${r.place_v}/${r.place_t}` : r.place_v },
+            { key: 'cousub_v', label: 'Townships', num: true, fmt: r => r.cousub_t ? `${r.cousub_v}/${r.cousub_t}` : '—' },
+            { key: 'county_v', label: 'Counties', num: true, fmt: r => r.county_t ? `${r.county_v}/${r.county_t}` : '—' },
+            { key: 'pctTowns', label: '%', num: true, fmt: r => `<div class="mini">${pbar(r.pctTowns)}</div>` },
+        ], rows.map(r => ({ ...r, pctTowns: (r.place_t + r.cousub_t) ? (r.place_v + r.cousub_v) / (r.place_t + r.cousub_t) * 100 : 0 })));
+    } else {
+        $('state-table').innerHTML = '<div class="empty">No US states yet.</div>';
+    }
+    const cs = ex.countries || [];
+    sortableTable($('country-table'), [
+        { key: 'name', label: 'Country' },
+        { key: 'days', label: 'Days', num: true, fmt: r => num(r.days) },
+        { key: 'first', label: 'First visit', fmt: r => fmtDate(r.first) },
+    ], cs);
+
+    // Detailed countries abroad.
+    const ab = ex.abroad || [];
+    const det = ab.filter(a => a.detailed);
+    const waiting = ab.filter(a => !a.detailed);
+    let html = '';
+    det.forEach(a => {
+        html += `<div class="card" style="margin-top:1rem;"><h3>${esc(a.name)} <span class="note">— ${num(a.days)} days there</span></h3>
+            <div class="grid grid-3" style="margin-bottom:0.75rem;">
+                ${pctTileInner('Regions', a.adm1_v, a.adm1_t, a.adm1_pct)}
+                ${a.adm2_t ? pctTileInner('Districts', a.adm2_v, a.adm2_t, a.adm2_pct) : ''}
+                ${a.adm3_t ? pctTileInner('Municipalities', a.adm3_v, a.adm3_t, a.adm3_pct) : ''}
+            </div>
+            <div class="grid grid-2">
+                <div class="mapbox" id="map-ab-${esc(a.cc)}"><div class="map-tip" id="tip-ab-${esc(a.cc)}"></div></div>
+                <div class="tbl-wrap" id="tbl-ab-${esc(a.cc)}"></div>
+            </div></div>`;
+    });
+    if (waiting.length) {
+        html += `<div class="card" style="margin-top:1rem;"><h3>Unlock regions abroad</h3>
+            <p class="note">Spend more than a week in a country and Roamly downloads its regions and districts, so you can collect those too.</p>
+            <ul class="rank">${waiting.slice(0, 12).map(a => `<li><span>${esc(a.name)}<span class="sub">${a.needs_days ? `${num(a.days)}/${ex.min_days} days` : 'downloading soon'}</span></span><span class="n" style="width:110px;">${pbar(Math.min(100, a.days / ex.min_days * 100))}</span></li>`).join('')}</ul></div>`;
+    }
+    $('abroad').innerHTML = html;
+    det.forEach(a => {
+        const gj = (ex.abroad_geo || {})[a.cc];
+        if (gj) choropleth(`map-ab-${a.cc}`, `tip-ab-${a.cc}`, gj, 'name', null, { flag: true, fitAll: true, maxZoom: 7 });
+        if ((a.regions || []).length) {
+            sortableTable($(`tbl-ab-${a.cc}`), [
+                { key: 'name', label: 'Region', fmt: r => `${(a.visited_regions || []).includes(r.name) ? '✓ ' : ''}${esc(r.name)}` },
+                { key: 'adm2_v', label: 'Districts', num: true, fmt: r => `${r.adm2_v}/${r.adm2_t}` },
+            ], a.regions);
+        } else {
+            $(`tbl-ab-${a.cc}`).innerHTML = `<div class="tag-list">${(a.visited_regions || []).map(n => `<span>${esc(n)}</span>`).join('')}</div>`;
+        }
+    });
+}
+function pctTileInner(t, v, tot, p) {
+    return `<div class="tile"><div class="t">${t}</div><div class="v">${pctS(p)}</div><div class="s">${num(v)} of ${num(tot)}</div>${pbar(p)}</div>`;
+}
+
+function renderRoads(d) {
+    const r = d.roads || {};
+    const el = $('roads');
+    if (!d.postgis) { el.innerHTML = '<div class="card empty">Road coverage needs a PostGIS database.</div>'; return; }
+    if (!r.available) {
+        el.innerHTML = `<div class="card empty">${r.reason === 'no_roads'
+            ? 'No road data is downloaded on this instance yet. Ask an instance admin to run the road download (Admin Panel → Downloads).'
+            : 'Road coverage is measured per town and county, and no town or county outlines are loaded yet.'}</div>`;
+        return;
+    }
+    $('road-sub').textContent = `${km(r.km, 1)} of ${km(r.mapped_km)} mapped roads in the places you have been`;
+    const pal = PALETTE();
+    el.innerHTML = `<div class="grid grid-3">
+        <div class="card pct-tile"><h3>Distinct road travelled</h3><div class="big">${km(r.km, 0)}</div><div class="of">${pctS(r.pct)} of the mapped roads in towns you visited</div>${pbar(r.pct)}</div>
+        <div class="card" style="grid-column:span 2;"><h3>By road type</h3><div class="donut-wrap"><canvas id="road-donut"></canvas><ul class="legend" id="road-legend"></ul></div></div>
+    </div>
+    <div class="grid grid-2" style="margin-top:1rem;">
+        ${card('Most complete towns', `<div class="tbl-wrap" id="road-towns"></div>`)}
+        ${card('Most complete counties', `<div class="tbl-wrap" id="road-counties"></div>`)}
+    </div>
+    <div class="grid grid-2" style="margin-top:1rem;">
+        ${card('Big towns you have barely explored', r.barely.length ? `<ul class="rank">${r.barely.map(a => `<li><span>${esc(a.name)}<span class="sub">${esc(a.state)}</span></span><span class="n">${pctS(a.pct)} of ${km(a.total_km)}</span></li>`).join('')}</ul>` : '<div class="empty">None. You get around.</div>')}
+        ${card(`Completionist <span class="note">— 90%+ of roads</span>`, r.completionist.length ? `<div class="tag-list">${r.completionist.map(n => `<span>✅ ${esc(n)}</span>`).join('')}</div>` : '<div class="empty">No town at 90% yet. The closest are at the top of the list.</div>')}
+    </div>
+    <p class="note" style="margin-top:0.6rem;">Percentages count only roads Roamly has mapped. Road data is downloaded around where people on this instance travel, so the edges of a county can be missing.</p>`;
+    const types = r.types.filter(t => t.km > 0);
+    drawDonut($('road-donut'), types.map((t, i) => ({ label: t.label, value: t.km, color: pal[i % pal.length] })), $('road-legend'), v => km(v));
+    const cols = [
+        { key: 'name', label: 'Place', fmt: a => `${esc(a.name)}${a.pct >= 90 ? '<span class="stamp">90%+</span>' : ''}<span class="note"> ${esc(a.state)}</span>` },
+        { key: 'pct', label: '%', num: true, fmt: a => `${pctS(a.pct)}` },
+        { key: 'km', label: 'Travelled', num: true, fmt: a => `${km(a.km, 1)} / ${km(a.total_km)}` },
+    ];
+    sortableTable($('road-towns'), cols, r.towns);
+    sortableTable($('road-counties'), cols, r.counties);
+}
+
+function recordCard(ic, title, value, detail) {
+    return `<div class="card record"><span class="ic">${ic}</span><div><div class="t">${title}</div><div class="v">${value}</div><div class="d">${detail || ''}</div></div></div>`;
+}
+
+function renderSpeed(d) {
+    const s = d.speed || {}, dist = d.distance || {};
+    const mx = s.max;
+    const bm = s.by_mode || {};
+    $('speed').innerHTML = `
+        <div class="card gauge"><h3>Top ground speed</h3><canvas id="gauge"></canvas>
+            <div class="note" style="text-align:center;">${mx ? `${dayLink(mx.ts.slice(0,10))} · ${ptLink(mx.lat, mx.lon, 'where')}` : 'No trustworthy speed readings yet.'}</div>
+            <div class="note" style="text-align:center;margin-top:0.25rem;">Taken from five readings in a row that agree with how far you actually moved, so one glitch can't set the record.</div></div>
+        ${card('Fastest by way of travel', `<dl class="kv">
+            <dt>🚶 Walking</dt><dd>${bm.walk ? kmh(bm.walk.kmh) : '—'}</dd>
+            <dt>🚲 Cycling</dt><dd>${bm.cycle ? kmh(bm.cycle.kmh) : '—'}</dd>
+            <dt>🚗 Vehicle</dt><dd>${bm.vehicle ? kmh(bm.vehicle.kmh) : '—'}</dd>
+            <dt>✈️ Flying</dt><dd>${s.plane ? kmh(s.plane.kmh) : '—'}</dd></dl>
+            <p class="note" style="margin-top:0.6rem;">Modes come from <strong>Detect Transport Modes</strong> in Settings.</p>`)}
+        ${card('Odometer', `<div class="big">${km(dist.total_km)}</div>
+            <dl class="kv" style="margin-top:0.6rem;">
+            <dt>Around the Earth</dt><dd>${num(dist.earth_laps, 2)}×</dd>
+            <dt>To the Moon</dt><dd>${num(dist.moon_pct, 1)}%</dd>
+            <dt>Average day</dt><dd>${km(dist.avg_day_km, 1)}</dd>
+            <dt>Biggest day</dt><dd>${dist.best_day ? `${km(dist.best_day.km)} · ${dayLink(dist.best_day.date)}` : '—'}</dd>
+            <dt>Longest moving streak</dt><dd>${num(dist.move_streak)} days</dd></dl>
+            ${pbar((dist.earth_laps % 1) * 100)}<div class="note" style="margin-top:0.25rem;">progress on your next lap of the Earth</div>`)}`;
+    requestAnimationFrame(() => {
+        const v = mx ? mx.kmh : 0;
+        drawGauge($('gauge'), imperial() ? v * 0.621371 : v, imperial() ? 150 : 240, kmh(v));
+    });
+}
+
+const MODE_LABEL = { still: 'Still', walk: 'Walking', cycle: 'Cycling', vehicle: 'Vehicle', plane: 'Flying' };
+const MODE_COLOR = { walk: '--clay-mint', cycle: '--clay-amber', vehicle: '--clay-sky', plane: '--clay-lavender', still: '--text-dim' };
+function renderMove(d) {
+    const t = d.transport || {};
+    const modes = (t.modes || []).filter(x => x.mode !== 'still' && x.km > 0);
+    const jr = (d.journeys || {}).by_mode || {};
+    if (!modes.length) {
+        $('move').innerHTML = card('Travel types', '<div class="empty">No transport modes detected yet. Run <strong>Detect Transport Modes</strong> in Settings → Background Jobs.</div>');
+        return;
+    }
+    $('move-sub').textContent = t.unclassified ? `${num(t.unclassified)} points not classified yet` : '';
+    $('move').innerHTML = `${card('Distance by travel type', `<div class="donut-wrap"><canvas id="mode-donut"></canvas><ul class="legend" id="mode-legend"></ul></div>`)}
+        ${card('Time by travel type', `<div class="donut-wrap"><canvas id="mode-donut2"></canvas><ul class="legend" id="mode-legend2"></ul></div>
+        <div class="note" style="margin-top:0.5rem;">${Object.entries(jr).map(([k, v]) => `${num(v)} ${(MODE_LABEL[k] || k).toLowerCase()} journeys`).join(' · ')}</div>`)}`;
+    const items = modes.map(x => ({ label: MODE_LABEL[x.mode] || x.mode, value: x.km, color: css(MODE_COLOR[x.mode] || '--primary') }));
+    drawDonut($('mode-donut'), items, $('mode-legend'), v => km(v));
+    drawDonut($('mode-donut2'), modes.map(x => ({ label: MODE_LABEL[x.mode] || x.mode, value: x.hours, color: css(MODE_COLOR[x.mode] || '--primary') })),
+        $('mode-legend2'), v => `${num(v)} h`);
+}
+
+function renderExtremes(d) {
+    const e = d.extremes || {};
+    const lat = (k, label) => e[k] ? `<div class="c">${label}<b>${num(Math.abs(e[k].v), 3)}°${e[k].v >= 0 ? 'N' : 'S'}</b>${ptLink(e[k].lat, e[k].lon, e[k].place || 'see it', 11)}</div>` : `<div class="c">${label}<b>—</b></div>`;
+    const lon = (k, label) => e[k] ? `<div class="c">${label}<b>${num(Math.abs(e[k].v), 3)}°${e[k].v >= 0 ? 'E' : 'W'}</b>${ptLink(e[k].lat, e[k].lon, e[k].place || 'see it', 11)}</div>` : `<div class="c">${label}<b>—</b></div>`;
+    $('extremes').innerHTML = `${card('Compass', `<div class="compass">
+            <div></div>${lat('n', 'Northernmost')}<div></div>
+            ${lon('w', 'Westernmost')}<div class="mid">🧭</div>${lon('e', 'Easternmost')}
+            <div></div>${lat('s', 'Southernmost')}<div></div></div>`)}
+        ${card('Up, down and away', `<dl class="kv">
+            <dt>⛰️ Highest on the ground</dt><dd>${e.hi ? `${m(e.hi.v)} · ${ptLink(e.hi.lat, e.hi.lon, e.hi.place || 'where', 12)}` : '—'}</dd>
+            <dt>🌊 Lowest</dt><dd>${e.lo ? `${m(e.lo.v)} · ${ptLink(e.lo.lat, e.lo.lon, e.lo.place || 'where', 12)}` : '—'}</dd>
+            <dt>🏠 Farthest from home</dt><dd>${e.far ? `${km(e.far.v)} · ${ptLink(e.far.lat, e.far.lon, 'where', 9)}` : '—'}</dd>
+            <dt>📐 North–south span</dt><dd>${e.n && e.s ? km((e.n.v - e.s.v) * 111.2) : '—'}</dd>
+            </dl><p class="note" style="margin-top:0.6rem;">Altitude uses accurate fixes only, and flights don't count.</p>`)}`;
+}
+
+function rankList(items, fmtSub, fmtN) {
+    if (!items || !items.length) return '<div class="empty">Nothing here yet.</div>';
+    return `<ul class="rank">${items.map(i => `<li><span>${ptLink(i.lat, i.lon, i.name, 17)}<span class="sub">${esc(fmtSub(i))}</span></span><span class="n">${fmtN(i)}</span></li>`).join('')}</ul>`;
+}
+function renderRegulars(d) {
+    const p = d.places || {};
+    const el = $('regulars');
+    if (!p.has_visits) {
+        el.innerHTML = '<div class="card empty">No named places yet. Your regulars come from Visits matched to downloaded POIs. Run <strong>Match POIs to Points</strong> in Settings once an admin has downloaded POI data.</div>';
+        return;
+    }
+    $('reg-sub').textContent = `${num(p.distinct)} named places · ${num(p.regulars)} regulars · ${num(p.new_this_year)} new this year`;
+    const t = p.tops || {};
+    const top = t.store && t.store[0];
+    const visits = i => `${num(i.visits)}×`;
+    const sub = i => [i.city, i.hours ? `${num(i.hours, 1)} h` : ''].filter(Boolean).join(' · ');
+    el.innerHTML = `<div class="grid grid-3">
+        <div class="card record" style="grid-column:span 1;"><span class="ic">🛒</span><div><div class="t">The store you go to most</div>
+            <div class="v">${top ? esc(top.name) : '—'}</div><div class="d">${top ? `${num(top.visits)} visits${top.city ? ' · ' + esc(top.city) : ''}` : ''}</div></div></div>
+        ${recordCard('🔗', 'Chain loyalty', p.chains && p.chains[0] ? esc(p.chains[0].name) : '—', p.chains && p.chains[0] ? `${p.chains[0].branches} branches · ${num(p.chains[0].visits)} visits` : 'Visit two branches of one chain')}
+        ${recordCard('🔁', 'Commute king', p.commute ? `${num(p.commute.count)}×` : '—', p.commute ? `${esc(p.commute.from)} → ${esc(p.commute.to)}${p.commute.back ? ` (and back ${num(p.commute.back)}×)` : ''}` : '')}
+    </div>
+    <div class="grid grid-3" style="margin-top:1rem;">
+        ${card('🛍️ Stores', rankList(t.store, sub, visits))}
+        ${card('🥫 Groceries', rankList(t.grocery, sub, visits))}
+        ${card('☕ Cafés', rankList(t.cafe, sub, visits))}
+        ${card('🍽️ Food', rankList(t.food, sub, visits))}
+        ${card('🍺 Bars', rankList(t.bar, sub, visits))}
+        ${card('⛽ Fuel', rankList(t.fuel, sub, visits))}
+    </div>
+    <div class="grid grid-2" style="margin-top:1rem;">
+        ${card('Most-visited places overall', rankList(p.overall, sub, visits))}
+        ${card('Chains you have hopped between', p.chains && p.chains.length ? `<ul class="rank">${p.chains.map(c => `<li><span>${esc(c.name)}<span class="sub">${num(c.visits)} visits</span></span><span class="n">${c.branches} branches</span></li>`).join('')}</ul>` : '<div class="empty">No chain visited at two branches yet.</div>')}
+    </div>
+    ${p.custom && p.custom.length ? `<div class="card" style="margin-top:1rem;"><h3>Your own places</h3><ul class="rank">${p.custom.map(c => `<li><span><i style="display:inline-block;width:9px;height:9px;background:${esc(c.color || 'var(--primary)')};margin-right:0.4rem;"></i>${esc(c.name)}</span><span class="n">${num(c.points)} points</span></li>`).join('')}</ul></div>` : ''}`;
+}
+
+const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+function renderRhythm(d) {
+    const r = d.rhythm || {};
+    const hw = r.hour_week_km || [];
+    const max = Math.max(0.001, ...hw.flat());
+    const prim = css('--primary');
+    let grid = '<div class="hw"><span></span>' + Array.from({ length: 24 }, (_, h) => `<span class="h">${h % 6 === 0 ? h : ''}</span>`).join('');
+    hw.forEach((row, i) => {
+        grid += `<span class="l">${DOW[i]}</span>` + row.map((v, h) => `<span class="c" title="${DOW[i]} ${h}:00 — ${km(v)}" style="${v ? `background:${prim};opacity:${(0.12 + 0.88 * Math.sqrt(v / max)).toFixed(2)}` : ''}"></span>`).join('');
+    });
+    grid += '</div>';
+    const b = r.busiest;
+    const wk = (r.weekday_km || 0) / 5, we = (r.weekend_km || 0) / 2;
+    $('rhythm').innerHTML = `${card('When you move', grid + `<div class="note" style="margin-top:0.6rem;">${b ? `Your busiest hour is <strong>${DOW[b.dow]} ${b.hour}:00</strong>.` : ''}</div>`)}
+        <div class="grid" style="gap:1rem;">
+            <div class="grid grid-2" style="gap:1rem;">
+                ${recordCard('🌅', 'Early bird', `${num(r.early_bird_days)} days`, 'on the move between 3 and 6 am')}
+                ${recordCard('🦉', 'Night owl', `${num(r.night_owl_days)} days`, 'still moving after midnight')}
+                ${recordCard('📅', 'Days tracked', num(r.days_tracked), r.first_day ? `since ${fmtDate(r.first_day)}` : '')}
+                ${recordCard('🔗', 'Longest tracking streak', `${num(r.track_streak)} days`, r.track_streak_end ? `ended ${fmtDate(r.track_streak_end)}` : '')}
+            </div>
+            ${card('Weekdays vs weekends', `<div class="vs"><div><b>${km(wk)}</b>per weekday</div><div><b>${km(we)}</b>per weekend day</div><div><b>${num(r.nights_away)}</b>nights away</div></div>
+                <p class="note" style="margin-top:0.5rem;">${we > wk * 1.2 ? 'A weekend wanderer.' : wk > we * 1.2 ? 'Your weekdays do the heavy lifting.' : 'Steady all week.'}</p>`)}
+        </div>`;
+}
+
+function renderBigDays(d) {
+    const b = d.big_days || {};
+    const one = (ic, title, x, unit) => x ? `<div class="card record"><span class="ic">${ic}</span><div><div class="t">${title}</div><div class="v">${num(x.count)} ${unit}</div>
+        <div class="d">${dayLink(x.date)}</div><div class="tag-list" style="margin-top:0.4rem;">${x.items.slice(0, 18).map(i => `<span>${esc(i)}</span>`).join('')}</div></div></div>`
+        : recordCard(ic, title, '—', '');
+    $('bigdays').innerHTML = one('🌪️', 'Most towns in a day', b.towns, 'towns') +
+        one('🛂', 'Most states or regions in a day', b.states, '') +
+        one('🍽️', 'Most countries in a day', b.countries, 'countries');
+}
+
+function renderClimber(d) {
+    const c = d.climber || {};
+    const ev = c.everests || 0;
+    $('climber').innerHTML = `<div class="card pct-tile"><h3>Total climbed</h3><div class="big">${m(c.climbed_m)}</div>
+            <div class="of">${num(ev, 2)} Everests</div>${pbar((ev % 1) * 100, 'var(--clay-sky)')}<div class="note" style="margin-top:0.3rem;">progress toward your next Everest (8,849 m)</div></div>
+        ${recordCard('🧗', 'Biggest climbing day', c.best_day ? m(c.best_day.m) : '—', c.best_day ? dayLink(c.best_day.date) : '')}
+        ${recordCard('⛰️', 'Highest point reached', c.highest ? m(c.highest.v) : '—', c.highest ? ptLink(c.highest.lat, c.highest.lon, c.highest.place || 'where', 12) : '')}`;
+}
+
+function renderJourneys(d) {
+    const j = d.journeys || {};
+    $('jr-sub').textContent = `${num(j.count)} journeys`;
+    const one = (ic, title, x) => {
+        if (!x) return recordCard(ic, title, '—', '');
+        const route = x.from && x.to && x.from !== x.to ? `${esc(x.from)} → ${esc(x.to)}` : esc(x.from || '');
+        return recordCard(ic, title, `${km(x.km, 1)}`, `${num(x.hours, 1)} h · ${rangeLink(x.start, x.end, fmtDate(x.date))}${route ? '<br>' + route : ''}`);
+    };
+    $('journeys').innerHTML = one('🚗', 'Longest non-stop journey', j.longest) +
+        one('⏱️', 'Longest time on the move', j.longest_time) +
+        one('🛻', 'Longest drive', j.drive) + one('🥾', 'Longest walk', j.walk) +
+        one('🚴', 'Longest ride', j.ride) + one('🚄', 'Longest high-speed run', j.rail_speed);
+}
+
+const LINES = { equator: 'Equator', tropic_cancer: 'Tropic of Cancer', tropic_capricorn: 'Tropic of Capricorn', arctic: 'Arctic Circle', antarctic: 'Antarctic Circle', dateline: 'Date line' };
+function renderGlobe(d) {
+    const g = d.globe || {};
+    const H = new Set(g.hemispheres || []);
+    const rings = g.home_rings;
+    $('globe').innerHTML = `${card(`🕰️ ${num((g.timezones || []).length)} time zones`, `<div class="tag-list">${(g.timezones || []).map(z => `<span>${esc(z.replace(/_/g, ' '))}</span>`).join('') || '<span>—</span>'}</div>`)}
+        ${card('Hemispheres & lines', `<div class="hemi">${['N', 'S', 'E', 'W'].map(x => `<div class="${H.has(x) ? 'on' : ''}">${{ N: 'North', S: 'South', E: 'East', W: 'West' }[x]}</div>`).join('')}</div>
+            <div class="lines">${Object.keys(LINES).map(k => `<span class="chip" style="${g.crossings && g.crossings[k] ? '' : 'opacity:0.35'}">${g.crossings && g.crossings[k] ? '✓' : '·'} ${LINES[k]}</span>`).join('')}</div>`)}
+        ${card('Home radius', rings ? `<div style="display:grid;grid-template-columns:150px 1fr;gap:1rem;align-items:center;"><canvas id="rings" style="width:150px;height:150px;"></canvas>
+            <dl class="kv"><dt>within ${km(10)}</dt><dd>${pctS(rings['10'])}</dd><dt>within ${km(100)}</dt><dd>${pctS(rings['100'])}</dd><dt>within ${km(1000)}</dt><dd>${pctS(rings['1000'])}</dd>
+            <dt>farthest</dt><dd>${g.farthest ? km(g.farthest.v) : '—'}</dd></dl></div><p class="note">Share of your tracked time spent near home. Home is where you most often are overnight.</p>` : '<div class="empty">Not enough overnight data to find home yet.</div>')}`;
+    if (rings) requestAnimationFrame(() => drawRings($('rings'), rings));
+}
+
+function renderCollector(d) {
+    const c = d.collector || {};
+    $('col-sub').textContent = `${num(c.total)} towns collected`;
+    const A = c.alphabet || {};
+    const letters = Object.keys(A).map(L => `<div class="L ${A[L].count ? '' : 'off'}" title="${esc(A[L].top || '')}"><b>${L}</b><span>${A[L].count ? esc(A[L].top) : '—'}</span></div>`).join('');
+    $('collector').innerHTML = `${card(`The alphabet <span class="note">— ${num(Object.values(A).filter(a => a.count).length)}/26 letters</span>`, `<div class="alpha">${letters}</div>`)}
+    <div class="grid grid-3" style="margin-top:1rem;">
+        ${card('🏠 Your most-visited towns', c.top_towns && c.top_towns.length ? `<ul class="rank">${c.top_towns.map(t => `<li><span>${esc(t.name)}</span><span class="n">${num(t.days)} days</span></li>`).join('')}</ul>` : '<div class="empty">—</div>')}
+        ${card('👯 Namesakes', c.namesakes && c.namesakes.length ? `<ul class="rank">${c.namesakes.map(n => `<li><span>${esc(n.name)}<span class="sub">${n.places.map(esc).join(' · ')}</span></span><span class="n">${n.count}×</span></li>`).join('')}</ul>` : '<div class="empty">No two towns share a name yet.</div>')}
+        <div class="grid" style="gap:1rem;">
+            ${recordCard('🔙', 'Longest comeback', c.comeback ? `${num(c.comeback.days)} days` : '—', c.comeback ? `${esc(c.comeback.name)}: left ${fmtDate(c.comeback.left)}, back ${fmtDate(c.comeback.returned)}` : '')}
+            ${recordCard('👋', 'One and done', `${num(c.one_and_done)} towns`, c.one_and_done_sample && c.one_and_done_sample.length ? esc(c.one_and_done_sample.slice(0, 5).join(', ')) + '…' : 'visited on exactly one day')}
+            ${recordCard('📏', 'Longest and shortest names', c.longest_name ? esc(c.longest_name) : '—', c.shortest_name ? `shortest: ${esc(c.shortest_name)}` : '')}
+        </div>
+    </div>`;
+}
+
+function renderNature(d) {
+    const p = d.places || {};
+    const t = p.tops || {};
+    const cnt = p.counts || {};
+    const tile = (ic, title, n, top) => `<div class="tile"><div class="ic">${ic}</div><div class="v">${num(n || 0)}</div><div class="t">${title}</div><div class="s">${top && top[0] ? '★ ' + esc(top[0].name) : ''}</div></div>`;
+    if (!p.has_visits) { $('nature').innerHTML = '<div class="card empty">Appears once your visits are matched to named places.</div>'; return; }
+    $('nature').innerHTML = `<div class="tile-row">${tile('🌲', 'parks & nature', cnt.park, t.park)}${tile('🏛️', 'museums & landmarks', cnt.culture, t.culture)}${tile('🏖️', 'beaches', cnt.beach, t.beach)}${tile('🍜', 'places to eat & drink', cnt.food, t.food)}</div>
+        <div class="grid grid-3" style="margin-top:1rem;">
+        ${card('🌲 Favourite outdoors', rankList(t.park, i => i.city || '', i => `${num(i.visits)}×`))}
+        ${card('🏛️ Culture', rankList(t.culture, i => i.city || '', i => `${num(i.visits)}×`))}
+        ${card('🏖️ Beaches', rankList(t.beach, i => i.city || '', i => `${num(i.visits)}×`))}</div>`;
+}
+
+function renderSky(d) {
+    const x = d.extras || {};
+    const tiles = [];
+    const tile = (ic, v, t, s) => `<div class="tile"><div class="ic">${ic}</div><div class="v">${v}</div><div class="t">${t}</div>${s ? `<div class="s" title="${esc(s.replace(/<[^>]+>/g, ''))}">${s}</div>` : ''}</div>`;
+    if (x.flights) {
+        const f = x.flights;
+        tiles.push(tile('✈️', num(f.count), 'flights', `${num(f.airports)} airports · ${num(f.airlines)} airlines`));
+        tiles.push(tile('🌤️', km(f.km), 'flown', f.longest ? `longest ${esc(f.longest.route)}` : ''));
+        if (f.top_route) tiles.push(tile('🔁', `${f.top_route.count}×`, 'favourite route', esc(f.top_route.route)));
+        if (f.aircraft) tiles.push(tile('🛩️', num(f.aircraft), 'aircraft types', ''));
+    }
+    if (x.health) {
+        const h = x.health;
+        tiles.push(tile('👟', num(h.steps), 'steps', `${num(h.avg)} a day on average`));
+        tiles.push(tile('🚶', num(h.best_day.steps), 'best step day', dayLink(h.best_day.date)));
+        tiles.push(tile('🔟', num(h.days_10k), '10k-step days', ''));
+    }
+    if (x.activities) {
+        const a = x.activities;
+        tiles.push(tile('🏅', num(a.count), 'activities', Object.entries(a.by_kind || {}).map(([k, n]) => `${n} ${k}`).join(' · ')));
+        if (a.longest) tiles.push(tile('🚴', km(a.longest.km, 1), 'longest activity', `${esc(a.longest.title || a.longest.kind)} · ${fmtDate(a.longest.date)}`));
+    }
+    if (x.cells) tiles.push(tile('📡', num(x.cells.towers), 'cell sites seen', esc((x.cells.carriers || []).join(', '))));
+    if (x.journal) tiles.push(tile('📓', `${num(x.journal.longest)} days`, 'longest journal streak', `${num(x.journal.total)} entries`));
+    if (!tiles.length) { $('sky-sec').style.display = 'none'; return; }
+    $('sky').innerHTML = tiles.join('');
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function renderYears(d) {
+    const y = d.years || {};
+    const rows = (y.rows || []).slice(-10);
+    const s = y.seasons || {};
+    const sc = { spring: '--clay-mint', summer: '--clay-amber', autumn: '--clay-coral', winter: '--clay-sky' };
+    const bm = y.busiest_month;
+    const diff = (y.ytd_km || 0) - (y.last_ytd_km || 0);
+    $('years').innerHTML = `${card('Year by year', `<div class="chart-box"><canvas id="years-chart"></canvas></div>
+            <div class="legend" style="display:flex;gap:1rem;margin-top:0.4rem;"><span><i style="display:inline-block;width:10px;height:10px;background:${css('--primary')}"></i> distance</span><span><i style="display:inline-block;width:10px;height:10px;background:${css('--clay-sky')}"></i> new towns ×10</span></div>`)}
+        ${card('Seasons', `<div class="donut-wrap"><canvas id="season-donut"></canvas><ul class="legend" id="season-legend"></ul></div>
+            <p class="note" style="margin-top:0.5rem;">${bm ? `Busiest month ever: <strong>${MONTHS[bm.month - 1]} ${bm.year}</strong> with ${km(bm.km)}.` : ''}</p>`)}
+        ${card('This year vs last year, to date', `<div class="vs"><div><b>${km(y.ytd_km)}</b>${new Date().getFullYear()}</div><div><b>${km(y.last_ytd_km)}</b>${new Date().getFullYear() - 1}</div>
+            <div><b style="color:${diff >= 0 ? 'var(--success)' : 'var(--danger)'}">${diff >= 0 ? '+' : '−'}${km(Math.abs(diff))}</b>difference</div></div>
+            ${y.personal_bests && y.personal_bests.length ? `<p class="note" style="margin-top:0.6rem;">📈 Personal bests this year: <strong>${y.personal_bests.map(esc).join(', ')}</strong></p>` : ''}`)}
+        ${card('Personal records by year', rows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Year</th><th>Distance</th><th>Towns</th><th>New</th><th>Countries</th><th>Best day</th></tr></thead><tbody>${
+            [...rows].reverse().map(r => `<tr><td>${r.year}</td><td class="n">${km(r.km)}</td><td class="n">${num(r.towns)}</td><td class="n">${num(r.new_towns)}</td><td class="n">${num(r.countries)}</td><td class="n">${km(r.best_day_km)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">—</div>')}`;
+    requestAnimationFrame(() => {
+        if (rows.length) drawBars($('years-chart'), rows.map(r => String(r.year)), [
+            { name: 'distance', values: rows.map(r => r.km), color: css('--primary') },
+            { name: 'new towns', values: rows.map(r => r.new_towns * 10), color: css('--clay-sky') },
+        ], v => num(v));
+        const items = ['spring', 'summer', 'autumn', 'winter'].map(k => ({ label: k[0].toUpperCase() + k.slice(1), value: s[k] || 0, color: css(sc[k]) })).filter(i => i.value > 0);
+        if (items.length) drawDonut($('season-donut'), items, $('season-legend'), v => km(v));
+    });
+}
+
+function renderTimeline(g) {
+    const tl = g.timeline || [];
+    $('timeline').innerHTML = tl.length ? tl.map(e => `<li style="--tc:${tierColor(e.tier)}"><span class="when">${fmtDate(e.at)}</span>${e.emoji} <strong>${esc(e.name)}</strong> <span class="note">${TIERS[e.tier]}</span></li>`).join('')
+        : '<li>No badges yet.</li>';
+}
+
+function renderWall(g) {
+    $('wall-sub').textContent = `${g.unlocked} of ${g.total} unlocked · ${g.tiers_earned} of ${g.max_tiers} tiers`;
+    const fmtV = (b) => {
+        if (b.value == null) return 'no data yet';
+        const v = b.unit === 'km' ? km(b.value) : b.unit === 'km/h' ? kmh(b.value) : b.unit === 'm' ? m(b.value) : `${num(b.value, b.unit === '%' ? 1 : 0)} ${esc(b.unit)}`;
+        const nx = b.next == null ? 'maxed out' : `next: ${b.unit === 'km' ? km(b.next) : b.unit === 'km/h' ? kmh(b.next) : b.unit === 'm' ? m(b.next) : num(b.next) + (b.unit === '%' ? '%' : '')}`;
+        return `${v} · ${nx}`;
+    };
+    $('wall').innerHTML = g.groups.map(gr => {
+        const bs = g.badges.filter(b => b.group === gr.id);
+        if (!bs.length) return '';
+        return `<div class="bdg-group-h">${esc(gr.name)}</div><div class="badge-grid">${bs.map(b => `
+            <div class="bdg" data-tier="${b.tier}" title="${esc(b.tiers.map((t, i) => `${TIERS[i + 1]}: ${num(t)}`).join(' · '))}">
+                <span class="tiername">${b.tier ? TIERS[b.tier] : 'locked'}</span>
+                <div class="medal">${b.emoji}</div>
+                <div class="nm">${esc(b.name)}</div>
+                <div class="bl">${esc(b.blurb)}</div>
+                <div class="val">${fmtV(b)}</div>
+                <div class="pips">${[1, 2, 3, 4].map(t => `<i class="${b.tier >= t ? 'on' + t : ''}"></i>`).join('')}</div>
+                ${b.next != null ? `<div class="nextp"><span style="width:${(b.progress * 100).toFixed(0)}%"></span></div>` : ''}
+            </div>`).join('')}</div>`;
+    }).join('');
+}
+
+function safe(fn, ...a) { try { fn(...a); } catch (e) { console.error(e); } }
+
+function render(d) {
+    $('ach-pending').style.display = 'none';
+    $('ach-root').style.display = '';
+    const g = d.game;
+    safe(renderHero, g, d);
+    safe(renderExplorer, d);
+    safe(renderRoads, d);
+    safe(renderSpeed, d);
+    safe(renderMove, d);
+    safe(renderExtremes, d);
+    safe(renderRegulars, d);
+    safe(renderRhythm, d);
+    safe(renderBigDays, d);
+    safe(renderClimber, d);
+    safe(renderJourneys, d);
+    safe(renderGlobe, d);
+    safe(renderCollector, d);
+    safe(renderNature, d);
+    safe(renderSky, d);
+    safe(renderYears, d);
+    safe(renderTimeline, g);
+    safe(renderWall, g);
+}
+
+// ── Load + job status ──────────────────────────────────────────────────────
+let pollTimer = null, wasRunning = false, haveData = false, lastData = null;
+function showJob(st) {
+    const running = st && st.status === 'running';
+    $('ach-job').style.display = running ? 'block' : 'none';
+    $('ach-stop').style.display = running ? '' : 'none';
+    $('ach-rescan').disabled = running;
+    if (running) {
+        $('ach-job-fill').style.width = Math.max(3, st.pct || 0) + '%';
+        $('ach-job-lbl').textContent = `${st.stage || 'Working'}… ${Math.round(st.pct || 0)}%`;
+    } else if (st && st.status === 'error') {
+        $('ach-updated').textContent = `scan failed: ${st.error || 'unknown error'}`;
+    }
+    if (running && !pollTimer) pollTimer = setInterval(poll, 2000);
+    if (!running && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    if (wasRunning && !running && st.status === 'done') load();
+    wasRunning = running;
+}
+function poll() {
+    fetch('/api/achievements/rescan/status/').then(r => r.ok ? r.json() : null).then(st => st && showJob(st)).catch(() => {});
+}
+function setUpdated(iso) {
+    if (!iso) return;
+    const mins = Math.round((Date.now() - new Date(iso)) / 60000);
+    $('ach-updated').textContent = `updated ${mins < 1 ? 'just now' : mins < 60 ? mins + ' min ago' : mins < 1440 ? Math.round(mins / 60) + ' h ago' : new Date(iso).toLocaleDateString()}`;
+}
+function load() {
+    fetch('/api/achievements/').then(r => r.json()).then(d => {
+        if (d.status === 'pending') {
+            if (!haveData) { $('ach-pending').style.display = ''; $('ach-root').style.display = 'none'; }
+            $('ach-updated').textContent = 'first scan running…';
+            wasRunning = true;
+            showJob(d.job || { status: 'running' });
+            if (!pollTimer) pollTimer = setInterval(poll, 2000);
+            return;
+        }
+        haveData = true;
+        lastData = d;
+        render(d);
+        setUpdated(d.computed_at);
+        wasRunning = d.job && d.job.status === 'running';
+        showJob(d.job);
+    }).catch(e => { console.error(e); $('ach-updated').textContent = 'could not load'; });
+}
+$('ach-rescan').onclick = () => {
+    $('ach-rescan').disabled = true;
+    fetch('/api/achievements/rescan/', { method: 'POST', headers: { 'X-CSRFToken': CSRF } })
+        .then(r => r.json()).then(st => { wasRunning = true; showJob(st); }).catch(() => { $('ach-rescan').disabled = false; });
+};
+$('ach-stop').onclick = () => {
+    fetch('/api/achievements/rescan/stop/', { method: 'POST', headers: { 'X-CSRFToken': CSRF } }).then(() => poll());
+};
+// Canvases are sized to their box when drawn, so a real width change redraws
+// the canvas-backed sections from the data already here (maps resize on their own).
+let lastW = window.innerWidth, rt = null;
+window.addEventListener('resize', () => {
+    if (Math.abs(window.innerWidth - lastW) < 40 || !lastData) return;
+    lastW = window.innerWidth;
+    clearTimeout(rt);
+    rt = setTimeout(() => {
+        const d = lastData;
+        safe(() => drawRing($('lvl-ring'), d.game.level.progress));
+        [renderRoads, renderSpeed, renderMove, renderGlobe, renderYears].forEach(f => safe(f, d));
+    }, 250);
+});
+load();
+})();
+</script>
+{% endblock %}

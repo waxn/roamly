@@ -915,6 +915,24 @@
                     </div>
                     <div id="stats-recalc-status" style="margin-top:0.6rem;font-size:0.8125rem;color:var(--text-muted);"></div>
                 </div>
+
+                <div style="border-top:1px solid var(--border);"></div>
+
+                <!-- Rescan achievements -->
+                <div>
+                    <div style="font-size:0.875rem;font-weight:600;color:var(--text);margin-bottom:0.25rem;">Rescan Achievements</div>
+                    <div style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;">The <a href="{% url 'tracker:achievements' %}">Achievements</a> page is served from a scan that refreshes every night: town, county and region coverage, roads travelled, records and badges. Rescan now to pick up new trips straight away. The road coverage step is skipped when nothing new could change it.</div>
+                    <div class="settings-actions">
+                        <button class="btn btn-primary btn-sm" id="ach-btn" onclick="startAchScan()">Rescan Now</button>
+                        <button class="btn btn-outline btn-sm" id="ach-stop-btn" onclick="stopAchScan()" style="display:none;">Stop</button>
+                    </div>
+                    <div id="ach-progress-wrap" style="margin-top:0.6rem;display:none;">
+                        <div style="background:var(--bg-input);border-radius:0;height:6px;overflow:hidden;margin-bottom:0.35rem;">
+                            <div id="ach-bar" style="height:100%;width:0%;background:var(--primary);border-radius:0;transition:width 0.4s ease;"></div>
+                        </div>
+                        <div id="ach-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1937,6 +1955,62 @@ function stopRegeocode() {
 // Resume (or show the last result) on page load. ETA is only shown for a run
 // started from this page, since there is no start time to measure from otherwise.
 pollRegeocode();
+
+// ── Rescan achievements ──────────────────────────────────────────────────────
+let achTimer = null;
+function renderAchScan(data) {
+    if (!data) return;
+    const wrap = document.getElementById('ach-progress-wrap');
+    const bar = document.getElementById('ach-bar');
+    const st = document.getElementById('ach-status');
+    const btn = document.getElementById('ach-btn');
+    const stop = document.getElementById('ach-stop-btn');
+    const running = data.status === 'running';
+    btn.disabled = running;
+    btn.style.opacity = running ? '0.5' : '';
+    stop.style.display = running ? 'inline-block' : 'none';
+    if (data.status === 'idle' && !data.computed_at) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    if (running) {
+        bar.classList.add('bar-flow');
+        bar.style.background = '';
+        bar.style.width = Math.max(3, data.pct || 0) + '%';
+        st.textContent = `${data.stage || 'Working'}… (${Math.round(data.pct || 0)}%)`;
+    } else {
+        bar.classList.remove('bar-flow');
+        const when = data.computed_at ? new Date(data.computed_at).toLocaleString() : '';
+        if (data.status === 'done') {
+            bar.style.width = '100%'; bar.style.background = 'var(--success)';
+            st.textContent = `Last scan ${when}`;
+        } else if (data.status === 'stopped') {
+            bar.style.background = 'var(--text-muted)';
+            st.textContent = 'Stopped. The page keeps showing the previous scan' + (when ? ` (${when}).` : '.');
+        } else if (data.status === 'error') {
+            bar.style.background = 'var(--danger)';
+            st.textContent = `Failed: ${data.error || 'unknown error'}`;
+        } else {
+            bar.style.width = '100%'; bar.style.background = 'var(--text-muted)';
+            st.textContent = when ? `Last scan ${when}` : '';
+        }
+    }
+    if (running && !achTimer) achTimer = setInterval(pollAchScan, 2000);
+    else if (!running && achTimer) { clearInterval(achTimer); achTimer = null; }
+}
+function pollAchScan() {
+    fetch('/api/achievements/rescan/status/').then(r => r.ok ? r.json() : null).then(renderAchScan).catch(() => {});
+}
+function startAchScan() {
+    document.getElementById('ach-btn').disabled = true;
+    fetch('/api/achievements/rescan/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
+        .then(r => r.ok ? r.json() : null).then(renderAchScan).catch(() => {});
+}
+function stopAchScan() {
+    document.getElementById('ach-stop-btn').disabled = true;
+    document.getElementById('ach-status').textContent = 'Stopping…';
+    fetch('/api/achievements/rescan/stop/', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
+        .finally(() => { document.getElementById('ach-stop-btn').disabled = false; });
+}
+pollAchScan();
 
 // ── Match POIs to points ─────────────────────────────────────────────────────
 let poiMatchStartTime = null;

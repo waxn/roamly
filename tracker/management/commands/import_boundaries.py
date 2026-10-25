@@ -14,6 +14,11 @@ loads them into the Boundary table. Runs inside the web container, which has GDA
     # ...and re-label every existing point with the new boundaries in one go
     python manage.py import_boundaries --states ME,VA --regeocode
 
+    # US counties (Achievements coverage). Census publishes these as ONE national
+    # file rather than one per state, so the kind is loaded once and filtered by
+    # --states afterwards.
+    python manage.py import_boundaries --kinds county
+
 `--regeocode` relabels stored locations (overwriting any nearest-city fallback
 labels) using the freshly loaded boundaries, so the backlog gets the exact towns.
 """
@@ -48,7 +53,7 @@ class Command(BaseCommand):
         parser.add_argument('--states', default='',
                             help='Comma list of state abbreviations (default: all 50 + DC)')
         parser.add_argument('--kinds', default='place,cousub',
-                            help='Boundary layers to load (default: place,cousub)')
+                            help='Boundary layers to load: place, cousub, county (default: place,cousub)')
         parser.add_argument('--keep', action='store_true',
                             help='Do not clear existing boundaries first')
         parser.add_argument('--regeocode', action='store_true',
@@ -63,17 +68,33 @@ class Command(BaseCommand):
         states = [s.strip().upper() for s in opts['states'].split(',') if s.strip()] or list(STATE_FIPS)
 
         if not opts['keep']:
-            n = Boundary.objects.count()
-            Boundary.objects.all().delete()
-            self.stdout.write(f"Cleared {n} existing boundaries")
+            # Only the US kinds being re-imported. The table also holds county
+            # rows and the geoBoundaries ADM polygons boundary_download_tasks
+            # fetches for other countries, which a place/cousub refresh must not
+            # wipe out from under Achievements.
+            stale = Boundary.objects.filter(country_code='US', kind__in=kinds)
+            n = stale.count()
+            stale.delete()
+            self.stdout.write(f"Cleared {n} existing boundaries ({', '.join(kinds)})")
 
         total = 0
+        if 'county' in kinds:
+            url = (f"https://www2.census.gov/geo/tiger/GENZ{year}/shp/"
+                   f"cb_{year}_us_county_500k.zip")
+            try:
+                count = self._load(url, 'county', only_states=set(states))
+                total += count
+                self.stdout.write(f"  US county: {count}")
+            except Exception as e:
+                self.stderr.write(self.style.ERROR(f"  US county: FAILED — {e}"))
         for st in states:
             fips = STATE_FIPS.get(st)
             if not fips:
                 self.stderr.write(self.style.WARNING(f"Unknown state '{st}', skipping"))
                 continue
             for kind in kinds:
+                if kind == 'county':
+                    continue
                 url = (f"https://www2.census.gov/geo/tiger/GENZ{year}/shp/"
                        f"cb_{year}_{fips}_{kind}_500k.zip")
                 try:
@@ -90,7 +111,7 @@ class Command(BaseCommand):
 
     # ── helpers ──────────────────────────────────────────────────────────────
 
-    def _load(self, url, kind):
+    def _load(self, url, kind, only_states=None):
         from django.contrib.gis.gdal import DataSource
         from django.contrib.gis.geos import MultiPolygon
         from tracker.models import Boundary
@@ -117,13 +138,27 @@ class Command(BaseCommand):
                 # point — which my caller swallows into a silent offline fallback
                 # (everything reads as the nearest city). Stamp it so PIP matches.
                 geos.srid = 4326
-                name = (feat.get('NAME') or '').strip()
-                state = (feat.get('STATE_NAME') or '').strip()
+                if kind == 'county':
+                    # "Waldo County" / "Orleans Parish" rather than a bare "Waldo",
+                    # which would collide with the town of the same name.
+                    name = (self._field(feat, 'NAMELSAD') or self._field(feat, 'NAME')).strip()
+                    if only_states and self._field(feat, 'STUSPS').strip() not in only_states:
+                        continue
+                else:
+                    name = (feat.get('NAME') or '').strip()
+                state = (self._field(feat, 'STATE_NAME') or '').strip()
                 if not name:
                     continue
                 objs.append(Boundary(name=name, state=state, country_code='US', kind=kind, geom=geos))
             Boundary.objects.bulk_create(objs, batch_size=500)
             return len(objs)
+
+    @staticmethod
+    def _field(feat, name):
+        try:
+            return feat.get(name) or ''
+        except Exception:  # field absent from this vintage's attribute table
+            return ''
 
     def _download(self, url, retries=4):
         last = None

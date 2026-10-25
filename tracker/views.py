@@ -56,7 +56,7 @@ from .models import (
     UserProfile, ADVENTURE_PLACE_CATEGORIES,
     AdventureMember, AdventureBlurb, AdventureBlurbPhoto, AdventureMilestone, AdventureComment,
     AdventureDayNote, AdventureDayPhoto,
-    SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig, StatsSnapshot,
+    SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig, StatsSnapshot, AchievementSnapshot,
     DismissedSuggestion, PlannedStop, KnownDevice, TOTPBackupCode,
     LocationShare, LocationShareGrant, LocationShareView,
     InferredLocation, EditBatch, TrashedLocation, RoadSegment, ROADS_AVAILABLE_CACHE_KEY,
@@ -2374,13 +2374,15 @@ def site_auto_download_api(request):
         return JsonResponse({'error': 'Invalid request.'}, status=400)
 
     config = SiteConfig.load()
-    config.auto_download_roads = bool(data.get('auto_download_roads'))
-    config.auto_download_subway = bool(data.get('auto_download_subway'))
-    config.auto_download_pois = bool(data.get('auto_download_pois'))
-    config.save(update_fields=[
-        'auto_download_roads', 'auto_download_subway', 'auto_download_pois',
-        'updated_at',
-    ])
+    fields = ['updated_at']
+    # Each flag is applied only when sent, so the Boundaries card (which posts
+    # just its own) can't switch the other three off by omission.
+    for name in ('auto_download_roads', 'auto_download_subway', 'auto_download_pois',
+                 'auto_download_boundaries'):
+        if name in data:
+            setattr(config, name, bool(data.get(name)))
+            fields.append(name)
+    config.save(update_fields=fields)
     return JsonResponse({'ok': True})
 
 
@@ -11362,6 +11364,92 @@ def stats_recompute_status_api(request):
     return JsonResponse(get_status(request.user.id))
 
 
+# ── Achievements (Data → Achievements) ────────────────────────────────────────
+# Served from the per-user AchievementSnapshot, never computed on a request —
+# the road-coverage phase alone takes far longer than a request may. See
+# achievement_tasks.py.
+
+@login_required
+def achievements_view(request):
+    return render(request, 'tracker/achievements.html')
+
+
+@login_required
+def achievements_api(request):
+    from .achievement_tasks import get_status, start_achievement_scan
+    snap = (AchievementSnapshot.objects.filter(user=request.user)
+            .only('id', 'status', 'computed_at').first())
+    if not snap or not snap.computed_at:
+        st = get_status(request.user.id)
+        if st['status'] not in ('running',):
+            start_achievement_scan(request.user.id)
+            st = get_status(request.user.id)
+        return JsonResponse({'status': 'pending', 'job': st})
+    payload = dict(AchievementSnapshot.objects.filter(pk=snap.pk)
+                   .values_list('payload_json', flat=True).first() or {})
+    payload['computed_at'] = snap.computed_at.isoformat()
+    payload['status'] = 'ready'
+    payload['job'] = get_status(request.user.id)
+    resp = JsonResponse(payload)
+    resp['Cache-Control'] = 'private, no-cache'
+    return resp
+
+
+@login_required
+@require_POST
+def achievements_rescan_api(request):
+    from .achievement_tasks import get_status, start_achievement_scan
+    start_achievement_scan(request.user.id)
+    return JsonResponse(get_status(request.user.id))
+
+
+@login_required
+def achievements_status_api(request):
+    from .achievement_tasks import get_status
+    return JsonResponse(get_status(request.user.id))
+
+
+@login_required
+@require_POST
+def achievements_stop_api(request):
+    from .achievement_tasks import get_status, stop_achievement_scan
+    stop_achievement_scan(request.user.id)
+    return JsonResponse(get_status(request.user.id))
+
+
+@login_required
+def boundary_status_api(request):
+    """Admin Panel → Downloads → Boundaries: which countries have region data."""
+    err = _require_admin(request)
+    if err:
+        return err
+    from . import boundary_download_tasks as bdt
+    return JsonResponse(bdt.status())
+
+
+@login_required
+@require_POST
+def boundary_download_api(request):
+    """Fetch boundaries now for every qualifying country (runs in the background)."""
+    err = _require_admin(request)
+    if err:
+        return err
+    from . import boundary_download_tasks as bdt
+    db_thread(bdt.ensure_boundaries, name='boundary-download').start()
+    return JsonResponse({'ok': True})
+
+
+@login_required
+@require_POST
+def boundary_delete_api(request):
+    err = _require_admin(request)
+    if err:
+        return err
+    from . import boundary_download_tasks as bdt
+    n = bdt.delete_all()
+    return JsonResponse({'ok': True, 'deleted': n})
+
+
 @login_required
 def place_detail_api(request, place_id):
     """Full stats for one custom place: points, days, time spent, cities, sample track."""
@@ -12594,6 +12682,7 @@ def admin_panel_view(request):
         'auto_download_roads': site_config.auto_download_roads,
         'auto_download_subway': site_config.auto_download_subway,
         'auto_download_pois': site_config.auto_download_pois,
+        'auto_download_boundaries': site_config.auto_download_boundaries,
     })
 
 

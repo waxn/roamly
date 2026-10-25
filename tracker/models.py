@@ -450,7 +450,9 @@ class DownloadedRegion(models.Model):
     Instance-wide reference data, like the tables it tracks coverage for
     (no user FK) ⇒ excluded from backups.
     """
-    KIND_CHOICES = [('road', 'Road'), ('subway', 'Subway'), ('poi', 'POI')]
+    # 'boundary' keys are ISO3 country codes: a country whose geoBoundaries
+    # ADM1-3 polygons were fetched (boundary_download_tasks.py).
+    KIND_CHOICES = [('road', 'Road'), ('subway', 'Subway'), ('poi', 'POI'), ('boundary', 'Boundary')]
     kind = models.CharField(max_length=10, choices=KIND_CHOICES)
     key = models.CharField(max_length=200)
 
@@ -1462,6 +1464,10 @@ class SiteConfig(models.Model):
     auto_download_roads = models.BooleanField(default=True)
     auto_download_subway = models.BooleanField(default=True)
     auto_download_pois = models.BooleanField(default=True)
+    # geoBoundaries region/district polygons for every country someone on the
+    # instance has spent more than a week in (Achievements coverage). See
+    # tracker/boundary_download_tasks.py.
+    auto_download_boundaries = models.BooleanField(default=True)
     # Overpass endpoints for those downloads, one per line, tried in order.
     # Blank falls back to settings.OVERPASS_URLS (the built-in pool, with the
     # legacy OVERPASS_URL env var first if it is set). Editable here rather
@@ -1691,6 +1697,53 @@ class StatsSnapshot(models.Model):
 
     def __str__(self):
         return f"StatsSnapshot {self.user.username} ({self.status})"
+
+
+class AchievementSnapshot(models.Model):
+    """Per-user precomputed Achievements payload (Data → Achievements).
+
+    Same idea as StatsSnapshot — the page serves stored JSON instantly — but a
+    separate row with its own status, because the road-coverage phase is far
+    heavier than the stats compute and runs on its own job and advisory lock
+    (achievement_tasks.py). Derived ⇒ excluded from backups.
+    """
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='achievement_snapshot')
+    payload_json = models.JSONField(default=dict, blank=True)
+    # Last road-coverage result + the fingerprint it was computed for, so a
+    # rescan with no new ground and no new road data skips that phase.
+    roads_json = models.JSONField(default=dict, blank=True)
+    roads_fingerprint = models.CharField(max_length=100, blank=True, default='')
+    status = models.CharField(max_length=20, default='idle')  # idle|running|done|error|stopped
+    stage = models.CharField(max_length=120, blank=True, default='')
+    pct = models.FloatField(default=0)
+    error = models.TextField(blank=True, default='')
+    started_at = models.DateTimeField(null=True, blank=True)
+    heartbeat_at = models.DateTimeField(null=True, blank=True)
+    computed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"AchievementSnapshot {self.user_id} ({self.status})"
+
+
+class AchievementUnlock(models.Model):
+    """One badge tier a user has earned, with when.
+
+    Kept across rescans so "recently unlocked" and the milestone timeline have
+    a history; back-dated on first unlock where the metric has a natural
+    first-reached time. Derived ⇒ excluded from backups (a restore simply
+    re-derives them on the next scan).
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='achievement_unlocks')
+    badge_id = models.CharField(max_length=60)
+    tier = models.SmallIntegerField()  # 1 bronze, 2 silver, 3 gold, 4 platinum
+    unlocked_at = models.DateTimeField()
+    value = models.FloatField(default=0)
+
+    class Meta:
+        unique_together = [('user', 'badge_id', 'tier')]
+
+    def __str__(self):
+        return f"{self.user_id}:{self.badge_id}:{self.tier}"
 
 
 class AccessLog(models.Model):

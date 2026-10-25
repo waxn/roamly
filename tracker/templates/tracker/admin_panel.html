@@ -592,6 +592,31 @@
             </div>
         </div>
 
+        <div class="card" style="transition:none;">
+            <div class="card-header" style="display:flex;align-items:center;gap:0.4rem;">
+                Region Boundaries
+                <span class="badge badge-warning" style="font-size:0.65rem;">instance-wide</span>
+            </div>
+            <p class="settings-section-desc">
+                Region, district and municipality outlines from
+                <a href="https://www.geoboundaries.org/" target="_blank" rel="noopener">geoBoundaries</a>
+                (CC BY 4.0) for every country someone on this instance has spent more than a week in.
+                They power the town and region percentages on the <strong>Achievements</strong> page.
+                US towns and counties come from the Census instead (<code>import_boundaries</code>).
+            </p>
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8125rem;cursor:pointer;margin-bottom:0.75rem;">
+                <input type="checkbox" id="dl-bnd-auto" {% if auto_download_boundaries %}checked{% endif %}
+                       onchange="bndToggleAuto(this.checked)">
+                Auto-download new countries (checks every few hours and whenever someone rescans Achievements)
+            </label>
+            <div class="settings-actions">
+                <button class="btn btn-primary btn-sm" id="dl-bnd-btn" onclick="bndDownload()">Download Now</button>
+                <button class="btn btn-outline btn-sm" onclick="bndDelete()"
+                        style="color:var(--danger);border-color:var(--danger);">Delete Region Data</button>
+            </div>
+            <div id="dl-bnd-status" style="margin-top:0.6rem;font-size:0.8125rem;color:var(--text-muted);"></div>
+        </div>
+
     </div>
 
     <!-- ── Push Notifications tab ── -->
@@ -2297,7 +2322,40 @@ function dlToggleAuto(kind, checked) {
     }).catch(() => {});
 }
 
+function bndToggleAuto(checked) {
+    fetch('/api/site/auto-download/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+        body: JSON.stringify({ auto_download_boundaries: checked }),
+    }).catch(() => {});
+}
+function bndLoad() {
+    const el = document.getElementById('dl-bnd-status');
+    fetch('/api/boundaries/status/').then(r => r.ok ? r.json() : null).then(d => {
+        if (!d) return;
+        if (!d.postgis) { el.textContent = 'Needs PostGIS.'; return; }
+        if (!d.countries.length) { el.textContent = 'No countries downloaded yet.'; return; }
+        el.innerHTML = `${d.countries.length} countr${d.countries.length === 1 ? 'y' : 'ies'}: ` +
+            d.countries.map(c => `<span title="${c.adm1} regions · ${c.adm2} districts · ${c.adm3} municipalities">${esc(c.cc || c.iso3)}</span>`).join(', ');
+    }).catch(() => {});
+}
+function bndDownload() {
+    const btn = document.getElementById('dl-bnd-btn');
+    btn.disabled = true;
+    document.getElementById('dl-bnd-status').textContent = 'Downloading in the background — this can take a few minutes per country.';
+    fetch('/api/boundaries/download/', { method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') } })
+        .finally(() => { setTimeout(() => { btn.disabled = false; bndLoad(); }, 15000); });
+}
+async function bndDelete() {
+    const ok = await roamlyConfirm('Delete every downloaded region boundary? They are fetched again on the next auto-download.',
+        { title: 'Delete region data', danger: true, confirmText: 'Delete' });
+    if (!ok) return;
+    fetch('/api/boundaries/delete/', { method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') } })
+        .then(() => bndLoad());
+}
+
 function loadDownloads() {
+    bndLoad();
     loadOverpassConfig();
     ['roads', 'subway', 'poi'].forEach(kind => {
         fetch(DL_JOBS[kind].statusUrl)

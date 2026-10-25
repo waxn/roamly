@@ -60,6 +60,11 @@ class TrackerConfig(AppConfig):
             except Exception:
                 pass
             try:
+                from .achievement_tasks import start_achievement_scheduler
+                start_achievement_scheduler()
+            except Exception:
+                pass
+            try:
                 from .opensky import start_opensky_scheduler
                 start_opensky_scheduler()
             except Exception:

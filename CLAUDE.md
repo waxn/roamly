@@ -118,7 +118,7 @@ Single Django app (`tracker/`) inside the `roamly` project. No separate services
 - **`offline_reverse_geocode(coords)`** — international / no-US-match fallback: nearest city from the bundled-GeoNames `reverse_geocode` package (`cities1000`, numpy/scipy), no network. **This is deliberately the original matching, unchanged.** v0.82.0 swapped it for GeoNames `cities500` (places of 500+), and a nearer hamlet then beat the town people name (Silverdale over Sellersville, PA; Morrill's centre over Waldo); that was reverted.
 - **Border check — the one addition.** Nearest-city ignores borders: Campobello Island, NB's villages are too small for `cities1000`, so it was labelled after the nearest town it had, Eastport, Maine. `zone_country()` asks the timezone polygons `timezonefinder` already loads for `tz_utils` (they follow real borders: Campobello is America/Moncton, Eastport America/New_York) and maps the zone to a country through IANA `zone.tab`. **Only when the nearest city's country differs from the zone's** does the label change: to the nearest place in the zone's country from **`tracker/data/places.json.gz`** (GeoNames `cities500` + zone→country map, built and committed by `scripts/build_cities.py`; small places are what a border crossing needs), or, if none is within `_BORDER_MAX_KM` (12), just that country's state and name with no town. Every other point is labelled exactly as before. The same check skips the US `Boundary` lookup when the zone is another country's, since the 1:500k polygons are generalised. Ocean (`Etc/*`) zones skip it. Country names in the data file come from `reverse_geocode`'s `countries.csv`, so they match stored labels.
 
-Boundaries are loaded by **`import_boundaries`** (`tracker/management/commands/`): downloads US Census TIGER shapefiles (`cb_<year>_<fips>_{place,cousub}_500k.zip`) per state, transforms to 4326, `bulk_create`s into `Boundary`. `--states ME,VA` limits states; `--regeocode` runs the relabel below.
+Boundaries are loaded by **`import_boundaries`** (`tracker/management/commands/`): downloads US Census TIGER shapefiles (`cb_<year>_<fips>_{place,cousub}_500k.zip`) per state, transforms to 4326, `bulk_create`s into `Boundary`. `--states ME,VA` limits states; `--regeocode` runs the relabel below. **`--kinds county`** loads US counties (for Achievements) from the one **national** file `cb_<year>_us_county_500k.zip`, named by `NAMELSAD` ("Waldo County") so a county never collides with a town of the same name, filtered by `--states` after load. Without `--keep` it now clears **only the US kinds being imported**, not the whole table, because `Boundary` also holds counties and the geoBoundaries `adm1`/`adm2`/`adm3` rows (see Achievements). The geocoder reads only `kind` `place`/`cousub`, so none of the new kinds can change a label.
 
 **Re-geocode** (`tracker/regeocode_tasks.py`) relabels the existing history with the current geocoder. Geocoding only ever labels `city=''` points, and the Reverse Geocoding job is that same backlog drain, so a geocoder improvement otherwise reaches new points only. Two entry points share `regeocode()`: `python manage.py regeocode [--user NAME]`, and **Settings → Background Jobs → Re-geocode All Points** for the signed-in account (`POST /api/geocode/relabel/`, `GET …/status/`, `POST …/stop/`). The web job runs in a `db_thread` with its state in the cache (`regeocode_job:{user}`, shared across gunicorn workers, no model). A heartbeat fails a run silent for 3 min (30 min during the final stats refresh), and a `cache.add` guard stops a double click starting two threads. It caches one lookup per ~111m cell, **writes only rows whose label changed**, then busts each changed account's cache and recomputes its `StatsSnapshot` (`refresh_after`).
 
@@ -362,9 +362,49 @@ The dense layer is a **GL circle layer, not a canvas**: fog of war uses a canvas
 
 Cell reads sit behind their own **`cell_gen:{user}`** counter (`_bust_cell_cache`), never `cache_gen` — same reasoning as health and activities in both directions. Cell history is user content the phone cannot re-derive (the modem keeps no log), so it joins the backup format, `meta.version` **15 → 16**, streamed row-by-row in both directions. **New model ⇒ build + migrate; mobile change ⇒ rebuild APK + tag.**
 
-**The nav's "Data" menu** (formerly "Insights") groups Stats, Visits, **Raw data** (`/data/`), Cell signal, **Flights** and the map editor; the toggle highlights for every one of those `url_name`s, so a page added to the menu must be added to that condition too.
+**The nav's "Data" menu** (formerly "Insights") groups Stats, Visits, **Achievements**, **Raw data** (`/data/`), Cell signal, **Flights** and the map editor; the toggle highlights for every one of those `url_name`s, so a page added to the menu must be added to that condition too.
 
 **Raw data sources (`/data/`).** The page that was "Location data" now has a source selector. Recorded points keep their own path (`/api/locations/`, sort + delete + Load All, unchanged); everything else is read-only through **`GET /api/data/source/<key>/`** (`raw_data_source_api`), which serves only keys in the **`_RAW_SOURCES` allow-list** in `views.py`: `generated` (`InferredLocation`, not-undone batches), `trash` / `hidden` (`TrashedLocation` with `reason='deleted'` / `'overlap'`), `cells` (`CellSample`) and `health` (`HealthSample`). **Each entry's queryset factory hard-codes the user scoping**, so no request parameter can widen it, and a `device_id` filter is resolved through `Device.objects.filter(user=request.user)` first — an id that is not the caller's answers with nothing. `GET /api/data/sources/` lists only the sources the account has rows in (`.exists()` each), so the selector never offers an empty table. **Deliberately not reachable:** logs, job rows, snapshots, caches, API keys, sessions, devices, Visit (it has its own page) and the instance-wide reference tables (POI / roads / rails / boundaries) — a new entry must be data the person would recognise as their own. Columns and their display type (`time`/`coord`/`num`/`speed`/`text`) ride in the response, so the template has one generic renderer; keyset paging on `(time desc, id desc)`, 200 rows a page. The choice is remembered in `?source=` and `roamly_data_source`. Pure Python + template — restart is not enough for the template, so `up -d --build`.
+
+**Achievements** (`/achievements/`, `achievements_view` → `achievements.html`, migration `0108`). A long, gamified page under Data: coverage of countries / US states / counties / towns (and regions abroad), roads travelled by town and county with a road-type donut, corroborated top speed, travel-type donuts, extremes, regulars (top store, café, fuel, chains, commute), rhythm (hour × weekday heatmap, early bird / night owl), big days, climbing, journey records, globe-trotter (time zones, hemispheres, Equator/Tropic/date-line crossings, home-radius rings), town collector (A–Z alphabet, namesakes, longest comeback), nature & culture, flights/health/activities/cells, seasons and years, a milestone timeline and a ~60-badge wall with bronze→platinum tiers, XP and a level title.
+
+**It is served from a snapshot and never computed on a request**, the StatsSnapshot contract. `AchievementSnapshot` (OneToOne) holds `payload_json` plus its own `status`/`stage`/`pct`/`heartbeat_at`. It is a separate row, not more StatsSnapshot columns, because the road phase is far heavier than stats and gets its own job, progress and lock. `GET /api/achievements/` returns the payload, or `{status:'pending'}` after kicking the first scan (the page shows a note and polls). `POST /api/achievements/rescan/` (`…/status/`, `…/stop/`, web-only, CSRF-checked) runs it on demand: **Settings → Background Jobs → Rescan Achievements**, and the page's own ↻ button. A nightly scheduler (`start_achievement_scheduler`, advisory-lock namespace **`0x52414d48` 'RAMH'**, `wait_for_app_registry()` then a 2-minute head start for the stats sweep) rescans anyone not done today in their own zone. Stop is a cache flag checked between phases and every 20k points. A run silent for `STALE_AFTER_S` (600s) is reported failed by `get_status`, since its thread died with its worker.
+
+`tracker/achievement_tasks.py` runs the phases:
+1. Boundary downloads.
+2. **One ordered pass per device** that feeds every per-point metric at once. It runs points through `_gated_distance_segments` as a generator, so distance agrees with Stats and the history is read once however many metrics exist.
+3. Geography: ~220m cell centres in a temp table joined to `Boundary` with `ST_Intersects`, with first-visit times.
+4. Roads.
+5. Places from `Visit` + POI names.
+6. Extras: Flight, HealthSample (one source per day, the larger), Activity, CellSample sites via `cell_utils.site_key`, journal streak.
+7. Badges.
+
+Travel types reuse `StatsSnapshot.transport_json` when present.
+
+Rules that are load-bearing:
+- **Max speed is corroborated, never `Max(speed)`.** It is the median of a 5-fix window, every fix ≤30m accuracy, and the window's own displacement must cover at least half the claimed speed. Parked-phone Doppler garbage (the `_is_jitter` case) would otherwise hold the record forever. Planes are kept separately, and the ground cap is 100 m/s.
+- **Journeys never bridge a gap.** A hop over 15 min ends the journey and does not start the next. A silent stationary hop over 10 min is a stop. A moving hop needs displacement of at least 0.5 m/s as well as speed. Each rule was a real bug in the first cut: a month between trips became a 289 km "walk".
+- **Road coverage** is measured as follows:
+  - mapped roads intersecting visited towns/counties are sampled every 25m (`ST_Segmentize` + `ST_DumpPoints`);
+  - each sample is weighted by length ÷ sample count, so the totals are true kilometres;
+  - a sample counts as driven when one of the user's own short plausible hops passes within ~25m. Hops come from a window over the history (≤120s, ≤50m accuracy, 5–2000m, no planes or suspect fixes), and the test is a geometry `ST_DWithin` so the GiST index is used.
+
+  The percentages are **of roads Roamly has mapped**. Road data is only downloaded around travel, which the page says. `roads_fingerprint` (max location id, road count, visited-unit counts) skips the whole phase when nothing it reads changed.
+- **Home** is the ~220m cell most slept at (00–05 local). "Nights away" counts nights spent more than 50 km from it.
+
+**Badges** live in `tracker/achievement_defs.py` (pure Python): `Badge(id, name, emoji, group, metric, tiers=(bronze, silver, gold, platinum))`, XP 10/25/60/150 per tier, and `level_for_xp`. A metric that is missing (no data or no PostGIS) leaves its badge locked rather than erroring. `AchievementUnlock` (user, badge, tier, `unlocked_at`) persists across rescans and drives "recently unlocked" and the timeline. A first unlock is **back-dated** wherever a metric has a natural first-reached time (`reach`: the Nth country, state, town or county, cumulative distance by day). Both tables are derived, so they are **excluded from backups**.
+
+**Regions abroad** (`tracker/boundary_download_tasks.py`):
+- **Trigger:** a country with **more than 7 distinct days** of fixes (UTC days, one query across accounts).
+- **Download:** its geoBoundaries gbOpen **ADM1/ADM2/ADM3** polygons (CC BY, simplified files, ISO2→ISO3 via a built-in table) go into `Boundary` as `kind` `adm1`/`adm2`/`adm3`. `state` is set to the containing ADM1 by `ST_PointOnSurface`.
+- **Coverage:** recorded as `DownloadedRegion(kind='boundary', key=<ISO3>)` **only when every level answered**. A missing level (404, empty) is an answer; a timeout is not, so it retries.
+- **Who runs it:** the achievements scan (for that user) and the 6-hourly auto-download sweep, both gated on **`SiteConfig.auto_download_boundaries`** (default on). Admin Panel → Downloads has a **Region Boundaries** card (toggle, Download Now, Delete) on `GET /api/boundaries/status/`, `POST /api/boundaries/download/`, `POST /api/boundaries/delete/` (admin-only).
+- **Locking:** a `cache.add` lock per country stops two scans fetching one country.
+- **Auto-download toggle:** `site_auto_download_api` now applies only the flags a POST carries, so the Boundaries card can't switch the other three off.
+
+POI subtypes (café, fuel, grocery, park, museum…) come from **names** (`classify_poi`), since `POI.category` is only the OSM tag key. Distance/speed/altitude respect `roamly_speed_unit`. Charts are hand-rolled Canvas (`drawDonut`, `drawGauge`, `drawRings`, `drawBars`, no library). Maps are blank-style MapLibre choropleths like the admin country map: `world-countries.json` on `cc`, `us-states.json` on `name`, and visited/unvisited counties and ADM2 shipped as simplified GeoJSON in the payload (≤800 features). Tests: `tracker/tests/test_achievements.py`, which need PostGIS.
+
+**Deploy:** `up -d --build` (migration), then `import_boundaries --kinds county` once for US county percentages. **New models + `SiteConfig` field ⇒ build + migrate.**
 
 **Flights** (`/flights/`, `flights_view` → `flights.html`, migrations `0102`–`0107`; also in the app, see **Mobile Data tab + boarding-pass scanning**). An AirTrail-style personal flight log: **List** (sortable table; each flight number links to `https://www.flightradar24.com/data/flights/<number>`, carried as `fr24_url` in the payload), **Map** (MapLibre, flights only: great-circle arcs interpolated in JS with longitudes **unwrapped** so a transpacific route is one continuous line rather than a stripe across the map, weighted by how often the route was flown; airport dots sized by visits; click either for details) and **Stats** (distance, time aloft, airports, airlines, countries, multiples of the Earth/Moon distance, flights per year, top airports/routes/airlines, class/reason, records, and an **Aircraft** section: types, families, manufacturers and individual tails flown, most flown types/families/manufacturers, tails flown more than once, and per-type distance/time records — the family is the model without its variant, `Boeing 737-800` → `Boeing 737`, the same rule in `acFamily` on web and app), all **computed client-side from the list**, which is small. Tabs deep-link by hash; a year filter applies to all three (the per-year chart always spans every year). Distance respects `roamly_speed_unit`.
 
@@ -623,6 +663,9 @@ The page carries `noindex, nofollow, noarchive` and `referrer: no-referrer`, and
 | `tracker/flight_lookup.py` | AeroDataBox flight lookup by number + date (Flights page auto-fill) |
 | `tracker/opensky.py` | OpenSky Network client (OAuth2 client credentials, per-family credit tracking) + 3-hourly flight-track fetch sweep |
 | `tracker/flight_detect.py` | Finds airport-to-airport hops in GPS history for the bell's "Did you fly…?" suggestions |
+| `tracker/achievement_tasks.py` | Achievements scan: history pass, boundary/road coverage, places, badges + nightly scheduler |
+| `tracker/achievement_defs.py` | Badge registry, tiers, XP and level table (pure Python) |
+| `tracker/boundary_download_tasks.py` | geoBoundaries ADM1-3 download for countries with 7+ days |
 | `tracker/airports.py` | Lazy lookup over the bundled OurAirports subset (`static/tracker/data/airports.json`, built by `scripts/build_airports.py`) |
 | `trackerhw/` | Hardware tracker (ESP32-S3 + L76K GNSS) firmware and docs — see Hardware tracker below |
 
@@ -692,6 +735,10 @@ Streaks (`_journal_compute_streaks`) and lifetime totals computed from entry dat
 **Cell coverage** (migration `0089`; see Cell coverage above; **included** in backups, `meta.version` 16):
 - `CellSample` — one observation of one cell tower from one position, per SIM. Deduped on `(user, client_id)`. No `Device` FK (a plain `device_id` CharField, like `HealthSample`). **No `Meta.ordering`**, deliberately — the tower view is a `.values().annotate()`. Non-spatial, so defined once rather than behind `HAS_POSTGIS`. There is deliberately **no** `CellTower` model: a tower is a `GROUP BY` over these rows.
 
+**Achievements** (migration `0108`; see Achievements above; **excluded** from backups, derived):
+- `AchievementSnapshot` — per-user precomputed Achievements payload + job status/progress + the cached road-coverage result and its fingerprint.
+- `AchievementUnlock` — one earned badge tier with when (back-dated where known); kept across rescans.
+
 **Flights** (migration `0102`; see Flights above; **included** in backups, `meta.version` 20):
 - `Flight` — one flight in the user's log, airports denormalised, times UTC. Non-spatial, no link to `Location`.
 
@@ -704,7 +751,7 @@ Streaks (`_journal_compute_streaks`) and lifetime totals computed from entry dat
 - `FamilyPushToken` — one registered FCM token per app install. Not an FK to `Device`.
 
 **Geocoding reference data:**
-- `Boundary` — US Census TIGER admin polygon (`name`, `state`, `kind` = `place`|`cousub`, PostGIS `geom` MultiPolygon, GiST-indexed). PostGIS-only.
+- `Boundary` — admin polygon (`name`, `state`, `country_code`, PostGIS `geom` MultiPolygon, GiST-indexed). `kind` = `place`|`cousub`|`county` (US Census TIGER) or `adm1`|`adm2`|`adm3` (geoBoundaries, other countries). Only `place`/`cousub` are read by the geocoder. PostGIS-only.
 
 ## URL / API conventions
 

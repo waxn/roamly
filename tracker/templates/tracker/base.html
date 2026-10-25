@@ -1333,13 +1333,14 @@
                 <li><a href="{% url 'tracker:search' %}" class="{% if request.resolver_match.url_name == 'search' %}active{% endif %}">Search</a></li>
                 {% if AI_ASK_ENABLED %}<li><a href="{% url 'tracker:ask' %}" class="{% if request.resolver_match.url_name == 'ask' %}active{% endif %}">Ask</a></li>{% endif %}
                 <li class="nav-dropdown">
-                    <button type="button" class="navbar-nav-toggle {% if request.resolver_match.url_name == 'stats' or request.resolver_match.url_name == 'visits' or request.resolver_match.url_name == 'data' or request.resolver_match.url_name == 'cells' or request.resolver_match.url_name == 'editor' or request.resolver_match.url_name == 'flights' %}active{% endif %}" aria-haspopup="true" aria-expanded="false" aria-controls="data-menu">
+                    <button type="button" class="navbar-nav-toggle {% if request.resolver_match.url_name == 'stats' or request.resolver_match.url_name == 'visits' or request.resolver_match.url_name == 'data' or request.resolver_match.url_name == 'cells' or request.resolver_match.url_name == 'editor' or request.resolver_match.url_name == 'flights' or request.resolver_match.url_name == 'achievements' %}active{% endif %}" aria-haspopup="true" aria-expanded="false" aria-controls="data-menu">
                         Data
                         <svg class="nav-caret" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                     </button>
                     <div class="nav-dropdown-menu" id="data-menu" role="menu">
                         <a role="menuitem" href="{% url 'tracker:stats' %}" class="{% if request.resolver_match.url_name == 'stats' %}active{% endif %}">Stats</a>
                         <a role="menuitem" href="{% url 'tracker:visits' %}" class="{% if request.resolver_match.url_name == 'visits' %}active{% endif %}">Visits</a>
+                        <a role="menuitem" href="{% url 'tracker:achievements' %}" class="{% if request.resolver_match.url_name == 'achievements' %}active{% endif %}">Achievements</a>
                         <a role="menuitem" href="{% url 'tracker:data' %}" class="{% if request.resolver_match.url_name == 'data' %}active{% endif %}">Raw data</a>
                         <a role="menuitem" href="{% url 'tracker:cells' %}" class="{% if request.resolver_match.url_name == 'cells' %}active{% endif %}">Cell signal</a>
                         <a role="menuitem" href="{% url 'tracker:flights' %}" class="{% if request.resolver_match.url_name == 'flights' %}active{% endif %}">Flights</a>
@@ -1396,6 +1397,10 @@
             <a href="{% url 'tracker:visits' %}" class="{% if request.resolver_match.url_name == 'visits' %}active{% endif %}">
                 <div class="bottom-nav-icon-wrap"><svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></div>
                 visits
+            </a>
+            <a href="{% url 'tracker:achievements' %}" class="{% if request.resolver_match.url_name == 'achievements' %}active{% endif %}">
+                <div class="bottom-nav-icon-wrap"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="6"/><polyline points="8.2 13.2 7 22 12 19 17 22 15.8 13.2"/></svg></div>
+                achievements
             </a>
             <a href="{% url 'tracker:search' %}" class="{% if request.resolver_match.url_name == 'search' %}active{% endif %}">
                 <div class="bottom-nav-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>

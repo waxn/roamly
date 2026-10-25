@@ -133,6 +133,14 @@ def _do_sweep():
             _maybe_start_poi()
         except Exception:
             logger.exception('auto-download: POI check failed')
+    if config.auto_download_boundaries:
+        # Synchronous, unlike the three above: it fetches only countries not
+        # yet covered, so on a covered instance it is one grouped query.
+        try:
+            from .boundary_download_tasks import ensure_boundaries
+            ensure_boundaries()
+        except Exception:
+            logger.exception('auto-download: boundary check failed')
 
 
 def _run_scheduler():
