@@ -276,6 +276,9 @@ urlpatterns = [
     path('api/geocode/', views.geocode_api, name='geocode_api'),
     path('api/geocode/status/', views.geocode_status, name='geocode_status'),
     path('api/geocode/stop/', views.geocode_stop, name='geocode_stop'),
+    path('api/geocode/relabel/', views.regeocode_start_api, name='regeocode_start'),
+    path('api/geocode/relabel/status/', views.regeocode_status_api, name='regeocode_status'),
+    path('api/geocode/relabel/stop/', views.regeocode_stop_api, name='regeocode_stop'),
 
     # POI Download
     path('api/poi/download/', views.poi_download_api, name='poi_download'),

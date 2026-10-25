@@ -140,7 +140,7 @@ class Command(BaseCommand):
     def _regeocode_all(self):
         """Relabel stored locations using the now-loaded boundaries (only the
         rows whose label changes; see the ``regeocode`` command)."""
-        from tracker.management.commands.regeocode import regeocode
+        from tracker.regeocode_tasks import regeocode
         from tracker.views import _bust_user_cache
 
         done, changed, users = regeocode(log=self.stdout.write)

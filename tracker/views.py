@@ -7808,6 +7808,27 @@ def geocode_stop(request):
     return JsonResponse({"status": "no_active_task"})
 
 
+@login_required
+@require_http_methods(["POST"])
+def regeocode_start_api(request):
+    """Relabel every stored point of this account with the current geocoder."""
+    from . import regeocode_tasks
+    return JsonResponse(regeocode_tasks.start(request.user.id))
+
+
+@login_required
+def regeocode_status_api(request):
+    from . import regeocode_tasks
+    return JsonResponse(regeocode_tasks.get_status(request.user.id))
+
+
+@login_required
+@require_http_methods(["POST"])
+def regeocode_stop_api(request):
+    from . import regeocode_tasks
+    return JsonResponse({"stopping": regeocode_tasks.stop(request.user.id)})
+
+
 # ---------------------------------------------------------------------------
 # Export / Import
 # ---------------------------------------------------------------------------
