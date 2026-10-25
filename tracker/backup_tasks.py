@@ -306,7 +306,7 @@ def _build_edit_batches_data(user):
 
 
 def _build_flights_data(user):
-    """Build serializable flight-log rows for a user's backup (v20+; pass details v22+; track link v23+).
+    """Build serializable flight-log rows for a user's backup (v20+; pass details v22+; track link v23+; OpenSky v24+).
 
     Every field restore needs, airports included in full, so a restored flight
     does not depend on the bundled airport dataset still matching. Distance is
@@ -325,7 +325,10 @@ def _build_flights_data(user):
               # The recorded-track link (v23+): a device and a window, never
               # points — those are already in the locations section.
               'track_device__device_id', 'track_start', 'track_end',
-              'track_distance_km', 'track_auto']
+              'track_distance_km', 'track_auto',
+              # OpenSky (v24+). Kept because OpenSky only serves a track for
+              # 30 days: after that this copy is the only one.
+              'icao24', 'opensky_track', 'opensky_status', 'opensky_message']
     for side in ('dep', 'arr'):
         fields += [f'{side}_{k}' for k in ('iata', 'icao', 'name', 'city', 'country', 'lat', 'lon', 'tz')]
     return list(Flight.objects.filter(user=user).order_by('date', 'id').values(*fields))
