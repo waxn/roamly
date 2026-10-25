@@ -1537,6 +1537,14 @@ function updateInferredBadge() {
 
 function loadInferredGaps() {
     if (!inferredOn) return;
+    // Generated points carry no geocode labels, so a place filter can't select
+    // them — leave them off rather than show the whole map's worth.
+    if (Object.keys(placeFilter).length) {
+        removeInferredLayers();
+        inferredCount = 0;
+        updateInferredBadge();
+        return;
+    }
     const params = new URLSearchParams(buildFilterParams());
     const b = map.getBounds();
     params.set('min_lng', b.getWest());
