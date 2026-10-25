@@ -784,6 +784,10 @@ window.ROAMLY_MAP_CFG = {
     // page, so the editor's own "connect points with lines" behaviour (a
     // simple in-place overlay on the accumulated detail layer) is untouched.
     tripLinesEnabled: true,
+    // All time draws a cached overview of every visited cell and switches to
+    // the PostGIS vector tiles as you zoom in. PostGIS-only; the editor and
+    // SQLite installs keep the decimated /api/track/ path.
+    allTimeOverview: {{ has_postgis|yesno:"true,false" }},
 };
 window.ROAMLY_MAP_HOOKS = {};
 </script>
@@ -1814,6 +1818,7 @@ function baseLayerIds() {
     // base layers, or the static lines/blobs would stay visible underneath
     // the animated trail.
     [TRIP_LINE_LAYER, TRIP_DWELL_LAYER, TRIP_EXPAND_LINE_LAYER, TRIP_EXPAND_DOT_LAYER].forEach(l => ids.push(l));
+    [OVERVIEW_HEAT_LAYER, OVERVIEW_DOTS_LAYER, ALLTIME_DOTS_LAYER].forEach(l => ids.push(l));
     return ids;
 }
 // Whether the GPS track is hidden on purpose, so the cell layers can be read

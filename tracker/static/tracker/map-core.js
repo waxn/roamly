@@ -199,6 +199,10 @@ document.querySelectorAll('.style-btn').forEach(btn => {
         _mapboxErrorShown = false;  // allow the diagnostic to show again for the new basemap
         map.setStyle(mapStyles[btn.dataset.style]);
         map.once('styledata', () => {
+            if (overviewData) {
+                renderOverview(overviewData, false);
+                return;
+            }
             if (TRIP_LINES_ENABLED && connectLines === 'on') {
                 if (tripLineData) renderTripLines(tripLineData, false);
                 return;
@@ -233,9 +237,18 @@ function openPointPopup(coords, html) {
     _pointPopup.on('close', () => { _pointPopup = null; });
 }
 
+function escHtml(v) {
+    return String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 function showPointPopup(pt, coords) {
     const ts = new Date(pt.ts * 1000);
-    let html = `<strong>${pt.device_name || 'Unknown'}</strong><br>`;
+    let html = '';
+    // The store or address, when the point was matched to one — the first
+    // thing you want when zoomed in on somewhere you went.
+    const place = pt.poi_name || pt.place_name;
+    if (place) html += `<strong>${escHtml(place)}</strong><br>`;
+    html += `<strong>${pt.device_name || 'Unknown'}</strong><br>`;
     html += `<span style="color:var(--text-muted)">${ts.toLocaleString()}</span>`;
     if (pt.city)    html += `<br>${pt.city}`;
     if (pt.state)   html += `, ${pt.state}`;
@@ -398,6 +411,11 @@ const dwellRadiusM = parseInt(localStorage.getItem('roamly_dwell_radius_m') || '
 // returns the whole filtered range decimated into segments + dwell blobs, so
 // there is nothing left for viewport paging to do.
 function loadCurrentMode(autoFit) {
+    if (isOverviewMode()) {
+        loadAllTimeOverview(autoFit);
+        return;
+    }
+    clearOverviewLayers();
     if (TRIP_LINES_ENABLED && connectLines === 'on') {
         loadTripLines(autoFit);
     } else {
@@ -465,6 +483,7 @@ function setHideSuspect(on) {
     hideSuspect = on;
     localStorage.setItem('roamly_hide_suspect', on ? 'on' : 'off');
     if (map.getLayer(ACC_DOTS_LAYER)) map.setFilter(ACC_DOTS_LAYER, suspectFilter());
+    if (map.getLayer(ALLTIME_DOTS_LAYER)) map.setFilter(ALLTIME_DOTS_LAYER, suspectFilter());
     activeSources.forEach(id => {
         if (!map.getLayer(`${id}-dots`)) return;
         map.setFilter(`${id}-dots`, on
@@ -744,6 +763,8 @@ function maybeLoadViewport() {
     // Trip-lines mode already has the whole filtered range from one request —
     // there is nothing for viewport-driven detail paging to add.
     if (TRIP_LINES_ENABLED && connectLines === 'on') return;
+    // All time: the vector tiles are the detail layer.
+    if (overviewData) return;
     if (detailLoading || map.getZoom() < DETAIL_MIN_ZOOM || lastTrackData.length === 0) return;
     const b = map.getBounds();
     if (isViewportCovered(b)) {
@@ -938,6 +959,355 @@ function loadTrack(autoFit) {
             console.error(err);
         });
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// All time — instant overview, detail tiles as you zoom.
+//
+// The old All-time path walked the whole history server-side, thinned it to
+// 4000 points a device (dropping exactly the one-off places), and then waited
+// on road snapping before drawing anything. Instead:
+//   - zoomed out, /api/map/overview/ returns every ~110m cell ever visited with
+//     a point count, drawn at once as a heatmap + dots — one fix is enough for a
+//     cell to show, so little places are never thinned away;
+//   - from DETAIL_MIN_ZOOM, the PostGIS vector tiles (/api/tiles/) take over.
+//     MapLibre loads and drops them per viewport by itself, and they are thinned
+//     on a grid ~1/4 pixel wide, so every distinct spot is there at every zoom.
+// Points sit at their recorded positions (no road snapping): faster, and the
+// right thing for "which shop was that". Only on /map/ with PostGIS
+// (ROAMLY_MAP_CFG.allTimeOverview); the editor and SQLite keep loadTrack.
+// ═══════════════════════════════════════════════════════════════════
+
+const OVERVIEW_ENABLED = !!ROAMLY_MAP_CFG.allTimeOverview;
+const OVERVIEW_SRC = 'overview-src';
+const OVERVIEW_HEAT_LAYER = 'overview-heat';
+const OVERVIEW_DOTS_LAYER = 'overview-dots';
+const ALLTIME_TILE_SRC = 'alltime-tiles';
+const ALLTIME_DOTS_LAYER = 'alltime-dots';
+const TILE_MAX_ZOOM = 16;   // the server draws z16 unthinned; deeper zooms overzoom it
+let overviewData = null;    // last /api/map/overview/ response while All time is showing
+let overviewFetch = null;
+
+function isOverviewMode() {
+    if (!OVERVIEW_ENABLED) return false;
+    return new URLSearchParams(buildFilterParams()).get('all') === '1';
+}
+
+function overviewTileUrl(data) {
+    const p = new URLSearchParams();
+    p.set('all', '1');
+    const dev = document.getElementById('device-filter').value;
+    if (dev) p.set('device_id', dev);
+    // The data version: the URL changes whenever the data does, which is what
+    // makes the long browser cache (and so prefetching) safe.
+    p.set('v', String(data.version || 0));
+    return `${location.origin}/api/tiles/{z}/{x}/{y}.pbf?${p.toString()}`;
+}
+
+function clearOverviewLayers() {
+    if (!overviewData && !map.getSource(OVERVIEW_SRC) && !map.getSource(ALLTIME_TILE_SRC)) return;
+    overviewData = null;
+    if (overviewFetch) { overviewFetch.abort(); overviewFetch = null; }
+    tilePrefetcher.reset(null);
+    [OVERVIEW_HEAT_LAYER, OVERVIEW_DOTS_LAYER, ALLTIME_DOTS_LAYER].forEach(l => {
+        if (map.getLayer(l)) map.removeLayer(l);
+    });
+    [OVERVIEW_SRC, ALLTIME_TILE_SRC].forEach(id => { if (map.getSource(id)) map.removeSource(id); });
+}
+
+function loadAllTimeOverview(autoFit) {
+    if (pendingFetch) { pendingFetch.abort(); pendingFetch = null; }
+    if (overviewFetch) overviewFetch.abort();
+    overviewFetch = new AbortController();
+    // The point-mode layers would otherwise sit underneath the overview.
+    clearTrackLayers();
+    clearTripLineLayers();
+    lastTrackData = [];
+    updateDetailControls();
+
+    showMapLoading('loading...');
+    const p = new URLSearchParams();
+    const dev = document.getElementById('device-filter').value;
+    if (dev) p.set('device_id', dev);
+    fetch(`/api/map/overview/?${p.toString()}`, { signal: overviewFetch.signal })
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+        .then(data => {
+            overviewFetch = null;
+            hideMapLoading();
+            // The range changed while this was in flight.
+            if (!isOverviewMode()) return;
+            renderOverview(data, autoFit);
+        })
+        .catch(err => {
+            if (err.name === 'AbortError') return;
+            hideMapLoading();
+            document.getElementById('map-info').textContent = 'error loading data';
+            console.error(err);
+        });
+}
+
+function renderOverview(data, autoFit) {
+    overviewData = data;
+    [OVERVIEW_HEAT_LAYER, OVERVIEW_DOTS_LAYER, ALLTIME_DOTS_LAYER].forEach(l => {
+        if (map.getLayer(l)) map.removeLayer(l);
+    });
+    [OVERVIEW_SRC, ALLTIME_TILE_SRC].forEach(id => { if (map.getSource(id)) map.removeSource(id); });
+
+    const d = data.per_deg || 1000;
+    const cells = data.cells || [];
+    const features = [];
+    for (let i = 0; i < cells.length; i += 3) {
+        features.push({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [cells[i + 1] / d, cells[i] / d] },
+            properties: { n: cells[i + 2] },
+        });
+    }
+    map.addSource(OVERVIEW_SRC, { type: 'geojson', data: { type: 'FeatureCollection', features } });
+
+    const D = DETAIL_MIN_ZOOM;
+    if (showHeatmap === 'on') {
+        map.addLayer({
+            id: OVERVIEW_HEAT_LAYER,
+            type: 'heatmap',
+            source: OVERVIEW_SRC,
+            maxzoom: D + 1,
+            paint: {
+                // Log weight: home has thousands of fixes, a one-off stop has one,
+                // and both should read on the map.
+                'heatmap-weight': ['interpolate', ['linear'], ['ln', ['+', 1, ['get', 'n']]], 0, 0.15, 8, 1],
+                'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], ...heatIntArgs],
+                'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 6, 13, 26],
+                'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.75, D - 1, 0.55, D + 0.75, 0],
+                'heatmap-color': [
+                    'interpolate', ['linear'], ['heatmap-density'],
+                    0, 'rgba(33,102,172,0)',
+                    0.2, 'rgb(103,169,207)',
+                    0.4, 'rgb(209,229,240)',
+                    0.6, 'rgb(253,219,199)',
+                    0.8, 'rgb(239,138,98)',
+                    1, 'rgb(178,24,43)'
+                ]
+            }
+        });
+    }
+    // A dot for every visited cell, so a place with one fix is still visible
+    // under the heatmap. Fades out as the exact tile dots fade in.
+    map.addLayer({
+        id: OVERVIEW_DOTS_LAYER,
+        type: 'circle',
+        source: OVERVIEW_SRC,
+        maxzoom: D + 1,
+        paint: {
+            'circle-color': '#e8763d',
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 0, 1.2, 6, 2.2, 10, 3.5],
+            'circle-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.85, D, 0.85, D + 0.75, 0],
+            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 0, 0, 6, 0.5],
+            'circle-stroke-color': 'rgba(255,255,255,0.6)',
+            'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.85, D, 0.85, D + 0.75, 0],
+        }
+    });
+
+    map.addSource(ALLTIME_TILE_SRC, {
+        type: 'vector',
+        tiles: [overviewTileUrl(data)],
+        minzoom: D,
+        maxzoom: TILE_MAX_ZOOM,
+    });
+    // Per-device colour, matching every other layer on this page.
+    const devIds = Array.from(document.getElementById('device-filter').options)
+        .map(o => o.value).filter(Boolean);
+    const colorExpr = devIds.length
+        ? ['match', ['get', 'device_id'], ...devIds.flatMap(id => [id, deviceColor(id)]), deviceColors[0]]
+        : deviceColors[0];
+    map.addLayer({
+        id: ALLTIME_DOTS_LAYER,
+        type: 'circle',
+        source: ALLTIME_TILE_SRC,
+        'source-layer': 'locations',
+        minzoom: D,
+        filter: suspectFilter(),
+        paint: {
+            'circle-color': speedGradient === 'on' ? speedColorExpr(colorExpr) : colorExpr,
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], ...dotSizeArgs],
+            'circle-stroke-width': 1,
+            'circle-stroke-color': 'rgba(255,255,255,0.7)',
+            'circle-opacity': ['interpolate', ['linear'], ['zoom'], D, 0, D + 0.5, 1],
+            'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], D, 0, D + 0.5, 1],
+        }
+    });
+    bindOverviewHandlers();
+    tilePrefetcher.reset(data);
+
+    const n = features.length;
+    document.getElementById('map-info').textContent = n
+        ? `${n.toLocaleString()} places · all time · zoom in for every point`
+        : 'no points yet';
+
+    if (autoFit && data.bounds) {
+        map.fitBounds(data.bounds, { padding: 60, maxZoom: 15, duration: 800 });
+    }
+}
+
+let _overviewHandlersBound = false;
+function bindOverviewHandlers() {
+    if (_overviewHandlersBound) return;
+    _overviewHandlersBound = true;
+    map.on('click', ALLTIME_DOTS_LAYER, e => {
+        const f = e.features[0];
+        showPointPopup(f.properties, f.geometry.coordinates.slice());
+    });
+    map.on('mouseenter', ALLTIME_DOTS_LAYER, () => map.getCanvas().style.cursor = 'pointer');
+    map.on('mouseleave', ALLTIME_DOTS_LAYER, () => map.getCanvas().style.cursor = '');
+}
+
+// ── Predictive tile prefetch ──
+// Zooming in should find its tiles already fetched. The overview says exactly
+// where there is data, so a tile is only ever prefetched if it contains a
+// visited cell — never empty ocean or countryside. Prefetched responses land in
+// the browser's HTTP cache (private, max-age, versioned URL), so MapLibre's own
+// request for the same tile never leaves the browser.
+const tilePrefetcher = (() => {
+    const MAX_INFLIGHT = 2;
+    const MAX_QUEUE = 48;
+    const BUCKETS_PER_DEG = 10;
+    let urlTpl = null;
+    let buckets = null;       // Set of "by:bx" 0.1° buckets that contain a visited cell
+    let queue = [];
+    let inflight = 0;
+    const requested = new Set();
+
+    function saveData() {
+        const c = navigator.connection;
+        return !!(c && c.saveData);
+    }
+
+    function reset(data) {
+        queue = [];
+        requested.clear();
+        urlTpl = null;
+        buckets = null;
+        if (!data || !data.cells || !data.cells.length) return;
+        urlTpl = overviewTileUrl(data);
+        buckets = new Set();
+        const d = data.per_deg || 1000;
+        for (let i = 0; i < data.cells.length; i += 3) {
+            buckets.add(`${Math.floor(data.cells[i] / d * BUCKETS_PER_DEG)}:${Math.floor(data.cells[i + 1] / d * BUCKETS_PER_DEG)}`);
+        }
+    }
+
+    function tileBounds(z, x, y) {
+        const n = 2 ** z;
+        const lng = v => v / n * 360 - 180;
+        const lat = v => Math.atan(Math.sinh(Math.PI * (1 - 2 * v / n))) * 180 / Math.PI;
+        return { w: lng(x), e: lng(x + 1), n: lat(y), s: lat(y + 1) };
+    }
+
+    function tileHasData(z, x, y) {
+        const b = tileBounds(z, x, y);
+        const y0 = Math.floor(b.s * BUCKETS_PER_DEG), y1 = Math.floor(b.n * BUCKETS_PER_DEG);
+        const x0 = Math.floor(b.w * BUCKETS_PER_DEG), x1 = Math.floor(b.e * BUCKETS_PER_DEG);
+        if ((y1 - y0 + 1) * (x1 - x0 + 1) > 4000) return true;  // huge tile: not worth checking
+        for (let by = y0; by <= y1; by++) {
+            for (let bx = x0; bx <= x1; bx++) {
+                if (buckets.has(`${by}:${bx}`)) return true;
+            }
+        }
+        return false;
+    }
+
+    function tileAt(lng, lat, z) {
+        const n = 2 ** z;
+        lat = Math.max(-85.05, Math.min(85.05, lat));
+        const x = Math.floor((lng + 180) / 360 * n);
+        const r = lat * Math.PI / 180;
+        const y = Math.floor((1 - Math.asinh(Math.tan(r)) / Math.PI) / 2 * n);
+        return [Math.max(0, Math.min(n - 1, x)), Math.max(0, Math.min(n - 1, y))];
+    }
+
+    function enqueue(z, x, y, front) {
+        if (!urlTpl || z < DETAIL_MIN_ZOOM || z > TILE_MAX_ZOOM) return;
+        const n = 2 ** z;
+        if (x < 0 || y < 0 || x >= n || y >= n) return;
+        const url = urlTpl.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+        if (requested.has(url) || !tileHasData(z, x, y)) return;
+        requested.add(url);
+        if (front) queue.unshift(url); else queue.push(url);
+        if (queue.length > MAX_QUEUE) queue.length = MAX_QUEUE;
+        pump();
+    }
+
+    function pump() {
+        while (inflight < MAX_INFLIGHT && queue.length) {
+            const url = queue.shift();
+            inflight++;
+            fetch(url, { priority: 'low', credentials: 'same-origin' })
+                .then(r => r.arrayBuffer())
+                .catch(() => requested.delete(url))
+                .finally(() => { inflight--; pump(); });
+        }
+    }
+
+    /** Tiles around (lng, lat) at zoom `z`: the one under it plus `ring` neighbours each way. */
+    function around(lng, lat, z, ring, front) {
+        const [cx, cy] = tileAt(lng, lat, z);
+        for (let dy = -ring; dy <= ring; dy++) {
+            for (let dx = -ring; dx <= ring; dx++) enqueue(z, cx + dx, cy + dy, front);
+        }
+    }
+
+    /** The zoom levels the next zoom-in from the current one will land on. */
+    function nextZooms(extra) {
+        const z = Math.floor(map.getZoom());
+        const first = Math.max(DETAIL_MIN_ZOOM, z + 1);
+        const out = [];
+        for (let i = 0; i < extra; i++) if (first + i <= TILE_MAX_ZOOM) out.push(first + i);
+        return out;
+    }
+
+    function predictAtPoint(lngLat, levels, front) {
+        if (!urlTpl || saveData()) return;
+        nextZooms(levels).forEach((z, i) => around(lngLat.lng, lngLat.lat, z, i === 0 ? 1 : 0, front));
+    }
+
+    // A wheel/pinch/double-click zoom heads for the pointer, so the pointer is
+    // where the next tiles will be needed.
+    const canvas = map.getCanvasContainer();
+    canvas.addEventListener('wheel', e => {
+        if (e.deltaY >= 0 || !urlTpl) return;
+        predictAtPoint(map.unproject([e.offsetX, e.offsetY]), 2, true);
+    }, { passive: true });
+    canvas.addEventListener('dblclick', e => {
+        predictAtPoint(map.unproject([e.offsetX, e.offsetY]), 2, true);
+    });
+    canvas.addEventListener('touchstart', e => {
+        if (e.touches.length !== 2 || !urlTpl) return;
+        const r = canvas.getBoundingClientRect();
+        const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left;
+        const my = (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top;
+        predictAtPoint(map.unproject([mx, my]), 2, true);
+    }, { passive: true });
+
+    // Resting the mouse on a spot is the clearest "I'm about to zoom in here".
+    let hoverTimer = null;
+    canvas.addEventListener('mousemove', e => {
+        if (hoverTimer) clearTimeout(hoverTimer);
+        if (!urlTpl) return;
+        const pt = [e.offsetX, e.offsetY];
+        hoverTimer = setTimeout(() => predictAtPoint(map.unproject(pt), 3, true), 350);
+    });
+    canvas.addEventListener('mouseleave', () => { if (hoverTimer) clearTimeout(hoverTimer); });
+
+    // After every move, the middle of the screen at the next zoom level.
+    map.on('idle', () => {
+        if (!urlTpl || saveData()) return;
+        const c = map.getCenter();
+        const z = nextZooms(1)[0];
+        if (z === undefined) return;
+        around(c.lng, c.lat, z, 1, false);
+    });
+
+    return { reset };
+})();
 
 // ═══════════════════════════════════════════════════════════════════
 // Trip Lines mode — selective, road-snapped travel lines + dwell blobs.
