@@ -43,10 +43,14 @@ class FlightRepository @Inject constructor(
         Result.Error(e.message ?: "Track search failed.")
     }
 
-    suspend fun previewFile(name: String, bytes: ByteArray): Result<com.roamly.data.api.FlightTrackPreview> = try {
+    /** [flight]: the form's fields, so the server can say whether the file is this flight. */
+    suspend fun previewFile(name: String, bytes: ByteArray, flight: Map<String, Any?>? = null): Result<com.roamly.data.api.FlightTrackPreview> = try {
         val part = MultipartBody.Part.createFormData(
             "file", name, bytes.toRequestBody("application/octet-stream".toMediaTypeOrNull()))
-        val r = api.previewFlightTrackFile(part)
+        val flightPart = flight?.let {
+            MultipartBody.Part.createFormData("flight", com.google.gson.Gson().toJson(it.filterValues { v -> v != null }))
+        }
+        val r = api.previewFlightTrackFile(part, flightPart)
         if (r.isSuccessful) Result.Success(r.body() ?: com.roamly.data.api.FlightTrackPreview())
         else Result.Error(errorMessage(r.errorBody()?.string()) ?: "Could not read that file (${r.code()}).")
     } catch (e: Exception) {

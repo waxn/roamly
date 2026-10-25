@@ -518,7 +518,10 @@ interface RoamlyApi {
     /** Parse a KML/KMZ/CSV for the form without storing it. */
     @Multipart
     @POST("api/flights/track/preview-file/")
-    suspend fun previewFlightTrackFile(@Part file: okhttp3.MultipartBody.Part): Response<FlightTrackPreview>
+    suspend fun previewFlightTrackFile(
+        @Part file: okhttp3.MultipartBody.Part,
+        @Part flight: okhttp3.MultipartBody.Part? = null,
+    ): Response<FlightTrackPreview>
 
     /** Match every flight with no track yet. */
     @POST("api/flights/tracks/match/")

@@ -1121,6 +1121,9 @@ data class FlightTrackPreview(
     /** What a Flightradar24 file says the flight is, for an empty form. */
     val flight: FlightDto? = null,
     val error: String? = null,
+    /** File previews checked against the form: false = not this flight. */
+    val matches: Boolean? = null,
+    val mismatch: String? = null,
 )
 
 /** GET /api/flights/lookup/ — AeroDataBox legs, in FlightDto's shape (UTC times). */

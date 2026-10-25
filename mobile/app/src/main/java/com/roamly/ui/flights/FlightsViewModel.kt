@@ -190,9 +190,19 @@ class FlightsViewModel @Inject constructor(
     fun previewFile(name: String, bytes: ByteArray) {
         viewModelScope.launch {
             _state.update { it.copy(trackBusy = true) }
-            when (val r = repo.previewFile(name, bytes)) {
+            val d0 = _state.value.draft
+            val formFlight = if (d0.id == null && d0.dep.isBlank() && d0.arr.isBlank()) null
+                             else toFields(d0).filterKeys { it != "track_token" && it != "track_remove" }
+            when (val r = repo.previewFile(name, bytes, formFlight)) {
                 is Result.Success -> {
                     val p = r.data
+                    if (p.matches == false) {
+                        // Not this flight (usually FR24's other day): stage nothing.
+                        setStatus((p.mismatch ?: "This file doesn't line up with this flight.") +
+                                  " Nothing will be imported.", error = true)
+                        _state.update { it.copy(trackBusy = false) }
+                        return@launch
+                    }
                     _state.update { st ->
                         val d = st.draft
                         val blank = d.id == null && d.dep.isBlank() && d.arr.isBlank()
