@@ -511,6 +511,15 @@ interface RoamlyApi {
     @POST("api/flights/{id}/kml/")
     suspend fun uploadFlightKml(@Path("id") id: Int, @Part file: okhttp3.MultipartBody.Part): Response<FlightKmlResponse>
 
+    /** Preview a track for the (unsaved) form: action "match" or "opensky". */
+    @POST("api/flights/track/preview/")
+    suspend fun previewFlightTrack(@Body body: Map<String, @JvmSuppressWildcards Any>): Response<FlightTrackPreview>
+
+    /** Parse a KML/KMZ/CSV for the form without storing it. */
+    @Multipart
+    @POST("api/flights/track/preview-file/")
+    suspend fun previewFlightTrackFile(@Part file: okhttp3.MultipartBody.Part): Response<FlightTrackPreview>
+
     /** Match every flight with no track yet. */
     @POST("api/flights/tracks/match/")
     suspend fun matchAllFlightTracks(@Body body: Map<String, String> = emptyMap()): Response<FlightMatchResponse>

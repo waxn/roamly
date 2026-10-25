@@ -76,6 +76,13 @@ data class FlightsUiState(
     val editTrack: List<List<Double>> = emptyList(),
     val editTrackSource: String = "",
     val trackBusy: Boolean = false,
+    /**
+     * A track change staged by the card's buttons, committed only on Save:
+     * a preview (its token rides with the save) or a removal. Leaving the
+     * editor without saving discards it.
+     */
+    val pendingTrack: com.roamly.data.api.FlightTrackPreview? = null,
+    val pendingRemove: Boolean = false,
     val loading: Boolean = false,
     val loaded: Boolean = false,
     /**
@@ -139,7 +146,8 @@ class FlightsViewModel @Inject constructor(
     private fun reset(draft: FlightDraft, image: ByteArray? = null) = _state.update {
         it.copy(draft = draft, passImage = image, status = null, statusIsError = false,
                 legChoices = emptyList(), duplicateOf = null, lookingUp = false, saving = false,
-                editTrack = emptyList(), editTrackSource = "", trackBusy = false)
+                editTrack = emptyList(), editTrackSource = "", trackBusy = false,
+                pendingTrack = null, pendingRemove = false)
     }
 
     /** Load the open flight's track for its mini map. */
@@ -155,107 +163,59 @@ class FlightsViewModel @Inject constructor(
         }
     }
 
-    private fun adopt(f: FlightDto) {
-        _state.update { s ->
-            s.copy(draft = s.draft.copy(
-                hasTrack = f.hasTrack, trackDistanceKm = f.trackDistanceKm, trackAuto = f.trackAuto,
-                trackSource = f.trackSource, openskyStatus = f.openskyStatus, openskyMessage = f.openskyMessage,
-                icao24 = f.icao24.ifBlank { s.draft.icao24 },
-                actualDep = s.draft.actualDep.ifBlank { f.actualDepLocal.replace('T', ' ') },
-                actualArr = s.draft.actualArr.ifBlank { f.actualArrLocal.replace('T', ' ') }))
+    /** Find track (OpenSky) or Use existing locations, previewed against the form. */
+    fun previewTrack(action: String) {
+        val d = _state.value.draft
+        if (d.dep.isBlank() || d.arr.isBlank() || d.date.isBlank()) {
+            setStatus("Fill in the date and both airports first.", error = true); return
         }
-        loadEditTrack()
-    }
-
-    fun fetchOpenSky() {
-        val id = _state.value.draft.id ?: return
         viewModelScope.launch {
             _state.update { it.copy(trackBusy = true) }
-            when (val r = repo.fetchOpenSky(id)) {
-                is Result.Success -> r.data?.let { f ->
-                    adopt(f)
-                    setStatus(if (f.hasOpenskyTrack) "Track fetched from OpenSky." else f.openskyMessage.ifBlank { "No track from OpenSky." },
-                              error = !f.hasOpenskyTrack)
+            when (val r = repo.previewTrack(action, d.id, toFields(d))) {
+                is Result.Success -> {
+                    val p = r.data
+                    if (p.token != null) {
+                        _state.update { st -> st.copy(pendingTrack = p, pendingRemove = false,
+                            draft = st.draft.copy(icao24 = st.draft.icao24.ifBlank { p.icao24 })) }
+                        setStatus("${p.message} Save to keep it.")
+                    } else setStatus(p.message.ifBlank { "No track found." }, error = true)
                 }
                 is Result.Error -> setStatus(r.message, error = true)
             }
             _state.update { it.copy(trackBusy = false) }
-            fetch()
         }
     }
 
-    /** A KML for this flight: imported, then it becomes the flight's recorded track. */
-    fun uploadKml(name: String, bytes: ByteArray) {
-        val id = _state.value.draft.id ?: return
+    /** A KML/KMZ/CSV, previewed; on an empty form a Flightradar24 file fills it in. */
+    fun previewFile(name: String, bytes: ByteArray) {
         viewModelScope.launch {
             _state.update { it.copy(trackBusy = true) }
-            when (val r = repo.uploadKml(id, name, bytes)) {
-                is Result.Success -> r.data.flight?.let { f ->
-                    // The KML's header may have filled blanks: take the server's copy of those.
-                    if (r.data.filled.isNotEmpty()) _state.update { st ->
+            when (val r = repo.previewFile(name, bytes)) {
+                is Result.Success -> {
+                    val p = r.data
+                    _state.update { st ->
                         val d = st.draft
-                        st.copy(draft = d.copy(
-                            flightNumber = d.flightNumber.ifBlank { f.flightNumber },
-                            airlineName = d.airlineName.ifBlank { f.airlineName },
-                            aircraftModel = d.aircraftModel.ifBlank { f.aircraftModel },
-                            registration = d.registration.ifBlank { f.registration },
-                            schedDep = d.schedDep.ifBlank { f.schedDepLocal.replace('T', ' ') },
-                            schedArr = d.schedArr.ifBlank { f.schedArrLocal.replace('T', ' ') },
-                            actualDep = d.actualDep.ifBlank { f.actualDepLocal.replace('T', ' ') },
-                            actualArr = d.actualArr.ifBlank { f.actualArrLocal.replace('T', ' ') },
-                        ))
+                        val blank = d.id == null && d.dep.isBlank() && d.arr.isBlank()
+                        val filled = if (blank && p.flight != null) fromDto(p.flight).copy(
+                            id = null, seat = d.seat, seatClass = d.seatClass, seatType = d.seatType,
+                            reason = d.reason, notes = d.notes, bookingRef = d.bookingRef,
+                            passengerName = d.passengerName, source = d.source,
+                        ) else d
+                        st.copy(draft = filled, pendingTrack = p, pendingRemove = false)
                     }
-                    adopt(f)
-                    val base = if (f.hasTrack) "Imported ${r.data.imported} points; the KML is now this flight's track."
-                               else "Imported ${r.data.imported} points, but they don't line up with this flight's airports and date."
-                    val extra = if (r.data.filled.isNotEmpty()) " Filled in ${r.data.filled.size} missing detail${if (r.data.filled.size == 1) "" else "s"} from it." else ""
-                    setStatus(listOfNotNull(r.data.warning, base + extra).joinToString(" "),
-                              error = !f.hasTrack || r.data.warning != null)
+                    val f = p.flight
+                    val d = _state.value.draft
+                    if (f != null && (f.depIata != d.dep || f.arrIata != d.arr))
+                        setStatus("This file is for ${f.depIata} → ${f.arrIata}, not the airports in the form.", error = true)
+                    else setStatus(p.message)
                 }
                 is Result.Error -> setStatus(r.message, error = true)
             }
             _state.update { it.copy(trackBusy = false) }
-            fetch()
         }
     }
 
-    fun startNew() = reset(FlightDraft(date = java.time.LocalDate.now().toString()))
-
-    fun startEdit(id: Int) {
-        val f = _state.value.flights.firstOrNull { it.id == id } ?: return
-        reset(fromDto(f))
-        loadEditTrack()
-    }
-
-    /** A scanned pass: fill what it carries, then ask AeroDataBox for the rest. */
-    fun startFromPass(pass: Bcbp.Pass, leg: Bcbp.Leg, image: ByteArray?) {
-        reset(FlightDraft(
-            flightNumber = leg.flightNumber,
-            date = leg.date?.toString().orEmpty(),
-            dep = leg.from, arr = leg.to,
-            seat = leg.seat, seatClass = leg.seatClass,
-            bookingRef = leg.bookingRef, passengerName = pass.passengerName,
-            checkinSeq = leg.checkinSeq, ticketNumber = leg.ticketNumber,
-            frequentFlyer = leg.frequentFlyer, bcbpRaw = pass.raw,
-            airlineIata = leg.carrier.takeIf { it.length == 2 }.orEmpty(),
-            source = "boarding_pass",
-        ), image)
-        setStatus(if (leg.date == null) "Read from the boarding pass. Check the date." else "Read from the boarding pass.")
-        if (leg.date == null) return
-        viewModelScope.launch {
-            // Opened straight from a share, the list may not have loaded yet,
-            // and it is what says whether lookup is available.
-            if (!_state.value.loaded) {
-                fetch()
-                // Say so rather than quietly skipping the lookup: this is what
-                // made a failing list request look like "lookup does nothing".
-                _state.value.error?.let { setStatus("Couldn't reach the server for flight details: $it", error = true) }
-            }
-            if (lookupPossible) lookup()
-        }
-    }
-
-    fun edit(change: (FlightDraft) -> FlightDraft) = _state.update { it.copy(draft = change(it.draft)) }
+    fun removeTrack() = _state.update { it.copy(pendingTrack = null, pendingRemove = true) }
 
     // ── AeroDataBox ─────────────────────────────────────────────────────────
 
@@ -339,6 +299,7 @@ class FlightsViewModel @Inject constructor(
                     _state.update { st ->
                         val others = st.flights.filterNot { it.id == saved.id }
                         st.copy(saving = false, savedCount = st.savedCount + 1, passImage = null,
+                                pendingTrack = null, pendingRemove = false, trackMessage = r.trackNote,
                                 flights = (others + saved).sortedByDescending { it.date })
                     }
                     load()
@@ -357,22 +318,6 @@ class FlightsViewModel @Inject constructor(
     fun dismissDuplicate() = _state.update { it.copy(duplicateOf = null) }
 
     // ── Recorded tracks ─────────────────────────────────────────────────────
-
-    /** Find (or, with [unlink], detach) the recorded track of the flight being edited. */
-    fun trackAction(unlink: Boolean) {
-        val id = _state.value.draft.id ?: return
-        viewModelScope.launch {
-            when (val r = if (unlink) repo.unlinkTrack(id) else repo.matchTrack(id)) {
-                is Result.Success -> r.data.flight?.let { f ->
-                    adopt(f)
-                    if (!unlink) setStatus(if (f.hasTrack) "Recorded track found and linked." else "No recorded track found for this flight.",
-                                           error = !f.hasTrack)
-                    fetch()
-                }
-                is Result.Error -> setStatus(r.message, error = true)
-            }
-        }
-    }
 
     fun matchAllTracks() {
         viewModelScope.launch {
@@ -441,6 +386,9 @@ class FlightsViewModel @Inject constructor(
         )
         airport(m, "dep", d.dep, d.depDetail)
         airport(m, "arr", d.arr, d.arrDetail)
+        val st = _state.value
+        if (st.pendingRemove) m["track_remove"] = true
+        else st.pendingTrack?.token?.let { m["track_token"] = it }
         return m
     }
 

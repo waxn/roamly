@@ -13,7 +13,7 @@ import javax.inject.Singleton
 
 /** Outcome of saving a flight: the 409 duplicate case is a real answer, not an error. */
 sealed class SaveFlightResult {
-    data class Saved(val flight: FlightDto) : SaveFlightResult()
+    data class Saved(val flight: FlightDto, val trackNote: String? = null) : SaveFlightResult()
     data class AlreadyLogged(val existingId: Int) : SaveFlightResult()
     data class Failed(val message: String) : SaveFlightResult()
 }
@@ -31,6 +31,27 @@ class FlightRepository @Inject constructor(
     suspend fun unlinkTrack(id: Int) = safeApiCall { api.unlinkFlightTrack(id) }
     suspend fun matchAllTracks() = safeApiCall { api.matchAllFlightTracks() }
     suspend fun trackPoints(id: Int) = safeApiCall { api.getFlightTrackPoints(id) }
+
+    suspend fun previewTrack(action: String, id: Int?, flight: Map<String, Any?>): Result<com.roamly.data.api.FlightTrackPreview> = try {
+        val body = mutableMapOf<String, Any>("action" to action,
+            "flight" to flight.filterValues { it != null }.mapValues { it.value!! })
+        if (id != null) body["id"] = id
+        val r = api.previewFlightTrack(body)
+        if (r.isSuccessful) Result.Success(r.body() ?: com.roamly.data.api.FlightTrackPreview())
+        else Result.Error(errorMessage(r.errorBody()?.string()) ?: "Track search failed (${r.code()}).")
+    } catch (e: Exception) {
+        Result.Error(e.message ?: "Track search failed.")
+    }
+
+    suspend fun previewFile(name: String, bytes: ByteArray): Result<com.roamly.data.api.FlightTrackPreview> = try {
+        val part = MultipartBody.Part.createFormData(
+            "file", name, bytes.toRequestBody("application/octet-stream".toMediaTypeOrNull()))
+        val r = api.previewFlightTrackFile(part)
+        if (r.isSuccessful) Result.Success(r.body() ?: com.roamly.data.api.FlightTrackPreview())
+        else Result.Error(errorMessage(r.errorBody()?.string()) ?: "Could not read that file (${r.code()}).")
+    } catch (e: Exception) {
+        Result.Error(e.message ?: "Could not read that file.")
+    }
 
     suspend fun fetchOpenSky(id: Int): Result<FlightDto?> = try {
         val r = api.fetchFlightOpenSky(id)
@@ -65,7 +86,7 @@ class FlightRepository @Inject constructor(
         val r = if (id == null) api.createFlight(body) else api.updateFlight(id, body)
         val flight = r.body()?.flight
         when {
-            r.isSuccessful && flight != null -> SaveFlightResult.Saved(flight)
+            r.isSuccessful && flight != null -> SaveFlightResult.Saved(flight, r.body()?.trackNote)
             r.code() == 409 -> {
                 val err = r.errorBody()?.string()
                 val existing = runCatching {

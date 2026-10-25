@@ -77,7 +77,7 @@ fun FlightEditScreen(viewModel: FlightsViewModel, onDone: () -> Unit) {
                 ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
         }.getOrNull() ?: "flight.kml"
         val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
-        if (bytes != null) viewModel.uploadKml(name, bytes)
+        if (bytes != null) viewModel.previewFile(name, bytes)
     }
 
     LaunchedEffect(state.savedCount) { if (state.savedCount != startSaved) onDone() }
@@ -162,30 +162,21 @@ fun FlightEditScreen(viewModel: FlightsViewModel, onDone: () -> Unit) {
                 Field("Notes", d.notes, singleLine = false) { v -> viewModel.edit { it.copy(notes = v) } }
             }
 
-            if (d.id != null) {
-                FlightTrackCard(
-                    state = state,
-                    onFr24 = {
-                        runCatching {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(
-                                "https://www.flightradar24.com/data/flights/" + d.flightNumber.replace(" ", "").lowercase())))
-                        }
-                    },
-                    onKml = { kmlPicker.launch(arrayOf("application/vnd.google-earth.kml+xml",
-                        "application/vnd.google-earth.kmz", "application/xml", "text/xml",
-                        "text/csv", "text/comma-separated-values", "application/octet-stream")) },
-                    onOpenSky = viewModel::fetchOpenSky,
-                    onRematch = { viewModel.trackAction(unlink = false) },
-                    onUnlink = { viewModel.trackAction(unlink = true) },
-                )
-            } else {
-                ClayCard {
-                    Section("Flight track")
-                    Text("Save the flight first, then find its track: from OpenSky, from a Flightradar24 " +
-                         "KML or CSV, or from the locations you already have.",
-                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
+            FlightTrackCard(
+                state = state,
+                onFr24 = {
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(
+                            "https://www.flightradar24.com/data/flights/" + d.flightNumber.replace(" ", "").lowercase())))
+                    }
+                },
+                onKml = { kmlPicker.launch(arrayOf("application/vnd.google-earth.kml+xml",
+                    "application/vnd.google-earth.kmz", "application/xml", "text/xml",
+                    "text/csv", "text/comma-separated-values", "application/octet-stream")) },
+                onOpenSky = { viewModel.previewTrack("opensky") },
+                onRematch = { viewModel.previewTrack("match") },
+                onUnlink = viewModel::removeTrack,
+            )
 
             ClayCard(onClick = { showAdvanced = !showAdvanced }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -204,7 +195,7 @@ fun FlightEditScreen(viewModel: FlightsViewModel, onDone: () -> Unit) {
                     Field("Frequent flyer", d.frequentFlyer, caps = true) { v -> viewModel.edit { it.copy(frequentFlyer = v) } }
                     Field("Mode S address (e.g. a1b2c3)", d.icao24) { v -> viewModel.edit { it.copy(icao24 = v.lowercase()) } }
                     if (d.id != null) {
-                        ClayOutlinedButton(onClick = { viewModel.trackAction(unlink = false) },
+                        ClayOutlinedButton(onClick = { viewModel.previewTrack("match") },
                                            modifier = Modifier.fillMaxWidth()) {
                             Text("Re-match recorded track")
                         }
@@ -340,7 +331,11 @@ private fun FlightTrackCard(
         Section("Flight track")
         TrackMiniMap(state)
         Spacer(Modifier.size(8.dp))
-        val text = when (d.trackSource) {
+        val text = if (state.pendingRemove) "Track will be removed when you save."
+        else if (state.pendingTrack != null) (if (state.pendingTrack.source == "opensky") "OpenSky track" else "Recorded track") +
+            " · ${state.pendingTrack.message} Not saved yet; press Save to keep it."
+        else if (d.id == null) "Find a track with the buttons below. Nothing is kept until you press Save."
+        else when (d.trackSource) {
             "recorded" -> "Recorded track, from your own points or an uploaded KML" +
                 (d.trackDistanceKm?.let { " · %,d km flown".format(it.toLong()) } ?: "")
             "opensky" -> "OpenSky track · ${d.openskyMessage} Upload a KML to replace it."
@@ -366,7 +361,8 @@ private fun FlightTrackCard(
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ClayOutlinedButton(onClick = onFr24, enabled = d.flightNumber.isNotBlank(), modifier = Modifier.weight(1f)) { Text("Flightradar24 ↗") }
-            if (d.hasTrack) ClayOutlinedButton(onClick = onUnlink, enabled = !state.trackBusy, modifier = Modifier.weight(1f)) { Text("Unlink") }
+            val shown = !state.pendingRemove && (state.pendingTrack != null || d.trackSource.isNotBlank())
+            if (shown) ClayOutlinedButton(onClick = onUnlink, enabled = !state.trackBusy, modifier = Modifier.weight(1f)) { Text("Remove track") }
         }
     }
 }
@@ -388,10 +384,16 @@ private fun TrackMiniMap(state: FlightsUiState) {
             controller.setZoom(2.0)
         }
     }
-    LaunchedEffect(state.editTrack, d.depDetail, d.arrDetail) {
+    val coords = when {
+        state.pendingRemove -> emptyList()
+        state.pendingTrack != null -> state.pendingTrack.coords
+        else -> state.editTrack
+    }
+    val source = state.pendingTrack?.source ?: if (state.pendingRemove) "" else state.editTrackSource
+    LaunchedEffect(coords, d.depDetail, d.arrDetail) {
         mapView.overlays.clear()
         val fit = mutableListOf<org.osmdroid.util.GeoPoint>()
-        val runs = if (state.editTrack.size >= 2) wrappedRuns(state.editTrack) else {
+        val runs = if (coords.size >= 2) wrappedRuns(coords) else {
             val dep = d.depDetail; val arr = d.arrDetail
             if (dep?.depLat != null && dep.depLon != null && arr?.arrLat != null && arr.arrLon != null)
                 listOf(listOf(org.osmdroid.util.GeoPoint(dep.depLat, dep.depLon), org.osmdroid.util.GeoPoint(arr.arrLat, arr.arrLon)))
@@ -401,8 +403,8 @@ private fun TrackMiniMap(state: FlightsUiState) {
             fit += run
             mapView.overlays.add(org.osmdroid.views.overlay.Polyline(mapView).apply {
                 setPoints(run)
-                if (state.editTrack.size < 2) setGeodesic(true)
-                outlinePaint.color = when (state.editTrackSource) { "recorded" -> recorded; "opensky" -> opensky; else -> route }
+                if (coords.size < 2) setGeodesic(true)
+                outlinePaint.color = when (source) { "recorded" -> recorded; "opensky" -> opensky; else -> route }
                 outlinePaint.strokeWidth = 6f
                 outlinePaint.isAntiAlias = true
             })

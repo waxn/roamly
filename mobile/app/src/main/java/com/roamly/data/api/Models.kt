@@ -1104,7 +1104,24 @@ data class FlightsResponse(
     @SerializedName("lookup_enabled") val lookupEnabled: Boolean? = null,
 )
 
-data class FlightResponse(val flight: FlightDto? = null)
+data class FlightResponse(
+    val flight: FlightDto? = null,
+    /** Set when a staged track change could not be applied on save. */
+    @SerializedName("track_note") val trackNote: String? = null,
+)
+
+/** A track preview: nothing is stored until the flight is saved with [token]. */
+data class FlightTrackPreview(
+    val source: String = "",
+    val coords: List<List<Double>> = emptyList(),
+    val token: String? = null,
+    val message: String = "",
+    val icao24: String = "",
+    val km: Double? = null,
+    /** What a Flightradar24 file says the flight is, for an empty form. */
+    val flight: FlightDto? = null,
+    val error: String? = null,
+)
 
 /** GET /api/flights/lookup/ — AeroDataBox legs, in FlightDto's shape (UTC times). */
 data class FlightLookupResponse(val legs: List<FlightDto> = emptyList(), val error: String? = null)
