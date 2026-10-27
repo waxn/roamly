@@ -243,8 +243,9 @@ def ensure_boundaries(user=None, progress=None, stop=None, force=False):
 #
 # One instance-wide run, state in the cache (shared across gunicorn workers) so
 # the card can show what it is doing and how it ended. It loads the US town
-# boundaries the geocoder labels from (``regeocode_tasks.BOUNDARY_STATES``)
-# first, then the geoBoundaries countries: an admin clicking "Download" on the
+# town boundaries the geocoder labels from (every state with points,
+# ``regeocode_tasks.boundary_states``) and the US county outlines Achievements
+# uses first, then the geoBoundaries countries: an admin clicking "Download" on the
 # boundaries card expects the boundaries labels depend on to be among them.
 
 _JOB_KEY = 'boundary_job'
@@ -287,7 +288,7 @@ def start_job():
 
 def _run_job():
     import time
-    from .regeocode_tasks import BOUNDARY_STATES, BoundaryError
+    from .regeocode_tasks import BoundaryError, boundary_states
     from .regeocode_tasks import ensure_boundaries as ensure_us
 
     errors = []
@@ -299,11 +300,11 @@ def _run_job():
         countries = [cc for cc in sorted(qualifying_countries())
                      if iso3(cc) and iso3(cc) not in have]
         steps = 1 + len(countries)
-        us_names = ', '.join(BOUNDARY_STATES.values())
-        _job_write(stage=f'Loading US town boundaries ({us_names})', step=0, steps=steps)
+        us_names = ', '.join(sorted(boundary_states().values())) or 'no US states yet'
+        _job_write(stage=f'Loading US boundaries ({us_names})', step=0, steps=steps)
         us = {'ok': True, 'error': ''}
         try:
-            ensure_us(log=lambda m: _job_write(stage=m))
+            ensure_us(log=lambda m: _job_write(stage=m), counties=True)
         except BoundaryError as e:
             us = {'ok': False, 'error': str(e)}
         except Exception as e:
@@ -361,7 +362,25 @@ def status():
                           'adm2': c.get('adm2', 0), 'adm3': c.get('adm3', 0)})
     return {'enabled': SiteConfig.load().auto_download_boundaries,
             'postgis': _has_postgis(), 'countries': countries,
-            'us': us_counts(), 'job': job_status()}
+            'us': us_counts(), 'us_missing': _us_missing(), 'us_counties': _us_counties(),
+            'job': job_status()}
+
+
+def _us_missing():
+    if not _has_postgis():
+        return []
+    from .regeocode_tasks import missing_states
+    try:
+        return sorted(missing_states().values())
+    except Exception:
+        return []
+
+
+def _us_counties():
+    from .models import Boundary
+    if not _has_postgis():
+        return 0
+    return Boundary.objects.filter(country_code='US', kind='county').count()
 
 
 def delete_all():

@@ -602,8 +602,9 @@
                 <a href="https://www.geoboundaries.org/" target="_blank" rel="noopener">geoBoundaries</a>
                 (CC BY 4.0) for every country someone on this instance has spent more than a week in.
                 They power the town and region percentages on the <strong>Achievements</strong> page.
-                Download Now also loads the US Census town boundaries that town labels in
-                Maine are built from, if they're missing.
+                Download Now also loads the US Census town boundaries for every state with
+                recorded points (town labels there are built from them) and the US county
+                outlines, if they're missing.
             </p>
             <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8125rem;cursor:pointer;margin-bottom:0.75rem;">
                 <input type="checkbox" id="dl-bnd-auto" {% if auto_download_boundaries %}checked{% endif %}
@@ -2349,6 +2350,11 @@ function bndLoad() {
         us.innerHTML = d.us && d.us.length
             ? 'US towns: ' + d.us.map(s => `${esc(s.state)} (${s.n.toLocaleString()})`).join(', ')
             : '<span style="color:var(--danger);">US towns: none loaded — town labels fall back to the nearest bigger town.</span>';
+        if (d.us_missing && d.us_missing.length)
+            us.innerHTML += `<br><span style="color:var(--danger);">Not loaded yet: ${d.us_missing.map(esc).join(', ')} — press Download Now.</span>`;
+        us.innerHTML += '<br>' + (d.us_counties
+            ? `US counties: ${d.us_counties.toLocaleString()}`
+            : '<span style="color:var(--danger);">US counties: not loaded — Download Now loads them for Achievements.</span>');
         el.innerHTML = d.countries.length
             ? `Other countries: ${d.countries.length}: ` +
               d.countries.map(c => `<span title="${c.adm1} regions · ${c.adm2} districts · ${c.adm3} municipalities">${esc(c.cc || c.iso3)}</span>`).join(', ')

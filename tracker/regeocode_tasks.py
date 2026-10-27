@@ -51,14 +51,52 @@ _SUMMARY_MOVES = 100
 _ACTIVE = ('boundaries', 'running', 'applying', 'refreshing')
 
 
-# US states whose Census town boundaries labels on this instance are built
-# from. The original labels at home in Waldo, Maine came from them, and without
-# them loaded the geocoder falls back to the nearest town of 1000+ (Brooks):
-# relabelling with the table empty turned 800k points at home into a neighbour,
-# twice. So both the re-geocode and the geocoding worker load these first
-# (``ensure_boundaries``). Outside these states labels are the nearest town, as
-# they always were here.
-BOUNDARY_STATES = {'ME': 'Maine'}
+# US town boundaries are loaded for every state someone on this instance has
+# been in. Without them the geocoder falls back to the nearest town of 1000+
+# (Brooks rather than Waldo, ME): relabelling with the table empty turned 800k
+# points at home into a neighbour, twice. So the re-geocode, the geocoding
+# worker and the Admin Panel's boundary job all load them first
+# (``ensure_boundaries``).
+#
+# A state counts once it holds ``_STATE_MIN_POINTS`` stored points; the stored
+# state label is accurate even where the town fell back to the nearest one, and
+# the floor keeps a stray fix labelled across a border from fetching a state.
+_STATE_MIN_POINTS = 20
+_STATES_CACHE_KEY = 'boundary_states'
+
+
+def boundary_states(extra=()):
+    """``{abbr: name}`` of the US states whose town boundaries this instance
+    needs: those its stored points sit in, plus ``extra`` (state names, e.g. of
+    points not labelled yet). Cached an hour; the scan is one indexed GROUP BY."""
+    from django.db.models import Count
+    from .management.commands.import_boundaries import STATE_NAMES
+    from .models import Location
+
+    by_name = {v: k for k, v in STATE_NAMES.items()}
+    names = cache.get(_STATES_CACHE_KEY)
+    if names is None:
+        names = [r['state'] for r in
+                 Location.objects.filter(country_code='US').exclude(state='')
+                 .order_by().values('state').annotate(n=Count('id'))
+                 if r['n'] >= _STATE_MIN_POINTS]
+        cache.set(_STATES_CACHE_KEY, names, 3600)
+    return {by_name[n]: n for n in [*names, *extra] if n in by_name}
+
+
+def pending_states(qs, sample=200):
+    """State names of a strided sample of not-yet-labelled points in ``qs``, so
+    the boundaries are there before those points are labelled, not after."""
+    from .offline_geocode import offline_reverse_geocode
+    # Random rather than the oldest: a large import's backlog can span states.
+    coords = list(qs.order_by('?').values_list('latitude', 'longitude')[:sample])
+    if not coords:
+        return set()
+    try:
+        labels = offline_reverse_geocode(coords)
+    except Exception:
+        return set()
+    return {r['state'] for r in labels if r.get('country_code') == 'US' and r.get('state')}
 
 
 class BoundaryError(Exception):
@@ -66,13 +104,22 @@ class BoundaryError(Exception):
 
 
 _BOUNDARY_LOCK = 'ensure_boundaries_lock'
-_BOUNDARY_LOCK_TTL_S = 900
+_BOUNDARY_LOCK_TTL_S = 1800
 
 
-def ensure_boundaries(log=None, wait=True):
-    """Load the town boundaries for ``BOUNDARY_STATES`` that aren't in the
-    table yet. Raises ``BoundaryError`` if one still isn't there afterwards —
-    never relabel against a table that is missing them. No-op without PostGIS.
+def missing_states(extra=()):
+    from .models import Boundary
+    have = set(Boundary.objects.filter(country_code='US', kind__in=('place', 'cousub'))
+               .order_by().values_list('state', flat=True).distinct())
+    return {a: n for a, n in boundary_states(extra).items() if n not in have}
+
+
+def ensure_boundaries(log=None, wait=True, extra=(), counties=False):
+    """Load the town boundaries for every state in ``boundary_states(extra)``
+    that isn't in the table yet (and, with ``counties``, the US county outlines
+    Achievements uses). Raises ``BoundaryError`` if a state's towns still
+    aren't there afterwards — never relabel against a table missing them.
+    No-op without PostGIS.
 
     Single-flight across workers (a cache lock): with ``wait`` a second caller
     waits for the first to finish; without it, it returns at once."""
@@ -83,42 +130,52 @@ def ensure_boundaries(log=None, wait=True):
 
     if 'postgis' not in settings.DATABASES.get('default', {}).get('ENGINE', ''):
         return
-    have = lambda name: Boundary.objects.filter(  # noqa: E731
-        country_code='US', state=name, kind__in=('place', 'cousub')).exists()
-    missing = [abbr for abbr, name in BOUNDARY_STATES.items() if not have(name)]
-    if not missing:
+    missing = missing_states(extra)
+    need_counties = counties and not Boundary.objects.filter(
+        country_code='US', kind='county').exists()
+    if not missing and not need_counties:
         return
+    err = io.StringIO()
     if not cache.add(_BOUNDARY_LOCK, 1, _BOUNDARY_LOCK_TTL_S):
         if not wait:
             return
         deadline = time.time() + _BOUNDARY_LOCK_TTL_S
         while cache.get(_BOUNDARY_LOCK) and time.time() < deadline:
             time.sleep(3)
-        missing = [abbr for abbr, name in BOUNDARY_STATES.items() if not have(name)]
-        err = io.StringIO()
     else:
         try:
-            if log:
-                log(f"Loading town boundaries for {', '.join(BOUNDARY_STATES[a] for a in missing)}…")
-            out, err = io.StringIO(), io.StringIO()
-            # --keep: add these states only; never clear what is already loaded.
-            try:
-                call_command('import_boundaries', states=','.join(missing), kinds='place,cousub',
-                             keep=True, stdout=out, stderr=err)
-            except Exception as e:
-                # GDAL missing, a database error… — name it, rather than the
-                # bare "couldn't load" that hides why.
-                logger.exception('import_boundaries failed')
-                err.write(f'{type(e).__name__}: {e}')
+            jobs = []
+            if missing:
+                jobs.append((f"town boundaries for {', '.join(missing.values())}",
+                             dict(states=','.join(missing), kinds='place,cousub')))
+            if need_counties:
+                # One national file; no --states means every state.
+                jobs.append(('US county outlines', dict(kinds='county')))
+            for what, kw in jobs:
+                if log:
+                    log(f'Loading {what}…')
+                out = io.StringIO()
+                # --keep: add these only; never clear what is already loaded.
+                try:
+                    call_command('import_boundaries', keep=True, stdout=out, stderr=err, **kw)
+                except Exception as e:
+                    # GDAL missing, a database error… — name it, rather than the
+                    # bare "couldn't load" that hides why.
+                    logger.exception('import_boundaries failed')
+                    err.write(f'{type(e).__name__}: {e}\n')
         finally:
             cache.delete(_BOUNDARY_LOCK)
-    still = [BOUNDARY_STATES[a] for a in missing if not have(BOUNDARY_STATES[a])]
-    if still:
+    still = list(missing_states(extra).values())
+    no_counties = need_counties and not Boundary.objects.filter(
+        country_code='US', kind='county').exists()
+    if still or no_counties:
+        what = ', '.join(still) if still else ''
+        if no_counties:
+            what = f'{what} and US counties' if what else 'US counties'
         why = err.getvalue().strip() or 'Another download was still running; try again in a few minutes.'
-        logger.error('Town boundaries for %s did not load: %s', still, why)
+        logger.error('Boundaries for %s did not load: %s', what, why)
         raise BoundaryError(
-            f"Couldn't load the town boundaries for {', '.join(still)}, so nothing was "
-            f"relabelled. {why[:300]}")
+            f"Couldn't load the boundaries for {what}. {why[:300]}")
 
 
 class _Stopped(Exception):

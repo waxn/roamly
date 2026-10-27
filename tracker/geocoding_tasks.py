@@ -64,16 +64,20 @@ def _geocode_worker(user_id):
 
         logger.info(f"Geocoding user {user_id}: {total} points")
 
-        # Labels at home come from the Maine town boundaries; labelling against
-        # an empty table gives the nearest bigger town instead (Brooks, not
-        # Waldo). Load them if missing — at most one attempt an hour, since
-        # this runs on every push, and never blocking on another worker's load.
-        if cache.add('ensure_boundaries_attempt', 1, 3600):
-            try:
-                from .regeocode_tasks import ensure_boundaries
-                ensure_boundaries(wait=False)
-            except Exception as e:
-                logger.error(f"Loading town boundaries failed: {e}")
+        # Labels come from the US town boundaries of each state; labelling
+        # against a state with none loaded gives the nearest bigger town
+        # instead (Brooks, not Waldo). Load any the pending points need first —
+        # sampled, so a first trip to a new state is labelled right, not after
+        # the fact. One attempt an hour per set of missing states, since this
+        # runs on every push.
+        try:
+            from .regeocode_tasks import ensure_boundaries, missing_states, pending_states
+            extra = pending_states(Location.objects.filter(device__user_id=user_id, city=''))
+            missing = missing_states(extra)
+            if missing and cache.add(f"ensure_boundaries_attempt:{','.join(sorted(missing))}", 1, 3600):
+                ensure_boundaries(wait=True, extra=extra)
+        except Exception as e:
+            logger.error(f"Loading town boundaries failed: {e}")
 
         while True:
             # Honour a stop request raised from the UI.
