@@ -602,7 +602,8 @@
                 <a href="https://www.geoboundaries.org/" target="_blank" rel="noopener">geoBoundaries</a>
                 (CC BY 4.0) for every country someone on this instance has spent more than a week in.
                 They power the town and region percentages on the <strong>Achievements</strong> page.
-                US towns and counties come from the Census instead (<code>import_boundaries</code>).
+                Download Now also loads the US Census town boundaries that town labels in
+                Maine are built from, if they're missing.
             </p>
             <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8125rem;cursor:pointer;margin-bottom:0.75rem;">
                 <input type="checkbox" id="dl-bnd-auto" {% if auto_download_boundaries %}checked{% endif %}
@@ -614,7 +615,15 @@
                 <button class="btn btn-outline btn-sm" onclick="bndDelete()"
                         style="color:var(--danger);border-color:var(--danger);">Delete Region Data</button>
             </div>
-            <div id="dl-bnd-status" style="margin-top:0.6rem;font-size:0.8125rem;color:var(--text-muted);"></div>
+            <div id="dl-bnd-progress-wrap" style="margin-top:0.6rem;display:none;">
+                <div style="background:var(--bg-input);border-radius:0;height:6px;overflow:hidden;margin-bottom:0.35rem;">
+                    <div id="dl-bnd-bar" style="height:100%;width:0%;background:var(--primary);border-radius:0;transition:width 0.4s ease;"></div>
+                </div>
+                <div id="dl-bnd-stage" style="font-size:0.8125rem;color:var(--text-muted);"></div>
+            </div>
+            <div id="dl-bnd-error" style="margin-top:0.6rem;font-size:0.8125rem;color:var(--danger);white-space:pre-wrap;display:none;"></div>
+            <div id="dl-bnd-us" style="margin-top:0.6rem;font-size:0.8125rem;color:var(--text-muted);"></div>
+            <div id="dl-bnd-status" style="margin-top:0.35rem;font-size:0.8125rem;color:var(--text-muted);"></div>
         </div>
 
     </div>
@@ -2329,22 +2338,67 @@ function bndToggleAuto(checked) {
         body: JSON.stringify({ auto_download_boundaries: checked }),
     }).catch(() => {});
 }
+let bndTimer = null;
+let bndWasRunning = false;
 function bndLoad() {
     const el = document.getElementById('dl-bnd-status');
     fetch('/api/boundaries/status/').then(r => r.ok ? r.json() : null).then(d => {
         if (!d) return;
         if (!d.postgis) { el.textContent = 'Needs PostGIS.'; return; }
-        if (!d.countries.length) { el.textContent = 'No countries downloaded yet.'; return; }
-        el.innerHTML = `${d.countries.length} countr${d.countries.length === 1 ? 'y' : 'ies'}: ` +
-            d.countries.map(c => `<span title="${c.adm1} regions · ${c.adm2} districts · ${c.adm3} municipalities">${esc(c.cc || c.iso3)}</span>`).join(', ');
+        const us = document.getElementById('dl-bnd-us');
+        us.innerHTML = d.us && d.us.length
+            ? 'US towns: ' + d.us.map(s => `${esc(s.state)} (${s.n.toLocaleString()})`).join(', ')
+            : '<span style="color:var(--danger);">US towns: none loaded — town labels fall back to the nearest bigger town.</span>';
+        el.innerHTML = d.countries.length
+            ? `Other countries: ${d.countries.length}: ` +
+              d.countries.map(c => `<span title="${c.adm1} regions · ${c.adm2} districts · ${c.adm3} municipalities">${esc(c.cc || c.iso3)}</span>`).join(', ')
+            : 'Other countries: none downloaded (only countries someone spent more than a week in qualify).';
+        bndRenderJob(d.job || {status: 'idle'});
     }).catch(() => {});
 }
-function bndDownload() {
+function bndRenderJob(job) {
+    const wrap = document.getElementById('dl-bnd-progress-wrap');
+    const bar = document.getElementById('dl-bnd-bar');
+    const stage = document.getElementById('dl-bnd-stage');
+    const errEl = document.getElementById('dl-bnd-error');
     const btn = document.getElementById('dl-bnd-btn');
-    btn.disabled = true;
-    document.getElementById('dl-bnd-status').textContent = 'Downloading in the background — this can take a few minutes per country.';
+    const running = job.status === 'running';
+    btn.disabled = running;
+    if (running) {
+        wrap.style.display = '';
+        const pct = job.steps ? Math.round(job.step / job.steps * 100) : 0;
+        bar.style.width = Math.max(pct, 5) + '%';
+        bar.style.background = '';  // an inline background would hide the flow stripes
+        bar.classList.add('bar-flow');
+        stage.textContent = job.stage || 'Working…';
+        errEl.style.display = 'none';
+    } else {
+        bar.classList.remove('bar-flow');
+        if (job.status === 'completed' || job.status === 'failed') {
+            wrap.style.display = '';
+            bar.style.width = '100%';
+            bar.style.background = job.status === 'completed' ? 'var(--success)' : 'var(--danger)';
+            const when = job.finished ? new Date(job.finished * 1000).toLocaleString() : '';
+            stage.textContent = (job.status === 'completed' ? 'Finished' : 'Finished with errors') + (when ? ' · ' + when : '');
+        } else {
+            wrap.style.display = 'none';
+        }
+        errEl.style.display = job.error ? '' : 'none';
+        errEl.textContent = job.error || '';
+        if (bndWasRunning) {
+            roamlyToast(job.status === 'completed' ? 'Boundaries downloaded.' : 'Boundary download failed — see the card for why.',
+                        { type: job.status === 'completed' ? 'success' : 'error' });
+        }
+    }
+    bndWasRunning = running;
+    if (running && !bndTimer) bndTimer = setInterval(bndLoad, 2000);
+    else if (!running && bndTimer) { clearInterval(bndTimer); bndTimer = null; }
+}
+function bndDownload() {
     fetch('/api/boundaries/download/', { method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') } })
-        .finally(() => { setTimeout(() => { btn.disabled = false; bndLoad(); }, 15000); });
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d && d.job) bndRenderJob(d.job); bndLoad(); })
+        .catch(() => roamlyToast('Could not start the download.', { type: 'error' }));
 }
 async function bndDelete() {
     const ok = await roamlyConfirm('Delete every downloaded region boundary? They are fetched again on the next auto-download.',

@@ -11430,13 +11430,13 @@ def boundary_status_api(request):
 @login_required
 @require_POST
 def boundary_download_api(request):
-    """Fetch boundaries now for every qualifying country (runs in the background)."""
+    """Load the US town boundaries the geocoder needs, then every qualifying
+    country's regions (a background job; poll ``boundary_status_api``)."""
     err = _require_admin(request)
     if err:
         return err
     from . import boundary_download_tasks as bdt
-    db_thread(bdt.ensure_boundaries, name='boundary-download').start()
-    return JsonResponse({'ok': True})
+    return JsonResponse({'ok': True, 'job': bdt.start_job()})
 
 
 @login_required

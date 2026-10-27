@@ -215,14 +215,15 @@ def download_country(cc2, progress=None):
         cache.delete(lock)
 
 
-def ensure_boundaries(user=None, progress=None, stop=None):
+def ensure_boundaries(user=None, progress=None, stop=None, force=False):
     """Download every qualifying country not yet covered. Best-effort: returns
-    a list of ``(cc2, ok, count, error)`` and never raises."""
+    a list of ``(cc2, ok, count, error)`` and never raises. ``force`` runs it
+    even with auto-download switched off (the Admin Panel's Download Now)."""
     from .models import SiteConfig
 
     out = []
     try:
-        if not _has_postgis() or not SiteConfig.load().auto_download_boundaries:
+        if not _has_postgis() or not (force or SiteConfig.load().auto_download_boundaries):
             return out
         have = downloaded_countries()
         for cc2 in sorted(qualifying_countries(user)):
@@ -236,6 +237,107 @@ def ensure_boundaries(user=None, progress=None, stop=None):
     except Exception:
         logger.exception('boundary auto-download failed')
     return out
+
+
+# ── Admin Panel "Download Now" job ───────────────────────────────────────────
+#
+# One instance-wide run, state in the cache (shared across gunicorn workers) so
+# the card can show what it is doing and how it ended. It loads the US town
+# boundaries the geocoder labels from (``regeocode_tasks.BOUNDARY_STATES``)
+# first, then the geoBoundaries countries: an admin clicking "Download" on the
+# boundaries card expects the boundaries labels depend on to be among them.
+
+_JOB_KEY = 'boundary_job'
+_JOB_TTL_S = 7 * 24 * 3600
+JOB_STALE_S = 900  # one Census or geoBoundaries call is well under this
+
+
+def _job_write(**fields):
+    import time
+    job = cache.get(_JOB_KEY) or {}
+    job.update(fields, updated=time.time())
+    cache.set(_JOB_KEY, job, _JOB_TTL_S)
+    return job
+
+
+def job_status():
+    import time
+    job = cache.get(_JOB_KEY)
+    if not job:
+        return {'status': 'idle'}
+    if job.get('status') == 'running' and time.time() - job.get('updated', 0) > JOB_STALE_S:
+        job = _job_write(status='failed', stage='',
+                         error='The download stopped responding; start it again.')
+    return job
+
+
+def start_job():
+    """Start the download unless one is running. Returns the job status."""
+    current = job_status()
+    if current.get('status') == 'running':
+        return current
+    if not cache.add('boundary_job_starting', 1, 10):
+        return current
+    _job_write(status='running', stage='Starting…', step=0, steps=0,
+               error='', results=[], us=None, finished=None)
+    from .scheduler_utils import db_thread
+    db_thread(_run_job, name='boundary-download').start()
+    return job_status()
+
+
+def _run_job():
+    import time
+    from .regeocode_tasks import BOUNDARY_STATES, BoundaryError
+    from .regeocode_tasks import ensure_boundaries as ensure_us
+
+    errors = []
+    countries = []
+    try:
+        if not _has_postgis():
+            raise RuntimeError('Boundaries need PostGIS.')
+        have = downloaded_countries()
+        countries = [cc for cc in sorted(qualifying_countries())
+                     if iso3(cc) and iso3(cc) not in have]
+        steps = 1 + len(countries)
+        us_names = ', '.join(BOUNDARY_STATES.values())
+        _job_write(stage=f'Loading US town boundaries ({us_names})', step=0, steps=steps)
+        us = {'ok': True, 'error': ''}
+        try:
+            ensure_us(log=lambda m: _job_write(stage=m))
+        except BoundaryError as e:
+            us = {'ok': False, 'error': str(e)}
+        except Exception as e:
+            logger.exception('US boundary load failed')
+            us = {'ok': False, 'error': f'{type(e).__name__}: {e}'[:400]}
+        if not us['ok']:
+            errors.append(us['error'])
+        _job_write(us=us, step=1)
+
+        results = []
+        for i, cc2 in enumerate(countries):
+            _job_write(stage=f'Downloading region boundaries for {cc2}', step=1 + i)
+            ok, n, err = download_country(cc2, progress=lambda m: _job_write(stage=m))
+            results.append({'cc': cc2, 'ok': ok, 'count': n, 'error': err})
+            if not ok:
+                errors.append(f'{cc2}: {err}')
+            _job_write(results=results, step=2 + i)
+        _job_write(status='failed' if errors else 'completed', stage='',
+                   error='\n'.join(errors)[:1000], finished=time.time())
+    except Exception as e:
+        logger.exception('boundary download job failed')
+        _job_write(status='failed', stage='', error=f'{type(e).__name__}: {e}'[:400],
+                   finished=time.time())
+
+
+def us_counts():
+    """US place/cousub polygons per state — what the geocoder labels from."""
+    from django.db.models import Count
+    from .models import Boundary
+    if not _has_postgis():
+        return []
+    return [{'state': r['state'], 'n': r['n']} for r in
+            Boundary.objects.filter(country_code='US', kind__in=('place', 'cousub'))
+            .order_by().values('state').annotate(n=Count('id')).order_by('state')]
 
 
 def status():
@@ -258,7 +360,8 @@ def status():
         countries.append({'iso3': iso, 'cc': cc2, 'adm1': c.get('adm1', 0),
                           'adm2': c.get('adm2', 0), 'adm3': c.get('adm3', 0)})
     return {'enabled': SiteConfig.load().auto_download_boundaries,
-            'postgis': _has_postgis(), 'countries': countries}
+            'postgis': _has_postgis(), 'countries': countries,
+            'us': us_counts(), 'job': job_status()}
 
 
 def delete_all():
