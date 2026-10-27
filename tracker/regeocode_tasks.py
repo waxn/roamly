@@ -102,15 +102,23 @@ def ensure_boundaries(log=None, wait=True):
                 log(f"Loading town boundaries for {', '.join(BOUNDARY_STATES[a] for a in missing)}…")
             out, err = io.StringIO(), io.StringIO()
             # --keep: add these states only; never clear what is already loaded.
-            call_command('import_boundaries', states=','.join(missing), kinds='place,cousub',
-                         keep=True, stdout=out, stderr=err)
+            try:
+                call_command('import_boundaries', states=','.join(missing), kinds='place,cousub',
+                             keep=True, stdout=out, stderr=err)
+            except Exception as e:
+                # GDAL missing, a database error… — name it, rather than the
+                # bare "couldn't load" that hides why.
+                logger.exception('import_boundaries failed')
+                err.write(f'{type(e).__name__}: {e}')
         finally:
             cache.delete(_BOUNDARY_LOCK)
     still = [BOUNDARY_STATES[a] for a in missing if not have(BOUNDARY_STATES[a])]
     if still:
+        why = err.getvalue().strip() or 'Another download was still running; try again in a few minutes.'
+        logger.error('Town boundaries for %s did not load: %s', still, why)
         raise BoundaryError(
             f"Couldn't load the town boundaries for {', '.join(still)}, so nothing was "
-            f"relabelled. {err.getvalue().strip()[:300]}")
+            f"relabelled. {why[:300]}")
 
 
 class _Stopped(Exception):
