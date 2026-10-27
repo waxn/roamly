@@ -579,7 +579,7 @@ function renderExplorer(d) {
         pctTile('Countries', ex.countries_v, ex.countries_t, ex.countries_pct) +
         pctTile('US states', us.states_v, us.states_t, us.states_pct) +
         (us.has_counties ? pctTile('US counties', us.counties_v, us.counties_t, us.counties_pct)
-            : pctTile('US counties', 0, 0, null, 'County outlines are not loaded yet. An admin can run <code>import_boundaries --kinds county</code>.')) +
+            : pctTile('US counties', 0, 0, null, 'County outlines are not loaded yet. An admin can load them from Admin Panel → Downloads → Region Boundaries → Download Now.')) +
         (us.has_towns ? pctTile('US towns', us.towns_v, us.towns_t, us.towns_pct,
             us.cousub_t ? `+ ${num(us.cousub_v)} of ${num(us.cousub_t)} townships` : '')
             : pctTile('US towns', d.metrics.towns, 0, null, `${num(d.metrics.towns)} towns in your history. Town outlines are not loaded, so there is no percentage yet.`));
