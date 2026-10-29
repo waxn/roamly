@@ -79,6 +79,41 @@ def test_corroborated_speed_rejects_parked_phone_jitter():
     assert at.corroborated_speed(w) is None
 
 
+def _cand(mps, seq, ep, lat=45.0, lon=-70.0, mode='', dev=1):
+    ts = datetime.fromtimestamp(ep, dt_timezone.utc)
+    return (mps, seq, dev, ep, ts, lat, lon, mode)
+
+
+def test_ground_speed_skips_airborne_windows():
+    # A takeoff roll at 80 m/s sits beside flight evidence; the 35 m/s drive
+    # an hour earlier is the real record.
+    air = []
+    at._mark_air(air, 10_000, 10_000)  # a 'plane' fix
+    top = [_cand(80.0, 1, 9_000), _cand(35.0, 2, 3_000, mode='vehicle')]
+    modes = {'vehicle': [top[1]], '': [top[0]]}
+    ms, by_mode = at._ground_speed_records(top, modes, {1: air}, [])
+    assert ms[0] == 35.0
+    assert '' not in by_mode and by_mode['vehicle'][0] == 35.0
+
+
+def test_ground_speed_skips_logged_flights_and_runways():
+    top = [_cand(85.0, 1, 50_000), _cand(30.0, 2, 1_000)]
+    ms, _ = at._ground_speed_records(top, {}, {}, [(49_000, 60_000, None)])
+    assert ms[0] == 30.0
+    # Fast at JFK with no other evidence: a runway, not a road.
+    top = [_cand(70.0, 1, 50_000, lat=40.6413, lon=-73.7781), _cand(30.0, 2, 1_000)]
+    ms, _ = at._ground_speed_records(top, {}, {}, [])
+    assert ms[0] == 30.0
+
+
+def test_mark_air_merges_overlapping_windows():
+    air = []
+    at._mark_air(air, 0, 0)
+    at._mark_air(air, 600, 900)
+    at._mark_air(air, 100_000, 100_000)
+    assert len(air) == 2 and air[0][1] == 900 + at._AIR_PAD_S
+
+
 def test_corroborated_speed_rejects_poor_accuracy():
     w = _window([30, 30, 30, 30, 30], step_m=30, acc=80)
     assert at.corroborated_speed(w) is None

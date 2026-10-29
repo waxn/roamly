@@ -34,6 +34,7 @@ otherwise hold the record forever. A reading counts only as the median of a
 Single-flight per user via a PostgreSQL advisory lock in namespace
 ``0x52414d48`` ('RAMH'), distinct from every other scheduler's.
 """
+import heapq
 import logging
 import math
 import threading
@@ -71,6 +72,17 @@ _SPEED_WIN = 5
 _GROUND_CAP_MPS = 100.0            # ~360 km/h: nothing on the ground beats it
 _MODE_CAP_MPS = {'walk': 4.5, 'cycle': 22.0, 'vehicle': 100.0}
 _SPEED_MAX_ACC_M = 30.0
+# Airborne detection for the ground-speed record. A takeoff roll or a landing
+# reads 70-90 m/s, under the ground cap, and is only labelled 'plane' once the
+# transport job has run, so the record is chosen afterwards from the top
+# candidates, skipping any that fall in an airborne window.
+_SPEED_CANDIDATES = 400
+_MODE_CANDIDATES = 60
+_AIR_PAD_S = 30 * 60               # either side of airborne evidence
+_AIR_DOPPLER_MPS = _GROUND_CAP_MPS  # median Doppler above this is a plane
+_AIR_HOP_MPS = 50.0                # a hop this fast over _AIR_HOP_KM: flown
+_AIR_HOP_KM = 100.0                # (flight_detect.FAST_MPS / MIN_DIST_KM)
+_AIRPORT_ROLL_MPS = 55.0           # this fast at a large/medium airport: runway
 _ALT_MAX_ACC_M = 25.0
 _ALT_HYST_M = 5.0
 _ALT_GAP_S = 600
@@ -161,6 +173,82 @@ def corroborated_speed(window):
     if med > 2.0 and implied < 0.5 * med:
         return None
     return med
+
+
+def _keep_top(heap, item, n):
+    if len(heap) < n:
+        heapq.heappush(heap, item)
+    elif item[0] > heap[0][0]:
+        heapq.heapreplace(heap, item)
+
+
+def _mark_air(wins, start, end):
+    """Add an airborne window, merging into the last one (fixes come in time
+    order per device, so windows only ever grow at the end)."""
+    s, e = start - _AIR_PAD_S, end + _AIR_PAD_S
+    if wins and s <= wins[-1][1]:
+        wins[-1][1] = max(wins[-1][1], e)
+    else:
+        wins.append([s, e])
+
+
+def _flight_windows(user):
+    """Logged flights as (start, end, airports) — times padded, or the
+    departure date when the flight has no times, limited to fixes at either
+    airport."""
+    from .models import Flight
+    out = []
+    for f in Flight.objects.filter(user=user):
+        start = f.actual_dep or f.sched_dep or f.track_start
+        end = f.actual_arr or f.sched_arr or f.track_end
+        ports = [(la, lo) for la, lo in ((f.dep_lat, f.dep_lon), (f.arr_lat, f.arr_lon))
+                 if la is not None and lo is not None]
+        if start and end:
+            out.append((start.timestamp() - _AIR_PAD_S, end.timestamp() + _AIR_PAD_S, None))
+        elif f.date and ports:
+            day = datetime.combine(f.date, datetime.min.time()).replace(tzinfo=dt_timezone.utc)
+            # The date is the departure's local day: allow the widest offsets.
+            out.append((day.timestamp() - 14 * 3600, day.timestamp() + 38 * 3600, ports))
+    return out
+
+
+def _ground_speed_records(speed_top, mode_top, airborne, flights):
+    """Pick the fastest candidates that weren't in a plane.
+
+    Returns ``(max_speed, mode_speed)`` shaped as before:
+    ``(mps, ts, lat, lon, mode)`` and ``{mode: (mps, ts, lat, lon)}``.
+    """
+    from bisect import bisect_right
+    from . import airports
+    starts = {dev: [w[0] for w in wins] for dev, wins in airborne.items()}
+
+    def grounded(c):
+        mps, _seq, dev, ep, _ts, lat, lon, _m = c
+        wins = airborne.get(dev)
+        if wins:
+            i = bisect_right(starts[dev], ep) - 1
+            if i >= 0 and ep <= wins[i][1]:
+                return False
+        for s, e, ports in flights:
+            if s <= ep <= e and (ports is None or any(
+                    _hav_km(lat, lon, pa, po) <= 10.0 for pa, po in ports)):
+                return False
+        if mps >= _AIRPORT_ROLL_MPS and airports.nearest(lat, lon):
+            return False
+        return True
+
+    max_speed = None
+    for c in sorted(speed_top, reverse=True):
+        if grounded(c):
+            max_speed = (c[0], c[4], c[5], c[6], c[7])
+            break
+    mode_speed = {}
+    for m, heap in mode_top.items():
+        for c in sorted(heap, reverse=True):
+            if grounded(c):
+                mode_speed[m] = (c[0], c[4], c[5], c[6])
+                break
+    return max_speed, mode_speed
 
 
 def home_from_counts(night_counts):
@@ -368,8 +456,9 @@ def _history_pass(user, prog):
     country_first = {}
     country_names = {}
     ext = {'n': None, 's': None, 'e': None, 'w': None, 'hi': None, 'lo': None}
-    max_speed = None      # (mps, ts, lat, lon, mode)
-    mode_speed = {}
+    speed_top = []        # min-heap of (mps, seq, dev, epoch, ts, lat, lon, mode)
+    mode_top = defaultdict(list)
+    airborne = defaultdict(list)  # dev -> merged [start, end] epoch windows
     plane_speed = None
     climbed = 0.0
     day_climb = defaultdict(float)
@@ -422,7 +511,7 @@ def _history_pass(user, prog):
             jr = None
 
         def points(rows, win):
-            nonlocal prev, alt_ref, alt_ts, jr, seen, max_speed, plane_speed, climbed
+            nonlocal prev, alt_ref, alt_ts, jr, seen, plane_speed, climbed
             for (lat, lon, ts, alt, acc, spd, mode, flag, city, state, country, cc) in rows:
                 seen += 1
                 if seen % 20000 == 0:
@@ -493,19 +582,21 @@ def _history_pass(user, prog):
                 if len(win) == _SPEED_WIN:
                     med = corroborated_speed([w[:5] for w in win])
                     mid = win[_SPEED_WIN // 2]
-                    if med is not None:
+                    if med is not None and (mid[5] or '') != 'plane':
                         m = mid[5] or ''
-                        if m == 'plane':
-                            pass
-                        else:
-                            if max_speed is None or med > max_speed[0]:
-                                max_speed = (med, mid[6], mid[0], mid[1], m)
-                            cap = _MODE_CAP_MPS.get(m)
-                            if cap and med <= cap and (m not in mode_speed or med > mode_speed[m][0]):
-                                mode_speed[m] = (med, mid[6], mid[0], mid[1])
+                        cand = (med, seen, dev_id, mid[2], mid[6], mid[0], mid[1], m)
+                        _keep_top(speed_top, cand, _SPEED_CANDIDATES)
+                        cap = _MODE_CAP_MPS.get(m)
+                        if cap and med <= cap:
+                            _keep_top(mode_top[m], cand, _MODE_CANDIDATES)
+                    dop = [w[3] for w in win]
+                    if all(x is not None for x in dop) and _median(dop) > _AIR_DOPPLER_MPS:
+                        _mark_air(airborne[dev_id], win[0][2], win[-1][2])
                     if (mid[5] == 'plane' and mid[3] is not None and 50 < mid[3] < 340
                             and (plane_speed is None or mid[3] > plane_speed[0])):
                         plane_speed = (mid[3], mid[6], mid[0], mid[1])
+                if mode == 'plane':
+                    _mark_air(airborne[dev_id], ep, ep)
 
                 # Hop-based things: dwell, crossings, journeys.
                 if prev is not None:
@@ -525,6 +616,8 @@ def _history_pass(user, prog):
                                 crossings['dateline'] = _iso(ts)
                         hop_km = _hav_km(plat, plon, lat, lon)
                         hop_mps = hop_km * 1000.0 / dt
+                        if hop_km >= _AIR_HOP_KM and _AIR_HOP_MPS <= hop_mps < _HOP_MAX_MPS:
+                            _mark_air(airborne[dev_id], pep, ep)
                         v = spd if spd is not None else hop_mps
                         # The displacement has to back the speed up: a parked
                         # phone's garbage Doppler would otherwise "move".
@@ -576,6 +669,8 @@ def _history_pass(user, prog):
         prog.check_stop()
 
     prog('Summing up your history', 55, force=True)
+    max_speed, mode_speed = _ground_speed_records(
+        speed_top, mode_top, airborne, _flight_windows(user))
     return _summarise_history(locals())
 
 
