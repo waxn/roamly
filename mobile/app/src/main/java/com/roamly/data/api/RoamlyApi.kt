@@ -530,4 +530,63 @@ interface RoamlyApi {
     @Multipart
     @POST("api/flights/{id}/pass/")
     suspend fun uploadBoardingPass(@Path("id") id: Int, @Part image: okhttp3.MultipartBody.Part): Response<FlightResponse>
+
+    // --- Trip blog (tracker/trip_blog_views.py) ---
+
+    @GET("api/tripblog/featured/")
+    suspend fun getFeaturedTrip(): Response<TripFeaturedResponse>
+
+    @GET("api/tripblog/{id}/status/")
+    suspend fun getTripStatus(@Path("id") id: Int): Response<TripStatus>
+
+    @GET("api/tripblog/{id}/feed/")
+    suspend fun getTripFeed(@Path("id") id: Int, @Query("before") before: String?): Response<TripFeed>
+
+    @GET("api/tripblog/{id}/comments/{post}/")
+    suspend fun getTripComments(@Path("id") id: Int, @Path("post") postId: Int): Response<TripCommentsResponse>
+
+    @POST("api/tripblog/{id}/comment/")
+    suspend fun postTripComment(@Path("id") id: Int, @Body body: Map<String, @JvmSuppressWildcards Any>): Response<TripCommentResponse>
+
+    @POST("api/tripblog/{id}/comment/{cid}/delete/")
+    suspend fun deleteTripComment(@Path("id") id: Int, @Path("cid") commentId: Int, @Body body: Map<String, String> = emptyMap()): Response<ResponseBody>
+
+    @POST("api/tripblog/{id}/react/")
+    suspend fun reactTripPost(@Path("id") id: Int, @Body body: Map<String, @JvmSuppressWildcards Any>): Response<TripReactResponse>
+
+    /** Create a post or a draft (publish=false). Idempotent on client_id. */
+    @POST("api/tripblog/{id}/posts/")
+    suspend fun createTripPost(@Path("id") id: Int, @Body body: Map<String, @JvmSuppressWildcards Any>): Response<TripPostDto>
+
+    @POST("api/tripblog/{id}/posts/{post}/")
+    suspend fun updateTripPost(@Path("id") id: Int, @Path("post") postId: Int, @Body body: Map<String, @JvmSuppressWildcards Any>): Response<TripPostDto>
+
+    @POST("api/tripblog/{id}/posts/{post}/delete/")
+    suspend fun deleteTripPost(@Path("id") id: Int, @Path("post") postId: Int, @Body body: Map<String, String> = emptyMap()): Response<ResponseBody>
+
+    @Multipart
+    @POST("api/tripblog/{id}/posts/{post}/photo/")
+    suspend fun uploadTripPhoto(
+        @Path("id") id: Int,
+        @Path("post") postId: Int,
+        @Part file: okhttp3.MultipartBody.Part,
+        @Part("order") order: okhttp3.RequestBody,
+    ): Response<ResponseBody>
+
+    /** One chunk of a video; see trip_post_video_api for the resume protocol. */
+    @Multipart
+    @POST("api/tripblog/{id}/posts/{post}/video/")
+    suspend fun uploadTripVideoChunk(
+        @Path("id") id: Int,
+        @Path("post") postId: Int,
+        @Part chunk: okhttp3.MultipartBody.Part,
+        @Part("index") index: okhttp3.RequestBody,
+        @Part("total") total: okhttp3.RequestBody,
+        @Part("name") name: okhttp3.RequestBody,
+        @Part("order") order: okhttp3.RequestBody,
+        @Part("media_id") mediaId: okhttp3.RequestBody?,
+    ): Response<TripChunkResponse>
+
+    @GET("api/tripblog/{id}/my-location/")
+    suspend fun getTripMyLocation(@Path("id") id: Int): Response<TripMyLocationResponse>
 }

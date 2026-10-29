@@ -78,6 +78,11 @@ class UserPreferences @Inject constructor(
         private val KEY_TRACKER_BLE_ADDRESS     = stringPreferencesKey("tracker_ble_address")
         private val KEY_TRACKER_BLE_NAME        = stringPreferencesKey("tracker_ble_name")
 
+        // The trip blog featured in the bottom nav (TripBlogScreen). Cached so
+        // the tab paints at launch without waiting on the network.
+        private val KEY_FEATURED_TRIP_ID        = intPreferencesKey("featured_trip_id")
+        private val KEY_FEATURED_TRIP_NAME      = stringPreferencesKey("featured_trip_name")
+
         // Activity recording. A non-blank id IS the "recording right now" state.
         // It lives in DataStore so it survives a process kill — the service resumes
         // the recording rather than stranding a high-frequency override — and
@@ -157,6 +162,19 @@ class UserPreferences @Inject constructor(
 
     val trackerBleAddress: Flow<String?> = context.dataStore.data.map { it[KEY_TRACKER_BLE_ADDRESS] }
     val trackerBleName: Flow<String?> = context.dataStore.data.map { it[KEY_TRACKER_BLE_NAME] }
+
+    // ── Trip blog ──────────────────────────────────────────────────────────
+
+    /** The featured trip blog's id, or null when there is none (no Trip tab). */
+    val featuredTripId: Flow<Int?> = context.dataStore.data.map { it[KEY_FEATURED_TRIP_ID] }
+    val featuredTripName: Flow<String> = context.dataStore.data.map { it[KEY_FEATURED_TRIP_NAME] ?: "" }
+
+    suspend fun setFeaturedTrip(id: Int?, name: String?) {
+        context.dataStore.edit { prefs ->
+            if (id == null) prefs.remove(KEY_FEATURED_TRIP_ID) else prefs[KEY_FEATURED_TRIP_ID] = id
+            if (name == null) prefs.remove(KEY_FEATURED_TRIP_NAME) else prefs[KEY_FEATURED_TRIP_NAME] = name
+        }
+    }
 
     /** Pass nulls to forget the tracker. */
     suspend fun setTrackerBle(address: String?, name: String?) {
@@ -399,6 +417,8 @@ class UserPreferences @Inject constructor(
 
     suspend fun clear() {
         context.dataStore.edit { prefs ->
+            prefs.remove(KEY_FEATURED_TRIP_ID)
+            prefs.remove(KEY_FEATURED_TRIP_NAME)
             prefs.remove(KEY_SERVER_URL)
             prefs.remove(KEY_SESSION_ID)
             prefs.remove(KEY_API_KEY)
