@@ -4,9 +4,10 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
-# Install GeoDjango system dependencies
+# Install GeoDjango system dependencies, plus ffmpeg for trip-blog video
+# transcoding (tracker/video_tasks.py)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    binutils libproj-dev gdal-bin libgdal-dev libgeos-dev libpq-dev gcc \
+    binutils libproj-dev gdal-bin libgdal-dev libgeos-dev libpq-dev gcc ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 ENV CPLUS_INCLUDE_PATH=/usr/include/gdal
