@@ -2638,3 +2638,227 @@ class DismissedFlightSuggestion(models.Model):
 
     class Meta:
         unique_together = ['user', 'key']
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Trip blog
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TripBlog(models.Model):
+    """A shared travel blog: posts by the travelling members, followed by
+    friends and family through share links (TripShareLink).
+
+    Deliberately not an Adventure. An Adventure is a recorded journey whose
+    public page draws every member's GPS track; a trip blog shows posts, and
+    GPS only feeds the header ("now in …") and the fuzzed traveller spots —
+    tracks are never sent to a viewer.
+    """
+    name = models.CharField(max_length=200)
+    subtitle = models.CharField(max_length=300, blank=True, default='')
+    creator = models.ForeignKey(User, on_delete=models.CASCADE, related_name='trip_blogs_created')
+    cover_image = models.ImageField(upload_to='tripblog/covers/', null=True, blank=True)
+    cover_thumbnail = models.ImageField(upload_to='tripblog/covers/thumbs/', null=True, blank=True)
+    # Local dates. After end_date the blog is an archive: no live spots, no "now in".
+    start_date = models.DateField()
+    end_date = models.DateField(null=True, blank=True)
+    # Same shape as FamilyCircle.invite_token — join is by link only.
+    invite_token = models.CharField(max_length=32, unique=True, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-start_date', '-id']
+
+    def __str__(self):
+        return self.name
+
+
+class TripBlogMember(models.Model):
+    """A traveller on a TripBlog — AdventureMember/FamilyMembership's consent
+    shape (migration 0082): NULL ``accepted_at`` = invited, nothing shown;
+    ``share_location`` is a separate opt-in for the header city + map spot."""
+    ROLE_CHOICES = [('owner', 'Owner'), ('member', 'Member')]
+    blog = models.ForeignKey(TripBlog, on_delete=models.CASCADE, related_name='members')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='trip_blog_memberships')
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='member')
+    joined_at = models.DateTimeField(auto_now_add=True)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    share_location = models.BooleanField(default=False)
+    # The one blog shown as "Trip" in this user's nav (at most one True per user,
+    # enforced where it is set).
+    featured = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = ['blog', 'user']
+
+    @property
+    def is_accepted(self):
+        return self.accepted_at is not None
+
+    def __str__(self):
+        return f"{self.user.username} on {self.blog.name}"
+
+
+class TripPost(models.Model):
+    blog = models.ForeignKey(TripBlog, on_delete=models.CASCADE, related_name='posts')
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='trip_posts')
+    # Minted by the composer so a retried submit (app queue, flaky wifi) is one post.
+    client_id = models.CharField(max_length=64, blank=True, default='')
+    text = models.TextField(blank=True, default='')
+    # When the moment happened (photo EXIF time, else post time) — what the
+    # feed groups and sorts by.
+    taken_at = models.DateTimeField(default=timezone.now)
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+    place_name = models.CharField(max_length=200, blank=True, default='')
+    city = models.CharField(max_length=200, blank=True, default='')
+    state = models.CharField(max_length=200, blank=True, default='')
+    country = models.CharField(max_length=200, blank=True, default='')
+    country_code = models.CharField(max_length=2, blank=True, default='')
+    # Local day of taken_at in the zone at the post's location (else the
+    # author's) — stored so the feed groups by day without a zone lookup per row.
+    local_date = models.DateField(null=True, blank=True)
+    # A post is a draft until submitted, so media can upload (and EXIF be
+    # read) before the author decides where it was.
+    published = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    edited_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-taken_at', '-id']
+        indexes = [models.Index(fields=['blog', 'published', '-local_date'], name='tracker_tpost_feed_idx')]
+        constraints = [models.UniqueConstraint(
+            fields=['author', 'client_id'], condition=~Q(client_id=''),
+            name='tracker_tpost_client_uniq')]
+
+    @property
+    def has_location(self):
+        return self.latitude is not None and self.longitude is not None
+
+    def __str__(self):
+        return f"post {self.id} on {self.blog_id}"
+
+
+class TripPostMedia(models.Model):
+    """A photo or video on a TripPost. Videos are transcoded to 1080p H.264
+    (tracker/video_tasks.py); ``video`` holds the upload until that succeeds,
+    then the transcode, so a failed transcode still plays the original."""
+    STATUS_CHOICES = [('ready', 'Ready'), ('pending', 'Pending'),
+                      ('processing', 'Processing'), ('failed', 'Failed')]
+    post = models.ForeignKey(TripPost, on_delete=models.CASCADE, related_name='media')
+    order = models.PositiveIntegerField(default=0)
+    media_type = models.CharField(max_length=10, default='image')  # 'image' | 'video'
+    image = models.ImageField(upload_to='tripblog/photos/', blank=True)
+    thumbnail = models.ImageField(upload_to='tripblog/photos/thumbs/', null=True, blank=True)
+    video = models.FileField(upload_to='tripblog/videos/', null=True, blank=True)
+    poster = models.ImageField(upload_to='tripblog/videos/posters/', null=True, blank=True)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default='ready')
+    width = models.IntegerField(null=True, blank=True)
+    height = models.IntegerField(null=True, blank=True)
+    duration_s = models.FloatField(null=True, blank=True)
+    # Chunked video upload state; cleared once assembled.
+    upload_id = models.CharField(max_length=32, blank=True, default='')
+    chunks_received = models.IntegerField(default=0)
+    total_chunks = models.IntegerField(default=0)
+    error = models.CharField(max_length=300, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['order', 'id']
+
+
+class TripComment(models.Model):
+    post = models.ForeignKey(TripPost, on_delete=models.CASCADE, related_name='comments')
+    # A member comments as themselves; a viewer with a typed name.
+    member = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    guest_name = models.CharField(max_length=60, blank=True, default='')
+    text = models.TextField()
+    # Hash of the viewer's browser key — lets a viewer delete their own comment.
+    viewer_key = models.CharField(max_length=64, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at', 'id']
+
+
+class TripReaction(models.Model):
+    EMOJI = ['❤️', '😂', '😮', '😢', '👏']
+    post = models.ForeignKey(TripPost, on_delete=models.CASCADE, related_name='reactions')
+    emoji = models.CharField(max_length=8)
+    # Viewer key hash, or "u<user id>" for a member.
+    viewer_key = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['post', 'viewer_key', 'emoji']
+
+
+class TripShareLink(models.Model):
+    """A link that lets anyone holding it follow a TripBlog. Same trust model
+    as LocationShare (the token is the credential), plus ``max_uses``: each
+    new browser that opens it spends one use; that browser keeps access."""
+    blog = models.ForeignKey(TripBlog, on_delete=models.CASCADE, related_name='share_links')
+    token = models.CharField(max_length=64, unique=True, db_index=True)
+    label = models.CharField(max_length=120, blank=True, default='')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='+')
+    expires_at = models.DateTimeField(null=True, blank=True)  # NULL = forever
+    max_uses = models.IntegerField(null=True, blank=True)       # NULL = unlimited
+    use_count = models.IntegerField(default=0)
+    pin_hash = models.CharField(max_length=128, blank=True, default='')
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            self.token = secrets.token_urlsafe(32)
+        super().save(*args, **kwargs)
+
+    @property
+    def has_pin(self):
+        return bool(self.pin_hash)
+
+    @property
+    def is_active(self):
+        if self.revoked_at:
+            return False
+        if self.expires_at and self.expires_at <= timezone.now():
+            return False
+        return True
+
+
+class TripShareUse(models.Model):
+    """One browser that has opened a TripShareLink (who viewed). No IP."""
+    link = models.ForeignKey(TripShareLink, on_delete=models.CASCADE, related_name='uses')
+    viewer_key = models.CharField(max_length=64)
+    guest_name = models.CharField(max_length=60, blank=True, default='')
+    first_at = models.DateTimeField(auto_now_add=True)
+    last_at = models.DateTimeField(default=timezone.now)
+    visits = models.IntegerField(default=1)
+
+    class Meta:
+        unique_together = ['link', 'viewer_key']
+        ordering = ['-last_at']
+
+
+class TripSubscriber(models.Model):
+    """A viewer who asked for the daily digest. Double opt-in (anyone holding a
+    link could type anyone's address), and tied to the link they came through
+    so revoking the link stops the mail too."""
+    blog = models.ForeignKey(TripBlog, on_delete=models.CASCADE, related_name='subscribers')
+    link = models.ForeignKey(TripShareLink, on_delete=models.CASCADE, related_name='subscribers')
+    email = models.EmailField()
+    token = models.CharField(max_length=32, unique=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    unsubscribed_at = models.DateTimeField(null=True, blank=True)
+    last_sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['blog', 'email']
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            self.token = secrets.token_hex(16)
+        super().save(*args, **kwargs)
