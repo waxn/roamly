@@ -920,12 +920,16 @@ def _town_collector(towns, m):
     shortest_name = min(named, key=len) if named else None
     return {
         'alphabet': alphabet,
-        'namesakes': [{'name': s[0][0], 'count': n, 'places': [label(x) for x in s][:8]}
+        'namesakes': [{'name': s[0][0], 'count': n, 'places': [label(x) for x in s][:8],
+                       'links': [{'label': label(x), 'city': x[0], 'state': x[1]} for x in s][:8]}
                       for n, s in shared[:6]],
-        'top_towns': [{'name': label(k), 'days': len(ds)} for k, ds in by_days[:10]],
+        # city/state are the stored labels, so the page can open /map/?city=&state=.
+        'top_towns': [{'name': label(k), 'city': k[0], 'state': k[1], 'days': len(ds)}
+                      for k, ds in by_days[:10]],
         'one_and_done': len(once),
         'one_and_done_sample': sorted(once)[:12],
-        'comeback': ({'name': label(comeback[1]), 'days': comeback[0],
+        'comeback': ({'name': label(comeback[1]), 'city': comeback[1][0], 'state': comeback[1][1],
+                      'days': comeback[0],
                       'left': comeback[2].isoformat(), 'returned': comeback[3].isoformat()}
                      if comeback else None),
         'longest_name': longest_name, 'shortest_name': shortest_name,

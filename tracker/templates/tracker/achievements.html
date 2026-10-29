@@ -331,7 +331,14 @@ const pctS = v => v == null ? '—' : `${num(v, v < 10 ? 1 : 0)}%`;
 const fmtDate = s => { if (!s) return '—'; const d = new Date(s.length === 10 ? s + 'T12:00:00' : s); return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); };
 const dayLink = (d, label) => d ? `<a href="/map/?date=${esc(d)}">${esc(label || fmtDate(d))}</a>` : '—';
 const rangeLink = (a, b, label) => `<a href="/map/?start=${esc(a.slice(0,10))}&end=${esc(b.slice(0,10))}">${esc(label)}</a>`;
-const ptLink = (lat, lon, label, z = 14) => (lat == null) ? esc(label) : `<a href="/map/?lat=${lat}&lng=${lon}&zoom=${z}">${esc(label)}</a>`;
+// With a timestamp the map filters to that local day and selects the point
+// recorded then; without one it shows everything ever recorded around there.
+const ptLink = (lat, lon, label, z = 14, ts = null) => (lat == null) ? esc(label)
+    : `<a href="/map/?lat=${lat}&lng=${lon}&zoom=${z}${ts ? '&at=' + encodeURIComponent(ts) : '&range=all'}">${esc(label)}</a>`;
+const localDay = ts => { if (!ts) return null; const d = new Date(ts), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+// Every point geocoded to a place: the same exact-label filter Visits rows use.
+const placeUrl = q => '/map/?' + new URLSearchParams(Object.entries(q).filter(([, v]) => v)).toString();
+const placeLink = (label, q) => (q.city || q.state || q.country) ? `<a href="${esc(placeUrl(q))}">${esc(label)}</a>` : esc(label);
 const TIERS = ['', 'bronze', 'silver', 'gold', 'platinum'];
 const tierColor = t => css(`--t${t}`) || ['', '#b08d57', '#a9b2ba', '#d4a93a', '#8fd3dc'][t];
 const PALETTE = () => ['--primary', '--clay-sky', '--clay-mint', '--clay-amber', '--clay-lavender', '--clay-coral', '--text-dim'].map(css);
@@ -517,6 +524,11 @@ function choropleth(containerId, tipId, data, matchProp, visitedSet, opts = {}) 
             tip.style.opacity = '1'; tip.style.left = (e.point.x + 12) + 'px'; tip.style.top = (e.point.y + 12) + 'px';
         });
         map.on('mouseleave', 'f', () => { tip.style.opacity = '0'; });
+        if (opts.link) {
+            map.on('click', 'f', e => { const u = opts.link(e.features[0].properties, e.lngLat); if (u) location.href = u; });
+            map.on('mouseenter', 'f', e => { map.getCanvas().style.cursor = opts.link(e.features[0].properties, e.lngLat) ? 'pointer' : ''; });
+            map.on('mouseleave', 'f', () => { map.getCanvas().style.cursor = ''; });
+        }
     });
 }
 function walk(coords, fn) {
@@ -584,11 +596,18 @@ function renderExplorer(d) {
             us.cousub_t ? `+ ${num(us.cousub_v)} of ${num(us.cousub_t)} townships` : '')
             : pctTile('US towns', d.metrics.towns, 0, null, `${num(d.metrics.towns)} towns in your history. Town outlines are not loaded, so there is no percentage yet.`));
 
-    choropleth('map-world', 'tip-world', WORLD_URL, 'cc', new Set((ex.countries || []).map(c => c.cc)), { fitVisited: false });
-    choropleth('map-states', 'tip-states', STATES_URL, 'name', new Set(us.states || d.us_states_visited || []),
-        { center: [-97, 39], zoom: 1.9, fitVisited: false });
+    // Clicking a visited area opens the map on it: countries and states by
+    // their stored label (every point there), polygons with no label of their
+    // own (counties, regions abroad) by zooming to where you clicked.
+    const byCc = Object.fromEntries((ex.countries || []).map(c => [c.cc, c.name]));
+    const stateSet = new Set(us.states || d.us_states_visited || []);
+    const zoomTo = (p, ll) => p.v ? `/map/?lat=${ll.lat.toFixed(5)}&lng=${ll.lng.toFixed(5)}&zoom=9&range=all` : null;
+    choropleth('map-world', 'tip-world', WORLD_URL, 'cc', new Set((ex.countries || []).map(c => c.cc)),
+        { fitVisited: false, link: p => byCc[p.cc] ? placeUrl({ country: byCc[p.cc] }) : null });
+    choropleth('map-states', 'tip-states', STATES_URL, 'name', stateSet,
+        { center: [-97, 39], zoom: 1.9, fitVisited: false, link: p => stateSet.has(p.name) ? placeUrl({ state: p.name }) : null });
     if (ex.county_geo && ex.county_geo.features.length) {
-        choropleth('map-counties', 'tip-counties', ex.county_geo, 'name', null, { flag: true, fitAll: true, maxZoom: 7 });
+        choropleth('map-counties', 'tip-counties', ex.county_geo, 'name', null, { flag: true, fitAll: true, maxZoom: 7, link: zoomTo });
         $('county-note').textContent = `${num(us.counties_v)} counties visited. ${us.home_state ? `In ${us.home_state}, you have been to ${pctS(d.metrics.home_state_town_pct)} of its towns.` : ''}`;
     } else {
         $('county-card').style.display = 'none';
@@ -597,7 +616,7 @@ function renderExplorer(d) {
     const rows = (us.rows || []);
     if (rows.length) {
         sortableTable($('state-table'), [
-            { key: 'state', label: 'State', fmt: r => `${r.visited ? '✓ ' : ''}${esc(r.state)}` },
+            { key: 'state', label: 'State', fmt: r => `${r.visited ? '✓ ' : ''}${r.visited ? placeLink(r.state, { state: r.state }) : esc(r.state)}` },
             { key: 'place_v', label: 'Towns', num: true, fmt: r => r.place_t ? `${r.place_v}/${r.place_t}` : r.place_v },
             { key: 'cousub_v', label: 'Townships', num: true, fmt: r => r.cousub_t ? `${r.cousub_v}/${r.cousub_t}` : '—' },
             { key: 'county_v', label: 'Counties', num: true, fmt: r => r.county_t ? `${r.county_v}/${r.county_t}` : '—' },
@@ -608,7 +627,7 @@ function renderExplorer(d) {
     }
     const cs = ex.countries || [];
     sortableTable($('country-table'), [
-        { key: 'name', label: 'Country' },
+        { key: 'name', label: 'Country', fmt: r => placeLink(r.name, { country: r.name }) },
         { key: 'days', label: 'Days', num: true, fmt: r => num(r.days) },
         { key: 'first', label: 'First visit', fmt: r => fmtDate(r.first) },
     ], cs);
@@ -638,7 +657,7 @@ function renderExplorer(d) {
     $('abroad').innerHTML = html;
     det.forEach(a => {
         const gj = (ex.abroad_geo || {})[a.cc];
-        if (gj) choropleth(`map-ab-${a.cc}`, `tip-ab-${a.cc}`, gj, 'name', null, { flag: true, fitAll: true, maxZoom: 7 });
+        if (gj) choropleth(`map-ab-${a.cc}`, `tip-ab-${a.cc}`, gj, 'name', null, { flag: true, fitAll: true, maxZoom: 7, link: zoomTo });
         if ((a.regions || []).length) {
             sortableTable($(`tbl-ab-${a.cc}`), [
                 { key: 'name', label: 'Region', fmt: r => `${(a.visited_regions || []).includes(r.name) ? '✓ ' : ''}${esc(r.name)}` },
@@ -674,7 +693,7 @@ function renderRoads(d) {
         ${card('Most complete counties', `<div class="tbl-wrap" id="road-counties"></div>`)}
     </div>
     <div class="grid grid-2" style="margin-top:1rem;">
-        ${card('Big towns you have barely explored', r.barely.length ? `<ul class="rank">${r.barely.map(a => `<li><span>${esc(a.name)}<span class="sub">${esc(a.state)}</span></span><span class="n">${pctS(a.pct)} of ${km(a.total_km)}</span></li>`).join('')}</ul>` : '<div class="empty">None. You get around.</div>')}
+        ${card('Big towns you have barely explored', r.barely.length ? `<ul class="rank">${r.barely.map(a => `<li><span>${placeLink(a.name, { city: a.name, state: a.state })}<span class="sub">${esc(a.state)}</span></span><span class="n">${pctS(a.pct)} of ${km(a.total_km)}</span></li>`).join('')}</ul>` : '<div class="empty">None. You get around.</div>')}
         ${card(`Completionist <span class="note">— 90%+ of roads</span>`, r.completionist.length ? `<div class="tag-list">${r.completionist.map(n => `<span>✅ ${esc(n)}</span>`).join('')}</div>` : '<div class="empty">No town at 90% yet. The closest are at the top of the list.</div>')}
     </div>
     <p class="note" style="margin-top:0.6rem;">Percentages count only roads Roamly has mapped. Road data is downloaded around where people on this instance travel, so the edges of a county can be missing.</p>`;
@@ -685,7 +704,7 @@ function renderRoads(d) {
         { key: 'pct', label: '%', num: true, fmt: a => `${pctS(a.pct)}` },
         { key: 'km', label: 'Travelled', num: true, fmt: a => `${km(a.km, 1)} / ${km(a.total_km)}` },
     ];
-    sortableTable($('road-towns'), cols, r.towns);
+    sortableTable($('road-towns'), [{ ...cols[0], fmt: a => `${placeLink(a.name, { city: a.name, state: a.state })}${a.pct >= 90 ? '<span class="stamp">90%+</span>' : ''}<span class="note"> ${esc(a.state)}</span>` }, ...cols.slice(1)], r.towns);
     sortableTable($('road-counties'), cols, r.counties);
 }
 
@@ -699,7 +718,7 @@ function renderSpeed(d) {
     const bm = s.by_mode || {};
     $('speed').innerHTML = `
         <div class="card gauge"><h3>Top ground speed</h3><canvas id="gauge"></canvas>
-            <div class="note" style="text-align:center;">${mx ? `${dayLink(mx.ts.slice(0,10))} · ${ptLink(mx.lat, mx.lon, 'where')}` : 'No trustworthy speed readings yet.'}</div>
+            <div class="note" style="text-align:center;">${mx ? `${dayLink(localDay(mx.ts))} · ${ptLink(mx.lat, mx.lon, 'where', 16, mx.ts)}` : 'No trustworthy speed readings yet.'}</div>
             <div class="note" style="text-align:center;margin-top:0.25rem;">Taken from five readings in a row that agree with how far you actually moved, so one glitch can't set the record.</div></div>
         ${card('Fastest by way of travel', `<dl class="kv">
             <dt>🚶 Walking</dt><dd>${bm.walk ? kmh(bm.walk.kmh) : '—'}</dd>
@@ -743,15 +762,15 @@ function renderMove(d) {
 
 function renderExtremes(d) {
     const e = d.extremes || {};
-    const lat = (k, label) => e[k] ? `<div class="c">${label}<b>${num(Math.abs(e[k].v), 3)}°${e[k].v >= 0 ? 'N' : 'S'}</b>${ptLink(e[k].lat, e[k].lon, e[k].place || 'see it', 11)}</div>` : `<div class="c">${label}<b>—</b></div>`;
-    const lon = (k, label) => e[k] ? `<div class="c">${label}<b>${num(Math.abs(e[k].v), 3)}°${e[k].v >= 0 ? 'E' : 'W'}</b>${ptLink(e[k].lat, e[k].lon, e[k].place || 'see it', 11)}</div>` : `<div class="c">${label}<b>—</b></div>`;
+    const lat = (k, label) => e[k] ? `<div class="c">${label}<b>${num(Math.abs(e[k].v), 3)}°${e[k].v >= 0 ? 'N' : 'S'}</b>${ptLink(e[k].lat, e[k].lon, e[k].place || 'see it', 11, e[k].ts)}</div>` : `<div class="c">${label}<b>—</b></div>`;
+    const lon = (k, label) => e[k] ? `<div class="c">${label}<b>${num(Math.abs(e[k].v), 3)}°${e[k].v >= 0 ? 'E' : 'W'}</b>${ptLink(e[k].lat, e[k].lon, e[k].place || 'see it', 11, e[k].ts)}</div>` : `<div class="c">${label}<b>—</b></div>`;
     $('extremes').innerHTML = `${card('Compass', `<div class="compass">
             <div></div>${lat('n', 'Northernmost')}<div></div>
             ${lon('w', 'Westernmost')}<div class="mid">🧭</div>${lon('e', 'Easternmost')}
             <div></div>${lat('s', 'Southernmost')}<div></div></div>`)}
         ${card('Up, down and away', `<dl class="kv">
-            <dt>⛰️ Highest on the ground</dt><dd>${e.hi ? `${m(e.hi.v)} · ${ptLink(e.hi.lat, e.hi.lon, e.hi.place || 'where', 12)}` : '—'}</dd>
-            <dt>🌊 Lowest</dt><dd>${e.lo ? `${m(e.lo.v)} · ${ptLink(e.lo.lat, e.lo.lon, e.lo.place || 'where', 12)}` : '—'}</dd>
+            <dt>⛰️ Highest on the ground</dt><dd>${e.hi ? `${m(e.hi.v)} · ${ptLink(e.hi.lat, e.hi.lon, e.hi.place || 'where', 14, e.hi.ts)}` : '—'}</dd>
+            <dt>🌊 Lowest</dt><dd>${e.lo ? `${m(e.lo.v)} · ${ptLink(e.lo.lat, e.lo.lon, e.lo.place || 'where', 14, e.lo.ts)}` : '—'}</dd>
             <dt>🏠 Farthest from home</dt><dd>${e.far ? `${km(e.far.v)} · ${ptLink(e.far.lat, e.far.lon, 'where', 9)}` : '—'}</dd>
             <dt>📐 North–south span</dt><dd>${e.n && e.s ? km((e.n.v - e.s.v) * 111.2) : '—'}</dd>
             </dl><p class="note" style="margin-top:0.6rem;">Altitude uses accurate fixes only, and flights don't count.</p>`)}`;
@@ -836,7 +855,7 @@ function renderClimber(d) {
     $('climber').innerHTML = `<div class="card pct-tile"><h3>Total climbed</h3><div class="big">${m(c.climbed_m)}</div>
             <div class="of">${num(ev, 2)} Everests</div>${pbar((ev % 1) * 100, 'var(--clay-sky)')}<div class="note" style="margin-top:0.3rem;">progress toward your next Everest (8,849 m)</div></div>
         ${recordCard('🧗', 'Biggest climbing day', c.best_day ? m(c.best_day.m) : '—', c.best_day ? dayLink(c.best_day.date) : '')}
-        ${recordCard('⛰️', 'Highest point reached', c.highest ? m(c.highest.v) : '—', c.highest ? ptLink(c.highest.lat, c.highest.lon, c.highest.place || 'where', 12) : '')}`;
+        ${recordCard('⛰️', 'Highest point reached', c.highest ? m(c.highest.v) : '—', c.highest ? ptLink(c.highest.lat, c.highest.lon, c.highest.place || 'where', 14, c.highest.ts) : '')}`;
 }
 
 function renderJourneys(d) {
@@ -874,10 +893,10 @@ function renderCollector(d) {
     const letters = Object.keys(A).map(L => `<div class="L ${A[L].count ? '' : 'off'}" title="${esc(A[L].top || '')}"><b>${L}</b><span>${A[L].count ? esc(A[L].top) : '—'}</span></div>`).join('');
     $('collector').innerHTML = `${card(`The alphabet <span class="note">— ${num(Object.values(A).filter(a => a.count).length)}/26 letters</span>`, `<div class="alpha">${letters}</div>`)}
     <div class="grid grid-3" style="margin-top:1rem;">
-        ${card('🏠 Your most-visited towns', c.top_towns && c.top_towns.length ? `<ul class="rank">${c.top_towns.map(t => `<li><span>${esc(t.name)}</span><span class="n">${num(t.days)} days</span></li>`).join('')}</ul>` : '<div class="empty">—</div>')}
-        ${card('👯 Namesakes', c.namesakes && c.namesakes.length ? `<ul class="rank">${c.namesakes.map(n => `<li><span>${esc(n.name)}<span class="sub">${n.places.map(esc).join(' · ')}</span></span><span class="n">${n.count}×</span></li>`).join('')}</ul>` : '<div class="empty">No two towns share a name yet.</div>')}
+        ${card('🏠 Your most-visited towns', c.top_towns && c.top_towns.length ? `<ul class="rank">${c.top_towns.map(t => `<li><span>${placeLink(t.name, { city: t.city, state: t.state })}</span><span class="n">${num(t.days)} days</span></li>`).join('')}</ul>` : '<div class="empty">—</div>')}
+        ${card('👯 Namesakes', c.namesakes && c.namesakes.length ? `<ul class="rank">${c.namesakes.map(n => `<li><span>${esc(n.name)}<span class="sub">${(n.links || n.places.map(p => ({ label: p }))).map(p => placeLink(p.label, { city: p.city, state: p.state })).join(' · ')}</span></span><span class="n">${n.count}×</span></li>`).join('')}</ul>` : '<div class="empty">No two towns share a name yet.</div>')}
         <div class="grid" style="gap:1rem;">
-            ${recordCard('🔙', 'Longest comeback', c.comeback ? `${num(c.comeback.days)} days` : '—', c.comeback ? `${esc(c.comeback.name)}: left ${fmtDate(c.comeback.left)}, back ${fmtDate(c.comeback.returned)}` : '')}
+            ${recordCard('🔙', 'Longest comeback', c.comeback ? `${num(c.comeback.days)} days` : '—', c.comeback ? `${placeLink(c.comeback.name, { city: c.comeback.city, state: c.comeback.state })}: left ${fmtDate(c.comeback.left)}, back ${fmtDate(c.comeback.returned)}` : '')}
             ${recordCard('👋', 'One and done', `${num(c.one_and_done)} towns`, c.one_and_done_sample && c.one_and_done_sample.length ? esc(c.one_and_done_sample.slice(0, 5).join(', ')) + '…' : 'visited on exactly one day')}
             ${recordCard('📏', 'Longest and shortest names', c.longest_name ? esc(c.longest_name) : '—', c.shortest_name ? `shortest: ${esc(c.shortest_name)}` : '')}
         </div>
