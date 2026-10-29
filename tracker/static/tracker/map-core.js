@@ -847,6 +847,70 @@ async function fetchAndFocusSelected(id, dateStr) {
     }
 }
 
+// ── Focus a moment: ?at=<ISO instant>&lat=&lng= ──
+// What a record's "where" link opens (Achievements' top speed, highest point…):
+// the map filtered to that local day, zoomed to the spot, with the recorded
+// point nearest that instant selected — popup plus a ring that survives
+// basemap swaps (a DOM marker, not a layer).
+let focusMoment = null;
+let urlCentred = false;   // ?lat=&lng= given: the link chose the camera
+let focusMarker = null;
+
+function localDateStr(d) {
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function markSelected(coords) {
+    if (focusMarker) focusMarker.remove();
+    const el = document.createElement('div');
+    el.style.cssText = 'width:22px;height:22px;border-radius:50%;border:3px solid var(--primary,#e8763d);'
+        + 'box-shadow:0 0 0 3px rgba(0,0,0,.35);pointer-events:none;';
+    focusMarker = new maplibregl.Marker({ element: el }).setLngLat(coords).addTo(map);
+}
+
+async function focusOnMoment(f) {
+    let best = null;
+    try {
+        const params = new URLSearchParams(buildFilterParams());
+        params.set('limit', '50000');
+        params.set('offset', '0');
+        const resp = await fetch(`/api/locations/?${params.toString()}`);
+        if (resp.ok) {
+            const data = await resp.json();
+            const all = [];
+            (data.locations || []).forEach(l => all.push(l));
+            (data.devices || []).forEach(dev => (dev.locations || []).forEach(l => {
+                if (!l.device) l.device = dev.name || dev.device_id;
+                all.push(l);
+            }));
+            let bestKey = Infinity;
+            for (const l of all) {
+                const dt = Math.abs(new Date(l.timestamp).getTime() - f.t);
+                // Nearest in time; a near-tie goes to the one at the given spot.
+                const dist = (f.lat == null) ? 0
+                    : Math.hypot(l.lat - f.lat, (l.lng - f.lng) * Math.cos(f.lat * Math.PI / 180));
+                const key = dt + dist * 1e6;
+                if (key < bestKey) { bestKey = key; best = l; }
+            }
+        }
+    } catch (err) {
+        console.error('focusOnMoment error', err);
+    }
+    const coords = best ? [best.lng, best.lat] : (f.lat != null ? [f.lng, f.lat] : null);
+    if (!coords) return;
+    map.flyTo({ center: coords, zoom: f.zoom });
+    markSelected(coords);
+    if (best) {
+        showPointPopup({
+            ts: Math.floor(new Date(best.timestamp).getTime() / 1000),
+            device_name: best.device || best.device_name || '',
+            speed: best.speed ?? null, poi_name: best.poi_name, place_name: best.place_name,
+            city: best.city, state: best.state, country: best.country,
+        }, coords);
+    }
+}
+
 const _trackDotHandlers = new Set();
 function renderTrack(devices, autoFit) {
     lastTrackData = devices || [];
@@ -1647,6 +1711,11 @@ if (TRIP_LINES_ENABLED) {
         if (clearBtn) clearBtn.addEventListener('click', clearPlaceFilter);
     }
     renderPlaceFilter();
+    // ?range=all|<hours>: a link that zooms somewhere without naming a day
+    // (Achievements' regulars, counties) wants every point there, not 24h.
+    const range = p.get('range');
+    const rangeSel = document.getElementById('time-range');
+    if (range && [...rangeSel.options].some(o => o.value === range)) rangeSel.value = range;
     if (p.get('start') && p.get('end')) {
         document.getElementById('start-date').value = p.get('start');
         document.getElementById('end-date').value = p.get('end');
@@ -1662,7 +1731,22 @@ if (TRIP_LINES_ENABLED) {
         window.__selectedFromURL = p.get('selected');
         window.__selectedDateFromURL = p.get('date') || null;
     }
-    if (p.get('lat') && p.get('lng')) {
+    const at = p.get('at') ? new Date(p.get('at')) : null;
+    if (at && !isNaN(at)) {
+        const lat = parseFloat(p.get('lat')), lng = parseFloat(p.get('lng'));
+        focusMoment = {
+            t: at.getTime(),
+            lat: isNaN(lat) ? null : lat, lng: isNaN(lng) ? null : lng,
+            zoom: parseInt(p.get('zoom') || '16'),
+        };
+        if (!p.get('date') && !(p.get('start') && p.get('end'))) {
+            const d = localDateStr(at);
+            document.getElementById('start-date').value = d;
+            document.getElementById('end-date').value = d;
+            document.getElementById('time-range').value = 'all';
+        }
+    } else if (p.get('lat') && p.get('lng')) {
+        urlCentred = true;
         const lat = parseFloat(p.get('lat'));
         const lng = parseFloat(p.get('lng'));
         const zoom = parseInt(p.get('zoom') || '16');
@@ -1672,7 +1756,9 @@ if (TRIP_LINES_ENABLED) {
 })();
 
 map.on('load', () => {
-    loadCurrentMode(true);
+    // A focused moment does its own camera move; fitting the day would undo it.
+    loadCurrentMode(!focusMoment && !urlCentred);
+    if (focusMoment) focusOnMoment(focusMoment);
     if (window.__selectedFromURL) {
         fetchAndFocusSelected(window.__selectedFromURL, window.__selectedDateFromURL);
     }
