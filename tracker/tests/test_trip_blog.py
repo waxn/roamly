@@ -368,3 +368,61 @@ def test_digest_only_sends_new_posts(blog, owner, settings, monkeypatch):
                             published_at=timezone.now(), local_date=date.today())
     assert td.send_digest(blog, force=True) == 0           # revoked link ⇒ no mail
     sub.refresh_from_db()
+
+
+# ── backup ──────────────────────────────────────────────────────────────────
+
+def test_backup_round_trip(client, blog, owner, django_user_model, tmp_path):
+    from tracker.backup_tasks import build_backup_zip
+    post = TripPost.objects.create(blog=blog, author=owner, text='Kyoto!', published=True,
+                                   published_at=timezone.now(), latitude=KYOTO[0], longitude=KYOTO[1],
+                                   city='Kyoto', country_code='JP', local_date=date.today())
+    full, thumb, w, h, _ = tb.process_photo(_jpeg_with_gps(*KYOTO))
+    TripPostMedia.objects.create(post=post, media_type='image', image=full, thumbnail=thumb, width=w, height=h)
+    TripComment.objects.create(post=post, guest_name='Grandma', text='Lovely')
+    TripShareLink.objects.create(blog=blog, created_by=owner, label='secret')
+    out = tmp_path / 'b.zip'
+    build_backup_zip(owner, str(out))
+
+    import zipfile
+    with zipfile.ZipFile(out) as zf:
+        doc = json.loads(zf.read('backup.json'))
+        assert doc['meta']['version'] == 25
+        tbd = doc['trip_blogs'][0]
+        assert tbd['posts'][0]['text'] == 'Kyoto!' and 'share_links' not in tbd
+        assert any(n.startswith('media/tripblog/photos/') for n in zf.namelist())
+
+    # Restore into a fresh account on a clean slate.
+    TripBlog.objects.all().delete()
+    import shutil, os
+    from django.conf import settings
+    shutil.rmtree(os.path.join(settings.MEDIA_ROOT, 'tripblog'), ignore_errors=True)
+    client.force_login(owner)
+    with open(out, 'rb') as fh:
+        r = client.post('/api/import/backup/', {'file': fh}, HTTP_X_CSRFTOKEN='x')
+    assert r.status_code == 200, r.content
+    b2 = TripBlog.objects.get(creator=owner)
+    p2 = b2.posts.get()
+    assert p2.text == 'Kyoto!' and p2.comments.get().guest_name == 'Grandma'
+    m2 = p2.media.get()
+    assert os.path.exists(m2.image.path)
+    assert TripBlogMember.objects.get(blog=b2, user=owner).is_accepted
+    assert not b2.share_links.exists()
+
+
+def test_restore_rejects_foreign_media_paths(client, owner, tmp_path):
+    import zipfile
+    doc = {'meta': {'version': 25}, 'trip_blogs': [{
+        'name': 'Evil', 'start_date': '2026-01-01', 'cover_image': '/etc/passwd',
+        'members': [], 'posts': [{'author_username': owner.username, 'text': 'x',
+                                  'taken_at': '2026-01-02T00:00:00Z', 'published': True,
+                                  'media': [{'media_type': 'image', 'image': '../../secret.jpg'}]}]}]}
+    out = tmp_path / 'evil.zip'
+    with zipfile.ZipFile(out, 'w') as zf:
+        zf.writestr('backup.json', json.dumps(doc))
+    client.force_login(owner)
+    with open(out, 'rb') as fh:
+        assert client.post('/api/import/backup/', {'file': fh}, HTTP_X_CSRFTOKEN='x').status_code == 200
+    b = TripBlog.objects.get(name='Evil')
+    assert not b.cover_image
+    assert not TripPostMedia.objects.filter(post__blog=b).exists()

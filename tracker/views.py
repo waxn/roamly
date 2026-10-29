@@ -84,6 +84,7 @@ from .backup_tasks import (
     _build_health_workouts_data,
     _build_activities_data,
     _build_family_data,
+    _build_trip_blogs_data,
     _build_flights_data,
     _build_edit_batches_data,
     _build_device_overlaps_data,
@@ -7976,7 +7977,7 @@ def _write_backup_json(user, f, progress=None):
     loc_total += hidden_qs.count()
 
     report('Collecting devices')
-    meta = {'version': 24, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 25, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # The single backup builder: the scheduled S3 backup calls this too, so the
@@ -8005,6 +8006,7 @@ def _write_backup_json(user, f, progress=None):
     device_overlaps = _build_device_overlaps_data(user)
     flights = _build_flights_data(user)
     edit_batches = _build_edit_batches_data(user)
+    trip_blogs = _build_trip_blogs_data(user)
     health_total = HealthSample.objects.filter(user=user).count()
     cell_total = CellSample.objects.filter(user=user).count()
 
@@ -8020,6 +8022,7 @@ def _write_backup_json(user, f, progress=None):
     f.write(b'"device_overlaps":' + encoder.encode(device_overlaps).encode() + b',')
     f.write(b'"flights":' + encoder.encode(flights).encode() + b',')
     f.write(b'"edit_batches":' + encoder.encode(edit_batches).encode() + b',')
+    f.write(b'"trip_blogs":' + encoder.encode(trip_blogs).encode() + b',')
 
     # Recorded activity tracks (v17+), one at a time — a long ride is hundreds
     # of KB, so building them all into one list first is the OOM the
@@ -8168,6 +8171,7 @@ def _write_backup_json(user, f, progress=None):
         'device_overlaps': len(device_overlaps),
         'flights': len(flights),
         'edit_batches': len(edit_batches),
+        'trip_blogs': len(trip_blogs),
     }).encode() + b'}')
     report('Writing cell samples', cell_total, cell_total)
 
@@ -8612,7 +8616,7 @@ def restore_backup(request):
               'custom_places': 0, 'media_files': 0,
               'health_samples': 0, 'health_workouts': 0, 'activities': 0,
               'activity_tracks': 0, 'family_circles': 0, 'cell_samples': 0,
-              'flights': 0, 'edit_batches': 0}
+              'flights': 0, 'edit_batches': 0, 'trip_blogs': 0}
     errors = 0
 
     # Split the bar by rough cost: one unit per streamed row, the small
@@ -9358,6 +9362,96 @@ def restore_backup(request):
                 except Exception as e:
                     errors += 1
                     logger.warning(f"Backup restore family circle error: {e}")
+
+            # Trip blogs (v25+). Idempotent on (creator, name, start_date); posts
+            # are only recreated for a newly created blog. Same consent rule as
+            # Family Circles: only the restoring account's own membership comes
+            # back accepted. Media names go through _restored_media; an
+            # unfinished video transcode is queued again.
+            for tbd in data.get('trip_blogs', []):
+                try:
+                    from .models import (TripBlog, TripBlogMember, TripComment,
+                                         TripPost, TripPostMedia)
+                    name = (tbd.get('name') or '').strip()[:200]
+                    start = date.fromisoformat(str(tbd.get('start_date'))[:10])
+                    if not name:
+                        errors += 1
+                        continue
+                    blog, blog_created = TripBlog.objects.get_or_create(
+                        creator=user, name=name, start_date=start,
+                        defaults={'subtitle': (tbd.get('subtitle') or '')[:300],
+                                  'end_date': (date.fromisoformat(str(tbd['end_date'])[:10])
+                                               if tbd.get('end_date') else None),
+                                  'invite_token': secrets.token_hex(12)})
+                    if not blog_created:
+                        continue
+                    counts['trip_blogs'] += 1
+                    blog.cover_image = _restored_media(TripBlog, 'cover_image', tbd.get('cover_image'))
+                    blog.cover_thumbnail = _restored_media(TripBlog, 'cover_thumbnail', tbd.get('cover_thumbnail'))
+                    blog.save(update_fields=['cover_image', 'cover_thumbnail'])
+                    members = {}
+                    for m in tbd.get('members', []):
+                        mu = AuthUser.objects.filter(username=m.get('username')).first()
+                        if not mu:
+                            continue
+                        is_self = mu.id == user.id
+                        TripBlogMember.objects.get_or_create(blog=blog, user=mu, defaults={
+                            'role': 'owner' if is_self else 'member',
+                            'accepted_at': (_parse_timestamp(m['accepted_at'])
+                                            if is_self and m.get('accepted_at') else None),
+                            'share_location': bool(m.get('share_location')) if is_self else False,
+                        })
+                        members[mu.username] = mu
+                    if user.username not in members:
+                        TripBlogMember.objects.get_or_create(blog=blog, user=user, defaults={
+                            'role': 'owner', 'accepted_at': timezone.now()})
+                        members[user.username] = user
+                    for p in tbd.get('posts', []):
+                        author = members.get(p.get('author_username'))
+                        if not author:
+                            continue
+                        ts = _parse_timestamp(p.get('taken_at')) or timezone.now()
+                        lat, lon = _safe_float(p.get('latitude')), _safe_float(p.get('longitude'))
+                        if lat is None or lon is None or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                            lat = lon = None
+                        post = TripPost.objects.create(
+                            blog=blog, author=author, text=str(p.get('text') or '')[:10000],
+                            taken_at=ts, latitude=lat, longitude=lon,
+                            place_name=str(p.get('place_name') or '')[:200],
+                            city=str(p.get('city') or '')[:200], state=str(p.get('state') or '')[:200],
+                            country=str(p.get('country') or '')[:200],
+                            country_code=str(p.get('country_code') or '')[:2],
+                            local_date=(date.fromisoformat(str(p['local_date'])[:10])
+                                        if p.get('local_date') else ts.date()),
+                            published=bool(p.get('published')),
+                            published_at=_parse_timestamp(p.get('published_at')) if p.get('published_at') else None)
+                        for m in p.get('media', [])[:30]:
+                            kind = 'video' if m.get('media_type') == 'video' else 'image'
+                            row = TripPostMedia(post=post, media_type=kind, order=int(m.get('order') or 0),
+                                                width=m.get('width'), height=m.get('height'),
+                                                duration_s=_safe_float(m.get('duration_s')))
+                            for fld in ('image', 'thumbnail', 'video', 'poster'):
+                                setattr(row, fld, _restored_media(TripPostMedia, fld, m.get(fld)))
+                            if kind == 'video':
+                                if not row.video:
+                                    continue
+                                row.status = m.get('status') if m.get('status') in ('ready', 'failed') else 'pending'
+                            elif not row.image:
+                                continue
+                            row.save()
+                        for c in p.get('comments', [])[:2000]:
+                            text = str(c.get('text') or '').strip()[:2000]
+                            if not text:
+                                continue
+                            cm = TripComment.objects.create(
+                                post=post, member=members.get(c.get('member_username')),
+                                guest_name=str(c.get('guest_name') or '')[:60], text=text)
+                            if c.get('created_at'):
+                                TripComment.objects.filter(pk=cm.pk).update(
+                                    created_at=_parse_timestamp(c['created_at']) or cm.created_at)
+                except Exception as e:
+                    errors += 1
+                    logger.warning(f"Backup restore trip blog error: {e}")
 
             # Flight log (v20+). Older backups lack the key. Each row goes
             # through _apply_flight, the same validation the API applies, since

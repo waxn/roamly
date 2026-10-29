@@ -407,6 +407,54 @@ def _build_family_data(user):
     return result
 
 
+def _build_trip_blogs_data(user):
+    """Trip blogs this user created, with travellers, posts, media paths and
+    comments — the same "you back up what you own" rule as _build_family_data.
+
+    Share links, their per-browser uses, digest subscribers (third parties'
+    email addresses) and reactions are left out: credentials, other people's
+    data and ephemera respectively. Media files travel in the zip's media tree
+    (see _get_user_media_files); only their paths are here.
+    """
+    from .models import TripBlog
+
+    def _f(field):
+        return field.name if field else ''
+
+    out = []
+    blogs = TripBlog.objects.filter(creator=user).prefetch_related(
+        'members__user', 'posts__author', 'posts__media', 'posts__comments__member')
+    for b in blogs:
+        out.append({
+            'name': b.name, 'subtitle': b.subtitle,
+            'start_date': b.start_date.isoformat(),
+            'end_date': b.end_date.isoformat() if b.end_date else None,
+            'cover_image': _f(b.cover_image), 'cover_thumbnail': _f(b.cover_thumbnail),
+            'created_at': b.created_at,
+            'members': [{'username': m.user.username, 'role': m.role, 'accepted_at': m.accepted_at,
+                         'share_location': m.share_location, 'featured': m.featured}
+                        for m in b.members.all()],
+            'posts': [{
+                'author_username': p.author.username, 'client_id': p.client_id, 'text': p.text,
+                'taken_at': p.taken_at, 'latitude': p.latitude, 'longitude': p.longitude,
+                'place_name': p.place_name, 'city': p.city, 'state': p.state, 'country': p.country,
+                'country_code': p.country_code,
+                'local_date': p.local_date.isoformat() if p.local_date else None,
+                'published': p.published, 'published_at': p.published_at,
+                'created_at': p.created_at, 'edited_at': p.edited_at,
+                'media': [{'order': m.order, 'media_type': m.media_type, 'image': _f(m.image),
+                           'thumbnail': _f(m.thumbnail), 'video': _f(m.video), 'poster': _f(m.poster),
+                           'status': m.status, 'width': m.width, 'height': m.height,
+                           'duration_s': m.duration_s}
+                          for m in p.media.all() if m.status != 'uploading'],
+                'comments': [{'member_username': c.member.username if c.member_id else None,
+                              'guest_name': c.guest_name, 'text': c.text, 'created_at': c.created_at}
+                             for c in p.comments.all()],
+            } for p in b.posts.all()],
+        })
+    return out
+
+
 def _get_s3_client(config):
     """Create a boto3 S3 client from a BackupConfig."""
     import boto3
@@ -708,6 +756,12 @@ def _get_user_media_files(user):
     files.extend(Flight.objects.filter(user=user).exclude(boarding_pass_image='')
                  .exclude(boarding_pass_image__isnull=True)
                  .values_list('boarding_pass_image', flat=True))
+
+    from .models import TripBlog, TripPostMedia
+    for blog in TripBlog.objects.filter(creator=user):
+        files.extend(f.name for f in (blog.cover_image, blog.cover_thumbnail) if f)
+    for m in TripPostMedia.objects.filter(post__blog__creator=user).exclude(status='uploading'):
+        files.extend(f.name for f in (m.image, m.thumbnail, m.video, m.poster) if f)
 
     for photo in JournalPhoto.objects.filter(entry__user=user):
         if photo.image:
