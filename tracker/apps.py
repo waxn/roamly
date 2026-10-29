@@ -69,3 +69,13 @@ class TrackerConfig(AppConfig):
                 start_opensky_scheduler()
             except Exception:
                 pass
+            try:
+                from .video_tasks import start_trip_video_scheduler
+                start_trip_video_scheduler()
+            except Exception:
+                pass
+            try:
+                from .trip_digest_tasks import start_trip_digest_scheduler
+                start_trip_digest_scheduler()
+            except Exception:
+                pass

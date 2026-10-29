@@ -546,3 +546,55 @@ def send_contact_email(to_email, sender_name, sender_email, message):
     html = _shell('New contact message', body_html,
                   preheader=f'From {name}')
     return _send(subject, text, html, to_email, reply_to=sender_email or None)
+
+
+def send_trip_confirm_email(to_email, blog_name, confirm_url):
+    """Double opt-in for a trip blog's daily digest."""
+    subject = f'Confirm updates from {blog_name}'
+    text = (f"Someone asked for daily updates from the trip \"{blog_name}\" to be sent to "
+            f"this address.\n\nConfirm here: {confirm_url}\n\n"
+            f"If it wasn't you, ignore this email and nothing will be sent.")
+    body = (_p(f'Someone asked for daily updates from <b style="color:{_TEXT};">'
+               f'{escape(blog_name)}</b> to be sent to this address.')
+            + _button('Yes, send me updates', confirm_url)
+            + _p("If it wasn't you, ignore this email and nothing will be sent."))
+    return _send(subject, text, _shell('Confirm trip updates', body,
+                                       preheader=f'Confirm updates from {blog_name}'), to_email)
+
+
+def send_trip_digest_email(to_email, *, blog_name, heading, posts, trip_url, unsubscribe_url):
+    """New trip-blog posts since the last digest.
+
+    ``posts`` is a list of dicts: ``author``, ``when`` (formatted), ``place``,
+    ``text``, ``image`` (absolute thumbnail URL or None), ``url`` (link to the
+    post on the share page), ``extra`` (e.g. "+3 photos").
+    """
+    subject = f'{blog_name}: {heading}'
+    items, lines = [], [heading, '']
+    for p in posts:
+        meta = ' · '.join(x for x in (p.get('author'), p.get('when'), p.get('place')) if x)
+        excerpt = (p.get('text') or '').strip()
+        if len(excerpt) > 280:
+            excerpt = excerpt[:277].rstrip() + '…'
+        img = ''
+        if p.get('image'):
+            img = (f'<a href="{escape(p["url"])}" target="_blank"><img src="{escape(p["image"])}" '
+                   f'width="416" alt="" style="display:block;width:100%;max-width:416px;height:auto;'
+                   f'border:0;margin:0 0 10px 0;" /></a>')
+        items.append(
+            f'<div style="margin:0 0 22px 0;padding:0 0 18px 0;border-bottom:1px solid {_BORDER};">'
+            f'{img}'
+            f'<div style="font-family:{_SANS};font-size:12px;color:{_DIM};margin:0 0 6px 0;">{escape(meta)}</div>'
+            + (f'<div style="font-family:{_SANS};font-size:15px;line-height:1.6;color:{_TEXT};'
+               f'white-space:pre-wrap;">{escape(excerpt)}</div>' if excerpt else '')
+            + (f'<div style="font-family:{_SANS};font-size:12px;color:{_MUTED};margin-top:6px;">'
+               f'{escape(p["extra"])}</div>' if p.get('extra') else '')
+            + f'<div style="margin-top:8px;">{_link("Open →", p["url"])}</div></div>')
+        lines += [meta, excerpt, p['url'], '']
+    body = ''.join(items) + _button('Open the trip', trip_url) + (
+        f'<p style="margin:18px 0 0 0;font-family:{_SANS};font-size:12px;color:{_DIM};">'
+        f'Don\'t want these? <a href="{escape(unsubscribe_url)}" target="_blank" '
+        f'style="color:{_DIM};text-decoration:underline;">Unsubscribe</a></p>')
+    lines += [f'Open the trip: {trip_url}', '', f'Unsubscribe: {unsubscribe_url}']
+    return _send(subject, '\n'.join(lines), _shell(blog_name, f'<p style="margin:0 0 18px 0;font-family:{_SANS};font-size:14px;color:{_MUTED};">{escape(heading)}</p>' + body,
+                                                   preheader=heading), to_email)
