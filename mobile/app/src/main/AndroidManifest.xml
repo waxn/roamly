@@ -63,6 +63,11 @@
          anyway, which a sideloaded app cannot hold. Do not add them. -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
+    <!-- Trip blog: lets the composer read a picked photo's own GPS (Android
+         redacts it otherwise) to suggest where the post happened. Optional;
+         asked for only when picking photos. -->
+    <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
+
     <!-- Health Connect (read-only; Roamly never writes back).
          READ_HEALTH_DATA_HISTORY is load-bearing: without it Health Connect only
          ever returns the trailing 30 days, so a deeper backfill silently comes

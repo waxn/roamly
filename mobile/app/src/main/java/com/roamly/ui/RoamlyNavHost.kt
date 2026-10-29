@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Watch
@@ -68,6 +69,9 @@ import com.roamly.flights.IncomingShare
 import com.roamly.ui.stats.StatsViewModel
 import com.roamly.ui.record.RecordScreen
 import com.roamly.ui.tracker.TrackerScreen
+import com.roamly.ui.tripblog.TripBlogScreen
+import com.roamly.ui.tripblog.TripBlogViewModel
+import com.roamly.ui.tripblog.TripComposeScreen
 import com.roamly.ui.trips.TripDetailScreen
 import com.roamly.ui.trips.TripsViewModel
 import com.roamly.ui.update.UpdateBanner
@@ -96,6 +100,11 @@ sealed class Screen(val route: String, val label: String) {
     // Record. `uri` is a file shared into Roamly (IncomingShare).
     object FlightScan : Screen("flights/scan?uri={uri}", "Scan")
     object FlightEdit : Screen("flights/edit", "Flight")
+    // The featured trip blog. Only in the bar while a trip is featured (set
+    // on the web, or by joining one); the composer is a route with no tab.
+    // "Blog", not "Trip": the Adventures tab is already labelled "Trips".
+    object TripBlog   : Screen("tripblog", "Blog")
+    object TripCompose : Screen("tripblog/compose", "New post")
 }
 
 // Search sits in the middle slot always — it hosts history search, plus the AI
@@ -120,6 +129,7 @@ private fun iconFor(screen: Screen): ImageVector = when (screen) {
     Screen.Search     -> Icons.Rounded.Search
     Screen.Data       -> Icons.Rounded.Insights
     Screen.Tracker    -> Icons.Rounded.Watch
+    Screen.TripBlog   -> Icons.Rounded.Public
     else              -> Icons.Rounded.Settings
 }
 
@@ -161,13 +171,20 @@ fun RoamlyNavHost() {
     val isLoggedIn by authViewModel.isLoggedIn.collectAsState()
     val simpleMode by authViewModel.simpleModeEnabled.collectAsState()
     val trackerPaired by authViewModel.trackerPaired.collectAsState()
+    val featuredTrip by authViewModel.featuredTripId.collectAsState()
     val bottomNavItems = (if (simpleMode) simpleNavItems else advancedNavItems).let { items ->
+        // The trip goes right after Map: following it is the point of the trip.
+        if (featuredTrip != null) listOf(items.first(), Screen.TripBlog) + items.drop(1) else items
+    }.let { items ->
         if (trackerPaired) items.dropLast(1) + Screen.Tracker + items.last() else items
     }
 
     // Check for a newer sideloaded build once logged in (throttled to ~24h).
     LaunchedEffect(isLoggedIn) {
-        if (isLoggedIn == true) updateViewModel.checkOnLaunch()
+        if (isLoggedIn == true) {
+            updateViewModel.checkOnLaunch()
+            authViewModel.refreshFeaturedTrip()
+        }
     }
 
     var splashDone by rememberSaveable { mutableStateOf(false) }
@@ -197,7 +214,8 @@ fun RoamlyNavHost() {
             currentDestination?.route != Screen.TripDetail.route &&
             currentDestination?.route != Screen.Record.route &&
             currentDestination?.route != Screen.FlightScan.route &&
-            currentDestination?.route != Screen.FlightEdit.route
+            currentDestination?.route != Screen.FlightEdit.route &&
+            currentDestination?.route != Screen.TripCompose.route
 
     // A boarding pass shared into Roamly opens the scanner on it, once signed in.
     val sharedUri by IncomingShare.uri.collectAsState()
@@ -391,6 +409,18 @@ fun RoamlyNavHost() {
                     viewModel = flightsViewModel,
                     onDone = { navController.popBackStack() },
                 )
+            }
+            composable(Screen.TripBlog.route) {
+                // Activity-scoped like the other tabs: one-shot loads only, so it
+                // is safe to outlive the tab (see activityOwner above). The
+                // composer route shares the same instance for its draft.
+                val vm = hiltViewModel<TripBlogViewModel>(activityOwner)
+                LaunchedEffect(Unit) { vm.load() }
+                TripBlogScreen(viewModel = vm, onCompose = { navController.navigate(Screen.TripCompose.route) })
+            }
+            composable(Screen.TripCompose.route) {
+                val vm = hiltViewModel<TripBlogViewModel>(activityOwner)
+                TripComposeScreen(viewModel = vm, onDone = { navController.popBackStack(); vm.reload() })
             }
             composable(Screen.Tracker.route) {
                 // Back-stack scoped: the screen opens a BLE session for as long

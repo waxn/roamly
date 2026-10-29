@@ -7,6 +7,7 @@ import com.roamly.data.local.LocationStore
 import com.roamly.data.prefs.UserPreferences
 import com.roamly.data.repository.AuthRepository
 import com.roamly.data.repository.LoginResult
+import com.roamly.data.repository.TripBlogRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -44,6 +45,7 @@ class AuthViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val disk: DiskCache,
     private val store: LocationStore,
+    private val tripBlogs: TripBlogRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LoginUiState())
@@ -64,6 +66,15 @@ class AuthViewModel @Inject constructor(
      *  one boolean. */
     val simpleModeEnabled: StateFlow<Boolean> = prefs.simpleModeEnabled
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** The featured trip blog: shows the Trip tab. Cached in prefs, refreshed
+     *  from the server once signed in ([refreshFeaturedTrip]). */
+    val featuredTripId: StateFlow<Int?> = prefs.featuredTripId
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    fun refreshFeaturedTrip() {
+        viewModelScope.launch { tripBlogs.refreshFeatured() }
+    }
 
     /** A hardware tracker is bonded over Bluetooth: shows the Tracker tab. */
     val trackerPaired: StateFlow<Boolean> = prefs.trackerBleAddress
