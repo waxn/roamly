@@ -116,8 +116,14 @@ def custom_js_snippet(request):
     road_snap = False
     road_provider = ''
     intro_pending = False
+    featured_trip = None
     user = getattr(request, 'user', None)
     if user is not None and user.is_authenticated:
+        try:
+            from .trip_blog_views import featured_for
+            featured_trip = featured_for(user)
+        except Exception:
+            featured_trip = None
         profile = getattr(user, 'profile', None)
         is_admin = bool(profile and profile.is_admin)
         # First-run welcome tour (RoamlyIntro) — only unseen for a brand new
@@ -148,6 +154,8 @@ def custom_js_snippet(request):
         'ROAD_SNAP_ENABLED': road_snap,
         'ROAD_PROVIDER': road_provider,
         'INTRO_PENDING': intro_pending,
+        # The trip blog shown as "Trip" in the nav, {id, name} or None.
+        'FEATURED_TRIP': featured_trip,
         # Footer contact link + form (landing + settings). The form only renders
         # when SMTP is configured; otherwise the link falls back to a mailto:.
         'CONTACT_EMAIL': cfg['contact_email'],

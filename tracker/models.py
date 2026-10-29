@@ -2720,6 +2720,9 @@ class TripPost(models.Model):
     # A post is a draft until submitted, so media can upload (and EXIF be
     # read) before the author decides where it was.
     published = models.BooleanField(default=False)
+    # When it went live — what the daily digest compares against, since a draft
+    # can be created long before it is published.
+    published_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     edited_at = models.DateTimeField(null=True, blank=True)
 
@@ -2742,8 +2745,6 @@ class TripPostMedia(models.Model):
     """A photo or video on a TripPost. Videos are transcoded to 1080p H.264
     (tracker/video_tasks.py); ``video`` holds the upload until that succeeds,
     then the transcode, so a failed transcode still plays the original."""
-    STATUS_CHOICES = [('ready', 'Ready'), ('pending', 'Pending'),
-                      ('processing', 'Processing'), ('failed', 'Failed')]
     post = models.ForeignKey(TripPost, on_delete=models.CASCADE, related_name='media')
     order = models.PositiveIntegerField(default=0)
     media_type = models.CharField(max_length=10, default='image')  # 'image' | 'video'
@@ -2751,7 +2752,8 @@ class TripPostMedia(models.Model):
     thumbnail = models.ImageField(upload_to='tripblog/photos/thumbs/', null=True, blank=True)
     video = models.FileField(upload_to='tripblog/videos/', null=True, blank=True)
     poster = models.ImageField(upload_to='tripblog/videos/posters/', null=True, blank=True)
-    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default='ready')
+    # ready | uploading (chunks arriving) | pending | processing | failed
+    status = models.CharField(max_length=12, default='ready')
     width = models.IntegerField(null=True, blank=True)
     height = models.IntegerField(null=True, blank=True)
     duration_s = models.FloatField(null=True, blank=True)

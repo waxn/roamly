@@ -882,6 +882,8 @@ def robots_txt(request):
         # Share links are per-recipient credentials in the URL; they must never
         # be crawled or indexed.
         'Disallow: /share/',
+        'Disallow: /t/',
+        'Disallow: /trip/',
         '',
         f'Sitemap: {site_url}/sitemap.xml',
     ]

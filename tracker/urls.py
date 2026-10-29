@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views
+from . import trip_blog_views as tbv
 
 app_name = 'tracker'
 
@@ -118,6 +119,50 @@ urlpatterns = [
     # What a delete-data range would actually remove, for the confirmation.
     path('api/account/delete-data/preview/', views.delete_data_preview_api, name='delete_data_preview'),
     # The user's own security events (Settings -> Devices & Sessions).
+    # Trip blog. /t/<token>/ is the public share page — the token is the credential.
+    path('trip/', tbv.trip_featured_view, name='trip_featured'),
+    path('trip/<int:blog_id>/', tbv.trip_blog_page, name='trip_blog'),
+    path('trip/join/<str:token>/', tbv.trip_join_view, name='trip_join'),
+    path('t/sub/<str:sub_token>/confirm/', tbv.trip_subscribe_confirm_view, name='trip_sub_confirm'),
+    path('t/sub/<str:sub_token>/unsubscribe/', tbv.trip_unsubscribe_view, name='trip_unsubscribe'),
+    path('t/<str:token>/', tbv.trip_share_page, name='trip_share'),
+    path('api/tripblog/', tbv.trip_blogs_api, name='trip_blogs_api'),
+    path('api/tripblog/featured/', tbv.trip_featured_api, name='trip_featured_api'),
+    path('api/tripblog/<int:blog_id>/', tbv.trip_blog_api, name='trip_blog_api'),
+    path('api/tripblog/<int:blog_id>/delete/', tbv.trip_blog_delete_api),
+    path('api/tripblog/<int:blog_id>/cover/', tbv.trip_blog_cover_api),
+    path('api/tripblog/<int:blog_id>/invite/', tbv.trip_blog_invite_api),
+    path('api/tripblog/<int:blog_id>/leave/', tbv.trip_blog_leave_api),
+    path('api/tripblog/<int:blog_id>/members/<int:user_id>/remove/', tbv.trip_blog_member_remove_api),
+    path('api/tripblog/<int:blog_id>/links/', tbv.trip_links_api),
+    path('api/tripblog/<int:blog_id>/links/<int:link_id>/', tbv.trip_link_update_api),
+    path('api/tripblog/<int:blog_id>/links/<int:link_id>/delete/', tbv.trip_link_delete_api),
+    path('api/tripblog/<int:blog_id>/views/', tbv.trip_views_api),
+    path('api/tripblog/<int:blog_id>/views/<int:use_id>/remove/', tbv.trip_view_remove_api),
+    path('api/tripblog/<int:blog_id>/posts/', tbv.trip_post_create_api),
+    path('api/tripblog/<int:blog_id>/posts/<int:post_id>/', tbv.trip_post_update_api),
+    path('api/tripblog/<int:blog_id>/posts/<int:post_id>/delete/', tbv.trip_post_delete_api),
+    path('api/tripblog/<int:blog_id>/posts/<int:post_id>/photo/', tbv.trip_post_photo_api),
+    path('api/tripblog/<int:blog_id>/posts/<int:post_id>/video/', tbv.trip_post_video_api),
+    path('api/tripblog/<int:blog_id>/media/<int:media_id>/delete/', tbv.trip_media_delete_api),
+    path('api/tripblog/<int:blog_id>/my-location/', tbv.trip_my_location_api),
+    path('api/tripblog/<int:blog_id>/status/', tbv.trip_status_api),
+    path('api/tripblog/<int:blog_id>/feed/', tbv.trip_feed_api),
+    path('api/tripblog/<int:blog_id>/comments/<int:post_id>/', tbv.trip_comments_api),
+    path('api/tripblog/<int:blog_id>/comment/', tbv.trip_comment_api),
+    path('api/tripblog/<int:blog_id>/comment/<int:comment_id>/delete/', tbv.trip_comment_delete_api),
+    path('api/tripblog/<int:blog_id>/react/', tbv.trip_react_api),
+    path('api/tripblog/v/<str:token>/enter/', tbv.trip_enter_api),
+    path('api/tripblog/v/<str:token>/unlock/', tbv.trip_unlock_api),
+    path('api/tripblog/v/<str:token>/status/', tbv.trip_status_api),
+    path('api/tripblog/v/<str:token>/feed/', tbv.trip_feed_api),
+    path('api/tripblog/v/<str:token>/comments/<int:post_id>/', tbv.trip_comments_api),
+    path('api/tripblog/v/<str:token>/comment/', tbv.trip_comment_api),
+    path('api/tripblog/v/<str:token>/comment/<int:comment_id>/delete/', tbv.trip_comment_delete_api),
+    path('api/tripblog/v/<str:token>/react/', tbv.trip_react_api),
+    path('api/tripblog/v/<str:token>/name/', tbv.trip_name_api),
+    path('api/tripblog/v/<str:token>/subscribe/', tbv.trip_subscribe_api),
+
     # Location sharing. /share/<token>/ is public — the token is the credential.
     path('share/<str:token>/', views.share_view, name='share'),
     path('api/share/<str:token>/track/', views.share_data_api, name='share_track'),  # legacy alias
