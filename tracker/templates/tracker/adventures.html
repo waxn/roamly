@@ -2,6 +2,26 @@
 {% block title %}Adventures - Roamly{% endblock %}
 
 {% block extra_css %}
+.tbl { border: 1px solid var(--border); background: var(--bg-card); padding: 16px; margin: 0 0 18px; }
+.tbl-h { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.tbl-h h2 { font-family: var(--font-display); font-size: 1.2rem; margin: 0 0 2px; }
+.tbl-h p { margin: 0; color: var(--text-muted); font-size: .86rem; }
+.tbl-form { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 14px; }
+.tbl-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
+@media (max-width: 700px) { .tbl-grid { grid-template-columns: 1fr; } }
+.tbl-grid label { display: flex; flex-direction: column; gap: 5px; font-size: .8rem; color: var(--text-muted); }
+.tbl-in { background: var(--bg-input); border: 1px solid var(--border); color: var(--text); padding: 8px 10px; font: inherit; font-size: .92rem; }
+.tbl-check { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: .86rem; color: var(--text-muted); }
+.tbl-check input { accent-color: var(--primary); }
+.tbl-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.tbl-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin-top: 14px; }
+.tbl-list:empty { display: none; }
+.tbl-card { display: flex; gap: 12px; align-items: center; border: 1px solid var(--border); background: var(--bg); padding: 10px; text-decoration: none; color: var(--text); }
+.tbl-card:hover { border-color: var(--primary); }
+.tbl-card .cv { width: 54px; height: 54px; flex: none; background: var(--bg-elevated) center/cover; }
+.tbl-card b { display: block; font-size: .95rem; }
+.tbl-card span { font-size: .75rem; color: var(--text-dim); font-family: var(--font-mono); }
+.tbl-card .live { color: var(--moss); }
 /* ── Adventure list page ── */
 .adv-list-page { padding: 0; }
 
@@ -507,6 +527,26 @@
         </div>
     </div>
 
+    {% comment %} Trip blogs: shared travel blogs that friends and family follow through
+       share links (see trip_blog_views). Listed here because a trip is an adventure;
+       the featured one also gets a "Trip" item in the nav. {% endcomment %}
+    <section class="tbl" id="trip-blogs" aria-label="Trip blogs">
+        <div class="tbl-h">
+            <div><h2>Trip blogs</h2><p>Post photos, videos and stories from the road; family and friends follow with a link.</p></div>
+            <button class="btn btn-primary btn-sm" type="button" id="tbl-new-btn">New trip blog</button>
+        </div>
+        <form class="tbl-form" id="tbl-form" hidden>
+            <div class="tbl-grid">
+                <label>Name<input class="tbl-in" name="name" maxlength="200" required placeholder="Around the world 2027"></label>
+                <label>Starts<input class="tbl-in" type="date" name="start_date" required></label>
+                <label>Ends <span class="dim">(optional)</span><input class="tbl-in" type="date" name="end_date"></label>
+            </div>
+            <label class="tbl-check"><input type="checkbox" name="share_location" checked> Show my city and a rough spot (about 1 km) to followers</label>
+            <div class="tbl-actions"><button class="btn btn-outline btn-sm" type="button" id="tbl-cancel">Cancel</button><button class="btn btn-primary btn-sm" type="submit">Create</button></div>
+        </form>
+        <div class="tbl-list" id="tbl-list"></div>
+    </section>
+
     <div class="adv-filter-bar">
         <input type="text" class="adv-search" id="adv-search" placeholder="search..." oninput="filterAdventures()">
         <button class="adv-filter-chip active" data-filter="all" onclick="setFilter('all',this)">all</button>
@@ -831,6 +871,33 @@
 
 {% block extra_js %}
 <script>
+(function () {
+    const list = document.getElementById('tbl-list'), form = document.getElementById('tbl-form');
+    const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+    const fmt = (d) => d ? new Date(d + 'T12:00').toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'}) : '';
+    async function load() {
+        const d = await fetch('/api/tripblog/').then((r) => r.json()).catch(() => ({blogs: []}));
+        list.innerHTML = (d.blogs || []).filter((b) => b.accepted).map((b) => `<a class="tbl-card" href="/trip/${b.id}/">
+            <span class="cv" style="${b.cover ? `background-image:url('${esc(b.cover)}')` : ''}"></span>
+            <div><b>${esc(b.name)}</b><span>${esc(fmt(b.start_date))}${b.end_date ? ' – ' + esc(fmt(b.end_date)) : ''}${b.live ? ' · <em class="live">live</em>' : ''}${b.featured ? ' · in menu' : ''}</span></div></a>`).join('');
+    }
+    document.getElementById('tbl-new-btn').onclick = () => {
+        form.hidden = !form.hidden;
+        if (!form.hidden) { if (!form.start_date.value) form.start_date.value = new Date().toISOString().slice(0, 10); form.name.focus(); }
+    };
+    document.getElementById('tbl-cancel').onclick = () => { form.hidden = true; };
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const r = await fetch('/api/tripblog/', {method: 'POST', credentials: 'same-origin',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
+            body: JSON.stringify({name: form.name.value, start_date: form.start_date.value, end_date: form.end_date.value || null,
+                share_location: form.share_location.checked, featured: true})});
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { roamlyAlert(d.error || 'Could not create the trip blog.'); return; }
+        location.href = d.url;
+    });
+    load();
+})();
 const csrfToken = '{{ csrf_token }}';
 let tripMap = null;
 let currentTripId = null;
