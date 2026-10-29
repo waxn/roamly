@@ -120,13 +120,22 @@ def _blog_payload(blog, me):
 
 # ── pages ───────────────────────────────────────────────────────────────────
 
+def _page_cfg(mode, api, blog_id=None, **extra):
+    """What trip-blog.js needs, rendered with json_script."""
+    from django.templatetags.static import static
+    from .context_processors import get_carto_tile_qs
+    return dict({'mode': mode, 'api': api, 'blog_id': blog_id, 'emoji': TripReaction.EMOJI,
+                 'carto_qs': get_carto_tile_qs(),
+                 'countries_url': static('tracker/data/world-countries.json')}, **extra)
+
+
 @login_required
 def trip_blog_page(request, blog_id):
     m = _member(request, blog_id)
+    from django.middleware.csrf import get_token
     return render(request, 'tracker/trip_blog.html', {
         'blog': m.blog, 'membership': m, 'mode': 'member',
-        'api_base': f"/api/tripblog/{blog_id}",
-        'reaction_emoji': TripReaction.EMOJI,
+        'cfg': _page_cfg('member', f"/api/tripblog/{blog_id}", blog_id, csrf=get_token(request)),
     })
 
 
@@ -156,9 +165,9 @@ def trip_share_page(request, token):
         'standalone': True, 'gate': gate, 'token': link.token,
         'blog': link.blog, 'mode': 'viewer',
         'api_base': f"/api/tripblog/v/{link.token}",
-        'reaction_emoji': TripReaction.EMOJI,
-        'guest_name': use.guest_name if use else '',
         'email_enabled': _email_enabled(),
+        'cfg': _page_cfg('viewer', f"/api/tripblog/v/{link.token}", link.blog_id,
+                         guest_name=use.guest_name if use else ''),
     })
     resp['Cache-Control'] = 'private, no-store'
     return resp

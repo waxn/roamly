@@ -457,12 +457,20 @@ def reaction_key(viewer):
     return (viewer or {}).get('vh') or ''
 
 
+def _wall_clock(p):
+    """taken_at as the wall clock where the post happened ("2026-03-04T10:30"),
+    so a grandparent in another zone reads Kyoto's 10:30, not their own 21:30."""
+    tz = zone_for_point(p.latitude, p.longitude) if p.has_location else None
+    return timezone.localtime(p.taken_at, tz or timezone.get_current_timezone()).strftime('%Y-%m-%dT%H:%M')
+
+
 def post_payload(p, viewer=None, comments=None, reactions=None, mine_reacts=None):
     return {
         'id': p.id,
         'author': {'id': p.author_id, 'name': display_name(p.author), 'avatar': _avatar(p.author)},
         'text': p.text,
         'taken_at': p.taken_at.isoformat(),
+        'local_time': _wall_clock(p),
         'date': p.local_date.isoformat() if p.local_date else None,
         'place': ({'lat': p.latitude, 'lon': p.longitude, 'city': p.city,
                    'country': p.country, 'name': p.place_name}

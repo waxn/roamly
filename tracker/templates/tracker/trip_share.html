@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>{% if blog %}{{ blog.name }}{% else %}Trip{% endif %} — Roamly</title>
+    {% load static %}
+    <link rel="icon" type="image/x-icon" href="{% static 'tracker/roamlymark.ico' %}">
+    <meta name="theme-color" content="#14160f">
+    {% comment %} The token in the URL is the credential: never crawled, never sent on as a referrer.
+       The preview tags give a chat app something to show without spending a use — the page
+       body carries no trip data; the JS fetches it. {% endcomment %}
+    <meta name="robots" content="noindex, nofollow, noarchive">
+    <meta name="referrer" content="no-referrer">
+    {% if blog %}<meta property="og:title" content="{{ blog.name }}">
+    <meta property="og:description" content="{% if blog.subtitle %}{{ blog.subtitle }}{% else %}Follow along with our trip{% endif %}">{% endif %}
+    {% if gate == 'ok' or gate == 'enter' %}
+    <link rel="stylesheet" href="{% static 'tracker/vendor/maplibre-gl.css' %}">
+    <link rel="stylesheet" href="{% static 'tracker/trip-blog.css' %}">
+    {% endif %}
+    {% if gate == 'pin' and TURNSTILE_ENABLED %}<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>{% endif %}
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}">
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/fraunces-latin-var.woff2' %}">
+    <style>
+        @font-face{font-family:'Fraunces';font-style:normal;font-weight:300 700;font-display:swap;src:url("{% static 'tracker/fonts/fraunces-latin-var.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:400;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:500;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-500.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:600;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-600.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:700;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-700.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:400;font-display:swap;src:url("{% static 'tracker/fonts/plex-mono-latin-400.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:600;font-display:swap;src:url("{% static 'tracker/fonts/plex-mono-latin-600.woff2' %}") format('woff2')}
+        :root {
+            --bg: #14160f; --bg-card: #1b1e15; --bg-elevated: #23271c; --bg-input: #1e2118;
+            --border: #30352a; --border-strong: #474d3b; --border-bright: rgba(232,118,61,0.55);
+            --text: #e9e5d8; --text-muted: #a9a794; --text-dim: #706e5d;
+            --primary: #e8763d; --primary-soft: rgba(232,118,61,0.13); --primary-hover: #f2884e;
+            --danger: #d4553f; --moss: #7f9b6d; --map-blue: #7ba3b8; --link: #a8cadb;
+            --font-display: 'Fraunces', Georgia, serif;
+            --font-body: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+            --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+            --nav-h: 0px;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { font-family: var(--font-body); background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+        .page { max-width: 1400px; margin: 0 auto; padding: max(12px, env(safe-area-inset-top)) 16px 40px; }
+        .foot { text-align: center; color: var(--text-dim); font-size: .75rem; padding: 18px 0 4px; }
+        .foot a { color: var(--text-muted); }
+        .center { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+        .card { width: 100%; max-width: 400px; background: var(--bg-card); border: 1px solid var(--border); padding: 2.25rem 1.75rem; text-align: center; }
+        .card h1 { font-family: var(--font-display); font-weight: 600; font-size: 1.45rem; margin-bottom: .6rem; }
+        .card p { color: var(--text-muted); font-size: .92rem; line-height: 1.55; margin-bottom: 1.4rem; }
+        .eyebrow { font-family: var(--font-mono); font-size: .7rem; letter-spacing: .12em; text-transform: uppercase; color: var(--text-dim); margin-bottom: .5rem; }
+        .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 1.4rem; width: 100%;
+               border: 1px solid var(--primary); background: var(--primary); color: #fff; font-family: var(--font-body);
+               font-size: .95rem; font-weight: 600; cursor: pointer; }
+        .btn:hover { background: var(--primary-hover); }
+        .pin-row { display: flex; gap: .6rem; justify-content: center; margin-bottom: 1.1rem; }
+        .pin-row input { width: 58px; height: 68px; text-align: center; font-size: 1.8rem; font-weight: 600; background: var(--bg-input);
+                         color: var(--text); border: 1px solid var(--border); font-family: var(--font-mono); outline: none; border-radius: 0; }
+        .pin-row input:focus { border-color: var(--border-bright); box-shadow: 0 0 0 3px var(--primary-soft); }
+        .pin-row.shake { animation: shake .35s; }
+        @keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+        .err { color: var(--danger); font-size: .85rem; min-height: 1.2rem; margin-bottom: .6rem; }
+        .hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+        .ts { display: flex; justify-content: center; margin-bottom: 1rem; }
+    </style>
+</head>
+<body>
+{% if invalid %}
+    <div class="center"><div class="card">
+        <h1>This link isn't active</h1>
+        <p>It may have expired or been turned off. Ask whoever sent it for a new one.</p>
+    </div></div>
+
+{% elif gate == 'full' %}
+    <div class="center"><div class="card">
+        <div class="eyebrow">{{ blog.name }}</div>
+        <h1>This link has been used up</h1>
+        <p>It was meant for a set number of people, and they've all opened it. Ask whoever sent it for your own link.</p>
+    </div></div>
+
+{% elif gate == 'pin' %}
+    <div class="center"><div class="card">
+        <div class="eyebrow">{{ blog.name }}</div>
+        <h1>Enter the PIN</h1>
+        <p>Type the 4-digit PIN you were given. You only need to do this once on this device.</p>
+        <form id="pin-form" autocomplete="off">
+            <input class="hp" type="text" id="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+            <div class="pin-row" id="pin-row">
+                {% for i in "0123" %}<input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="one-time-code" aria-label="PIN digit {{ forloop.counter }}">{% endfor %}
+            </div>
+            {% if TURNSTILE_ENABLED %}<div class="ts"><div class="cf-turnstile" data-sitekey="{{ TURNSTILE_SITE_KEY }}" data-theme="dark" data-callback="onTs"></div></div>{% endif %}
+            <div class="err" id="pin-err" role="alert"></div>
+            <button type="submit" class="btn">Open the trip</button>
+        </form>
+    </div></div>
+    <script>
+        const API = '{{ api_base|escapejs }}';
+        const rows = Array.from(document.querySelectorAll('#pin-row input'));
+        const err = document.getElementById('pin-err');
+        let tsToken = '', busy = false;
+        function onTs(t) { tsToken = t; }
+        rows.forEach((el, i) => {
+            el.addEventListener('input', () => {
+                el.value = el.value.replace(/\D/g, '').slice(-1);
+                if (el.value && rows[i + 1]) rows[i + 1].focus();
+                if (rows.every(r => r.value)) submit();
+            });
+            el.addEventListener('keydown', e => { if (e.key === 'Backspace' && !el.value && rows[i - 1]) rows[i - 1].focus(); });
+            el.addEventListener('paste', e => {
+                const d = (e.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0, 4);
+                if (!d) return;
+                e.preventDefault();
+                d.split('').forEach((c, k) => { rows[k].value = c; });
+                (rows[d.length] || rows[3]).focus();
+                if (d.length === 4) submit();
+            });
+        });
+        rows[0].focus();
+        document.getElementById('pin-form').addEventListener('submit', e => { e.preventDefault(); submit(); });
+        async function submit() {
+            const pin = rows.map(r => r.value).join('');
+            if (pin.length < 4 || busy) return;
+            busy = true; err.textContent = '';
+            try {
+                const r = await fetch(API + '/unlock/', {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({pin, website: document.getElementById('hp').value, 'cf-turnstile-response': tsToken})});
+                const d = await r.json().catch(() => ({}));
+                if (r.ok || d.gate === 'full') { location.reload(); return; }
+                err.textContent = d.error || 'Something went wrong.';
+                const row = document.getElementById('pin-row');
+                row.classList.remove('shake'); void row.offsetWidth; row.classList.add('shake');
+                rows.forEach(x => x.value = ''); rows[0].focus();
+                if (window.turnstile) { try { turnstile.reset(); } catch (_) {} tsToken = ''; }
+            } catch (_) {
+                err.textContent = 'Connection problem. Try again.';
+            } finally { busy = false; }
+        }
+    </script>
+
+{% else %}
+    <div class="page">
+        {% include 'tracker/_trip_app.html' %}
+        <div class="foot">Made with <a href="/" rel="noopener">Roamly</a> · locations on the map are approximate</div>
+    </div>
+    {{ cfg|json_script:"tb-cfg" }}
+    <script src="{% static 'tracker/vendor/maplibre-gl.js' %}"></script>
+    {% if gate == 'enter' %}
+    <script>
+        {% comment %} First visit on this device: spend the link's use now, from JS, so a chat
+           app's preview fetch of the URL never does. trip-blog.js loads once it lands. {% endcomment %}
+        fetch('{{ api_base|escapejs }}/enter/', {method: 'POST', credentials: 'same-origin',
+            headers: {'Content-Type': 'application/json'}, body: '{}'})
+          .then(r => r.json().then(d => ({ok: r.ok, d})))
+          .then(({ok, d}) => {
+              if (!ok) { location.reload(); return; }
+              const s = document.createElement('script'); s.src = "{% static 'tracker/trip-blog.js' %}"; document.body.appendChild(s);
+          })
+          .catch(() => { document.getElementById('tb-feed').innerHTML = '<div class="tb-empty">Connection problem — reload to try again.</div>'; });
+    </script>
+    {% else %}
+    <script src="{% static 'tracker/trip-blog.js' %}"></script>
+    {% endif %}
+{% endif %}
+{% if CUSTOM_JS_SNIPPET %}{{ CUSTOM_JS_SNIPPET|safe }}{% endif %}
+</body>
+</html>

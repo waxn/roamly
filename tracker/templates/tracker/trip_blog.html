@@ -1,0 +1,23 @@
+{% extends 'tracker/base.html' %}
+{% load static %}
+{% block title %}{{ blog.name }} - Roamly{% endblock %}
+
+{% block map_css %}
+<link rel="stylesheet" href="{% static 'tracker/vendor/maplibre-gl.css' %}" />
+<link rel="stylesheet" href="{% static 'tracker/trip-blog.css' %}" />
+{% endblock %}
+
+{% block extra_css %}
+.tb-page { max-width: 1400px; padding-top: 16px; padding-bottom: 40px; }
+{% endblock %}
+
+{% block content %}
+<div class="container tb-page">
+    {% include 'tracker/_trip_app.html' %}
+</div>
+{{ cfg|json_script:"tb-cfg" }}
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'tracker/trip-blog.js' %}"></script>
+{% endblock %}
