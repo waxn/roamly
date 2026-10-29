@@ -570,7 +570,13 @@ def _apply_location(post, data, author_tz):
         if t is None:
             return 'Invalid time'
         if timezone.is_naive(t):
-            t = timezone.make_aware(t, author_tz)
+            # A wall-clock time (a phone photo's EXIF without an offset) is read
+            # where the post happened, which is the clock the camera was on.
+            place_tz = tb.zone_for_point(post.latitude, post.longitude) if post.has_location else None
+            try:
+                t = timezone.make_aware(t, place_tz or author_tz)
+            except Exception:
+                return 'Invalid time'
         post.taken_at = t
     post.local_date = tb.local_date_for(post.taken_at, post.latitude, post.longitude, author_tz)
     return None
