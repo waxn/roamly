@@ -34,7 +34,7 @@ class TripBlogRepository @Inject constructor(
     suspend fun feed(id: Int, before: String?): Result<TripFeed> = call { api.getTripFeed(id, before) }
 
     suspend fun comments(id: Int, postId: Int): Result<List<TripCommentDto>> =
-        when (val r = call { api.getTripComments(id, postId) }) {
+        when (val r = call { api.getTripBlogComments(id, postId) }) {
             is Result.Success -> Result.Success(r.data.comments)
             is Result.Error -> r
         }

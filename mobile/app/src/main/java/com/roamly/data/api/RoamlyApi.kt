@@ -543,7 +543,7 @@ interface RoamlyApi {
     suspend fun getTripFeed(@Path("id") id: Int, @Query("before") before: String?): Response<TripFeed>
 
     @GET("api/tripblog/{id}/comments/{post}/")
-    suspend fun getTripComments(@Path("id") id: Int, @Path("post") postId: Int): Response<TripCommentsResponse>
+    suspend fun getTripBlogComments(@Path("id") id: Int, @Path("post") postId: Int): Response<TripCommentsResponse>
 
     @POST("api/tripblog/{id}/comment/")
     suspend fun postTripComment(@Path("id") id: Int, @Body body: Map<String, @JvmSuppressWildcards Any>): Response<TripCommentResponse>
