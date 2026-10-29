@@ -5,8 +5,7 @@ without having spent a link use, or a second browser through a one-time link.
 """
 import io
 import json
-import math
-from datetime import date, datetime, timedelta, timezone as dt_timezone
+from datetime import date, datetime, timedelta
 
 import pytest
 from django.core.cache import cache
@@ -16,7 +15,7 @@ from PIL import Image
 from tracker import trip_blog as tb
 from tracker.models import (Device, Location, TripBlog, TripBlogMember, TripComment,
                             TripPost, TripPostMedia, TripReaction, TripShareLink,
-                            TripShareUse, TripSubscriber)
+                            TripSubscriber)
 
 pytestmark = pytest.mark.django_db
 
