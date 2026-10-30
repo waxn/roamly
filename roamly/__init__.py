@@ -6,4 +6,4 @@
 #
 # Bump this in the same commit as the `v*` git tag (see CLAUDE.md's versioning
 # table for which component to increment).
-__version__ = '0.82.0'
+__version__ = '0.84.0'
