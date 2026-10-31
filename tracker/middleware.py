@@ -1,4 +1,6 @@
 import time
+from django.templatetags.static import static
+from django.urls import set_script_prefix
 from django.utils import timezone
 
 # Paths we never want to log (static assets, tile API, health checks).
@@ -220,4 +222,53 @@ class SecurityHeadersMiddleware:
         response.setdefault('Permissions-Policy',
                             'geolocation=(self), camera=(), microphone=(), payment=()')
         response.setdefault('X-Content-Type-Options', 'nosniff')
+        return response
+
+
+class BetaUIMiddleware:
+    """Serve the experimental UI under ``/beta/``.
+
+    ``/beta/<anything>`` is the same page as ``/<anything>`` — the prefix is
+    stripped from ``path_info`` so the ordinary URLconf resolves it, and the
+    script prefix is set so ``{% url %}`` / ``redirect()`` keep emitting
+    ``/beta/...`` links (the viewer stays in beta while navigating). Literal
+    ``/api/...`` calls in page JS are unprefixed and keep working.
+
+    The only difference is that ``tracker/beta.css`` is injected last in
+    ``<head>``, so it overrides the page's own styles. Removing the look means
+    deleting that file; nothing on the classic pages references it.
+
+    Sits directly after GZipMiddleware, i.e. *inside* it, so it sees the
+    response before compression and can still edit the body.
+    """
+
+    PREFIX = '/beta'
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        path = request.path_info
+        if path == self.PREFIX or path.startswith(self.PREFIX + '/'):
+            request.beta = True
+            request.path_info = path[len(self.PREFIX):] or '/'
+            set_script_prefix(self.PREFIX + '/')
+        else:
+            request.beta = False
+            return self.get_response(request)
+
+        response = self.get_response(request)
+        response['X-Robots-Tag'] = 'noindex, nofollow'
+        ctype = response.get('Content-Type', '')
+        if (getattr(response, 'streaming', False) or not ctype.startswith('text/html')
+                or response.status_code != 200 or response.get('Content-Encoding')):
+            return response
+        try:
+            html = response.content.decode(response.charset or 'utf-8')
+            tag = '<link rel="stylesheet" href="%s">' % static('tracker/beta.css')
+            if '</head>' in html:
+                response.content = html.replace('</head>', tag + '</head>', 1).encode(
+                    response.charset or 'utf-8')
+        except Exception:
+            pass
         return response

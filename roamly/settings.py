@@ -49,6 +49,8 @@ if DATABASE_URL:
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.middleware.gzip.GZipMiddleware',
+    # Inside GZip so it can edit the body; serves /beta/<page> with beta.css.
+    'tracker.middleware.BetaUIMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
