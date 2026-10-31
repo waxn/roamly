@@ -3,6 +3,7 @@
     python manage.py regeocode                 # every account
     python manage.py regeocode --user linus    # one account
     python manage.py regeocode --rebuild       # replace every label (recovery)
+    python manage.py regeocode --overwrite-hand-labels   # replace map editor labels too
 
 Writes only the rows whose label should change (``--rebuild``: every label that
 differs), then busts each changed account's caches and recomputes its stats
@@ -25,6 +26,9 @@ class Command(BaseCommand):
                             help='Replace every label with the geocoder\'s answer, not only '
                                  'boundary matches, missing and wrong-country labels. For '
                                  'recovery; load the boundaries first.')
+        parser.add_argument('--overwrite-hand-labels', action='store_true',
+                            help='Also replace labels set by hand in the map editor, '
+                                 'which retires those edits so they can no longer be undone.')
 
     def handle(self, *args, **opts):
         user_ids = None
@@ -34,7 +38,8 @@ class Command(BaseCommand):
                 raise CommandError(f"No user '{opts['user']}'")
             user_ids = [u.id]
 
-        done, changed, users = regeocode(user_ids, log=self.stdout.write, rebuild=opts['rebuild'])
+        done, changed, users = regeocode(user_ids, log=self.stdout.write, rebuild=opts['rebuild'],
+                                         overwrite_hand=opts['overwrite_hand_labels'])
         if users:
             self.stdout.write(f"Recomputing stats for {len(users)} account(s)…")
             refresh_after(users)

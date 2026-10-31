@@ -13,8 +13,9 @@ Caches one lookup per ~111m cell across the pass and writes only the rows whose
 label should change (see ``_should_replace``: a containment match, a missing
 label, or one in the wrong country — never just a different nearest-city
 guess; ``rebuild`` replaces every label, for recovery), so a 1.4M-point history takes a few minutes and leaves
-everything else untouched. A label set by hand in the map editor is never
-replaced, rebuild included: it is the one label known to be right. A run is all or nothing: it finds every change
+everything else untouched. A label set by hand in the map editor is replaced
+only when ``overwrite_hand`` asks for it, rebuild or not: it is the one label
+known to be right. A run is all or nothing: it finds every change
 before writing any, then applies them in one transaction, so stopping it (or a
 crash) leaves every point as it was.
 
@@ -183,7 +184,8 @@ class _Stopped(Exception):
     pass
 
 
-def regeocode(user_ids=None, log=None, progress=None, should_stop=None, tally=None, rebuild=False):
+def regeocode(user_ids=None, log=None, progress=None, should_stop=None, tally=None, rebuild=False,
+              overwrite_hand=False):
     """Relabel locations (all, or those of ``user_ids``); returns
     ``(rows_scanned, rows_changed, changed_user_ids)``.
 
@@ -200,6 +202,11 @@ def regeocode(user_ids=None, log=None, progress=None, should_stop=None, tally=No
     only the ones ``_should_replace`` allows — for putting labels back after
     they were damaged, once the boundaries they came from are loaded again.
 
+    ``overwrite_hand`` gives points relabelled in the map editor the geocoder's
+    answer too, with or without ``rebuild``, and retires those edits in the same
+    transaction: every such point ends up geocoded, so nothing is left for them
+    to protect or undo.
+
     ``progress(phase, done, total, changed)`` reports ``'scan'`` per chunk read
     and ``'apply'`` per chunk written. ``tally``, a :class:`Tally`, collects
     which places came and went.
@@ -207,7 +214,7 @@ def regeocode(user_ids=None, log=None, progress=None, should_stop=None, tally=No
     from array import array
     from django.db import transaction
     from .editor_tasks import relabelled_ids
-    from .models import Location
+    from .models import EditBatch, Location
     from .offline_geocode import local_reverse_geocode
 
     def check_stop():
@@ -260,8 +267,9 @@ def regeocode(user_ids=None, log=None, progress=None, should_stop=None, tally=No
                 cell_cache[cell] = hit
             new, source, zone_cc = hit
             stored = tuple(stored)
-            if (stored != new and loc_id not in by_hand
-                    and (rebuild or _should_replace(stored, source, zone_cc))):
+            allowed = (overwrite_hand if loc_id in by_hand
+                       else rebuild or _should_replace(stored, source, zone_cc))
+            if stored != new and allowed:
                 changes[new].append(loc_id)
                 changed_users.add(uid)
                 found += 1
@@ -281,7 +289,7 @@ def regeocode(user_ids=None, log=None, progress=None, should_stop=None, tally=No
     if log:
         log(f"Relabelling {found} locations…")
     applied = 0
-    if found:
+    if found or (overwrite_hand and by_hand):
         with transaction.atomic():
             for new, ids in changes.items():
                 fields = dict(zip(_FIELDS, new))
@@ -292,6 +300,11 @@ def regeocode(user_ids=None, log=None, progress=None, should_stop=None, tally=No
                     applied += len(part)
                     if progress:
                         progress('apply', applied, found, found)
+            if overwrite_hand:
+                edits = EditBatch.objects.filter(kind='relabel', undone=False)
+                if user_ids is not None:
+                    edits = edits.filter(user_id__in=user_ids)
+                edits.update(undone=True)
 
     return done, found, changed_users
 
@@ -401,7 +414,7 @@ def get_status(user_id):
     return {k: job.get(k) for k in ('status', 'done', 'total', 'changed', 'applied', 'error', 'summary', 'finished')}
 
 
-def start(user_id, rebuild=False):
+def start(user_id, rebuild=False, overwrite_hand=False):
     """Start a run for ``user_id`` unless one is already going. Returns the status."""
     current = get_status(user_id)
     if current['status'] in _ACTIVE:
@@ -413,7 +426,7 @@ def start(user_id, rebuild=False):
     _write(user_id, status='running', done=0, total=0, changed=0, applied=0, error='', summary=None, finished=None)
 
     from .scheduler_utils import db_thread
-    db_thread(_run, args=(user_id, rebuild), name=f"regeocode-{user_id}").start()
+    db_thread(_run, args=(user_id, rebuild, overwrite_hand), name=f"regeocode-{user_id}").start()
     return get_status(user_id)
 
 
@@ -425,7 +438,7 @@ def stop(user_id):
     return True
 
 
-def _run(user_id, rebuild=False):
+def _run(user_id, rebuild=False, overwrite_hand=False):
     tally = Tally()
 
     def progress(phase, d, t, c):
@@ -443,6 +456,7 @@ def _run(user_id, rebuild=False):
             should_stop=lambda: bool(cache.get(_stop_key(user_id))),
             tally=tally,
             rebuild=rebuild,
+            overwrite_hand=overwrite_hand,
         )
         if users:
             _write(user_id, status='refreshing')

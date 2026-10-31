@@ -7861,7 +7861,8 @@ def regeocode_start_api(request):
         body = json.loads(request.body or b'{}')
     except ValueError:
         body = {}
-    return JsonResponse(regeocode_tasks.start(request.user.id, rebuild=bool(body.get('rebuild'))))
+    return JsonResponse(regeocode_tasks.start(request.user.id, rebuild=bool(body.get('rebuild')),
+                                              overwrite_hand=bool(body.get('overwrite_hand'))))
 
 
 @login_required

@@ -855,6 +855,10 @@
                         <input type="checkbox" id="regeocode-rebuild" class="rly-native" style="margin-top:0.2rem;">
                         <span><strong style="color:var(--text);">Rebuild every label</strong> — replace all labels with what the geocoder gives now, not just the ones above. Use it to put labels back after they went wrong.</span>
                     </label>
+                    <label style="display:flex;gap:0.5rem;align-items:flex-start;font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.6rem;cursor:pointer;">
+                        <input type="checkbox" id="regeocode-overwrite-hand" class="rly-native" style="margin-top:0.2rem;">
+                        <span><strong style="color:var(--text);">Overwrite labels I set by hand</strong> — also replace towns, states and countries you changed in the map editor. Those edits can no longer be undone afterwards.</span>
+                    </label>
                     <div class="settings-actions">
                         <button class="btn btn-primary btn-sm" id="regeocode-btn" onclick="startRegeocode()">Start</button>
                         <button class="btn btn-outline btn-sm" id="regeocode-stop-btn" onclick="stopRegeocode()" style="display:none;">Stop</button>
@@ -1930,10 +1934,14 @@ function pollRegeocode() {
 
 async function startRegeocode() {
     const rebuild = document.getElementById('regeocode-rebuild').checked;
-    const ok = await roamlyConfirm(rebuild
+    const overwriteHand = document.getElementById('regeocode-overwrite-hand').checked;
+    const ok = await roamlyConfirm((rebuild
         ? 'Replace the town, state and country of every point with what the geocoder gives now?'
-        : 'Relabel points inside US town boundaries, points with no label, and points labelled with the wrong country? Everything else is left alone.',
-        { title: rebuild ? 'Rebuild every label' : 'Re-geocode all points', confirmText: 'Start', danger: rebuild });
+        : 'Relabel points inside US town boundaries, points with no label, and points labelled with the wrong country? Everything else is left alone.')
+        + (overwriteHand
+            ? ' Labels you set by hand in the map editor will be replaced too, and those edits can no longer be undone.'
+            : ' Labels you set by hand in the map editor are kept.'),
+        { title: rebuild ? 'Rebuild every label' : 'Re-geocode all points', confirmText: 'Start', danger: rebuild || overwriteHand });
     if (!ok) return;
     regeocodeStartTime = Date.now();
     setRegeocodeUI(true);
@@ -1943,7 +1951,7 @@ async function startRegeocode() {
     fetch('/api/geocode/relabel/', {
         method: 'POST',
         headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rebuild }),
+        body: JSON.stringify({ rebuild, overwrite_hand: overwriteHand }),
     })
         .then(r => r.ok ? r.json() : null)
         .then(renderRegeocode)

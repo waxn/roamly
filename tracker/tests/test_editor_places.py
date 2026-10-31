@@ -164,6 +164,53 @@ def test_regeocode_leaves_hand_labels_until_undone(client, device, user, monkeyp
     assert labels(kept)[0] == 'Brooks'
 
 
+def test_overwrite_hand_replaces_hand_labels_and_retires_the_edit(client, device, user, monkeypatch):
+    from tracker import regeocode_tasks
+    from tracker.models import EditBatch
+    monkeypatch.setattr(regeocode_tasks, 'ensure_boundaries', lambda *a, **k: None)
+    monkeypatch.setattr('tracker.offline_geocode.local_reverse_geocode', lambda lat, lon: {
+        'city': 'Brooks', 'state': 'Maine', 'country': 'United States', 'country_code': 'US',
+        'place_name': 'Brooks, Maine, United States', 'source': 'nearest', 'zone_cc': 'US'})
+    hand = point(device, 1, 'Morrill')
+    guess = point(device, 2, 'Belmont')
+    post(client, '/api/editor/relabel/', {'scope': 'selection', 'ids': [hand.id], 'city': 'Waldo'})
+
+    # A nearest-town guess is not a reason to touch `guess`, even so.
+    regeocode_tasks.regeocode([user.id], overwrite_hand=True)
+    assert labels(hand)[0] == 'Brooks'
+    assert labels(guess)[0] == 'Belmont'
+    assert not EditBatch.objects.filter(kind='relabel', undone=False).exists()
+
+
+def test_stopping_an_overwrite_keeps_hand_labels_and_their_undo(client, device, user, monkeypatch):
+    from tracker import regeocode_tasks
+    from tracker.models import EditBatch
+    monkeypatch.setattr(regeocode_tasks, 'ensure_boundaries', lambda *a, **k: None)
+    monkeypatch.setattr('tracker.offline_geocode.local_reverse_geocode', lambda lat, lon: {
+        'city': 'Brooks', 'state': 'Maine', 'country': 'United States', 'country_code': 'US',
+        'place_name': 'Brooks, Maine, United States', 'source': 'nearest', 'zone_cc': 'US'})
+    hand = point(device, 1, 'Morrill')
+    post(client, '/api/editor/relabel/', {'scope': 'selection', 'ids': [hand.id], 'city': 'Waldo'})
+    calls = []
+
+    def stop_in_apply():
+        calls.append(1)
+        return len(calls) > 3
+
+    with pytest.raises(regeocode_tasks._Stopped):
+        regeocode_tasks.regeocode([user.id], overwrite_hand=True, should_stop=stop_in_apply)
+    assert labels(hand)[0] == 'Waldo'
+    assert EditBatch.objects.filter(kind='relabel', undone=False).exists()
+
+
+def test_regeocode_start_passes_the_toggle(client, device, monkeypatch):
+    from tracker import regeocode_tasks
+    seen = {}
+    monkeypatch.setattr(regeocode_tasks, 'start', lambda uid, **kw: seen.update(kw) or {'status': 'running'})
+    post(client, '/api/geocode/relabel/', {'overwrite_hand': True})
+    assert seen == {'rebuild': False, 'overwrite_hand': True}
+
+
 def test_preview_counts_and_batches_list_stays_light(client, device):
     point(device, 1, 'Morrill')
     point(device, 2, 'Morrill')
