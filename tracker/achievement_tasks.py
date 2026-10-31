@@ -96,6 +96,7 @@ _HOME_CELL = 500                   # 1/500° ≈ 220m
 _DWELL_CELL = 100                  # 1/100° ≈ 1.1km
 _TZ_CELL = 4                       # 1/4°
 _AWAY_KM = 50.0
+_UNIT_MAP_CAP = 4000               # outlines per county/region map
 
 _SEASONS = {12: 'winter', 1: 'winter', 2: 'winter', 3: 'spring', 4: 'spring', 5: 'spring',
             6: 'summer', 7: 'summer', 8: 'summer', 9: 'autumn', 10: 'autumn', 11: 'autumn'}
@@ -1148,23 +1149,27 @@ def _geography(user, prog, metrics, hist):
     }
 
 
-def _unit_geojson(visited, states, kind, cc, cap=800):
+def _unit_geojson(visited, states, kind, cc):
+    """Outlines of a state's or country's units, flagged visited.
+
+    The cap only bounds the payload, and clears the 3,144 US counties. Visited
+    units sort first so that a country past it (Brazil has 5,570 ADM2s) loses
+    only unvisited ones.
+    """
     import json
     vis_ids = {bid for bid, b in visited.items() if b['kind'] == kind and b['cc'] == cc}
     if not vis_ids:
         return None
+    where, params = '', []
+    if states is not None:
+        where, params = 'AND state = ANY(%s)', [list(states)]
     with connection.cursor() as cur:
-        if states is not None:
-            cur.execute(
-                """SELECT id, name, state, ST_AsGeoJSON(ST_SimplifyPreserveTopology(geom, 0.01), 3)
-                     FROM tracker_boundary
-                    WHERE kind = %s AND country_code = %s AND state = ANY(%s) LIMIT %s""",
-                [kind, cc, list(states), cap])
-        else:
-            cur.execute(
-                """SELECT id, name, state, ST_AsGeoJSON(ST_SimplifyPreserveTopology(geom, 0.01), 3)
-                     FROM tracker_boundary WHERE kind = %s AND country_code = %s LIMIT %s""",
-                [kind, cc, cap])
+        cur.execute(
+            f"""SELECT id, name, state, ST_AsGeoJSON(ST_SimplifyPreserveTopology(geom, 0.01), 3)
+                  FROM tracker_boundary
+                 WHERE kind = %s AND country_code = %s {where}
+                 ORDER BY id = ANY(%s) DESC, id LIMIT %s""",
+            [kind, cc, *params, list(vis_ids), _UNIT_MAP_CAP])
         feats = []
         for bid, name, state, gj in cur.fetchall():
             if not gj:
