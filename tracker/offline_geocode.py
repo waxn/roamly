@@ -124,6 +124,21 @@ def _get_places():
     return _places
 
 
+def country_by_name(name):
+    """(canonical name, ISO code) for a country name, or None.
+
+    The spelling stored labels use, so a typed country matches them.
+    """
+    places = _get_places()
+    if places is None:
+        return None
+    wanted = (name or '').strip().casefold()
+    for cc, country in places.countries.items():
+        if country.casefold() == wanted:
+            return country, cc
+    return None
+
+
 def zone_country(lat, lon):
     """ISO country code of the timezone polygon containing the point, or ''
     (ocean, an unmapped zone, or the dataset/finder unavailable)."""

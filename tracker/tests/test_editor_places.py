@@ -1,5 +1,6 @@
 """Map editor: filtering to a place, and relabelling what it finds."""
-from datetime import datetime, timedelta, timezone as dt_timezone
+import json
+from datetime import datetime, timezone as dt_timezone
 
 import pytest
 from django.contrib.auth.models import User
@@ -11,7 +12,9 @@ pytestmark = pytest.mark.django_db
 
 
 @pytest.fixture(autouse=True)
-def _clean():
+def _clean(monkeypatch):
+    # A real thread here would fight the test transaction for the database.
+    monkeypatch.setattr('tracker.stats_tasks.start_stats_compute', lambda user_id: None)
     cache.clear()
     yield
     cache.clear()
@@ -73,3 +76,105 @@ def test_days_merge_into_stays_newest_first(client, device):
 
 def test_days_need_a_place(client, device):
     assert client.get('/api/editor/places/days/').status_code == 400
+
+
+def post(client, url, body):
+    return client.post(url, json.dumps(body), content_type='application/json')
+
+
+def labels(loc):
+    loc.refresh_from_db()
+    return loc.city, loc.state, loc.country, loc.country_code, loc.place_name
+
+
+def test_filter_relabel_reaches_only_the_place_and_dates(client, device):
+    inside = point(device, 2, 'Morrill')
+    late = point(device, 20, 'Morrill')
+    other = point(device, 2, 'Belmont', hour=13)
+    res = post(client, '/api/editor/relabel/', {
+        'filters': 'city=Morrill&start_date=2026-03-01T00:00:00%2B00:00&end_date=2026-03-05T23:59:59%2B00:00',
+        'city': 'Waldo'}).json()
+    assert res['points'] == 1
+    assert labels(inside) == ('Waldo', 'Maine', 'United States', 'US', 'Waldo, Maine, United States')
+    assert labels(late)[0] == 'Morrill'
+    assert labels(other)[0] == 'Belmont'
+
+
+def test_blank_fields_keep_each_points_own_value(client, device):
+    a = point(device, 1, 'Morrill', state='Maine')
+    b = point(device, 2, 'Morrill', state='Vermont')
+    post(client, '/api/editor/relabel/', {'scope': 'selection', 'ids': [a.id, b.id], 'city': 'Waldo'})
+    assert labels(a)[:2] == ('Waldo', 'Maine')
+    assert labels(b)[:2] == ('Waldo', 'Vermont')
+
+
+def test_relabel_needs_a_place_or_selection_and_a_name(client, device):
+    point(device, 1, 'Morrill')
+    assert post(client, '/api/editor/relabel/', {'filters': 'all=1', 'city': 'Waldo'}).status_code == 400
+    assert post(client, '/api/editor/relabel/', {'scope': 'selection', 'ids': [], 'city': 'Waldo'}).status_code == 400
+    assert post(client, '/api/editor/relabel/', {'filters': 'all=1&city=Morrill'}).status_code == 400
+
+
+def test_relabel_cannot_touch_another_account(client, device):
+    other = User.objects.create_user('other', password='pw-other-1')
+    theirs = point(Device.objects.create(user=other, device_id='x'), 1, 'Morrill')
+    res = post(client, '/api/editor/relabel/', {'scope': 'selection', 'ids': [theirs.id], 'city': 'Waldo'}).json()
+    assert res['points'] == 0
+    assert labels(theirs)[0] == 'Morrill'
+
+
+def test_country_sets_its_code_and_a_typo_is_refused(client, device, monkeypatch):
+    monkeypatch.setattr('tracker.offline_geocode.country_by_name',
+                        lambda n: ('Canada', 'CA') if n.lower() == 'canada' else None)
+    loc = point(device, 1, 'Eastport')
+    ids = {'scope': 'selection', 'ids': [loc.id]}
+    assert post(client, '/api/editor/relabel/', {**ids, 'country': 'Cananda'}).status_code == 400
+    post(client, '/api/editor/relabel/', {**ids, 'country': 'canada'})
+    assert labels(loc)[2:4] == ('Canada', 'CA')
+
+
+def test_undo_restores_labels_but_not_over_a_newer_edit(client, device):
+    a = point(device, 1, 'Morrill')
+    b = point(device, 2, 'Morrill')
+    before = labels(a)
+    batch = post(client, '/api/editor/relabel/', {'filters': 'all=1&city=Morrill', 'city': 'Waldo'}).json()['batch_id']
+    post(client, '/api/editor/relabel/', {'scope': 'selection', 'ids': [b.id], 'city': 'Belmont'})
+    res = post(client, f'/api/editor/batches/{batch}/undo/', {}).json()
+    assert res['affected'] == 1
+    assert labels(a) == before
+    assert labels(b)[0] == 'Belmont'
+
+
+def test_regeocode_leaves_hand_labels_until_undone(client, device, user, monkeypatch):
+    from tracker import regeocode_tasks
+    monkeypatch.setattr(regeocode_tasks, 'ensure_boundaries', lambda *a, **k: None)
+    monkeypatch.setattr('tracker.offline_geocode.local_reverse_geocode', lambda lat, lon: {
+        'city': 'Brooks', 'state': 'Maine', 'country': 'United States', 'country_code': 'US',
+        'place_name': 'Brooks, Maine, United States', 'source': 'boundary', 'zone_cc': 'US'})
+    kept = point(device, 1, 'Morrill')
+    free = point(device, 2, 'Belmont')
+    batch = post(client, '/api/editor/relabel/', {'scope': 'selection', 'ids': [kept.id], 'city': 'Waldo'}).json()['batch_id']
+
+    regeocode_tasks.regeocode([user.id], rebuild=True)
+    assert labels(kept)[0] == 'Waldo'
+    assert labels(free)[0] == 'Brooks'
+
+    post(client, f'/api/editor/batches/{batch}/undo/', {})
+    regeocode_tasks.regeocode([user.id])
+    assert labels(kept)[0] == 'Brooks'
+
+
+def test_preview_counts_and_batches_list_stays_light(client, device):
+    point(device, 1, 'Morrill')
+    point(device, 2, 'Morrill')
+    d = post(client, '/api/editor/relabel/preview/', {'filters': 'all=1&city=Morrill'}).json()
+    assert d['points'] == 2 and d['labels'][0]['city'] == 'Morrill'
+    assert 'Morrill' in d['options']['city']
+    post(client, '/api/editor/relabel/', {'filters': 'all=1&city=Morrill', 'city': 'Waldo'})
+    row = client.get('/api/editor/batches/').json()['batches'][0]
+    assert row['kind'] == 'relabel' and row['point_count'] == 2
+
+
+def test_editor_page_renders_the_place_tools(client, device):
+    html = client.get('/editor/').content.decode()
+    assert 'id="place-search"' in html and 'id="panel-relabel"' in html

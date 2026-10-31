@@ -22,6 +22,8 @@ enough to bring it back.
 """
 
 import logging
+from array import array
+from collections import defaultdict
 from datetime import timedelta
 
 from django.db import transaction
@@ -242,6 +244,93 @@ def restore_trashed(user, ids):
     return len(rows)
 
 
+# ── Relabelling ─────────────────────────────────────────────────────────────
+# The stored town/state/country are a geocoder's best guess, and sometimes the
+# person who was there knows better. Only the labels change: a point stays where
+# it was recorded, and every aggregate reads the new names on its next run.
+
+LABEL_FIELDS = ('city', 'state', 'country', 'country_code', 'place_name')
+_LABEL_CHUNK = 5000
+
+
+def _relabelled(old, fields):
+    """The label tuple after applying `fields` to `old`."""
+    d = dict(zip(LABEL_FIELDS, old))
+    d.update(fields)
+    # The same format the geocoder writes. /map/'s popup reads this first, so
+    # leaving it would keep showing the old town.
+    d['place_name'] = ', '.join(d[f] for f in ('city', 'state', 'country') if d[f])
+    return tuple(d[f] for f in LABEL_FIELDS)
+
+
+def relabel_points(user, qs, fields):
+    """Apply `fields` (any of LABEL_FIELDS but place_name) to the points in `qs`.
+
+    A blank field is simply absent from `fields`, so it keeps each point's own
+    value; points that end up unchanged are left out of the batch. Returns the
+    EditBatch, or None if nothing changed.
+    """
+    from .models import EditBatch, Location
+
+    moves = {}          # old tuple -> new tuple
+    groups = defaultdict(lambda: array('q'))
+    device_id = None
+    rows = qs.order_by().values_list('id', 'device_id', *LABEL_FIELDS)
+    for loc_id, dev, *old in rows.iterator(chunk_size=_LABEL_CHUNK):
+        old = tuple(old)
+        new = moves.get(old)
+        if new is None:
+            new = moves[old] = _relabelled(old, fields)
+        if new != old:
+            groups[old].append(loc_id)
+            device_id = device_id or dev
+    if not groups:
+        return None
+
+    with transaction.atomic():
+        for old, ids in groups.items():
+            labels = dict(zip(LABEL_FIELDS, moves[old]))
+            for i in range(0, len(ids), _LABEL_CHUNK):
+                Location.objects.filter(id__in=ids[i:i + _LABEL_CHUNK].tolist()).update(**labels)
+        count = sum(len(ids) for ids in groups.values())
+        note = ', '.join(v for k, v in fields.items() if k != 'country_code')
+        return EditBatch.objects.create(
+            user=user, device_id=device_id, kind='relabel', target='location',
+            note=note[:200], point_count=count,
+            label_undo={'groups': [{'old': list(old), 'new': list(moves[old]), 'ids': ids.tolist()}
+                                   for old, ids in groups.items()]})
+
+
+def relabelled_ids(user_ids=None):
+    """Ids of points whose labels were set by hand and not undone."""
+    from .models import EditBatch
+
+    batches = EditBatch.objects.filter(kind='relabel', undone=False)
+    if user_ids is not None:
+        batches = batches.filter(user_id__in=user_ids)
+    out = set()
+    for undo in batches.values_list('label_undo', flat=True).iterator(chunk_size=20):
+        for group in undo.get('groups', []):
+            out.update(group['ids'])
+    return out
+
+
+def _undo_relabel(user, batch):
+    """Put labels back, only on points that still show what this batch set: one
+    relabelled again since keeps its newer label."""
+    from .models import Location
+
+    restored = 0
+    for group in batch.label_undo.get('groups', []):
+        old = dict(zip(LABEL_FIELDS, group['old']))
+        new = dict(zip(LABEL_FIELDS, group['new']))
+        ids = group['ids']
+        for i in range(0, len(ids), _LABEL_CHUNK):
+            restored += Location.objects.filter(
+                id__in=ids[i:i + _LABEL_CHUNK], device__user=user, **new).update(**old)
+    return restored
+
+
 @transaction.atomic
 def undo_batch(user, batch):
     """Reverse one editor action.
@@ -255,6 +344,12 @@ def undo_batch(user, batch):
     if batch.kind == 'delete':
         restored = restore_trashed(
             user, list(TrashedLocation.objects.filter(batch=batch).values_list('id', flat=True)))
+        batch.undone = True
+        batch.save(update_fields=['undone'])
+        return restored
+
+    if batch.kind == 'relabel':
+        restored = _undo_relabel(user, batch)
         batch.undone = True
         batch.save(update_fields=['undone'])
         return restored

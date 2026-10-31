@@ -13,7 +13,8 @@ Caches one lookup per ~111m cell across the pass and writes only the rows whose
 label should change (see ``_should_replace``: a containment match, a missing
 label, or one in the wrong country — never just a different nearest-city
 guess; ``rebuild`` replaces every label, for recovery), so a 1.4M-point history takes a few minutes and leaves
-everything else untouched. A run is all or nothing: it finds every change
+everything else untouched. A label set by hand in the map editor is never
+replaced, rebuild included: it is the one label known to be right. A run is all or nothing: it finds every change
 before writing any, then applies them in one transaction, so stopping it (or a
 crash) leaves every point as it was.
 
@@ -205,6 +206,7 @@ def regeocode(user_ids=None, log=None, progress=None, should_stop=None, tally=No
     """
     from array import array
     from django.db import transaction
+    from .editor_tasks import relabelled_ids
     from .models import Location
     from .offline_geocode import local_reverse_geocode
 
@@ -230,6 +232,7 @@ def regeocode(user_ids=None, log=None, progress=None, should_stop=None, tally=No
 
     # ── Phase 1: read only ──
     cell_cache = {}
+    by_hand = relabelled_ids(user_ids)
     changes = defaultdict(lambda: array('q'))   # new label tuple -> ids
     done = found = 0
     changed_users = set()
@@ -257,7 +260,8 @@ def regeocode(user_ids=None, log=None, progress=None, should_stop=None, tally=No
                 cell_cache[cell] = hit
             new, source, zone_cc = hit
             stored = tuple(stored)
-            if stored != new and (rebuild or _should_replace(stored, source, zone_cc)):
+            if (stored != new and loc_id not in by_hand
+                    and (rebuild or _should_replace(stored, source, zone_cc))):
                 changes[new].append(loc_id)
                 changed_users.add(uid)
                 found += 1

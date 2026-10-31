@@ -781,6 +781,12 @@ class EditBatch(models.Model):
     `location_ids` is how a paste-as-real-data is undone. Recording the created
     ids here rather than marking rows on Location keeps that model (and the
     backup format that mirrors it) completely untouched.
+
+    `label_undo` does the same for a relabel: {'groups': [{'old': [...], 'new':
+    [...], 'ids': [...]}]}, the labels before and after, per set of points that
+    shared them. It also marks those points as labelled by hand, which is what
+    keeps a later re-geocode off them. Can run to megabytes on a home town, so
+    anything listing batches defers it.
     """
     KIND_CHOICES = [
         ('route', 'Road route'),       # connected two points along real roads
@@ -789,6 +795,7 @@ class EditBatch(models.Model):
         ('copy', 'Copied range'),      # a stretch pasted from another time
         ('delete', 'Deleted points'),  # real points moved to the trash
         ('subway', 'Subway route'),    # a GPS gap filled along subway track
+        ('relabel', 'Relabelled'),     # town/state/country changed by hand
     ]
     TARGET_CHOICES = [
         ('inferred', 'Inferred'),      # InferredLocation — invisible to aggregates
@@ -801,6 +808,7 @@ class EditBatch(models.Model):
     note = models.CharField(max_length=200, blank=True, default='')
     point_count = models.IntegerField(default=0)
     location_ids = ArrayField(models.BigIntegerField(), default=list, blank=True)
+    label_undo = models.JSONField(default=dict, blank=True)
     undone = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 

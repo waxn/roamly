@@ -34,7 +34,7 @@ from django.db.models import (
     IntegerField, FloatField,
 )
 from django.db.models.functions import Coalesce, Cast, Round, TruncDate
-from django.http import FileResponse, JsonResponse, HttpResponse, StreamingHttpResponse
+from django.http import FileResponse, JsonResponse, HttpResponse, QueryDict, StreamingHttpResponse
 from django.template.loader import render_to_string
 from django.views.static import serve as static_serve
 
@@ -14689,7 +14689,7 @@ def editor_batches_api(request):
     """Recent editor actions, newest first, for the undo list."""
     from .models import EditBatch
 
-    rows = (EditBatch.objects.filter(user=request.user)
+    rows = (EditBatch.objects.filter(user=request.user).defer('label_undo')
             .select_related('device').order_by('-created_at')[:50])
     return JsonResponse({'batches': [{
         'id': b.id,
@@ -14704,6 +14704,143 @@ def editor_batches_api(request):
     } for b in rows]})
 
 
+_RELABEL_OPTIONS = 300
+_RELABEL_MAX_LEN = {'city': 200, 'state': 200, 'country': 100}
+
+
+def _relabel_window(qs, get):
+    """The time window the map is showing, read the way track_api reads it.
+    Returns None if the dates don't parse: a bulk edit must not quietly widen."""
+    start_date, end_date = get.get('start_date'), get.get('end_date')
+    if start_date and end_date:
+        try:
+            start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0)
+            end = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
+        except (ValueError, TypeError):
+            return None
+        if timezone.is_naive(start):
+            start = aware_local(start)
+        if timezone.is_naive(end):
+            end = aware_local(end, end_of_day=True)
+        return qs.filter(timestamp__gte=start, timestamp__lte=end)
+    if get.get('all'):
+        return qs
+    try:
+        return qs.filter(timestamp__gte=timezone.now() - timedelta(hours=int(get.get('hours', '24'))))
+    except (TypeError, ValueError):
+        return None
+
+
+def _relabel_scope(request, data):
+    """The points a relabel applies to, as ``(queryset, error)``.
+
+    Either the selection, or everything under the editor's filter, which
+    reaches the points the map thinned away. The filter must name a place, so a
+    relabel can never run over a whole history by accident.
+    """
+    base = Location.objects.filter(device__user=request.user)
+    if data.get('scope') == 'selection':
+        if len(data.get('ids') or []) > _EDITOR_MAX_IDS:
+            return None, f'Select at most {_EDITOR_MAX_IDS} points, or filter to a place instead.'
+        ids = _editor_ids(data)
+        if not ids:
+            return None, 'Select some recorded points first.'
+        return base.filter(id__in=ids), None
+
+    get = QueryDict(str(data.get('filters') or ''))
+    place = _place_filter(get)
+    if not place:
+        return None, 'Filter to a place first.'
+    qs = _filter_by_place(base, place)
+    if get.get('device_id'):
+        qs = qs.filter(device__device_id=get['device_id'])
+    qs = _relabel_window(qs, get)
+    if qs is None:
+        return None, 'Those dates could not be read.'
+    return qs, None
+
+
+@login_required
+@require_http_methods(["POST"])
+def editor_relabel_preview_api(request):
+    """How many points a relabel would touch and what they are labelled now,
+    plus the names already in the history to suggest."""
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+    qs, err = _relabel_scope(request, data)
+    if err:
+        return JsonResponse({'error': err}, status=400)
+
+    labels = list(qs.order_by().values('city', 'state', 'country')
+                  .annotate(points=Count('id')).order_by('-points'))
+    names = {'city': Counter(), 'state': Counter(), 'country': Counter()}
+    for city, state, country, n in _editor_label_rows(request.user):
+        names['city'][city] += n
+        names['state'][state] += n
+        names['country'][country] += n
+    return JsonResponse({
+        'points': sum(r['points'] for r in labels),
+        'labels': labels[:6],
+        'more_labels': max(0, len(labels) - 6),
+        'options': {f: [name for name, _ in c.most_common(_RELABEL_OPTIONS) if name]
+                    for f, c in names.items()},
+    })
+
+
+def _after_relabel(user_id):
+    """Everything that summarised the old names."""
+    from .stats_tasks import start_stats_compute
+
+    _bust_user_cache(user_id)
+    cache.delete(f'editplaces:{user_id}')
+    try:
+        start_stats_compute(user_id)
+    except Exception:
+        logger.exception("Stats recompute after relabel failed for %s", user_id)
+
+
+@login_required
+@require_http_methods(["POST"])
+def editor_relabel_api(request):
+    """Change the town, state and/or country of many points at once.
+
+    A blank field keeps each point's own value. Undoable as one edit.
+    """
+    from . import editor_tasks
+    from .offline_geocode import country_by_name
+
+    try:
+        data = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+
+    fields = {}
+    for f, limit in _RELABEL_MAX_LEN.items():
+        value = str(data.get(f) or '').strip()[:limit]
+        if value:
+            fields[f] = value
+    if not fields:
+        return JsonResponse({'error': 'Enter a town, state or country.'}, status=400)
+    # A typed country has to be a real one: the map's Scratch layer and the
+    # Achievements maps join on its code, so a typo would be a country of its own.
+    if 'country' in fields:
+        match = country_by_name(fields['country'])
+        if not match:
+            return JsonResponse({'error': f"Unknown country: {fields['country']}."}, status=400)
+        fields['country'], fields['country_code'] = match
+
+    qs, err = _relabel_scope(request, data)
+    if err:
+        return JsonResponse({'error': err}, status=400)
+    batch = editor_tasks.relabel_points(request.user, qs, fields)
+    if batch:
+        _after_relabel(request.user.id)
+    return JsonResponse({'status': 'ok', 'points': batch.point_count if batch else 0,
+                         'batch_id': batch.id if batch else None, 'set': fields})
+
+
 @login_required
 @require_http_methods(["POST"])
 def editor_batch_undo_api(request, batch_id):
@@ -14715,7 +14852,10 @@ def editor_batch_undo_api(request, batch_id):
     if not batch:
         return JsonResponse({'error': 'Not found'}, status=404)
     affected = editor_tasks.undo_batch(request.user, batch)
-    _bust_user_cache(request.user.id)
+    if batch.kind == 'relabel':
+        _after_relabel(request.user.id)
+    else:
+        _bust_user_cache(request.user.id)
     return JsonResponse({'status': 'ok', 'affected': affected})
 
 

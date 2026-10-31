@@ -51,6 +51,7 @@
     padding:5px 7px; font-size:0.75rem; font-family:var(--font-body); border-radius:0; width:100%;
 }
 .ed-check { display:flex; align-items:center; gap:6px; font-size:0.72rem; color:var(--text); cursor:pointer; }
+.ed-field .ed-check input { width:auto; flex:0 0 auto; padding:0; }
 .ed-panel { border-top:1px solid var(--border); padding-top:8px; display:flex; flex-direction:column; gap:6px; }
 .ed-actions { display:flex; gap:4px; }
 .ed-actions .tool-btn { text-align:center; justify-content:center; }
@@ -156,6 +157,7 @@ body.ed-pencil .maplibregl-canvas { cursor:crosshair !important; }
                 <div id="place-days-box" style="display:none;">
                     <div class="ed-hint" id="place-days-summary" style="margin-bottom:4px;"></div>
                     <div class="ed-days" id="place-days"></div>
+                    <button class="tool-btn" id="btn-relabel-place" type="button" style="margin-top:4px;">change town / state</button>
                 </div>
             </div>
 
@@ -216,7 +218,29 @@ body.ed-pencil .maplibregl-canvas { cursor:crosshair !important; }
                     <button class="tool-btn" id="btn-move" type="button" disabled>
                         move / retime<span class="tool-btn-badge">1 point</span>
                     </button>
+                    <button class="tool-btn" id="btn-relabel" type="button" disabled>change town / state</button>
                     <button class="tool-btn danger" id="btn-delete" type="button" disabled>delete selected</button>
+                </div>
+                <div class="ed-panel" id="panel-relabel" style="display:none;">
+                    <div class="ed-field">
+                        <label class="ed-check" id="relabel-scope-filter"><input type="radio" name="relabel-scope" value="filter"> <span>every point in this filter</span></label>
+                        <label class="ed-check" id="relabel-scope-selection"><input type="radio" name="relabel-scope" value="selection"> <span>selected points only</span></label>
+                    </div>
+                    <div class="ed-hint" id="relabel-hint"></div>
+                    <div class="ed-field"><label for="relabel-city">town</label>
+                        <input type="text" id="relabel-city" list="relabel-city-list" maxlength="200" autocomplete="off" placeholder="keep as is"></div>
+                    <div class="ed-field"><label for="relabel-state">state</label>
+                        <input type="text" id="relabel-state" list="relabel-state-list" maxlength="200" autocomplete="off" placeholder="keep as is"></div>
+                    <div class="ed-field"><label for="relabel-country">country</label>
+                        <input type="text" id="relabel-country" list="relabel-country-list" maxlength="100" autocomplete="off" placeholder="keep as is"></div>
+                    <datalist id="relabel-city-list"></datalist>
+                    <datalist id="relabel-state-list"></datalist>
+                    <datalist id="relabel-country-list"></datalist>
+                    <div class="ed-hint">Changes the names only; points stay where they were recorded. Re-geocoding leaves these points alone until you undo this.</div>
+                    <div class="ed-actions">
+                        <button class="tool-btn" id="btn-relabel-apply" type="button" disabled>apply</button>
+                        <button class="tool-btn" id="btn-relabel-cancel" type="button">cancel</button>
+                    </div>
                 </div>
             </div>
 
@@ -466,6 +490,7 @@ function repaintSel() {
     const real = Array.from(selected.values()).filter(p => !p.inferred).length;
     document.getElementById('btn-clear-sel').disabled = !n;
     document.getElementById('btn-delete').disabled = !n;
+    document.getElementById('btn-relabel').disabled = !real && !hasPlaceFilter();
     document.getElementById('btn-route').disabled = real < 2;
     document.getElementById('btn-move').disabled = real !== 1;
     document.getElementById('btn-add-run').disabled = real !== 1;
@@ -788,7 +813,7 @@ function loadPlaceDays(applyDates) {
     return fetch(`/api/editor/places/days/?${params.toString()}`).then(r => r.json()).then(d => {
         placeDays = d;
         renderPlaceDays();
-        if (!d.points) say('No points in that place.', 'warn');
+        if (applyDates && !d.points) say('No points in that place.', 'warn');
         if (applyDates) showDates(d.first, d.last);
     }).catch(() => say('Could not load the dates for that place.', 'error'));
 }
@@ -839,19 +864,111 @@ function renderPlaceDays() {
 document.getElementById('ed-place-clear').addEventListener('click', () => {
     placeDays = null;
     renderPlaceDays();
+    closePanels();
     selected.clear();
-    repaintSel();
     document.getElementById('start-date').value = '';
     document.getElementById('end-date').value = '';
     document.getElementById('time-range').value = defaultTimeRange;
     updateDateFilterUI();
     clearPlaceFilter();     // reloads the map
+    repaintSel();
     loadInferred();
 });
 document.getElementById('device-filter').addEventListener('change', () => {
     if (hasPlaceFilter()) loadPlaceDays(false);
 });
 ['start-date', 'end-date'].forEach(id => document.getElementById(id).addEventListener('change', renderPlaceDays));
+
+// ── Relabel ─────────────────────────────────────────────────────────────────
+// Two scopes: the selection, or everything the filter matches on the server,
+// which reaches the points the map thinned out of view.
+let relabelPoints = 0;
+let relabelReq = 0;
+const relabelApply = document.getElementById('btn-relabel-apply');
+const relabelHint = document.getElementById('relabel-hint');
+
+function relabelScope() {
+    const picked = document.querySelector('input[name="relabel-scope"]:checked');
+    return picked ? picked.value : 'filter';
+}
+function realSelection() {
+    return Array.from(selected.values()).filter(p => !p.inferred).map(p => p.id);
+}
+function relabelBody() {
+    return relabelScope() === 'selection'
+        ? { scope: 'selection', ids: realSelection() }
+        : { scope: 'filter', filters: buildFilterParams() };
+}
+function fillOptions(id, names) {
+    document.getElementById(id).replaceChildren(...names.map(n => {
+        const o = document.createElement('option');
+        o.value = n;
+        return o;
+    }));
+}
+function previewRelabel() {
+    const req = ++relabelReq;
+    relabelApply.disabled = true;
+    relabelHint.textContent = 'Counting…';
+    post('/api/editor/relabel/preview/', relabelBody()).then(({ ok, d }) => {
+        if (req !== relabelReq) return;
+        if (!ok) { relabelHint.textContent = d.error || 'Could not count those points.'; return; }
+        relabelPoints = d.points;
+        relabelApply.disabled = !d.points;
+        const now = d.labels.map(l =>
+            `${[l.city, l.state || l.country].filter(Boolean).join(', ') || 'no label'} (${l.points.toLocaleString()})`);
+        if (d.more_labels) now.push(`${d.more_labels} more`);
+        relabelHint.textContent = d.points
+            ? `${d.points.toLocaleString()} point(s), now: ${now.join('; ')}.`
+            : 'No points to change.';
+        fillOptions('relabel-city-list', d.options.city);
+        fillOptions('relabel-state-list', d.options.state);
+        fillOptions('relabel-country-list', d.options.country);
+    });
+}
+document.getElementById('btn-relabel').addEventListener('click', () => {
+    const hasSel = realSelection().length > 0;
+    document.getElementById('relabel-scope-filter').style.display = hasPlaceFilter() ? '' : 'none';
+    document.getElementById('relabel-scope-selection').style.display = hasSel ? '' : 'none';
+    document.querySelector(`input[name="relabel-scope"][value="${hasSel ? 'selection' : 'filter'}"]`).checked = true;
+    document.querySelector('#relabel-scope-selection span').textContent =
+        `the ${realSelection().length} selected point(s)`;
+    openPanel('relabel');
+    // The sidebar only: scrollIntoView would scroll the page and shift the map.
+    document.querySelector('.sidebar-content').scrollTop = document.getElementById('btn-relabel').offsetTop - 12;
+    previewRelabel();
+});
+document.getElementById('btn-relabel-place').addEventListener('click', () => document.getElementById('btn-relabel').click());
+document.querySelectorAll('input[name="relabel-scope"]').forEach(r => r.addEventListener('change', previewRelabel));
+document.getElementById('btn-relabel-cancel').addEventListener('click', closePanels);
+relabelApply.addEventListener('click', async () => {
+    const value = id => document.getElementById(id).value.trim();
+    const city = value('relabel-city'), state = value('relabel-state'), country = value('relabel-country');
+    if (!city && !state && !country) return say('Enter a town, state or country.', 'error');
+    const to = [city, state, country].filter(Boolean).join(', ');
+    if (!await roamlyConfirm(`Change ${relabelPoints.toLocaleString()} point(s) to ${to}? You can undo this from recent edits.`)) return;
+    const body = { ...relabelBody(), city, state, country };
+    relabelApply.disabled = true;
+    say('Relabelling…');
+    post('/api/editor/relabel/', body).then(({ ok, d }) => {
+        relabelApply.disabled = false;
+        if (!ok) return say(d.error || 'Could not relabel those points.', 'error');
+        say(d.points ? `Relabelled ${d.points.toLocaleString()} point(s) as ${to}.` : 'Those points already had that label.');
+        if (d.points) afterRelabel(body.scope, d.set);
+    });
+});
+function afterRelabel(scope, set) {
+    // Whole-filter edits take the filter along, or it would now match nothing.
+    if (scope === 'filter') {
+        ['city', 'state', 'country'].forEach(f => { if (placeFilter[f] && set[f]) placeFilter[f] = set[f]; });
+        syncPlaceUrl();
+        renderPlaceFilter();
+    }
+    ['relabel-city', 'relabel-state', 'relabel-country'].forEach(id => { document.getElementById(id).value = ''; });
+    closePanels();
+    refreshAll();
+    if (hasPlaceFilter()) loadPlaceDays(false);
+}
 
 // ── Tools ───────────────────────────────────────────────────────────────────
 document.getElementById('btn-delete').addEventListener('click', async () => {
@@ -999,13 +1116,13 @@ document.getElementById('btn-route-cancel').addEventListener('click', () => {
 });
 
 function openPanel(which) {
-    ['add', 'move', 'copy', 'route'].forEach(p => {
+    ['add', 'move', 'copy', 'route', 'relabel'].forEach(p => {
         document.getElementById('panel-' + p).style.display = p === which ? 'flex' : 'none';
     });
 }
 function closePanels() { openPanel(null); mode = null; pendingCoords = []; movePos = null; }
 // Any other tool takes over from the pencil.
-document.querySelectorAll('#btn-add-single, #btn-add-run, #btn-move, #btn-route, #btn-copy').forEach(b =>
+document.querySelectorAll('#btn-add-single, #btn-add-run, #btn-move, #btn-route, #btn-copy, #btn-relabel').forEach(b =>
     b.addEventListener('click', () => { if (pencilOn) setPencil(false); }, true));
 
 document.getElementById('btn-add-single').addEventListener('click', () => {
@@ -1131,6 +1248,7 @@ function undoBatch(id) {
         if (!ok) return say(d.error || 'Undo failed.', 'error');
         say(`Undone — ${d.affected} point(s) reversed.`);
         refreshAll();
+        if (hasPlaceFilter()) loadPlaceDays(false);
     });
 }
 
