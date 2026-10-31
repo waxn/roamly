@@ -7,377 +7,329 @@
     {% load static %}
     <meta name="robots" content="noindex, nofollow">
     <link rel="icon" type="image/x-icon" href="{% static 'tracker/roamlymark.ico' %}">
-    <meta name="theme-color" content="#232323">
+    <meta name="theme-color" content="#16140f">
     <meta name="color-scheme" content="dark">
-    <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}">
-    <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/plex-sans-latin-600.woff2' %}">
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/fraunces-latin-var.woff2' %}">
     <style>
-        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:400;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}") format('woff2')}
+        @font-face{font-family:'Fraunces';font-style:normal;font-weight:300 700;font-display:swap;src:url("{% static 'tracker/fonts/fraunces-latin-var.woff2' %}") format('woff2')}
         @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:500;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-500.woff2' %}") format('woff2')}
         @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:600;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-600.woff2' %}") format('woff2')}
-        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:700;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-700.woff2' %}") format('woff2')}
         @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:400;font-display:swap;src:url("{% static 'tracker/fonts/plex-mono-latin-400.woff2' %}") format('woff2')}
 
         :root{
             color-scheme:dark;
-            /* Same variable names as the app so _contact.html just works. */
-            --bg:#232323;--bg-2:#2c2c2a;--bg-3:#383835;--bg-card:#2c2c2a;--bg-input:#1b1b1a;
-            --text:#dcdcc9;--text-muted:#a6a695;--text-dim:#84847a;
-            --border:rgba(220,220,201,0.14);
-            --primary:#e8725a;--primary-hover:#f0836c;--marker:#e9a8a0;
-            --font-display:'IBM Plex Sans',system-ui,sans-serif;
-            --font-body:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+            /* newsprint at night. Same variable names as the app so _contact.html just works. */
+            --bg:#16140f;--bg-2:#1e1b14;--bg-card:#1e1b14;--bg-input:#110f0b;
+            --text:#ebe4d2;--text-muted:#b9b09b;--text-dim:#8c8470;
+            --ink:#ebe4d2;--rule:rgba(235,228,210,0.55);--hair:rgba(235,228,210,0.2);
+            --border:rgba(235,228,210,0.25);
+            --primary:#e0614a;--primary-hover:#ee7660;
+            /* classic book serif for reading, Fraunces for the big type */
+            --serif:'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua','URW Palladio L',Georgia,'Times New Roman',serif;
+            --font-display:'Fraunces','Iowan Old Style',Georgia,serif;
+            --font-body:var(--serif);
+            --label:'IBM Plex Sans',system-ui,sans-serif;
             --font-mono:'IBM Plex Mono',ui-monospace,monospace;
-            --pad:clamp(1.25rem,4vw,3.5rem);
-            --r:22px;
+            --pad:clamp(1.1rem,4vw,3rem);
         }
         *{margin:0;padding:0;box-sizing:border-box}
         html{scroll-behavior:smooth}
-        body{font-family:var(--font-body);font-size:1.0625rem;line-height:1.6;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+        body{
+            font-family:var(--serif);font-size:1.1rem;line-height:1.62;color:var(--text);background:var(--bg);
+            background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 .95 0 0 0 0 .8 0 0 0 .06 0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E");
+            -webkit-font-smoothing:antialiased;overflow-x:hidden;
+        }
         a{color:inherit}
-        ::selection{background:var(--primary);color:#1b1b1a}
+        ::selection{background:var(--primary);color:#16140f}
         :focus-visible{outline:2px solid var(--primary);outline-offset:3px}
-        h1,h2,h3{font-weight:600;letter-spacing:-0.04em;line-height:1}
-        .mark{background:var(--marker);color:#2a2423;padding:0 0.14em;margin:0 -0.06em;border-radius:0.16em;-webkit-box-decoration-break:clone;box-decoration-break:clone;transform:rotate(-1.2deg);display:inline-block}
+        .page{max-width:1280px;margin:0 auto;padding:0 var(--pad)}
+        h1,h2,h3{font-family:var(--font-display);font-weight:700;letter-spacing:-0.02em;line-height:1.05}
+        .label{font-family:var(--label);font-size:0.74rem;font-weight:600;letter-spacing:0.14em;text-transform:uppercase}
 
-        .btn{display:inline-flex;align-items:center;gap:0.5rem;text-decoration:none;font-weight:600;font-size:1rem;padding:0.8rem 1.4rem;border-radius:14px;border:1px solid transparent;cursor:pointer;font-family:inherit;transition:background 0.15s,transform 0.15s}
-        .btn:active{transform:scale(0.97)}
-        .btn.solid{background:var(--text);color:#232323}
-        .btn.solid:hover{background:#fff}
-        .btn.line{background:transparent;border-color:var(--border);color:var(--text)}
-        .btn.line:hover{background:var(--bg-2)}
-        .btn.small{padding:0.5rem 1rem;font-size:0.92rem;border-radius:12px}
+        .btn{display:inline-block;text-decoration:none;font-family:var(--label);font-weight:600;font-size:0.8rem;letter-spacing:0.12em;text-transform:uppercase;padding:0.85rem 1.4rem;border:1.5px solid var(--ink);background:var(--ink);color:var(--bg);cursor:pointer;transition:background 0.15s,color 0.15s}
+        .btn:hover{background:var(--primary);border-color:var(--primary);color:#16140f}
+        .btn.line{background:transparent;color:var(--ink)}
+        .btn.line:hover{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+        .btn.small{padding:0.5rem 0.9rem;font-size:0.72rem}
 
-        /* ── nav ── */
-        .top{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1.3rem var(--pad)}
-        .brand{display:flex;align-items:center;gap:0.65rem;text-decoration:none;font-weight:600;font-size:1.15rem}
-        .brand img{width:34px;height:34px}
-        .top nav{display:flex;align-items:center;gap:0.4rem}
-        .top nav a:not(.btn){text-decoration:none;color:var(--text-muted);padding:0.5rem 0.9rem;border-radius:12px;font-size:0.95rem}
-        .top nav a:not(.btn):hover{background:var(--bg-2);color:var(--text)}
+        /* ── masthead ── */
+        .strip{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:1rem;padding:0.7rem 0;border-bottom:1px solid var(--hair)}
+        .strip .l,.strip .r{display:flex;gap:1.4rem;align-items:center}
+        .strip .r{justify-content:flex-end}
+        .strip a:not(.btn){text-decoration:none;color:var(--text-muted)}
+        .strip a:not(.btn):hover{color:var(--text);text-decoration:underline;text-underline-offset:4px}
+        .strip .date{color:var(--text-dim)}
+        .masthead{text-align:center;padding:clamp(1.4rem,3.5vw,2.6rem) 0 clamp(1rem,2.5vw,1.6rem)}
+        .masthead a{display:inline-flex;align-items:center;gap:clamp(0.6rem,1.6vw,1.2rem);text-decoration:none}
+        .masthead img{width:clamp(44px,7vw,84px);height:auto}
+        .masthead span{font-family:var(--font-display);font-weight:700;font-size:clamp(3.4rem,11vw,8.4rem);letter-spacing:-0.045em;line-height:0.9}
+        .rules{border-top:4px double var(--rule);border-bottom:1px solid var(--hair);padding:0.55rem 0;display:flex;justify-content:center;gap:clamp(1rem,3vw,2.6rem);flex-wrap:wrap}
+        .rules a{text-decoration:none;color:var(--text-muted)}
+        .rules a:hover{color:var(--primary)}
 
-        /* ── hero ── */
-        .hero{padding:clamp(2.5rem,7vw,6rem) var(--pad) 0}
-        h1{font-size:clamp(3.2rem,10.5vw,9.4rem);letter-spacing:-0.055em;line-height:0.92;max-width:11em}
-        .hero-sub{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2rem 4rem;align-items:end;margin:clamp(2rem,4vw,3.2rem) 0 clamp(2.5rem,5vw,4rem)}
-        .lede{font-size:clamp(1.1rem,1.6vw,1.4rem);line-height:1.5;color:var(--text-muted);max-width:36em}
-        .cta{display:flex;flex-wrap:wrap;gap:0.75rem}
-        .stats{display:flex;gap:clamp(1.5rem,4vw,3.5rem);flex-wrap:wrap;margin-bottom:clamp(2rem,4vw,3rem)}
-        .stats div{display:flex;flex-direction:column}
-        .stats dd{font-size:clamp(1.8rem,3.2vw,2.8rem);font-weight:600;letter-spacing:-0.04em;font-variant-numeric:tabular-nums;color:var(--text)}
-        .stats dt{font-size:0.9rem;color:var(--text-dim)}
-
-        /* ── the framed picture (a painted backdrop with an app window on it) ── */
-        .frame{position:relative;border-radius:var(--r);overflow:hidden;background:#2a1d1b;isolation:isolate}
-        .frame>svg.paint{position:absolute;inset:0;width:100%;height:100%;z-index:-1}
-        .frame-inner{padding:clamp(1.25rem,5vw,4.5rem) clamp(0.9rem,6vw,6rem)}
-        .win{max-width:1020px;margin:0 auto;background:#efe6d4;border-radius:16px;overflow:hidden;box-shadow:0 40px 90px -30px rgba(0,0,0,0.7);color:#2a241b;display:grid;grid-template-columns:minmax(0,150px) minmax(0,1fr)}
-        .win .rail{background:#e4dac3;padding:1rem 0.9rem;font-size:0.8rem;display:flex;flex-direction:column;gap:0.15rem}
-        .win .dots{display:flex;gap:6px;margin-bottom:1rem}
-        .win .dots i{width:10px;height:10px;border-radius:50%;background:#c9bd9f}
-        .win .rail span{padding:0.35rem 0.6rem;border-radius:8px;color:#5e5442}
-        .win .rail span.on{background:#efe6d4;color:#2a241b;font-weight:600}
-        .win svg.map{display:block;width:100%;height:auto;min-height:260px;background:#efe6d4}
-        .win .trail{stroke-dasharray:1;stroke-dashoffset:1;animation:draw 3.4s cubic-bezier(.5,0,.2,1) 0.5s forwards}
-        .win .pt{opacity:0;animation:pop 0.4s ease-out forwards}
-        .win .p1{animation-delay:0.6s}.win .p2{animation-delay:1.9s}.win .p3{animation-delay:3s}.win .p4{animation-delay:3.7s}
+        /* ── front page ── */
+        .front{display:grid;grid-template-columns:minmax(0,8fr) minmax(0,4fr);gap:0;padding:clamp(1.6rem,3.5vw,2.8rem) 0}
+        .lead{padding-right:clamp(1.2rem,3vw,2.6rem);border-right:1px solid var(--hair)}
+        .lead h1{font-size:clamp(2.9rem,7.4vw,6.2rem);line-height:0.98;letter-spacing:-0.035em}
+        .lead h1 em{font-style:normal;color:var(--primary)}
+        .deck{font-size:clamp(1.15rem,1.9vw,1.5rem);line-height:1.5;color:var(--text-muted);margin:1.4rem 0 1.8rem;max-width:34em;border-top:1px solid var(--hair);padding-top:1.1rem}
+        .cta{display:flex;flex-wrap:wrap;gap:0.7rem}
+        .side{padding-left:clamp(1.2rem,3vw,2.6rem);display:flex;flex-direction:column;gap:1.8rem}
+        .box{border:1.5px solid var(--rule);padding:1.1rem 1.2rem}
+        .box .label{display:block;padding-bottom:0.6rem;margin-bottom:0.3rem;border-bottom:1px solid var(--hair);color:var(--text-dim)}
+        .box dl>div{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;padding:0.55rem 0;border-bottom:1px dotted var(--hair)}
+        .box dl>div:last-child{border-bottom:none}
+        .box dt{color:var(--text-muted)}
+        .box dd{font-family:var(--font-display);font-weight:700;font-size:1.7rem;font-variant-numeric:lining-nums tabular-nums;letter-spacing:-0.02em}
+        figure svg{display:block;width:100%;height:auto;border:1px solid var(--rule);background:#e9e0cb}
+        figure .trail{stroke-dasharray:1;stroke-dashoffset:1;animation:draw 3.2s cubic-bezier(.5,0,.2,1) 0.5s forwards}
         @keyframes draw{to{stroke-dashoffset:0}}
-        @keyframes pop{from{opacity:0}to{opacity:1}}
+        figcaption{font-size:0.88rem;color:var(--text-dim);margin-top:0.5rem;font-style:italic}
 
         /* ── sections ── */
-        section.s{padding:clamp(4rem,10vw,9rem) var(--pad) 0}
-        h2{font-size:clamp(2.4rem,6.4vw,5.6rem);letter-spacing:-0.05em;line-height:0.95;max-width:13em}
-        .intro{color:var(--text-muted);font-size:clamp(1.05rem,1.4vw,1.25rem);max-width:38em;margin:1.4rem 0 2rem}
+        .sect{border-top:4px double var(--rule);padding:clamp(1.8rem,4vw,3rem) 0}
+        .sect-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:0.6rem 2rem;margin-bottom:clamp(1.2rem,3vw,2rem)}
+        .sect h2{font-size:clamp(2.2rem,5vw,4rem);letter-spacing:-0.03em}
+        .sect-head p{max-width:34em;color:var(--text-muted);font-size:1.12rem}
 
-        /* feature tabs */
-        .seg{display:inline-flex;gap:0.2rem;background:var(--bg-2);padding:0.3rem;border-radius:16px;max-width:100%;overflow-x:auto;scrollbar-width:none;margin-bottom:1.6rem}
-        .seg::-webkit-scrollbar{display:none}
-        .seg button{flex-shrink:0;background:none;border:none;color:var(--text-muted);font-family:inherit;font-size:0.97rem;font-weight:500;padding:0.65rem 1.1rem;border-radius:12px;cursor:pointer;white-space:nowrap}
-        .seg button:hover{color:var(--text)}
-        .seg button[aria-selected="true"]{background:var(--bg-3);color:var(--text)}
-        .tabpanel{max-width:44rem;margin-bottom:2rem;min-height:9.5rem}
-        .js .tabpanel[hidden]{display:none}
-        .tabpanel p{color:var(--text-muted);font-size:1.12rem;line-height:1.6}
-        .tabpanel h3{display:none;font-size:1.6rem;margin:1.5rem 0 0.4rem}
-        html:not(.js) .tabpanel h3{display:block}
-        .tags{display:flex;flex-wrap:wrap;gap:0.4rem;margin-top:1rem}
-        .tags span{font-size:0.82rem;color:var(--text-muted);background:var(--bg-2);padding:0.25rem 0.75rem;border-radius:999px}
+        .cols{column-count:3;column-gap:clamp(1.6rem,3.5vw,3rem);column-rule:1px solid var(--hair)}
+        .item{break-inside:avoid;margin-bottom:1.7rem}
+        .item h3{font-size:1.45rem;margin-bottom:0.35rem}
+        .item p{color:var(--text-muted);font-size:1.02rem;hyphens:auto;text-align:justify}
+        .item .tags{margin-top:0.5rem;color:var(--text-dim)}
+        .item .tags span+span::before{content:' · '}
+        .cols .item:first-child p::first-letter{float:left;font-family:var(--font-display);font-weight:700;font-size:4.2em;line-height:0.8;padding:0.06em 0.1em 0 0;color:var(--text)}
 
-        /* three principles */
-        .three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;margin-top:clamp(2rem,4vw,3.5rem)}
-        .three article{background:var(--bg-2);border-radius:var(--r);padding:clamp(1.6rem,3vw,2.4rem);display:flex;flex-direction:column;gap:1rem;min-height:21rem}
-        .three h3{font-size:clamp(1.7rem,2.6vw,2.4rem);letter-spacing:-0.04em;line-height:1.02}
-        .three p{color:var(--text-muted);margin-top:auto}
-        .three .n{font-family:var(--font-mono);font-size:0.8rem;color:var(--primary)}
+        .three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+        .three article{padding:0 clamp(1.1rem,2.6vw,2.2rem);border-left:1px solid var(--hair)}
+        .three article:first-child{padding-left:0;border-left:none}
+        .three article:last-child{padding-right:0}
+        .three h3{font-size:clamp(1.6rem,2.6vw,2.2rem);margin-bottom:0.7rem}
+        .three p{color:var(--text-muted);text-align:justify;hyphens:auto}
 
-        /* setup */
-        .steps{list-style:none;counter-reset:s;display:grid;gap:1rem;margin-top:clamp(2rem,4vw,3.5rem)}
-        .steps li{counter-increment:s;background:var(--bg-2);border-radius:var(--r);padding:clamp(1.4rem,2.6vw,2.2rem);display:grid;grid-template-columns:3.2rem minmax(0,5fr) minmax(0,7fr);gap:0.5rem clamp(1rem,3vw,2.5rem);align-items:start}
-        .steps li::before{content:counter(s);width:2.6rem;height:2.6rem;border-radius:50%;background:var(--marker);color:#2a2423;display:grid;place-items:center;font-weight:700}
-        .steps h3{font-size:1.5rem;letter-spacing:-0.03em;line-height:1.1}
-        .steps p{color:var(--text-muted);margin-top:0.4rem}
-        .steps code.i{font-family:var(--font-mono);font-size:0.86em;background:var(--bg-input);padding:0.1rem 0.4rem;border-radius:6px;color:var(--text)}
-        .cmds{display:flex;flex-direction:column;gap:0.5rem;min-width:0}
-        .cmd{display:flex;background:var(--bg-input);border-radius:12px;overflow:hidden}
-        .cmd code{flex:1;padding:0.8rem 1rem;font-family:var(--font-mono);font-size:0.82rem;line-height:1.55;white-space:pre;overflow-x:auto;color:var(--text)}
-        .cmd button{background:none;border:none;border-left:1px solid var(--border);color:var(--text-dim);font-family:inherit;font-size:0.85rem;padding:0 1.1rem;cursor:pointer}
+        .steps{list-style:none;counter-reset:s;column-count:2;column-gap:clamp(1.6rem,3.5vw,3rem);column-rule:1px solid var(--hair)}
+        .steps li{counter-increment:s;break-inside:avoid;margin-bottom:1.8rem}
+        .steps h3{font-size:1.5rem;margin-bottom:0.35rem}
+        .steps h3::before{content:counter(s) '. ';color:var(--primary)}
+        .steps p{color:var(--text-muted);margin-bottom:0.7rem}
+        .steps code.i{font-family:var(--font-mono);font-size:0.82em;background:var(--bg-input);padding:0.08rem 0.35rem;color:var(--text)}
+        .cmd{display:flex;background:var(--bg-input);border:1px solid var(--border);margin-bottom:0.5rem}
+        .cmd code{flex:1;padding:0.65rem 0.85rem;font-family:var(--font-mono);font-size:0.78rem;line-height:1.55;white-space:pre;overflow-x:auto;color:var(--text)}
+        .cmd button{background:none;border:none;border-left:1px solid var(--border);color:var(--text-dim);font-family:var(--label);font-size:0.7rem;letter-spacing:0.1em;text-transform:uppercase;padding:0 0.9rem;cursor:pointer}
         .cmd button:hover{color:var(--text)}
         .cmd button.copied{color:#9ec58c}
-        .more{margin-top:1.6rem}
+        .more{margin-top:0.4rem}
 
-        footer{display:flex;flex-wrap:wrap;gap:1rem 2rem;justify-content:space-between;align-items:center;margin:clamp(4rem,9vw,8rem) var(--pad) 0;padding:1.6rem 0 2.4rem;border-top:1px solid var(--border);color:var(--text-dim);font-size:0.92rem}
+        footer{border-top:4px double var(--rule);padding:1.3rem 0 2.2rem;display:flex;flex-wrap:wrap;gap:0.8rem 2rem;justify-content:space-between;color:var(--text-dim)}
         footer div{display:flex;flex-wrap:wrap;gap:0.4rem 1.5rem}
         footer a{text-decoration:none}
-        footer a:hover{color:var(--text)}
+        footer a:hover{color:var(--text);text-decoration:underline;text-underline-offset:3px}
 
-        @media (max-width:900px){
-            .top nav a:not(.btn){display:none}
-            .hero-sub{grid-template-columns:1fr}
-            .three{grid-template-columns:1fr}
-            .three article{min-height:0}
-            .steps li{grid-template-columns:3rem minmax(0,1fr)}
-            .steps .cmds{grid-column:1/-1}
-            .win{grid-template-columns:1fr}
-            .win .rail{display:none}
+        @media (max-width:980px){
+            .front{grid-template-columns:1fr}
+            .lead{padding-right:0;border-right:none;padding-bottom:1.8rem;border-bottom:1px solid var(--hair)}
+            .side{padding-left:0;padding-top:1.8rem}
+            .cols{column-count:2}
+        }
+        @media (max-width:680px){
+            .strip{grid-template-columns:1fr auto}
+            .strip .date,.strip .l a:not(:first-child){display:none}
+            .cols,.steps{column-count:1}
+            .three{grid-template-columns:1fr;gap:1.8rem}
+            .three article{padding:1.4rem 0 0;border-left:none;border-top:1px solid var(--hair)}
+            .three article:first-child{border-top:none;padding-top:0}
+            .item p,.three p{text-align:left}
         }
         @media (prefers-reduced-motion:reduce){
             html{scroll-behavior:auto}
-            .win .trail{animation:none;stroke-dashoffset:0}.win .pt{animation:none;opacity:1}
+            figure .trail{animation:none;stroke-dashoffset:0}
         }
     </style>
 </head>
 <body>
+<div class="page">
 
-<header class="top">
-    <a href="{% url 'tracker:landing' %}" class="brand">
-        <img src="{% static 'tracker/roamlymark.svg' %}" alt="" width="34" height="34">
-        Roamly
-    </a>
-    <nav>
-        <a href="{% url 'tracker:docs' %}">Docs</a>
-        <a href="https://github.com/waxn/roamly">GitHub</a>
-        {% if user.is_authenticated %}
-            <a href="{% url 'tracker:map' %}" class="btn solid small">Open app</a>
-        {% else %}
-            <a href="{% url 'tracker:login' %}">Log in</a>
-            <a href="{% url 'tracker:signup' %}" class="btn solid small">Get started</a>
-        {% endif %}
-    </nav>
-</header>
-
-<main>
-    <div class="hero">
-        <h1>Every mile you log stays <span class="mark">yours.</span></h1>
-        <div class="hero-sub">
-            <p class="lede">A private GPS journal you run yourself. MapLibre heatmaps, shared adventures, dwell-time analytics, a native Android app, and pushes from GPSLogger, OwnTracks, or anything else that can hit an HTTP endpoint.</p>
-            <div class="cta">
-                <a href="{% url 'tracker:signup' %}" class="btn solid">Start tracking free</a>
-                {% if user.is_authenticated %}
-                    <a href="{% url 'tracker:map' %}" class="btn line">Open your map</a>
-                {% else %}
-                    <a href="{% url 'tracker:docs' %}" class="btn line">Read the docs</a>
-                {% endif %}
-            </div>
-        </div>
-
-        <dl class="stats">
-            <div><dd data-count="{{ site_total_points }}">0</dd><dt>points logged</dt></div>
-            <div><dd data-count="{{ site_total_cities }}">0</dd><dt>cities visited</dt></div>
-            <div><dd data-meters="{{ site_total_meters }}">0</dd><dt data-distance-label>km tracked</dt></div>
-        </dl>
-
-        <div class="frame" aria-hidden="true">
-            <svg class="paint" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
-                <defs>
-                    <filter id="wash" x="-20%" y="-20%" width="140%" height="140%">
-                        <feTurbulence type="fractalNoise" baseFrequency="0.009" numOctaves="3" seed="7" result="n"/>
-                        <feDisplacementMap in="SourceGraphic" in2="n" scale="190"/>
-                        <feGaussianBlur stdDeviation="22"/>
-                    </filter>
-                    <filter id="grain"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 1 0 0 0 0 .95 0 0 0 0 .85 0 0 0 .09 0"/></filter>
-                </defs>
-                <rect width="1600" height="900" fill="#2a1d1b"/>
-                <g filter="url(#wash)">
-                    <ellipse cx="260" cy="200" rx="420" ry="250" fill="#8a3f2c"/>
-                    <ellipse cx="1280" cy="140" rx="460" ry="230" fill="#4f5a3d"/>
-                    <ellipse cx="760" cy="520" rx="520" ry="260" fill="#c9783f"/>
-                    <ellipse cx="1360" cy="720" rx="420" ry="230" fill="#7a4a63"/>
-                    <ellipse cx="140" cy="760" rx="380" ry="210" fill="#3d5163"/>
-                    <ellipse cx="960" cy="860" rx="360" ry="170" fill="#d9a35b"/>
-                </g>
-                <rect width="1600" height="900" filter="url(#grain)"/>
-            </svg>
-            <div class="frame-inner">
-                <div class="win">
-                    <div class="rail">
-                        <div class="dots"><i></i><i></i><i></i></div>
-                        <span class="on">Map</span><span>Adventures</span><span>Journals</span><span>Places</span><span>Search</span><span>Stats</span><span>Visits</span>
-                    </div>
-                    <svg class="map" viewBox="0 0 760 460">
-                        <rect width="760" height="460" fill="#efe6d4"/>
-                        <path d="M0,340 C110,300 200,360 320,330 S560,290 760,335 L760,460 L0,460Z" fill="#b9d0c8"/>
-                        <path d="M520,30 C590,6 700,40 686,110 C672,170 560,180 520,128 C494,94 494,52 520,30Z" fill="#cfd9b0"/>
-                        <path d="M50,80 C100,48 190,70 180,128 C170,176 80,180 50,142 C28,116 30,96 50,80Z" fill="#cfd9b0"/>
-                        <g fill="none" stroke="#fbf6ea" stroke-width="9" stroke-linecap="round">
-                            <path d="M0,200 L760,236"/><path d="M200,0 L252,460"/><path d="M540,0 L500,340"/><path d="M0,380 L620,330"/><path d="M0,110 L430,90"/>
-                        </g>
-                        <path class="trail" pathLength="1" d="M90,400 C160,350 130,290 230,252 S400,262 450,200 S590,170 560,100 S640,60 690,50" fill="none" stroke="#e8725a" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-                        <g fill="#efe6d4" stroke="#2a241b" stroke-width="3">
-                            <circle class="pt p1" cx="90" cy="400" r="9"/>
-                            <circle class="pt p2" cx="230" cy="252" r="9"/>
-                            <circle class="pt p3" cx="560" cy="100" r="9"/>
-                            <circle class="pt p4" cx="690" cy="50" r="9" fill="#e8725a"/>
-                        </g>
-                    </svg>
-                </div>
-            </div>
+    <div class="strip label">
+        <div class="l"><a href="{% url 'tracker:docs' %}">Docs</a><a href="https://github.com/waxn/roamly">GitHub</a></div>
+        <span class="date" id="today"></span>
+        <div class="r">
+            {% if user.is_authenticated %}
+                <a href="{% url 'tracker:map' %}" class="btn small">Open app</a>
+            {% else %}
+                <a href="{% url 'tracker:login' %}">Log in</a>
+                <a href="{% url 'tracker:signup' %}" class="btn small">Get started</a>
+            {% endif %}
         </div>
     </div>
 
-    <section class="s" id="inside">
-        <h2>What's in the box</h2>
-        <p class="intro">Roamly is a full Django app you self-host: map, journals, adventures, diagnostics, an AI you bring yourself, and a native Android client, all in one place.</p>
+    <header class="masthead">
+        <a href="{% url 'tracker:landing' %}">
+            <img src="{% static 'tracker/roamlymark.svg' %}" alt="" width="84" height="84">
+            <span>Roamly</span>
+        </a>
+    </header>
+    <nav class="rules label" aria-label="Sections">
+        <a href="#inside">What's in the box</a>
+        <a href="#principles">Three principles</a>
+        <a href="#setup">Setup</a>
+    </nav>
 
-        <div class="seg" role="tablist" aria-label="Features">
-            <button type="button" role="tab" aria-selected="true" data-t="0">Map</button>
-            <button type="button" role="tab" aria-selected="false" data-t="1">Adventures</button>
-            <button type="button" role="tab" aria-selected="false" data-t="2">Stats &amp; visits</button>
-            <button type="button" role="tab" aria-selected="false" data-t="3">Search &amp; places</button>
-            <button type="button" role="tab" aria-selected="false" data-t="4">Journals</button>
-            <button type="button" role="tab" aria-selected="false" data-t="5">Diagnostics</button>
-            <button type="button" role="tab" aria-selected="false" data-t="6">AI Ask</button>
-            <button type="button" role="tab" aria-selected="false" data-t="7">Android app</button>
-            <button type="button" role="tab" aria-selected="false" data-t="8">Your server</button>
+    <main>
+        <div class="front">
+            <div class="lead">
+                <h1>Every mile you log stays <em>yours.</em></h1>
+                <p class="deck">A private GPS journal you run yourself. MapLibre heatmaps, shared adventures, dwell-time analytics, a native Android app, and pushes from GPSLogger, OwnTracks, or anything else that can hit an HTTP endpoint.</p>
+                <div class="cta">
+                    <a href="{% url 'tracker:signup' %}" class="btn">Start tracking free</a>
+                    {% if user.is_authenticated %}
+                        <a href="{% url 'tracker:map' %}" class="btn line">Open your map</a>
+                    {% else %}
+                        <a href="{% url 'tracker:docs' %}" class="btn line">Read the docs</a>
+                    {% endif %}
+                </div>
+            </div>
+
+            <aside class="side">
+                <div class="box">
+                    <span class="label">Logged so far</span>
+                    <dl>
+                        <div><dt>points logged</dt><dd data-count="{{ site_total_points }}">0</dd></div>
+                        <div><dt>cities visited</dt><dd data-count="{{ site_total_cities }}">0</dd></div>
+                        <div><dt data-distance-label>km tracked</dt><dd data-meters="{{ site_total_meters }}">0</dd></div>
+                    </dl>
+                </div>
+                <figure aria-hidden="true">
+                    <svg viewBox="0 0 400 300">
+                        <rect width="400" height="300" fill="#e9e0cb"/>
+                        <path d="M0,225 C60,205 120,240 190,222 S320,196 400,222 L400,300 L0,300Z" fill="#c4d3c8"/>
+                        <path d="M270,24 C320,8 385,32 376,76 C367,112 296,118 270,86 C252,64 252,38 270,24Z" fill="#d3d9b6"/>
+                        <path d="M26,60 C58,36 118,52 112,92 C106,124 46,128 26,100 C12,82 14,70 26,60Z" fill="#d3d9b6"/>
+                        <g fill="none" stroke="#f7f1e1" stroke-width="7" stroke-linecap="round">
+                            <path d="M0,140 L400,160"/><path d="M130,0 L160,300"/><path d="M290,0 L268,226"/><path d="M0,252 L330,230"/>
+                        </g>
+                        <path class="trail" pathLength="1" d="M52,262 C98,232 80,194 140,170 S236,176 262,132 S340,112 322,66 S350,40 372,32" fill="none" stroke="#c4432b" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        <g fill="#e9e0cb" stroke="#241f16" stroke-width="2.5"><circle cx="52" cy="262" r="6.5"/><circle cx="372" cy="32" r="6.5" fill="#c4432b"/></g>
+                    </svg>
+                    <figcaption>A recorded track, drawn on the map.</figcaption>
+                </figure>
+            </aside>
         </div>
 
-        <div class="tabpanel" role="tabpanel"><h3>Map</h3>
-            <p>Speed-gradient tracks, density heatmaps, a day-by-day replay animation, and a "scratch map" of every country and US state you've set foot in. Vector tiles at scale on PostGIS, classic mode on SQLite.</p>
-            <div class="tags"><span>heatmap</span><span>replay</span><span>scratch map</span></div></div>
-        <div class="tabpanel" role="tabpanel"><h3>Adventures</h3>
-            <p>Shared journeys with a day-by-day log, a freeform story, and rated places with photos. Every member joins, tracks their own route in its own color on one map, and writes what happened. Share it publicly behind a PIN if you want.</p>
-            <div class="tags"><span>day-by-day log</span><span>rated places</span><span>per-member tracks</span></div></div>
-        <div class="tabpanel" role="tabpanel"><h3>Stats &amp; visits</h3>
-            <p>Distance isn't a raw point-to-point sum: it's resampled, gated against phone-in-pocket drift, and rejects GPS teleports. Dwell time per place goes through the same care, then gets cached in a nightly snapshot so the page loads instantly.</p>
-            <div class="tags"><span>gated distance</span><span>dwell time</span></div></div>
-        <div class="tabpanel" role="tabpanel"><h3>Search &amp; places</h3>
-            <p>Search by place name, date phrase, or radius around a point. Define your own named geofences and get full stats back — top cities, dwell time, a sample track — for each one.</p>
-            <div class="tags"><span>proximity search</span><span>custom geofences</span></div></div>
-        <div class="tabpanel" role="tabpanel"><h3>Journals</h3>
-            <p>One entry per day with mood, weather, and up to 20 photos, its map track pulled straight from your own GPS history. Streaks and lifetime totals included.</p>
-            <div class="tags"><span>streaks</span><span>day track</span></div></div>
-        <div class="tabpanel" role="tabpanel"><h3>Diagnostics</h3>
-            <p>A quality-review pass flags bad fixes — impossible speed, altitude spikes, poor accuracy — on a map you can inspect and clean up point by point, plus a coverage timeline for the whole history.</p>
-            <div class="tags"><span>quality review</span><span>coverage timeline</span></div></div>
-        <div class="tabpanel" role="tabpanel"><h3>AI Ask</h3>
-            <p>Ask plain-language questions about your own history using any OpenAI-compatible model you point at — read-only tools, your own API key, no vendor lock-in.</p>
-            <div class="tags"><span>bring your own LLM</span><span>read-only</span></div></div>
-        <div class="tabpanel" role="tabpanel"><h3>Android app</h3>
-            <p>A foreground service with two capture layers: a continuous stream while the phone's awake, and exact alarms that take over once Android's Doze mode suspends everything else. Sync is offline-first, so it catches back up on its own after a dead connection.</p>
-            <div class="tags"><span>survives doze</span><span>offline-first</span></div></div>
-        <div class="tabpanel" role="tabpanel"><h3>Your server</h3>
-            <p>Docker Compose, SQLite or PostgreSQL + PostGIS, S3-compatible backups for data and photos, CSV/GPX/Takeout/OwnTracks/KML import. US points geocode fully offline against Census boundaries — no outbound call.</p>
-            <div class="tags"><span>docker compose</span><span>offline geocoding</span></div></div>
-    </section>
+        <section class="sect" id="inside">
+            <div class="sect-head">
+                <h2>What's in the box</h2>
+                <p>Roamly is a full Django app you self-host: map, journals, adventures, diagnostics, an AI you bring yourself, and a native Android client, all in one place.</p>
+            </div>
+            <div class="cols">
+                <div class="item"><h3>Map</h3>
+                    <p>Speed-gradient tracks, density heatmaps, a day-by-day replay animation, and a "scratch map" of every country and US state you've set foot in. Vector tiles at scale on PostGIS, classic mode on SQLite.</p>
+                    <p class="tags label"><span>heatmap</span><span>replay</span><span>scratch map</span></p></div>
+                <div class="item"><h3>Adventures</h3>
+                    <p>Shared journeys with a day-by-day log, a freeform story, and rated places with photos. Every member joins, tracks their own route in its own color on one map, and writes what happened. Share it publicly behind a PIN if you want.</p>
+                    <p class="tags label"><span>day-by-day log</span><span>rated places</span><span>per-member tracks</span></p></div>
+                <div class="item"><h3>Stats &amp; visits</h3>
+                    <p>Distance isn't a raw point-to-point sum: it's resampled, gated against phone-in-pocket drift, and rejects GPS teleports. Dwell time per place goes through the same care, then gets cached in a nightly snapshot so the page loads instantly.</p>
+                    <p class="tags label"><span>gated distance</span><span>dwell time</span></p></div>
+                <div class="item"><h3>Search &amp; places</h3>
+                    <p>Search by place name, date phrase, or radius around a point. Define your own named geofences and get full stats back — top cities, dwell time, a sample track — for each one.</p>
+                    <p class="tags label"><span>proximity search</span><span>custom geofences</span></p></div>
+                <div class="item"><h3>Journals</h3>
+                    <p>One entry per day with mood, weather, and up to 20 photos, its map track pulled straight from your own GPS history. Streaks and lifetime totals included.</p>
+                    <p class="tags label"><span>streaks</span><span>day track</span></p></div>
+                <div class="item"><h3>Diagnostics</h3>
+                    <p>A quality-review pass flags bad fixes — impossible speed, altitude spikes, poor accuracy — on a map you can inspect and clean up point by point, plus a coverage timeline for the whole history.</p>
+                    <p class="tags label"><span>quality review</span><span>coverage timeline</span></p></div>
+                <div class="item"><h3>AI Ask</h3>
+                    <p>Ask plain-language questions about your own history using any OpenAI-compatible model you point at — read-only tools, your own API key, no vendor lock-in.</p>
+                    <p class="tags label"><span>bring your own LLM</span><span>read-only</span></p></div>
+                <div class="item"><h3>Android app</h3>
+                    <p>A foreground service with two capture layers: a continuous stream while the phone's awake, and exact alarms that take over once Android's Doze mode suspends everything else. Sync is offline-first, so it catches back up on its own after a dead connection.</p>
+                    <p class="tags label"><span>survives doze</span><span>offline-first</span></p></div>
+                <div class="item"><h3>Your server</h3>
+                    <p>Docker Compose, SQLite or PostgreSQL + PostGIS, S3-compatible backups for data and photos, CSV/GPX/Takeout/OwnTracks/KML import. US points geocode fully offline against Census boundaries — no outbound call.</p>
+                    <p class="tags label"><span>docker compose</span><span>offline geocoding</span></p></div>
+            </div>
+        </section>
 
-    <section class="s" id="principles">
-        <h2>Field notes on ownership</h2>
-        <p class="intro">Three principles, no asterisks.</p>
-        <div class="three">
-            <article>
-                <span class="n">N. 01</span>
-                <h3>It never phones home</h3>
-                <p>Your points live in your Postgres, your Docker volume, your S3 bucket. No telemetry, no analytics beacon, no third party. The only server Roamly talks to is the one you started.</p>
-            </article>
-            <article>
-                <span class="n">N. 02</span>
-                <h3>Offline where it counts</h3>
-                <p>US points reverse-geocode against bundled Census boundaries with point-in-polygon lookups. No Google, no per-point API call, no rate limit. A town resolves to the place that actually contains the point, rather than whichever city happens to be closest.</p>
-            </article>
-            <article>
-                <span class="n">N. 03</span>
-                <h3>Built to run for years</h3>
-                <p>Gated distance that ignores GPS jitter, nightly stat snapshots, Doze-proof capture on Android, idempotent backups. Nothing flashy. It just keeps logging, year after year.</p>
-            </article>
-        </div>
-    </section>
+        <section class="sect" id="principles">
+            <div class="sect-head"><h2>Three principles, no asterisks</h2></div>
+            <div class="three">
+                <article>
+                    <h3>It never phones home</h3>
+                    <p>Your points live in your Postgres, your Docker volume, your S3 bucket. No telemetry, no analytics beacon, no third party. The only server Roamly talks to is the one you started.</p>
+                </article>
+                <article>
+                    <h3>Offline where it counts</h3>
+                    <p>US points reverse-geocode against bundled Census boundaries with point-in-polygon lookups. No Google, no per-point API call, no rate limit. A town resolves to the place that actually contains the point, rather than whichever city happens to be closest.</p>
+                </article>
+                <article>
+                    <h3>Built to run for years</h3>
+                    <p>Gated distance that ignores GPS jitter, nightly stat snapshots, Doze-proof capture on Android, idempotent backups. Nothing flashy. It just keeps logging, year after year.</p>
+                </article>
+            </div>
+        </section>
 
-    <section class="s" id="setup">
-        <h2>Live in about two minutes</h2>
-        <p class="intro">Docker Compose brings up the database, migrations, and web app. Create an API key, point GPSLogger at your instance, watch points appear.</p>
-        <ol class="steps">
-            <li>
-                <div><h3>Grab &amp; start</h3><p>Pull the prebuilt <code class="i">waxn/roamly</code> image. PostGIS and migrations run automatically.</p></div>
-                <div class="cmds">
+        <section class="sect" id="setup">
+            <div class="sect-head">
+                <h2>Live in about two minutes</h2>
+                <p>Docker Compose brings up the database, migrations, and web app. Create an API key, point GPSLogger at your instance, watch points appear.</p>
+            </div>
+            <ol class="steps">
+                <li>
+                    <h3>Grab &amp; start</h3>
+                    <p>Pull the prebuilt <code class="i">waxn/roamly</code> image. PostGIS and migrations run automatically.</p>
                     <div class="cmd"><code id="cmd-1">curl -O https://raw.githubusercontent.com/waxn/roamly/main/docker-compose.yml</code><button type="button" data-copy-target="cmd-1">copy</button></div>
                     <div class="cmd"><code id="cmd-2">docker compose up -d</code><button type="button" data-copy-target="cmd-2">copy</button></div>
-                </div>
-            </li>
-            <li>
-                <div><h3>Sign up &amp; API key</h3><p>Open your instance, create an account, then Settings → API Keys for your phone.</p></div>
-            </li>
-            <li>
-                <div><h3>Push locations</h3><p>GPSLogger custom URL or OwnTracks → <code class="i">/api/push/</code> with your key. Garmin/Strava exports work via CSV import too.</p></div>
-                <div class="cmds">
+                </li>
+                <li>
+                    <h3>Sign up &amp; API key</h3>
+                    <p>Open your instance, create an account, then Settings → API Keys for your phone.</p>
+                </li>
+                <li>
+                    <h3>Push locations</h3>
+                    <p>GPSLogger custom URL or OwnTracks → <code class="i">/api/push/</code> with your key. Garmin/Strava exports work via CSV import too.</p>
                     <div class="cmd"><code id="cmd-3">curl -X POST localhost:8001/api/push/ \
   -H "Authorization: Bearer YOUR_KEY" \
   -d '{"device_id":"phone","latitude":45.5,"longitude":-122.6}'</code><button type="button" data-copy-target="cmd-3">copy</button></div>
-                </div>
-            </li>
-            <li>
-                <div><h3>Explore</h3><p>Map your history, run geocoding, check visits dwell time, log an adventure, invite your family.</p></div>
-            </li>
-            <li>
-                <div><h3>Staying current</h3><p>Updates are just a pull and restart — no git clone, no rebuild.</p></div>
-                <div class="cmds">
+                </li>
+                <li>
+                    <h3>Explore</h3>
+                    <p>Map your history, run geocoding, check visits dwell time, log an adventure, invite your family.</p>
+                </li>
+                <li>
+                    <h3>Staying current</h3>
+                    <p>Updates are just a pull and restart — no git clone, no rebuild.</p>
                     <div class="cmd"><code id="cmd-4">docker compose pull &amp;&amp; docker compose up -d</code><button type="button" data-copy-target="cmd-4">copy</button></div>
-                </div>
-            </li>
-        </ol>
-        <p class="more"><a href="{% url 'tracker:docs' %}" class="btn line">Full setup guide →</a></p>
-    </section>
-</main>
+                </li>
+            </ol>
+            <p class="more"><a href="{% url 'tracker:docs' %}" class="btn line">Full setup guide</a></p>
+        </section>
+    </main>
 
-<footer>
-    <span>roamly · self-hosted gps · &copy; 2026</span>
-    <div>
-        <a href="https://github.com/waxn/roamly">github</a>
-        <a href="{% url 'tracker:docs' %}">docs</a>
-        <a href="{% url 'tracker:terms' %}">terms</a>
-        <a href="{% url 'tracker:privacy' %}">privacy</a>
-        {% if CONTACT_EMAIL %}
-        {% if EMAIL_ENABLED %}<a href="#" onclick="openContactForm();return false;">contact</a>
-        {% else %}<a href="mailto:{{ CONTACT_EMAIL }}">contact</a>{% endif %}
-        {% endif %}
-    </div>
-</footer>
+    <footer>
+        <span>roamly · self-hosted gps · &copy; 2026</span>
+        <div>
+            <a href="https://github.com/waxn/roamly">github</a>
+            <a href="{% url 'tracker:docs' %}">docs</a>
+            <a href="{% url 'tracker:terms' %}">terms</a>
+            <a href="{% url 'tracker:privacy' %}">privacy</a>
+            {% if CONTACT_EMAIL %}
+            {% if EMAIL_ENABLED %}<a href="#" onclick="openContactForm();return false;">contact</a>
+            {% else %}<a href="mailto:{{ CONTACT_EMAIL }}">contact</a>{% endif %}
+            {% endif %}
+        </div>
+    </footer>
+</div>
 
 {% include 'tracker/_contact.html' %}
 
 <script>
     var REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    // feature tabs (all panels stay visible without JS)
+    // dateline, like the top of a paper
     (function () {
-        var tabs = Array.prototype.slice.call(document.querySelectorAll('.seg button'));
-        var panels = Array.prototype.slice.call(document.querySelectorAll('.tabpanel'));
-        if (!tabs.length || tabs.length !== panels.length) return;
-        document.documentElement.classList.add('js');
-        function show(i, focus) {
-            tabs.forEach(function (t, k) { t.setAttribute('aria-selected', String(k === i)); t.tabIndex = k === i ? 0 : -1; });
-            panels.forEach(function (p, k) { p.hidden = k !== i; });
-            if (focus) tabs[i].focus();
-        }
-        tabs.forEach(function (t, i) {
-            t.addEventListener('click', function () { show(i); });
-            t.addEventListener('keydown', function (e) {
-                var n = null;
-                if (e.key === 'ArrowRight') n = (i + 1) % tabs.length;
-                else if (e.key === 'ArrowLeft') n = (i - 1 + tabs.length) % tabs.length;
-                else return;
-                e.preventDefault(); show(n, true);
-            });
-        });
-        show(0);
+        var el = document.getElementById('today');
+        if (el) el.textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
     })();
 
     document.querySelectorAll('.cmd button').forEach(function (btn) {
@@ -393,7 +345,7 @@
         });
     });
 
-    // hero stat counters (same behaviour as the classic page, incl. the km/mi preference)
+    // stat counters (same behaviour as the classic page, incl. the km/mi preference)
     (function () {
         var imperial = (localStorage.getItem('roamly_speed_unit') || 'kmh') === 'mph';
         document.querySelectorAll('[data-distance-label]').forEach(function (el) { el.textContent = imperial ? 'mi tracked' : 'km tracked'; });
