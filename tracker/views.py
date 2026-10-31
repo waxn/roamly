@@ -59,7 +59,7 @@ from .models import (
     SiteStat, JournalEntry, JournalPhoto, Visit, CustomPlace, SiteConfig, StatsSnapshot, AchievementSnapshot,
     DismissedSuggestion, PlannedStop, KnownDevice, TOTPBackupCode,
     LocationShare, LocationShareGrant, LocationShareView,
-    InferredLocation, EditBatch, TrashedLocation, RoadSegment, ROADS_AVAILABLE_CACHE_KEY,
+    InferredLocation, EditBatch, TrashedLocation, RoadSegment, Boundary, ROADS_AVAILABLE_CACHE_KEY,
     RailSegment, RailStation, DismissedSubwayGap, SUBWAY_AVAILABLE_CACHE_KEY,
     DownloadedRegion, HealthSample, HealthWorkout, HEALTH_KINDS,
     Activity, ACTIVITY_KINDS, ActivityTrack,
@@ -3215,7 +3215,12 @@ def push_location_batch(request):
 # points geocoded to that place — what a click on a Visits row opens. Exact
 # matches on the stored labels (each has its own index), because those are the
 # very strings the Visits page grouped by.
+#
+# ``boundary`` is a Boundary id, for what Achievements links to: counties and
+# regions abroad have no stored label, so they are matched on the polygon. The
+# ::geometry cast only rechecks what the geography index's && already narrowed.
 _PLACE_FILTER_FIELDS = ('city', 'state', 'country')
+_BOUNDARY_MATCH_SQL = 'ST_Intersects({col}::geometry, (SELECT geom FROM tracker_boundary WHERE id = {param}))'
 
 
 def _place_filter(get):
@@ -3225,12 +3230,42 @@ def _place_filter(get):
         v = (get.get(f) or '').strip()
         if v:
             out[f] = v[:200]
+    boundary = (get.get('boundary') or '').strip()
+    if HAS_POSTGIS and boundary.isascii() and boundary.isdigit() and len(boundary) <= 18:
+        out['boundary'] = boundary
     return out
+
+
+def _place_tag(place):
+    """Cache-key fragment for a place filter."""
+    values = [place.get(f, '') for f in (*_PLACE_FILTER_FIELDS, 'boundary')]
+    return hashlib.sha1('|'.join(values).encode()).hexdigest()[:16]
+
+
+def _filter_by_place(qs, place):
+    labels = {f: v for f, v in place.items() if f != 'boundary'}
+    if labels:
+        qs = qs.filter(**labels)
+    if 'boundary' not in place:
+        return qs
+    boundary_id = int(place['boundary'])
+    geom = Boundary.objects.filter(pk=boundary_id).values_list('geom', flat=True).first()
+    if geom is None:
+        return qs.none()
+    xmin, ymin, xmax, ymax = geom.extent
+    # Past 180 degrees wide is a shape across the date line (Aleutians West),
+    # whose extent is the whole globe and useless as a bounding box.
+    if xmax - xmin < 180:
+        bbox = Polygon.from_bbox((xmin, ymin, xmax, ymax))
+        bbox.srid = 4326
+        qs = qs.filter(location__bboverlaps=bbox)
+    match = _BOUNDARY_MATCH_SQL.format(col='"tracker_location"."location"', param='%s')
+    return qs.extra(where=[match], params=[boundary_id])
 
 
 def _apply_place_filter(qs, get):
     place = _place_filter(get)
-    return qs.filter(**place) if place else qs
+    return _filter_by_place(qs, place) if place else qs
 
 
 @login_required
@@ -4411,11 +4446,16 @@ def _tile_filters(user_id, get):
     tag += f":{device_id or ''}"
     place = _place_filter(get)
     for f, v in place.items():
+        if f == 'boundary':
+            match = _BOUNDARY_MATCH_SQL.format(col='l.location', param='%(place_boundary)s')
+            extra_where.append(f"AND {match}")
+            params['place_boundary'] = int(v)
+            continue
         # Field names come from _PLACE_FILTER_FIELDS, never from the request.
         extra_where.append(f"AND l.{f} = %(place_{f})s")
         params[f"place_{f}"] = v
     if place:
-        tag += ':' + hashlib.sha1('|'.join(place.get(f, '') for f in _PLACE_FILTER_FIELDS).encode()).hexdigest()[:16]
+        tag += ':' + _place_tag(place)
     return extra_where, params, tag, cache_ttl
 
 
@@ -4844,8 +4884,7 @@ def _visited_cells(user, device_id=None, place=None):
     Returns ``{'cells': [gy, gx, n, ...], 'bounds': [[w, s], [e, n]] | None}``.
     """
     place = place or {}
-    place_tag = '|'.join(place.get(f, '') for f in _PLACE_FILTER_FIELDS)
-    cache_key = f"visited_cells:{user.id}:{device_id or 'all'}:{hashlib.sha1(place_tag.encode()).hexdigest()[:16] if place else ''}"
+    cache_key = f"visited_cells:{user.id}:{device_id or 'all'}:{_place_tag(place) if place else ''}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -4854,7 +4893,7 @@ def _visited_cells(user, device_id=None, place=None):
     if device_id:
         qs = qs.filter(device__device_id=device_id)
     if place:
-        qs = qs.filter(**place)
+        qs = _filter_by_place(qs, place)
     # order_by() clears Location's Meta.ordering ['-timestamp']; without it the
     # inherited ordering is appended to the GROUP BY and shatters it per row.
     rows = (

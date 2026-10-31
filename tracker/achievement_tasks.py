@@ -1226,7 +1226,7 @@ def _unit_geojson(visited, kind, cc):
             if not gj:
                 continue
             feats.append({'type': 'Feature', 'geometry': json.loads(gj),
-                          'properties': {'name': name, 'state': state or '', 'v': 1 if bid in vis_ids else 0}})
+                          'properties': {'id': bid, 'name': name, 'state': state or '', 'v': 1 if bid in vis_ids else 0}})
     return {'type': 'FeatureCollection', 'features': feats}
 
 

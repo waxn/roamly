@@ -261,8 +261,11 @@ function showPointPopup(pt, coords) {
 // ── Filter params ──
 // Place filter ({city, state, country}) from the URL — what a click on a Visits
 // row opens. Narrows every map request to points geocoded to that place.
+// `boundary` is a polygon id for what has no stored label (a county); its name
+// comes along in `label`, for the chip only.
 let placeFilter = {};
-const PLACE_FIELDS = ['city', 'state', 'country'];
+let placeLabel = '';
+const PLACE_FIELDS = ['city', 'state', 'country', 'boundary'];
 function appendPlaceParams(params) {
     PLACE_FIELDS.forEach(f => { if (placeFilter[f]) params.set(f, placeFilter[f]); });
 }
@@ -270,7 +273,8 @@ function appendPlaceParams(params) {
 function renderPlaceFilter() {
     const box = document.getElementById('place-filter');
     if (!box) return;
-    const label = PLACE_FIELDS.map(f => placeFilter[f]).filter(Boolean).join(', ');
+    const label = placeFilter.boundary ? (placeLabel || 'Selected area')
+        : PLACE_FIELDS.map(f => placeFilter[f]).filter(Boolean).join(', ');
     box.hidden = !label;
     const text = document.getElementById('place-filter-label');
     if (text) text.textContent = label;
@@ -280,6 +284,7 @@ function clearPlaceFilter() {
     placeFilter = {};
     const url = new URL(window.location.href);
     PLACE_FIELDS.forEach(f => url.searchParams.delete(f));
+    url.searchParams.delete('label');
     history.replaceState(null, '', url.pathname + url.search + url.hash);
     renderPlaceFilter();
     clearAccumulated();
@@ -1703,6 +1708,7 @@ if (TRIP_LINES_ENABLED) {
 (function() {
     const p = new URLSearchParams(window.location.search);
     PLACE_FIELDS.forEach(f => { if (p.get(f)) placeFilter[f] = p.get(f); });
+    placeLabel = p.get('label') || '';
     if (Object.keys(placeFilter).length) {
         // A place link means "everything I did there", so start from all time;
         // an explicit start/end/date below still narrows it.

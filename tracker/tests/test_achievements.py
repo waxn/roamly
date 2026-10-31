@@ -441,3 +441,46 @@ def test_scan_does_not_count_places_flown_over():
     assert p['metrics']['us_states'] == 2  # Maine and the train through Virginia
     assert p['metrics']['countries'] == 1
     assert p['extremes']['n']['lat'] < 45
+
+
+@pytest.mark.django_db
+def test_county_click_filters_the_map_to_that_county(client):
+    from django.contrib.auth.models import User
+    from tracker.models import Boundary, Device, Location
+
+    user = User.objects.create_user('ach5', password='x')
+    other = User.objects.create_user('ach6', password='x')
+    dev = Device.objects.create(user=user, device_id='phone')
+    stranger = Device.objects.create(user=other, device_id='theirs')
+    county = Boundary.objects.create(name='Waldo County', state='Maine', kind='county',
+                                     geom=_square(44.3, -69.5, 44.8, -68.9))
+    ts = datetime(2025, 6, 2, 12, 0, tzinfo=dt_timezone.utc)
+    Location.objects.create(device=dev, latitude=44.5, longitude=-69.1, timestamp=ts)
+    Location.objects.create(device=dev, latitude=45.5, longitude=-69.1, timestamp=ts)
+    Location.objects.create(device=stranger, latitude=44.5, longitude=-69.2, timestamp=ts)
+
+    client.force_login(user)
+    def lats(query):
+        r = client.get(f'/api/track/?all=1&{query}')
+        assert r.status_code == 200
+        return sorted(p['c'][1] for d in r.json()['devices'] for p in d['points'])
+
+    assert lats(f'boundary={county.id}') == [44.5]
+    # An unknown id is an empty result, never the whole history.
+    assert lats(f'boundary={county.id + 999}') == []
+    # Junk is ignored like any other unusable filter value.
+    assert lats('boundary=1;drop') == [44.5, 45.5]
+
+    cells = client.get(f'/api/map/overview/?boundary={county.id}').json()
+    assert len(cells['cells']) == 3
+    assert cells['cells'] != client.get('/api/map/overview/').json()['cells']
+
+
+@pytest.mark.django_db
+def test_county_features_carry_the_id_the_click_needs():
+    from tracker.models import Boundary
+
+    b = Boundary.objects.create(name='Near County', state='Maine', kind='county',
+                                geom=_square(44.3, -69.5, 44.8, -68.9))
+    gj = at._unit_geojson({b.id: {'kind': 'county', 'cc': 'US'}}, 'county', 'US')
+    assert gj['features'][0]['properties']['id'] == b.id
