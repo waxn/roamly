@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roamly (beta look)</title>
+    {% load static %}
+    <meta name="robots" content="noindex, nofollow">
+    <link rel="icon" type="image/x-icon" href="{% static 'tracker/roamlymark.ico' %}">
+    <meta name="theme-color" content="#efe8d8">
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/fraunces-latin-var.woff2' %}">
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}">
+    <style>
+        @font-face{font-family:'Fraunces';font-style:normal;font-weight:300 700;font-display:swap;src:url("{% static 'tracker/fonts/fraunces-latin-var.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:400;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:500;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-500.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:600;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-600.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:400;font-display:swap;src:url("{% static 'tracker/fonts/plex-mono-latin-400.woff2' %}") format('woff2')}
+
+        :root{
+            /* paper + ink. Same variable names as the app so _contact.html just works. */
+            --paper:#efe8d8;--bg:#efe8d8;--bg-card:#f7f2e6;--bg-input:#e7dfcb;
+            --ink:#241d15;--text:#241d15;--text-muted:#5b5144;--text-dim:#82776a;
+            --border:#cfc4aa;--rule:#d8cdb4;
+            --primary:#c2441d;--primary-hover:#a53716;--pine:#2f4b3b;
+            --font-display:'Fraunces',Georgia,serif;
+            --font-body:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+            --font-mono:'IBM Plex Mono',ui-monospace,monospace;
+        }
+        *{margin:0;padding:0;box-sizing:border-box}
+        html{scroll-behavior:smooth}
+        body{
+            font-family:var(--font-body);font-size:1.0625rem;line-height:1.65;color:var(--ink);
+            background-color:var(--paper);
+            background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .28 0 0 0 0 .2 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+            -webkit-font-smoothing:antialiased;overflow-x:hidden;
+        }
+        a{color:inherit}
+        ::selection{background:#e9c9a6}
+        .wrap{max-width:1040px;margin:0 auto;padding:0 clamp(1.25rem,5vw,2.5rem)}
+
+        /* ── top ── */
+        .top{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1.4rem 0}
+        .brand{display:flex;align-items:center;gap:0.55rem;text-decoration:none}
+        .brand img{width:34px;height:34px}
+        .brand span{font-family:var(--font-display);font-size:1.5rem;font-weight:600;letter-spacing:-0.01em}
+        .top nav{display:flex;align-items:center;gap:1.6rem;font-size:0.95rem}
+        .top nav a{text-decoration:none;color:var(--text-muted)}
+        .top nav a:hover{color:var(--ink);text-decoration:underline;text-underline-offset:4px}
+
+        .btn{
+            display:inline-block;text-decoration:none;font-family:var(--font-body);font-weight:600;font-size:0.95rem;
+            padding:0.65rem 1.25rem;border-radius:10px;border:1.5px solid var(--ink);
+            background:var(--ink);color:var(--paper);box-shadow:3px 3px 0 var(--primary);
+            transition:transform 0.12s,box-shadow 0.12s;
+        }
+        .btn:hover{transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--primary)}
+        .btn:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--primary)}
+        .btn.plain{background:transparent;color:var(--ink);box-shadow:none}
+        .btn.plain:hover{background:var(--bg-card);transform:none;box-shadow:none}
+        .top .btn{padding:0.5rem 1rem;box-shadow:2px 2px 0 var(--primary)}
+        .top nav a.btn{color:var(--paper)}
+        :focus-visible{outline:2px solid var(--primary);outline-offset:3px}
+
+        /* ── hero ── */
+        .hero{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:clamp(2rem,6vw,4.5rem);padding:clamp(2.5rem,7vw,5rem) 0 clamp(3rem,7vw,5rem);align-items:start}
+        h1,h2,h3{font-family:var(--font-display);font-weight:500;letter-spacing:-0.02em;line-height:1.08}
+        h1{font-size:clamp(2.6rem,6.4vw,4.4rem)}
+        h1 em{font-style:italic;color:var(--primary)}
+        .lede{font-size:1.2rem;line-height:1.6;color:var(--text-muted);margin:1.4rem 0 2rem;max-width:34em}
+        .cta{display:flex;flex-wrap:wrap;align-items:center;gap:1.1rem 1.4rem}
+        .cta .or{color:var(--text-dim);font-size:0.95rem}
+        .cta .or a{color:var(--ink)}
+
+        .figure{margin-top:clamp(0rem,3vw,2.5rem)}
+        .figure svg{display:block;width:100%;height:auto;border:1.5px solid var(--ink);border-radius:14px;background:#e6dcc6}
+        .figure figcaption{font-family:var(--font-display);font-style:italic;font-size:0.92rem;color:var(--text-muted);margin-top:0.6rem}
+        .figure .trail{stroke-dasharray:1;stroke-dashoffset:1;animation:draw 3.2s cubic-bezier(.5,0,.2,1) 0.4s forwards}
+        .figure .stop{opacity:0;animation:pop 0.4s ease-out forwards}
+        .figure .s1{animation-delay:0.5s}.figure .s2{animation-delay:1.6s}.figure .s3{animation-delay:2.7s}.figure .s4{animation-delay:3.4s}
+        @keyframes draw{to{stroke-dashoffset:0}}
+        @keyframes pop{from{opacity:0}to{opacity:1}}
+
+        /* ── the numbers, said as a sentence ── */
+        .tally{border-top:1.5px solid var(--ink);border-bottom:1px solid var(--rule);padding:1.6rem 0;font-family:var(--font-display);font-size:clamp(1.25rem,2.6vw,1.7rem);line-height:1.45;max-width:36em}
+        .tally b{font-weight:600;color:var(--primary);font-variant-numeric:tabular-nums}
+
+        /* ── sections ── */
+        section.part{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,8fr);gap:clamp(1.5rem,5vw,4rem);padding:clamp(3rem,7vw,5rem) 0;border-bottom:1px solid var(--rule)}
+        .part h2{font-size:clamp(1.7rem,3.2vw,2.3rem)}
+        .part .kicker{font-family:var(--font-display);font-style:italic;color:var(--text-dim);margin-bottom:0.5rem;font-size:1rem}
+        .part .aside{color:var(--text-muted);font-size:0.98rem;margin-top:1rem;max-width:22em}
+
+        .promises p{margin-bottom:1.4rem;max-width:36em}
+        .promises p strong{font-family:var(--font-display);font-weight:600;font-size:1.15rem;display:block;margin-bottom:0.15rem}
+
+        .index{list-style:none}
+        .index li{display:grid;grid-template-columns:minmax(0,9.5rem) minmax(0,1fr);gap:0.5rem 1.5rem;padding:1.05rem 0;border-top:1px dotted var(--border)}
+        .index li:first-child{border-top:none;padding-top:0}
+        .index h3{font-size:1.2rem;font-weight:600}
+        .index p{color:var(--text-muted);font-size:0.98rem;line-height:1.6}
+
+        .steps{list-style:none;counter-reset:s}
+        .steps>li{counter-increment:s;position:relative;padding:0 0 2rem 3.4rem}
+        .steps>li::before{content:counter(s);position:absolute;left:0;top:-0.35rem;font-family:var(--font-display);font-style:italic;font-size:2.4rem;line-height:1;color:var(--primary)}
+        .steps h3{font-size:1.25rem;font-weight:600;margin-bottom:0.3rem}
+        .steps p{color:var(--text-muted);max-width:34em;margin-bottom:0.7rem}
+        .steps p code,.steps h3 code{font-family:var(--font-mono);font-size:0.86em;background:var(--bg-input);padding:0.08rem 0.35rem;border-radius:5px}
+        .cmd{display:flex;align-items:stretch;background:var(--ink);color:#efe8d8;border-radius:10px;margin-bottom:0.5rem;max-width:640px;overflow:hidden}
+        .cmd code{flex:1;padding:0.7rem 0.95rem;font-family:var(--font-mono);font-size:0.8rem;line-height:1.55;white-space:pre;overflow-x:auto}
+        .cmd button{background:none;border:none;border-left:1px solid rgba(239,232,216,0.18);color:#cdbfa3;font-family:var(--font-body);font-size:0.82rem;padding:0 1rem;cursor:pointer}
+        .cmd button:hover{color:#fff}
+        .cmd button.copied{color:#9ec58c}
+        .more{margin-top:0.5rem}
+
+        footer{display:flex;flex-wrap:wrap;gap:0.75rem 2rem;justify-content:space-between;padding:2rem 0 2.5rem;color:var(--text-dim);font-size:0.9rem}
+        footer div{display:flex;flex-wrap:wrap;gap:0.5rem 1.4rem}
+        footer a{text-decoration:none}
+        footer a:hover{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+
+        @media (max-width:820px){
+            .hero,section.part{grid-template-columns:1fr}
+            .figure{max-width:420px}
+            .top nav a:not(.btn){display:none}
+            .index li{grid-template-columns:1fr}
+        }
+        @media (prefers-reduced-motion:reduce){
+            .figure .trail{animation:none;stroke-dashoffset:0}.figure .stop{animation:none;opacity:1}
+            html{scroll-behavior:auto}
+        }
+    </style>
+</head>
+<body>
+<div class="wrap">
+
+    <header class="top">
+        <a href="{% url 'tracker:landing' %}" class="brand">
+            <img src="{% static 'tracker/roamlymark.svg' %}" alt="" width="34" height="34">
+            <span>Roamly</span>
+        </a>
+        <nav>
+            <a href="{% url 'tracker:docs' %}">Docs</a>
+            <a href="https://github.com/waxn/roamly">GitHub</a>
+            {% if user.is_authenticated %}
+                <a href="{% url 'tracker:map' %}" class="btn">Open your map</a>
+            {% else %}
+                <a href="{% url 'tracker:login' %}">Log in</a>
+                <a href="{% url 'tracker:signup' %}" class="btn">Sign up</a>
+            {% endif %}
+        </nav>
+    </header>
+
+    <main>
+        <div class="hero">
+            <div>
+                <h1>Your phone already knows where you've been. <em>Keep it for yourself.</em></h1>
+                <p class="lede">Roamly is a GPS journal you run on your own server. It logs your days, draws them on a map, adds up the miles and the time you spent in each place, and none of it goes anywhere else.</p>
+                <div class="cta">
+                    <a href="{% url 'tracker:signup' %}" class="btn">Start your own log</a>
+                    <span class="or">or <a href="{% url 'tracker:docs' %}">read how it works</a></span>
+                </div>
+            </div>
+
+            <figure class="figure" aria-hidden="true">
+                <svg viewBox="0 0 420 480" role="img">
+                    <!-- land, water, parks -->
+                    <path d="M0,330 C60,300 110,350 170,330 S300,290 420,330 L420,480 L0,480Z" fill="#a9c2b8" opacity="0.55"/>
+                    <path d="M250,40 C300,20 360,50 350,100 C340,140 270,150 245,115 C225,85 225,55 250,40Z" fill="#c9d1a8"/>
+                    <path d="M30,90 C70,60 120,80 115,125 C108,160 50,165 30,135 C15,115 15,100 30,90Z" fill="#c9d1a8"/>
+                    <!-- contours -->
+                    <g fill="none" stroke="#c9bb99" stroke-width="1.2">
+                        <path d="M-10,200 C80,170 140,230 230,200 S380,170 430,205"/>
+                        <path d="M-10,230 C80,200 140,260 230,230 S380,200 430,235"/>
+                        <path d="M-10,260 C80,230 140,290 230,260 S380,230 430,265"/>
+                    </g>
+                    <!-- streets -->
+                    <g fill="none" stroke="#f7f2e6" stroke-width="5" stroke-linecap="round">
+                        <path d="M0,160 L420,190"/><path d="M110,0 L150,480"/><path d="M290,0 L260,330"/><path d="M0,290 L330,260"/>
+                    </g>
+                    <!-- the day -->
+                    <path class="trail" pathLength="1" d="M70,415 C120,385 105,330 160,300 S235,300 262,255 S300,190 275,150 S320,95 350,80" fill="none" stroke="#c2441d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+                    <g stroke="#241d15" stroke-width="2" fill="#f7f2e6">
+                        <circle class="stop s1" cx="70" cy="415" r="7"/>
+                        <circle class="stop s2" cx="160" cy="300" r="7"/>
+                        <circle class="stop s3" cx="275" cy="150" r="7"/>
+                        <circle class="stop s4" cx="350" cy="80" r="7" fill="#c2441d"/>
+                    </g>
+                    <g font-family="Fraunces, Georgia, serif" font-style="italic" font-size="17" fill="#241d15">
+                        <text class="stop s1" x="84" y="440">home</text>
+                        <text class="stop s2" x="174" y="326">coffee, 40 min</text>
+                        <text class="stop s3" x="132" y="142">the library</text>
+                        <text class="stop s4" x="296" y="64">the lake</text>
+                    </g>
+                </svg>
+                <figcaption>A Saturday, as Roamly draws it.</figcaption>
+            </figure>
+        </div>
+
+        <p class="tally">So far this server has logged <b data-count="{{ site_total_points }}">0</b> points in <b data-count="{{ site_total_cities }}">0</b> cities, about <b data-meters="{{ site_total_meters }}" data-count="0">0</b> <span data-distance-label>km</span> of walking, driving and getting lost.</p>
+
+        <section class="part" id="why">
+            <div>
+                <h2>Why bother running it yourself</h2>
+            </div>
+            <div class="promises">
+                <p><strong>It doesn't phone home.</strong>Your points sit in your own Postgres, your own Docker volume and, if you want backups, your own S3 bucket. There's no telemetry and no analytics beacon. The only server Roamly talks to is the one you started.</p>
+                <p><strong>Place names without asking anyone.</strong>In the US, points are looked up against bundled Census boundaries, so a town is the one that actually contains the point, not whichever city is nearest. There's no Google call per point and no rate limit.</p>
+                <p><strong>Made to keep going.</strong>Distance ignores GPS jitter, stats are snapshotted overnight, the Android app survives Doze, and backups can be restored twice without making a mess. It isn't flashy. It just keeps logging.</p>
+            </div>
+        </section>
+
+        <section class="part" id="inside">
+            <div>
+                <h2>What's in it</h2>
+                <p class="aside">One Django app, a native Android client, and whatever you already use to push locations.</p>
+            </div>
+            <ul class="index">
+                <li><h3>Map</h3><p>Speed-coloured tracks, heatmaps, a day-by-day replay, and a scratch map of every country and US state you've been to. Vector tiles on PostGIS, classic mode on SQLite.</p></li>
+                <li><h3>Adventures</h3><p>Shared trips with a day log, a freeform story and rated places with photos. Everyone's own route shows in its own colour on one map. You can share it publicly, behind a PIN if you like.</p></li>
+                <li><h3>Stats and visits</h3><p>Distance is resampled and gated against pocket drift and GPS teleports, and time spent in a place gets the same care. Results are cached overnight, so the page opens instantly.</p></li>
+                <li><h3>Search and places</h3><p>Search by place name, date phrase or radius. Draw your own named geofences and get top cities, time spent and a sample track for each.</p></li>
+                <li><h3>Journals</h3><p>One entry a day with mood, weather and up to 20 photos, with that day's track pulled from your own history. Streaks and lifetime totals included.</p></li>
+                <li><h3>Diagnostics</h3><p>A quality pass flags bad fixes (impossible speeds, altitude spikes, poor accuracy) on a map you can clean up point by point, plus a coverage timeline for the whole history.</p></li>
+                <li><h3>Ask</h3><p>Ask questions about your own history in plain language, using any OpenAI-compatible model you point it at. Read-only, your own key.</p></li>
+                <li><h3>Android app</h3><p>A foreground service that streams while the phone is awake and uses exact alarms once Doze takes over. Sync is offline-first and catches up by itself.</p></li>
+                <li><h3>Your server</h3><p>Docker Compose, SQLite or PostgreSQL with PostGIS, S3-compatible backups, and imports from CSV, GPX, Takeout, OwnTracks and KML.</p></li>
+            </ul>
+        </section>
+
+        <section class="part" id="setup">
+            <div>
+                <h2>Up and logging in about two minutes</h2>
+                <p class="aside">Compose starts the database, runs migrations and brings up the web app.</p>
+            </div>
+            <ol class="steps">
+                <li>
+                    <h3>Grab it and start it</h3>
+                    <p>This pulls the prebuilt <code>waxn/roamly</code> image.</p>
+                    <div class="cmd"><code id="cmd-1">curl -O https://raw.githubusercontent.com/waxn/roamly/main/docker-compose.yml</code><button type="button" data-copy-target="cmd-1">copy</button></div>
+                    <div class="cmd"><code id="cmd-2">docker compose up -d</code><button type="button" data-copy-target="cmd-2">copy</button></div>
+                </li>
+                <li>
+                    <h3>Make an account and an API key</h3>
+                    <p>Open your instance, sign up, then go to Settings → API Keys to make one for your phone.</p>
+                </li>
+                <li>
+                    <h3>Send it some locations</h3>
+                    <p>Point GPSLogger's custom URL or OwnTracks at <code>/api/push/</code> with your key. Garmin and Strava exports work through CSV import.</p>
+                    <div class="cmd"><code id="cmd-3">curl -X POST localhost:8001/api/push/ \
+  -H "Authorization: Bearer YOUR_KEY" \
+  -d '{"device_id":"phone","latitude":45.5,"longitude":-122.6}'</code><button type="button" data-copy-target="cmd-3">copy</button></div>
+                </li>
+                <li>
+                    <h3>Go and look</h3>
+                    <p>Browse your map, let the geocoder run, check how long you really spend places, start an adventure and invite family.</p>
+                </li>
+                <li>
+                    <h3>Keeping it up to date</h3>
+                    <p>Pull and restart. No clone, no rebuild.</p>
+                    <div class="cmd"><code id="cmd-4">docker compose pull &amp;&amp; docker compose up -d</code><button type="button" data-copy-target="cmd-4">copy</button></div>
+                    <p class="more"><a href="{% url 'tracker:docs' %}">The full setup guide →</a></p>
+                </li>
+            </ol>
+        </section>
+    </main>
+
+    <footer>
+        <span>Roamly · self-hosted GPS · &copy; 2026</span>
+        <div>
+            <a href="https://github.com/waxn/roamly">GitHub</a>
+            <a href="{% url 'tracker:docs' %}">Docs</a>
+            <a href="{% url 'tracker:terms' %}">Terms</a>
+            <a href="{% url 'tracker:privacy' %}">Privacy</a>
+            {% if CONTACT_EMAIL %}
+            {% if EMAIL_ENABLED %}<a href="#" onclick="openContactForm();return false;">Contact</a>
+            {% else %}<a href="mailto:{{ CONTACT_EMAIL }}">Contact</a>{% endif %}
+            {% endif %}
+        </div>
+    </footer>
+</div>
+
+{% include 'tracker/_contact.html' %}
+
+<script>
+    document.querySelectorAll('.cmd button').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var t = document.getElementById(btn.dataset.copyTarget);
+            if (!t) return;
+            navigator.clipboard.writeText(t.textContent).then(function () {
+                var o = btn.textContent;
+                btn.textContent = 'copied';
+                btn.classList.add('copied');
+                setTimeout(function () { btn.textContent = o; btn.classList.remove('copied'); }, 1500);
+            }).catch(function () {});
+        });
+    });
+
+    // Same counters as the classic page: honours the km/mi preference, no animation if reduced motion.
+    (function () {
+        var imperial = (localStorage.getItem('roamly_speed_unit') || 'kmh') === 'mph';
+        document.querySelectorAll('[data-distance-label]').forEach(function (el) { el.textContent = imperial ? 'miles' : 'kilometres'; });
+        document.querySelectorAll('[data-meters]').forEach(function (el) {
+            var m = +el.dataset.meters;
+            el.dataset.count = Math.round(imperial ? m / 1609.344 : m / 1000);
+        });
+        var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        document.querySelectorAll('[data-count]').forEach(function (el) {
+            var target = +el.dataset.count;
+            if (reduced) { el.textContent = target.toLocaleString(); return; }
+            var start = performance.now();
+            (function tick(now) {
+                var p = Math.min((now - start) / 1400, 1);
+                el.textContent = Math.round(target * (1 - Math.pow(1 - p, 3))).toLocaleString();
+                if (p < 1) requestAnimationFrame(tick);
+            })(start);
+        });
+    })();
+
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js', { scope: '/' });
+</script>
+{% if CUSTOM_JS_SNIPPET %}{{ CUSTOM_JS_SNIPPET|safe }}{% endif %}
+</body>
+</html>
