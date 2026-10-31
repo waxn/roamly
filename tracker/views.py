@@ -33,7 +33,7 @@ from django.db.models import (
     Count, Min, Max, Avg, Sum, Q, Case, When, Value, F,
     IntegerField, FloatField,
 )
-from django.db.models.functions import Coalesce, Cast, Round
+from django.db.models.functions import Coalesce, Cast, Round, TruncDate
 from django.http import FileResponse, JsonResponse, HttpResponse, StreamingHttpResponse
 from django.template.loader import render_to_string
 from django.views.static import serve as static_serve
@@ -14122,6 +14122,113 @@ def editor_view(request):
         # Edge-to-edge viewport: strips the nav and footer, the same lever the
         # public adventure page already uses.
         'standalone': True,
+    })
+
+
+# What the place search offers. Towns, states and countries come from the labels
+# on the user's own points; a Boundary is everything that has no label of its
+# own (a county), plus town limits, which find what is really inside a town
+# whatever its points happen to be labelled.
+_EDITOR_PLACES_TTL = 600
+_EDITOR_BOUNDARY_KINDS = {'county': 'county', 'adm1': 'region', 'adm2': 'region', 'adm3': 'region',
+                          'place': 'town limits', 'cousub': 'town limits'}
+_EDITOR_MAX_DAY_RANGES = 300
+
+
+def _editor_label_rows(user):
+    """(city, state, country, points) for every label in the user's history.
+
+    Plain key rather than cache_gen, which every push bumps: this is a
+    whole-history GROUP BY behind a search box.
+    """
+    key = f'editplaces:{user.id}'
+    rows = cache.get(key)
+    if rows is None:
+        # order_by() clears Meta.ordering, which would shatter the GROUP BY.
+        rows = list(Location.objects.filter(device__user=user).exclude(city='').order_by()
+                    .values_list('city', 'state', 'country').annotate(n=Count('id')))
+        cache.set(key, rows, _EDITOR_PLACES_TTL)
+    return rows
+
+
+def _place_rank(q, name, points):
+    """Sort key: prefix matches first, then the most visited."""
+    return (0 if name.lower().startswith(q) else 1, -points)
+
+
+@login_required
+def editor_places_api(request):
+    """Search the places the map editor can filter to."""
+    q = (request.GET.get('q') or '').strip().lower()[:100]
+    towns, states, countries = [], Counter(), Counter()
+    for city, state, country, n in _editor_label_rows(request.user):
+        towns.append((city, state, country, n))
+        if state:
+            states[(state, country)] += n
+        if country:
+            countries[country] += n
+
+    def hit(name):
+        return q in name.lower()
+
+    results = []
+    for city, state, country, n in sorted((t for t in towns if hit(t[0])),
+                                          key=lambda t: _place_rank(q, t[0], t[3]))[:8]:
+        place = {k: v for k, v in (('city', city), ('state', state), ('country', country)) if v}
+        results.append({'kind': 'town', 'label': ', '.join(x for x in (city, state or country) if x),
+                        'filter': place, 'points': n})
+    for (state, country), n in sorted(((k, v) for k, v in states.items() if hit(k[0])),
+                                      key=lambda kv: _place_rank(q, kv[0][0], kv[1]))[:4]:
+        place = {k: v for k, v in (('state', state), ('country', country)) if v}
+        results.append({'kind': 'state', 'label': state, 'filter': place, 'points': n})
+    for country, n in sorted(((k, v) for k, v in countries.items() if hit(k)),
+                             key=lambda kv: _place_rank(q, kv[0], kv[1]))[:3]:
+        results.append({'kind': 'country', 'label': country, 'filter': {'country': country}, 'points': n})
+
+    if HAS_POSTGIS and len(q) >= 2:
+        rows = (Boundary.objects.filter(name__icontains=q, kind__in=_EDITOR_BOUNDARY_KINDS)
+                .order_by().values('id', 'name', 'state', 'kind')[:40])
+        order = list(_EDITOR_BOUNDARY_KINDS)
+        for b in sorted(rows, key=lambda b: (order.index(b['kind']), not b['name'].lower().startswith(q)))[:8]:
+            label = ', '.join(x for x in (b['name'], b['state']) if x)
+            results.append({'kind': _EDITOR_BOUNDARY_KINDS[b['kind']], 'label': label,
+                            'filter': {'boundary': str(b['id'])}, 'points': None})
+    return JsonResponse({'results': results})
+
+
+@login_required
+def editor_place_days_api(request):
+    """The dates the user was in a place, merged into runs of consecutive days.
+
+    Local days (TruncDate reads the active zone, the same one the date pickers
+    are in). Merged because a home town would otherwise be a thousand rows.
+    """
+    place = _place_filter(request.GET)
+    if not place:
+        return JsonResponse({'error': 'No place given.'}, status=400)
+    qs = Location.objects.filter(device__user=request.user)
+    device_id = request.GET.get('device_id')
+    if device_id:
+        qs = qs.filter(device__device_id=device_id)
+    days = list(_filter_by_place(qs, place).order_by().annotate(day=TruncDate('timestamp'))
+                .values_list('day').annotate(n=Count('id')).order_by('day'))
+
+    ranges = []
+    for day, n in days:
+        if ranges and day == ranges[-1]['end'] + timedelta(days=1):
+            ranges[-1]['end'] = day
+            ranges[-1]['days'] += 1
+            ranges[-1]['points'] += n
+        else:
+            ranges.append({'start': day, 'end': day, 'days': 1, 'points': n})
+    ranges.reverse()
+    return JsonResponse({
+        'first': days[0][0] if days else None,
+        'last': days[-1][0] if days else None,
+        'days': len(days),
+        'points': sum(n for _, n in days),
+        'more': max(0, len(ranges) - _EDITOR_MAX_DAY_RANGES),
+        'ranges': ranges[:_EDITOR_MAX_DAY_RANGES],
     })
 
 

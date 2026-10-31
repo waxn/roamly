@@ -112,6 +112,18 @@
 .ed-brush-size { display:flex; align-items:center; gap:0.5rem; font-size:0.75rem; color:var(--text-muted); margin-top:0.35rem; }
 .ed-brush-size input { flex:1; accent-color:var(--primary); }
 body.ed-pencil .maplibregl-canvas { cursor:crosshair !important; }
+
+.ed-place-chip { display:flex; align-items:center; justify-content:space-between; gap:6px;
+    background:rgba(232,118,61,0.14); border:1px solid var(--primary); color:var(--primary);
+    padding:5px 8px; font-size:0.75rem; font-weight:700; overflow-wrap:anywhere; }
+.ed-place-chip[hidden] { display:none; }
+.ed-place-chip button { background:none; border:none; color:inherit; cursor:pointer; font-size:1rem; line-height:1; padding:0 2px; }
+.ed-place-results { display:flex; flex-direction:column; gap:3px; max-height:230px; overflow-y:auto; }
+.ed-place-results:empty { display:none; }
+.ed-place-results .tool-btn { gap:8px; font-weight:600; }
+.ed-place-results .tool-btn-badge { flex:0 0 auto; }
+.ed-days { display:flex; flex-direction:column; gap:3px; max-height:190px; overflow-y:auto; }
+.ed-days .tool-btn { padding:5px 8px; font-size:0.7rem; font-weight:600; }
 {% endblock %}
 
 {% block content %}
@@ -130,6 +142,21 @@ body.ed-pencil .maplibregl-canvas { cursor:crosshair !important; }
                     recorded in between.
                 </div>
                 <a href="{% url 'tracker:map' %}" class="tool-btn" style="text-decoration:none;">← back to map</a>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-label">filter by place</div>
+                <input type="search" id="place-search" class="form-control" autocomplete="off"
+                       placeholder="Town, county, state, country" aria-label="Search for a place">
+                <div class="ed-place-results" id="place-results"></div>
+                <div class="ed-place-chip" id="place-filter" hidden>
+                    <span id="place-filter-label"></span>
+                    <button type="button" id="ed-place-clear" title="Clear the place filter" aria-label="Clear the place filter">×</button>
+                </div>
+                <div id="place-days-box" style="display:none;">
+                    <div class="ed-hint" id="place-days-summary" style="margin-bottom:4px;"></div>
+                    <div class="ed-days" id="place-days"></div>
+                </div>
             </div>
 
             <div class="sidebar-section">
@@ -644,6 +671,12 @@ document.addEventListener('keydown', ev => {
 
 // ── Inferred layer ──────────────────────────────────────────────────────────
 function loadInferred() {
+    // Generated points carry no labels, so no place can claim them.
+    if (hasPlaceFilter()) {
+        inferredFC = { type: 'FeatureCollection', features: [] };
+        if (map.getSource(INF_SOURCE)) map.getSource(INF_SOURCE).setData(inferredFC);
+        return;
+    }
     const params = new URLSearchParams(buildFilterParams());
     fetch(`/api/inferred/?${params.toString()}`)
         .then(r => r.json())
@@ -676,6 +709,149 @@ function refreshAll() {
     loadInferred();
     loadBatches();
 }
+
+// ── Place filter ────────────────────────────────────────────────────────────
+// map-core.js already narrows every map request to placeFilter; this is the way
+// to set one from the page, plus the dates the user was actually there.
+const placeSearch = document.getElementById('place-search');
+const placeResults = document.getElementById('place-results');
+let placeDays = null;
+let placeSearchReq = 0;
+let placeSearchTimer = null;
+
+function hasPlaceFilter() { return Object.keys(placeFilter).length > 0; }
+
+function syncPlaceUrl() {
+    const url = new URL(window.location.href);
+    PLACE_FIELDS.forEach(f => url.searchParams.delete(f));
+    url.searchParams.delete('label');
+    PLACE_FIELDS.forEach(f => { if (placeFilter[f]) url.searchParams.set(f, placeFilter[f]); });
+    if (placeFilter.boundary && placeLabel) url.searchParams.set('label', placeLabel);
+    history.replaceState(null, '', url.pathname + url.search + url.hash);
+}
+
+function searchPlaces() {
+    const req = ++placeSearchReq;
+    fetch(`/api/editor/places/?q=${encodeURIComponent(placeSearch.value.trim())}`)
+        .then(r => r.json())
+        .then(d => { if (req === placeSearchReq) renderPlaceResults(d.results || []); })
+        .catch(() => {});
+}
+function renderPlaceResults(results) {
+    placeResults.replaceChildren(...results.map(r => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'tool-btn';
+        const name = document.createElement('span');
+        name.textContent = r.label;
+        const badge = document.createElement('span');
+        badge.className = 'tool-btn-badge';
+        badge.textContent = r.points === null ? r.kind : `${r.kind} · ${r.points.toLocaleString()}`;
+        btn.append(name, badge);
+        btn.addEventListener('click', () => pickPlace(r.filter, r.label));
+        return btn;
+    }));
+    if (!results.length && placeSearch.value.trim()) {
+        const none = document.createElement('div');
+        none.className = 'ed-hint';
+        none.textContent = 'No matching place.';
+        placeResults.replaceChildren(none);
+    }
+}
+placeSearch.addEventListener('focus', searchPlaces);
+placeSearch.addEventListener('input', () => {
+    clearTimeout(placeSearchTimer);
+    placeSearchTimer = setTimeout(searchPlaces, 200);
+});
+placeSearch.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape') { placeSearchReq++; placeResults.replaceChildren(); placeSearch.blur(); }
+});
+
+function pickPlace(filter, label) {
+    placeFilter = { ...filter };
+    placeLabel = label;
+    placeSearchReq++;
+    placeSearch.value = '';
+    placeResults.replaceChildren();
+    syncPlaceUrl();
+    renderPlaceFilter();
+    selected.clear();
+    repaintSel();
+    return loadPlaceDays(true);
+}
+
+function loadPlaceDays(applyDates) {
+    const params = new URLSearchParams();
+    appendPlaceParams(params);
+    const device = document.getElementById('device-filter').value;
+    if (device) params.set('device_id', device);
+    return fetch(`/api/editor/places/days/?${params.toString()}`).then(r => r.json()).then(d => {
+        placeDays = d;
+        renderPlaceDays();
+        if (!d.points) say('No points in that place.', 'warn');
+        if (applyDates) showDates(d.first, d.last);
+    }).catch(() => say('Could not load the dates for that place.', 'error'));
+}
+
+function showDates(start, end) {
+    document.getElementById('start-date').value = start || '';
+    document.getElementById('end-date').value = end || '';
+    document.getElementById('time-range').value = 'all';
+    updateDateFilterUI();
+    clearAccumulated();
+    loadCurrentMode(true);
+    renderPlaceDays();
+}
+
+function fmtDay(s) {
+    const [y, m, d] = s.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function dayButton(text, badge, start, end) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'tool-btn';
+    btn.classList.toggle('active', document.getElementById('start-date').value === start
+        && document.getElementById('end-date').value === end);
+    const label = document.createElement('span');
+    label.textContent = text;
+    const count = document.createElement('span');
+    count.className = 'tool-btn-badge';
+    count.textContent = badge;
+    btn.append(label, count);
+    btn.addEventListener('click', () => showDates(start, end));
+    return btn;
+}
+function renderPlaceDays() {
+    const box = document.getElementById('place-days-box');
+    if (!placeDays || !placeDays.points) { box.style.display = 'none'; return; }
+    box.style.display = '';
+    const d = placeDays;
+    document.getElementById('place-days-summary').textContent =
+        `${d.points.toLocaleString()} point(s) on ${d.days.toLocaleString()} day(s). Pick dates to narrow it down.`;
+    const rows = [dayButton('all dates', `${d.ranges.length + d.more} stay(s)`, d.first, d.last)];
+    d.ranges.forEach(r => rows.push(dayButton(
+        r.start === r.end ? fmtDay(r.start) : `${fmtDay(r.start)} – ${fmtDay(r.end)}`,
+        r.points.toLocaleString(), r.start, r.end)));
+    document.getElementById('place-days').replaceChildren(...rows);
+}
+
+document.getElementById('ed-place-clear').addEventListener('click', () => {
+    placeDays = null;
+    renderPlaceDays();
+    selected.clear();
+    repaintSel();
+    document.getElementById('start-date').value = '';
+    document.getElementById('end-date').value = '';
+    document.getElementById('time-range').value = defaultTimeRange;
+    updateDateFilterUI();
+    clearPlaceFilter();     // reloads the map
+    loadInferred();
+});
+document.getElementById('device-filter').addEventListener('change', () => {
+    if (hasPlaceFilter()) loadPlaceDays(false);
+});
+['start-date', 'end-date'].forEach(id => document.getElementById(id).addEventListener('change', renderPlaceDays));
 
 // ── Tools ───────────────────────────────────────────────────────────────────
 document.getElementById('btn-delete').addEventListener('click', async () => {
@@ -959,7 +1135,12 @@ function undoBatch(id) {
 }
 
 // ── Wire into the shared engine ─────────────────────────────────────────────
-map.on('load', () => { loadInferred(); loadBatches(); });
+map.on('load', () => {
+    loadInferred();
+    loadBatches();
+    // A link or reload that already names a place keeps any dates it names.
+    if (hasPlaceFilter()) loadPlaceDays(!document.getElementById('start-date').value);
+});
 map.on('moveend', () => setTimeout(loadInferred, 450));
 ['time-range', 'device-filter', 'start-date', 'end-date'].forEach(id => {
     document.getElementById(id).addEventListener('change', () => setTimeout(loadInferred, 50));

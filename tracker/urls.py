@@ -379,6 +379,8 @@ urlpatterns = [
     path('api/subway/fills/<int:batch_id>/delete/', views.subway_fill_delete_api, name='subway_fill_delete'),
 
     # Map Editor API
+    path('api/editor/places/', views.editor_places_api, name='editor_places'),
+    path('api/editor/places/days/', views.editor_place_days_api, name='editor_place_days'),
     path('api/editor/delete/', views.editor_delete_api, name='editor_delete'),
     path('api/editor/route/', views.editor_route_api, name='editor_route'),
     path('api/editor/route/commit/', views.editor_route_commit_api, name='editor_route_commit'),
