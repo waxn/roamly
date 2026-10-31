@@ -203,7 +203,7 @@
                 <div class="card"><h3>US states</h3><div class="mapbox" id="map-states"><div class="map-tip" id="tip-states"></div></div></div>
             </div>
             <div class="card" style="margin-top:1rem;" id="county-card">
-                <h3>Counties in the states you have visited</h3>
+                <h3>US counties</h3>
                 <div class="mapbox tall" id="map-counties"><div class="map-tip" id="tip-counties"></div></div>
                 <div class="note" id="county-note" style="margin-top:0.5rem;"></div>
             </div>
@@ -506,7 +506,9 @@ function choropleth(containerId, tipId, data, matchProp, visitedSet, opts = {}) 
             'fill-color': ['case', isV, css('--primary'), css('--bg-card')],
             'fill-opacity': ['case', isV, 0.85, 1] } });
         map.addLayer({ id: 'l', type: 'line', source: 's', paint: { 'line-color': css('--border'), 'line-width': 0.6 } });
-        if (opts.fit !== false) {
+        if (opts.bounds) {
+            map.fitBounds(opts.bounds, { padding: 20, duration: 0 });
+        } else if (opts.fit !== false) {
             const b = new maplibregl.LngLatBounds();
             let any = false;
             (gj.features || []).forEach(f => {
@@ -607,7 +609,9 @@ function renderExplorer(d) {
     choropleth('map-states', 'tip-states', STATES_URL, 'name', stateSet,
         { center: [-97, 39], zoom: 1.9, fitVisited: false, link: p => stateSet.has(p.name) ? placeUrl({ state: p.name }) : null });
     if (ex.county_geo && ex.county_geo.features.length) {
-        choropleth('map-counties', 'tip-counties', ex.county_geo, 'name', null, { flag: true, fitAll: true, maxZoom: 7, link: zoomTo });
+        // The lower 48: the Aleutians cross the date line, so fitting every county
+        // would frame the whole world.
+        choropleth('map-counties', 'tip-counties', ex.county_geo, 'name', null, { flag: true, bounds: [[-125, 24.5], [-66.9, 49.4]], link: zoomTo });
         $('county-note').textContent = `${num(us.counties_v)} counties visited. ${us.home_state ? `In ${us.home_state}, you have been to ${pctS(d.metrics.home_state_town_pct)} of its towns.` : ''}`;
     } else {
         $('county-card').style.display = 'none';

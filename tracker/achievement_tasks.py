@@ -1182,14 +1182,14 @@ def _geography(user, prog, metrics, hist):
     hist['_reach']['us_counties'] = _count_reach(
         [b['first'] for b in visited.values() if b['cc'] == 'US' and b['kind'] == 'county'])
 
-    # Map geometry: counties of every visited state (+ ADM2 of detailed
-    # countries), flagged visited, simplified — the "fill in the map" view.
-    county_geo = _unit_geojson(visited, [r['state'] for r in state_rows], 'county', 'US')
+    # Map geometry: every US county (+ ADM2 of detailed countries), flagged
+    # visited, simplified — the "fill in the map" view.
+    county_geo = _unit_geojson(visited, 'county', 'US')
     abroad_geo = {}
     for e in abroad:
         if e.get('detailed'):
             kind = 'adm2' if e.get('adm2_t') else 'adm1'
-            abroad_geo[e['cc']] = _unit_geojson(visited, None, kind, e['cc'])
+            abroad_geo[e['cc']] = _unit_geojson(visited, kind, e['cc'])
 
     return {
         'explorer': {
@@ -1203,8 +1203,8 @@ def _geography(user, prog, metrics, hist):
     }
 
 
-def _unit_geojson(visited, states, kind, cc):
-    """Outlines of a state's or country's units, flagged visited.
+def _unit_geojson(visited, kind, cc):
+    """Outlines of a country's units, flagged visited.
 
     The cap only bounds the payload, and clears the 3,144 US counties. Visited
     units sort first so that a country past it (Brazil has 5,570 ADM2s) loses
@@ -1214,16 +1214,13 @@ def _unit_geojson(visited, states, kind, cc):
     vis_ids = {bid for bid, b in visited.items() if b['kind'] == kind and b['cc'] == cc}
     if not vis_ids:
         return None
-    where, params = '', []
-    if states is not None:
-        where, params = 'AND state = ANY(%s)', [list(states)]
     with connection.cursor() as cur:
         cur.execute(
-            f"""SELECT id, name, state, ST_AsGeoJSON(ST_SimplifyPreserveTopology(geom, 0.01), 3)
-                  FROM tracker_boundary
-                 WHERE kind = %s AND country_code = %s {where}
-                 ORDER BY id = ANY(%s) DESC, id LIMIT %s""",
-            [kind, cc, *params, list(vis_ids), _UNIT_MAP_CAP])
+            """SELECT id, name, state, ST_AsGeoJSON(ST_SimplifyPreserveTopology(geom, 0.01), 3)
+                 FROM tracker_boundary
+                WHERE kind = %s AND country_code = %s
+                ORDER BY id = ANY(%s) DESC, id LIMIT %s""",
+            [kind, cc, list(vis_ids), _UNIT_MAP_CAP])
         feats = []
         for bid, name, state, gj in cur.fetchall():
             if not gj:

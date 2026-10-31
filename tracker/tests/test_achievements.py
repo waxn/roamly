@@ -332,20 +332,20 @@ def test_boundary_download_stores_levels_and_parents(monkeypatch):
 def test_unit_map_keeps_visited_units_past_the_cap(monkeypatch):
     from tracker.models import Boundary
 
-    far = Boundary.objects.create(name='Far County', state='Maine', kind='county',
-                                  geom=_square(45.0, -68.5, 45.5, -67.5))
+    far = Boundary.objects.create(name='Far County', state='Ohio', kind='county',
+                                  geom=_square(40.0, -83.5, 40.5, -82.5))
     near = Boundary.objects.create(name='Near County', state='Maine', kind='county',
                                    geom=_square(44.3, -69.5, 44.8, -68.9))
     visited = {near.id: {'kind': 'county', 'cc': 'US'}}
 
-    gj = at._unit_geojson(visited, ['Maine'], 'county', 'US')
+    gj = at._unit_geojson(visited, 'county', 'US')
     assert {f['properties']['name']: f['properties']['v'] for f in gj['features']} == {
         'Far County': 0, 'Near County': 1}
 
     # Unvisited units are what a cap drops, whichever rows came first.
     assert far.id < near.id
     monkeypatch.setattr(at, '_UNIT_MAP_CAP', 1)
-    gj = at._unit_geojson(visited, ['Maine'], 'county', 'US')
+    gj = at._unit_geojson(visited, 'county', 'US')
     assert [f['properties']['name'] for f in gj['features']] == ['Near County']
 
 
