@@ -347,3 +347,97 @@ def test_unit_map_keeps_visited_units_past_the_cap(monkeypatch):
     monkeypatch.setattr(at, '_UNIT_MAP_CAP', 1)
     gj = at._unit_geojson(visited, ['Maine'], 'county', 'US')
     assert [f['properties']['name'] for f in gj['features']] == ['Near County']
+
+
+def _feed(track):
+    """Run ``(seconds, lat, lon, speed)`` fixes through the filter; returns the
+    fixes credited, in order."""
+    got = []
+    air = at._FlightFilter(got.append)
+    for t, lat, lon, spd in track:
+        air.add((t, lat), lat, lon, float(t), spd)
+    air.close()
+    return [fix[0] for fix in got]
+
+
+def test_flights_earn_no_credit_but_their_airports_do():
+    track = [(0, 44.800, -68.80, 5.0), (30, 44.801, -68.80, 8.0)]       # taxiing
+    track.append((60, 44.815, -68.80, 70.0))                            # takeoff roll
+    track += [(60 + 60 * i, 44.8 + 0.12 * i, -68.8, 220.0) for i in range(1, 20)]
+    track.append((1300, 47.0, -68.8, 70.0))                             # landing roll
+    track += [(1330, 47.002, -68.8, 6.0), (1360, 47.003, -68.8, 3.0)]   # at the gate
+    assert _feed(track) == [0, 30, 1330, 1360]
+
+
+def test_the_first_fix_after_landing_counts():
+    # The hop that got here is flight speed, but the fix itself is on the ground.
+    track = [(60 * i, 44.0 + 0.12 * i, -70.0, 220.0) for i in range(1, 6)]
+    track.append((360, 44.72, -70.0, 5.0))
+    assert _feed(track) == [360]
+
+
+def test_a_flown_track_with_no_doppler_is_still_a_flight():
+    track = [(0, 44.8, -68.8, None)]
+    track += [(60 * i, 44.8 + 0.12 * i, -68.8, None) for i in range(1, 10)]
+    assert _feed(track) == [0]
+
+
+def test_a_high_speed_train_keeps_its_credit():
+    # 89 m/s, 1 fix a minute: as fast as any train in service.
+    track = [(60 * i, 44.0 + 0.048 * i, -70.0, 89.0) for i in range(30)]
+    assert _feed(track) == [t for t, *_ in track]
+
+
+def test_one_bad_reading_does_not_cost_a_train_ride():
+    track = [(60 * i, 44.0 + 0.03 * i, -70.0, 60.0) for i in range(10)]
+    track[5] = (300, track[5][1], track[5][2], 180.0)  # Doppler says a plane; the track doesn't
+    assert _feed(track) == [t for t, *_ in track]
+
+
+def test_dwell_repeats_in_the_air_are_not_a_landing():
+    track = [(0, 44.0, -70.0, 2.0)]
+    track += [(60 * i, 44.0 + 0.12 * i, -70.0, 220.0) for i in range(1, 6)]
+    # No fix for a while: the phone re-stamps its last position at speed 0.
+    track += [(300 + 60 * i, track[-1][1], track[-1][2], 0.0) for i in range(1, 4)]
+    track += [(480 + 60 * i, track[-1][1] + 0.12 * i, -70.0, 220.0) for i in range(1, 6)]
+    assert _feed(track) == [0]
+
+
+def test_a_long_gap_separates_a_train_from_a_later_flight():
+    train = [(60 * i, 44.0 + 0.03 * i, -70.0, 60.0) for i in range(5)]
+    flight = [(10000 + 60 * i, 46.0 + 0.12 * i, -70.0, 220.0) for i in range(5)]
+    assert _feed(train + flight) == [t for t, *_ in train]
+
+
+@pytest.mark.django_db
+def test_scan_does_not_count_places_flown_over():
+    from django.contrib.auth.models import User
+    from tracker.models import AchievementSnapshot, Device, Location
+
+    user = User.objects.create_user('ach4', password='x')
+    dev = Device.objects.create(user=user, device_id='phone', name='Phone')
+    _make_track(dev)
+
+    def fix(lat, lon, ts, spd, city, state, country='United States', cc='US'):
+        loc = Location(device=dev, latitude=lat, longitude=lon, timestamp=ts)
+        loc.speed, loc.accuracy = spd, 10.0
+        loc.city, loc.state, loc.country, loc.country_code = city, state, country, cc
+        loc.save()
+
+    start = datetime(2025, 7, 1, 12, 0, tzinfo=dt_timezone.utc)
+    # A flight over Canada, then Michigan, at ~260 m/s.
+    for i in range(1, 21):
+        over = ('Sarnia', 'Ontario', 'Canada', 'CA') if i <= 10 else ('Alpena', 'Michigan', 'United States', 'US')
+        fix(44.45 + 0.12 * i, -69.10 - 0.1 * i, start + timedelta(minutes=i), 220.0, *over)
+    # An Amtrak ride through Virginia, at 50 m/s.
+    train = datetime(2025, 7, 5, 12, 0, tzinfo=dt_timezone.utc)
+    for i in range(20):
+        fix(37.0 + 0.03 * i, -77.5, train + timedelta(minutes=i), 50.0, 'Ashland', 'Virginia')
+
+    at.compute_achievements(user.id)
+    snap = AchievementSnapshot.objects.get(user=user)
+    assert snap.status == 'done', snap.error
+    p = snap.payload_json
+    assert p['metrics']['us_states'] == 2  # Maine and the train through Virginia
+    assert p['metrics']['countries'] == 1
+    assert p['extremes']['n']['lat'] < 45

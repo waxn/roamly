@@ -83,6 +83,11 @@ _AIR_DOPPLER_MPS = _GROUND_CAP_MPS  # median Doppler above this is a plane
 _AIR_HOP_MPS = 50.0                # a hop this fast over _AIR_HOP_KM: flown
 _AIR_HOP_KM = 100.0                # (flight_detect.FAST_MPS / MIN_DIST_KM)
 _AIRPORT_ROLL_MPS = 55.0           # this fast at a large/medium airport: runway
+# Flown-over places earn no credit (see _FlightFilter). A run of fast fixes counts
+# as a flight once one is at cruise speed; 130 m/s clears a 120 m/s maglev.
+_AIR_FAST_MPS = _AIRPORT_ROLL_MPS
+_AIR_CRUISE_MPS = 130.0
+_AIR_RUN_GAP_S = 3600              # a hole this long ends a run
 _ALT_MAX_ACC_M = 25.0
 _ALT_HYST_M = 5.0
 _ALT_GAP_S = 600
@@ -191,6 +196,60 @@ def _mark_air(wins, start, end):
         wins[-1][1] = max(wins[-1][1], e)
     else:
         wins.append([s, e])
+
+
+class _FlightFilter:
+    """Credits a device's fixes as places visited, unless they were flown.
+
+    Being over a place in a plane is not visiting it, but a train through it
+    is, and both are fast. So a run of fast fixes is held until it ends: it is
+    dropped if any fix in it reached cruise speed, which no train does, and
+    credited otherwise. The airports count, since taxiing is slow and the run
+    only starts on the takeoff roll.
+
+    ``_mark_air``'s windows can't do this. They pad 30 minutes either side,
+    which suits a speed record but would lose the town you flew out of.
+    """
+
+    def __init__(self, credit):
+        self.credit = credit
+        self.held = []
+        self.flown = False
+        self.fast = False
+        self.prev = None  # (lat, lon, epoch)
+
+    def add(self, fix, lat, lon, ep, spd):
+        prev, self.prev = self.prev, (lat, lon, ep)
+        if prev and ep - prev[2] > _AIR_RUN_GAP_S:
+            self.close()
+        if spd is not None and not 0 <= spd < _HOP_MAX_MPS:
+            spd = None
+        hop = None
+        if prev and ep > prev[2]:
+            hop = _hav_km(prev[0], prev[1], lat, lon) * 1000.0 / (ep - prev[2])
+            if hop >= _HOP_MAX_MPS:
+                hop = None
+        # A phone with no fix re-logs its last position at speed 0, which in
+        # the air says nothing about having landed.
+        if not prev or (lat, lon) != prev[:2]:
+            self.fast = (spd if spd is not None else hop or 0.0) >= _AIR_FAST_MPS
+        if not self.fast:
+            self.close()
+            self.credit(fix)
+            return
+        self.held.append(fix)
+        # Doppler and displacement must agree: either alone can glitch, and one
+        # bad reading must not throw away a whole train ride.
+        if hop is not None and hop >= _AIR_CRUISE_MPS and (spd is None or spd >= _AIR_CRUISE_MPS):
+            self.flown = True
+
+    def close(self):
+        if not self.flown:
+            for fix in self.held:
+                self.credit(fix)
+        self.held = []
+        self.flown = False
+        self.fast = False
 
 
 def _flight_windows(user):
@@ -468,6 +527,7 @@ def _history_pass(user, prog):
     dwell = defaultdict(float)  # 1km cell -> seconds
     tz_cells = set()
     hemis = set()
+    cell_first = {}       # ~220m cell -> first visit
     crossings = {}
     journeys = []
     year_km = defaultdict(float)
@@ -477,6 +537,40 @@ def _history_pass(user, prog):
         cur = ext[key]
         if cur is None or better(val, cur['v']):
             ext[key] = {'v': val, 'lat': lat, 'lon': lon, 'ts': _iso(ts), **(extra or {})}
+
+    def credit(fix):
+        """Everything that says the user was at a place."""
+        lat, lon, ts, acc, city, state, country, cc, d = fix
+        if city:
+            k = (city, state or '', (cc or '').upper())
+            s = towns.get(k)
+            if s is None:
+                towns[k] = s = set()
+                town_first[k] = ts
+            s.add(d)
+            day_towns[d].add(k)
+        if state:
+            day_states[d].add(((cc or '').upper(), state))
+            if (cc or '').upper() == 'US' and state in US_STATE_NAMES and state not in us_states:
+                us_states[state] = ts
+        if cc:
+            ccu = cc.upper()
+            day_countries[d].add(ccu)
+            country_days[ccu].add(d)
+            if ccu not in country_first:
+                country_first[ccu] = ts
+                country_names[ccu] = country or ccu
+        cell = (round(lat * _HOME_CELL), round(lon * _HOME_CELL))
+        if cell not in cell_first or ts < cell_first[cell]:
+            cell_first[cell] = ts
+        if acc is None or acc <= 100:
+            note_extreme('n', lat, lambda a, b: a > b, lat, lon, ts, {'place': city or ''})
+            note_extreme('s', lat, lambda a, b: a < b, lat, lon, ts, {'place': city or ''})
+            note_extreme('e', lon, lambda a, b: a > b, lat, lon, ts, {'place': city or ''})
+            note_extreme('w', lon, lambda a, b: a < b, lat, lon, ts, {'place': city or ''})
+            hemis.add('N' if lat >= 0 else 'S')
+            hemis.add('E' if lon >= 0 else 'W')
+            tz_cells.add((round(lat * _TZ_CELL), round(lon * _TZ_CELL)))
 
     for dev_id in devices:
         rows = (Location.objects.filter(device_id=dev_id)
@@ -491,6 +585,7 @@ def _history_pass(user, prog):
         alt_ref = None
         alt_ts = None
         jr = None  # current journey
+        air = _FlightFilter(credit)
 
         def close_journey():
             nonlocal jr
@@ -527,42 +622,14 @@ def _history_pass(user, prog):
                 if flag == 'suspect':
                     continue
 
-                # Labels.
-                if city:
-                    k = (city, state or '', (cc or '').upper())
-                    s = towns.get(k)
-                    if s is None:
-                        towns[k] = s = set()
-                        town_first[k] = ts
-                    s.add(d)
-                    day_towns[d].add(k)
-                if state:
-                    day_states[d].add(((cc or '').upper(), state))
-                    if (cc or '').upper() == 'US' and state in US_STATE_NAMES and state not in us_states:
-                        us_states[state] = ts
-                if cc:
-                    ccu = cc.upper()
-                    day_countries[d].add(ccu)
-                    country_days[ccu].add(d)
-                    if ccu not in country_first:
-                        country_first[ccu] = ts
-                        country_names[ccu] = country or ccu
-
-                good = acc is None or acc <= 100
-                if good:
-                    note_extreme('n', lat, lambda a, b: a > b, lat, lon, ts, {'place': city or ''})
-                    note_extreme('s', lat, lambda a, b: a < b, lat, lon, ts, {'place': city or ''})
-                    note_extreme('e', lon, lambda a, b: a > b, lat, lon, ts, {'place': city or ''})
-                    note_extreme('w', lon, lambda a, b: a < b, lat, lon, ts, {'place': city or ''})
-                    hemis.add('N' if lat >= 0 else 'S')
-                    hemis.add('E' if lon >= 0 else 'W')
-                    tz_cells.add((round(lat * _TZ_CELL), round(lon * _TZ_CELL)))
-                    if local.hour < 5:
-                        night_counts[(round(lat * _HOME_CELL), round(lon * _HOME_CELL))] += 1
-                        if 1 <= local.hour and d not in night_spot:
-                            night_spot[d] = (lat, lon)
-
                 ep = ts.timestamp()
+                air.add((lat, lon, ts, acc, city, state, country, cc, d), lat, lon, ep, spd)
+
+                if (acc is None or acc <= 100) and local.hour < 5:
+                    night_counts[(round(lat * _HOME_CELL), round(lon * _HOME_CELL))] += 1
+                    if 1 <= local.hour and d not in night_spot:
+                        night_spot[d] = (lat, lon)
+
                 # Altitude, climbing.
                 if (alt is not None and acc is not None and acc <= _ALT_MAX_ACC_M
                         and -430 < alt < 8900 and mode != 'plane' and (spd is None or spd < 70)):
@@ -667,6 +734,7 @@ def _history_pass(user, prog):
             elif local.hour < 3:
                 night_days.add(d)
         close_journey()
+        air.close()
         prog.check_stop()
 
     prog('Summing up your history', 55, force=True)
@@ -863,7 +931,7 @@ def _summarise_history(v):
 
     m['cells'] = None  # filled by geography (needs the cell scan)
     return {
-        '_metrics': m, '_reach': reach,
+        '_metrics': m, '_reach': reach, '_cells': v['cell_first'],
         'home': home,
         'distance': distance, 'speed': speed, 'extremes': extremes, 'climber': climber,
         'rhythm': rhythm, 'big_days': big_days, 'collector': collector, 'globe': globe,
@@ -991,23 +1059,6 @@ def _years(v, towns, town_first, country_days, day_km, today, m):
 
 # ── Phase 3: geography ───────────────────────────────────────────────────────
 
-def _cells_with_first(user):
-    """Distinct ~220m cells with first-visit time."""
-    from django.db.models import F, IntegerField, Min
-    from django.db.models.functions import Cast, Round
-    from .models import Location
-    rows = (Location.objects.filter(device__user=user).exclude(flag='suspect')
-            .annotate(gy=Cast(Round(F('latitude') * _HOME_CELL), IntegerField()),
-                      gx=Cast(Round(F('longitude') * _HOME_CELL), IntegerField()))
-            .order_by().values_list('gy', 'gx').annotate(first=Min('timestamp')))
-    ys, xs, ts = [], [], []
-    for gy, gx, first in rows.iterator(chunk_size=20000):
-        if gy is None or gx is None:
-            continue
-        ys.append(gy); xs.append(gx); ts.append(first)
-    return ys, xs, ts
-
-
 def _geography(user, prog, metrics, hist):
     from .views import _visited_cells
 
@@ -1016,7 +1067,10 @@ def _geography(user, prog, metrics, hist):
     except Exception:
         metrics['cells'] = None
 
-    ys, xs, ts = _cells_with_first(user)
+    # Cells off the history pass rather than a GROUP BY, so flights stay out.
+    cells = hist['_cells']
+    ys, xs = [c[0] for c in cells], [c[1] for c in cells]
+    ts = list(cells.values())
     prog.check_stop()
     visited = {}
     with connection.cursor() as cur:
