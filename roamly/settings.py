@@ -49,7 +49,6 @@ if DATABASE_URL:
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.middleware.gzip.GZipMiddleware',
-    'tracker.beta.middleware.BetaUIMiddleware',  # /beta/ sandbox; see tracker/beta/__init__.py
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -74,12 +73,8 @@ TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [],
+        'APP_DIRS': True,
         'OPTIONS': {
-            # Explicit (not APP_DIRS) so the /beta/ loader can swap in parallel
-            # templates. Remove the tracker.beta entries to restore the default.
-            'loaders': [
-                ('tracker.beta.loader.BetaCachedLoader', ['tracker.beta.loader.BetaAppDirsLoader']),
-            ],
             'context_processors': [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
