@@ -842,8 +842,7 @@ def landing_view(request):
         # Short TTL so a freshly refreshed stat shows up within the hour while
         # still keeping the DB out of the request path for the common case.
         cache.set('site_stats', stats, 3600)
-    template = 'tracker/landing_beta.html' if getattr(request, 'beta', False) else 'tracker/landing.html'
-    response = render(request, template, stats)
+    response = render(request, 'tracker/landing.html', stats)
     if not request.user.is_authenticated:
         # Static marketing page — let browsers/proxies serve it instantly and
         # revalidate lazily. Vary on Cookie so logged-in variants never leak.

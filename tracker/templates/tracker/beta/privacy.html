@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy — Roamly</title>
+    {% load static %}
+    <link rel="icon" type="image/x-icon" href="{% static 'tracker/roamlymark.ico' %}">
+    <link rel="manifest" href="{% static 'tracker/manifest.json' %}">
+    <meta name="theme-color" content="#14160f">
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}">
+    <link rel="preload" as="font" type="font/woff2" crossorigin href="{% static 'tracker/fonts/fraunces-latin-var.woff2' %}">
+    <style>
+        @font-face{font-family:'Fraunces';font-style:normal;font-weight:300 700;font-display:swap;src:url("{% static 'tracker/fonts/fraunces-latin-var.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:400;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-400.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:500;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-500.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:600;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-600.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Sans';font-style:normal;font-weight:700;font-display:swap;src:url("{% static 'tracker/fonts/plex-sans-latin-700.woff2' %}") format('woff2')}
+        @font-face{font-family:'IBM Plex Mono';font-style:normal;font-weight:400;font-display:swap;src:url("{% static 'tracker/fonts/plex-mono-latin-400.woff2' %}") format('woff2')}
+        :root {
+            --bg: #14160f; --bg-card: #1b1e15; --bg-elevated: #23271c; --bg-input: #1e2118;
+            --border: #30352a; --border-strong: #474d3b; --border-bright: rgba(232,118,61,0.55);
+            --text: #e9e5d8; --text-muted: #a9a794; --text-dim: #706e5d;
+            --primary: #e8763d; --primary-soft: rgba(232,118,61,0.13); --primary-hover: #f2884e;
+            --accent: #d0694a; --clay-lavender: #a888a0; --clay-amber: #cf9a44;
+            --font-display: 'Fraunces', Georgia, serif;
+            --font-body: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+            --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+            --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+            --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+            --clay-shadow: 0 2px 6px rgba(0,0,0,0.28);
+            --clay-shadow-sm: 0 1px 3px rgba(0,0,0,0.22);
+            --clay-shadow-btn: 0 1px 2px rgba(0,0,0,0.25);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+
+        body {
+            font-family: var(--font-body);
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            font-size: 1rem;
+            font-weight: 400;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: -700px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='700' height='700'%3E%3Cg fill='none' stroke='%23e9e5d8' stroke-width='1'%3E%3Cpath d='M0,117 C200,27 500,207 700,117'/%3E%3Cpath d='M0,358 C180,278 520,438 700,358'/%3E%3Cpath d='M0,608 C210,533 490,683 700,608'/%3E%3C/g%3E%3Cg fill='none' stroke='%23e9e5d8' stroke-width='1.6'%3E%3Cpath d='M0,233 C220,148 480,318 700,233'/%3E%3Cpath d='M0,483 C200,388 500,578 700,483'/%3E%3C/g%3E%3C/svg%3E");
+            background-size: 700px 700px;
+            background-repeat: repeat;
+            opacity: 0.065;
+            pointer-events: none;
+            z-index: 0;
+            animation: contourDrift 140s linear infinite;
+            will-change: transform;
+        }
+        @keyframes contourDrift {
+            from { transform: translate3d(0, 0, 0); }
+            to { transform: translate3d(-700px, -700px, 0); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            body::before { animation: none; }
+        }
+
+        .nav {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            height: 54px;
+            background: var(--bg);
+
+            border-bottom: 1px solid var(--border);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 clamp(1rem, 4vw, 2.5rem);
+        }
+
+        .nav-brand {
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .nav-brand img {
+            height: 36px;
+            width: auto;
+            transition: transform 0.3s var(--ease-spring);
+        }
+        .nav-brand:hover img { transform: scale(1.06) rotate(-2deg); }
+        .nav-word {
+            font-family: var(--font-display);
+            font-weight: 600;
+            font-size: 1.45rem;
+            line-height: 1;
+            letter-spacing: -0.01em;
+            color: var(--text);
+        }
+
+        .nav-links { display: flex; align-items: center; gap: 0.5rem; }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.55rem 1.15rem;
+            border-radius: 0;
+            border: none;
+            font-family: var(--font-body);
+            font-size: 0.875rem;
+            font-weight: 800;
+            cursor: pointer;
+            text-decoration: none;
+            transition: transform 0.2s var(--ease-spring), box-shadow 0.2s, background 0.2s, color 0.2s;
+        }
+        .btn-primary {
+            background: var(--primary);
+            color: #fff;
+            box-shadow: var(--clay-shadow-btn);
+        }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-ghost { background: transparent; color: var(--text-muted); }
+        .btn-ghost:hover { background: rgba(255,255,255,0.06); color: var(--text); }
+        .btn { user-select: none; -webkit-user-select: none; }
+        .btn:active { transform: translateY(1px); }
+
+        .page-wrap {
+            position: relative;
+            z-index: 1;
+            max-width: 820px;
+            margin: 0 auto;
+            padding: 3rem clamp(1rem, 4vw, 2rem) 6rem;
+        }
+
+        .page-hero {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 0;
+            padding: 2.5rem 2.75rem;
+            margin-bottom: 2.5rem;
+            box-shadow: var(--clay-shadow);
+            position: relative;
+            overflow: hidden;
+        }
+        .page-hero::before {
+            content: '';
+            position: absolute;
+            top: -40%;
+            right: -10%;
+            width: 280px;
+            height: 280px;
+            background: radial-gradient(circle, rgba(168,136,160,0.1), transparent 70%);
+            pointer-events: none;
+        }
+
+        .page-hero-eyebrow {
+            display: inline-flex;
+            align-items: center;
+            font-size: 0.72rem;
+            font-weight: 800;
+            letter-spacing: 0.1em;
+            color: var(--clay-lavender);
+            text-transform: uppercase;
+            margin-bottom: 0.75rem;
+            background: rgba(168,136,160,0.1);
+            border: 1px solid rgba(168,136,160,0.2);
+            border-radius: 0;
+            padding: 0.3rem 0.85rem;
+            box-shadow: var(--clay-shadow-sm);
+        }
+
+        .page-hero h1 {
+            font-family: var(--font-display);
+            font-size: clamp(1.75rem, 4vw, 2.5rem);
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            line-height: 1.1;
+            margin-bottom: 0.5rem;
+            position: relative;
+        }
+
+        .page-hero .updated {
+            color: var(--text-dim);
+            font-size: 0.875rem;
+            font-weight: 600;
+            position: relative;
+        }
+
+        .doc-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 0;
+            padding: 2rem 2.25rem;
+            margin-bottom: 1rem;
+            box-shadow: var(--clay-shadow-sm);
+            transition: box-shadow 0.3s var(--ease-out), transform 0.3s var(--ease-out);
+        }
+        .doc-card:hover {
+            box-shadow: var(--clay-shadow);
+            transform: translateY(-1px);
+        }
+
+        .doc-card h2 {
+            font-family: var(--font-display);
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .section-num {
+            width: 30px;
+            height: 30px;
+            border-radius: 0;
+            background: var(--clay-lavender);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: 900;
+            color: #fff;
+            flex-shrink: 0;
+        }
+
+        .doc-card p {
+            color: var(--text-muted);
+            line-height: 1.8;
+            font-size: 0.975rem;
+            margin-bottom: 0.75rem;
+        }
+        .doc-card p:last-child { margin-bottom: 0; }
+
+        .doc-card ul {
+            color: var(--text-muted);
+            padding-left: 1.35rem;
+            font-size: 0.975rem;
+        }
+        .doc-card li { line-height: 1.8; margin-bottom: 0.35rem; }
+        .doc-card strong { color: var(--text); font-weight: 800; }
+        .doc-card a { color: var(--primary); text-decoration: none; }
+        .doc-card a:hover { text-decoration: underline; }
+
+        .footer {
+            position: relative;
+            z-index: 1;
+            border-top: 1px solid var(--border);
+            padding: 2rem clamp(1rem, 4vw, 2.5rem);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        .footer-left { color: var(--text-dim); font-size: 0.85rem; font-weight: 600; }
+        .footer-links { display: flex; gap: 1.5rem; }
+        .footer-links a {
+            color: var(--text-dim);
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 700;
+            transition: color 0.15s;
+        }
+        .footer-links a:hover { color: var(--primary); }
+
+        @media (max-width: 600px) {
+            .page-hero { padding: 1.75rem 1.5rem; }
+            .doc-card { padding: 1.5rem 1.25rem; }
+            .footer { flex-direction: column; text-align: center; }
+            .footer-links { justify-content: center; }
+        }
+    .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .doc-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.85rem; }
+    .doc-table th, .doc-table td { text-align: left; padding: 0.6rem 0.7rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .doc-table th { color: var(--text); font-weight: 700; white-space: nowrap; }
+    .doc-table td { color: var(--text-muted); }
+    .doc-table .dim { color: var(--text-dim); font-size: 0.8em; }
+    </style>
+    <link rel="stylesheet" href="{% static 'tracker/beta/beta.css' %}">
+</head>
+<body>
+    <nav class="nav">
+        <a href="{% url 'tracker:landing' %}" class="nav-brand">
+            <img src="{% static 'tracker/roamlymark.svg' %}" alt="">
+            <span class="nav-word">Roamly</span>
+        </a>
+        <div class="nav-links">
+            <a href="{% url 'tracker:landing' %}" class="btn btn-ghost">home</a>
+            {% if user.is_authenticated %}
+                <a href="{% url 'tracker:map' %}" class="btn btn-primary">open app →</a>
+            {% else %}
+                <a href="{% url 'tracker:signup' %}" class="btn btn-primary">get started →</a>
+            {% endif %}
+        </div>
+    </nav>
+
+    <div class="page-wrap">
+        <div class="page-hero">
+            <div class="page-hero-eyebrow">legal</div>
+            <h1>privacy policy</h1>
+            <p class="updated">last updated: february 2026</p>
+        </div>
+
+        <div class="doc-card">
+            <h2><span class="section-num">1</span> overview</h2>
+            <p>roamly is a self-hosted, open-source location tracking application. this privacy policy explains how your data is handled when using a roamly instance.</p>
+        </div>
+
+        <div class="doc-card">
+            <h2><span class="section-num">2</span> data collection</h2>
+            <p>roamly collects only the data you explicitly provide:</p>
+            <ul>
+                <li><strong>account information:</strong> username and password (hashed) for authentication.</li>
+                <li><strong>location data:</strong> gps coordinates, timestamps, altitude, speed, and battery level sent from your tracking device.</li>
+                <li><strong>adventure data:</strong> adventure names, dates, day notes, and associated places you create.</li>
+            </ul>
+        </div>
+
+        <div class="doc-card">
+            <h2><span class="section-num">3</span> data storage</h2>
+            <ul>
+                <li>all data is stored on the server where this roamly instance is hosted.</li>
+                <li>no data is sent to roamly developers or any third party by the application itself.</li>
+                <li>the instance operator is responsible for securing the server and database.</li>
+            </ul>
+        </div>
+
+        <div class="doc-card">
+            <h2><span class="section-num">4</span> what leaves your server</h2>
+            <p>
+                roamly is self-hosted, so almost everything stays on hardware you control.
+                these are the exceptions — every network request the app can make to somewhere
+                that isn't your own server, and what it carries.
+            </p>
+            <div class="table-responsive">
+            <table class="doc-table">
+                <thead>
+                    <tr><th>goes to</th><th>what is sent</th><th>when</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>map tile providers<br><span class="dim">carto, esri, optionally mapbox</span></td>
+                        <td>the map tiles you are looking at — which implies your approximate
+                            location — plus your browser's ip address</td>
+                        <td><strong>on by default.</strong> every time you open a map</td>
+                    </tr>
+                    <tr>
+                        <td>overpass api mirrors<br><span class="dim">openstreetmap data</span></td>
+                        <td>bounding boxes covering areas users of this instance have travelled
+                            through, and the names of towns they have visited</td>
+                        <td>when road, subway or place data is downloaded (admin-controlled;
+                            enabled by default)</td>
+                    </tr>
+                    <tr>
+                        <td>your chosen ai provider<br><span class="dim">whichever you configure</span></td>
+                        <td><strong>your location history, visits, and — if you allow it —
+                            your journal entries.</strong> this is the largest disclosure the app
+                            can make, and it goes wherever you point it</td>
+                        <td>opt-in, off by default. only if you enable ai ask or summary emails</td>
+                    </tr>
+                    <tr>
+                        <td>cloudflare<br><span class="dim">turnstile captcha</span></td>
+                        <td>your ip address and browser characteristics</td>
+                        <td>only if the instance admin turns on the captcha</td>
+                    </tr>
+                    <tr>
+                        <td>github</td>
+                        <td>your server's ip address (not yours)</td>
+                        <td>when the server checks for an android app update</td>
+                    </tr>
+                    <tr>
+                        <td>zepp / amazfit</td>
+                        <td>your zepp credentials and the health data they return</td>
+                        <td>opt-in, off by default. only if you connect a zepp account</td>
+                    </tr>
+                    <tr>
+                        <td>your s3 provider<br><span class="dim">whichever you configure</span></td>
+                        <td>a complete backup of your data, and optionally your photos</td>
+                        <td>opt-in, off by default. only if you configure automatic backups</td>
+                    </tr>
+                    <tr>
+                        <td>your smtp provider</td>
+                        <td>email addresses and the contents of any mail the app sends you</td>
+                        <td>only if the instance admin has configured email</td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+            <p>
+                <strong>reverse geocoding is fully offline.</strong> turning coordinates into
+                city, state and country names happens entirely on your own server, using bundled
+                us census boundary data and an offline place database. no coordinate is ever sent
+                anywhere to be named. earlier versions of this policy said otherwise; they were
+                describing an approach roamly no longer uses.
+            </p>
+            <p>
+                the web app loads no third-party javascript at all — fonts and the map library
+                are served from your own server, not a cdn.
+            </p>
+        </div>
+
+        <div class="doc-card">
+            <h2><span class="section-num">5</span> data control</h2>
+            <p>you have full control over your data:</p>
+            <ul>
+                <li>export all your data at any time in csv or gpx format.</li>
+                <li>delete individual location records or your entire account.</li>
+                <li>the application does not prevent you from accessing or removing your data.</li>
+            </ul>
+        </div>
+
+        <div class="doc-card">
+            <h2><span class="section-num">6</span> cookies</h2>
+            <p>roamly uses session cookies for authentication only. no tracking cookies or analytics are used by the application.</p>
+        </div>
+
+        <div class="doc-card">
+            <h2><span class="section-num">7</span> self-hosted instances</h2>
+            <p>since roamly is self-hosted, the privacy practices of each instance depend on its operator. this policy covers the application's default behavior. instance operators may have additional policies.</p>
+        </div>
+
+        <div class="doc-card">
+            <h2><span class="section-num">8</span> changes to this policy</h2>
+            <p>this policy may be updated as the application evolves. changes will be reflected in the "last updated" date above.</p>
+        </div>
+
+        <div class="doc-card">
+            <h2><span class="section-num">9</span> contact</h2>
+            <p>for privacy concerns, please open an issue on the <a href="https://github.com/waxn/roamly">github repository</a> or contact the operator of this instance.</p>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <div class="footer-left">roamly · self-hosted gps · &copy; 2026</div>
+        <div class="footer-links">
+            <a href="https://github.com/waxn/roamly">github</a>
+            <a href="{% url 'tracker:docs' %}">docs</a>
+            <a href="{% url 'tracker:terms' %}">terms</a>
+            <a href="{% url 'tracker:privacy' %}">privacy</a>
+        </div>
+    </footer>
+    <script>
+    </script>
+    {% if CUSTOM_JS_SNIPPET %}{{ CUSTOM_JS_SNIPPET|safe }}{% endif %}
+</body>
+</html>
