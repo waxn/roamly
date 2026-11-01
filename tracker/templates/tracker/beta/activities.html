@@ -1,0 +1,170 @@
+{% extends 'tracker/base.html' %}
+{% block title %}Activities - Roamly{% endblock %}
+{# No map on this page — skip MapLibre (~1MB JS + 70KB CSS). #}
+{% block map_css %}{% endblock %}
+{% block map_js %}{% endblock %}
+
+{% block extra_css %}
+<style>
+.act-filters { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.act-row {
+    display: flex; align-items: center; gap: 1rem;
+    padding: 1rem 1.25rem; margin-bottom: 0.5rem;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); text-decoration: none; color: inherit;
+    transition: border-color 0.2s var(--ease-out);
+}
+.act-row:hover { border-color: var(--primary); }
+.act-glyph { font-size: 1.5rem; width: 2rem; text-align: center; flex-shrink: 0; }
+.act-main { flex: 1; min-width: 0; }
+.act-name { font-weight: 600; font-size: 0.9375rem; }
+.act-when { color: var(--text-muted); font-size: 0.75rem; font-family: var(--font-mono); margin-top: 0.1rem; }
+.act-nums { display: flex; gap: 1.5rem; flex-shrink: 0; }
+.act-num .v { font-family: var(--font-mono); font-weight: 600; font-size: 0.9375rem; }
+.act-num .l { color: var(--text-muted); font-size: 0.6875rem; margin-top: 0.05rem; }
+.act-pending { color: var(--clay-amber); font-size: 0.75rem; font-family: var(--font-mono); }
+.act-empty { color: var(--text-muted); padding: 2.5rem 0; text-align: center; font-size: 0.875rem; }
+@media (max-width: 640px) {
+    .act-row { flex-wrap: wrap; }
+    .act-nums { width: 100%; justify-content: space-between; gap: 0; }
+}
+</style>
+
+/* ═══ beta: newspaper page chrome ═══ */
+.page-header h1,.page-toolbar h1{font-size:clamp(2.6rem,6.4vw,4.8rem);line-height:0.96}
+.page-toolbar{border-bottom:4px double var(--rule);padding-bottom:1rem;margin-bottom:1.4rem;align-items:flex-end}
+.page-header{border-bottom:4px double var(--rule)}
+.page-toolbar .page-lead,.page-header .page-lead{font-size:1.12rem}
+.grid-4:has(> .card.stat-card){gap:0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);margin-bottom:1.6rem}
+.grid-4 > .card.stat-card{background:none;border:none;border-left:1px solid var(--hair);margin:0;padding:1.3rem 1rem;text-align:left}
+.grid-4 > .card.stat-card:first-child{border-left:none;padding-left:0}
+.grid-4 > .card.stat-card .stat-value{font-size:clamp(2.2rem,4.6vw,3.6rem);line-height:1}
+.grid-4 > .card.stat-card .stat-label{font-family:var(--label);font-weight:600;letter-spacing:0.14em;margin-top:0.6rem}
+.stat-label,.sidebar-label{font-family:var(--label)}
+.tab-btn,.seg-btn,.chip{font-family:var(--label);font-weight:600;letter-spacing:0.1em;border-radius:0}
+@media (max-width:760px){
+    .grid-4:has(> .card.stat-card){grid-template-columns:repeat(2,minmax(0,1fr))}
+    .grid-4 > .card.stat-card:nth-child(odd){border-left:none;padding-left:0}
+}
+/* page boxes get the same boxed-column treatment as cards */
+.act-row{border-top:3px double var(--rule);border-radius:0}
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    {% include 'tracker/_health_tabs.html' with active='activities' %}
+
+    <div class="page-toolbar">
+        <div>
+            <h1>Activities</h1>
+            <p class="page-lead" style="margin-bottom:0;">rides, walks and runs you recorded deliberately.</p>
+        </div>
+        <div class="act-filters toolbar-actions" id="act-filters"></div>
+    </div>
+
+    <div id="act-list" aria-busy="true">
+        <div class="skeleton skel-card" style="height:4.5rem;margin-bottom:0.5rem"></div>
+        <div class="skeleton skel-card" style="height:4.5rem;margin-bottom:0.5rem"></div>
+        <div class="skeleton skel-card" style="height:4.5rem"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const KINDS = [
+    ['',      'All'],
+    ['ride',  'Ride'],
+    ['run',   'Run'],
+    ['walk',  'Walk'],
+    ['hike',  'Hike'],
+    ['row',   'Row'],
+    ['other', 'Other'],
+];
+const GLYPH = { ride:'🚲', run:'🏃', walk:'🚶', hike:'🥾', row:'🚣', other:'📍' };
+let activeKind = '';
+
+function isImperial() { return (localStorage.getItem('roamly_speed_unit') || 'kmh') === 'mph'; }
+function fmtDistance(km) {
+    if (km == null) return '—';
+    return isImperial() ? (km * 0.621371).toFixed(2) + ' mi' : km.toFixed(2) + ' km';
+}
+function fmtSpeed(kmh) {
+    if (kmh == null) return '—';
+    return (isImperial() ? kmh * 0.621371 : kmh).toFixed(1);
+}
+function fmtDuration(s) {
+    if (!s) return '—';
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c =>
+        ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+function renderFilters() {
+    document.getElementById('act-filters').innerHTML = KINDS.map(([slug, label]) =>
+        `<button class="btn btn-sm ${slug === activeKind ? 'btn-primary' : 'btn-outline'}" data-kind="${slug}">${label}</button>`
+    ).join('');
+    document.querySelectorAll('#act-filters .btn').forEach(btn => {
+        btn.addEventListener('click', () => { activeKind = btn.dataset.kind; renderFilters(); load(); });
+    });
+}
+
+function render(rows) {
+    const el = document.getElementById('act-list');
+    el.setAttribute('aria-busy', 'false');
+    if (!rows.length) {
+        el.innerHTML = `<div class="act-empty">No activities recorded yet.<br>
+            Start one from the record button on the map in the Roamly app.</div>`;
+        return;
+    }
+    el.innerHTML = rows.map(a => {
+        const when = new Date(a.start).toLocaleString([], {
+            year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        // computed_at is null until the server has seen the points. Saying so beats
+        // showing a confident 0.00 km for a ride still uploading from a tunnel.
+        const nums = a.computed_at === null
+            ? `<div class="act-pending">waiting for points…</div>`
+            : `<div class="act-nums">
+                 <div class="act-num"><div class="v">${fmtDistance(a.distance_km)}</div><div class="l">distance</div></div>
+                 <div class="act-num"><div class="v">${fmtDuration(a.moving_seconds)}</div><div class="l">moving</div></div>
+                 <div class="act-num"><div class="v">${fmtSpeed(a.avg_speed_kmh)}</div><div class="l">${isImperial() ? 'mph' : 'km/h'}</div></div>
+               </div>`;
+        const label = (KINDS.find(k => k[0] === a.kind) || ['', 'Activity'])[1];
+        return `<a class="act-row" href="/activities/${a.id}/">
+            <div class="act-glyph">${GLYPH[a.kind] || GLYPH.other}</div>
+            <div class="act-main">
+                <div class="act-name">${escapeHtml(a.title || label)}</div>
+                <div class="act-when">${when}</div>
+            </div>
+            ${nums}
+        </a>`;
+    }).join('');
+}
+
+function load() {
+    const el = document.getElementById('act-list');
+    el.setAttribute('aria-busy', 'true');
+    const qs = activeKind ? `?kind=${encodeURIComponent(activeKind)}` : '';
+    // Check r.ok before reading the body: an error response is still JSON, so
+    // `d.activities || []` quietly rendered "no activities yet" for a 403 or a
+    // 500 — a failing request looked exactly like an empty account.
+    fetch(`/api/activities/${qs}`)
+        .then(r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+        })
+        .then(d => render(d.activities || []))
+        .catch(() => {
+            el.setAttribute('aria-busy', 'false');
+            el.innerHTML = `<div class="act-empty">Couldn't load activities.
+                <button class="btn" onclick="load()">Retry</button></div>`;
+        });
+}
+
+renderFilters();
+load();
+</script>
+{% endblock %}

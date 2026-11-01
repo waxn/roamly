@@ -1,0 +1,40 @@
+{% extends 'tracker/base.html' %}
+{% load static %}
+{% block title %}{{ blog.name }} - Roamly{% endblock %}
+
+{% block map_css %}
+<link rel="stylesheet" href="{% static 'tracker/vendor/maplibre-gl.css' %}" />
+<link rel="stylesheet" href="{% static 'tracker/trip-blog.css' %}" />
+{% endblock %}
+
+{% block extra_css %}
+.tb-page { max-width: 1400px; padding-top: 16px; padding-bottom: 40px; }
+
+/* ═══ beta: newspaper page chrome ═══ */
+.page-header h1,.page-toolbar h1{font-size:clamp(2.6rem,6.4vw,4.8rem);line-height:0.96}
+.page-toolbar{border-bottom:4px double var(--rule);padding-bottom:1rem;margin-bottom:1.4rem;align-items:flex-end}
+.page-header{border-bottom:4px double var(--rule)}
+.page-toolbar .page-lead,.page-header .page-lead{font-size:1.12rem}
+.grid-4:has(> .card.stat-card){gap:0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);margin-bottom:1.6rem}
+.grid-4 > .card.stat-card{background:none;border:none;border-left:1px solid var(--hair);margin:0;padding:1.3rem 1rem;text-align:left}
+.grid-4 > .card.stat-card:first-child{border-left:none;padding-left:0}
+.grid-4 > .card.stat-card .stat-value{font-size:clamp(2.2rem,4.6vw,3.6rem);line-height:1}
+.grid-4 > .card.stat-card .stat-label{font-family:var(--label);font-weight:600;letter-spacing:0.14em;margin-top:0.6rem}
+.stat-label,.sidebar-label{font-family:var(--label)}
+.tab-btn,.seg-btn,.chip{font-family:var(--label);font-weight:600;letter-spacing:0.1em;border-radius:0}
+@media (max-width:760px){
+    .grid-4:has(> .card.stat-card){grid-template-columns:repeat(2,minmax(0,1fr))}
+    .grid-4 > .card.stat-card:nth-child(odd){border-left:none;padding-left:0}
+}
+{% endblock %}
+
+{% block content %}
+<div class="container tb-page">
+    {% include 'tracker/_trip_app.html' %}
+</div>
+{{ cfg|json_script:"tb-cfg" }}
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'tracker/trip-blog.js' %}"></script>
+{% endblock %}

@@ -1,0 +1,2717 @@
+{% extends "tracker/base.html" %}
+{% block title %}Edit — {{ trip.name }} — Roamly{% endblock %}
+
+{% block extra_css %}
+/* ── Editor shell ── */
+.editor-breadcrumb-bar { padding: 0.6rem 1.25rem 0; }
+.editor-shell { display: flex; height: calc(100vh - var(--nav-h) - 2.35rem); overflow: hidden; }
+
+.editor-doc {
+    flex: 0 0 var(--doc-w, 54%); min-width: 340px;
+    display: flex; flex-direction: column;
+    overflow-y: auto; overflow-x: hidden;
+    background: var(--bg); border-right: 1px solid var(--border);
+}
+
+/* Draggable splitter between the document and the map */
+.editor-resizer {
+    flex: 0 0 6px; align-self: stretch; cursor: col-resize;
+    background: var(--border); position: relative; z-index: 5;
+    transition: background 0.12s;
+}
+.editor-resizer::before {
+    content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 2px; height: 28px; background: var(--text-dim); border-radius: 1px; opacity: 0.6;
+}
+.editor-resizer:hover, .editor-resizer.dragging { background: var(--primary); }
+.editor-resizer:hover::before, .editor-resizer.dragging::before { background: #fff; opacity: 0.9; }
+body.editor-resizing { cursor: col-resize; user-select: none; }
+
+.editor-map-pane { flex: 1; position: relative; min-width: 0; background: var(--bg-card); }
+#edit-map { width: 100%; height: 100%; }
+
+.save-status {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    background: var(--text-dim); transition: background 0.2s; margin: 0 0.15rem;
+}
+.save-status.saved  { background: var(--success); }
+.save-status.saving { background: var(--clay-amber); }
+.save-status.error  { background: var(--danger); }
+/* The dot alone encoded four states — including "save failed" — in colour and
+   a hover title. That is invisible on touch, unreadable to a screen reader and
+   indistinguishable to anyone who cannot separate the two reds and greens. The
+   label carries the same state as text. */
+.save-label {
+    font-size: 0.6875rem; color: var(--text-muted); font-family: var(--font-mono);
+    white-space: nowrap; margin-right: 0.25rem;
+}
+.save-label.error { color: var(--danger); font-weight: 600; }
+.save-btn {
+    background: var(--primary); color: #fff; border: none;
+    border-radius:0; padding: 0.3rem 0.875rem;
+    font-family: var(--font-body); font-size: 0.75rem; font-weight: 700;
+    cursor: pointer; box-shadow: var(--clay-shadow-btn); transition: background 0.15s;
+}
+.save-btn:hover { background: var(--primary-hover); }
+
+/* ── Hero (cover + overlaid title + controls) ── */
+.editor-hero {
+    position: relative; flex-shrink: 0; min-height: 230px;
+    overflow: hidden; cursor: pointer;
+    background: linear-gradient(155deg, var(--bg-elevated) 0%, var(--bg) 100%);
+    display: flex; flex-direction: column; justify-content: flex-end;
+    border-bottom: 1px solid var(--border);
+}
+.editor-hero.drag-over { outline: 2px dashed var(--primary); outline-offset: -4px; }
+.editor-hero-bg {
+    position: absolute; inset: 0;
+    background-size: cover; background-position: center;
+    transition: opacity 0.35s; opacity: 0;
+}
+.editor-hero-scrim {
+    position: absolute; inset: 0;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.08) 0%, rgba(0,0,0,0.7) 100%);
+    opacity: 0; transition: opacity 0.35s;
+}
+.editor-hero[data-has-cover] .editor-hero-bg,
+.editor-hero[data-has-cover] .editor-hero-scrim { opacity: 1; }
+
+/* "add image" placeholder (centered, visible when no cover) */
+.editor-hero-placeholder {
+    position: absolute; inset: 0; z-index: 1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 0.5rem; color: var(--text-muted); font-size: 0.875rem; font-weight: 700;
+    transition: color 0.15s; pointer-events: none;
+}
+.editor-hero-placeholder svg { opacity: 0.5; width: 30px; height: 30px; }
+.editor-hero:not([data-has-cover]):hover .editor-hero-placeholder { color: var(--primary); }
+.editor-hero[data-has-cover] .editor-hero-placeholder { display: none; }
+
+/* Back button (top-left) */
+.editor-hero-back {
+    position: absolute; top: 0.625rem; left: 0.625rem; z-index: 4;
+    width: 32px; height: 32px; border-radius:0;
+    background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.18);
+    color: #fff; display: flex; align-items: center; justify-content: center;
+    transition: background 0.12s;
+}
+.editor-hero-back:hover { background: rgba(0,0,0,0.8); }
+.editor-hero-back svg { width: 15px; height: 15px; }
+.editor-hero:not([data-has-cover]) .editor-hero-back {
+    background: var(--bg-elevated); border-color: var(--border); color: var(--text-muted);
+}
+.editor-hero:not([data-has-cover]) .editor-hero-back:hover { color: var(--text); }
+
+/* Cover action buttons (top-right, on hover when cover set) */
+.editor-hero-actions {
+    position: absolute; top: 0.625rem; right: 0.625rem; z-index: 4;
+    display: flex; gap: 0.375rem; opacity: 0; transition: opacity 0.15s;
+}
+.editor-hero[data-has-cover]:hover .editor-hero-actions { opacity: 1; }
+.editor-hero-btn {
+    background: rgba(0,0,0,0.65); color: #fff;
+    border: 1px solid rgba(255,255,255,0.2); border-radius:0;
+    padding: 0.3rem 0.625rem; font-family: var(--font-body);
+    font-size: 0.7rem; font-weight: 700; cursor: pointer;
+    display: flex; align-items: center; gap: 0.3rem; transition: background 0.12s;
+}
+.editor-hero-btn:hover { background: rgba(0,0,0,0.85); }
+.editor-hero-btn svg { width: 13px; height: 13px; }
+
+/* Floating control toolbar (bottom-right of hero) */
+.editor-hero-toolbar {
+    position: absolute; bottom: 0.75rem; right: 0.875rem; z-index: 5;
+    display: flex; align-items: center; gap: 0.4rem;
+    background: var(--bg-glass);
+    border: 1px solid var(--border); border-radius: var(--radius-clay-sm);
+    padding: 0.3rem 0.4rem; box-shadow: var(--clay-shadow-sm);
+}
+.editor-tool-btn {
+    width: 30px; height: 30px; border-radius:0;
+    background: none; border: 1px solid transparent; color: var(--text-muted);
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: all 0.12s; flex-shrink: 0;
+}
+.editor-tool-btn:hover { color: var(--primary); background: var(--primary-soft); }
+.editor-tool-btn svg { width: 16px; height: 16px; }
+
+/* Title / subtitle overlaid on hero — right padding clears the floating toolbar */
+.editor-hero-text { position: relative; z-index: 2; padding: 1rem 9.5rem 1.125rem 1.5rem; }
+.editor-title {
+    width: 100%; background: none; border: none; outline: none;
+    font-family: var(--font-display); font-size: 1.75rem;
+    font-weight: 800; line-height: 1.15; resize: none; overflow: hidden;
+    text-transform: none; color: var(--text); transition: color 0.3s;
+    text-shadow: none;
+}
+.editor-subtitle {
+    width: 100%; background: none; border: none; outline: none;
+    font-family: var(--font-body); font-size: 0.9375rem; font-weight: 500;
+    margin-top: 0.25rem; resize: none; overflow: hidden;
+    color: var(--text-muted); transition: color 0.3s;
+}
+.editor-hero[data-has-cover] .editor-title  { color: #fff; text-shadow: 0 1px 8px rgba(0,0,0,0.5); }
+.editor-hero[data-has-cover] .editor-subtitle { color: rgba(255,255,255,0.78); }
+.editor-title::placeholder, .editor-subtitle::placeholder { opacity: 0.35; }
+
+/* ── Blocks area — extra left padding for the hover toolbar gutter ── */
+.blocks-area { flex: 1; padding: 0.5rem 1.5rem 4rem 3rem; }
+
+/* ── Story / Day Log toggle ── */
+.doc-tabs { display: flex; gap: 0.25rem; padding: 0.75rem 1.5rem 0 3rem; }
+.doc-tab { background: none; border: none; border-bottom: 2px solid transparent; padding: 0.4rem 0.6rem; font: inherit; font-size: 0.8rem; font-weight: 700; color: var(--text-muted); cursor: pointer; }
+.doc-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+/* ── Day Log (square-cornered, matches the Field Journal design system) ── */
+.daylog-area { flex: 1; padding: 0.75rem 1.5rem 4rem 3rem; overflow-y: auto; }
+.daylog-empty { color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0; }
+/* View toggle (list / calendar) */
+.daylog-toolbar { display: flex; gap: 0.4rem; margin-bottom: 1rem; }
+.dl-view-btn { background: var(--bg-input); border: 1px solid var(--border); border-radius: 0; color: var(--text-muted); font: inherit; font-size: 0.72rem; font-weight: 700; padding: 0.3rem 0.7rem; cursor: pointer; }
+.dl-view-btn.active { color: var(--primary); border-color: var(--primary); }
+.day-card { border: 1px solid var(--border); border-radius: 0; margin-bottom: 1rem; overflow: hidden; background: var(--bg-card); }
+.day-head { display: flex; align-items: center; justify-content: space-between; padding: 0.55rem 0.85rem; background: var(--bg-elevated); border-bottom: 1px solid var(--border); }
+.day-date { font-weight: 700; font-size: 0.82rem; }
+.day-focus-btn { font-size: 0.66rem; font-weight: 700; color: var(--clay-sky); background: none; border: 1px solid var(--border); border-radius: 0; padding: 3px 9px; cursor: pointer; }
+.day-focus-btn:hover { border-color: var(--clay-sky); color: var(--clay-sky); }
+.day-body { padding: 0.85rem; display: flex; flex-direction: column; gap: 1rem; }
+.dn-entry { display: flex; flex-direction: column; }
+.dn-entry.dn-mine { border-left: 2px solid var(--primary); padding-left: 0.7rem; }
+.dn-entry-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem; }
+.dn-entry-del { background: none; border: none; color: var(--text-dim); font-size: 1.1rem; line-height: 1; cursor: pointer; padding: 0 2px; }
+.dn-entry-del:hover { color: var(--danger); }
+.dn-add-entry { align-self: flex-start; background: var(--bg-input); border: 1px dashed var(--border); border-radius: 0; color: var(--text-muted); font: inherit; font-size: 0.72rem; font-weight: 700; padding: 0.35rem 0.75rem; cursor: pointer; }
+.dn-add-entry:hover { border-color: var(--primary); color: var(--primary); }
+.dn-place { width: 100%; background: var(--bg-input); border: 1px solid var(--border); border-radius: 0; color: var(--text); font-family: var(--font-body); font-size: 0.82rem; padding: 0.4rem 0.6rem; outline: none; margin-bottom: 0.4rem; }
+.dn-place:focus { border-color: var(--primary); }
+.dn-place-chip { display: inline-block; font-size: 0.72rem; font-weight: 700; color: var(--clay-amber); background: var(--bg-elevated); border: 1px solid var(--border); padding: 1px 8px; margin: 0.1rem 0 0.3rem; }
+.dn-mine-label { font-size: 0.66rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; }
+.dn-mine input.dn-title { width: 100%; background: var(--bg-input); border: 1px solid var(--border); border-radius: 0; font-family: var(--font-body); font-weight: 700; font-size: 0.875rem; color: var(--text); padding: 0.45rem 0.75rem; outline: none; margin-bottom: 0.4rem; }
+.dn-mine textarea.dn-body { width: 100%; background: var(--bg-input); border: 1px solid var(--border); border-radius: 0; font-family: var(--font-body); font-size: 0.875rem; line-height: 1.55; color: var(--text); padding: 0.5rem 0.75rem; resize: vertical; min-height: 4.5rem; outline: none; }
+.dn-mine input.dn-title:focus, .dn-mine textarea.dn-body:focus { border-color: var(--primary); }
+.dn-mine input.dn-title::placeholder, .dn-mine textarea.dn-body::placeholder { color: var(--text-dim); }
+.dn-other { border-left: 2px solid var(--border); padding-left: 0.75rem; }
+.dn-author { display: flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.2rem; }
+.dn-author .dn-ava { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; }
+.dn-author .dn-ava-txt { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.55rem; color: #fff; }
+.dn-title-ro { font-weight: 700; font-size: 0.875rem; }
+.dn-body-ro { font-size: 0.875rem; color: var(--text-muted); white-space: pre-wrap; line-height: 1.55; }
+.dn-photos { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.55rem; }
+.dn-photo { position: relative; width: 64px; height: 64px; border: 1px solid var(--border); overflow: hidden; }
+.dn-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dn-photo-del { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.6); color: #fff; border: none; border-radius: 0; width: 16px; height: 16px; font-size: 11px; line-height: 1; cursor: pointer; }
+.dn-add-photo { display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 64px; border: 1px dashed var(--border); font-size: 0.66rem; font-weight: 700; color: var(--text-muted); cursor: pointer; }
+.dn-add-photo:hover { border-color: var(--clay-sky); color: var(--clay-sky); }
+.dn-status-failed { color: var(--danger) !important; font-weight: 600; }
+.dn-status { font-size: 0.62rem; color: var(--text-dim); margin-left: 0.4rem; text-transform: none; letter-spacing: 0; font-weight: 400; }
+/* Calendar view */
+.dl-cal { border: 1px solid var(--border); background: var(--bg-card); }
+.dl-cal-head { display: flex; align-items: center; justify-content: space-between; padding: 0.55rem 0.85rem; background: var(--bg-elevated); border-bottom: 1px solid var(--border); }
+.dl-cal-title { font-weight: 700; font-size: 0.85rem; }
+.dl-cal-nav { background: none; border: 1px solid var(--border); border-radius: 0; color: var(--text-muted); cursor: pointer; width: 24px; height: 24px; font-size: 0.9rem; line-height: 1; }
+.dl-cal-nav:hover { border-color: var(--primary); color: var(--primary); }
+.dl-cal-nav:disabled { opacity: 0.3; cursor: default; }
+.dl-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+.dl-cal-dow { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); text-align: center; padding: 0.4rem 0; border-bottom: 1px solid var(--border); }
+.dl-cal-cell { min-height: 74px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 0.25rem 0.35rem; font-size: 0.7rem; position: relative; overflow: hidden; }
+.dl-cal-title-chip { font-size: 0.62rem; line-height: 1.25; color: var(--text); background: var(--bg-elevated); border-left: 2px solid var(--primary); padding: 1px 4px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dl-cal-cell:nth-child(7n) { border-right: none; }
+.dl-cal-cell.out { background: var(--bg); color: var(--text-dim); }
+.dl-cal-cell.inrange { cursor: pointer; }
+.dl-cal-cell.inrange:hover { background: var(--bg-elevated); }
+.dl-cal-cell.has-note { box-shadow: inset 0 -3px 0 var(--primary); }
+.dl-cal-cell.selected { outline: 2px solid var(--primary); outline-offset: -2px; }
+.dl-cal-daynum { font-weight: 700; color: var(--text); }
+.dl-cal-cell.out .dl-cal-daynum { color: var(--text-dim); font-weight: 400; }
+.dl-cal-dots { display: flex; gap: 2px; flex-wrap: wrap; margin-top: 2px; }
+.dl-cal-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--clay-sky); }
+.dl-cal-mine-dot { background: var(--primary); }
+.dl-cal-selday { margin-top: 1rem; }
+/* Media lightbox (photo or video) */
+.lightbox-overlay { display: none; position: fixed; inset: 0; z-index: 3000; background: rgba(0,0,0,0.9); align-items: center; justify-content: center; }
+.lightbox-overlay.open { display: flex; }
+.lightbox-media { display: flex; align-items: center; justify-content: center; }
+.lightbox-media img, .lightbox-media video { max-width: 90vw; max-height: 88vh; object-fit: contain; }
+/* Video cells in day-log / story grids */
+.dn-photo video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dn-photo-vid { cursor: pointer; }
+.dn-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1.3rem; pointer-events: none; text-shadow: 0 1px 5px rgba(0,0,0,0.7); }
+video.grid-thumb { width: 90px; height: 90px; object-fit: cover; }
+.lightbox-close, .lightbox-prev, .lightbox-next { position: absolute; background: rgba(0,0,0,0.4); color: #fff; border: none; cursor: pointer; opacity: 0.75; line-height: 1; }
+.lightbox-close { top: 1rem; right: 1rem; font-size: 1.8rem; width: 40px; height: 40px; }
+.lightbox-prev, .lightbox-next { top: 50%; transform: translateY(-50%); font-size: 2.5rem; width: 48px; height: 64px; }
+.lightbox-prev { left: 1rem; }
+.lightbox-next { right: 1rem; }
+.lightbox-close:hover, .lightbox-prev:hover, .lightbox-next:hover { opacity: 1; }
+.dn-photo img { cursor: pointer; }
+
+/* Loading skeletons (shown until trip data + map are ready) */
+@keyframes rly-shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+.blocks-skeleton { padding-top: 0.75rem; display: flex; flex-direction: column; gap: 0.85rem; }
+.skel {
+    border-radius:0;
+    background: linear-gradient(90deg, var(--bg-input) 25%, var(--bg-glass) 50%, var(--bg-input) 75%);
+    background-size: 800px 100%; animation: rly-shimmer 1.3s linear infinite;
+}
+.skel-line { height: 0.85rem; }
+.skel-block { height: 160px; border-radius:0; margin: 0.4rem 0; }
+.map-loading {
+    position: absolute; inset: 0; z-index: 5; display: flex;
+    align-items: center; justify-content: center; background: var(--bg-card);
+    transition: opacity 0.35s; pointer-events: none;
+}
+.map-loading.hide { opacity: 0; }
+.map-loading-spinner {
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 3px solid var(--border); border-top-color: var(--primary);
+    animation: rly-spin 0.8s linear infinite;
+}
+@keyframes rly-spin { to { transform: rotate(360deg); } }
+
+/* Block wrapper */
+.block-wrap { position: relative; margin-bottom: 0.125rem; border-radius:0; transition: background 0.1s; }
+.block-wrap.drag-over-top    { border-top: 2px solid var(--primary); }
+.block-wrap.drag-over-bottom { border-bottom: 2px solid var(--primary); }
+.block-wrap:hover > .block-toolbar { opacity: 1; }
+
+/* Toolbar lives in the left gutter, inside the doc pane (never clipped) */
+.block-toolbar {
+    position: absolute; left: -2.5rem; top: 2px;
+    display: flex; flex-direction: column; gap: 2px;
+    opacity: 0; transition: opacity 0.1s; z-index: 10;
+}
+.block-tool-btn {
+    width: 28px; height: 28px; background: var(--bg-elevated);
+    border: 1px solid var(--border); border-radius:0;
+    color: var(--text-muted); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.1s;
+}
+.block-tool-btn svg { width: 13px; height: 13px; }
+.block-tool-btn:hover { color: var(--text); border-color: var(--text-muted); background: var(--bg-card); }
+.block-tool-btn.drag-handle { cursor: grab; }
+.block-tool-btn.danger:hover { color: var(--danger); border-color: var(--danger); }
+
+/* ── Block insert row — always visible ── */
+.block-insert-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    margin: 0.25rem 0; opacity: 0.7; transition: opacity 0.15s; padding: 0.1rem 0;
+}
+.block-insert-row:hover { opacity: 1; }
+.block-insert-btn {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    color: var(--text-muted); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s; flex-shrink: 0;
+}
+.block-insert-btn:hover { background: var(--primary); border-color: var(--primary); color: #fff; transform: scale(1.12); }
+.block-insert-btn svg { width: 14px; height: 14px; }
+.block-insert-line { flex: 1; height: 1px; background: var(--border); }
+
+/* Block type menu */
+.block-type-menu {
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: var(--radius-clay-sm); box-shadow: var(--clay-shadow);
+    padding: 0.5rem; display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 0.25rem; min-width: 300px; position: absolute; z-index: 200;
+}
+.block-type-item {
+    display: flex; flex-direction: column; align-items: center; gap: 0.3rem;
+    padding: 0.625rem 0.25rem; border-radius:0; cursor: pointer;
+    font-size: 0.6875rem; color: var(--text-muted); text-align: center;
+    transition: all 0.1s; border: 1px solid transparent;
+}
+.block-type-item:hover { background: var(--primary-soft); color: var(--primary); border-color: var(--border-bright); }
+.block-type-icon { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; }
+.block-type-icon svg { width: 18px; height: 18px; }
+
+/* Individual block renderings */
+.block-heading { padding: 0.5rem 0 0.25rem; }
+.block-heading[data-level="1"] .block-text { font-family: var(--font-display); font-size: 1.5rem; font-weight: 800; }
+.block-heading[data-level="2"] .block-text { font-family: var(--font-display); font-size: 1.2rem; font-weight: 700; }
+.block-heading[data-level="3"] .block-text { font-family: var(--font-body); font-size: 1rem; font-weight: 700; color: var(--text-muted); }
+
+.block-paragraph { padding: 0.25rem 0; }
+.block-text {
+    width: 100%; background: none; border: none; outline: none;
+    color: var(--text); font-family: var(--font-body); font-size: 0.9375rem;
+    line-height: 1.6; resize: none; overflow: hidden; min-height: 1.5em; text-transform: none;
+}
+.block-text:focus { background: rgba(255,255,255,0.025); border-radius:0; }
+
+.block-divider { padding: 0.75rem 0; }
+.block-divider hr { border: none; border-top: 1px solid var(--border); }
+
+.block-callout {
+    border-radius: var(--radius-clay-sm); padding: 0.75rem 1rem;
+    display: flex; gap: 0.625rem; align-items: flex-start;
+    box-shadow: var(--clay-shadow-sm); margin: 0.25rem 0;
+}
+.block-callout[data-color="mint"]     { background: rgba(13,191,172,0.1);  border: 1px solid rgba(13,191,172,0.3); }
+.block-callout[data-color="coral"]    { background: rgba(255,107,107,0.1); border: 1px solid rgba(255,107,107,0.3); }
+.block-callout[data-color="amber"]    { background: rgba(247,183,49,0.1);  border: 1px solid rgba(247,183,49,0.3); }
+.block-callout[data-color="lavender"] { background: rgba(155,142,247,0.1); border: 1px solid rgba(155,142,247,0.3); }
+.block-callout[data-color="sky"]      { background: rgba(91,164,229,0.1);  border: 1px solid rgba(91,164,229,0.3); }
+.callout-accent { font-size: 1.125rem; flex-shrink: 0; margin-top: 1px; }
+.callout-text { flex: 1; background: none; border: none; outline: none; color: var(--text); font-family: var(--font-body); font-size: 0.875rem; line-height: 1.5; resize: none; overflow: hidden; min-height: 1.5em; text-transform: none; }
+
+.block-map-embed { border-radius: var(--radius-clay-sm); overflow: hidden; border: 1px solid var(--border); margin: 0.25rem 0; background: var(--bg-card); }
+.block-map-embed .map-placeholder { height: 200px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 0.5rem; color: var(--text-muted); font-size: 0.8125rem; background: var(--bg-input); }
+.block-map-embed .map-placeholder svg { width: 28px; height: 28px; opacity: 0.4; }
+.block-map-embed .inline-map { width: 100%; height: 240px; }
+.block-map-embed .map-embed-live { width: 100%; min-height: 160px; }
+
+.block-photo-grid { margin: 0.25rem 0; }
+.block-photo-grid .photo-grid-inner { display: flex; gap: 4px; flex-wrap: wrap; }
+.block-photo-grid .photo-grid-inner.layout-grid   .grid-thumb-wrap { width: calc(33.33% - 3px); }
+.block-photo-grid .photo-grid-inner.layout-strip  .grid-thumb-wrap { height: 120px; flex: 1; }
+.block-photo-grid .photo-grid-inner.layout-single .grid-thumb-wrap { width: 100%; }
+.grid-thumb-wrap { position: relative; display: inline-flex; }
+.grid-thumb-wrap .grid-thumb { width: 100%; height: 100%; aspect-ratio: 1; object-fit: cover; border-radius:0; }
+.block-photo-grid .photo-grid-inner.layout-single .grid-thumb { aspect-ratio: auto; max-height: 320px; }
+.grid-thumb-remove {
+    position: absolute; top: 4px; right: 4px; width: 20px; height: 20px;
+    border: none; border-radius: 50%; background: rgba(0,0,0,0.6); color: #fff;
+    font-size: 14px; line-height: 1; cursor: pointer; opacity: 0;
+    display: flex; align-items: center; justify-content: center; transition: opacity 0.12s;
+}
+.grid-thumb-wrap:hover .grid-thumb-remove { opacity: 1; }
+.grid-thumb-remove:hover { background: var(--danger); }
+.grid-thumb { object-fit: cover; border-radius:0; cursor: pointer; }
+
+.block-location-card {
+    border-radius: var(--radius-clay-sm); border: 1px solid var(--border);
+    background: var(--bg-card); padding: 0.75rem 1rem; box-shadow: var(--clay-shadow-sm);
+    margin: 0.25rem 0; display: flex; gap: 0.75rem; align-items: center;
+}
+.loc-card-icon { color: var(--clay-lavender); flex-shrink: 0; }
+.loc-card-icon svg { width: 22px; height: 22px; }
+.loc-card-name  { font-weight: 700; font-size: 0.9375rem; }
+.loc-card-notes { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.125rem; }
+
+/* Timeline block */
+.block-timeline { margin: 0.5rem 0; }
+.block-timeline-title { font-family: var(--font-display); font-weight: 700; font-size: 1.0625rem; margin-bottom: 0.75rem; }
+.tl-track { position: relative; padding-left: 1.25rem; }
+.tl-track::before { content:''; position:absolute; left: 5px; top: 6px; bottom: 6px; width: 2px; background: var(--border); }
+.tl-item { position: relative; padding-bottom: 1rem; }
+.tl-item:last-child { padding-bottom: 0; }
+.tl-marker { position: absolute; left: -1.25rem; top: 4px; width: 12px; height: 12px; border-radius: 50%; background: var(--primary); border: 2px solid var(--bg-card); box-shadow: 0 0 0 1px var(--primary); }
+.tl-date { font-size: 0.75rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.03em; }
+.tl-event-title { font-weight: 700; font-size: 0.9375rem; margin-top: 0.0625rem; }
+.tl-note { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.125rem; line-height: 1.5; white-space: pre-wrap; }
+
+/* Timeline modal rows */
+.tlm-event-row { padding: 0.5rem; border: 1px solid var(--border); border-radius:0; margin-bottom: 0.5rem; }
+.tlm-event-grid { display: grid; grid-template-columns: 150px 1fr auto; gap: 6px; align-items: center; }
+.tlm-remove { background: var(--bg-input); border: 1px solid var(--border); border-radius:0; color: var(--text-muted); width: 30px; height: 30px; font-size: 18px; line-height: 1; cursor: pointer; }
+.tlm-remove:hover { color: var(--danger); border-color: var(--danger); }
+.bm-add-row-btn { background: var(--bg-input); border: 1px dashed var(--border); border-radius:0; color: var(--text-muted); font-family: var(--font-body); font-size: 0.8125rem; font-weight: 700; padding: 0.4rem 0.8rem; cursor: pointer; width: 100%; transition: all 0.12s; }
+.bm-add-row-btn:hover { color: var(--primary); border-color: var(--primary); }
+
+/* Pin badge (inline ref) */
+.pin-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--primary); color: #fff; font-size: 0.6rem; font-weight: 800;
+    vertical-align: super; cursor: pointer; margin: 0 1px;
+    box-shadow: 0 2px 6px rgba(13,191,172,0.4); user-select: none;
+}
+
+/* Overlays & popups */
+.pin-popup-overlay {
+    position: fixed; inset: 0; z-index: 5000;
+    display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.5);
+}
+.pin-popup-overlay.open { display: flex; }
+.pin-popup-card {
+    background: var(--bg-elevated); border: 1px solid var(--border-bright);
+    border-radius: var(--radius-clay); box-shadow: var(--clay-shadow);
+    padding: 1.25rem; max-width: 340px; width: 90vw; position: relative;
+}
+.popup-close-btn {
+    position: absolute; top: 0.5rem; right: 0.625rem;
+    background: none; border: none; color: var(--text-muted);
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: color 0.1s; padding: 2px;
+}
+.popup-close-btn:hover { color: var(--text); }
+.popup-close-btn svg { width: 16px; height: 16px; }
+.pin-popup-name  { font-family: var(--font-display); font-weight: 700; font-size: 1.0625rem; margin-bottom: 0.375rem; }
+.pin-popup-notes { font-size: 0.8125rem; color: var(--text-muted); line-height: 1.5; }
+.pin-popup-mini-map { width: 100%; height: 140px; border-radius:0; margin-top: 0.75rem; overflow: hidden; }
+
+/* POI star markers */
+.poi-marker { color: var(--clay-coral); cursor: pointer; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); transition: transform 0.12s; }
+.poi-marker svg { width: 26px; height: 26px; display: block; stroke: #fff; stroke-width: 1; }
+.poi-marker:hover { transform: scale(1.18); }
+.poi-marker-cat { width: 28px; height: 28px; border-radius: 50%; background: var(--clay-coral); border: 2px solid #fff; display: flex; align-items: center; justify-content: center; }
+.poi-marker-emoji { font-size: 15px; line-height: 1; }
+
+/* POI detail popup */
+.poi-popup-card { text-align: center; }
+.poi-popup-author { font-size: 0.75rem; color: var(--text-muted); font-weight: 700; margin-bottom: 0.4rem; }
+.poi-popup-star { color: var(--clay-coral); display: flex; justify-content: center; margin-bottom: 0.25rem; }
+.poi-popup-star svg { width: 30px; height: 30px; }
+.poi-popup-card .pin-popup-notes { white-space: pre-wrap; }
+.poi-popup-meta { display: flex; flex-wrap: wrap; gap: 0.4rem; justify-content: center; align-items: center; margin: 0.15rem 0 0.35rem; }
+.poi-cat-badge { font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-muted); }
+.poi-rating-stars { color: var(--clay-amber); font-size: 0.9rem; letter-spacing: 1px; }
+/* Rating picker in the POI modal */
+.poi-rating-picker { display: flex; align-items: center; gap: 0.2rem; }
+.poi-star-btn { background: none; border: none; cursor: pointer; font-size: 1.5rem; line-height: 1; color: var(--clay-amber); padding: 0 1px; }
+.poi-star-btn:not(.on) { color: var(--text-dim); }
+.poi-star-clear { font-size: 0.7rem; color: var(--text-muted); cursor: pointer; margin-left: 0.5rem; }
+.poi-star-clear:hover { color: var(--clay-coral); }
+.poi-popup-actions { display: flex; gap: 0.5rem; justify-content: center; margin-top: 0.9rem; }
+.poi-popup-actions button {
+    background: var(--bg-input); border: 1px solid var(--border); border-radius:0;
+    color: var(--text-muted); font-family: var(--font-body); font-size: 0.8125rem;
+    font-weight: 700; padding: 0.35rem 0.9rem; cursor: pointer; transition: all 0.12s;
+}
+.poi-popup-actions button:hover { color: var(--text); border-color: var(--text-muted); }
+.poi-popup-actions button.danger:hover { color: var(--danger); border-color: var(--danger); }
+
+/* Block modals */
+.block-modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    display: none; align-items: center; justify-content: center; z-index: 4000;
+}
+.block-modal-overlay.open { display: flex; }
+.block-modal {
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: var(--radius-clay); box-shadow: var(--clay-shadow);
+    padding: 1.5rem; max-width: 440px; width: 90vw;
+}
+.block-modal h3 { font-family: var(--font-display); font-size: 1.0625rem; margin-bottom: 1rem; }
+.bm-field { margin-bottom: 0.875rem; }
+.bm-label { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.25rem; display: block; text-transform: uppercase; letter-spacing: 0.07em; }
+.bm-input, .bm-select {
+    width: 100%; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius:0; color: var(--text); font-family: var(--font-body);
+    font-size: 0.875rem; padding: 0.45rem 0.75rem; outline: none;
+}
+.bm-input:focus, .bm-select:focus { border-color: var(--primary); }
+.bm-row { display: flex; gap: 0.5rem; }
+.bm-row .bm-field { flex: 1; }
+.bm-emoji-row { display: flex; gap: 0.375rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+.bm-emoji-btn {
+    width: 32px; height: 32px; border-radius:0; background: var(--bg-input);
+    border: 1px solid var(--border); cursor: pointer; font-size: 1.125rem;
+    display: flex; align-items: center; justify-content: center; transition: all 0.1s;
+}
+.bm-emoji-btn.active { border-color: var(--primary); background: var(--primary-soft); }
+.bm-color-row { display: flex; gap: 0.375rem; }
+.bm-color-swatch { width: 28px; height: 28px; border-radius:0; cursor: pointer; border: 2px solid transparent; transition: all 0.1s; }
+.bm-color-swatch.active { border-color: #fff; transform: scale(1.15); }
+.bm-btns { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
+.bm-cancel-btn {
+    background: var(--bg-input); border: 1px solid var(--border); border-radius:0;
+    color: var(--text-muted); font-family: var(--font-body); font-size: 0.8125rem;
+    font-weight: 700; padding: 0.45rem 1rem; cursor: pointer;
+}
+.bm-ok-btn {
+    background: var(--primary); border: none; border-radius:0;
+    color: #fff; font-family: var(--font-body); font-size: 0.8125rem;
+    font-weight: 700; padding: 0.45rem 1rem; cursor: pointer; box-shadow: var(--clay-shadow-btn);
+}
+
+/* Settings panel */
+.settings-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    display: none; z-index: 3500;
+}
+.settings-overlay.open { display: block; }
+.settings-panel {
+    position: absolute; top: 0; right: 0; bottom: 0; width: 360px; max-width: 95vw;
+    background: var(--bg-elevated); border-left: 1px solid var(--border);
+    box-shadow: var(--clay-shadow); display: flex; flex-direction: column;
+    overflow-y: auto;
+}
+.settings-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.settings-title { font-family: var(--font-display); font-weight: 700; font-size: 1rem; }
+.settings-body { padding: 1rem 1.25rem; flex: 1; }
+.settings-section { margin-bottom: 1.75rem; }
+.settings-section-label {
+    font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--text-muted); margin-bottom: 0.625rem;
+}
+.settings-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+.settings-input {
+    flex: 1; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius:0; color: var(--text); font-family: var(--font-body);
+    font-size: 0.8125rem; padding: 0.4rem 0.75rem; outline: none;
+}
+.settings-input:focus { border-color: var(--primary); }
+.settings-prefix { font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; }
+.settings-btn {
+    background: var(--bg-input); border: 1px solid var(--border); border-radius:0;
+    color: var(--text-muted); font-family: var(--font-body); font-size: 0.75rem;
+    font-weight: 700; padding: 0.35rem 0.875rem; cursor: pointer; transition: all 0.12s;
+}
+.settings-btn:hover { color: var(--text); border-color: var(--text-muted); }
+.settings-btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.settings-btn.primary:hover { background: var(--primary-hover); }
+.settings-btn.danger { color: var(--danger); }
+.settings-btn.danger:hover { border-color: var(--danger); background: rgba(239,68,68,0.08); }
+.settings-toggle {
+    width: 36px; height: 20px; border-radius:0; background: var(--bg-input);
+    border: 1px solid var(--border); cursor: pointer; position: relative; transition: all 0.2s;
+    flex-shrink: 0;
+}
+.settings-toggle::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 14px; height: 14px; border-radius: 50%; background: var(--text-muted); transition: all 0.2s;
+}
+.settings-toggle.on { background: var(--primary); border-color: var(--primary); }
+.settings-toggle.on::after { left: 18px; background: #fff; }
+.settings-status { font-size: 0.7rem; color: var(--text-muted); }
+.settings-public-url {
+    font-size: 0.75rem; color: var(--primary); word-break: break-all;
+    text-decoration: none; display: block; margin-top: 0.375rem;
+}
+.settings-member-item {
+    display: flex; align-items: center; gap: 0.5rem; padding: 0.375rem 0;
+    font-size: 0.8125rem;
+}
+.settings-member-avatar {
+    width: 26px; height: 26px; border-radius: 50%; background: var(--primary);
+    color: #fff; font-size: 0.7rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.settings-member-name { flex: 1; font-weight: 600; }
+.settings-member-role { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
+.settings-msg { font-size: 0.75rem; margin-top: 0.375rem; min-height: 1.1em; color: var(--text-muted); }
+.settings-msg.ok { color: var(--success); }
+.settings-msg.err { color: var(--danger); }
+.settings-note-item {
+    display: flex; gap: 0.5rem; align-items: flex-start;
+    padding: 0.5rem 0; border-bottom: 1px solid var(--border);
+}
+.settings-note-item:last-child { border-bottom: none; }
+.settings-note-body { flex: 1; min-width: 0; }
+.settings-note-text {
+    font-size: 0.8125rem; line-height: 1.35; color: var(--text);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.settings-note-meta { font-size: 0.65rem; color: var(--text-muted); margin-top: 0.2rem; display: flex; align-items: center; gap: 0.3rem; }
+.settings-note-actions { display: flex; gap: 0.25rem; flex-shrink: 0; }
+.settings-note-actions button {
+    background: var(--bg-input); border: 1px solid var(--border); border-radius:0;
+    color: var(--text-muted); font-family: var(--font-body); font-size: 0.65rem;
+    font-weight: 700; padding: 2px 7px; cursor: pointer; transition: all 0.12s;
+}
+.settings-note-actions button:hover { color: var(--text); border-color: var(--text-muted); }
+.settings-note-actions button.danger:hover { color: var(--danger); border-color: var(--danger); }
+
+/* Map toolbar — redesigned */
+.edit-map-toolbar {
+    position: absolute; top: 12px; left: 12px; z-index: 10;
+    display: flex; flex-direction: column; gap: 4px;
+}
+.edit-map-group {
+    background: var(--bg-glass);
+    border: 1px solid var(--border); border-radius:0;
+    overflow: hidden;
+}
+.edit-map-btn {
+    background: none; border: none; border-bottom: 1px solid var(--border);
+    color: var(--text-muted); font-family: var(--font-body); font-size: 0.7rem;
+    font-weight: 700; padding: 0.4rem 0.7rem; cursor: pointer;
+    transition: all 0.15s; display: flex; align-items: center; gap: 0.375rem;
+    width: 100%;
+}
+.edit-map-btn:last-child { border-bottom: none; }
+.edit-map-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+.edit-map-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+.edit-map-btn.active { color: var(--primary); }
+.edit-map-btn.active-coral { color: var(--clay-coral); }
+.edit-map-btn.active-lavender { color: var(--clay-lavender); }
+/* Layer toggles: explicit on/off indicator (status dot + tint) */
+.edit-map-btn.lyr::before {
+    content: ''; width: 7px; height: 7px; border-radius: 50%;
+    border: 1.5px solid currentColor; opacity: 0.35; flex-shrink: 0;
+    transition: all 0.15s;
+}
+.edit-map-btn.lyr.active::before,
+.edit-map-btn.lyr.active-coral::before,
+.edit-map-btn.lyr.active-lavender::before {
+    background: currentColor; opacity: 1;
+    box-shadow: 0 0 6px currentColor;
+}
+.edit-map-btn.lyr.active,
+.edit-map-btn.lyr.active-coral,
+.edit-map-btn.lyr.active-lavender { background: rgba(255,255,255,0.07); }
+.edit-map-btn.lyr:not(.active):not(.active-coral):not(.active-lavender) { opacity: 0.55; }
+
+/* Popup styles */
+.blurb-popup-author { font-weight: 700; font-size: 0.8125rem; }
+.blurb-popup-text   { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.2rem; line-height: 1.4; }
+.popup-actions { display: flex; gap: 0.375rem; margin-top: 0.5rem; }
+.popup-actions button {
+    background: var(--bg-input); border: 1px solid var(--border); border-radius:0;
+    color: var(--text-muted); font-family: var(--font-body); font-size: 0.7rem;
+    font-weight: 700; padding: 0.2rem 0.55rem; cursor: pointer; transition: all 0.12s;
+}
+.popup-actions button:hover { color: var(--text); border-color: var(--text-muted); }
+.popup-actions button.danger:hover { color: var(--danger); border-color: var(--danger); }
+
+/* Responsive */
+@media (max-width: 820px) {
+    .editor-shell { flex-direction: column; }
+    .editor-doc { flex: 0 0 55vh; max-width: none; border-right: none; border-bottom: 1px solid var(--border); }
+    .editor-resizer { display: none; }
+    .editor-map-pane { flex: 1; min-height: 240px; }
+    .settings-panel { width: 100%; border-left: none; border-top: 1px solid var(--border); }
+}
+
+/* ═══ beta: newspaper page chrome ═══ */
+.page-header h1,.page-toolbar h1{font-size:clamp(2.6rem,6.4vw,4.8rem);line-height:0.96}
+.page-toolbar{border-bottom:4px double var(--rule);padding-bottom:1rem;margin-bottom:1.4rem;align-items:flex-end}
+.page-header{border-bottom:4px double var(--rule)}
+.page-toolbar .page-lead,.page-header .page-lead{font-size:1.12rem}
+.grid-4:has(> .card.stat-card){gap:0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);margin-bottom:1.6rem}
+.grid-4 > .card.stat-card{background:none;border:none;border-left:1px solid var(--hair);margin:0;padding:1.3rem 1rem;text-align:left}
+.grid-4 > .card.stat-card:first-child{border-left:none;padding-left:0}
+.grid-4 > .card.stat-card .stat-value{font-size:clamp(2.2rem,4.6vw,3.6rem);line-height:1}
+.grid-4 > .card.stat-card .stat-label{font-family:var(--label);font-weight:600;letter-spacing:0.14em;margin-top:0.6rem}
+.stat-label,.sidebar-label{font-family:var(--label)}
+.tab-btn,.seg-btn,.chip{font-family:var(--label);font-weight:600;letter-spacing:0.1em;border-radius:0}
+@media (max-width:760px){
+    .grid-4:has(> .card.stat-card){grid-template-columns:repeat(2,minmax(0,1fr))}
+    .grid-4 > .card.stat-card:nth-child(odd){border-left:none;padding-left:0}
+}
+/* page boxes get the same boxed-column treatment as cards */
+.day-card,
+.dn-place-chip,
+.block-map-embed,
+.block-location-card,
+.pin-popup-card,
+.block-modal{border-top:3px double var(--rule);border-radius:0}
+{% endblock %}
+
+{% block content %}
+<input type="file" id="cover-file-input" accept="image/*" style="display:none">
+<input type="file" id="photo-file-input" accept="image/*,video/*" multiple style="display:none">
+
+<div class="editor-breadcrumb-bar">{% include "tracker/_breadcrumb.html" with crumbs=breadcrumbs %}</div>
+
+<div class="editor-shell">
+    <!-- ── LEFT: Document editor ── -->
+    <div class="editor-doc">
+
+        <!-- Hero: cover image + overlaid title/subtitle + control toolbar -->
+        <div class="editor-hero" id="editor-hero">
+            <div class="editor-hero-bg" id="hero-bg"></div>
+            <div class="editor-hero-scrim"></div>
+
+            <!-- Back button (top-left) -->
+            <a href="/adventures/" class="editor-hero-back" title="back to adventures">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+            </a>
+
+            <!-- Cover change/remove (top-right, on hover when cover set) -->
+            <div class="editor-hero-actions" id="hero-actions">
+                <button class="editor-hero-btn" id="cover-change-btn">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    change
+                </button>
+                <button class="editor-hero-btn" id="cover-remove-btn" style="display:none">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                    remove
+                </button>
+            </div>
+
+            <!-- "add image" placeholder (centered, when no cover) -->
+            <div class="editor-hero-placeholder" id="hero-placeholder">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+                <span>add image</span>
+            </div>
+
+            <!-- Title + subtitle overlaid (bottom-left) -->
+            <div class="editor-hero-text">
+                <textarea class="editor-title" id="editor-title" rows="1" placeholder="adventure title…">{{ trip.name }}</textarea>
+                <textarea class="editor-subtitle" id="editor-subtitle" rows="1" placeholder="one-line subtitle…">{{ trip.subtitle }}</textarea>
+            </div>
+
+            <!-- Floating control toolbar (bottom-right of hero) -->
+            <div class="editor-hero-toolbar">
+                <a class="editor-tool-btn" href="/adventures/{{ trip_id }}/plan/" title="trip plan & people">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3.5" cy="6" r="1.2"/><circle cx="3.5" cy="12" r="1.2"/><circle cx="3.5" cy="18" r="1.2"/></svg>
+                </a>
+                <a class="editor-tool-btn" id="view-public-btn" href="/adventures/{{ trip_id }}/preview/" target="_blank" rel="noopener" title="preview public page">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+                </a>
+                <button class="editor-tool-btn" id="settings-btn" title="adventure settings">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+                </button>
+                <button class="editor-tool-btn" id="hero-add-block-btn" title="add a block">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
+                <span class="save-status" id="save-status" aria-hidden="true"></span>
+                <span class="save-label" id="save-label" role="status" aria-live="polite">unsaved changes</span>
+                <button class="save-btn" id="save-btn">save</button>
+            </div>
+        </div>
+
+        <!-- Story / Day Log toggle (Map stays persistent on the right) -->
+        <div class="doc-tabs" id="doc-tabs">
+            <button class="doc-tab active" data-pane="story">story</button>
+            <button class="doc-tab" data-pane="daylog">day log</button>
+        </div>
+
+        <!-- Blocks (Story) -->
+        <div class="blocks-area" id="blocks-area">
+            <!-- Skeleton placeholder until blocks render -->
+            <div class="blocks-skeleton" id="blocks-skeleton">
+                <div class="skel skel-line" style="width:60%;height:1.4rem;"></div>
+                <div class="skel skel-line" style="width:95%;"></div>
+                <div class="skel skel-line" style="width:88%;"></div>
+                <div class="skel skel-line" style="width:74%;"></div>
+                <div class="skel skel-block"></div>
+                <div class="skel skel-line" style="width:92%;"></div>
+                <div class="skel skel-line" style="width:80%;"></div>
+            </div>
+        </div>
+
+        <!-- Day Log -->
+        <div class="daylog-area" id="daylog-area" style="display:none">
+            <div class="daylog-empty" id="daylog-loading">loading day log…</div>
+        </div>
+    </div>
+
+    <!-- Draggable splitter -->
+    <div class="editor-resizer" id="editor-resizer" title="drag to resize"></div>
+
+    <!-- ── RIGHT: Map ── -->
+    <div class="editor-map-pane">
+        <div id="edit-map"></div>
+        <div class="map-loading" id="map-loading"><div class="map-loading-spinner"></div></div>
+        <div class="edit-map-toolbar">
+            <!-- Layer toggles -->
+            <div class="edit-map-group">
+                <button class="edit-map-btn lyr active" id="toggle-track-btn">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                    track
+                </button>
+                <button class="edit-map-btn lyr active-coral" id="toggle-pois-btn">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polygon points="12 2 15 9 22 9.3 16.5 14 18.5 21 12 17 5.5 21 7.5 14 2 9.3 9 9"/></svg>
+                    POIs
+                </button>
+            </div>
+            <!-- Actions -->
+            <div class="edit-map-group">
+                <button class="edit-map-btn" id="drop-poi-btn">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polygon points="12 2 15 9 22 9.3 16.5 14 18.5 21 12 17 5.5 21 7.5 14 2 9.3 9 9"/></svg>
+                    add POI
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Pin popup overlay (inline map pin refs) -->
+<div class="pin-popup-overlay" id="pin-popup-overlay">
+    <div class="pin-popup-card">
+        <button class="popup-close-btn" id="pin-popup-close">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <div class="pin-popup-name" id="pin-popup-name"></div>
+        <div class="pin-popup-notes" id="pin-popup-notes"></div>
+        <div class="pin-popup-mini-map" id="pin-popup-mini-map"></div>
+    </div>
+</div>
+
+<!-- POI detail popup (themed, on star marker click) -->
+<div class="pin-popup-overlay" id="poi-popup-overlay">
+    <div class="pin-popup-card poi-popup-card">
+        <button class="popup-close-btn" id="poi-popup-close">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <div class="poi-popup-author" id="poi-popup-author"></div>
+        <div class="poi-popup-star"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15 9 22 9.3 16.5 14 18.5 21 12 17 5.5 21 7.5 14 2 9.3 9 9"/></svg></div>
+        <div class="pin-popup-name" id="poi-popup-title"></div>
+        <div class="poi-popup-meta" id="poi-popup-meta"></div>
+        <div class="pin-popup-notes" id="poi-popup-notes"></div>
+        <div class="poi-popup-actions" id="poi-popup-actions"></div>
+    </div>
+</div>
+
+<!-- POI create/edit modal -->
+<div class="block-modal-overlay" id="poi-modal">
+    <div class="block-modal">
+        <h3 id="poi-modal-title">add POI</h3>
+        <div class="bm-field">
+            <label class="bm-label">title</label>
+            <input class="bm-input" id="poi-title-in" placeholder="name this point…" maxlength="200">
+        </div>
+        <div class="bm-field">
+            <label class="bm-label">notes</label>
+            <textarea class="bm-input" id="poi-notes-in" rows="3" placeholder="notes about this point…" style="resize:vertical;"></textarea>
+        </div>
+        <div class="bm-field">
+            <label class="bm-label">category</label>
+            <select class="bm-input" id="poi-category-in"></select>
+        </div>
+        <div class="bm-field">
+            <label class="bm-label">rating</label>
+            <div class="poi-rating-picker" id="poi-rating-in" role="radiogroup" aria-label="rating"></div>
+        </div>
+        <div class="bm-btns">
+            <button class="bm-cancel-btn" data-modal="poi-modal">cancel</button>
+            <button class="bm-ok-btn" id="poi-modal-ok">save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Block type selector popup -->
+<div id="block-type-menu" class="block-type-menu" style="display:none">
+    <div class="block-type-item" data-type="heading">
+        <span class="block-type-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M4 6h16M4 10h10M4 14h16M4 18h10"/></svg></span>heading
+    </div>
+    <div class="block-type-item" data-type="paragraph">
+        <span class="block-type-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M17 10H3M21 6H3M21 14H3M17 18H3"/></svg></span>paragraph
+    </div>
+    <div class="block-type-item" data-type="map_embed">
+        <span class="block-type-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg></span>map
+    </div>
+    <div class="block-type-item" data-type="photo_grid">
+        <span class="block-type-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></span>photos
+    </div>
+    <div class="block-type-item" data-type="divider">
+        <span class="block-type-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/></svg></span>divider
+    </div>
+    <div class="block-type-item" data-type="callout">
+        <span class="block-type-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span>callout
+    </div>
+    <div class="block-type-item" data-type="location_card">
+        <span class="block-type-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></span>place card
+    </div>
+    <div class="block-type-item" data-type="timeline">
+        <span class="block-type-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><line x1="12" y1="3" x2="12" y2="21"/><circle cx="12" cy="7" r="2"/><circle cx="12" cy="17" r="2"/></svg></span>timeline
+    </div>
+</div>
+
+<!-- Block edit modals -->
+<div class="block-modal-overlay" id="heading-modal">
+    <div class="block-modal">
+        <h3>heading block</h3>
+        <div class="bm-field">
+            <label class="bm-label">level</label>
+            <select class="bm-select" id="hm-level">
+                <option value="1">h1 — large title</option>
+                <option value="2" selected>h2 — section heading</option>
+                <option value="3">h3 — sub-heading</option>
+            </select>
+        </div>
+        <div class="bm-field">
+            <label class="bm-label">text</label>
+            <input class="bm-input" id="hm-text" placeholder="heading text…">
+        </div>
+        <div class="bm-btns">
+            <button class="bm-cancel-btn" data-modal="heading-modal">cancel</button>
+            <button class="bm-ok-btn" id="hm-ok">insert</button>
+        </div>
+    </div>
+</div>
+
+<div class="block-modal-overlay" id="callout-modal">
+    <div class="block-modal">
+        <h3>callout block</h3>
+        <div class="bm-field">
+            <label class="bm-label">accent</label>
+            <div class="bm-emoji-row" id="cm-emojis">
+                {% for emoji in "📍✈️🏕️🌄🍜🎉🏖️⛵🚂🗻" %}
+                <button class="bm-emoji-btn{% if forloop.first %} active{% endif %}" data-emoji="{{ emoji }}">{{ emoji }}</button>
+                {% endfor %}
+            </div>
+            <input class="bm-input" id="cm-emoji-custom" placeholder="or type any emoji…" maxlength="4" style="width:120px; margin-top:0.25rem;">
+        </div>
+        <div class="bm-field">
+            <label class="bm-label">color</label>
+            <div class="bm-color-row">
+                <div class="bm-color-swatch active" data-color="mint" style="background:rgba(13,191,172,0.45)"></div>
+                <div class="bm-color-swatch" data-color="coral" style="background:rgba(255,107,107,0.45)"></div>
+                <div class="bm-color-swatch" data-color="amber" style="background:rgba(247,183,49,0.45)"></div>
+                <div class="bm-color-swatch" data-color="lavender" style="background:rgba(155,142,247,0.45)"></div>
+                <div class="bm-color-swatch" data-color="sky" style="background:rgba(91,164,229,0.45)"></div>
+            </div>
+        </div>
+        <div class="bm-field">
+            <label class="bm-label">text</label>
+            <textarea class="bm-input" id="cm-text" rows="3" placeholder="callout text…" style="resize:vertical;"></textarea>
+        </div>
+        <div class="bm-btns">
+            <button class="bm-cancel-btn" data-modal="callout-modal">cancel</button>
+            <button class="bm-ok-btn" id="cm-ok">insert</button>
+        </div>
+    </div>
+</div>
+
+<div class="block-modal-overlay" id="map-embed-modal">
+    <div class="block-modal">
+        <h3>map embed</h3>
+        <div class="bm-row">
+            <div class="bm-field">
+                <label class="bm-label">height (px)</label>
+                <input class="bm-input" id="mem-height" type="number" value="360" min="200" max="800">
+            </div>
+            <div class="bm-field">
+                <label class="bm-label">zoom level</label>
+                <input class="bm-input" id="mem-zoom" type="number" value="10" min="2" max="18">
+            </div>
+        </div>
+        <div class="bm-row">
+            <div class="bm-field">
+                <label class="bm-label">center lat (optional)</label>
+                <input class="bm-input" id="mem-lat" type="number" step="any" placeholder="auto">
+            </div>
+            <div class="bm-field">
+                <label class="bm-label">center lng (optional)</label>
+                <input class="bm-input" id="mem-lng" type="number" step="any" placeholder="auto">
+            </div>
+        </div>
+        <div class="bm-field" style="display:flex;gap:1rem;align-items:center;">
+            <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.8125rem;cursor:pointer;"><input type="checkbox" id="mem-track" checked> show track</label>
+            <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.8125rem;cursor:pointer;"><input type="checkbox" id="mem-places" checked> show places</label>
+        </div>
+        <div class="bm-btns">
+            <button class="bm-cancel-btn" data-modal="map-embed-modal">cancel</button>
+            <button class="bm-ok-btn" id="mem-ok">insert</button>
+        </div>
+    </div>
+</div>
+
+<div class="block-modal-overlay" id="location-card-modal">
+    <div class="block-modal">
+        <h3>place card</h3>
+        <div class="bm-field">
+            <label class="bm-label">select a place</label>
+            <select class="bm-select" id="lcm-place"></select>
+        </div>
+        <div class="bm-btns">
+            <button class="bm-cancel-btn" data-modal="location-card-modal">cancel</button>
+            <button class="bm-ok-btn" id="lcm-ok">insert</button>
+        </div>
+    </div>
+</div>
+
+<div class="block-modal-overlay" id="timeline-modal">
+    <div class="block-modal" style="max-width:560px;">
+        <h3>timeline</h3>
+        <div class="bm-field">
+            <label class="bm-label">title (optional)</label>
+            <input class="bm-input" id="tlm-title" placeholder="e.g. trip highlights…">
+        </div>
+        <div class="bm-field">
+            <label class="bm-label">events</label>
+            <div id="tlm-events"></div>
+            <button class="bm-add-row-btn" id="tlm-add" type="button">+ add event</button>
+        </div>
+        <div class="bm-btns">
+            <button class="bm-cancel-btn" data-modal="timeline-modal">cancel</button>
+            <button class="bm-ok-btn" id="tlm-ok">insert</button>
+        </div>
+    </div>
+</div>
+
+<!-- Settings panel -->
+<div class="settings-overlay" id="settings-overlay">
+    <div class="settings-panel">
+        <div class="settings-header">
+            <span class="settings-title">adventure settings</span>
+            <button class="popup-close-btn" id="settings-close">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+        <div class="settings-body">
+            <!-- Share -->
+            <div class="settings-section">
+                <div class="settings-section-label">sharing</div>
+                <div class="settings-row">
+                    <span style="font-size:0.8125rem;flex:1;">public link</span>
+                    <button class="settings-toggle" id="st-public-toggle"></button>
+                </div>
+                <div id="st-public-url-row" style="display:none;margin-top:0.25rem;">
+                    <div class="settings-row">
+                        <span class="settings-prefix">roamly.app/adventure/</span>
+                        <input class="settings-input" id="st-slug" placeholder="your-slug" style="min-width:0;">
+                        <button class="settings-btn primary" id="st-slug-save">save</button>
+                    </div>
+                    <a class="settings-public-url" id="st-public-link" href="#" target="_blank"></a>
+                    <button class="settings-btn" id="st-copy-link" style="margin-top:0.375rem;">copy link</button>
+                </div>
+                <div id="st-share-msg" class="settings-msg"></div>
+            </div>
+            <!-- Access PIN -->
+            <div class="settings-section">
+                <div class="settings-section-label">access pin</div>
+                <div class="settings-row">
+                    <input class="settings-input" id="st-pin" placeholder="leave blank for no pin" maxlength="20" style="letter-spacing:0.1em;">
+                    <button class="settings-btn primary" id="st-pin-save">save</button>
+                </div>
+                <div class="settings-msg" style="font-size:0.7rem;color:var(--text-muted);">visitors must enter this pin to view the public page</div>
+                <div id="st-pin-msg" class="settings-msg"></div>
+            </div>
+            <!-- Members -->
+            <div class="settings-section">
+                <div class="settings-section-label">members</div>
+                <div id="st-members-list"></div>
+                <div class="settings-row" style="margin-top:0.5rem;">
+                    <input class="settings-input" id="st-add-member" placeholder="username to add…">
+                    <button class="settings-btn primary" id="st-add-member-btn">add</button>
+                </div>
+                <div id="st-member-msg" class="settings-msg"></div>
+            </div>
+            <!-- POIs -->
+            <div class="settings-section">
+                <div class="settings-section-label">points of interest</div>
+                <div id="st-notes-list"></div>
+            </div>
+            <!-- Danger zone -->
+            <div class="settings-section">
+                <div class="settings-section-label">danger zone</div>
+                <button class="settings-btn danger" id="st-delete-btn">delete this adventure</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Media lightbox (photo or video) -->
+<div class="lightbox-overlay" id="lightbox">
+    <button class="lightbox-close" onclick="closeLightbox()" title="close">×</button>
+    <button class="lightbox-prev" onclick="lightboxStep(-1)" title="previous">‹</button>
+    <div id="lightbox-media" class="lightbox-media"></div>
+    <button class="lightbox-next" onclick="lightboxStep(1)" title="next">›</button>
+</div>
+
+<script>
+const TRIP_ID = {{ trip_id }};
+const CSRF = '{{ csrf_token }}';
+const CURRENT_USERNAME = '{{ user.username|escapejs }}';
+const mapStyles = {
+    'Dark': { version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+        sources:{carto:{type:'raster',tiles:['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png{{ CARTO_TILE_QS|escapejs }}'],tileSize:256}},
+        layers:[{id:'carto',type:'raster',source:'carto'}] },
+    'Streets': { version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+        sources:{osm:{type:'raster',tiles:['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png{{ CARTO_TILE_QS|escapejs }}'],tileSize:256}},
+        layers:[{id:'osm',type:'raster',source:'osm'}] },
+};
+
+// ── Place categories ────────────────────────────────────────────────────────
+// Emoji per category slug — drives the map marker glyph + popup/card badges.
+const PLACE_CAT_EMOJI = {
+    restaurant:'🍴', cafe:'☕', bar:'🍸', hotel:'🛏️', store:'🛍️',
+    attraction:'📸', nature:'🌲', transport:'🚆', town:'🏙️', other:'📍',
+};
+const PLACE_CAT_LABEL = {
+    restaurant:'Restaurant', cafe:'Café', bar:'Bar / Nightlife', hotel:'Hotel / Lodging',
+    store:'Store / Shopping', attraction:'Attraction / Sight', nature:'Nature / Park',
+    transport:'Transport', town:'Town / City', other:'Other',
+};
+function starString(rating){
+    const n = Math.max(0, Math.min(5, parseInt(rating)||0));
+    return n ? '★★★★★'.slice(0,n) + '☆☆☆☆☆'.slice(0,5-n) : '';
+}
+
+// ── State ──────────────────────────────────────────────────────────────────
+// Photos for photo_grid blocks are stored on a hidden "container" blurb; this
+// sentinel text marks those so they don't appear as notes/pins.
+const PHOTO_CONTAINER_SENTINEL = '(photo grid upload)';
+let blocks = [];     // [{type, content, id}]
+let places = [];     // [{id, name, lat, lng, notes}]
+let blurbs = [];     // [{id, lat, lng, text, author, photos}] — only those with coords (map pins)
+let allNotes = [];   // every blurb/note, including ones without coordinates
+let tripData = {};
+let saveTimer = null;
+let pinMiniMap = null;
+let editMap = null;
+let pendingInsertIndex = null;  // where next block goes
+let pendingModal = null;        // which modal is open for editing an existing block
+let pendingEditIndex = null;    // index of block being edited
+let currentPhotoBlockIndex = null;
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function uid(){ return Math.random().toString(36).slice(2,10); }
+
+function autoResize(el){
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+}
+
+// ── Block body serialisation (what gets sent to server) ────────────────────
+function serialiseBlocks(){
+    return blocks.map(b => ({type: b.type, content: b.content}));
+}
+
+// ── Save ───────────────────────────────────────────────────────────────────
+function scheduleAutoSave(){
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(doSave, 1800);
+}
+
+async function doSave(){
+    setSaveStatus('saving');
+    const title = document.getElementById('editor-title').value.trim();
+    const subtitle = document.getElementById('editor-subtitle').value.trim();
+    try {
+        const r = await fetch(`/api/trips/${TRIP_ID}/body/`, {
+            method: 'PATCH',
+            headers: {'Content-Type':'application/json','X-CSRFToken': CSRF},
+            body: JSON.stringify({body: serialiseBlocks(), name: title, subtitle})
+        });
+        if(!r.ok){
+            // Not r.text(): on a 500 that is the whole HTML error page, which
+            // would be pasted verbatim into the status label. Prefer the API's
+            // own JSON error, else say what the status code was.
+            let detail = `server said ${r.status}`;
+            try { const d = await r.json(); if(d && d.error) detail = d.error; } catch(_){}
+            throw new Error(detail);
+        }
+        setSaveStatus('saved');
+    } catch(e){
+        setSaveStatus('error', e.message || 'network error');
+    }
+}
+
+function setSaveStatus(state, msg=''){
+    const el = document.getElementById('save-status');
+    const label = document.getElementById('save-label');
+    el.className = 'save-status ' + state;
+    const base = state === 'saving' ? 'saving…'
+               : state === 'saved'  ? 'saved'
+               : state === 'error'  ? 'save failed'
+               : 'unsaved changes';
+    // `msg` carries the real reason from the caller's catch and was previously
+    // discarded, so a failure said nothing about what went wrong.
+    const text = (state === 'error' && msg) ? `save failed — ${msg}` : base;
+    el.title = text;
+    if (label) {
+        label.textContent = text;
+        label.classList.toggle('error', state === 'error');
+    }
+}
+
+// ── Block rendering ────────────────────────────────────────────────────────
+function renderPinRefs(text, placesMap){
+    // Replace [^pin:ID] with superscript badge spans
+    let counter = 0;
+    const rendered = esc(text).replace(/\[\^pin:(\d+)\]/g, (_, id) => {
+        counter++;
+        const place = placesMap[parseInt(id)];
+        const title = place ? esc(place.name) : '?';
+        return `<span class="pin-badge" title="${title}" data-pin-id="${id}">${counter}</span>`;
+    });
+    return rendered;
+}
+
+function buildBlockEl(block, index){
+    const wrap = document.createElement('div');
+    wrap.className = 'block-wrap';
+    wrap.dataset.index = index;
+    wrap.draggable = true;
+
+    const c = block.content;
+    let inner = '';
+
+    if(block.type === 'heading'){
+        inner = `<div class="block-heading" data-level="${[1,2,3].includes(+c.level) ? +c.level : 2}">
+            <textarea class="block-text" data-field="text" rows="1">${esc(c.text||'')}</textarea>
+        </div>`;
+    } else if(block.type === 'paragraph'){
+        inner = `<div class="block-paragraph">
+            <textarea class="block-text" data-field="text" rows="2">${esc(c.text||'')}</textarea>
+        </div>`;
+    } else if(block.type === 'divider'){
+        inner = `<div class="block-divider"><hr></div>`;
+    } else if(block.type === 'callout'){
+        inner = `<div class="block-callout" data-color="${esc(c.color||'mint')}">
+            <span class="callout-accent">${esc(c.emoji||'📍')}</span>
+            <textarea class="callout-text" data-field="text" rows="2">${esc(c.text||'')}</textarea>
+        </div>`;
+    } else if(block.type === 'map_embed'){
+        const h = parseInt(c.height_px, 10) || 360;
+        inner = `<div class="block-map-embed">
+            <div class="map-embed-live" id="map-embed-${block._id}" data-block-id="${block._id}" style="height:${h}px;"></div>
+        </div>`;
+    } else if(block.type === 'photo_grid'){
+        const ids = c.photo_ids || [];
+        const layout = c.layout || 'grid';
+        const thumbs = ids.map(pid => {
+            const ph = (tripData.photos||{})[pid];
+            if(!ph) return '';
+            const media = ph.type === 'video'
+                ? `<video class="grid-thumb" src="${esc(ph.video||ph.url)}" controls preload="metadata"></video>`
+                : `<img class="grid-thumb" src="${esc(ph.thumb||ph.url)}" title="${esc(ph.name||'')}" loading="lazy">`;
+            return `<span class="grid-thumb-wrap">
+                ${media}
+                <button class="grid-thumb-remove" data-block-id="${block._id}" data-photo-id="${pid}" title="remove photo">&times;</button>
+            </span>`;
+        }).join('');
+        inner = `<div class="block-photo-grid">
+            <div class="photo-grid-inner layout-${esc(layout)}">${thumbs||'<span style="color:var(--text-muted);font-size:0.8125rem;padding:0.5rem 0;">no photos — click edit to add</span>'}</div>
+        </div>`;
+    } else if(block.type === 'location_card'){
+        const pinSvg = `<span class="loc-card-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></span>`;
+        const pl = places.find(p => p.id === c.place_id);
+        if(pl){
+            inner = `<div class="block-location-card">
+                ${pinSvg}
+                <div><div class="loc-card-name">${esc(pl.name)}</div>${pl.notes?`<div class="loc-card-notes">${esc(pl.notes)}</div>`:''}</div>
+            </div>`;
+        } else {
+            inner = `<div class="block-location-card">${pinSvg}<div class="loc-card-name" style="color:var(--text-muted)">place not found</div></div>`;
+        }
+    } else if(block.type === 'timeline'){
+        inner = renderTimelinePreview(c);
+    }
+
+    // Toolbar
+    const toolbar = `<div class="block-toolbar">
+        <button class="block-tool-btn drag-handle" title="drag to reorder"><svg fill="currentColor" viewBox="0 0 16 16"><circle cx="5" cy="4" r="1.2"/><circle cx="5" cy="8" r="1.2"/><circle cx="5" cy="12" r="1.2"/><circle cx="11" cy="4" r="1.2"/><circle cx="11" cy="8" r="1.2"/><circle cx="11" cy="12" r="1.2"/></svg></button>
+        <button class="block-tool-btn" title="edit block" data-action="edit"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+        <button class="block-tool-btn danger" title="delete block" data-action="delete"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg></button>
+    </div>`;
+
+    wrap.innerHTML = inner + toolbar;
+    return wrap;
+}
+
+function renderBlocks(){
+    const area = document.getElementById('blocks-area');
+    area.innerHTML = '';
+
+    blocks.forEach((block, index) => {
+        // Insert row before block
+        area.appendChild(buildInsertRow(index));
+        const wrap = buildBlockEl(block, index);
+        area.appendChild(wrap);
+        setupBlockWrap(wrap, index);
+    });
+    // Final insert row (after all blocks)
+    area.appendChild(buildInsertRow(blocks.length));
+
+    // Auto-resize all textareas
+    area.querySelectorAll('textarea').forEach(t => {
+        autoResize(t);
+        t.addEventListener('input', () => { autoResize(t); blockTextChanged(t); });
+        t.addEventListener('blur', scheduleAutoSave);
+    });
+
+    activateEditorEmbeds();
+}
+
+// Live mini-map previews for map_embed blocks (mirrors the public renderer).
+let editorEmbedMaps = {};
+function activateEditorEmbeds(){
+    // renderBlocks() rebuilds the DOM, so every previous container is detached;
+    // tear down all old map instances and recreate against the fresh elements.
+    Object.keys(editorEmbedMaps).forEach(id => { try{ editorEmbedMaps[id].remove(); }catch(e){} delete editorEmbedMaps[id]; });
+    const theme = localStorage.getItem('roamly_theme') === 'light' ? 'Streets' : 'Dark';
+    const locs = (tripData.locations || []);
+    document.querySelectorAll('.map-embed-live').forEach(el => {
+        const bid = el.dataset.blockId;
+        const block = blocks.find(b => b._id === bid);
+        if(!block) return;
+        const c = block.content || {};
+        const m = new maplibregl.Map({
+            container: el, style: mapStyles[theme],
+            center: c.center_lat && c.center_lng ? [c.center_lng, c.center_lat] : [0,20],
+            zoom: c.zoom || 10,
+        });
+        editorEmbedMaps[bid] = m;
+        m.addControl(new maplibregl.NavigationControl({showCompass:false}), 'bottom-right');
+        if(window.ResizeObserver){ new ResizeObserver(()=>m.resize()).observe(el); }
+        m.on('load', () => {
+            m.resize();
+            if(c.show_track !== false && locs.length){
+                const feats = locs.map(l => ({type:'Feature',geometry:{type:'Point',coordinates:[l.lng,l.lat]},properties:{}}));
+                m.addSource(bid+'-heatsrc',{type:'geojson',data:{type:'FeatureCollection',features:feats}});
+                m.addLayer({id:bid+'-heat',type:'heatmap',source:bid+'-heatsrc',maxzoom:13,paint:{
+                    'heatmap-intensity':['interpolate',['linear'],['zoom'],0,0.4,13,1.4],
+                    'heatmap-radius':['interpolate',['linear'],['zoom'],0,6,13,26],
+                    'heatmap-opacity':['interpolate',['linear'],['zoom'],0,0.75,11,0.6,13,0.1],
+                    'heatmap-color':['interpolate',['linear'],['heatmap-density'],0,'rgba(33,102,172,0)',0.2,'rgb(103,169,207)',0.4,'rgb(209,229,240)',0.6,'rgb(253,219,199)',0.8,'rgb(239,138,98)',1,'rgb(178,24,43)']}});
+                m.addLayer({id:bid+'-dots',type:'circle',source:bid+'-heatsrc',minzoom:7,paint:{
+                    'circle-color':'#e8763d','circle-radius':['interpolate',['linear'],['zoom'],8,3,12,6,16,12],'circle-stroke-width':1,'circle-stroke-color':'rgba(255,255,255,0.7)'}});
+                if(!c.center_lat){
+                    const lngs=locs.map(l=>l.lng),lats=locs.map(l=>l.lat);
+                    m.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]],{padding:30,maxZoom:14,duration:0});
+                }
+            }
+            if(c.show_places !== false && places.length){
+                const feats = places.map(p=>({type:'Feature',geometry:{type:'Point',coordinates:[p.longitude,p.latitude]},properties:{}}));
+                m.addSource(bid+'-pl',{type:'geojson',data:{type:'FeatureCollection',features:feats}});
+                m.addLayer({id:bid+'-places',type:'circle',source:bid+'-pl',paint:{'circle-color':'#a888a0','circle-radius':6,'circle-stroke-width':2,'circle-stroke-color':'#fff'}});
+            }
+        });
+    });
+}
+
+function buildInsertRow(afterIndex){
+    const row = document.createElement('div');
+    row.className = 'block-insert-row';
+    row.innerHTML = `<div class="block-insert-line"></div>
+        <button class="block-insert-btn" title="insert block here" data-after="${afterIndex}">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <div class="block-insert-line"></div>`;
+    row.querySelector('.block-insert-btn').addEventListener('click', e => {
+        pendingInsertIndex = afterIndex;
+        pendingEditIndex = null;
+        showBlockTypeMenu(e.currentTarget);
+    });
+    return row;
+}
+
+
+function setupBlockWrap(wrap, index){
+    // Toolbar actions
+    wrap.addEventListener('click', e => {
+        const btn = e.target.closest('[data-action]');
+        if(!btn) return;
+        const action = btn.dataset.action;
+        if(action === 'delete'){
+            blocks.splice(index, 1);
+            renderBlocks();
+            scheduleAutoSave();
+        } else if(action === 'edit'){
+            openEditModal(index);
+        }
+    });
+
+    // Drag-and-drop reorder
+    wrap.addEventListener('dragstart', e => {
+        // Don't hijack map pan gestures inside a live map embed preview.
+        if(e.target.closest('.map-embed-live')){ e.preventDefault(); return; }
+        e.dataTransfer.setData('text/plain', String(index));
+        wrap.style.opacity = '0.5';
+    });
+    wrap.addEventListener('dragend', () => { wrap.style.opacity = ''; clearDragIndicators(); });
+    wrap.addEventListener('dragover', e => {
+        e.preventDefault();
+        clearDragIndicators();
+        const rect = wrap.getBoundingClientRect();
+        if(e.clientY < rect.top + rect.height/2){
+            wrap.classList.add('drag-over-top');
+        } else {
+            wrap.classList.add('drag-over-bottom');
+        }
+    });
+    wrap.addEventListener('dragleave', () => clearDragIndicators());
+    wrap.addEventListener('drop', e => {
+        e.preventDefault();
+        clearDragIndicators();
+        const from = parseInt(e.dataTransfer.getData('text/plain'));
+        const rect = wrap.getBoundingClientRect();
+        const to = e.clientY < rect.top + rect.height/2 ? index : index + 1;
+        if(from === to || from === to - 1) return;
+        const [moved] = blocks.splice(from, 1);
+        const dest = to > from ? to - 1 : to;
+        blocks.splice(dest, 0, moved);
+        renderBlocks();
+        scheduleAutoSave();
+    });
+}
+
+function clearDragIndicators(){
+    document.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(el => {
+        el.classList.remove('drag-over-top', 'drag-over-bottom');
+    });
+}
+
+function blockTextChanged(textarea){
+    const wrap = textarea.closest('.block-wrap');
+    if(!wrap) return;
+    const index = parseInt(wrap.dataset.index);
+    const field = textarea.dataset.field;
+    if(field && blocks[index]) {
+        blocks[index].content[field] = textarea.value;
+    }
+    setSaveStatus('unsaved');
+}
+
+// ── Block type menu ────────────────────────────────────────────────────────
+function showBlockTypeMenu(anchor){
+    const menu = document.getElementById('block-type-menu');
+    const rect = anchor.getBoundingClientRect();
+    menu.style.display = 'grid';
+    menu.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+    menu.style.left = (rect.left + window.scrollX) + 'px';
+    menu.style.position = 'absolute';
+
+    const hide = (e) => {
+        if(!menu.contains(e.target) && e.target !== anchor){
+            menu.style.display = 'none';
+            document.removeEventListener('click', hide);
+        }
+    };
+    setTimeout(() => document.addEventListener('click', hide), 10);
+}
+
+document.getElementById('block-type-menu').addEventListener('click', e => {
+    const item = e.target.closest('.block-type-item');
+    if(!item) return;
+    document.getElementById('block-type-menu').style.display = 'none';
+    insertNewBlock(item.dataset.type);
+});
+
+function insertNewBlock(type){
+    const defaults = {
+        heading:       {level: 2, text: ''},
+        paragraph:     {text: ''},
+        map_embed:     {zoom: 10, center_lat: null, center_lng: null, show_track: true, show_places: true, height_px: 360},
+        photo_grid:    {photo_ids: [], layout: 'grid'},
+        divider:       {},
+        callout:       {text: '', emoji: '📍', color: 'mint'},
+        location_card: {place_id: places.length ? places[0].id : null},
+        timeline:      {title: '', events: []},
+    };
+    if(type === 'heading'){
+        pendingModal = {type, editIndex: pendingEditIndex};
+        document.getElementById('heading-modal').classList.add('open');
+        return;
+    }
+    if(type === 'callout'){
+        pendingModal = {type, editIndex: pendingEditIndex};
+        document.getElementById('callout-modal').classList.add('open');
+        return;
+    }
+    if(type === 'map_embed'){
+        pendingModal = {type, editIndex: pendingEditIndex};
+        document.getElementById('map-embed-modal').classList.add('open');
+        return;
+    }
+    if(type === 'location_card'){
+        populatePlaceSelect();
+        pendingModal = {type, editIndex: pendingEditIndex};
+        document.getElementById('location-card-modal').classList.add('open');
+        return;
+    }
+    if(type === 'timeline'){
+        timelineDraft = {title: '', events: [{date:'', title:'', note:''}]};
+        renderTimelineModal();
+        pendingModal = {type, editIndex: pendingEditIndex};
+        document.getElementById('timeline-modal').classList.add('open');
+        return;
+    }
+    commitBlock({type, content: defaults[type], _id: uid()});
+}
+
+function commitBlock(block){
+    if(pendingEditIndex !== null && pendingEditIndex !== undefined){
+        blocks[pendingEditIndex] = block;
+        pendingEditIndex = null;
+    } else {
+        const idx = pendingInsertIndex !== null ? pendingInsertIndex : blocks.length;
+        blocks.splice(idx, 0, block);
+        pendingInsertIndex = null;
+    }
+    renderBlocks();
+    scheduleAutoSave();
+}
+
+// ── Edit existing block ────────────────────────────────────────────────────
+function openEditModal(index){
+    const block = blocks[index];
+    pendingEditIndex = index;
+    const c = block.content;
+    if(block.type === 'heading'){
+        document.getElementById('hm-level').value = c.level || 2;
+        document.getElementById('hm-text').value = c.text || '';
+        document.getElementById('heading-modal').classList.add('open');
+    } else if(block.type === 'callout'){
+        document.getElementById('cm-text').value = c.text || '';
+        document.querySelectorAll('.bm-emoji-btn').forEach(b => b.classList.toggle('active', b.dataset.emoji === c.emoji));
+        document.querySelectorAll('.bm-color-swatch').forEach(s => s.classList.toggle('active', s.dataset.color === c.color));
+        document.getElementById('callout-modal').classList.add('open');
+    } else if(block.type === 'map_embed'){
+        document.getElementById('mem-height').value = c.height_px || 360;
+        document.getElementById('mem-zoom').value = c.zoom || 10;
+        document.getElementById('mem-lat').value = c.center_lat || '';
+        document.getElementById('mem-lng').value = c.center_lng || '';
+        document.getElementById('mem-track').checked = c.show_track !== false;
+        document.getElementById('mem-places').checked = c.show_places !== false;
+        document.getElementById('map-embed-modal').classList.add('open');
+    } else if(block.type === 'location_card'){
+        populatePlaceSelect(c.place_id);
+        document.getElementById('location-card-modal').classList.add('open');
+    } else if(block.type === 'photo_grid'){
+        currentPhotoBlockIndex = index;
+        document.getElementById('photo-file-input').click();
+    } else if(block.type === 'timeline'){
+        timelineDraft = {
+            title: c.title || '',
+            events: (c.events && c.events.length) ? c.events.map(e => ({date:e.date||'', title:e.title||'', note:e.note||''})) : [{date:'',title:'',note:''}],
+        };
+        renderTimelineModal();
+        document.getElementById('timeline-modal').classList.add('open');
+    }
+}
+
+// ── Modal OK handlers ──────────────────────────────────────────────────────
+document.getElementById('hm-ok').addEventListener('click', () => {
+    const block = {type:'heading', content:{
+        level: parseInt(document.getElementById('hm-level').value),
+        text: document.getElementById('hm-text').value,
+    }, _id: uid()};
+    document.getElementById('heading-modal').classList.remove('open');
+    commitBlock(block);
+});
+
+document.getElementById('cm-ok').addEventListener('click', () => {
+    const activeEmoji = document.querySelector('.bm-emoji-btn.active');
+    const customEmoji = document.getElementById('cm-emoji-custom').value.trim();
+    const activeColor = document.querySelector('.bm-color-swatch.active');
+    const block = {type:'callout', content:{
+        text: document.getElementById('cm-text').value,
+        emoji: customEmoji || (activeEmoji ? activeEmoji.dataset.emoji : '📍'),
+        color: activeColor ? activeColor.dataset.color : 'mint',
+    }, _id: uid()};
+    document.getElementById('callout-modal').classList.remove('open');
+    commitBlock(block);
+});
+
+document.getElementById('mem-ok').addEventListener('click', () => {
+    const latVal = parseFloat(document.getElementById('mem-lat').value);
+    const lngVal = parseFloat(document.getElementById('mem-lng').value);
+    const block = {type:'map_embed', content:{
+        zoom: parseInt(document.getElementById('mem-zoom').value) || 10,
+        center_lat: isNaN(latVal) ? null : latVal,
+        center_lng: isNaN(lngVal) ? null : lngVal,
+        show_track: document.getElementById('mem-track').checked,
+        show_places: document.getElementById('mem-places').checked,
+        height_px: parseInt(document.getElementById('mem-height').value) || 360,
+    }, _id: uid()};
+    document.getElementById('map-embed-modal').classList.remove('open');
+    commitBlock(block);
+});
+
+document.getElementById('lcm-ok').addEventListener('click', () => {
+    const sel = document.getElementById('lcm-place');
+    const block = {type:'location_card', content:{place_id: parseInt(sel.value)}, _id: uid()};
+    document.getElementById('location-card-modal').classList.remove('open');
+    commitBlock(block);
+});
+
+// ── Timeline block ─────────────────────────────────────────────────────────
+function fmtTimelineDate(d){
+    if(!d) return '';
+    const dt = new Date(d + 'T00:00:00');
+    if(isNaN(dt.getTime())) return esc(d);
+    return dt.toLocaleDateString([], {month:'short', day:'numeric', year:'numeric'});
+}
+function renderTimelinePreview(c){
+    const events = c.events || [];
+    const titleHtml = c.title ? `<div class="block-timeline-title">${esc(c.title)}</div>` : '';
+    if(!events.length){
+        return `<div class="block-timeline">${titleHtml}<div style="font-size:0.8125rem;color:var(--text-muted);padding:0.25rem 0;">empty timeline — click edit to add events</div></div>`;
+    }
+    const items = events.map(ev => `
+        <div class="tl-item">
+            <div class="tl-marker"></div>
+            <div class="tl-content">
+                ${ev.date ? `<div class="tl-date">${fmtTimelineDate(ev.date)}</div>` : ''}
+                ${ev.title ? `<div class="tl-event-title">${esc(ev.title)}</div>` : ''}
+                ${ev.note ? `<div class="tl-note">${esc(ev.note)}</div>` : ''}
+            </div>
+        </div>`).join('');
+    return `<div class="block-timeline">${titleHtml}<div class="tl-track">${items}</div></div>`;
+}
+
+// ── Timeline modal ─────────────────────────────────────────────────────────
+let timelineDraft = {title:'', events:[]};
+function renderTimelineModal(){
+    document.getElementById('tlm-title').value = timelineDraft.title || '';
+    const wrap = document.getElementById('tlm-events');
+    wrap.innerHTML = timelineDraft.events.map((ev, i) => `
+        <div class="tlm-event-row" data-idx="${i}">
+            <div class="tlm-event-grid">
+                <input class="bm-input tlm-date" type="date" value="${esc(ev.date||'')}">
+                <input class="bm-input tlm-title-in" placeholder="event title…" value="${esc(ev.title||'')}">
+                <button class="tlm-remove" data-idx="${i}" type="button" title="remove">&times;</button>
+            </div>
+            <textarea class="bm-input tlm-note" rows="2" placeholder="note (optional)…" style="resize:vertical;margin-top:4px;">${esc(ev.note||'')}</textarea>
+        </div>
+    `).join('') || '<div style="font-size:0.8125rem;color:var(--text-muted);">no events yet</div>';
+}
+function syncTimelineDraftFromDOM(){
+    timelineDraft.title = document.getElementById('tlm-title').value;
+    document.querySelectorAll('#tlm-events .tlm-event-row').forEach(row => {
+        const i = parseInt(row.dataset.idx);
+        timelineDraft.events[i] = {
+            date: row.querySelector('.tlm-date').value,
+            title: row.querySelector('.tlm-title-in').value,
+            note: row.querySelector('.tlm-note').value,
+        };
+    });
+}
+document.getElementById('tlm-add').addEventListener('click', () => {
+    syncTimelineDraftFromDOM();
+    timelineDraft.events.push({date:'', title:'', note:''});
+    renderTimelineModal();
+});
+document.getElementById('tlm-events').addEventListener('click', e => {
+    const rm = e.target.closest('.tlm-remove');
+    if(!rm) return;
+    syncTimelineDraftFromDOM();
+    timelineDraft.events.splice(parseInt(rm.dataset.idx), 1);
+    renderTimelineModal();
+});
+document.getElementById('tlm-ok').addEventListener('click', () => {
+    syncTimelineDraftFromDOM();
+    const events = timelineDraft.events
+        .filter(ev => (ev.title||'').trim() || (ev.note||'').trim() || ev.date)
+        .sort((a,b) => (a.date||'').localeCompare(b.date||''));
+    const block = {type:'timeline', content:{title: timelineDraft.title.trim(), events}, _id: uid()};
+    document.getElementById('timeline-modal').classList.remove('open');
+    commitBlock(block);
+});
+
+// Cancel buttons
+document.querySelectorAll('.bm-cancel-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.getElementById(btn.dataset.modal).classList.remove('open');
+        pendingEditIndex = null;
+    });
+});
+
+// Callout emoji/color pickers
+document.getElementById('cm-emojis').addEventListener('click', e => {
+    const btn = e.target.closest('.bm-emoji-btn');
+    if(!btn) return;
+    document.querySelectorAll('.bm-emoji-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('cm-emoji-custom').value = '';
+});
+document.querySelectorAll('.bm-color-swatch').forEach(sw => {
+    sw.addEventListener('click', () => {
+        document.querySelectorAll('.bm-color-swatch').forEach(s => s.classList.remove('active'));
+        sw.classList.add('active');
+    });
+});
+
+function populatePlaceSelect(selectedId){
+    const sel = document.getElementById('lcm-place');
+    sel.innerHTML = '';
+    places.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        if(p.id === selectedId) opt.selected = true;
+        sel.appendChild(opt);
+    });
+    if(!places.length){
+        const opt = document.createElement('option');
+        opt.textContent = 'no places yet — add them on the map';
+        sel.appendChild(opt);
+    }
+}
+
+// ── Photo upload for photo_grid block ─────────────────────────────────────
+document.getElementById('photo-file-input').addEventListener('change', async function(){
+    if(currentPhotoBlockIndex === null) return;
+    const files = Array.from(this.files);
+    if(!files.length) return;
+    const block = blocks[currentPhotoBlockIndex];
+    const formData = new FormData();
+    files.slice(0,5).forEach(f => formData.append('photos', f));
+    formData.append('latitude', '');
+    formData.append('longitude', '');
+    formData.append('text', PHOTO_CONTAINER_SENTINEL);
+    try {
+        const r = await fetch(`/api/trips/${TRIP_ID}/blurbs/create/`, {
+            method:'POST', headers:{'X-CSRFToken':CSRF}, body: formData
+        });
+        const d = await r.json();
+        // Attach the new photos to this block so they actually render.
+        if(block && Array.isArray(d.photo_ids)){
+            block.content = block.content || {};
+            block.content.photo_ids = (block.content.photo_ids || []).concat(d.photo_ids);
+            await doSave();
+        }
+        // Re-fetch trip to get the photo map, then re-render.
+        await loadTrip();
+        await reloadBlurbs();
+        renderBlocks();
+    } catch(e){ console.error(e); }
+    this.value = '';
+    currentPhotoBlockIndex = null;
+});
+
+// ── Cover hero ─────────────────────────────────────────────────────────────
+const heroEl = document.getElementById('editor-hero');
+const heroBg  = document.getElementById('hero-bg');
+
+function showCoverPreview(url){
+    heroBg.style.backgroundImage = `url('${url}')`;
+    heroEl.dataset.hasCover = '1';
+    document.getElementById('cover-remove-btn').style.display = '';
+}
+function hideCoverPreview(){
+    heroBg.style.backgroundImage = '';
+    delete heroEl.dataset.hasCover;
+    document.getElementById('cover-remove-btn').style.display = 'none';
+}
+
+heroEl.addEventListener('click', e => {
+    // Only the empty cover / placeholder area opens the file picker — not the
+    // toolbar buttons, cover actions, back link, or the title/subtitle fields.
+    if(e.target.closest('.editor-hero-toolbar') ||
+       e.target.closest('.editor-hero-actions') ||
+       e.target.closest('.editor-hero-back') ||
+       e.target.closest('.editor-hero-text')) return;
+    document.getElementById('cover-file-input').click();
+});
+document.getElementById('cover-change-btn').addEventListener('click', e => {
+    e.stopPropagation();
+    document.getElementById('cover-file-input').click();
+});
+document.getElementById('cover-remove-btn').addEventListener('click', async e => {
+    e.stopPropagation();
+    await fetch(`/api/trips/${TRIP_ID}/cover/delete/`, {method:'POST',headers:{'X-CSRFToken':CSRF}});
+    hideCoverPreview();
+});
+heroEl.addEventListener('dragover', e => { e.preventDefault(); heroEl.classList.add('drag-over'); });
+heroEl.addEventListener('dragleave', () => heroEl.classList.remove('drag-over'));
+heroEl.addEventListener('drop', e => {
+    e.preventDefault(); heroEl.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if(file && file.type.startsWith('image/')) uploadCover(file);
+});
+document.getElementById('cover-file-input').addEventListener('change', function(){
+    if(this.files[0]) uploadCover(this.files[0]);
+    this.value = '';
+});
+
+async function uploadCover(file){
+    const fd = new FormData();
+    fd.append('cover', file);
+    const r = await fetch(`/api/trips/${TRIP_ID}/cover/`, {method:'POST',headers:{'X-CSRFToken':CSRF},body:fd});
+    if(r.ok){
+        const d = await r.json();
+        showCoverPreview(d.cover_image);
+    }
+}
+
+// ── Save button + title/subtitle auto-save ─────────────────────────────────
+document.getElementById('save-btn').addEventListener('click', doSave);
+['editor-title','editor-subtitle'].forEach(id => {
+    const el = document.getElementById(id);
+    el.addEventListener('input', () => { autoResize(el); setSaveStatus('unsaved'); });
+    el.addEventListener('blur', scheduleAutoSave);
+});
+
+// Quick "add block" button in the hero toolbar — appends to the end
+document.getElementById('hero-add-block-btn').addEventListener('click', function(){
+    pendingInsertIndex = blocks.length;
+    pendingEditIndex = null;
+    showBlockTypeMenu(this);
+});
+
+// ── Map (right pane) ───────────────────────────────────────────────────────
+let showTrack = true, showPOIs = true;
+let droppingPOI = false;
+let poiMarkers = [];
+let poiEditId = null;       // blurb id being edited, or null when creating
+let poiDropCoords = null;   // {lat,lng} captured for a new POI
+
+function initMap(locs){
+    const theme = localStorage.getItem('roamly_theme') === 'light' ? 'Streets' : 'Dark';
+    editMap = new maplibregl.Map({
+        container: 'edit-map',
+        style: mapStyles[theme],
+        center: [0, 20],
+        zoom: 2,
+    });
+    editMap.addControl(new maplibregl.NavigationControl(), 'bottom-right');
+
+    editMap.on('load', () => {
+        if(locs.length){
+            // map.html-style point cloud: heatmap (zoomed out) + dots (zoomed in)
+            const features = locs.map(l => ({type:'Feature',geometry:{type:'Point',coordinates:[l.lng,l.lat]},properties:{}}));
+            editMap.addSource('track', {type:'geojson', data:{type:'FeatureCollection',features}});
+            editMap.addLayer({
+                id:'track-heat', type:'heatmap', source:'track', maxzoom:13,
+                layout:{visibility: showTrack ? 'visible' : 'none'},
+                paint:{
+                    'heatmap-intensity':['interpolate',['linear'],['zoom'],0,0.4,13,1.4],
+                    'heatmap-radius':['interpolate',['linear'],['zoom'],0,6,13,26],
+                    'heatmap-opacity':['interpolate',['linear'],['zoom'],0,0.75,11,0.6,13,0.1],
+                    'heatmap-color':['interpolate',['linear'],['heatmap-density'],
+                        0,'rgba(33,102,172,0)',0.2,'rgb(103,169,207)',0.4,'rgb(209,229,240)',
+                        0.6,'rgb(253,219,199)',0.8,'rgb(239,138,98)',1,'rgb(178,24,43)']
+                }
+            });
+            editMap.addLayer({
+                id:'track-dots', type:'circle', source:'track', minzoom:7,
+                layout:{visibility: showTrack ? 'visible' : 'none'},
+                paint:{
+                    'circle-color':'#e8763d',
+                    'circle-radius':['interpolate',['linear'],['zoom'],8,3,12,6,16,12],
+                    'circle-stroke-width':1,
+                    'circle-stroke-color':'rgba(255,255,255,0.7)'
+                }
+            });
+
+            const lngs = locs.map(l=>l.lng), lats = locs.map(l=>l.lat);
+            editMap.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]], {padding:40});
+        }
+
+        renderPOIMarkers();
+        hideMapLoading();
+    });
+
+    editMap.on('click', e => {
+        if(droppingPOI){
+            poiDropCoords = {lat: e.lngLat.lat, lng: e.lngLat.lng};
+            droppingPOI = false;
+            document.getElementById('drop-poi-btn').classList.remove('active');
+            editMap.getCanvas().style.cursor = '';
+            openPOIModal(null);
+        }
+    });
+}
+
+function hideMapLoading(){
+    const ml = document.getElementById('map-loading');
+    if(ml){ ml.classList.add('hide'); setTimeout(()=>{ if(ml.parentNode) ml.remove(); }, 400); }
+}
+
+// ── POIs (unified places + notes, backed by located blurbs) ─────────────────
+function poiMarkerEl(cat){
+    const el = document.createElement('div');
+    el.className = 'poi-marker';
+    // Categorised places show their emoji glyph; uncategorised keep the star.
+    if(cat && PLACE_CAT_EMOJI[cat]){
+        el.classList.add('poi-marker-cat');
+        el.innerHTML = `<span class="poi-marker-emoji">${PLACE_CAT_EMOJI[cat]}</span>`;
+    } else {
+        el.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15 9 22 9.3 16.5 14 18.5 21 12 17 5.5 21 7.5 14 2 9.3 9 9"/></svg>';
+    }
+    return el;
+}
+
+function renderPOIMarkers(){
+    poiMarkers.forEach(m => m.remove());
+    poiMarkers = [];
+    if(!editMap) return;
+    blurbs.filter(b => b.latitude && b.longitude).forEach(b => {
+        const el = poiMarkerEl(b.category);
+        el.style.display = showPOIs ? '' : 'none';
+        el.addEventListener('click', ev => { ev.stopPropagation(); openPOIPopup(b); });
+        const m = new maplibregl.Marker({element: el, anchor: 'center'})
+            .setLngLat([b.longitude, b.latitude]).addTo(editMap);
+        poiMarkers.push(m);
+    });
+}
+
+// Map toolbar toggle buttons
+document.getElementById('toggle-track-btn').addEventListener('click', function(){
+    showTrack = !showTrack;
+    this.classList.toggle('active', showTrack);
+    ['track-heat','track-dots'].forEach(id => {
+        if(editMap && editMap.getLayer(id)){
+            editMap.setLayoutProperty(id,'visibility', showTrack ? 'visible' : 'none');
+        }
+    });
+});
+document.getElementById('toggle-pois-btn').addEventListener('click', function(){
+    showPOIs = !showPOIs;
+    this.classList.toggle('active-coral', showPOIs);
+    poiMarkers.forEach(m => { m.getElement().style.display = showPOIs ? '' : 'none'; });
+});
+document.getElementById('drop-poi-btn').addEventListener('click', function(){
+    droppingPOI = !droppingPOI;
+    this.classList.toggle('active', droppingPOI);
+    if(editMap) editMap.getCanvas().style.cursor = droppingPOI ? 'crosshair' : '';
+});
+
+function closeMapPopups(){ document.querySelectorAll('.maplibregl-popup').forEach(p=>p.remove()); }
+
+async function reloadBlurbs(){
+    const tr = await fetch(`/api/trips/${TRIP_ID}/timeline/`);
+    const td = await tr.json();
+    allNotes = (td.events||[]).filter(e=>e.type==='blurb' && e.text!==PHOTO_CONTAINER_SENTINEL);
+    blurbs = allNotes.filter(e=>e.latitude&&e.longitude);
+    if(document.getElementById('settings-overlay').classList.contains('open')) renderSettingsNotes();
+}
+
+// ── POI create / edit modal ─────────────────────────────────────────────────
+let poiRatingVal = 0;
+function buildCategorySelect(){
+    const sel = document.getElementById('poi-category-in');
+    if(sel.dataset.built) return;
+    const cats = (tripData.categories && tripData.categories.length)
+        ? tripData.categories
+        : Object.keys(PLACE_CAT_LABEL).map(s => ({slug:s, label:PLACE_CAT_LABEL[s]}));
+    sel.innerHTML = '<option value="">— none —</option>' +
+        cats.map(c => `<option value="${c.slug}">${PLACE_CAT_EMOJI[c.slug]||''} ${c.label}</option>`).join('');
+    sel.dataset.built = '1';
+}
+function renderRatingPicker(){
+    const host = document.getElementById('poi-rating-in');
+    host.innerHTML = '';
+    for(let i=1;i<=5;i++){
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'poi-star-btn' + (i<=poiRatingVal ? ' on' : '');
+        b.textContent = i<=poiRatingVal ? '★' : '☆';
+        b.title = i + ' star' + (i>1?'s':'');
+        b.addEventListener('click', () => { poiRatingVal = (poiRatingVal===i ? 0 : i); renderRatingPicker(); });
+        host.appendChild(b);
+    }
+    const clr = document.createElement('span');
+    clr.className = 'poi-star-clear';
+    clr.textContent = poiRatingVal ? 'clear' : '';
+    clr.addEventListener('click', () => { poiRatingVal = 0; renderRatingPicker(); });
+    host.appendChild(clr);
+}
+function openPOIModal(id){
+    poiEditId = id;
+    const b = id ? blurbs.find(x => x.id === id) : null;
+    document.getElementById('poi-modal-title').textContent = id ? 'edit POI' : 'add POI';
+    document.getElementById('poi-title-in').value = b ? (b.title || '') : '';
+    document.getElementById('poi-notes-in').value = b ? (b.text || '') : '';
+    buildCategorySelect();
+    document.getElementById('poi-category-in').value = b ? (b.category || '') : '';
+    poiRatingVal = b ? (parseInt(b.rating)||0) : 0;
+    renderRatingPicker();
+    document.getElementById('poi-modal').classList.add('open');
+    setTimeout(() => document.getElementById('poi-title-in').focus(), 30);
+}
+
+document.getElementById('poi-modal-ok').addEventListener('click', savePOI);
+async function savePOI(){
+    const title = document.getElementById('poi-title-in').value.trim();
+    const notes = document.getElementById('poi-notes-in').value.trim();
+    const category = document.getElementById('poi-category-in').value;
+    const rating = poiRatingVal || null;
+    if(!title && !notes){ await roamlyAlert('add a title or some notes'); return; }
+    let r;
+    if(poiEditId){
+        r = await fetch(`/api/trips/${TRIP_ID}/places/${poiEditId}/update/`, {
+            method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+            body: JSON.stringify({name: title, notes, rating, category})
+        });
+    } else {
+        if(!poiDropCoords) return;
+        r = await fetch(`/api/trips/${TRIP_ID}/places/create/`, {
+            method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+            body: JSON.stringify({name: title, notes, rating, category, latitude: poiDropCoords.lat, longitude: poiDropCoords.lng})
+        });
+    }
+    if(r && r.ok){
+        const d = await r.json();
+        const p = d.place || {};
+        // Update local state in place — avoid re-fetching the whole trip (slow).
+        if(poiEditId){
+            [blurbs, allNotes].forEach(arr => {
+                const b = arr.find(x => x.id === poiEditId);
+                if(b){ b.title = p.name || ''; b.text = p.notes || ''; b.rating = p.rating; b.category = p.category || ''; }
+            });
+            const pl = places.find(x => x.id === poiEditId);
+            if(pl){ pl.name = p.name || ''; pl.notes = p.notes || ''; pl.rating = p.rating; pl.category = p.category || ''; }
+        } else {
+            const nb = {
+                id: p.id, title: p.name || '', text: p.notes || '',
+                latitude: p.latitude, longitude: p.longitude, rating: p.rating, category: p.category || '',
+                author: CURRENT_USERNAME, photos: [], location_name: '',
+            };
+            blurbs.push(nb); allNotes.push(nb);
+            places.push({id: p.id, name: p.name || '', latitude: p.latitude, longitude: p.longitude, notes: p.notes || '', rating: p.rating, category: p.category || ''});
+        }
+        document.getElementById('poi-modal').classList.remove('open');
+        poiEditId = null; poiDropCoords = null;
+        renderPOIMarkers();
+        if(document.getElementById('settings-overlay').classList.contains('open')) renderSettingsNotes();
+    }
+}
+
+// ── POI detail popup ────────────────────────────────────────────────────────
+function openPOIPopup(b){
+    document.getElementById('poi-popup-author').textContent = b.author ? ('added by ' + b.author) : '';
+    document.getElementById('poi-popup-title').textContent = b.title || '(untitled POI)';
+    const meta = document.getElementById('poi-popup-meta');
+    if(meta){
+        const bits = [];
+        if(b.category) bits.push(`<span class="poi-cat-badge">${PLACE_CAT_EMOJI[b.category]||''} ${PLACE_CAT_LABEL[b.category]||b.category}</span>`);
+        if(b.rating) bits.push(`<span class="poi-rating-stars">${starString(b.rating)}</span>`);
+        meta.innerHTML = bits.join('');
+    }
+    document.getElementById('poi-popup-notes').textContent = b.text || '';
+    document.getElementById('poi-popup-actions').innerHTML =
+        `<button onclick="openPOIPopupEdit(${b.id})">edit</button>` +
+        `<button class="danger" onclick="deletePOI(${b.id})">delete</button>`;
+    document.getElementById('poi-popup-overlay').classList.add('open');
+}
+window.openPOIPopupEdit = function(id){
+    document.getElementById('poi-popup-overlay').classList.remove('open');
+    openPOIModal(id);
+};
+window.deletePOI = async function(id){
+    if(!await roamlyConfirm('delete this POI?', {danger:true})) return;
+    const r = await fetch(`/api/trips/${TRIP_ID}/places/${id}/delete/`, {method:'POST',headers:{'X-CSRFToken':CSRF}});
+    if(r.ok){
+        document.getElementById('poi-popup-overlay').classList.remove('open');
+        blurbs = blurbs.filter(x => x.id !== id);
+        allNotes = allNotes.filter(x => x.id !== id);
+        places = places.filter(x => x.id !== id);
+        renderPOIMarkers();
+        if(document.getElementById('settings-overlay').classList.contains('open')) renderSettingsNotes();
+    }
+};
+document.getElementById('poi-popup-close').addEventListener('click', () =>
+    document.getElementById('poi-popup-overlay').classList.remove('open'));
+document.getElementById('poi-popup-overlay').addEventListener('click', e => {
+    if(e.target === e.currentTarget) document.getElementById('poi-popup-overlay').classList.remove('open');
+});
+
+// ── Pin popup (inline pin refs) ─────────────────────────────────────────────
+document.getElementById('pin-popup-close').addEventListener('click', () => {
+    document.getElementById('pin-popup-overlay').classList.remove('open');
+    if(pinMiniMap){ pinMiniMap.remove(); pinMiniMap = null; }
+});
+document.getElementById('pin-popup-overlay').addEventListener('click', e => {
+    if(e.target === e.currentTarget){ document.getElementById('pin-popup-overlay').classList.remove('open'); if(pinMiniMap){pinMiniMap.remove();pinMiniMap=null;} }
+});
+document.getElementById('blocks-area').addEventListener('click', async e => {
+    const rm = e.target.closest('.grid-thumb-remove');
+    if(rm){
+        e.stopPropagation();
+        const block = blocks.find(b => b._id === rm.dataset.blockId);
+        if(block){
+            const pid = parseInt(rm.dataset.photoId);
+            block.content.photo_ids = (block.content.photo_ids||[]).filter(id => id !== pid);
+            await doSave();
+            renderBlocks();
+        }
+        return;
+    }
+    const badge = e.target.closest('.pin-badge');
+    if(!badge) return;
+    const pinId = parseInt(badge.dataset.pinId);
+    const place = places.find(p => p.id === pinId);
+    if(!place) return;
+    document.getElementById('pin-popup-name').textContent = place.name;
+    document.getElementById('pin-popup-notes').textContent = place.notes || '';
+    document.getElementById('pin-popup-overlay').classList.add('open');
+    const miniEl = document.getElementById('pin-popup-mini-map');
+    miniEl.innerHTML = '';
+    if(pinMiniMap){ pinMiniMap.remove(); pinMiniMap = null; }
+    const theme = localStorage.getItem('roamly_theme') === 'light' ? 'Streets' : 'Dark';
+    pinMiniMap = new maplibregl.Map({container: miniEl, style: mapStyles[theme], center:[place.longitude,place.latitude], zoom:12, interactive:false});
+    pinMiniMap.on('load',()=>{
+        new maplibregl.Marker().setLngLat([place.longitude,place.latitude]).addTo(pinMiniMap);
+    });
+});
+
+// ── Load trip data ─────────────────────────────────────────────────────────
+async function loadTrip(){
+    const r = await fetch(`/api/trips/${TRIP_ID}/`);
+    tripData = await r.json();
+    blocks = (tripData.body||[]).map(b=>({...b, _id:uid()}));
+    places = (tripData.places||[]).map(p=>({id:p.id,name:p.name,latitude:p.latitude,longitude:p.longitude,notes:p.notes||'',rating:p.rating,category:p.category||''}));
+    // blurbs are loaded from timeline API in init(), not here
+
+    if(tripData.cover_image){
+        showCoverPreview(tripData.cover_image);
+    }
+    updateViewPublicBtn();
+    return tripData;
+}
+
+function updateViewPublicBtn(){
+    // The eyeball always previews the public page (the /preview/ route works
+    // whether or not the adventure is published), so nothing to toggle here.
+    const btn = document.getElementById('view-public-btn');
+    if(btn) btn.style.display = '';
+}
+
+// ── Settings panel ─────────────────────────────────────────────────────────
+document.getElementById('settings-btn').addEventListener('click', openSettings);
+document.getElementById('settings-close').addEventListener('click', closeSettings);
+document.getElementById('settings-overlay').addEventListener('click', e => {
+    if(e.target === e.currentTarget) closeSettings();
+});
+
+function openSettings(){
+    const ov = document.getElementById('settings-overlay');
+    ov.classList.add('open');
+    populateSettings();
+}
+function closeSettings(){
+    document.getElementById('settings-overlay').classList.remove('open');
+}
+
+function populateSettings(){
+    const isPublic = !!tripData.public_slug;
+    const toggle = document.getElementById('st-public-toggle');
+    toggle.classList.toggle('on', isPublic);
+    document.getElementById('st-public-url-row').style.display = isPublic ? '' : 'none';
+    if(isPublic){
+        document.getElementById('st-slug').value = tripData.public_slug || '';
+        const url = location.origin + '/adventure/' + tripData.public_slug + '/';
+        const link = document.getElementById('st-public-link');
+        link.href = url; link.textContent = url;
+    }
+    document.getElementById('st-pin').value = tripData.access_pin || '';
+    updateViewPublicBtn();
+    renderSettingsMembers();
+    renderSettingsNotes();
+}
+
+function renderSettingsNotes(){
+    const list = document.getElementById('st-notes-list');
+    if(!list) return;
+    if(!allNotes.length){ list.innerHTML = '<div style="font-size:0.8125rem;color:var(--text-muted);">no POIs yet — use "add POI" on the map</div>'; return; }
+    list.innerHTML = allNotes.map(n => {
+        const located = n.latitude && n.longitude;
+        const locIcon = located
+            ? '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:11px;height:11px;color:var(--clay-coral);"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>'
+            : '<span style="font-size:0.6rem;color:var(--text-dim);">no location</span>';
+        const label = n.title ? esc(n.title) : (n.text ? esc(n.text) : '(untitled POI)');
+        return `<div class="settings-note-item">
+            <div class="settings-note-body">
+                <div class="settings-note-text">${label}</div>
+                <div class="settings-note-meta">${esc(n.author)} ${locIcon}</div>
+            </div>
+            <div class="settings-note-actions">
+                <button onclick="openPOIModal(${n.id})" title="edit">edit</button>
+                <button class="danger" onclick="deletePOI(${n.id})" title="delete">delete</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function renderSettingsMembers(){
+    const list = document.getElementById('st-members-list');
+    const members = tripData.members || [];
+    if(!members.length){ list.innerHTML = '<div style="font-size:0.8125rem;color:var(--text-muted);">no members yet</div>'; return; }
+    list.innerHTML = members.map(m => `<div class="settings-member-item">
+        <div class="settings-member-avatar">${esc(m.username.slice(0,2).toUpperCase())}</div>
+        <span class="settings-member-name">${esc(m.username)}</span>
+        <span class="settings-member-role">${m.pending ? 'invited — not yet accepted' : esc(m.role)}</span>
+        ${m.role !== 'creator' ? `<button class="settings-btn danger" style="padding:2px 6px;font-size:0.65rem;" onclick="removeMember(${m.user_id})">remove</button>` : ''}
+    </div>`).join('');
+}
+
+document.getElementById('st-public-toggle').addEventListener('click', async function(){
+    const r = await fetch(`/api/trips/${TRIP_ID}/toggle-public/`, {method:'POST',headers:{'X-CSRFToken':CSRF}});
+    if(r.ok){ const d = await r.json(); tripData.is_public = d.is_public; tripData.public_slug = d.public_slug; populateSettings(); }
+});
+
+document.getElementById('st-slug-save').addEventListener('click', async function(){
+    const slug = document.getElementById('st-slug').value.trim();
+    const msg = document.getElementById('st-share-msg');
+    const r = await fetch(`/api/trips/${TRIP_ID}/update/`, {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+        body: JSON.stringify({public_slug: slug})
+    });
+    const d = await r.json();
+    if(r.ok){ tripData.public_slug = d.public_slug; populateSettings(); msg.textContent = 'link saved'; msg.className = 'settings-msg ok'; }
+    else { msg.textContent = d.error || 'error'; msg.className = 'settings-msg err'; }
+    setTimeout(()=>{ msg.textContent=''; }, 3000);
+});
+
+document.getElementById('st-copy-link').addEventListener('click', function(){
+    const url = location.origin + '/adventure/' + tripData.public_slug + '/';
+    navigator.clipboard.writeText(url).then(()=>{ this.textContent='copied!'; setTimeout(()=>this.textContent='copy link', 1800); });
+});
+
+document.getElementById('st-pin-save').addEventListener('click', async function(){
+    const pin = document.getElementById('st-pin').value.trim();
+    const msg = document.getElementById('st-pin-msg');
+    const r = await fetch(`/api/trips/${TRIP_ID}/update/`, {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+        body: JSON.stringify({access_pin: pin})
+    });
+    if(r.ok){ tripData.access_pin = pin; msg.textContent = 'pin saved'; msg.className='settings-msg ok'; }
+    else { msg.textContent = 'error saving'; msg.className='settings-msg err'; }
+    setTimeout(()=>{ msg.textContent=''; }, 3000);
+});
+
+document.getElementById('st-add-member-btn').addEventListener('click', async function(){
+    const username = document.getElementById('st-add-member').value.trim();
+    const msg = document.getElementById('st-member-msg');
+    if(!username) return;
+    const r = await fetch(`/api/trips/${TRIP_ID}/members/add/`, {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+        body: JSON.stringify({username})
+    });
+    const d = await r.json();
+    if(r.ok){ document.getElementById('st-add-member').value=''; await loadTrip(); renderSettingsMembers(); msg.textContent='member added'; msg.className='settings-msg ok'; }
+    else { msg.textContent = d.error || 'user not found'; msg.className='settings-msg err'; }
+    setTimeout(()=>{ msg.textContent=''; }, 3000);
+});
+
+async function removeMember(userId){
+    if(!await roamlyConfirm('remove this member?', {danger:true})) return;
+    const r = await fetch(`/api/trips/${TRIP_ID}/members/${userId}/remove/`, {method:'POST',headers:{'X-CSRFToken':CSRF}});
+    if(r.ok){ await loadTrip(); renderSettingsMembers(); }
+}
+
+document.getElementById('st-delete-btn').addEventListener('click', async function(){
+    if(!await roamlyConfirm('permanently delete this adventure? this cannot be undone.', {danger:true})) return;
+    const r = await fetch(`/api/trips/${TRIP_ID}/delete/`, {method:'POST',headers:{'X-CSRFToken':CSRF}});
+    if(r.ok) location.href = '/adventures/';
+});
+
+// ── Init ───────────────────────────────────────────────────────────────────
+// ── Day Log ─────────────────────────────────────────────────────────────────
+let dayNotes = [];           // raw list from the API
+let dayLogLoaded = false;
+const daySaveTimers = {};
+
+function localDateStr(iso){
+    try { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+    catch(e){ return null; }
+}
+function fmtDayLabel(ds){
+    const [y,m,d] = ds.split('-').map(Number);
+    return new Date(y, m-1, d).toLocaleDateString([], {weekday:'short', month:'short', day:'numeric', year:'numeric'});
+}
+function avatarHtml(av){
+    if(av && av.type === 'image') return `<img class="dn-ava" src="${av.url}" alt="">`;
+    if(av) return `<span class="dn-ava-txt" style="background:${av.color||'#888'}">${(av.initials||'').slice(0,2)}</span>`;
+    return '';
+}
+
+// Collect the set of dates worth showing: those with track points or a note,
+// bounded to [start, min(end, today)] so an open-ended adventure (end 2099)
+// doesn't spin out an infinite list.
+function dayLogDates(){
+    const dates = new Set();
+    (dayNotes || []).forEach(n => dates.add(n.date));
+    const addFromLocs = arr => (arr||[]).forEach(l => { const ds = localDateStr(l.timestamp); if(ds) dates.add(ds); });
+    addFromLocs(tripData.locations);
+    Object.values(tripData.member_locations || {}).forEach(addFromLocs);
+    let list = [...dates];
+    const start = tripData.start_time ? localDateStr(tripData.start_time) : null;
+    const todayStr = localDateStr(new Date().toISOString());
+    let end = tripData.end_time ? localDateStr(tripData.end_time) : null;
+    if(end && end > todayStr) end = todayStr;   // clamp open-ended trips
+    list = list.filter(ds => (!start || ds >= start) && (!end || ds <= end));
+    if(start && !list.length) list = [start];
+    return list.sort();
+}
+
+async function loadDayLog(){
+    try {
+        const r = await fetch(`/api/trips/${TRIP_ID}/days/`);
+        dayNotes = r.ok ? ((await r.json()).day_notes || []) : [];
+    } catch(e){ dayNotes = []; }
+    dayLogLoaded = true;
+    renderDayLog();
+}
+
+let dayLogView = localStorage.getItem('roamly_adv_daylog_view') || 'list';
+let calYM = null;         // {y, m} currently shown month in calendar view
+let calSelected = null;   // selected date string in calendar view
+
+// One day's card (editable own note + read-only co-member notes). Reused by
+// both the list view and the calendar's selected-day panel.
+function dayCardHtml(ds, byDate){
+    const notes = byDate[ds] || [];
+    const mine = notes.filter(n => n.is_mine);
+    const others = notes.filter(n => !n.is_mine);
+    const mineBlocks = mine.map(dayEntryEditHtml).join('');
+    const othersBlock = others.map(dayEntryReadHtml).join('');
+    return `<div class="day-card">
+        <div class="day-head"><span class="day-date">${fmtDayLabel(ds)}</span><button class="day-focus-btn" onclick="focusDayOnMap('${ds}')">show on map</button></div>
+        <div class="day-body">
+            ${mineBlocks}
+            <button class="dn-add-entry" onclick="addDayEntry('${ds}')">+ add entry</button>
+            ${othersBlock}
+        </div>
+    </div>`;
+}
+
+// Options for the "link a place" select — the adventure's located places.
+function placeOptionsHtml(selectedId){
+    const located = (places || []).filter(p => p.latitude != null && p.longitude != null);
+    return '<option value="">— link a place —</option>' + located.map(p => {
+        const label = (PLACE_CAT_EMOJI[p.category] ? PLACE_CAT_EMOJI[p.category] + ' ' : '') + (p.name || 'untitled place') + (p.rating ? '  ' + starString(p.rating) : '');
+        return `<option value="${p.id}" ${p.id === selectedId ? 'selected' : ''}>${esc(label)}</option>`;
+    }).join('');
+}
+
+// One media cell (photo or video) for a day-log grid.
+function mediaCellHtml(m, delId){
+    const full = (m.type === 'video') ? (m.video || m.url) : m.url;
+    const inner = (m.type === 'video')
+        ? `<video src="${esc(full)}" muted preload="metadata"></video><span class="dn-play">▶</span>`
+        : `<img src="${esc(m.thumb || m.url)}" alt="">`;
+    const del = delId ? `<button class="dn-photo-del" title="remove" onclick="deleteDayPhoto(${delId})">×</button>` : '';
+    return `<div class="dn-photo${m.type==='video'?' dn-photo-vid':''}" data-type="${m.type||'image'}" data-full="${esc(full)}">${inner}${del}</div>`;
+}
+
+// One editable entry (the current user's own).
+function dayEntryEditHtml(n){
+    const photos = (n.photos||[]).map(p => mediaCellHtml(p, p.id)).join('');
+    return `<div class="dn-entry dn-mine" data-note="${n.id}">
+        <div class="dn-entry-head">
+            <span class="dn-mine-label">your entry <span class="dn-status" id="dn-status-${n.id}"></span></span>
+            <button class="dn-entry-del" title="delete entry" onclick="deleteDayEntry(${n.id})">×</button>
+        </div>
+        <input class="dn-title" placeholder="title (e.g. morning hike)…" value="${esc(n.title||'')}" oninput="queueDaySave(${n.id})" id="dn-title-${n.id}">
+        <textarea class="dn-body" placeholder="what happened…" oninput="queueDaySave(${n.id})" id="dn-body-${n.id}">${esc(n.body||'')}</textarea>
+        <select class="dn-place" id="dn-place-${n.id}" onchange="saveDayPlace(${n.id})">${placeOptionsHtml(n.place_id)}</select>
+        <div class="dn-photos">${photos}<label class="dn-add-photo">+ media<input type="file" accept="image/*,video/*" multiple style="display:none" onchange="uploadDayPhotos(${n.id}, this)"></label></div>
+    </div>`;
+}
+
+// One read-only entry (a co-member's).
+function dayEntryReadHtml(n){
+    const placeChip = n.place ? `<div class="dn-place-chip">${PLACE_CAT_EMOJI[n.place.category]||'📍'} ${esc(n.place.name||'place')}${n.place.rating?' '+starString(n.place.rating):''}</div>` : '';
+    return `<div class="dn-entry dn-other">
+        <div class="dn-author">${avatarHtml(n.avatar)}${esc(n.author)}</div>
+        ${n.title ? `<div class="dn-title-ro">${esc(n.title)}</div>` : ''}
+        ${placeChip}
+        <div class="dn-body-ro">${esc(n.body||'')}</div>
+        ${(n.photos||[]).length ? `<div class="dn-photos">${n.photos.map(p=>mediaCellHtml(p, null)).join('')}</div>` : ''}
+    </div>`;
+}
+
+// Inclusive [start, min(end, today)] bounds for the calendar, as {y,m,d} parts.
+function dayLogBounds(){
+    const start = tripData.start_time ? localDateStr(tripData.start_time) : null;
+    const todayStr = localDateStr(new Date().toISOString());
+    let end = tripData.end_time ? localDateStr(tripData.end_time) : null;
+    if(!end || end > todayStr) end = todayStr;
+    return {start: start || todayStr, end};
+}
+
+function renderDayLog(){
+    const host = document.getElementById('daylog-area');
+    const dates = dayLogDates();
+    const byDate = {};
+    (dayNotes||[]).forEach(n => { (byDate[n.date] = byDate[n.date] || []).push(n); });
+    const toolbar = `<div class="daylog-toolbar">
+        <button class="dl-view-btn ${dayLogView==='list'?'active':''}" onclick="setDayLogView('list')">list</button>
+        <button class="dl-view-btn ${dayLogView==='calendar'?'active':''}" onclick="setDayLogView('calendar')">calendar</button>
+    </div>`;
+    if(dayLogView === 'calendar'){
+        host.innerHTML = toolbar + '<div id="dl-cal-host"></div>';
+        renderDayLogCalendar(byDate);
+        return;
+    }
+    if(!dates.length){ host.innerHTML = toolbar + '<div class="daylog-empty">No days with tracked points yet. Notes appear here once this adventure has location data. Switch to calendar to add a note to any day.</div>'; return; }
+    host.innerHTML = toolbar + dates.map(ds => dayCardHtml(ds, byDate)).join('');
+}
+
+window.setDayLogView = function(v){
+    dayLogView = v;
+    localStorage.setItem('roamly_adv_daylog_view', v);
+    renderDayLog();
+};
+
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+function ymKey(y, m){ return y + '-' + String(m+1).padStart(2,'0'); }
+
+function renderDayLogCalendar(byDate){
+    const b = dayLogBounds();
+    const [sy, sm] = b.start.split('-').map(Number);
+    const [ey, em] = b.end.split('-').map(Number);
+    const minYM = sy*12 + (sm-1), maxYM = ey*12 + (em-1);
+    if(!calYM){
+        // Default to the month of the latest selected/last dated day, clamped.
+        let cur = maxYM;
+        if(calSelected){ const [cy,cm] = calSelected.split('-').map(Number); cur = cy*12 + (cm-1); }
+        cur = Math.min(maxYM, Math.max(minYM, cur));
+        calYM = {y: Math.floor(cur/12), m: cur%12};
+    }
+    const cur = calYM.y*12 + calYM.m;
+    const host = document.getElementById('dl-cal-host');
+    if(!host) return;
+    // Monday-first weekday index for the 1st of the month.
+    const first = new Date(calYM.y, calYM.m, 1);
+    const lead = (first.getDay() + 6) % 7;
+    const daysInMonth = new Date(calYM.y, calYM.m+1, 0).getDate();
+    const dow = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => `<div class="dl-cal-dow">${d}</div>`).join('');
+    let cells = '';
+    for(let i=0;i<lead;i++) cells += `<div class="dl-cal-cell out"></div>`;
+    for(let d=1; d<=daysInMonth; d++){
+        const ds = ymKey(calYM.y, calYM.m) + '-' + String(d).padStart(2,'0');
+        const inRange = ds >= b.start && ds <= b.end;
+        const notes = byDate[ds] || [];
+        const dots = notes.slice(0,4).map(n => `<span class="dl-cal-dot ${n.is_mine?'dl-cal-mine-dot':''}"></span>`).join('');
+        const cls = ['dl-cal-cell'];
+        if(!inRange) cls.push('out'); else cls.push('inrange');
+        if(notes.length) cls.push('has-note');
+        if(calSelected === ds) cls.push('selected');
+        // Titles of the day's notes (own first), so the calendar shows what
+        // happened at a glance — not just a dot.
+        const titled = [...notes].sort((a,b) => (b.is_mine?1:0) - (a.is_mine?1:0))
+            .map(n => (n.title||'').trim()).filter(Boolean);
+        const titleChips = titled.slice(0,3).map(t =>
+            `<div class="dl-cal-title-chip" title="${esc(t)}">${esc(t)}</div>`).join('');
+        const extraDots = titled.length ? '' : dots;   // show dots only for untitled notes
+        cells += `<div class="${cls.join(' ')}" ${inRange?`onclick="selectCalDay('${ds}')"`:''}>
+            <span class="dl-cal-daynum">${d}</span>
+            ${titleChips}
+            ${extraDots?`<div class="dl-cal-dots">${extraDots}</div>`:''}
+        </div>`;
+    }
+    host.innerHTML = `
+        <div class="dl-cal">
+            <div class="dl-cal-head">
+                <button class="dl-cal-nav" onclick="calStep(-1)" ${cur<=minYM?'disabled':''}>‹</button>
+                <span class="dl-cal-title">${MONTH_NAMES[calYM.m]} ${calYM.y}</span>
+                <button class="dl-cal-nav" onclick="calStep(1)" ${cur>=maxYM?'disabled':''}>›</button>
+            </div>
+            <div class="dl-cal-grid">${dow}${cells}</div>
+        </div>
+        <div class="dl-cal-selday" id="dl-cal-selday"></div>`;
+    const sel = document.getElementById('dl-cal-selday');
+    if(calSelected && calSelected >= b.start && calSelected <= b.end){
+        sel.innerHTML = dayCardHtml(calSelected, byDate);
+    }
+}
+window.calStep = function(delta){
+    const cur = calYM.y*12 + calYM.m + delta;
+    calYM = {y: Math.floor(cur/12), m: ((cur%12)+12)%12};
+    renderDayLog();
+};
+window.selectCalDay = function(ds){
+    calSelected = ds;
+    renderDayLog();
+    const el = document.getElementById('dl-cal-selday');
+    if(el) el.scrollIntoView({behavior:'smooth', block:'nearest'});
+};
+
+// Saves are keyed by note id (a day may hold several entries). Title/body
+// autosave debounced without re-rendering (keeps typing focus); place changes
+// and structural edits re-render.
+window.queueDaySave = function(id){
+    const st = document.getElementById('dn-status-' + id);
+    if(st) st.textContent = 'saving…';
+    clearTimeout(daySaveTimers[id]);
+    daySaveTimers[id] = setTimeout(() => saveDayNote(id), 700);
+};
+function setDayStatus(id, text, failed){
+    const st = document.getElementById('dn-status-' + id);
+    if(!st) return;
+    st.textContent = text;
+    st.classList.toggle('dn-status-failed', !!failed);
+}
+async function saveDayNote(id, extra){
+    const title = (document.getElementById('dn-title-' + id)||{}).value || '';
+    const body = (document.getElementById('dn-body-' + id)||{}).value || '';
+    try {
+        const r = await fetch(`/api/trips/${TRIP_ID}/days/note/${id}/`, {
+            method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+            body: JSON.stringify(Object.assign({title, body}, extra||{}))
+        });
+        // The `if(r.ok)` used to have no else and no throw, so a 4xx/5xx fell
+        // straight past the catch and returned undefined — leaving the row stuck
+        // on "saving…" forever while the text was never stored.
+        if(!r.ok) throw new Error('save failed');
+        const d = await r.json();
+        upsertDayNote(d.day_note);
+        setDayStatus(id, 'saved', false);
+        return d.day_note;
+    } catch(e){
+        setDayStatus(id, 'not saved — retry', true);
+        if(window.roamlyToast) window.roamlyToast('Could not save this day entry.', {type:'error'});
+        return null;
+    }
+}
+window.saveDayPlace = async function(id){
+    const sel = document.getElementById('dn-place-' + id);
+    const saved = await saveDayNote(id, {place_id: sel ? (sel.value || null) : null});
+    // Only re-render on success. Re-rendering after a failed save silently threw
+    // away the selection the user had just made and put the old one back, with
+    // nothing to say why.
+    if(saved) renderDayLog();
+};
+function upsertDayNote(note){
+    if(!note) return;
+    const i = dayNotes.findIndex(n => n.id === note.id);
+    if(i >= 0) dayNotes[i] = note; else dayNotes.push(note);
+}
+window.addDayEntry = async function(ds){
+    const r = await fetch(`/api/trips/${TRIP_ID}/days/${ds}/create/`, {method:'POST', headers:{'X-CSRFToken':CSRF}});
+    if(r.ok){
+        const note = (await r.json()).day_note;
+        upsertDayNote(note);
+        renderDayLog();
+        setTimeout(() => { const el = document.getElementById('dn-title-' + note.id); if(el) el.focus(); }, 30);
+    }
+};
+window.deleteDayEntry = async function(id){
+    if(!await roamlyConfirm('delete this entry?', {danger:true})) return;
+    const r = await fetch(`/api/trips/${TRIP_ID}/days/note/${id}/delete/`, {method:'POST', headers:{'X-CSRFToken':CSRF}});
+    if(r.ok){ dayNotes = dayNotes.filter(n => n.id !== id); renderDayLog(); }
+};
+window.uploadDayPhotos = async function(id, input){
+    if(!input.files || !input.files.length) return;
+    const fd = new FormData();
+    [...input.files].forEach(f => fd.append('photos', f));
+    const r = await fetch(`/api/trips/${TRIP_ID}/days/note/${id}/photos/`, {method:'POST', headers:{'X-CSRFToken':CSRF}, body:fd});
+    if(r.ok){ upsertDayNote((await r.json()).day_note); renderDayLog(); }
+};
+window.deleteDayPhoto = async function(photoId){
+    const r = await fetch(`/api/trips/${TRIP_ID}/days/photos/${photoId}/delete/`, {method:'POST', headers:{'X-CSRFToken':CSRF}});
+    if(r.ok){ await loadDayLog(); }
+};
+window.focusDayOnMap = function(ds){
+    if(!editMap) return;
+    const pts = [];
+    const collect = arr => (arr||[]).forEach(l => { if(localDateStr(l.timestamp) === ds && l.lat!=null && l.lng!=null) pts.push([l.lng, l.lat]); });
+    collect(tripData.locations);
+    Object.values(tripData.member_locations || {}).forEach(collect);
+    if(!pts.length) return;
+    const lons = pts.map(p=>p[0]), lats = pts.map(p=>p[1]);
+    editMap.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
+        {padding: 60, maxZoom: 15, duration: 700});
+};
+
+// ── Media lightbox (click a photo/video to expand; arrows / ←→ keys cycle) ───
+let lbItems = [], lbIdx = 0;
+function lbRender(){
+    const host = document.getElementById('lightbox-media');
+    const m = lbItems[lbIdx] || {};
+    host.innerHTML = m.type === 'video'
+        ? `<video src="${esc(m.url)}" controls autoplay playsinline></video>`
+        : `<img src="${esc(m.url)}" alt="">`;
+}
+window.openLightbox = function(items, idx){
+    if(!items || !items.length) return;
+    // Accept a plain array of URL strings too (legacy callers).
+    lbItems = items.map(x => typeof x === 'string' ? {type:'image', url:x} : x);
+    lbIdx = idx || 0;
+    lbRender();
+    document.getElementById('lightbox').classList.add('open');
+};
+window.closeLightbox = function(){
+    document.getElementById('lightbox').classList.remove('open');
+    document.getElementById('lightbox-media').innerHTML = '';   // stop any video
+};
+window.lightboxStep = function(d){
+    if(!lbItems.length) return;
+    lbIdx = (lbIdx + d + lbItems.length) % lbItems.length;
+    lbRender();
+};
+// Read the media items in a photo/media row for the lightbox.
+function rowMedia(row){
+    return [...row.querySelectorAll('.dn-photo')].map(c => ({type: c.dataset.type || 'image', url: c.dataset.full || ''}));
+}
+(function(){
+    const lb = document.getElementById('lightbox');
+    lb.addEventListener('click', e => { if(e.target === e.currentTarget) closeLightbox(); });
+    document.addEventListener('keydown', e => {
+        if(!lb.classList.contains('open')) return;
+        if(e.key === 'Escape') closeLightbox();
+        else if(e.key === 'ArrowLeft') lightboxStep(-1);
+        else if(e.key === 'ArrowRight') lightboxStep(1);
+    });
+    // Delegated so it survives Day Log re-renders: a cell opens its row's set.
+    document.getElementById('daylog-area').addEventListener('click', e => {
+        if(e.target.closest('.dn-photo-del')) return;   // let delete handle its own click
+        const cell = e.target.closest('.dn-photo');
+        if(!cell) return;
+        const row = cell.closest('.dn-photos');
+        if(!row) return;
+        const cells = [...row.querySelectorAll('.dn-photo')];
+        openLightbox(rowMedia(row), cells.indexOf(cell));
+    });
+})();
+
+function setupResizer(){
+    const shell = document.querySelector('.editor-shell');
+    const handle = document.getElementById('editor-resizer');
+    if(!shell || !handle) return;
+    const KEY = 'roamly_adv_doc_w';
+    const clampW = px => {
+        const min = 340, max = Math.max(min, shell.clientWidth - 360);
+        return Math.min(max, Math.max(min, px));
+    };
+    const saved = parseInt(localStorage.getItem(KEY) || '', 10);
+    if(saved && window.innerWidth > 820) shell.style.setProperty('--doc-w', clampW(saved) + 'px');
+
+    let dragging = false, raf = null;
+    const onMove = e => {
+        if(!dragging) return;
+        const x = (e.touches ? e.touches[0].clientX : e.clientX) - shell.getBoundingClientRect().left;
+        const w = clampW(x);
+        shell.style.setProperty('--doc-w', w + 'px');
+        if(!raf) raf = requestAnimationFrame(() => { raf = null; if(editMap) editMap.resize(); });
+    };
+    const stop = () => {
+        if(!dragging) return;
+        dragging = false;
+        handle.classList.remove('dragging');
+        document.body.classList.remove('editor-resizing');
+        const cur = shell.style.getPropertyValue('--doc-w');
+        if(cur.endsWith('px')) localStorage.setItem(KEY, parseInt(cur, 10));
+        if(editMap) editMap.resize();
+    };
+    const start = e => {
+        if(window.innerWidth <= 820) return;
+        dragging = true;
+        handle.classList.add('dragging');
+        document.body.classList.add('editor-resizing');
+        e.preventDefault();
+    };
+    handle.addEventListener('mousedown', start);
+    handle.addEventListener('touchstart', start, {passive:false});
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('touchmove', onMove, {passive:false});
+    window.addEventListener('mouseup', stop);
+    window.addEventListener('touchend', stop);
+    // Double-click resets to the default split.
+    handle.addEventListener('dblclick', () => {
+        shell.style.removeProperty('--doc-w');
+        localStorage.removeItem(KEY);
+        if(editMap) editMap.resize();
+    });
+}
+
+function setupDocTabs(){
+    document.querySelectorAll('.doc-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.doc-tab').forEach(b => b.classList.toggle('active', b === btn));
+            const pane = btn.dataset.pane;
+            document.getElementById('blocks-area').style.display = pane === 'story' ? '' : 'none';
+            document.getElementById('daylog-area').style.display = pane === 'daylog' ? '' : 'none';
+            if(pane === 'daylog' && !dayLogLoaded) loadDayLog();
+        });
+    });
+}
+
+async function init(){
+    // Watchdog: never leave the map spinner up forever if something stalls.
+    const watchdog = setTimeout(hideMapLoading, 12000);
+
+    setupDocTabs();
+    setupResizer();
+    try { await loadTrip(); } catch(e){ console.error('loadTrip failed', e); }
+
+    // Start the map as soon as we have locations so a later failure (timeline,
+    // blocks) can't block or hang the map.
+    try { initMap((tripData && tripData.locations) || []); }
+    catch(e){ console.error('initMap failed', e); hideMapLoading(); }
+
+    // Load POIs (blurbs) from the timeline API
+    try {
+        const tr = await fetch(`/api/trips/${TRIP_ID}/timeline/`);
+        const td = tr.ok ? await tr.json() : {events:[]};
+        allNotes = (td.events||[]).filter(e=>e.type==='blurb' && e.text!==PHOTO_CONTAINER_SENTINEL);
+        blurbs = allNotes.filter(e=>e.latitude&&e.longitude);
+    } catch(e){ console.error('timeline load failed', e); }
+
+    try { renderBlocks(); } catch(e){ console.error('renderBlocks failed', e); }
+    try { renderPOIMarkers(); } catch(e){ console.error('renderPOIMarkers failed', e); }
+
+    clearTimeout(watchdog);
+    hideMapLoading();
+}
+
+init();
+</script>
+{% endblock %}

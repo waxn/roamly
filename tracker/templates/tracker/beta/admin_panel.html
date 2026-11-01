@@ -1,0 +1,2514 @@
+{% extends "tracker/base.html" %}
+{% load static %}
+{% block title %}Admin Panel - Roamly{% endblock %}
+{% block robots_meta %}noindex, nofollow
+/* ═══ beta: newspaper page chrome ═══ */
+.page-header h1,.page-toolbar h1{font-size:clamp(2.6rem,6.4vw,4.8rem);line-height:0.96}
+.page-toolbar{border-bottom:4px double var(--rule);padding-bottom:1rem;margin-bottom:1.4rem;align-items:flex-end}
+.page-header{border-bottom:4px double var(--rule)}
+.page-toolbar .page-lead,.page-header .page-lead{font-size:1.12rem}
+.grid-4:has(> .card.stat-card){gap:0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);margin-bottom:1.6rem}
+.grid-4 > .card.stat-card{background:none;border:none;border-left:1px solid var(--hair);margin:0;padding:1.3rem 1rem;text-align:left}
+.grid-4 > .card.stat-card:first-child{border-left:none;padding-left:0}
+.grid-4 > .card.stat-card .stat-value{font-size:clamp(2.2rem,4.6vw,3.6rem);line-height:1}
+.grid-4 > .card.stat-card .stat-label{font-family:var(--label);font-weight:600;letter-spacing:0.14em;margin-top:0.6rem}
+.stat-label,.sidebar-label{font-family:var(--label)}
+.tab-btn,.seg-btn,.chip{font-family:var(--label);font-weight:600;letter-spacing:0.1em;border-radius:0}
+@media (max-width:760px){
+    .grid-4:has(> .card.stat-card){grid-template-columns:repeat(2,minmax(0,1fr))}
+    .grid-4 > .card.stat-card:nth-child(odd){border-left:none;padding-left:0}
+}
+/* page boxes get the same boxed-column treatment as cards */
+.fd-usage,
+.ue-modal,
+.mon-tile{border-top:3px double var(--rule);border-radius:0}
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-toolbar">
+        <div style="display:flex;align-items:center;gap:1rem;">
+            <a href="{% url 'tracker:settings' %}" class="btn btn-outline btn-sm" style="padding:0.4rem 0.75rem;display:flex;align-items:center;gap:0.35rem;">
+                ← Back
+            </a>
+            <div>
+                <h1>Admin Panel</h1>
+                <p class="page-lead" style="margin-bottom:0;">Monitoring, logs, user management &amp; instance settings.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tab bar -->
+    <div class="tab-bar" style="display:flex;gap:0.25rem;margin-bottom:1.5rem;flex-wrap:wrap;">
+        <button class="btn btn-primary btn-sm tab-btn active" onclick="showTab('monitoring',this)">Monitoring</button>
+        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('access-log',this)">Access Log</button>
+        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('events',this)">Events</button>
+        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('retention',this)">Retention</button>
+        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('users',this)">Users</button>
+        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('custom-js',this)">Custom JS</button>
+        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('contact',this)">Contact</button>
+        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('captcha',this)">CAPTCHA</button>
+        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('basemaps',this)">Basemaps</button>
+        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('downloads',this)">Downloads</button>
+        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('push-notifications',this)">Push Notifications</button>
+        <button class="btn btn-outline btn-sm tab-btn" onclick="showTab('flight-data',this)">Flight data</button>
+    </div>
+
+    <!-- ── Monitoring tab ── -->
+    <div id="tab-monitoring">
+        <div class="mon-range" style="display:flex;gap:0.35rem;margin-bottom:1rem;flex-wrap:wrap;">
+            <button class="btn btn-primary btn-sm mon-range-btn active" data-range="24h" onclick="setRange('24h',this)">24 h</button>
+            <button class="btn btn-outline btn-sm mon-range-btn" data-range="7d" onclick="setRange('7d',this)">7 d</button>
+            <button class="btn btn-outline btn-sm mon-range-btn" data-range="30d" onclick="setRange('30d',this)">30 d</button>
+            <button class="btn btn-outline btn-sm mon-range-btn" data-range="all" onclick="setRange('all',this)">All</button>
+        </div>
+
+        <!-- Stat tiles -->
+        <div class="mon-tiles" id="mon-tiles">
+            <div class="mon-tile"><div class="mon-tile-val skeleton skel-statval" id="t-requests">—</div><div class="mon-tile-lbl">Requests</div></div>
+            <div class="mon-tile"><div class="mon-tile-val skeleton skel-statval" id="t-ips">—</div><div class="mon-tile-lbl">Unique IPs</div></div>
+            <div class="mon-tile"><div class="mon-tile-val skeleton skel-statval" id="t-users">—</div><div class="mon-tile-lbl">Unique users</div></div>
+            <div class="mon-tile"><div class="mon-tile-val skeleton skel-statval" id="t-logins">—</div><div class="mon-tile-lbl">Logins</div></div>
+            <div class="mon-tile"><div class="mon-tile-val skeleton skel-statval" id="t-signups">—</div><div class="mon-tile-lbl">Signups</div></div>
+            <div class="mon-tile"><div class="mon-tile-val skeleton skel-statval" id="t-errors">—</div><div class="mon-tile-lbl">Errors</div></div>
+            <div class="mon-tile"><div class="mon-tile-val skeleton skel-statval" id="t-avgms">—</div><div class="mon-tile-lbl">Avg response</div></div>
+        </div>
+
+        <!-- Request volume chart -->
+        <div class="card" style="transition:none;">
+            <div class="card-header">Request volume</div>
+            <div class="chart-container" style="position:relative;height:220px;">
+                <canvas id="req-chart"></canvas>
+                <div class="chart-hover-line" id="req-hline"></div>
+                <div class="chart-hover-dot" id="req-hdot"></div>
+                <div class="chart-tooltip" id="req-tooltip"></div>
+            </div>
+        </div>
+
+        <!-- Auth / error chart -->
+        <div class="card" style="transition:none;">
+            <div class="card-header">Logins, signups &amp; errors</div>
+            <div class="mon-legend" id="ae-legend"></div>
+            <div class="chart-container" style="position:relative;height:200px;">
+                <canvas id="ae-chart"></canvas>
+                <div class="chart-hover-line" id="ae-hline"></div>
+                <div class="chart-hover-dot" id="ae-hdot"></div>
+                <div class="chart-tooltip" id="ae-tooltip"></div>
+            </div>
+        </div>
+
+        <!-- Requests by country -->
+        <div class="card" style="transition:none;">
+            <div class="card-header">Requests by country</div>
+            <div class="chart-container" id="country-map-wrap" style="position:relative;height:280px;border:1px solid var(--border);">
+                <div id="country-map" style="position:absolute;inset:0;"></div>
+                <div class="chart-tooltip" id="country-tooltip"></div>
+            </div>
+        </div>
+
+        <div class="mon-cols">
+            <!-- Status breakdown -->
+            <div class="card" style="transition:none;">
+                <div class="card-header">Status codes</div>
+                <div id="status-bars"><div class="mon-empty">Loading…</div></div>
+            </div>
+            <!-- Top paths -->
+            <div class="card" style="transition:none;">
+                <div class="card-header">Top paths</div>
+                <div id="path-bars"><div class="mon-empty">Loading…</div></div>
+            </div>
+            <!-- Top IPs -->
+            <div class="card" style="transition:none;">
+                <div class="card-header">Top IPs</div>
+                <div id="ip-bars"><div class="mon-empty">Loading…</div></div>
+            </div>
+            <!-- Top countries -->
+            <div class="card" style="transition:none;">
+                <div class="card-header">Top countries</div>
+                <div id="country-bars"><div class="mon-empty">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- Recent events -->
+        <div class="card" style="transition:none;">
+            <div class="card-header">Recent events</div>
+            <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:0.8125rem;">
+                    <tbody id="recent-tbody"><tr><td class="mon-empty">Loading…</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Access Log tab ── -->
+    <div id="tab-access-log" style="display:none;">
+        <div class="card" style="transition:none;">
+            <div class="card-header">Access Log</div>
+            <p class="settings-section-desc">One row per request. Pruned automatically after the access-log retention period (see the <strong>Retention</strong> tab).</p>
+            <div class="mon-filters">
+                <input type="text" id="al-ip" class="form-control" placeholder="IP contains…">
+                <input type="text" id="al-path" class="form-control" placeholder="Path contains…">
+                <input type="text" id="al-user" class="form-control" placeholder="User contains…">
+                <select id="al-hours" class="form-control rly-native">
+                    <option value="">Any time</option>
+                    <option value="1">Last hour</option>
+                    <option value="24">Last 24 h</option>
+                    <option value="168">Last 7 d</option>
+                    <option value="720">Last 30 d</option>
+                </select>
+                <button class="btn btn-primary btn-sm" onclick="loadAccess(1)">Filter</button>
+            </div>
+            <div style="overflow-x:auto;margin-top:0.75rem;">
+                <table style="width:100%;border-collapse:collapse;font-size:0.78rem;">
+                    <thead>
+                        <tr style="color:var(--text-muted);border-bottom:1px solid var(--border);">
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">Time</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">IP</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">User</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">Method</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">Path</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:right;">Status</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:right;">ms</th>
+                        </tr>
+                    </thead>
+                    <tbody id="al-tbody"><tr><td colspan="7" class="mon-empty">Loading…</td></tr></tbody>
+                </table>
+            </div>
+            <div class="mon-pager" id="al-pager"></div>
+        </div>
+    </div>
+
+    <!-- ── Events tab ── -->
+    <div id="tab-events" style="display:none;">
+        <div class="card" style="transition:none;">
+            <div class="card-header">Events</div>
+            <p class="settings-section-desc">Logins, signups, server errors and admin actions. Kept long-term (see the <strong>Retention</strong> tab). Click an error row to view its traceback.</p>
+            <div class="mon-filters">
+                <select id="ev-action" class="form-control rly-native">
+                    <option value="">All events</option>
+                    <option value="auth">Auth (login / logout / signup)</option>
+                    <option value="login">Logins</option>
+                    <option value="login_fail">Failed logins</option>
+                    <option value="signup">Signups</option>
+                    <option value="error">Errors</option>
+                    <option value="admin">Admin actions</option>
+                </select>
+                <select id="ev-hours" class="form-control rly-native">
+                    <option value="">Any time</option>
+                    <option value="24">Last 24 h</option>
+                    <option value="168">Last 7 d</option>
+                    <option value="720">Last 30 d</option>
+                </select>
+                <button class="btn btn-primary btn-sm" onclick="loadEvents(1)">Filter</button>
+            </div>
+            <div style="overflow-x:auto;margin-top:0.75rem;">
+                <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+                    <thead>
+                        <tr style="color:var(--text-muted);border-bottom:1px solid var(--border);">
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">Time</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">Event</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">User</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">IP</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">Detail</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ev-tbody"><tr><td colspan="5" class="mon-empty">Loading…</td></tr></tbody>
+                </table>
+            </div>
+            <div class="mon-pager" id="ev-pager"></div>
+        </div>
+    </div>
+
+    <!-- ── Retention tab ── -->
+    <div id="tab-retention" style="display:none;">
+        <div class="card" style="transition:none;">
+            <div class="card-header">Log retention</div>
+            <p class="settings-section-desc">
+                An hourly background job prunes old log rows. <strong>Daily aggregate rollups are kept forever</strong> (so long-range graphs survive), and low-volume events are kept long-term — only the high-volume per-request access log is pruned aggressively by default.
+            </p>
+            <div class="ret-field">
+                <label for="ret-access">Access log — keep for
+                    <span class="ret-hint">high-volume, one row per request</span>
+                </label>
+                <div class="ret-input">
+                    <input type="number" id="ret-access" class="form-control" min="0" max="3650" style="max-width:120px;">
+                    <span class="ret-suffix">days &nbsp;<em>(0 = keep forever)</em></span>
+                </div>
+            </div>
+            <div class="ret-field">
+                <label for="ret-event">Events log — keep for
+                    <span class="ret-hint">logins, signups, errors, admin actions</span>
+                </label>
+                <div class="ret-input">
+                    <input type="number" id="ret-event" class="form-control" min="0" max="3650" style="max-width:120px;">
+                    <span class="ret-suffix">days &nbsp;<em>(0 = keep forever)</em></span>
+                </div>
+            </div>
+            <div class="settings-actions" style="margin-top:0.75rem;">
+                <button class="btn btn-primary btn-sm" onclick="saveRetention()">Save</button>
+                <span id="ret-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+            </div>
+            <p class="settings-section-desc" style="color:var(--text-muted);margin-top:1rem;">
+                <strong>Privacy:</strong> the access log stores visitor IP addresses. Keeping the access-log retention short (the default is 30 days) limits how long that personal data is held. Everything here is visible to instance admins only.
+            </p>
+        </div>
+    </div>
+
+    <!-- ── Users tab ── -->
+    <div id="tab-users" style="display:none;">
+        <div class="card" style="transition:none;">
+            <div class="card-header">User Management</div>
+            <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:0.8125rem;" id="users-table">
+                    <thead>
+                        <tr style="color:var(--text-muted);border-bottom:1px solid var(--border);">
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">Username</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">Email</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">Joined</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:left;">Last login</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:right;">Devices</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:right;">Locations</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:center;">Admin</th>
+                            <th style="padding:0.4rem 0.5rem;text-align:center;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-tbody">
+                        <tr><td colspan="8" style="padding:2rem;text-align:center;color:var(--text-muted);">Loading…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit-user dialog -->
+    <div class="ue-overlay" id="ue-overlay" onclick="if(event.target===this)closeUserEdit()">
+        <div class="ue-modal" role="dialog" aria-modal="true" aria-labelledby="ue-title">
+            <div class="card-header" id="ue-title" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>Edit user</span>
+                <button class="btn btn-sm btn-outline" style="padding:2px 10px;" onclick="closeUserEdit()" aria-label="Close">×</button>
+            </div>
+            <div class="ue-body">
+                <div class="ue-section">Account</div>
+                <div class="form-group">
+                    <label for="ue-username">Username</label>
+                    <input type="text" id="ue-username" class="form-control" maxlength="150" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="ue-email">Email</label>
+                    <input type="email" id="ue-email" class="form-control" maxlength="254" autocomplete="off">
+                </div>
+                <label class="ue-check"><input type="checkbox" id="ue-email-verified"> Email verified
+                    <span class="ue-hint">Unticked blocks sign-in until they enter an emailed code.</span></label>
+                <label class="ue-check"><input type="checkbox" id="ue-active"> Account active
+                    <span class="ue-hint">Inactive accounts can't sign in. Their data is kept.</span></label>
+
+                <div class="ue-section">Password</div>
+                <div class="form-group">
+                    <label for="ue-password">Set a new password</label>
+                    <input type="password" id="ue-password" class="form-control" autocomplete="new-password" placeholder="Leave blank to keep the current one">
+                    <span class="ue-hint">Setting one signs them out everywhere.</span>
+                </div>
+                <div id="ue-reset-row" style="display:flex;align-items:center;gap:0.5rem;">
+                    <button class="btn btn-sm btn-outline" onclick="userEditAction('send_reset')">Email a reset link</button>
+                    <span class="ue-hint" style="margin:0;">Lets them choose their own.</span>
+                </div>
+
+                <div class="ue-section">Two-factor &amp; devices</div>
+                <div class="ue-line"><span id="ue-totp-status"></span>
+                    <button class="btn btn-sm btn-outline" id="ue-totp-btn" style="color:var(--danger);border-color:var(--danger);" onclick="userEditAction('disable_totp')">Turn off 2FA</button></div>
+                <div class="ue-line"><span id="ue-devices-status"></span>
+                    <button class="btn btn-sm btn-outline" id="ue-devices-btn" onclick="userEditAction('forget_devices')">Forget devices</button></div>
+                <span class="ue-hint">2FA can only be turned off here — turning it on needs their own authenticator app, from their Settings.</span>
+            </div>
+            <div class="settings-actions" style="padding:0.9rem 1.25rem;border-top:1px solid var(--border);margin:0;">
+                <button class="btn btn-primary btn-sm" onclick="saveUserEdit()">Save</button>
+                <button class="btn btn-sm btn-outline" onclick="closeUserEdit()">Cancel</button>
+                <span id="ue-status" style="font-size:0.8125rem;align-self:center;"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Custom JS tab ── -->
+    <div id="tab-custom-js" style="display:none;">
+        <div class="card" style="transition:none;">
+            <div class="card-header" style="display:flex;align-items:center;gap:0.4rem;">
+                Custom JavaScript
+                <span class="badge badge-warning" style="font-size:0.65rem;">instance-wide</span>
+            </div>
+            <p class="settings-section-desc">
+                HTML injected verbatim just before <code>&lt;/body&gt;</code> on <strong>every page — including the public landing, login &amp; signup pages</strong> — for analytics snippets pasted exactly as the provider gives them, <strong>including <code>&lt;script&gt;</code> tags</strong> (GoatCounter, Plausible, Fathom, PostHog…). Leave empty to inject nothing.
+            </p>
+            <p class="settings-section-desc" style="color:var(--text-muted);">
+                <strong>Testing tip:</strong> many analytics tools (GoatCounter included) ignore visits from <code>localhost</code>/<code>127.0.0.1</code> by default, so hits only show up once the instance is reached over its real domain. To confirm the snippet is live, open any page, choose “View Source”, and check it appears just before <code>&lt;/body&gt;</code>.
+            </p>
+            <textarea id="custom-js-input" class="form-control" rows="10" spellcheck="false"
+                style="font-family:var(--font-mono);font-size:0.8125rem;white-space:pre;resize:vertical;"
+                placeholder='&lt;script data-goatcounter="https://you.goatcounter.com/count" async src="//gc.zgo.at/count.js"&gt;&lt;/script&gt;'>{{ site_custom_js }}</textarea>
+            <div class="settings-actions" style="margin-top:0.75rem;">
+                <button class="btn btn-primary btn-sm" onclick="saveCustomJs()">Save</button>
+                <span id="custom-js-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Contact tab ── -->
+    <div id="tab-contact" style="display:none;">
+        <div class="card" style="transition:none;">
+            <div class="card-header">Contact Address</div>
+            <p class="settings-section-desc">
+                Shown as a <strong>contact</strong> link in the footer of the landing and settings pages. When SMTP email is configured, that link opens a contact form that emails this address (replies go to the sender); otherwise it's a plain <code>mailto:</code> link. Leave empty to hide the contact link entirely.
+            </p>
+            <input type="email" id="contact-email-input" class="form-control" maxlength="254"
+                placeholder="you@example.com" value="{{ site_contact_email }}"
+                style="max-width:360px;">
+            <div class="settings-actions" style="margin-top:0.75rem;">
+                <button class="btn btn-primary btn-sm" onclick="saveContactEmail()">Save</button>
+                <span id="contact-email-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── CAPTCHA tab ── -->
+    <div id="tab-captcha" style="display:none;">
+        <div class="card" style="transition:none;">
+            <div class="card-header">Cloudflare Turnstile CAPTCHA</div>
+            <p class="settings-section-desc">
+                Optional bot-protection widget on the <strong>login</strong> and <strong>signup</strong> pages, on top of the existing per-IP rate limiting. Get a site key + secret key from the <a href="https://dash.cloudflare.com/?to=/:account/turnstile" target="_blank" rel="noopener">Cloudflare Turnstile dashboard</a> (free). The mobile app never renders the widget, so it stays exempt regardless of this setting.
+            </p>
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;cursor:pointer;margin-bottom:0.85rem;">
+                <input type="checkbox" id="turnstile-enabled" {% if site_turnstile_enabled %}checked{% endif %}>
+                Require CAPTCHA on login &amp; signup
+            </label>
+            <div class="form-group">
+                <label for="turnstile-site-key">Site key</label>
+                <input type="text" id="turnstile-site-key" class="form-control" maxlength="255"
+                    placeholder="0x4AAAAAAA..." value="{{ site_turnstile_site_key }}"
+                    style="max-width:420px;font-family:var(--font-mono);font-size:0.8125rem;">
+            </div>
+            <div class="form-group">
+                <label for="turnstile-secret-key">Secret key</label>
+                <input type="password" id="turnstile-secret-key" class="form-control" maxlength="255"
+                    placeholder="{% if site_turnstile_secret_set %}••••••••{% else %}unset{% endif %}"
+                    value="{% if site_turnstile_secret_set %}••••••••{% endif %}"
+                    style="max-width:420px;font-family:var(--font-mono);font-size:0.8125rem;">
+            </div>
+            <div class="settings-actions" style="margin-top:0.75rem;">
+                <button class="btn btn-primary btn-sm" onclick="saveTurnstileConfig()">Save</button>
+                <span id="turnstile-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Basemaps tab ── -->
+    <div id="tab-basemaps" style="display:none;">
+        <div class="card" style="transition:none;">
+            <div class="card-header">CARTO basemap API key</div>
+            <p class="settings-section-desc">
+                The built-in <strong>Streets</strong> and <strong>Dark</strong> basemaps on every map in Roamly are CARTO raster tiles. CARTO used to serve these without a key; it now requires one and stamps a repeated <strong>&ldquo;API KEY REQUIRED&rdquo;</strong> watermark across every tile requested without it. Get a free key (5&nbsp;million tiles/month) from <a href="https://carto.com/basemaps/apikey/" target="_blank" rel="noopener">carto.com/basemaps/apikey</a> and paste it here — it applies instance-wide to the main map, editor, adventures, journals, places and diagnostics maps.
+            </p>
+            <div class="form-group">
+                <label for="carto-api-key">API key</label>
+                <input type="text" id="carto-api-key" class="form-control" maxlength="255"
+                    placeholder="unset — tiles will show the CARTO watermark"
+                    value="{{ site_carto_api_key }}"
+                    style="max-width:520px;font-family:var(--font-mono);font-size:0.8125rem;">
+            </div>
+            <p class="settings-section-desc" style="margin-top:-0.35rem;">
+                Leave blank to keep the previous key-less tile URLs. This is a client-side key that rides in the tile URL of every map, so it is public by design and shown here in the clear — the same as a Mapbox public token.
+            </p>
+            <div class="settings-actions" style="margin-top:0.75rem;">
+                <button class="btn btn-primary btn-sm" onclick="saveCartoConfig()">Save</button>
+                <span id="carto-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+            </div>
+            <p class="settings-section-desc" style="margin-top:0.85rem;">
+                Already-loaded map pages keep the tiles they fetched — reload a map to see the change.
+            </p>
+        </div>
+
+        <!-- Basemap catalog (tracker/basemaps.py), instance-wide. -->
+        <div class="bm-head">
+            <div>
+                <div class="bm-title">Basemaps &amp; provider keys</div>
+                <p class="settings-section-desc" style="margin:0;">
+                    Choose which basemaps every map picker (main map and editor) offers, and add keys for providers that need one.
+                    Changes save as you make them; users see them on their next map load.
+                </p>
+            </div>
+            <span id="bm-msg" style="font-size:0.82rem;color:var(--text-muted);white-space:nowrap;"></span>
+        </div>
+        <div class="bm-layout">
+            <div class="bm-main">
+                <div class="card bm-card">
+                    <div class="card-header">Provider keys</div>
+                    <p class="bm-note">Free tiers are plenty for a personal instance. These are browser tile keys —
+                        they appear in tile URLs, so restrict them to this site's domain in the provider's dashboard.</p>
+                    <div id="bm-keys"></div>
+                </div>
+                <div id="bm-groups"></div>
+                <div class="card bm-card">
+                    <div class="card-header">Mapbox Studio style</div>
+                    <p class="bm-note">Design your own style (e.g. a dark Outdoors) in
+                        <a href="https://studio.mapbox.com/" target="_blank" rel="noopener">Mapbox Studio</a>,
+                        then paste its style URL (<code>mapbox://styles/you/abc123</code>). Uses the Mapbox token above, or a user's own. The style must be public or belong to that token's account.</p>
+                    <div class="bm-inline">
+                        <input type="text" id="bm-mbstyle" class="form-control" placeholder="mapbox://styles/username/style-id"
+                               onchange="saveMapboxStyle()">
+                        <button class="btn btn-outline btn-sm" type="button" onclick="previewMapboxStyle()">Preview</button>
+                    </div>
+                    <div id="bm-mbstyle-status" class="bm-note" style="margin-top:0.4rem;"></div>
+                </div>
+                <div class="card bm-card">
+                    <div class="card-header">Custom tile URLs
+                        <button class="btn btn-outline btn-sm" type="button" onclick="addCustomRow()">Add</button>
+                    </div>
+                    <p class="bm-note">Any raster XYZ source: an <code>https://</code> URL with <code>{z}</code>,
+                        <code>{x}</code> and <code>{y}</code>. If the instance enforces its Content-Security-Policy,
+                        the host also needs adding to <code>CSP_EXTRA_HOSTS</code>.</p>
+                    <div id="bm-custom"></div>
+                    <div class="bm-inline" style="margin-top:0.6rem;">
+                        <button class="btn btn-primary btn-sm" type="button" onclick="saveCustom()">Save custom tiles</button>
+                    </div>
+                </div>
+            </div>
+            <div class="bm-side">
+                <div class="card bm-card bm-preview-card">
+                    <div class="card-header"><span id="bm-preview-name">Preview</span></div>
+                    <div id="bm-preview" class="bm-preview"></div>
+                    <div id="bm-preview-status" class="bm-note" style="margin-top:0.4rem;">Pick a basemap to preview it.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Downloads tab ── -->
+    <div id="tab-downloads" style="display:none;">
+        <p class="settings-section-desc" style="margin-bottom:1.25rem;">
+            Road, subway and POI data are instance-wide reference tables shared by every
+            user — no user owns them, so downloading and deleting them lives here rather
+            than in each person's own Settings. The download area for each covers
+            <strong>everyone's</strong> combined travel history, not just yours.
+        </p>
+
+        <div class="card" style="transition:none;">
+            <div class="card-header">Overpass Connection</div>
+            <p class="settings-section-desc">
+                All three downloads below fetch their data from Overpass. Endpoints are
+                tried <strong>in order</strong>, moving on to the next only when one can't
+                be reached or is too slow to answer &mdash; so a single dead or overloaded
+                mirror no longer fails a whole run. Reorder to change which is tried first,
+                remove any you don't want, and add your own.
+            </p>
+            <div id="overpass-list"></div>
+            <div style="display:flex;gap:0.5rem;margin-top:0.6rem;">
+                <input type="text" id="overpass-add" class="form-control" spellcheck="false"
+                       style="font-family:var(--font-mono);font-size:0.8125rem;"
+                       placeholder="https://overpass.example.org/api/interpreter"
+                       onkeydown="if(event.key==='Enter'){event.preventDefault();overpassAdd();}">
+                <button class="btn btn-outline btn-sm" onclick="overpassAdd()"
+                        style="white-space:nowrap;">Add</button>
+            </div>
+            <div class="settings-actions" style="margin-top:0.75rem;">
+                <button class="btn btn-primary btn-sm" id="overpass-save-btn"
+                        onclick="saveOverpassUrls()">Save Endpoints</button>
+                <button class="btn btn-outline btn-sm" id="overpass-test-btn"
+                        onclick="testOverpass()">Test Connection</button>
+                <button class="btn btn-outline btn-sm" id="overpass-reset-btn"
+                        onclick="overpassReset()">Reset to Defaults</button>
+            </div>
+            <div id="overpass-config-status" style="margin-top:0.6rem;font-size:0.8125rem;color:var(--text-muted);"></div>
+            <div id="overpass-test-result" style="margin-top:0.6rem;font-size:0.8125rem;"></div>
+        </div>
+
+        <div class="card" style="transition:none;">
+            <div class="card-header" style="display:flex;align-items:center;gap:0.4rem;">
+                Road Data
+                <span class="badge badge-warning" style="font-size:0.65rem;">instance-wide</span>
+            </div>
+            <p class="settings-section-desc">
+                Fetch OpenStreetMap roads for the areas anyone on this instance has actually
+                been, so snapping and the editor's road routing can run entirely on your own
+                server with no external calls. Only drivable roads are stored, and only for
+                the ~2km cells someone has points in. <strong>This is the largest table in the
+                app</strong> — expect tens of MB for one region, more if people road-trip.
+                Re-run after someone travels somewhere new, or leave auto-download on below.
+            </p>
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8125rem;cursor:pointer;margin-bottom:0.75rem;">
+                <input type="checkbox" id="dl-roads-auto" {% if auto_download_roads %}checked{% endif %}
+                       onchange="dlToggleAuto('roads', this.checked)">
+                Auto-download new regions (checks every few hours; only asks Overpass about areas not already covered)
+            </label>
+            <div class="settings-actions">
+                <button class="btn btn-primary btn-sm" id="dl-roads-btn" onclick="dlStartRoads()">Download Roads</button>
+                <button class="btn btn-outline btn-sm" id="dl-roads-stop-btn" onclick="dlStopRoads()" style="display:none;">Stop</button>
+                <button class="btn btn-outline btn-sm" id="dl-roads-delete-btn" onclick="dlDeleteRoads()"
+                        style="color:var(--danger);border-color:var(--danger);">Delete Road Data</button>
+            </div>
+            <div id="dl-roads-progress-wrap" style="margin-top:0.6rem;display:none;">
+                <div style="background:var(--bg-input);border-radius:0;height:6px;overflow:hidden;margin-bottom:0.35rem;">
+                    <div id="dl-roads-bar" style="height:100%;width:0%;background:var(--primary);border-radius:0;transition:width 0.4s ease;"></div>
+                </div>
+                <div id="dl-roads-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
+            </div>
+        </div>
+
+        <div class="card" style="transition:none;">
+            <div class="card-header" style="display:flex;align-items:center;gap:0.4rem;">
+                Subway Data
+                <span class="badge badge-warning" style="font-size:0.65rem;">instance-wide</span>
+            </div>
+            <p class="settings-section-desc">
+                Fetch OpenStreetMap subway tracks and stations for the areas anyone on this
+                instance has been, so <strong>Diagnostics → Subway Gaps</strong> can find
+                underground rides GPS never recorded and fill them along the real line.
+                Subway data is far smaller than road data. Re-run after someone rides the
+                metro somewhere new, or leave auto-download on below.
+            </p>
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8125rem;cursor:pointer;margin-bottom:0.75rem;">
+                <input type="checkbox" id="dl-subway-auto" {% if auto_download_subway %}checked{% endif %}
+                       onchange="dlToggleAuto('subway', this.checked)">
+                Auto-download new regions (checks every few hours; only asks Overpass about areas not already covered)
+            </label>
+            <div class="settings-actions">
+                <button class="btn btn-primary btn-sm" id="dl-subway-btn" onclick="dlStartSubway()">Download Subway</button>
+                <button class="btn btn-outline btn-sm" id="dl-subway-stop-btn" onclick="dlStopSubway()" style="display:none;">Stop</button>
+                <button class="btn btn-outline btn-sm" id="dl-subway-delete-btn" onclick="dlDeleteSubway()"
+                        style="color:var(--danger);border-color:var(--danger);">Delete Subway Data</button>
+            </div>
+            <div id="dl-subway-progress-wrap" style="margin-top:0.6rem;display:none;">
+                <div style="background:var(--bg-input);border-radius:0;height:6px;overflow:hidden;margin-bottom:0.35rem;">
+                    <div id="dl-subway-bar" style="height:100%;width:0%;background:var(--primary);border-radius:0;transition:width 0.4s ease;"></div>
+                </div>
+                <div id="dl-subway-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
+            </div>
+        </div>
+
+        <div class="card" style="transition:none;">
+            <div class="card-header" style="display:flex;align-items:center;gap:0.4rem;">
+                POI Data
+                <span class="badge badge-warning" style="font-size:0.65rem;">instance-wide</span>
+            </div>
+            <p class="settings-section-desc">
+                Fetch named OpenStreetMap places (shops, cafés, parks, landmarks…) within
+                15km of every city anyone on this instance has visited, so points can show a
+                <strong>Place</strong> name (via each user's own Match POIs job in Settings)
+                and Search can find things by name. Re-run after someone visits a new city,
+                or leave auto-download on below.
+            </p>
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8125rem;cursor:pointer;margin-bottom:0.75rem;">
+                <input type="checkbox" id="dl-poi-auto" {% if auto_download_pois %}checked{% endif %}
+                       onchange="dlToggleAuto('poi', this.checked)">
+                Auto-download new regions (checks every few hours; only asks Overpass about cities not already covered)
+            </label>
+            <div class="settings-actions">
+                <button class="btn btn-primary btn-sm" id="dl-poi-btn" onclick="dlStartPoi()">Download POIs</button>
+                <button class="btn btn-outline btn-sm" id="dl-poi-stop-btn" onclick="dlStopPoi()" style="display:none;">Stop</button>
+                <button class="btn btn-outline btn-sm" id="dl-poi-delete-btn" onclick="dlDeletePoi()"
+                        style="color:var(--danger);border-color:var(--danger);">Delete POI Data</button>
+            </div>
+            <div id="dl-poi-progress-wrap" style="margin-top:0.6rem;display:none;">
+                <div style="background:var(--bg-input);border-radius:0;height:6px;overflow:hidden;margin-bottom:0.35rem;">
+                    <div id="dl-poi-bar" style="height:100%;width:0%;background:var(--primary);border-radius:0;transition:width 0.4s ease;"></div>
+                </div>
+                <div id="dl-poi-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
+            </div>
+        </div>
+
+        <div class="card" style="transition:none;">
+            <div class="card-header" style="display:flex;align-items:center;gap:0.4rem;">
+                Region Boundaries
+                <span class="badge badge-warning" style="font-size:0.65rem;">instance-wide</span>
+            </div>
+            <p class="settings-section-desc">
+                Region, district and municipality outlines from
+                <a href="https://www.geoboundaries.org/" target="_blank" rel="noopener">geoBoundaries</a>
+                (CC BY 4.0) for every country someone on this instance has spent more than a week in.
+                They power the town and region percentages on the <strong>Achievements</strong> page.
+                Download Now also loads the US Census town boundaries for every state with
+                recorded points (town labels there are built from them) and the US county
+                outlines, if they're missing.
+            </p>
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8125rem;cursor:pointer;margin-bottom:0.75rem;">
+                <input type="checkbox" id="dl-bnd-auto" {% if auto_download_boundaries %}checked{% endif %}
+                       onchange="bndToggleAuto(this.checked)">
+                Auto-download new countries (checks every few hours and whenever someone rescans Achievements)
+            </label>
+            <div class="settings-actions">
+                <button class="btn btn-primary btn-sm" id="dl-bnd-btn" onclick="bndDownload()">Download Now</button>
+                <button class="btn btn-outline btn-sm" onclick="bndDelete()"
+                        style="color:var(--danger);border-color:var(--danger);">Delete Region Data</button>
+            </div>
+            <div id="dl-bnd-progress-wrap" style="margin-top:0.6rem;display:none;">
+                <div style="background:var(--bg-input);border-radius:0;height:6px;overflow:hidden;margin-bottom:0.35rem;">
+                    <div id="dl-bnd-bar" style="height:100%;width:0%;background:var(--primary);border-radius:0;transition:width 0.4s ease;"></div>
+                </div>
+                <div id="dl-bnd-stage" style="font-size:0.8125rem;color:var(--text-muted);"></div>
+            </div>
+            <div id="dl-bnd-error" style="margin-top:0.6rem;font-size:0.8125rem;color:var(--danger);white-space:pre-wrap;display:none;"></div>
+            <div id="dl-bnd-us" style="margin-top:0.6rem;font-size:0.8125rem;color:var(--text-muted);"></div>
+            <div id="dl-bnd-status" style="margin-top:0.35rem;font-size:0.8125rem;color:var(--text-muted);"></div>
+        </div>
+
+    </div>
+
+    <!-- ── Push Notifications tab ── -->
+    <div id="tab-push-notifications" style="display:none;">
+        <div class="card" style="transition:none;">
+            <div class="card-header">Firebase Cloud Messaging</div>
+            <p class="settings-section-desc">
+                Powers push notifications for <strong>Family Circle</strong> place enter/exit alerts. Create a Firebase project (free) at the <a href="https://console.firebase.google.com/" target="_blank" rel="noopener">Firebase console</a>, then generate a service-account key under Project Settings → Service Accounts → &ldquo;Generate new private key&rdquo; and paste its full JSON contents below. The mobile app build used to talk to this instance must be built against the <em>same</em> Firebase project (its own <code>google-services.json</code>) — see the mobile release docs.
+            </p>
+            <div class="form-group">
+                <label for="fcm-project-id">Project ID</label>
+                <input type="text" id="fcm-project-id" class="form-control" readonly
+                    value="{{ site_fcm_project_id }}" placeholder="detected automatically from the JSON below"
+                    style="max-width:420px;font-family:var(--font-mono);font-size:0.8125rem;">
+            </div>
+            <div class="form-group">
+                <label for="fcm-service-account-json">Service-account JSON</label>
+                <textarea id="fcm-service-account-json" class="form-control" rows="4"
+                    placeholder="{% if site_fcm_configured %}••••••••{% else %}paste the full JSON key file contents{% endif %}"
+                    style="max-width:620px;font-family:var(--font-mono);font-size:0.75rem;">{% if site_fcm_configured %}••••••••{% endif %}</textarea>
+            </div>
+            <p class="settings-section-desc" style="margin-top:-0.35rem;">
+                Clear the field and save to remove push notifications from this instance entirely.
+            </p>
+            <div class="settings-actions" style="margin-top:0.75rem;">
+                <button class="btn btn-primary btn-sm" onclick="saveFcmConfig()">Save</button>
+                <span id="fcm-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab-flight-data" style="display:none;">
+        {# Usage first: what is left of today's OpenSky credits, from the last
+           response any request got (opensky.REMAINING_KEY) — reading it costs nothing. #}
+        <div class="fd-usage" id="fd-usage">
+            <span class="fd-usage-label">OpenSky credits left today</span>
+            <span>Tracks <b id="fd-usage-tracks">{% if opensky_usage.tracks %}{{ opensky_usage.tracks.remaining }}{% else %}–{% endif %}</b></span>
+            <span>Flights <b id="fd-usage-flights">{% if opensky_usage.flights %}{{ opensky_usage.flights.remaining }}{% else %}–{% endif %}</b></span>
+            <span class="fd-usage-at" id="fd-usage-at" data-at="{{ opensky_usage.tracks.at|default:'' }}">{% if not opensky_usage.tracks %}not known yet. Press Test below to check{% endif %}</span>
+        </div>
+        <div class="card" style="transition:none;">
+            <div class="card-header">AeroDataBox flight lookup</div>
+            <p class="settings-section-desc">
+                Lets everyone on this instance fill in a flight on the <strong>Flights</strong> page from just its number and date: airports, times, airline, aircraft and registration. Subscribe to AeroDataBox on <a href="https://rapidapi.com/aedbx-aedbx/api/aerodatabox" target="_blank" rel="noopener">RapidAPI</a> or <a href="https://api.market/store/aedbx/aerodatabox" target="_blank" rel="noopener">API.Market</a> (both have a small free tier) and paste the key here. Each looked-up flight is cached for 30 days, and each account is limited to 30 lookups a day so one person can't spend the quota. Without a key, flights are entered by hand.
+            </p>
+            <div class="form-group">
+                <label for="adb-provider">Provider</label>
+                <select id="adb-provider" class="form-control" style="max-width:240px;">
+                    <option value="rapidapi"{% if site_aerodatabox_provider == 'rapidapi' %} selected{% endif %}>RapidAPI</option>
+                    <option value="apimarket"{% if site_aerodatabox_provider == 'apimarket' %} selected{% endif %}>API.Market</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="adb-key">API key</label>
+                <input type="password" id="adb-key" class="form-control" autocomplete="off"
+                    value="{% if site_aerodatabox_set %}••••••••{% endif %}" placeholder="paste your AeroDataBox key"
+                    style="max-width:420px;font-family:var(--font-mono);font-size:0.8125rem;">
+            </div>
+            <p class="settings-section-desc" style="margin-top:-0.35rem;">Clear the field and save to turn lookup off. <strong>Test</strong> spends one API call.</p>
+            <div class="settings-actions" style="margin-top:0.75rem;">
+                <button class="btn btn-primary btn-sm" onclick="saveAdbConfig()">Save</button>
+                <button class="btn btn-outline btn-sm" onclick="testAdbConfig()">Test</button>
+                <span id="adb-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+            </div>
+        </div>
+        <div class="card" style="transition:none;">
+            <div class="card-header">OpenSky flight tracks</div>
+            <p class="settings-section-desc">
+                Fetches the flown path of a flight nobody recorded, from the <a href="https://opensky-network.org/" target="_blank" rel="noopener">OpenSky Network</a> (free for non-commercial use). It runs by itself after a flight is saved and every few hours after that, but <strong>only within 30 days</strong> of the flight: OpenSky keeps tracks no longer than that, so older flights still need a KML. A recording of the user's own, or a KML they upload, always takes precedence.
+            </p>
+            <p class="settings-section-desc">
+                To set it up: sign in at opensky-network.org, open <strong>Account → API Client</strong>, create a client, and paste its <strong>client id</strong> and <strong>client secret</strong> below. Roamly swaps them for a short-lived token itself; there is nothing else to configure. A standard account gets 4,000 credits a day; one flight costs about 30.
+            </p>
+            <div class="form-group">
+                <label for="osk-id">Client id</label>
+                <input type="text" id="osk-id" class="form-control" autocomplete="off" value="{{ site_opensky_client_id }}"
+                    style="max-width:420px;font-family:var(--font-mono);font-size:0.8125rem;">
+            </div>
+            <div class="form-group">
+                <label for="osk-secret">Client secret</label>
+                <input type="password" id="osk-secret" class="form-control" autocomplete="off"
+                    value="{% if site_opensky_secret_set %}••••••••{% endif %}" placeholder="paste the client secret"
+                    style="max-width:420px;font-family:var(--font-mono);font-size:0.8125rem;">
+            </div>
+            <p class="settings-section-desc" style="margin-top:-0.35rem;">Clear both fields and save to turn OpenSky off. <strong>Test</strong> signs in and spends one credit, which also refreshes the count above.</p>
+            <div class="settings-actions" style="margin-top:0.75rem;">
+                <button class="btn btn-primary btn-sm" onclick="saveOskConfig()">Save</button>
+                <button class="btn btn-outline btn-sm" onclick="testOskConfig()">Test</button>
+                <span id="osk-status" style="font-size:0.8125rem;color:var(--text-muted);align-self:center;"></span>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.tab-btn { min-width:90px; }
+.fd-usage { display:flex; flex-wrap:wrap; align-items:baseline; gap:0.4rem 0.75rem; padding:0.75rem 1rem; margin-bottom:1rem; border:1px solid var(--border); border-radius:var(--radius, 8px); background:var(--bg-card); }
+.fd-usage-label { font-family:var(--font-mono); font-size:0.7rem; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-muted); }
+.fd-usage b { font-family:var(--font-mono); font-size:1.15rem; }
+.fd-usage-at { font-size:0.78rem; color:var(--text-muted); }
+/* Edit-user dialog */
+.ue-overlay { position:fixed; inset:0; z-index:2000; background:rgba(4,8,18,0.72); display:none; align-items:center; justify-content:center; padding:1rem; }
+.ue-overlay.open { display:flex; }
+.ue-modal { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-clay-lg); width:100%; max-width:480px; max-height:90vh; display:flex; flex-direction:column; overflow:hidden; }
+.ue-modal > .card-header { padding:0.9rem 1.25rem; margin:0; border-bottom:1px solid var(--border); }
+.ue-body { padding:0.5rem 1.25rem 1rem; overflow-y:auto; }
+.ue-section { font-family:var(--font-mono); font-size:0.7rem; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-muted); margin:1rem 0 0.5rem; padding-bottom:0.3rem; border-bottom:1px solid var(--border); }
+.ue-check { display:flex; flex-wrap:wrap; align-items:center; gap:0.5rem; font-size:0.875rem; cursor:pointer; margin-bottom:0.6rem; }
+.ue-hint { display:block; width:100%; font-size:0.75rem; color:var(--text-muted); margin-top:0.2rem; }
+.ue-check .ue-hint { margin:0 0 0 1.5rem; }
+.ue-line { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; font-size:0.875rem; margin-bottom:0.5rem; }
+
+/* Overpass endpoint list — rows join into one plate, like a table without one. */
+.op-row {
+    display:flex; align-items:center; gap:0.5rem;
+    padding:0.45rem 0.6rem; margin-bottom:-1px;
+    border:1px solid var(--border); background:var(--bg-input);
+}
+.op-row:first-child { border-radius:var(--radius-clay-sm) var(--radius-clay-sm) 0 0; }
+.op-row:last-child { border-radius:0 0 var(--radius-clay-sm) var(--radius-clay-sm); margin-bottom:0; }
+.op-row:only-child { border-radius:var(--radius-clay-sm); }
+.op-num { font-family:var(--font-mono); font-size:0.75rem; color:var(--text-dim); min-width:1.1rem; }
+.op-url {
+    flex:1; min-width:0; font-family:var(--font-mono); font-size:0.8125rem;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.op-btn {
+    background:none; border:1px solid var(--border); color:var(--text-muted);
+    cursor:pointer; padding:0.1rem 0.4rem; border-radius:var(--radius-clay-sm);
+    font-size:0.8rem; line-height:1.4; transition:border-color 0.15s, color 0.15s;
+}
+.op-btn:hover:not(:disabled) { border-color:var(--border-bright); color:var(--text); }
+.op-btn:disabled { opacity:0.25; cursor:default; }
+.op-btn.op-danger:hover { border-color:var(--danger); color:var(--danger); }
+.al-row:hover { background:var(--bg-elevated); }
+
+/* Chart canvas + hover overlays (mirrors the Stats page) */
+.chart-container canvas { width:100%; height:100%; }
+.chart-tooltip { position:absolute; pointer-events:none; background:var(--bg-card); border:1px solid var(--border); padding:0.325rem 0.5rem; font-size:0.75rem; font-family:var(--font-body); color:var(--text); white-space:nowrap; opacity:0; transition:opacity 0.15s; z-index:10; }
+.chart-hover-line { position:absolute; width:1px; background:var(--border-bright); opacity:0; pointer-events:none; transition:opacity 0.12s; }
+.chart-hover-dot { position:absolute; width:11px; height:11px; border-radius:50%; background:var(--primary); border:2px solid var(--bg-card); box-shadow:0 0 0 4px var(--primary-soft); transform:translate(-50%,-50%); opacity:0; pointer-events:none; transition:opacity 0.12s; }
+.al-row td { padding:0.35rem 0.5rem; border-bottom:1px solid var(--border); vertical-align:top; }
+
+/* Monitoring */
+.mon-tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:0.6rem; margin-bottom:1.25rem; }
+.mon-tile { border:1px solid var(--border); background:var(--bg-card); padding:0.7rem 0.8rem; }
+.mon-tile-val { font-family:var(--font-mono); font-size:1.5rem; font-weight:600; color:var(--text); line-height:1.1; }
+.mon-tile-lbl { font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em; margin-top:0.2rem; }
+.mon-cols { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:1rem; }
+.mon-empty { padding:1.25rem; text-align:center; color:var(--text-muted); font-size:0.8rem; }
+.mon-legend { display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:0.5rem; font-size:0.75rem; color:var(--text-muted); }
+.mon-legend span { display:inline-flex; align-items:center; gap:0.35rem; }
+.mon-legend i { width:12px; height:3px; border-radius:2px; display:inline-block; }
+
+/* Bar rows (status / paths / IPs) */
+.mon-bar { display:grid; grid-template-columns:1fr auto; align-items:center; gap:0.5rem; margin-bottom:0.4rem; font-size:0.78rem; }
+.mon-bar-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--font-mono); }
+.mon-bar-count { font-family:var(--font-mono); color:var(--text-muted); }
+.mon-bar-track { grid-column:1 / -1; height:6px; background:var(--bg-input); border-radius:3px; overflow:hidden; }
+.mon-bar-fill { height:100%; background:var(--primary); border-radius:3px; }
+
+/* Filters + pager */
+.mon-filters { display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; }
+.mon-filters .form-control { max-width:180px; }
+.mon-pager { display:flex; gap:0.5rem; align-items:center; justify-content:flex-end; margin-top:0.75rem; font-size:0.8rem; color:var(--text-muted); }
+.ev-row td { padding:0.4rem 0.5rem; border-bottom:1px solid var(--border); vertical-align:top; }
+.ev-row.clickable { cursor:pointer; }
+.ev-row.clickable:hover { background:var(--bg-elevated); }
+.ev-trace { font-family:var(--font-mono); font-size:0.72rem; white-space:pre-wrap; word-break:break-word; background:var(--bg-input); border:1px solid var(--border); padding:0.6rem; margin:0.2rem 0; max-height:320px; overflow:auto; }
+.ev-badge { font-family:var(--font-mono); font-size:0.68rem; padding:1px 7px; border:1px solid var(--border); border-radius:3px; }
+.ev-badge.err { color:var(--clay-coral); border-color:var(--clay-coral); }
+
+/* Retention */
+.ret-field { margin-bottom:1rem; }
+.ret-field label { display:block; font-size:0.85rem; font-weight:600; margin-bottom:0.35rem; }
+.ret-hint { display:block; font-weight:400; font-size:0.72rem; color:var(--text-muted); margin-top:0.1rem; }
+.ret-input { display:flex; align-items:center; gap:0.5rem; }
+.ret-suffix { font-size:0.8rem; color:var(--text-muted); }
+.ret-suffix em { font-style:normal; opacity:0.8; }
+
+/* Diagonal flowing stripe for a progress bar that's actively working — see
+   settings.html for the original; duplicated here since neither this CSS
+   nor base.html carries it, and it's a handful of lines. */
+@keyframes bar-flow-move { from { background-position: 0 0; } to { background-position: 28px 0; } }
+.bar-flow {
+    background-image: repeating-linear-gradient(
+        45deg,
+        var(--primary) 0, var(--primary) 10px,
+        var(--primary-hover) 10px, var(--primary-hover) 20px
+    );
+    background-size: 28px 28px;
+    animation: bar-flow-move 0.9s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+    .bar-flow { animation: none; background-image: none; background-color: var(--primary); }
+}
+/* ── basemaps tab: catalog ─────────────────────────────────────────────── */
+.bm-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin:1.25rem 0 1rem; }
+.bm-title { font-family:var(--font-display); font-size:1.15rem; font-weight:600; margin-bottom:0.25rem; }
+.bm-layout { display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:1rem; align-items:start; }
+.bm-main { display:flex; flex-direction:column; gap:1rem; min-width:0; }
+.bm-side { position:sticky; top:80px; }
+.bm-card .card-header { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; }
+.bm-note { font-size:0.8rem; color:var(--text-muted); line-height:1.45; margin:0 0 0.6rem; }
+.bm-note code { font-size:0.75rem; }
+.bm-inline { display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; }
+.bm-inline .form-control { flex:1; min-width:180px; }
+.bm-key { padding:0.6rem 0; border-top:1px solid var(--border); }
+.bm-key:first-child { border-top:none; }
+.bm-key-head { display:flex; justify-content:space-between; align-items:baseline; gap:0.5rem; margin-bottom:0.3rem; }
+.bm-key-name { font-weight:700; }
+.bm-key-head a { font-size:0.75rem; }
+.bm-row { display:flex; align-items:center; gap:0.7rem; padding:0.5rem 0; border-top:1px solid var(--border); }
+.bm-row:first-of-type { border-top:none; }
+.bm-row input[type=checkbox] { width:16px; height:16px; flex:none; accent-color:var(--primary); }
+.bm-row-text { flex:1; min-width:0; }
+.bm-row-name { font-weight:600; font-size:0.9rem; }
+.bm-row-desc { font-size:0.78rem; color:var(--text-muted); }
+.bm-row.unavailable .bm-row-name, .bm-row.unavailable .bm-row-desc { opacity:0.5; }
+.bm-row .btn-sm { flex:none; padding:0.3rem 0.6rem; font-size:0.75rem; }
+.bm-row.previewing { background:rgba(232,118,61,0.08); }
+.bm-preview { height:320px; border:1px solid var(--border); }
+.bm-custom-row { display:grid; grid-template-columns:1fr 2.4fr 70px auto; gap:0.4rem; margin-bottom:0.4rem; align-items:center; }
+.bm-custom-row .bm-attr { grid-column:1 / span 3; }
+@media (max-width: 900px) {
+    .bm-layout { grid-template-columns:1fr; }
+    .bm-side { position:static; order:-1; }
+    .bm-preview { height:220px; }
+    .bm-custom-row { grid-template-columns:1fr auto; }
+    .bm-custom-row .bm-url, .bm-custom-row .bm-attr { grid-column:1 / -1; }
+}
+
+</style>
+<style>
+/* ═══ beta: newspaper page chrome ═══ */
+.page-header h1,.page-toolbar h1{font-size:clamp(2.6rem,6.4vw,4.8rem);line-height:0.96}
+.page-toolbar{border-bottom:4px double var(--rule);padding-bottom:1rem;margin-bottom:1.4rem;align-items:flex-end}
+.page-header{border-bottom:4px double var(--rule)}
+.page-toolbar .page-lead,.page-header .page-lead{font-size:1.12rem}
+.grid-4:has(> .card.stat-card){gap:0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);margin-bottom:1.6rem}
+.grid-4 > .card.stat-card{background:none;border:none;border-left:1px solid var(--hair);margin:0;padding:1.3rem 1rem;text-align:left}
+.grid-4 > .card.stat-card:first-child{border-left:none;padding-left:0}
+.grid-4 > .card.stat-card .stat-value{font-size:clamp(2.2rem,4.6vw,3.6rem);line-height:1}
+.grid-4 > .card.stat-card .stat-label{font-family:var(--label);font-weight:600;letter-spacing:0.14em;margin-top:0.6rem}
+.stat-label,.sidebar-label{font-family:var(--label)}
+.tab-btn,.seg-btn,.chip{font-family:var(--label);font-weight:600;letter-spacing:0.1em;border-radius:0}
+@media (max-width:760px){
+    .grid-4:has(> .card.stat-card){grid-template-columns:repeat(2,minmax(0,1fr))}
+    .grid-4 > .card.stat-card:nth-child(odd){border-left:none;padding-left:0}
+}
+/* page boxes get the same boxed-column treatment as cards */
+.fd-usage,
+.ue-modal,
+.mon-tile{border-top:3px double var(--rule);border-radius:0}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ── Tab switching ──────────────────────────────────────────────────────────
+const TABS = ['monitoring','access-log','events','retention','users','custom-js','contact','captcha','basemaps','downloads','push-notifications','flight-data'];
+const _loaded = {};
+function showTab(name, btn) {
+    TABS.forEach(t => {
+        document.getElementById('tab-'+t).style.display = (t === name) ? '' : 'none';
+    });
+    document.querySelectorAll('.tab-btn').forEach(b => {
+        b.classList.toggle('btn-primary', b === btn);
+        b.classList.toggle('btn-outline', b !== btn);
+    });
+    if (name === 'monitoring') { loadMonitoring(); if (countryMap) setTimeout(()=>countryMap.resize(), 0); }
+    else if (name === 'access-log' && !_loaded['access-log']) { _loaded['access-log']=1; loadAccess(1); }
+    else if (name === 'events' && !_loaded['events']) { _loaded['events']=1; loadEvents(1); }
+    else if (name === 'retention' && !_loaded['retention']) { _loaded['retention']=1; loadRetention(); }
+    else if (name === 'users' && !_loaded['users']) { _loaded['users']=1; loadUsers(); }
+    else if (name === 'basemaps') { initMaps(); }
+    else if (name === 'downloads' && !_loaded['downloads']) { _loaded['downloads']=1; loadDownloads(); }
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function fmtTime(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+}
+function fmtNum(n) { return n == null ? '—' : n.toLocaleString(); }
+function esc(s) {
+    if (s == null) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function cssVar(name, fallback) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+}
+// "#rrggbb" + alpha → "rgba(...)"
+function hexA(hex, a) {
+    const m = (hex || '').trim().match(/^#?([0-9a-f]{6})$/i);
+    if (!m) return `rgba(232,118,61,${a})`;
+    const n = parseInt(m[1], 16);
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+// Monotone cubic (Fritsch–Carlson) spline control points — the curve passes
+// through every point without overshoot. Same routine used on the Stats page.
+function monotoneSpline(pts) {
+    const nseg = pts.length - 1, segs = [];
+    if (nseg < 1) return segs;
+    const dx=[], dy=[], m=[];
+    for (let i=0;i<nseg;i++){ dx[i]=pts[i+1].x-pts[i].x; dy[i]=pts[i+1].y-pts[i].y; m[i]=dx[i]===0?0:dy[i]/dx[i]; }
+    const t=new Array(nseg+1); t[0]=m[0]; t[nseg]=m[nseg-1];
+    for (let i=1;i<nseg;i++){ t[i]=(m[i-1]*m[i]<=0)?0:(m[i-1]+m[i])/2; }
+    for (let i=0;i<nseg;i++){
+        if (m[i]===0){ t[i]=0; t[i+1]=0; continue; }
+        const a=t[i]/m[i], b=t[i+1]/m[i], s=a*a+b*b;
+        if (s>9){ const tau=3/Math.sqrt(s); t[i]=tau*a*m[i]; t[i+1]=tau*b*m[i]; }
+    }
+    for (let i=0;i<nseg;i++){
+        segs.push({ cp1x:pts[i].x+dx[i]/3, cp1y:pts[i].y+t[i]*dx[i]/3,
+                    cp2x:pts[i+1].x-dx[i]/3, cp2y:pts[i+1].y-t[i+1]*dx[i]/3 });
+    }
+    return segs;
+}
+function attachChartHover(canvas, els, getState) {
+    function nearest(mx, points){ let best=null,bd=Infinity; for(const p of points){const d=Math.abs(p.x-mx); if(d<bd){bd=d;best=p;}} return best; }
+    function hide(){ els.tooltip.style.opacity='0'; if(els.hline)els.hline.style.opacity='0'; if(els.hdot)els.hdot.style.opacity='0'; }
+    canvas.addEventListener('mousemove', function(e){
+        const { points, geom, width } = getState();
+        if (!points || !points.length || !geom){ hide(); return; }
+        const rect = canvas.getBoundingClientRect();
+        const hit = nearest(e.clientX-rect.left, points);
+        if (!hit){ hide(); return; }
+        els.tooltip.innerHTML = hit.tip;
+        els.tooltip.style.opacity='1';
+        const tx = Math.max(60, Math.min((width||rect.width)-60, hit.x));
+        els.tooltip.style.left = tx+'px';
+        els.tooltip.style.bottom = (rect.height-hit.y+14)+'px';
+        els.tooltip.style.top=''; els.tooltip.style.transform='translateX(-50%)';
+        if (els.hline){ els.hline.style.left=hit.x+'px'; els.hline.style.top=geom.top+'px'; els.hline.style.height=geom.height+'px'; els.hline.style.opacity='1'; }
+        if (els.hdot){ els.hdot.style.left=hit.x+'px'; els.hdot.style.top=hit.y+'px'; els.hdot.style.opacity='1'; }
+    });
+    canvas.addEventListener('mouseleave', hide);
+}
+
+// Generic multi-series line chart. series = [{name, values, color}].
+// Returns hover state for attachChartHover. First series gets a gradient fill.
+function drawLineChart(canvasId, labels, series, opts) {
+    opts = opts || {};
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return { points:[], geom:null, width:0 };
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width*dpr; canvas.height = rect.height*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    const W=rect.width, H=rect.height;
+    const pad={ top:16, right:14, bottom:28, left:44 };
+    const cW=W-pad.left-pad.right, cH=H-pad.top-pad.bottom;
+    const grid=cssVar('--border','#30352a'), textCol=cssVar('--text-muted','#a9a794');
+    ctx.clearRect(0,0,W,H);
+
+    const n = labels.length;
+    if (!n) {
+        ctx.fillStyle=textCol; ctx.font="13px "+cssVar('--font-body','sans-serif');
+        ctx.textAlign='center'; ctx.fillText('No data in this range', W/2, H/2);
+        return { points:[], geom:null, width:W };
+    }
+    let maxVal=0;
+    series.forEach(s => s.values.forEach(v => { if(v>maxVal) maxVal=v; }));
+    maxVal = Math.max(maxVal, 1);
+    const step = maxVal>100?50:maxVal>10?5:1;
+    const niceMax = Math.ceil(maxVal/step)*step;
+
+    const gridLines=4;
+    ctx.lineWidth=1; ctx.font="11px "+cssVar('--font-body','sans-serif');
+    for (let i=0;i<=gridLines;i++){
+        const y=pad.top+cH-(cH*i/gridLines);
+        ctx.strokeStyle=grid; ctx.beginPath(); ctx.moveTo(pad.left,y); ctx.lineTo(W-pad.right,y); ctx.stroke();
+        ctx.fillStyle=textCol; ctx.textAlign='right';
+        const val=(niceMax*i/gridLines);
+        ctx.fillText(val%1===0?val.toString():val.toFixed(1), pad.left-8, y+4);
+    }
+    // X labels (first / mid / last)
+    ctx.fillStyle=textCol; ctx.textAlign='center'; ctx.font="10px "+cssVar('--font-body','sans-serif');
+    const xOf=(i)=> n===1 ? pad.left+cW/2 : pad.left+(i/(n-1))*cW;
+    const yOf=(v)=> pad.top+cH-(v/niceMax)*cH;
+    [0, Math.floor((n-1)/2), n-1].forEach((i,k)=>{
+        if (i<0||i>=n) return;
+        if (k>0 && i===0) return;
+        ctx.fillText(labels[i], Math.max(pad.left, Math.min(W-pad.right, xOf(i))), H-8);
+    });
+
+    series.forEach((s, si) => {
+        const pts = s.values.map((v,i)=>({x:xOf(i), y:yOf(v)}));
+        const segs = monotoneSpline(pts);
+        const trace=()=>{ ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
+            for(let i=0;i<segs.length;i++) ctx.bezierCurveTo(segs[i].cp1x,segs[i].cp1y,segs[i].cp2x,segs[i].cp2y,pts[i+1].x,pts[i+1].y); };
+        if (si===0 && pts.length>=2 && opts.fill!==false) {
+            const grad=ctx.createLinearGradient(0,pad.top,0,pad.top+cH);
+            grad.addColorStop(0,hexA(s.color,0.28)); grad.addColorStop(1,hexA(s.color,0.02));
+            trace(); ctx.lineTo(pts[pts.length-1].x,pad.top+cH); ctx.lineTo(pts[0].x,pad.top+cH); ctx.closePath();
+            ctx.fillStyle=grad; ctx.fill();
+        }
+        ctx.strokeStyle=s.color; ctx.lineWidth=2; ctx.lineJoin='round';
+        if (pts.length>=2){ trace(); ctx.stroke(); }
+        else { ctx.fillStyle=s.color; ctx.beginPath(); ctx.arc(pts[0].x,pts[0].y,3,0,Math.PI*2); ctx.fill(); }
+    });
+
+    // Hover points: one per x-index, tip lists every series.
+    const points = labels.map((lab,i)=>{
+        const primary = series[0] ? series[0].values[i] : 0;
+        let tip = `<strong>${esc(lab)}</strong>`;
+        series.forEach(s=>{ tip += `<br>${esc(s.name)}: ${fmtNum(s.values[i])}`; });
+        return { x:xOf(i), y:yOf(primary), tip };
+    });
+    return { points, geom:{top:pad.top, height:cH}, width:W };
+}
+
+// ── Country choropleth ───────────────────────────────────────────────────
+const COUNTRY_GEO_URL = "{% static 'tracker/data/world-countries.json' %}";
+let countryMap=null, countryMapLoaded=false, countryGeoData=null, pendingCountryPayload=null;
+
+function ensureCountryMap(){
+    if (countryMap) return;
+    countryMap = new maplibregl.Map({
+        container: 'country-map',
+        style: { version: 8, sources: {}, layers: [
+            { id:'bg', type:'background', paint:{ 'background-color': cssVar('--bg-card','#1c1a16') } },
+        ] },
+        center: [12, 22], zoom: 0.35, minZoom: 0.2, maxZoom: 5,
+        attributionControl: false, dragRotate: false, pitchWithRotate: false,
+    });
+    countryMap.touchZoomRotate.disableRotation();
+    countryMap.on('load', async () => {
+        if (!countryGeoData) {
+            countryGeoData = await fetch(COUNTRY_GEO_URL).then(r => r.json());
+        }
+        countryMap.addSource('country-src', { type: 'geojson', data: countryGeoData });
+        countryMap.addLayer({
+            id: 'country-fill', type: 'fill', source: 'country-src',
+            paint: { 'fill-color': cssVar('--bg-elevated','#26241f'), 'fill-opacity': 1 },
+        });
+        countryMap.addLayer({
+            id: 'country-heat', type: 'fill', source: 'country-src',
+            paint: { 'fill-color': cssVar('--primary','#e8763d'), 'fill-opacity': 0 },
+        });
+        countryMap.addLayer({
+            id: 'country-line', type: 'line', source: 'country-src',
+            paint: { 'line-color': cssVar('--border','#30352a'), 'line-width': 0.5 },
+        });
+        countryMapLoaded = true;
+        if (pendingCountryPayload) { paintCountryHeat(pendingCountryPayload); pendingCountryPayload=null; }
+        const tooltip = document.getElementById('country-tooltip');
+        countryMap.on('mousemove', 'country-heat', (e) => {
+            const f = e.features[0];
+            const cc = f.properties.cc, name = f.properties.name;
+            const n = _lastCountryCounts[cc];
+            countryMap.getCanvas().style.cursor = 'pointer';
+            tooltip.innerHTML = `<strong>${esc(name)}</strong><br>${fmtNum(n||0)} requests`;
+            tooltip.style.opacity = '1';
+            tooltip.style.left = e.point.x + 'px';
+            tooltip.style.bottom = (countryMap.getCanvas().clientHeight - e.point.y + 14) + 'px';
+            tooltip.style.top = ''; tooltip.style.transform = 'translateX(-50%)';
+        });
+        countryMap.on('mouseleave', 'country-heat', () => {
+            countryMap.getCanvas().style.cursor = '';
+            tooltip.style.opacity = '0';
+        });
+    });
+}
+
+let _lastCountryCounts = {};
+function paintCountryHeat(countsByCode){
+    if (!countryMap || !countryMapLoaded) { pendingCountryPayload = countsByCode; return; }
+    _lastCountryCounts = countsByCode;
+    const codes = Object.keys(countsByCode);
+    const counts = Object.values(countsByCode);
+    const maxLog = counts.length ? Math.max(...counts.map(n => Math.log1p(n))) : 0;
+    let expr = 0;
+    if (codes.length) {
+        expr = ['match', ['get', 'cc']];
+        codes.forEach(cc => {
+            const opacity = maxLog > 0 ? 0.18 + 0.72 * (Math.log1p(countsByCode[cc]) / maxLog) : 0;
+            expr.push(cc, opacity);
+        });
+        expr.push(0);
+    }
+    countryMap.setPaintProperty('country-heat', 'fill-opacity', expr);
+    countryMap.setPaintProperty('country-fill', 'fill-color', cssVar('--bg-elevated','#26241f'));
+    countryMap.setPaintProperty('country-line', 'line-color', cssVar('--border','#30352a'));
+}
+
+function renderCountryChoropleth(countries, unknownCount){
+    ensureCountryMap();
+    const countsByCode = {};
+    (countries||[]).forEach(c => { countsByCode[c.code] = c.count; });
+    paintCountryHeat(countsByCode);
+
+    const primary = cssVar('--primary','#e8763d');
+    const bars = (countries||[]).map(c => ({ label: `${c.name} (${c.code})`, count: c.count, color: primary }));
+    if (unknownCount) bars.push({ label: 'Unknown / private', count: unknownCount, color: cssVar('--text-muted','#999') });
+    renderBars('country-bars', bars);
+}
+
+// ── Monitoring ─────────────────────────────────────────────────────────────
+let monRange='24h', monData=null;
+let reqHoverState={points:[],geom:null,width:0}, aeHoverState={points:[],geom:null,width:0};
+
+function setRange(r, btn){
+    monRange=r;
+    document.querySelectorAll('.mon-range-btn').forEach(b=>{
+        b.classList.toggle('btn-primary', b===btn); b.classList.toggle('btn-outline', b!==btn);
+    });
+    loadMonitoring(true);
+}
+
+async function loadMonitoring(force){
+    const r = await fetch('/api/admin/overview/?range='+encodeURIComponent(monRange));
+    if (!r.ok) return;
+    monData = await r.json();
+    renderMonitoring();
+}
+
+function renderMonitoring(){
+    if (!monData) return;
+    const d = monData;
+    const setTile=(id,val)=>{ const el=document.getElementById(id); el.textContent=val; el.classList.remove('skeleton','skel-statval'); };
+    setTile('t-requests', fmtNum(d.total_requests));
+    setTile('t-ips', fmtNum(d.unique_ips));
+    setTile('t-users', fmtNum(d.unique_users));
+    setTile('t-logins', fmtNum(d.logins));
+    setTile('t-signups', fmtNum(d.signups));
+    setTile('t-errors', fmtNum(d.errors));
+    setTile('t-avgms', d.avg_response_ms==null?'—':(fmtNum(d.avg_response_ms)+' ms'));
+
+    // Time-series labels
+    const isHour = d.granularity==='hour';
+    const labels = d.series.map(s=>{
+        const dt = new Date(s.t);
+        return isHour ? dt.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+                      : dt.toLocaleDateString([], {month:'short', day:'numeric'});
+    });
+
+    const primary = cssVar('--primary','#e8763d');
+    const mint = cssVar('--clay-mint','#7f9b6f');
+    const sky  = cssVar('--clay-sky','#5b8ba0');
+    const coral= cssVar('--clay-coral','#c56a4d');
+
+    // Request volume
+    reqHoverState = drawLineChart('req-chart', labels,
+        [{name:'Requests', values:d.series.map(s=>s.requests), color:primary}], {fill:true});
+
+    // Logins / signups / errors
+    document.getElementById('ae-legend').innerHTML =
+        `<span><i style="background:${mint}"></i>Logins</span>`+
+        `<span><i style="background:${sky}"></i>Signups</span>`+
+        `<span><i style="background:${coral}"></i>Errors</span>`;
+    aeHoverState = drawLineChart('ae-chart', labels, [
+        {name:'Logins', values:d.series.map(s=>s.logins), color:mint},
+        {name:'Signups', values:d.series.map(s=>s.signups), color:sky},
+        {name:'Errors', values:d.series.map(s=>s.errors), color:coral},
+    ], {fill:false});
+
+    // Status codes (grouped by class)
+    const groups={'2xx':0,'3xx':0,'4xx':0,'5xx':0,'other':0};
+    Object.keys(d.status_breakdown||{}).forEach(code=>{
+        const c=parseInt(code,10), n=d.status_breakdown[code];
+        if (c>=200&&c<300) groups['2xx']+=n; else if(c>=300&&c<400) groups['3xx']+=n;
+        else if(c>=400&&c<500) groups['4xx']+=n; else if(c>=500&&c<600) groups['5xx']+=n; else groups['other']+=n;
+    });
+    const stColors={'2xx':mint,'3xx':sky,'4xx':cssVar('--clay-amber','#c99a3a'),'5xx':coral,'other':cssVar('--text-muted','#999')};
+    renderBars('status-bars', Object.keys(groups).filter(k=>groups[k]>0).map(k=>({label:k,count:groups[k],color:stColors[k]})));
+
+    renderBars('path-bars', (d.top_paths||[]).map(p=>({label:p.path,count:p.count,color:primary})));
+    renderBars('ip-bars', (d.top_ips||[]).map(p=>({label:p.ip,count:p.count,color:sky})));
+    renderCountryChoropleth(d.top_countries||[], d.unknown_country_count||0);
+
+    // Recent events
+    const rows=(d.recent_actions||[]);
+    document.getElementById('recent-tbody').innerHTML = rows.length ? rows.map(a=>
+        `<tr class="al-row"><td style="white-space:nowrap;color:var(--text-muted);font-size:0.72rem;">${fmtTime(a.timestamp)}</td>`+
+        `<td><span class="ev-badge${a.action==='error'?' err':''}">${esc(a.action)}</span></td>`+
+        `<td>${esc(a.username||'—')}</td>`+
+        `<td style="font-family:var(--font-mono);font-size:0.72rem;color:var(--text-muted);">${esc(a.ip||'—')}</td>`+
+        `<td style="color:var(--text-muted);font-size:0.75rem;">${esc((a.description||'').split('\n')[0].slice(0,80))}</td></tr>`
+    ).join('') : '<tr><td class="mon-empty">No events yet</td></tr>';
+}
+
+function renderBars(containerId, items){
+    const el=document.getElementById(containerId);
+    if (!items || !items.length){ el.innerHTML='<div class="mon-empty">No data</div>'; return; }
+    const max=Math.max(...items.map(i=>i.count),1);
+    el.innerHTML = items.map(i=>{
+        const pct=Math.max(2, Math.round(i.count/max*100));
+        return `<div class="mon-bar"><span class="mon-bar-label" title="${esc(i.label)}">${esc(i.label)}</span>`+
+            `<span class="mon-bar-count">${fmtNum(i.count)}</span>`+
+            `<span class="mon-bar-track"><span class="mon-bar-fill" style="width:${pct}%;background:${i.color}"></span></span></div>`;
+    }).join('');
+}
+
+// ── Access log ─────────────────────────────────────────────────────────────
+let alPage=1, alTotal=0, alPer=50;
+async function loadAccess(page){
+    alPage=page||1;
+    const p=new URLSearchParams({page:alPage, per_page:alPer});
+    const ip=document.getElementById('al-ip').value.trim(); if(ip)p.set('ip',ip);
+    const path=document.getElementById('al-path').value.trim(); if(path)p.set('path',path);
+    const user=document.getElementById('al-user').value.trim(); if(user)p.set('user',user);
+    const hours=document.getElementById('al-hours').value; if(hours)p.set('hours',hours);
+    document.getElementById('al-tbody').innerHTML='<tr><td colspan="7" class="mon-empty">Loading…</td></tr>';
+    const r=await fetch('/api/admin/access-logs/?'+p.toString());
+    if(!r.ok) return;
+    const d=await r.json(); alTotal=d.total;
+    const stColor=(s)=> s>=500?'var(--clay-coral)': s>=400?'var(--clay-amber)': s>=300?'var(--clay-sky)':'var(--clay-mint)';
+    document.getElementById('al-tbody').innerHTML = d.rows.length ? d.rows.map(r=>
+        `<tr class="al-row"><td style="white-space:nowrap;color:var(--text-muted);font-size:0.72rem;">${fmtTime(r.timestamp)}</td>`+
+        `<td style="font-family:var(--font-mono);">${esc(r.ip||'—')}</td>`+
+        `<td>${esc(r.user||'—')}</td>`+
+        `<td style="font-family:var(--font-mono);">${esc(r.method)}</td>`+
+        `<td style="font-family:var(--font-mono);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(r.path)}">${esc(r.path)}</td>`+
+        `<td style="text-align:right;font-family:var(--font-mono);color:${stColor(r.status||0)};">${r.status==null?'—':r.status}</td>`+
+        `<td style="text-align:right;font-family:var(--font-mono);color:var(--text-muted);">${r.ms==null?'—':r.ms}</td></tr>`
+    ).join('') : '<tr><td colspan="7" class="mon-empty">No matching requests</td></tr>';
+    renderPager('al-pager', alPage, alTotal, alPer, 'loadAccess');
+}
+
+// ── Events ─────────────────────────────────────────────────────────────────
+let evPage=1, evTotal=0, evPer=50;
+async function loadEvents(page){
+    evPage=page||1;
+    const p=new URLSearchParams({page:evPage, per_page:evPer});
+    const action=document.getElementById('ev-action').value; if(action)p.set('action',action);
+    const hours=document.getElementById('ev-hours').value; if(hours)p.set('hours',hours);
+    document.getElementById('ev-tbody').innerHTML='<tr><td colspan="5" class="mon-empty">Loading…</td></tr>';
+    const r=await fetch('/api/admin/action-logs/?'+p.toString());
+    if(!r.ok) return;
+    const d=await r.json(); evTotal=d.total;
+    document.getElementById('ev-tbody').innerHTML = d.rows.length ? d.rows.map(r=>{
+        const isErr = r.action==='error';
+        const detail = (r.description||'');
+        const firstLine = esc(detail.split('\n')[0].slice(0,120));
+        const rowAttrs = isErr ? 'class="ev-row clickable" onclick="toggleTrace(this)"' : 'class="ev-row"';
+        const traceRow = isErr ? `<tr class="ev-trace-row" style="display:none;"><td colspan="5"><div class="ev-trace">${esc(detail)}</div></td></tr>` : '';
+        return `<tr ${rowAttrs}>`+
+            `<td style="white-space:nowrap;color:var(--text-muted);font-size:0.72rem;">${fmtTime(r.timestamp)}</td>`+
+            `<td><span class="ev-badge${isErr?' err':''}">${esc(r.action)}</span></td>`+
+            `<td>${esc(r.user||'—')}</td>`+
+            `<td style="font-family:var(--font-mono);font-size:0.72rem;color:var(--text-muted);">${esc(r.ip||'—')}</td>`+
+            `<td style="color:var(--text-muted);font-size:0.75rem;">${firstLine}${isErr?' <span style="color:var(--primary);">▸</span>':''}</td>`+
+            `</tr>${traceRow}`;
+    }).join('') : '<tr><td colspan="5" class="mon-empty">No matching events</td></tr>';
+    renderPager('ev-pager', evPage, evTotal, evPer, 'loadEvents');
+}
+function toggleTrace(row){
+    const next=row.nextElementSibling;
+    if (next && next.classList.contains('ev-trace-row'))
+        next.style.display = next.style.display==='none' ? '' : 'none';
+}
+
+function renderPager(id, page, total, per, fn){
+    const el=document.getElementById(id);
+    const pages=Math.max(1, Math.ceil(total/per));
+    const from=total?((page-1)*per+1):0, to=Math.min(total, page*per);
+    el.innerHTML =
+        `<span>${from}–${to} of ${fmtNum(total)}</span>`+
+        `<button class="btn btn-outline btn-sm" ${page<=1?'disabled':''} onclick="${fn}(${page-1})">Prev</button>`+
+        `<button class="btn btn-outline btn-sm" ${page>=pages?'disabled':''} onclick="${fn}(${page+1})">Next</button>`;
+}
+
+// ── Retention ──────────────────────────────────────────────────────────────
+async function loadRetention(){
+    const r=await fetch('/api/admin/log-config/');
+    if(!r.ok) return;
+    const d=await r.json();
+    document.getElementById('ret-access').value=d.access_log_retention_days;
+    document.getElementById('ret-event').value=d.event_log_retention_days;
+}
+async function saveRetention(){
+    const st=document.getElementById('ret-status');
+    st.textContent='Saving…'; st.style.color='var(--text-muted)';
+    const body={
+        access_log_retention_days: parseInt(document.getElementById('ret-access').value||'0',10),
+        event_log_retention_days: parseInt(document.getElementById('ret-event').value||'0',10),
+    };
+    const r=await fetch('/api/admin/log-config/', {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
+        body: JSON.stringify(body),
+    });
+    st.textContent = r.ok ? 'Saved.' : 'Error saving.';
+    st.style.color = r.ok ? 'var(--success)' : 'var(--danger)';
+    setTimeout(()=>{ st.textContent=''; }, 3000);
+}
+
+// ── Users ──────────────────────────────────────────────────────────────────
+async function loadUsers() {
+    const r = await fetch('/api/admin/users/');
+    if (!r.ok) return;
+    const d = await r.json();
+    document.getElementById('users-tbody').innerHTML = d.users.map(u=>
+        `<tr class="al-row" id="user-row-${u.id}" data-username="${esc(u.username)}">
+            <td style="font-weight:600;">${esc(u.username)}${u.is_self ? ' <span style="color:var(--text-muted);font-weight:400;">(you)</span>' : ''}${u.is_active ? '' : ' <span style="color:var(--danger);font-weight:400;font-size:0.7rem;">inactive</span>'}</td>
+            <td style="color:var(--text-muted);">${esc(u.email)}</td>
+            <td style="font-size:0.75rem;color:var(--text-muted);">${u.date_joined ? new Date(u.date_joined).toLocaleDateString() : '—'}</td>
+            <td style="font-size:0.75rem;color:var(--text-muted);">${u.last_login ? fmtTime(u.last_login) : 'Never'}</td>
+            <td style="text-align:right;">${u.device_count}</td>
+            <td style="text-align:right;">${fmtNum(u.location_count)}</td>
+            <td style="text-align:center;">
+                <button class="btn btn-sm ${u.is_admin ? 'btn-primary' : 'btn-outline'}" style="font-size:0.7rem;padding:2px 10px;"
+                    onclick="toggleAdmin(${u.id}, this)">
+                    ${u.is_admin ? 'Admin' : 'User'}
+                </button>
+            </td>
+            <td style="text-align:center;white-space:nowrap;">
+                <button class="btn btn-sm btn-outline" style="font-size:0.7rem;padding:2px 10px;" onclick="openUserEdit(${u.id})">Edit</button>
+                ${u.is_self ? '' :
+                    `<button class="btn btn-sm btn-outline" style="font-size:0.7rem;padding:2px 10px;color:var(--danger);border-color:var(--danger);"
+                        onclick="deleteUser(${u.id})">Delete</button>`}
+            </td>
+        </tr>`
+    ).join('') || '<tr><td colspan="8" style="padding:2rem;text-align:center;color:var(--text-muted);">No users</td></tr>';
+}
+
+async function deleteUser(userId) {
+    const row = document.getElementById(`user-row-${userId}`);
+    const username = row ? row.dataset.username : `#${userId}`;
+    if (!await roamlyConfirm(`Permanently delete "${username}" and ALL of their data (devices, locations, adventures, journals…)?\n\nThis cannot be undone.`, {danger:true})) return;
+    const r = await fetch(`/api/admin/users/${userId}/delete/`, {method:'POST', headers:{'X-CSRFToken':getCookie('csrftoken')}});
+    if (!r.ok) {
+        let msg = 'Failed to delete user.';
+        try { const e = await r.json(); if (e.error) msg = e.error; } catch (_) {}
+        await roamlyAlert(msg);
+        return;
+    }
+    if (row) row.remove();
+}
+
+async function toggleAdmin(userId, btn) {
+    if (!await roamlyConfirm('Toggle admin status for this user?')) return;
+    const r = await fetch(`/api/admin/users/${userId}/toggle-admin/`, {method:'POST', headers:{'X-CSRFToken':getCookie('csrftoken')}});
+    if (!r.ok) { await roamlyAlert('Failed'); return; }
+    const d = await r.json();
+    btn.textContent = d.is_admin ? 'Admin' : 'User';
+    btn.className = `btn btn-sm ${d.is_admin ? 'btn-primary' : 'btn-outline'}`;
+    btn.style.fontSize = '0.7rem';
+    btn.style.padding = '2px 10px';
+}
+
+// ── Edit user ──────────────────────────────────────────────────────────────
+let _ueUser = null, _ueSelf = false;
+
+function _ueRender(u) {
+    _ueUser = u;
+    document.getElementById('ue-title').firstElementChild.textContent = `Edit ${u.username}`;
+    document.getElementById('ue-username').value = u.username;
+    document.getElementById('ue-email').value = u.email;
+    document.getElementById('ue-email-verified').checked = u.email_verified;
+    document.getElementById('ue-active').checked = u.is_active;
+    document.getElementById('ue-active').disabled = _ueSelf;
+    document.getElementById('ue-password').value = '';
+    document.getElementById('ue-reset-row').style.display = u.email_enabled ? 'flex' : 'none';
+    document.getElementById('ue-totp-status').textContent = u.totp_enabled
+        ? `2FA on · ${u.backup_codes_left} backup code${u.backup_codes_left === 1 ? '' : 's'} left` : '2FA off';
+    document.getElementById('ue-totp-btn').style.display = u.totp_enabled ? '' : 'none';
+    document.getElementById('ue-devices-status').textContent =
+        `${u.known_devices} trusted device${u.known_devices === 1 ? '' : 's'}`;
+    document.getElementById('ue-devices-btn').disabled = !u.known_devices;
+}
+
+async function openUserEdit(userId) {
+    const st = document.getElementById('ue-status');
+    st.textContent = '';
+    const r = await fetch(`/api/admin/users/${userId}/`);
+    if (!r.ok) { await roamlyAlert('Could not load that user.'); return; }
+    const d = await r.json();
+    _ueSelf = d.is_self;
+    _ueRender(d.user);
+    document.getElementById('ue-overlay').classList.add('open');
+    document.getElementById('ue-email').focus();
+}
+
+function closeUserEdit() {
+    document.getElementById('ue-overlay').classList.remove('open');
+    document.getElementById('ue-password').value = '';
+    _ueUser = null;
+}
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.getElementById('ue-overlay').classList.contains('open')) closeUserEdit();
+});
+
+async function _uePost(body) {
+    const r = await fetch(`/api/admin/users/${_ueUser.id}/update/`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken')},
+        body: JSON.stringify(body),
+    });
+    let d = {};
+    try { d = await r.json(); } catch (_) {}
+    if (!r.ok) { await roamlyAlert(d.error || 'Failed to update user.'); return null; }
+    return d;
+}
+
+async function saveUserEdit() {
+    if (!_ueUser) return;
+    const body = {
+        username: document.getElementById('ue-username').value.trim(),
+        email: document.getElementById('ue-email').value.trim(),
+        email_verified: document.getElementById('ue-email-verified').checked,
+        is_active: document.getElementById('ue-active').checked,
+    };
+    const pw = document.getElementById('ue-password').value;
+    if (pw) body.password = pw;
+    const st = document.getElementById('ue-status');
+    st.textContent = 'Saving…'; st.style.color = 'var(--text-muted)';
+    const d = await _uePost(body);
+    if (!d) { st.textContent = ''; return; }
+    closeUserEdit();
+    roamlyToast(pw ? 'User saved — new password set.' : 'User saved.');
+    loadUsers();
+}
+
+async function userEditAction(action) {
+    if (!_ueUser) return;
+    const name = _ueUser.username;
+    const prompts = {
+        disable_totp: [`Turn off two-factor authentication for "${name}"? Their backup codes are deleted too; they can set it up again from Settings.`, {danger: true, confirmText: 'Turn off 2FA'}],
+        forget_devices: [`Forget all of "${name}"'s trusted devices? Their next sign-in on each will need an emailed code (when email is set up).`, {confirmText: 'Forget devices'}],
+        send_reset: [`Email a password-reset link to ${_ueUser.email || '(no address)'}?`, {confirmText: 'Send link'}],
+    };
+    const [msg, opts] = prompts[action];
+    if (!await roamlyConfirm(msg, opts)) return;
+    const d = await _uePost({[action]: true});
+    if (!d) return;
+    _ueRender(d.user);
+    roamlyToast({disable_totp: '2FA turned off.', forget_devices: 'Trusted devices forgotten.', send_reset: 'Reset link sent.'}[action]);
+}
+
+// ── Custom JS ──────────────────────────────────────────────────────────────
+async function saveCustomJs() {
+    const val = document.getElementById('custom-js-input').value;
+    const st = document.getElementById('custom-js-status');
+    st.textContent = 'Saving…';
+    const r = await fetch('/api/site/custom-js/', {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
+        body: JSON.stringify({custom_js: val}),
+    });
+    st.textContent = r.ok ? 'Saved.' : 'Error saving.';
+    st.style.color = r.ok ? 'var(--success)' : 'var(--danger)';
+    setTimeout(()=>{ st.textContent=''; }, 3000);
+}
+
+// ── Contact address ─────────────────────────────────────────────────────────
+async function saveContactEmail() {
+    const val = document.getElementById('contact-email-input').value.trim();
+    const st = document.getElementById('contact-email-status');
+    st.textContent = 'Saving…'; st.style.color = 'var(--text-muted)';
+    const r = await fetch('/api/site/contact-email/', {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
+        body: JSON.stringify({contact_email: val}),
+    });
+    let d = {}; try { d = await r.json(); } catch(e) {}
+    st.textContent = r.ok ? 'Saved.' : (d.error || 'Error saving.');
+    st.style.color = r.ok ? 'var(--success)' : 'var(--danger)';
+    setTimeout(()=>{ st.textContent=''; }, 3000);
+}
+
+// ── Turnstile CAPTCHA ───────────────────────────────────────────────────────
+async function saveTurnstileConfig() {
+    const st = document.getElementById('turnstile-status');
+    st.textContent = 'Saving…'; st.style.color = 'var(--text-muted)';
+    const r = await fetch('/api/site/turnstile/', {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
+        body: JSON.stringify({
+            turnstile_enabled: document.getElementById('turnstile-enabled').checked,
+            turnstile_site_key: document.getElementById('turnstile-site-key').value.trim(),
+            turnstile_secret_key: document.getElementById('turnstile-secret-key').value.trim(),
+        }),
+    });
+    let d = {}; try { d = await r.json(); } catch(e) {}
+    st.textContent = r.ok ? 'Saved.' : (d.error || 'Error saving.');
+    st.style.color = r.ok ? 'var(--success)' : 'var(--danger)';
+    setTimeout(()=>{ st.textContent=''; }, 3000);
+}
+
+// ── CARTO basemap API key ───────────────────────────────────────────────────
+async function saveCartoConfig() {
+    const st = document.getElementById('carto-status');
+    st.textContent = 'Saving…'; st.style.color = 'var(--text-muted)';
+    const r = await fetch('/api/site/carto/', {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
+        body: JSON.stringify({
+            carto_api_key: document.getElementById('carto-api-key').value.trim(),
+        }),
+    });
+    let d = {}; try { d = await r.json(); } catch(e) {}
+    st.textContent = r.ok ? 'Saved. Reload a map page to see the new tiles.' : (d.error || 'Error saving.');
+    st.style.color = r.ok ? 'var(--success)' : 'var(--danger)';
+    setTimeout(()=>{ st.textContent=''; }, 4000);
+}
+
+// The admin's own Settings token, used only to preview Mapbox styles here.
+const bmAdminMapboxToken = '{{ MAPBOX_TOKEN|escapejs }}';
+// ── Maps tab ────────────────────────────────────────────────────────────────
+// Admin Panel → Basemaps edits SiteConfig.basemap_config via /api/site/basemaps/
+// (tracker/basemaps.py). Every control autosaves on its own: the endpoint only
+// changes the keys a POST carries.
+const BM_GROUPS = [
+    ['built-in', 'Built-in', 'Always free. CARTO tiles use the instance key from Admin Panel → Basemaps.'],
+    ['free', 'Free, no key', 'Extra free basemaps. The terrain ones add hillshading from free elevation tiles.'],
+    ['mapbox', 'Mapbox', 'Shown to users with a Mapbox token: the instance one above, or their own from Settings.'],
+    ['maptiler', 'MapTiler', 'Needs a MapTiler key.'],
+    ['thunderforest', 'Thunderforest', 'Needs a Thunderforest key.'],
+    ['stadia', 'Stadia Maps', 'Needs a Stadia Maps key.'],
+];
+let bmData = null, bmInit = false, bmPreviewMap = null, bmPreviewId = null, bmCustomDirty = true;
+
+function bmEsc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g,
+        c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function bmFlash(text, bad) {
+    const el = document.getElementById('bm-msg');
+    el.textContent = text;
+    el.style.color = bad ? 'var(--danger)' : 'var(--text-muted)';
+    clearTimeout(bmFlash._t);
+    bmFlash._t = setTimeout(() => { el.textContent = ''; }, 2500);
+}
+
+function initMaps() {
+    if (bmInit) { if (bmPreviewMap) bmPreviewMap.resize(); return; }
+    bmInit = true;
+    fetch('/api/site/basemaps/', { credentials: 'same-origin' })
+        .then(r => r.json()).then(d => { bmData = d; renderMaps(); })
+        .catch(() => bmFlash('Could not load map settings.', true));
+}
+
+function bmSave(payload, label) {
+    return fetch('/api/site/basemaps/', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+        body: JSON.stringify(payload),
+    }).then(r => r.json()).then(d => {
+        if (!d.ok) throw new Error(d.error || 'failed');
+        bmData = d;
+        renderMaps();
+        bmFlash((label || 'Saved') + ' ✓');
+        return d;
+    }).catch(() => { bmFlash('Could not save.', true); });
+}
+
+function renderMaps() {
+    if (!bmData) return;
+    // Keys
+    const keysEl = document.getElementById('bm-keys');
+    keysEl.innerHTML = bmData.providers.map(p => `
+        <div class="bm-key">
+            <div class="bm-key-head">
+                <span class="bm-key-name">${bmEsc(p.name)}</span>
+                <a href="${bmEsc(p.signup)}" target="_blank" rel="noopener">get a key ↗</a>
+            </div>
+            <input type="text" class="form-control" spellcheck="false" autocomplete="off"
+                   data-provider="${bmEsc(p.id)}" value="${bmEsc(p.key)}"
+                   placeholder="${p.id === 'mapbox' ? 'pk.…' : 'paste key'}" onchange="saveKey(this)">
+            <div class="bm-note" style="margin:0.3rem 0 0;">${bmEsc(p.note)}</div>
+            ${bmOwnMapboxNote(p)}
+        </div>`).join('');
+
+    // Basemap groups
+    const groupsEl = document.getElementById('bm-groups');
+    groupsEl.innerHTML = BM_GROUPS.map(([gid, title, note]) => {
+        const rows = bmData.entries.filter(e => e.group === gid);
+        if (!rows.length) return '';
+        return `<div class="card bm-card">
+            <div class="card-header">${bmEsc(title)}</div>
+            <p class="bm-note">${bmEsc(note)}</p>
+            ${rows.map(e => `
+                <div class="bm-row${e.available ? '' : ' unavailable'}${e.id === bmPreviewId ? ' previewing' : ''}">
+                    <input type="checkbox" ${e.enabled ? 'checked' : ''} ${e.available ? '' : 'disabled'}
+                           data-id="${bmEsc(e.id)}" onchange="toggleBasemap(this)"
+                           title="${e.available ? 'Show in the map picker' : 'Add the key above first'}">
+                    <div class="bm-row-text">
+                        <div class="bm-row-name">${bmEsc(e.id)}</div>
+                        <div class="bm-row-desc">${bmEsc(e.description)}${e.available ? '' : ' — needs a key'}</div>
+                    </div>
+                    ${e.style ? `<button class="btn btn-outline btn-sm" type="button" data-id="${bmEsc(e.id)}"
+                        onclick="previewBasemap(this.dataset.id)">Preview</button>` : ''}
+                </div>`).join('')}
+        </div>`;
+    }).join('');
+
+    // Mapbox Studio style
+    const mbInput = document.getElementById('bm-mbstyle');
+    if (document.activeElement !== mbInput) mbInput.value = bmData.mapbox_style || '';
+    const mbStatus = document.getElementById('bm-mbstyle-status');
+    const hasToken = bmData.providers.some(p => p.id === 'mapbox' && p.key);
+    if (!bmData.mapbox_style) mbStatus.textContent = '';
+    else if (!bmData.mapbox_style_valid) { mbStatus.textContent = "That doesn't look like a Mapbox style URL."; mbStatus.style.color = 'var(--danger)'; }
+    else if (!hasToken) { mbStatus.textContent = 'Saved. Only users with their own Mapbox token see it until you add one above.'; mbStatus.style.color = 'var(--warning, #d29922)'; }
+    else { mbStatus.textContent = 'Shows as "custom" under Mapbox on the map.'; mbStatus.style.color = 'var(--text-muted)'; }
+
+    // Custom rows are rebuilt only on first load and after saving them, so a
+    // toggle elsewhere never wipes a row the user is still typing.
+    if (bmCustomDirty) {
+        bmCustomDirty = false;
+        document.getElementById('bm-custom').innerHTML = '';
+        (bmData.custom || []).forEach(c => addCustomRow(c));
+    }
+}
+
+// The admin's own Settings token is separate from the instance one: it keeps
+// working for them (it wins), but nobody else gets Mapbox until one is set here.
+// Say so, and offer to copy it across rather than leave it looking missing.
+function bmOwnMapboxNote(p) {
+    if (p.id !== 'mapbox' || !bmAdminMapboxToken) return '';
+    if (p.key === bmAdminMapboxToken) {
+        return '<div class="bm-note" style="margin:0.3rem 0 0;">Same as your own token in Settings → Maps.</div>';
+    }
+    return `<div class="bm-note" style="margin:0.4rem 0 0;">
+        You also have your own token in Settings → Maps (…${bmEsc(bmAdminMapboxToken.slice(-6))}). It's used for your account only${p.key ? ', instead of this one' : ''}.
+        <button class="btn btn-outline btn-sm" type="button" style="margin-left:0.4rem;padding:0.2rem 0.55rem;font-size:0.75rem;"
+                onclick="bmUseOwnMapbox()">Use it for everyone</button></div>`;
+}
+function bmUseOwnMapbox() {
+    bmSave({ keys: { mapbox: bmAdminMapboxToken } }, 'Mapbox token set for everyone');
+}
+
+function saveKey(input) {
+    bmSave({ keys: { [input.dataset.provider]: input.value.trim() } }, 'Key saved');
+}
+
+function toggleBasemap(cb) {
+    bmSave({ enabled: { [cb.dataset.id]: cb.checked } }, cb.checked ? 'Shown' : 'Hidden');
+}
+
+function saveMapboxStyle() {
+    bmSave({ mapbox_style: document.getElementById('bm-mbstyle').value.trim() }, 'Style saved');
+}
+
+function previewMapboxStyle() {
+    const raw = document.getElementById('bm-mbstyle').value.trim();
+    const token = (bmData.providers.find(p => p.id === 'mapbox') || {}).key || bmAdminMapboxToken;
+    const m = raw.replace(/^mapbox:\/\/styles\//, '').replace(/^https:\/\/api\.mapbox\.com\/styles\/v1\//, '')
+                 .split('?')[0].split('/').filter(Boolean);
+    if (m.length < 2 || !token) { bmFlash(token ? 'Enter a style URL first.' : 'Add a Mapbox token first.', true); return; }
+    bmShowPreview('Mapbox Studio style', bmRasterStyle(
+        'mapbox', 'https://api.mapbox.com/styles/v1/' + m[0] + '/' + m[1] +
+        '/tiles/256/{z}/{x}/{y}?access_token=' + encodeURIComponent(token), 22, '&copy; Mapbox'));
+}
+
+function bmRasterStyle(id, url, maxzoom, attribution) {
+    return { version: 8, sources: { [id]: { type: 'raster', tiles: [url], tileSize: 256,
+        maxzoom: maxzoom || 19, attribution: attribution || '' } },
+        layers: [{ id: id, type: 'raster', source: id }] };
+}
+
+function previewBasemap(id) {
+    const e = bmData && bmData.entries.find(x => x.id === id);
+    if (!e || !e.style) return;
+    bmPreviewId = id;
+    document.querySelectorAll('.bm-row').forEach(r => r.classList.toggle('previewing',
+        !!r.querySelector(`[data-id="${CSS.escape(id)}"]`)));
+    bmShowPreview(id, e.style);
+}
+
+let bmTileErrors = 0;
+function bmShowPreview(name, style) {
+    document.getElementById('bm-preview-name').textContent = name;
+    const status = document.getElementById('bm-preview-status');
+    status.textContent = 'Loading tiles…';
+    status.style.color = 'var(--text-muted)';
+    bmTileErrors = 0;
+    if (!bmPreviewMap) {
+        bmPreviewMap = new maplibregl.Map({ container: 'bm-preview', style: style,
+            center: [-71.06, 42.36], zoom: 11, attributionControl: { compact: true } });
+        bmPreviewMap.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+        // A rough key check: tiles either arrive or the provider refuses them.
+        bmPreviewMap.on('error', (ev) => {
+            const st = ev && ev.error && ev.error.status;
+            bmTileErrors++;
+            const s = document.getElementById('bm-preview-status');
+            s.style.color = 'var(--danger)';
+            s.textContent = (st === 401 || st === 403)
+                ? `Tiles refused (${st}) — the key is wrong or restricted to another domain.`
+                : `Some tiles failed to load${st ? ' (' + st + ')' : ''}.`;
+        });
+        bmPreviewMap.on('sourcedata', (ev) => {
+            if (ev.tile && !bmTileErrors) {
+                const s = document.getElementById('bm-preview-status');
+                s.style.color = 'var(--text-muted)';
+                s.textContent = 'Tiles loading fine.';
+            }
+        });
+        // Centre on the user's most recent fix when there is one.
+        fetch('/api/locations/?all=1&limit=1', { credentials: 'same-origin' })
+            .then(r => r.json()).then(d => {
+                const dev = (d.devices || [])[0];
+                const pt = dev && (dev.locations || dev.points || [])[0];
+                const loc = pt || (d.locations || [])[0];
+                const lat = loc && (loc.latitude ?? loc.lat), lng = loc && (loc.longitude ?? loc.lng ?? loc.lon);
+                if (lat != null && lng != null) bmPreviewMap.jumpTo({ center: [lng, lat], zoom: 11 });
+            }).catch(() => {});
+    } else {
+        bmPreviewMap.setStyle(style);
+    }
+}
+
+function addCustomRow(c) {
+    c = c || { name: '', url: '', max_zoom: 19, attribution: '', enabled: true };
+    const row = document.createElement('div');
+    row.className = 'bm-custom-row';
+    row.innerHTML = `
+        <input type="text" class="form-control bm-name" placeholder="name" maxlength="40" value="${bmEsc(c.name)}">
+        <input type="text" class="form-control bm-url" placeholder="https://tiles.example.com/{z}/{x}/{y}.png" value="${bmEsc(c.url)}">
+        <input type="number" class="form-control bm-mz" min="1" max="24" title="max zoom" value="${bmEsc(c.max_zoom || 19)}">
+        <div class="bm-inline" style="flex-wrap:nowrap;">
+            <button class="btn btn-outline btn-sm" type="button" title="Preview">Preview</button>
+            <button class="btn btn-outline btn-sm" type="button" title="Remove" style="color:var(--danger);">✕</button>
+        </div>
+        <input type="text" class="form-control bm-attr" placeholder="attribution (optional)" maxlength="200" value="${bmEsc(c.attribution)}">`;
+    const [prevBtn, delBtn] = row.querySelectorAll('button');
+    prevBtn.onclick = () => {
+        const url = row.querySelector('.bm-url').value.trim();
+        if (!/^https:\/\//.test(url) || !/\{z\}/.test(url) || !/\{x\}/.test(url) || !/\{y\}/.test(url)) {
+            bmFlash('URL must be https:// and contain {z}, {x} and {y}.', true); return;
+        }
+        bmShowPreview(row.querySelector('.bm-name').value.trim() || 'Custom',
+            bmRasterStyle('custom', url, parseInt(row.querySelector('.bm-mz').value, 10) || 19,
+                          row.querySelector('.bm-attr').value.trim()));
+    };
+    delBtn.onclick = () => { row.remove(); };
+    document.getElementById('bm-custom').appendChild(row);
+}
+
+function saveCustom() {
+    const rows = [...document.querySelectorAll('#bm-custom .bm-custom-row')].map(r => ({
+        name: r.querySelector('.bm-name').value.trim(),
+        url: r.querySelector('.bm-url').value.trim(),
+        max_zoom: parseInt(r.querySelector('.bm-mz').value, 10) || 19,
+        attribution: r.querySelector('.bm-attr').value.trim(),
+    })).filter(r => r.url);
+    const bad = rows.filter(r => !/^https:\/\//.test(r.url) || !['{z}','{x}','{y}'].every(t => r.url.includes(t)));
+    if (bad.length) { bmFlash('Each URL must be https:// and contain {z}, {x} and {y}.', true); return; }
+    bmCustomDirty = true;
+    bmSave({ custom: rows }, 'Custom tiles saved');
+}
+
+// ── Firebase Cloud Messaging (Family Circle push) ───────────────────────────
+async function saveFcmConfig() {
+    const st = document.getElementById('fcm-status');
+    st.textContent = 'Saving…'; st.style.color = 'var(--text-muted)';
+    const r = await fetch('/api/site/fcm/', {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
+        body: JSON.stringify({
+            fcm_service_account_json: document.getElementById('fcm-service-account-json').value.trim(),
+        }),
+    });
+    let d = {}; try { d = await r.json(); } catch(e) {}
+    st.textContent = r.ok ? 'Saved.' : (d.error || 'Error saving.');
+    st.style.color = r.ok ? 'var(--success)' : 'var(--danger)';
+    if (r.ok) document.getElementById('fcm-project-id').value = d.fcm_project_id || '';
+    setTimeout(()=>{ st.textContent=''; }, 4000);
+}
+
+// ── AeroDataBox (Flights lookup) ────────────────────────────────────────────
+async function _adbPost(body) {
+    const r = await fetch('/api/site/aerodatabox/', {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
+        body: JSON.stringify(body),
+    });
+    let d = {}; try { d = await r.json(); } catch(e) {}
+    return [r, d];
+}
+function _adbStatus(text, ok) {
+    const st = document.getElementById('adb-status');
+    st.textContent = text;
+    st.style.color = ok === undefined ? 'var(--text-muted)' : (ok ? 'var(--success)' : 'var(--danger)');
+}
+async function saveAdbConfig() {
+    _adbStatus('Saving…');
+    const [r, d] = await _adbPost({
+        aerodatabox_provider: document.getElementById('adb-provider').value,
+        aerodatabox_key: document.getElementById('adb-key').value.trim(),
+    });
+    if (!r.ok) return _adbStatus(d.error || 'Error saving.', false);
+    _adbStatus(d.configured ? 'Saved. Lookup is on.' : 'Saved. Lookup is off.', true);
+    if (d.configured) document.getElementById('adb-key').value = '••••••••';
+}
+async function testAdbConfig() {
+    _adbStatus('Testing…');
+    const [r, d] = await _adbPost({ test: true });
+    if (r.ok && d.ok) _adbStatus('The key works.', true);
+    else _adbStatus(d.error || 'Test failed.', false);
+}
+
+// ── OpenSky (flight tracks) ─────────────────────────────────────────────────
+function _oskUsage(u) {
+    if (!u) return;
+    for (const fam of ['tracks', 'flights']) {
+        if (u[fam]) document.getElementById('fd-usage-' + fam).textContent = Number(u[fam].remaining).toLocaleString();
+    }
+    const at = document.getElementById('fd-usage-at');
+    at.dataset.at = (u.tracks || u.flights || {}).at || '';
+    _oskUsageAge();
+}
+function _oskUsageAge() {
+    const at = document.getElementById('fd-usage-at');
+    if (!at || !at.dataset.at) return;
+    const mins = Math.round((Date.now() - new Date(at.dataset.at)) / 60000);
+    at.textContent = mins < 1 ? 'as of just now' : mins < 90 ? `as of ${mins} min ago` : `as of ${new Date(at.dataset.at).toLocaleString()}`;
+}
+_oskUsageAge();
+async function _oskPost(body) {
+    const r = await fetch('/api/site/opensky/', {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},
+        body: JSON.stringify(body),
+    });
+    let d = {}; try { d = await r.json(); } catch(e) {}
+    return [r, d];
+}
+function _oskStatus(text, ok) {
+    const st = document.getElementById('osk-status');
+    st.textContent = text;
+    st.style.color = ok === undefined ? 'var(--text-muted)' : (ok ? 'var(--success)' : 'var(--danger)');
+}
+async function saveOskConfig() {
+    _oskStatus('Saving…');
+    const [r, d] = await _oskPost({
+        opensky_client_id: document.getElementById('osk-id').value.trim(),
+        opensky_client_secret: document.getElementById('osk-secret').value.trim(),
+    });
+    if (!r.ok) return _oskStatus(d.error || 'Error saving.', false);
+    _oskStatus(d.configured ? 'Saved. Track fetching is on.' : 'Saved. Track fetching is off.', true);
+    if (d.configured) document.getElementById('osk-secret').value = '••••••••';
+}
+async function testOskConfig() {
+    _oskStatus('Testing…');
+    const [r, d] = await _oskPost({ test: true });
+    if (r.ok && d.ok) { _oskStatus('Signed in. The client works.', true); _oskUsage(d.usage); }
+    else _oskStatus(d.error || 'Test failed.', false);
+}
+
+// ── Downloads (road / subway / POI — instance-wide, admin-only) ─────────────
+// One generic implementation shared by all three, config-driven by `kind`,
+// rather than three near-copies of the same start/stop/poll/delete flow —
+// they differ only in endpoint paths and how the finished-message reads.
+const DL_START_TIME = {};   // kind -> Date.now() when the current run started, for ETA
+
+function _dlEtaFrom(processed, total, startTime) {
+    const remaining = total - processed;
+    if (remaining <= 0 || processed < 2 || !startTime) return '';
+    const elapsed = (Date.now() - startTime) / 1000;
+    if (elapsed < 3) return '';
+    const secs = Math.round(remaining * (elapsed / processed));
+    if (secs < 60) return `~${secs}s left`;
+    if (secs < 3600) return `~${Math.round(secs / 60)}m left`;
+    const h = Math.floor(secs / 3600);
+    const m = Math.round((secs % 3600) / 60);
+    return `~${h}h ${m}m left`;
+}
+
+const DL_JOBS = {
+    roads: {
+        startUrl: '/api/roads/download/', statusUrl: '/api/roads/download/status/',
+        stopUrl: '/api/roads/download/stop/', deleteUrl: '/api/roads/delete/',
+        deleteConfirm: 'Delete all downloaded road data for this instance?\n\n'
+            + 'Snapping and the editor\'s road routing will fall back to Mapbox or OSRM '
+            + '(whichever is configured) until you download it again.',
+        finishedMsg: (d, label) => `${label} — ${(d.ways || 0).toLocaleString()} new roads, `
+            + `${(d.total_ways || 0).toLocaleString()} stored in total`,
+        progressMsg: (d, eta) => `area ${d.processed.toLocaleString()}/${d.total.toLocaleString()}`
+            + `${d.total > 0 ? ' (' + Math.round(d.processed / d.total * 100) + '%)' : ''}, `
+            + `${(d.ways || 0).toLocaleString()} new roads${eta ? ' — ' + eta : ''}`,
+        deleteMsg: d => `deleted — ${(d.deleted || 0).toLocaleString()} roads removed.`,
+        storedCount: d => d.total_ways || 0,
+        coverUnit: 'areas', deleteLabel: 'Delete Road Data',
+        hasScanPhase: true,
+    },
+    subway: {
+        startUrl: '/api/subway/download/', statusUrl: '/api/subway/download/status/',
+        stopUrl: '/api/subway/download/stop/', deleteUrl: '/api/subway/delete/',
+        deleteConfirm: 'Delete all downloaded subway data for this instance?\n\n'
+            + 'Diagnostics → Subway Gaps will stop finding rides until you download it again. '
+            + 'Points already filled are kept.',
+        finishedMsg: (d, label) => `${label} — ${(d.ways || 0).toLocaleString()} track segments, `
+            + `${(d.stations || 0).toLocaleString()} stations stored`,
+        progressMsg: (d, eta) => `area ${d.processed.toLocaleString()}/${d.total.toLocaleString()}`
+            + `${d.total > 0 ? ' (' + Math.round(d.processed / d.total * 100) + '%)' : ''}, `
+            + `${(d.ways || 0).toLocaleString()} segments${eta ? ' — ' + eta : ''}`,
+        deleteMsg: d => `deleted — ${(d.deleted || 0).toLocaleString()} segments, `
+            + `${(d.stations || 0).toLocaleString()} stations removed.`,
+        storedCount: d => (d.total_ways || 0) + (d.total_stations || 0),
+        coverUnit: 'areas', deleteLabel: 'Delete Subway Data',
+        hasScanPhase: true,
+    },
+    poi: {
+        startUrl: '/api/poi/download/', statusUrl: '/api/poi/status/',
+        stopUrl: '/api/poi/stop/', deleteUrl: '/api/poi/delete/',
+        deleteConfirm: 'Delete all downloaded POIs for this instance?\n\n'
+            + 'Match POIs to Points (per-user, in Settings) will have nothing to match '
+            + 'against until you download again.',
+        finishedMsg: (d, label) => `${label} — ${(d.pois_added || 0).toLocaleString()} POIs added, `
+            + `${(d.total_pois || 0).toLocaleString()} stored in total`,
+        progressMsg: (d, eta) => `city ${d.processed.toLocaleString()}/${d.total.toLocaleString()}`
+            + `${d.total > 0 ? ' (' + Math.round(d.processed / d.total * 100) + '%)' : ''}, `
+            + `${(d.pois_added || 0).toLocaleString()} added${eta ? ' — ' + eta : ''}`,
+        deleteMsg: d => `deleted — ${(d.deleted || 0).toLocaleString()} POIs removed.`,
+        storedCount: d => d.total_pois || 0,
+        coverUnit: 'cities', deleteLabel: 'Delete POIs',
+        hasScanPhase: false,
+    },
+};
+
+function _dlEl(kind, part) { return document.getElementById(`dl-${kind}-${part}`); }
+
+function dlSetUI(kind, running) {
+    const btn = _dlEl(kind, 'btn'), stopBtn = _dlEl(kind, 'stop-btn');
+    btn.disabled = running;
+    btn.style.opacity = running ? '0.5' : '';
+    stopBtn.disabled = false;
+    stopBtn.style.display = running ? 'inline-block' : 'none';
+}
+
+function dlUpdateUI(kind, data, finished) {
+    const cfg = DL_JOBS[kind];
+    const wrap = _dlEl(kind, 'progress-wrap'), bar = _dlEl(kind, 'bar'), statusEl = _dlEl(kind, 'status');
+    wrap.style.display = 'block';
+
+    const processed = data.processed || 0, total = data.total || 0;
+    const pct = total > 0 ? Math.round(processed / total * 100) : 0;
+    bar.style.width = pct + '%';
+
+    if (!finished && cfg.hasScanPhase && data.phase === 'scanning') {
+        bar.style.width = '8%';
+        bar.style.background = '';
+        bar.classList.add('bar-flow');
+        statusEl.style.color = 'var(--text-muted)';
+        statusEl.textContent = 'scanning location history to work out which areas to fetch…';
+        return;
+    }
+
+    if (finished) {
+        bar.classList.remove('bar-flow');
+        bar.style.background = data.status === 'completed' ? 'var(--success)' : 'var(--text-muted)';
+        if (data.status === 'completed' && data.total === 0) {
+            // Zero batches has three completely different causes and they used to
+            // read identically. `covered` is how many DownloadedRegion rows exist
+            // for this kind, so an incremental run that legitimately found nothing
+            // new is no longer indistinguishable from an empty instance — or from
+            // the state that actually bites: everything marked covered by a run
+            // that got empty answers out of a broken endpoint, which suppresses
+            // every retry forever until the coverage record is cleared.
+            const covered = data.covered || 0;
+            const stored = cfg.storedCount(data);
+            if (!covered) {
+                statusEl.textContent = 'no location points to cover yet.';
+                statusEl.style.color = 'var(--text-muted)';
+            } else if (!stored) {
+                statusEl.textContent = `nothing fetched — all ${covered.toLocaleString()} `
+                    + `${cfg.coverUnit} in your history are already marked as downloaded, but `
+                    + 'nothing is stored. An earlier run got empty answers from an Overpass '
+                    + `endpoint that could not serve them. Press "${cfg.deleteLabel}" to clear `
+                    + 'the coverage record, then download again.';
+                statusEl.style.color = 'var(--danger)';
+            } else {
+                statusEl.textContent = `nothing new to fetch — all `
+                    + `${covered.toLocaleString()} ${cfg.coverUnit} in your history are already `
+                    + `downloaded (${stored.toLocaleString()} stored).`;
+                statusEl.style.color = 'var(--text-muted)';
+            }
+        } else {
+            const label = data.status === 'completed' ? 'done' : 'stopped';
+            let msg = cfg.finishedMsg(data, label);
+            if (data.failed) {
+                // A failed area/city means nothing was fetched there, which reads exactly
+                // like the feature being broken — so say what actually went wrong. A bare
+                // "could not reach Overpass" made a slow mirror, a rate-limited one and a
+                // genuinely offline server all look identical, which is precisely what
+                // made this hard to diagnose. data.last_error_kind is the server-side
+                // classification (see tracker/overpass.py).
+                const n = data.failed.toLocaleString();
+                const where = data.last_error_endpoint ? ` (${_dlHost(data.last_error_endpoint)})` : '';
+                const detail = data.last_error ? ` Last error: ${data.last_error}${where}.` : '';
+                if (data.failed >= data.total && data.total > 0) {
+                    if (data.last_error_kind === 'unreachable') {
+                        msg = `${label} — could not reach any Overpass endpoint (${n} failed).`
+                            + `${detail} Check this server's outbound internet access, or set`
+                            + ' an endpoint it can reach under Overpass Connection above, then re-run.';
+                    } else if (data.last_error_kind === 'timeout') {
+                        msg = `${label} — every Overpass endpoint was too slow to answer (${n} failed).`
+                            + `${detail} The mirrors are reachable but overloaded — try again later,`
+                            + ' or add a faster endpoint under Overpass Connection above.';
+                    } else if (data.last_error_kind === 'http') {
+                        msg = `${label} — Overpass rejected every request (${n} failed).${detail}`
+                            + ' If this is a rate limit, wait and re-run, or add another endpoint above.';
+                    } else {
+                        msg = `${label} — could not reach Overpass for any area (${n} failed). `
+                            + 'Check this server has outbound internet access, then re-run.';
+                    }
+                } else {
+                    msg += ` · ${n} area${data.failed === 1 ? '' : 's'} failed — re-run to retry those`;
+                    if (data.last_error) msg += `.${detail}`;
+                }
+                statusEl.textContent = msg;
+                statusEl.style.color = 'var(--danger)';
+                return;
+            }
+            statusEl.textContent = msg;
+            statusEl.style.color = 'var(--text-muted)';
+        }
+    } else {
+        const eta = _dlEtaFrom(processed, total, DL_START_TIME[kind]);
+        bar.style.background = '';
+        bar.classList.add('bar-flow');
+        statusEl.style.color = 'var(--text-muted)';
+        statusEl.textContent = cfg.progressMsg(data, eta);
+    }
+}
+
+function dlStart(kind) {
+    const cfg = DL_JOBS[kind];
+    const statusEl = _dlEl(kind, 'status');
+    _dlEl(kind, 'progress-wrap').style.display = 'block';
+    statusEl.style.color = 'var(--text-muted)';
+    statusEl.textContent = 'working out what to fetch…';
+    const bar = _dlEl(kind, 'bar');
+    bar.style.width = '0%';
+    bar.style.background = '';
+    bar.classList.add('bar-flow');
+    dlSetUI(kind, true);
+    DL_START_TIME[kind] = Date.now();
+
+    fetch(cfg.startUrl, { method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') } })
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(() => dlPoll(kind))
+        .catch(err => {
+            dlSetUI(kind, false);
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = 'could not start the download (' + err.message + '). Check the server logs.';
+        });
+}
+
+function dlStop(kind) {
+    _dlEl(kind, 'stop-btn').disabled = true;
+    _dlEl(kind, 'status').textContent = 'stopping…';
+    fetch(DL_JOBS[kind].stopUrl, { method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') } });
+}
+
+function dlPoll(kind) {
+    dlSetUI(kind, true);
+    const statusEl = _dlEl(kind, 'status');
+    const interval = setInterval(() => {
+        fetch(DL_JOBS[kind].statusUrl)
+            .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(data => {
+                if (data.status === 'running') {
+                    dlUpdateUI(kind, data, false);
+                } else if (data.status === 'completed' || data.status === 'stopped') {
+                    dlUpdateUI(kind, data, true);
+                    clearInterval(interval);
+                    dlSetUI(kind, false);
+                } else {
+                    clearInterval(interval);
+                    dlSetUI(kind, false);
+                    statusEl.style.color = 'var(--danger)';
+                    statusEl.textContent = 'the download did not start — no job was recorded. Check the server logs.';
+                }
+            })
+            .catch(err => {
+                clearInterval(interval);
+                dlSetUI(kind, false);
+                statusEl.style.color = 'var(--danger)';
+                statusEl.textContent = 'lost contact with the download (' + err.message + ').';
+            });
+    }, 2000);
+}
+
+async function dlDelete(kind) {
+    const cfg = DL_JOBS[kind];
+    const statusEl = _dlEl(kind, 'status');
+    const btn = _dlEl(kind, 'delete-btn');
+    if (!await roamlyConfirm(cfg.deleteConfirm, { danger: true })) return;
+
+    btn.disabled = true;
+    _dlEl(kind, 'progress-wrap').style.display = 'block';
+    statusEl.textContent = 'deleting…';
+    statusEl.style.color = 'var(--text-muted)';
+
+    fetch(cfg.deleteUrl, { method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') } })
+        .then(r => r.json())
+        .then(d => {
+            _dlEl(kind, 'bar').style.width = '0%';
+            statusEl.textContent = d.status === 'ok' ? cfg.deleteMsg(d) : 'delete failed.';
+            statusEl.style.color = d.status === 'ok' ? 'var(--text-muted)' : 'var(--danger)';
+        })
+        .catch(() => { statusEl.textContent = 'delete failed.'; statusEl.style.color = 'var(--danger)'; })
+        .finally(() => { btn.disabled = false; });
+}
+
+function dlStartRoads() { dlStart('roads'); }
+function dlStopRoads() { dlStop('roads'); }
+function dlDeleteRoads() { dlDelete('roads'); }
+function dlStartSubway() { dlStart('subway'); }
+function dlStopSubway() { dlStop('subway'); }
+function dlDeleteSubway() { dlDelete('subway'); }
+function dlStartPoi() { dlStart('poi'); }
+function dlStopPoi() { dlStop('poi'); }
+function dlDeletePoi() { dlDelete('poi'); }
+
+// Called once, the first time the Downloads tab is opened — resumes the UI
+// for any of the three jobs that's already running (e.g. started by another
+// admin, or before a page reload).
+function _dlHost(u) {
+    try { return new URL(u).host; } catch (e) { return u || ''; }
+}
+
+// Endpoint list editor. The rows render the *effective* list, so the built-in
+// defaults can be reordered and removed like anything else instead of being
+// invisible until someone retypes them by hand. Any edit makes the list
+// explicit — blank means "use the built-in pool", so a deletion has to be
+// saved as a full list or it would simply come back.
+let overpassList = [];
+let overpassSource = 'default';
+let overpassDirty = false;
+
+function renderOverpassList() {
+    const el = document.getElementById('overpass-list');
+    if (!el) return;
+    if (!overpassList.length) {
+        el.innerHTML = '<div class="op-row" style="color:var(--warning);">'
+            + 'No endpoints — saving now falls back to the built-in pool.</div>';
+    } else {
+        const last = overpassList.length - 1;
+        el.innerHTML = overpassList.map((u, i) => `
+            <div class="op-row">
+                <span class="op-num">${i + 1}</span>
+                <span class="op-url" title="${esc(u)}">${esc(u)}</span>
+                ${i === 0 ? '<span style="color:var(--text-dim);font-size:0.7rem;white-space:nowrap;">tried first</span>' : ''}
+                <button class="op-btn" title="Move up" onclick="overpassMove(${i},-1)" ${i === 0 ? 'disabled' : ''}>&uarr;</button>
+                <button class="op-btn" title="Move down" onclick="overpassMove(${i},1)" ${i === last ? 'disabled' : ''}>&darr;</button>
+                <button class="op-btn op-danger" title="Remove" onclick="overpassRemove(${i})">&times;</button>
+            </div>`).join('');
+    }
+    const note = document.getElementById('overpass-config-status');
+    if (!note) return;
+    if (overpassDirty) {
+        note.textContent = 'Unsaved changes — press Save Endpoints to apply.';
+        note.style.color = 'var(--warning)';
+    } else {
+        note.textContent = overpassSource === 'custom'
+            ? 'Using this custom list.'
+            : 'Using the built-in default pool.';
+        note.style.color = 'var(--text-muted)';
+    }
+}
+
+function overpassMove(i, d) {
+    const j = i + d;
+    if (j < 0 || j >= overpassList.length) return;
+    [overpassList[i], overpassList[j]] = [overpassList[j], overpassList[i]];
+    overpassDirty = true;
+    renderOverpassList();
+}
+
+function overpassRemove(i) {
+    overpassList.splice(i, 1);
+    overpassDirty = true;
+    renderOverpassList();
+}
+
+function overpassAdd() {
+    const input = document.getElementById('overpass-add');
+    // Accept a pasted list as readily as a single URL — same splitting the
+    // server does, so what you can paste here is what it will accept.
+    const added = input.value.split(/[,\s]+/)
+        .map(u => u.trim())
+        .filter(u => /^https?:\/\//i.test(u))
+        .filter(u => !overpassList.includes(u));
+    if (!added.length) {
+        roamlyToast('Enter a full http:// or https:// URL', { type: 'error' });
+        return;
+    }
+    overpassList = overpassList.concat(added);
+    input.value = '';
+    overpassDirty = true;
+    renderOverpassList();
+}
+
+async function overpassReset() {
+    if (!await roamlyConfirm(
+        'Discard this endpoint list and go back to the built-in default pool?',
+        { title: 'Reset endpoints', danger: true, confirmText: 'Reset' })) return;
+    _overpassSave('', 'Reset to the built-in pool');
+}
+
+function renderOverpassConfig(data) {
+    overpassList = (data.resolved || []).slice();
+    overpassSource = data.source || 'default';
+    overpassDirty = false;
+    renderOverpassList();
+}
+
+function loadOverpassConfig() {
+    fetch('/api/site/overpass/')
+        .then(r => r.json())
+        .then(renderOverpassConfig)
+        .catch(() => {});
+}
+
+function _overpassSave(body, successMsg) {
+    const btn = document.getElementById('overpass-save-btn');
+    const el = document.getElementById('overpass-config-status');
+    btn.disabled = true;
+    fetch('/api/site/overpass/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+        body: JSON.stringify({ overpass_urls: body }),
+    })
+        .then(r => r.json().then(d => ({ ok: r.ok, d })))
+        .then(({ ok, d }) => {
+            if (!ok) {
+                el.textContent = d.error || 'Could not save.';
+                el.style.color = 'var(--danger)';
+                return;
+            }
+            renderOverpassConfig(d);
+            roamlyToast(successMsg, { type: 'success' });
+        })
+        .catch(() => {
+            el.textContent = 'Could not save.';
+            el.style.color = 'var(--danger)';
+        })
+        .finally(() => { btn.disabled = false; });
+}
+
+function saveOverpassUrls() {
+    _overpassSave(overpassList.join('\n'), 'Overpass endpoints saved');
+}
+
+function testOverpass() {
+    const btn = document.getElementById('overpass-test-btn');
+    const el = document.getElementById('overpass-test-result');
+    btn.disabled = true;
+    el.style.color = 'var(--text-muted)';
+    el.textContent = 'probing every endpoint…';
+    fetch('/api/site/overpass-test/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+        // Probe what is on screen, so an edit can be tested before it is saved.
+        body: JSON.stringify({ endpoints: overpassList }),
+    })
+        .then(r => r.json())
+        .then(d => {
+            const rows = (d.endpoints || []);
+            if (!rows.length) {
+                el.textContent = 'No endpoints configured.';
+                el.style.color = 'var(--danger)';
+                return;
+            }
+            el.innerHTML = rows.map(r => {
+                const tag = r.primary ? ' <span style="color:var(--text-dim);">(tried first)</span>' : '';
+                // Two names on one box are one endpoint's worth of redundancy, not
+                // two — they go down together. Shown on failed rows as well as ok
+                // ones, since "both of these returned 502" is exactly when it explains
+                // what you are looking at.
+                const shared = (r.shares_host_with || []).length
+                    ? `<div style="color:var(--text-dim);margin-left:1.1rem;">same server as `
+                      + `${r.shares_host_with.map(esc).join(', ')} — not an independent mirror</div>`
+                    : '';
+                if (r.ok) {
+                    const notes = [];
+                    // Answered, just slowly. Worth saying, because a mirror this slow
+                    // will still work but is the one most likely to time out on the
+                    // heavier POI queries.
+                    if (r.slow) notes.push('slow — downloads will work but take a while');
+                    if (r.remark) notes.push(`answered but truncated: ${esc(r.remark)}`);
+                    // The one failure mode that looks like success. A regional extract
+                    // answers 200 with nothing outside its own region, which a download
+                    // cannot tell from "no subway here" — it stores nothing, reports no
+                    // failure, and marks the area covered for good. Louder than 'slow'
+                    // because a slow mirror still works.
+                    const bad = r.coverage === 'partial';
+                    if (bad) {
+                        notes.push(`serves only part of the world (found ${r.regions} of `
+                            + `${r.regions_total} test regions) — this looks like a regional `
+                            + 'extract, not a world instance. Remove it: downloads through it '
+                            + 'come back empty without reporting an error.');
+                    }
+                    const warn = notes.length
+                        ? ` <span style="color:${bad ? 'var(--danger)' : 'var(--warning)'};">`
+                          + `— ${notes.join('; ')}</span>` : '';
+                    const colour = bad ? 'var(--danger)' : (r.slow ? 'var(--warning)' : 'var(--success)');
+                    return `<div style="color:${colour};">${bad ? '!' : '✓'} `
+                        + `<span style="font-family:var(--font-mono);">`
+                        + `${esc(_dlHost(r.url))}</span> — ${r.ms.toLocaleString()} ms${tag}${warn}</div>`
+                        + shared;
+                }
+                return `<div style="color:var(--danger);">✕ <span style="font-family:var(--font-mono);">`
+                    + `${esc(_dlHost(r.url))}</span> — ${esc(r.kind)}: ${esc(r.error)}${tag}</div>`
+                    + shared;
+            }).join('');
+            if (!d.ok) {
+                el.innerHTML += '<div style="color:var(--danger);margin-top:0.35rem;">'
+                    + 'No endpoint answered. Downloads cannot run until at least one does.</div>';
+            }
+        })
+        .catch(() => {
+            el.textContent = 'Could not run the test.';
+            el.style.color = 'var(--danger)';
+        })
+        .finally(() => { btn.disabled = false; });
+}
+
+function dlToggleAuto(kind, checked) {
+    // Server takes all three flags together (SiteConfig has no per-field PATCH
+    // endpoint here), so always send the current state of all three checkboxes
+    // rather than just the one that changed.
+    fetch('/api/site/auto-download/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+        body: JSON.stringify({
+            auto_download_roads: document.getElementById('dl-roads-auto').checked,
+            auto_download_subway: document.getElementById('dl-subway-auto').checked,
+            auto_download_pois: document.getElementById('dl-poi-auto').checked,
+        }),
+    }).catch(() => {});
+}
+
+function bndToggleAuto(checked) {
+    fetch('/api/site/auto-download/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+        body: JSON.stringify({ auto_download_boundaries: checked }),
+    }).catch(() => {});
+}
+let bndTimer = null;
+let bndWasRunning = false;
+function bndLoad() {
+    const el = document.getElementById('dl-bnd-status');
+    fetch('/api/boundaries/status/').then(r => r.ok ? r.json() : null).then(d => {
+        if (!d) return;
+        if (!d.postgis) { el.textContent = 'Needs PostGIS.'; return; }
+        const us = document.getElementById('dl-bnd-us');
+        us.innerHTML = d.us && d.us.length
+            ? 'US towns: ' + d.us.map(s => `${esc(s.state)} (${s.n.toLocaleString()})`).join(', ')
+            : '<span style="color:var(--danger);">US towns: none loaded — town labels fall back to the nearest bigger town.</span>';
+        if (d.us_missing && d.us_missing.length)
+            us.innerHTML += `<br><span style="color:var(--danger);">Not loaded yet: ${d.us_missing.map(esc).join(', ')} — press Download Now.</span>`;
+        us.innerHTML += '<br>' + (d.us_counties
+            ? `US counties: ${d.us_counties.toLocaleString()}`
+            : '<span style="color:var(--danger);">US counties: not loaded — Download Now loads them for Achievements.</span>');
+        el.innerHTML = d.countries.length
+            ? `Other countries: ${d.countries.length}: ` +
+              d.countries.map(c => `<span title="${c.adm1} regions · ${c.adm2} districts · ${c.adm3} municipalities">${esc(c.cc || c.iso3)}</span>`).join(', ')
+            : 'Other countries: none downloaded (only countries someone spent more than a week in qualify).';
+        bndRenderJob(d.job || {status: 'idle'});
+    }).catch(() => {});
+}
+function bndRenderJob(job) {
+    const wrap = document.getElementById('dl-bnd-progress-wrap');
+    const bar = document.getElementById('dl-bnd-bar');
+    const stage = document.getElementById('dl-bnd-stage');
+    const errEl = document.getElementById('dl-bnd-error');
+    const btn = document.getElementById('dl-bnd-btn');
+    const running = job.status === 'running';
+    btn.disabled = running;
+    if (running) {
+        wrap.style.display = '';
+        const pct = job.steps ? Math.round(job.step / job.steps * 100) : 0;
+        bar.style.width = Math.max(pct, 5) + '%';
+        bar.style.background = '';  // an inline background would hide the flow stripes
+        bar.classList.add('bar-flow');
+        stage.textContent = job.stage || 'Working…';
+        errEl.style.display = 'none';
+    } else {
+        bar.classList.remove('bar-flow');
+        if (job.status === 'completed' || job.status === 'failed') {
+            wrap.style.display = '';
+            bar.style.width = '100%';
+            bar.style.background = job.status === 'completed' ? 'var(--success)' : 'var(--danger)';
+            const when = job.finished ? new Date(job.finished * 1000).toLocaleString() : '';
+            stage.textContent = (job.status === 'completed' ? 'Finished' : 'Finished with errors') + (when ? ' · ' + when : '');
+        } else {
+            wrap.style.display = 'none';
+        }
+        errEl.style.display = job.error ? '' : 'none';
+        errEl.textContent = job.error || '';
+        if (bndWasRunning) {
+            roamlyToast(job.status === 'completed' ? 'Boundaries downloaded.' : 'Boundary download failed — see the card for why.',
+                        { type: job.status === 'completed' ? 'success' : 'error' });
+        }
+    }
+    bndWasRunning = running;
+    if (running && !bndTimer) bndTimer = setInterval(bndLoad, 2000);
+    else if (!running && bndTimer) { clearInterval(bndTimer); bndTimer = null; }
+}
+function bndDownload() {
+    fetch('/api/boundaries/download/', { method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') } })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d && d.job) bndRenderJob(d.job); bndLoad(); })
+        .catch(() => roamlyToast('Could not start the download.', { type: 'error' }));
+}
+async function bndDelete() {
+    const ok = await roamlyConfirm('Delete every downloaded region boundary? They are fetched again on the next auto-download.',
+        { title: 'Delete region data', danger: true, confirmText: 'Delete' });
+    if (!ok) return;
+    fetch('/api/boundaries/delete/', { method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') } })
+        .then(() => bndLoad());
+}
+
+function loadDownloads() {
+    bndLoad();
+    loadOverpassConfig();
+    ['roads', 'subway', 'poi'].forEach(kind => {
+        fetch(DL_JOBS[kind].statusUrl)
+            .then(r => { if (r.ok) return r.json(); })
+            .then(data => {
+                if (data && data.status === 'running') {
+                    DL_START_TIME[kind] = Date.now();
+                    dlUpdateUI(kind, data, false);
+                    dlPoll(kind);
+                }
+            })
+            .catch(() => {});
+    });
+}
+
+// ── CSRF ───────────────────────────────────────────────────────────────────
+function getCookie(name) {
+    const v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');
+    return v ? v[2] : null;
+}
+
+// Redraw charts on resize / theme change while Monitoring is visible.
+let _redrawT=null;
+function _maybeRedraw(){
+    if (document.getElementById('tab-monitoring').style.display==='none') return;
+    if (countryMap) countryMap.resize();
+    if (!monData) return;
+    clearTimeout(_redrawT); _redrawT=setTimeout(renderMonitoring, 120);
+}
+window.addEventListener('resize', _maybeRedraw);
+new MutationObserver(_maybeRedraw).observe(document.documentElement, {attributes:true, attributeFilter:['data-theme']});
+
+// Wire hover overlays once.
+attachChartHover(document.getElementById('req-chart'),
+    {tooltip:document.getElementById('req-tooltip'), hline:document.getElementById('req-hline'), hdot:document.getElementById('req-hdot')},
+    ()=>reqHoverState);
+attachChartHover(document.getElementById('ae-chart'),
+    {tooltip:document.getElementById('ae-tooltip'), hline:document.getElementById('ae-hline'), hdot:document.getElementById('ae-hdot')},
+    ()=>aeHoverState);
+
+// ── Init ───────────────────────────────────────────────────────────────────
+loadMonitoring();
+
+// Deep-link support (e.g. Settings' Trip Lines prerequisite popup links
+// straight to #downloads) — open the matching tab if the URL names one.
+(function () {
+    const name = (location.hash || '').replace('#', '');
+    if (!name || !TABS.includes(name) || name === 'monitoring') return;
+    const btn = document.querySelector(`.tab-btn[onclick*="showTab('${name}'"]`);
+    if (btn) showTab(name, btn);
+})();
+</script>
+{% endblock %}

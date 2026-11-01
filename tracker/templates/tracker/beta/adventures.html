@@ -1,0 +1,1768 @@
+{% extends "tracker/base.html" %}
+{% block title %}Adventures - Roamly{% endblock %}
+
+{% block extra_css %}
+.tbl { border: 1px solid var(--border); background: var(--bg-card); padding: 16px; margin: 0 0 18px; }
+.tbl-h { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.tbl-h h2 { font-family: var(--font-display); font-size: 1.2rem; margin: 0 0 2px; }
+.tbl-h p { margin: 0; color: var(--text-muted); font-size: .86rem; }
+.tbl-form { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 14px; }
+.tbl-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
+@media (max-width: 700px) { .tbl-grid { grid-template-columns: 1fr; } }
+.tbl-grid label { display: flex; flex-direction: column; gap: 5px; font-size: .8rem; color: var(--text-muted); }
+.tbl-in { background: var(--bg-input); border: 1px solid var(--border); color: var(--text); padding: 8px 10px; font: inherit; font-size: .92rem; }
+.tbl-check { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: .86rem; color: var(--text-muted); }
+.tbl-check input { accent-color: var(--primary); }
+.tbl-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.tbl-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin-top: 14px; }
+.tbl-list:empty { display: none; }
+.tbl-card { display: flex; gap: 12px; align-items: center; border: 1px solid var(--border); background: var(--bg); padding: 10px; text-decoration: none; color: var(--text); }
+.tbl-card:hover { border-color: var(--primary); }
+.tbl-card .cv { width: 54px; height: 54px; flex: none; background: var(--bg-elevated) center/cover; }
+.tbl-card b { display: block; font-size: .95rem; }
+.tbl-card span { font-size: .75rem; color: var(--text-dim); font-family: var(--font-mono); }
+.tbl-card .live { color: var(--moss); }
+/* ── Adventure list page ── */
+.adv-list-page { padding: 0; }
+
+.adv-list-header {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    padding: 0; gap: 1rem;
+}
+.adv-list-header h1 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: clamp(1.4rem, 3vw, 1.85rem);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+.adv-list-lead { font-size: 0.8125rem; color: var(--text-muted); margin: 0.125rem 0 0; }
+
+.adv-filter-bar {
+    display: flex; gap: 0.5rem; padding: 0.875rem 0 0.75rem;
+    align-items: center; flex-wrap: wrap;
+}
+.adv-search {
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius:0; padding: 0.375rem 0.875rem;
+    color: var(--text); font-family: var(--font-body);
+    font-size: 0.8125rem; outline: none; width: 200px;
+    transition: border-color 0.15s;
+}
+.adv-search:focus { border-color: var(--primary); }
+.adv-search::placeholder { color: var(--text-muted); }
+
+.adv-filter-chip {
+    background: none; border: 1px solid var(--border);
+    border-radius:0; padding: 0.3rem 0.875rem;
+    color: var(--text-muted); font-family: var(--font-body);
+    font-size: 0.75rem; font-weight: 600; cursor: pointer;
+    transition: all 0.15s; white-space: nowrap;
+}
+.adv-filter-chip:hover { color: var(--text); border-color: var(--text-muted); }
+.adv-filter-chip.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+.adv-filter-select {
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius:0; padding: 0.3rem 0.75rem;
+    color: var(--text); font-family: var(--font-body);
+    font-size: 0.75rem; font-weight: 600; cursor: pointer; outline: none;
+}
+.adv-sort-select { margin-left: auto; }
+
+.adv-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 0.875rem; padding: 0 0 6rem;
+}
+
+.adv-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius:0; overflow: hidden;
+    cursor: pointer; position: relative;
+    transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+    display: flex; flex-direction: column;
+}
+.adv-card::after {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--primary); opacity: 0; transition: opacity 0.15s; z-index: 1;
+}
+.adv-card:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(0,0,0,0.28); border-color: rgba(59,130,246,0.4); }
+.adv-card:hover::after { opacity: 1; }
+.adv-card-cover { width: 100%; height: 120px; object-fit: cover; display: block; }
+.adv-card-body { padding: 0.875rem 1.125rem 1rem; flex: 1; display: flex; flex-direction: column; }
+.adv-card-name { font-size: 0.9375rem; font-weight: 700; margin: 0 0 0.125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: none; }
+.adv-card-subtitle { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: none; }
+.adv-card-dates { font-size: 0.8rem; color: var(--text-muted); }
+.adv-card-meta { display: flex; gap: 0.75rem; margin-top: 0.5rem; font-size: 0.75rem; color: var(--text-muted); flex-wrap: wrap; text-transform: none; }
+.adv-card-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: none; }
+.adv-card-badges { display: flex; gap: 0.375rem; margin-top: 0.625rem; align-items: center; }
+.adv-card-read-time { font-size: 0.65rem; color: var(--text-dim); }
+.adv-card-actions {
+    display: flex; gap: 0.375rem; align-items: center;
+    margin-top: 0.625rem; flex-wrap: wrap;
+}
+.adv-card-map-btn, .adv-card-pub-btn {
+    display: inline-flex; align-items: center; gap: 0.2rem;
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius:0; padding: 2px 7px; font-size: 0.65rem; font-weight: 700;
+    color: var(--text-muted); cursor: pointer; transition: all 0.12s;
+    text-decoration: none; font-family: var(--font-body);
+}
+.adv-card-map-btn:hover { color: var(--clay-sky); border-color: var(--clay-sky); }
+.adv-card-pub-btn:hover { color: var(--clay-mint); border-color: var(--clay-mint); }
+.adv-badge { border-radius:0; padding: 2px 8px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+.adv-badge-public { background: rgba(123,160,91,0.14); color: var(--success); }
+.adv-badge-active { background: var(--primary-soft); color: var(--primary); }
+
+.adv-empty { grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 4rem 2rem; font-size: 0.9375rem; }
+
+/* FAB */
+.adv-fab {
+    position: fixed; bottom: 2rem; right: 2rem; z-index: 100;
+    background: var(--primary); color: #fff; border: none;
+    border-radius:0; padding: 0.75rem 1.375rem;
+    font-family: var(--font-body); font-weight: 700; font-size: 0.9rem;
+    cursor: pointer; display: flex; align-items: center; gap: 0.5rem;
+    box-shadow: 0 6px 24px rgba(59,130,246,0.45);
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+.adv-fab:hover { transform: translateY(-2px); box-shadow: 0 10px 32px rgba(59,130,246,0.55); }
+
+/* ── Full-screen detail ── */
+.trip-fullscreen {
+    display: none; position: fixed; inset: 0; z-index: 2000;
+}
+.trip-fullscreen.active { display: block; }
+#trip-map { width: 100%; height: 100%; }
+
+#trip-map-loading-bar {
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    z-index: 20; overflow: hidden; display: none; pointer-events: none;
+}
+#trip-map-loading-bar.active { display: block; }
+#trip-map-loading-bar::after {
+    content: ''; position: absolute; top: 0; left: -60%; width: 60%; height: 100%;
+    background: var(--primary); animation: loading-sweep 1.4s infinite cubic-bezier(0.4,0,0.2,1);
+}
+@keyframes loading-sweep { 0% { left: -60%; } 100% { left: 160%; } }
+
+/* ── Floating left panel ── */
+.trip-sidebar {
+    position: absolute; left: 16px; top: 16px; bottom: 16px;
+    width: 360px; z-index: 10; display: flex; flex-direction: column;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius:0; overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.04);
+}
+
+/* Back button */
+.trip-back-btn {
+    position: absolute; top: 16px; left: 392px; z-index: 11;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius:0; color: var(--text); padding: 6px 14px;
+    cursor: pointer; font-family: var(--font-body);
+    font-weight: 600; font-size: 0.8125rem; 
+    display: flex; align-items: center; gap: 5px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.3); transition: border-color 0.12s;
+}
+.trip-back-btn:hover { border-color: var(--text-muted); }
+
+/* Map style overlay */
+.adv-style-overlay {
+    position: absolute; top: 16px; right: 16px; z-index: 10;
+    display: flex; gap: 3px; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius:0; padding: 3px; box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+}
+.adv-style-btn {
+    background: none; border: none; color: var(--text-muted);
+    padding: 4px 10px; border-radius:0; font-size: 0.75rem;
+    font-family: var(--font-body); font-weight: 700;
+     cursor: pointer;
+}
+.adv-style-btn.active { background: var(--primary); color: #fff; }
+.adv-style-btn:not(.active):hover { color: var(--text); background: rgba(255,255,255,0.06); }
+
+#adv-map-info {
+    position: absolute; bottom: 24px; right: 16px; z-index: 10;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius:0;
+    padding: 6px 10px; font-size: 0.75rem; font-family: var(--font-body);
+    font-weight: 700;  color: var(--text-muted);
+    pointer-events: none; display: none;
+}
+
+.trip-map-hint {
+    position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 10; background: var(--primary); color: #fff; padding: 7px 16px;
+    border-radius:0; font-size: 0.8125rem; font-family: var(--font-body);
+    font-weight: 600; display: none; pointer-events: none; white-space: nowrap;
+    box-shadow: 0 4px 16px rgba(59,130,246,0.4);
+}
+.trip-map-hint.active { display: block; }
+
+/* Panel header */
+.adv-panel-header {
+    padding: 1rem 1.125rem 0.75rem; flex-shrink: 0; border-bottom: 1px solid var(--border);
+}
+.adv-panel-title-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.2rem; }
+.adv-panel-title {
+    font-size: 1rem; font-weight: 700; margin: 0; flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.adv-panel-meta { font-size: 0.75rem; color: var(--text-muted); }
+.adv-icon-btn {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    padding: 5px; border-radius:0; display: flex; align-items: center; justify-content: center;
+    transition: color 0.12s, background 0.12s; flex-shrink: 0;
+}
+.adv-icon-btn:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+
+/* Tabs */
+.adv-tabs {
+    display: flex; flex-shrink: 0; padding: 0.5rem 0.75rem 0; gap: 0.125rem;
+    border-bottom: 1px solid var(--border);
+}
+.adv-tab {
+    flex: 1; padding: 0.5rem 0; text-align: center; background: none; border: none;
+    border-bottom: 2px solid transparent; color: var(--text-muted); cursor: pointer;
+    font-family: var(--font-body); font-weight: 600; font-size: 0.8rem;
+     transition: color 0.12s, border-color 0.12s;
+    margin-bottom: -1px;
+}
+.adv-tab:hover { color: var(--text); }
+.adv-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+.adv-tab-panel { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 0.875rem 1rem; display: none; }
+.adv-tab-panel.active-panel { display: block; }
+
+.adv-section-label {
+    font-size: 0.65rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-muted); display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 0.5rem; margin-top: 0.875rem;
+}
+.adv-section-label:first-child { margin-top: 0; }
+
+.adv-inline-btn {
+    font-size: 0.7rem; font-weight: 700; color: var(--primary); background: none;
+    border: none; cursor: pointer; padding: 0; font-family: var(--font-body);
+    
+}
+.adv-inline-btn:hover { opacity: 0.75; }
+
+/* Compose */
+.adv-compose {
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius:0; padding: 0.625rem 0.75rem; margin-bottom: 0.625rem;
+}
+.adv-compose textarea {
+    width: 100%; background: transparent; border: none; color: var(--text);
+    font-family: var(--font-body); font-size: 0.8125rem;
+    resize: none; outline: none; min-height: 52px; line-height: 1.55; display: block;
+}
+.adv-compose textarea::placeholder { color: var(--text-muted); }
+.adv-compose-row {
+    display: flex; align-items: center; gap: 0.375rem;
+    border-top: 1px solid var(--border); padding-top: 0.375rem; margin-top: 0.375rem;
+}
+.adv-compose-tool {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    font-size: 0.8125rem; padding: 2px 6px; border-radius:0; font-family: inherit;
+}
+.adv-compose-tool:hover { color: var(--primary); background: rgba(59,130,246,0.08); }
+.adv-compose-tool.active { color: var(--primary); }
+.adv-compose-loc { font-size: 0.7rem; color: var(--text-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.adv-photo-preview { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 0.375rem; }
+.adv-photo-preview img { width: 44px; height: 44px; object-fit: cover; border-radius:0; }
+
+/* Timeline */
+.adv-timeline-event {
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius:0; padding: 0.625rem 0.75rem; margin-bottom: 0.5rem; font-size: 0.8125rem;
+}
+.adv-event-header { display: flex; align-items: center; gap: 0.375rem; margin-bottom: 0.25rem; }
+.adv-event-author { font-weight: 600; font-size: 0.75rem; }
+.adv-event-time { font-size: 0.6875rem; color: var(--text-muted); margin-left: auto; }
+.adv-event-del { background: none; border: none; color: var(--danger); cursor: pointer; font-size: 0.7rem; padding: 0 3px; }
+.adv-event-text { line-height: 1.45; white-space: pre-wrap; }
+.adv-event-loc { font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.25rem; }
+.adv-event-photos { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 0.375rem; }
+.adv-event-photos img { width: 64px; height: 64px; object-fit: cover; border-radius:0; cursor: pointer; }
+
+.adv-milestone {
+    display: flex; align-items: flex-start; gap: 0.5rem;
+    background: rgba(59,130,246,0.07); border: 1px solid rgba(59,130,246,0.2);
+    border-radius:0; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem;
+}
+.adv-ms-emoji { font-size: 1.25rem; line-height: 1; flex-shrink: 0; }
+.adv-ms-title { font-size: 0.875rem; font-weight: 600; text-transform: none; }
+.adv-ms-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.125rem; text-transform: none; }
+.adv-ms-date { font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.125rem; }
+
+/* Notes */
+.adv-notes {
+    width: 100%; min-height: 80px; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius:0; color: var(--text); padding: 0.5rem 0.75rem;
+    font-family: var(--font-body); font-size: 0.8125rem; resize: vertical;
+    outline: none; box-sizing: border-box;
+}
+.adv-notes:focus { border-color: var(--primary); }
+.notes-status { font-size: 0.6875rem; color: var(--text-muted); min-height: 1em; margin-top: 0.25rem; }
+
+/* Photos */
+.adv-photos-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.adv-photos-grid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius:0; cursor: pointer; display: block; }
+.adv-no-photos { font-size: 0.75rem; color: var(--text-muted); }
+
+/* Pins */
+.adv-pin-item {
+    display: flex; align-items: center; gap: 0.5rem; padding: 0.375rem 0.375rem;
+    font-size: 0.8125rem; border-radius:0; cursor: pointer; transition: background 0.12s;
+}
+.adv-pin-item:hover { background: rgba(255,255,255,0.04); }
+.adv-pin-name { flex: 1; font-weight: 600; }
+.adv-pin-meta { font-size: 0.6875rem; color: var(--text-muted); }
+.adv-pin-del {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    padding: 2px 5px; font-size: 0.7rem; border-radius:0; opacity: 0; transition: opacity 0.1s;
+}
+.adv-pin-item:hover .adv-pin-del { opacity: 1; }
+.adv-pin-del:hover { color: var(--danger); }
+.adv-no-pins { font-size: 0.75rem; color: var(--text-muted); }
+
+.adv-place-form {
+    background: var(--bg-input); border: 1px solid var(--primary);
+    border-radius:0; padding: 0.75rem; margin-bottom: 0.5rem;
+}
+.adv-place-form .form-group { margin-bottom: 0.5rem; }
+.adv-place-form label { font-size: 0.75rem; }
+
+/* Members */
+.member-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; font-size: 0.8125rem; }
+.member-avatar {
+    width: 28px; height: 28px; border-radius: 50%; background: var(--primary); color: #fff;
+    font-size: 0.75rem; font-weight: 700; display: flex; align-items: center;
+    justify-content: center; flex-shrink: 0; overflow: hidden;
+}
+.member-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.member-name { flex: 1; font-weight: 600; }
+.member-role { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+.member-remove-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 6px; border-radius:0; font-size: 0.8rem; transition: color 0.12s; }
+.member-remove-btn:hover { color: var(--danger); }
+
+/* Share */
+.adv-share-toggle-row { display: flex; align-items: center; gap: 0.5rem; }
+.adv-share-label { font-size: 0.75rem; font-weight: 600; flex: 1; }
+.adv-share-link-row { display: flex; align-items: center; gap: 0.375rem; margin-top: 0.375rem; }
+.adv-share-prefix { font-size: 0.7rem; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
+.adv-share-slug-input {
+    flex: 1; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius:0; color: var(--text); font-family: var(--font-body);
+    font-size: 0.75rem; padding: 0.25rem 0.5rem; outline: none; min-width: 0;
+}
+.adv-share-slug-input:focus { border-color: var(--primary); }
+.adv-pin-row { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.375rem; }
+.adv-pin-label { font-size: 0.75rem; color: var(--text-muted); flex: 1; }
+.adv-pin-input {
+    width: 90px; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius:0; color: var(--text); font-family: var(--font-body);
+    font-size: 0.8125rem; padding: 0.25rem 0.5rem; outline: none; letter-spacing: 0.1em;
+}
+.adv-pin-input:focus { border-color: var(--primary); }
+.adv-share-saved { font-size: 0.65rem; color: var(--text-muted); }
+
+/* ── Modal base ── */
+.adv-modal-overlay {
+    position: fixed; inset: 0; z-index: 3000;
+    background: rgba(0,0,0,0.6);
+    display: none; align-items: center; justify-content: center;
+    padding: 1rem;
+}
+.adv-modal-overlay.active { display: flex; }
+.adv-modal {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius:0; padding: 1.5rem;
+    width: 100%; max-height: calc(100vh - 2rem); overflow-y: auto;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+}
+.adv-modal-sm { max-width: 480px; }
+.adv-modal-md { max-width: 540px; }
+.adv-modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 1.25rem;
+}
+.adv-modal-title { font-size: 1rem; font-weight: 700; margin: 0; }
+.adv-modal-close {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    font-size: 1.125rem; padding: 2px 6px; border-radius:0;
+    transition: color 0.12s;
+}
+.adv-modal-close:hover { color: var(--text); }
+
+.adv-settings-section {
+    font-size: 0.65rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 0.625rem; margin-top: 1.25rem;
+}
+.adv-settings-section:first-of-type { margin-top: 0; }
+
+/* Visits table */
+.visits-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+.visits-table th { color: var(--text-muted); font-weight: 600; padding: 4px 0; text-align: left; border-bottom: 1px solid var(--border); }
+.visits-table td { padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+
+/* Comments */
+.comment-item { display: flex; gap: 0.375rem; font-size: 0.75rem; padding: 3px 0; }
+.comment-author { font-weight: 600; flex-shrink: 0; }
+.comment-text { color: var(--text-muted); flex: 1; text-transform: none; }
+.add-comment-row { display: flex; gap: 0.375rem; margin-top: 0.375rem; }
+.add-comment-row input {
+    flex: 1; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius:0; padding: 0.25rem 0.5rem; color: var(--text);
+    font-family: var(--font-body); font-size: 0.75rem; outline: none;
+}
+.add-comment-row input:focus { border-color: var(--primary); }
+.add-comment-row button {
+    background: var(--primary); color: #fff; border: none; border-radius:0;
+    padding: 0.25rem 0.75rem; font-family: var(--font-body); font-size: 0.75rem; cursor: pointer;
+}
+
+/* MapLibre popup */
+.maplibregl-popup-content {
+    background: var(--bg-card) !important; border: 1px solid var(--border) !important;
+    border-radius:0 !important; padding: 0.5rem 0.75rem !important;
+    color: var(--text) !important; font-family: var(--font-body) !important;
+    font-size: 0.8125rem !important; box-shadow: 0 4px 16px rgba(0,0,0,0.4) !important;
+    min-width: 120px;
+}
+.maplibregl-popup-tip { border-top-color: var(--bg-card) !important; border-bottom-color: var(--bg-card) !important; }
+.maplibregl-popup-close-button { color: var(--text-muted) !important; font-size: 1rem !important; padding: 0.25rem 0.5rem !important; top: 2px; right: 2px; }
+.maplibregl-popup-close-button:hover { color: var(--text) !important; background: none !important; }
+
+/* Panel right side */
+.trip-sidebar.panel-right { left: auto; right: 16px; }
+
+/* Embedded back button in panel header */
+.adv-back-embedded {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    padding: 5px; border-radius:0; display: flex; align-items: center; justify-content: center;
+    transition: color 0.12s, background 0.12s; flex-shrink: 0;
+}
+.adv-back-embedded:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+
+/* Formatting toolbar */
+.adv-format-toolbar {
+    display: flex; gap: 2px; padding-bottom: 0.375rem; margin-bottom: 0.375rem;
+    border-bottom: 1px solid var(--border);
+}
+.adv-fmt-btn {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    padding: 3px 8px; border-radius:0; font-size: 0.8rem;
+    font-family: var(--font-body); font-weight: 700; line-height: 1;
+    transition: color 0.12s, background 0.12s;
+}
+.adv-fmt-btn:hover { color: var(--text); background: rgba(255,255,255,0.07); }
+
+/* Post cards in journal sidebar */
+.adv-post-card {
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius:0; padding: 0.625rem 0.75rem; margin-bottom: 0.375rem;
+    cursor: pointer; transition: border-color 0.12s, background 0.12s;
+}
+.adv-post-card:hover { border-color: var(--primary); background: rgba(59,130,246,0.04); }
+.adv-post-title {
+    font-size: 0.875rem; font-weight: 600; margin-bottom: 0.2rem;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.adv-post-preview {
+    font-size: 0.75rem; color: var(--text-muted); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; margin-bottom: 0.25rem;
+}
+.adv-post-card-meta { font-size: 0.6875rem; color: var(--text-muted); }
+
+/* Post view modal */
+.adv-post-modal { max-width: 780px; }
+.adv-compose-modal-textarea {
+    width: 100%; min-height: 220px; background: transparent; border: none;
+    color: var(--text); font-family: var(--font-body);
+    font-size: 0.9375rem; line-height: 1.7; resize: none; outline: none;
+    display: block; padding: 0; box-sizing: border-box;
+}
+.adv-compose-modal-textarea::placeholder { color: var(--text-muted); }
+.adv-post-modal-meta {
+    font-size: 0.8125rem; color: var(--text-muted);
+    margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+}
+.adv-post-body {
+    font-size: 0.9375rem; line-height: 1.75; margin-bottom: 1rem; text-transform: none;
+}
+.adv-post-body strong { font-weight: 700; }
+.adv-post-body em { font-style: italic; color: var(--text-muted); }
+.adv-post-photos { display: grid; grid-template-columns: repeat(3,1fr); gap: 5px; margin-bottom: 1rem; }
+.adv-post-photos img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius:0; cursor: pointer; display: block; }
+.adv-post-loc { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 1rem; display: flex; align-items: center; gap: 5px; }
+.adv-comments-section { border-top: 1px solid var(--border); padding-top: 0.875rem; }
+.adv-comments-label { font-size: 0.65rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem; }
+
+/* Responsive */
+@media (max-width: 768px) {
+    .trip-sidebar {
+        left: 0; right: 0; top: auto; bottom: 0; width: 100%; height: 52vh;
+        border-radius:0; border-bottom: none;
+    }
+    .trip-sidebar.panel-right { right: 0; }
+    .trip-back-btn { left: 1rem; top: calc(48vh - 44px); }
+    .adv-style-overlay { top: 1rem; right: 1rem; }
+    #adv-map-info { bottom: calc(52vh + 16px); right: 1rem; }
+    .adv-fab { bottom: 1.25rem; right: 1.25rem; }
+}
+
+/* ═══ beta: newspaper page chrome ═══ */
+.page-header h1,.page-toolbar h1{font-size:clamp(2.6rem,6.4vw,4.8rem);line-height:0.96}
+.page-toolbar{border-bottom:4px double var(--rule);padding-bottom:1rem;margin-bottom:1.4rem;align-items:flex-end}
+.page-header{border-bottom:4px double var(--rule)}
+.page-toolbar .page-lead,.page-header .page-lead{font-size:1.12rem}
+.grid-4:has(> .card.stat-card){gap:0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);margin-bottom:1.6rem}
+.grid-4 > .card.stat-card{background:none;border:none;border-left:1px solid var(--hair);margin:0;padding:1.3rem 1rem;text-align:left}
+.grid-4 > .card.stat-card:first-child{border-left:none;padding-left:0}
+.grid-4 > .card.stat-card .stat-value{font-size:clamp(2.2rem,4.6vw,3.6rem);line-height:1}
+.grid-4 > .card.stat-card .stat-label{font-family:var(--label);font-weight:600;letter-spacing:0.14em;margin-top:0.6rem}
+.stat-label,.sidebar-label{font-family:var(--label)}
+.tab-btn,.seg-btn,.chip{font-family:var(--label);font-weight:600;letter-spacing:0.1em;border-radius:0}
+@media (max-width:760px){
+    .grid-4:has(> .card.stat-card){grid-template-columns:repeat(2,minmax(0,1fr))}
+    .grid-4 > .card.stat-card:nth-child(odd){border-left:none;padding-left:0}
+}
+/* page boxes get the same boxed-column treatment as cards */
+.tbl,
+.adv-card,
+.adv-card-map-btn,
+.adv-card-pub-btn,
+.adv-modal{border-top:3px double var(--rule);border-radius:0}
+{% endblock %}
+
+{% block content %}
+<!-- ── Adventure List View ── -->
+<div class="container">
+<div id="adv-list-view">
+    <div class="adv-list-header">
+        <div>
+            <h1>Adventures</h1>
+            <p class="adv-list-lead">time-bounded adventures with maps, timeline posts, and sharing.</p>
+        </div>
+    </div>
+
+    {% comment %} Trip blogs: shared travel blogs that friends and family follow through
+       share links (see trip_blog_views). Listed here because a trip is an adventure;
+       the featured one also gets a "Trip" item in the nav. {% endcomment %}
+    <section class="tbl" id="trip-blogs" aria-label="Trip blogs">
+        <div class="tbl-h">
+            <div><h2>Trip blogs</h2><p>Post photos, videos and stories from the road; family and friends follow with a link.</p></div>
+            <button class="btn btn-primary btn-sm" type="button" id="tbl-new-btn">New trip blog</button>
+        </div>
+        <form class="tbl-form" id="tbl-form" hidden>
+            <div class="tbl-grid">
+                <label>Name<input class="tbl-in" name="name" maxlength="200" required placeholder="Around the world 2027"></label>
+                <label>Starts<input class="tbl-in" type="date" name="start_date" required></label>
+                <label>Ends <span class="dim">(optional)</span><input class="tbl-in" type="date" name="end_date"></label>
+            </div>
+            <label class="tbl-check"><input type="checkbox" name="share_location" checked> Show my city and a rough spot (about 1 km) to followers</label>
+            <div class="tbl-actions"><button class="btn btn-outline btn-sm" type="button" id="tbl-cancel">Cancel</button><button class="btn btn-primary btn-sm" type="submit">Create</button></div>
+        </form>
+        <div class="tbl-list" id="tbl-list"></div>
+    </section>
+
+    <div class="adv-filter-bar">
+        <input type="text" class="adv-search" id="adv-search" placeholder="search..." oninput="filterAdventures()">
+        <button class="adv-filter-chip active" data-filter="all" onclick="setFilter('all',this)">all</button>
+        <button class="adv-filter-chip" data-filter="active" onclick="setFilter('active',this)">active</button>
+        <button class="adv-filter-chip" data-filter="public" onclick="setFilter('public',this)">public</button>
+        <button class="adv-filter-chip" data-filter="week" onclick="setFilter('week',this)">this week</button>
+        <button class="adv-filter-chip" data-filter="month" onclick="setFilter('month',this)">this month</button>
+        <select class="adv-filter-select" id="adv-device-filter" onchange="filterAdventures()">
+            <option value="">all devices</option>
+            {% for device in devices %}
+            <option value="{{ device.name|default:device.device_id }}">{{ device.name|default:device.device_id }}</option>
+            {% endfor %}
+        </select>
+        <select class="adv-filter-select adv-sort-select" id="adv-sort" onchange="filterAdventures()">
+            <option value="newest">newest first</option>
+            <option value="oldest">oldest first</option>
+            <option value="points">most points</option>
+        </select>
+    </div>
+
+    <div class="adv-cards-grid" id="trips-list" aria-busy="true"></div>
+</div>
+</div>
+
+<!-- FAB -->
+<button class="adv-fab" onclick="openCreateModal()">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+    new adventure
+</button>
+
+<!-- ── Create Adventure Modal ── -->
+<div class="adv-modal-overlay" id="create-modal-overlay" onclick="if(event.target===this)closeCreateModal()">
+    <div class="adv-modal adv-modal-md">
+        <div class="adv-modal-header">
+            <h2 class="adv-modal-title">new adventure</h2>
+            <button class="adv-modal-close" onclick="closeCreateModal()">✕</button>
+        </div>
+
+        <div style="display:flex;gap:0.375rem;flex-wrap:wrap;margin-bottom:1rem;">
+            <span style="font-size:0.75rem;color:var(--text-muted);align-self:center;margin-right:0.25rem;">quick:</span>
+            <button class="btn btn-outline btn-sm" onclick="setDatePreset('today')">today</button>
+            <button class="btn btn-outline btn-sm" onclick="setDatePreset('yesterday')">yesterday</button>
+            <button class="btn btn-outline btn-sm" onclick="setDatePreset('week')">this week</button>
+            <button class="btn btn-outline btn-sm" onclick="setDatePreset('month')">this month</button>
+            <button class="btn btn-outline btn-sm" onclick="setDatePreset('since7')">last 7 days</button>
+            <button class="btn btn-outline btn-sm" onclick="setDatePreset('since30')">last 30 days</button>
+            <button class="btn btn-outline btn-sm" onclick="setDatePreset('open')">from date (open)</button>
+        </div>
+
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
+            <div class="form-group" style="margin:0;">
+                <label>Name</label>
+                <input type="text" id="trip-name" class="form-control" placeholder="e.g., Morning ride, Alps trip">
+            </div>
+            <div class="form-group" style="margin:0;">
+                <label>Device</label>
+                <select id="trip-device" class="form-control">
+                    {% for device in devices %}
+                    <option value="{{ device.device_id }}">{{ device.name|default:device.device_id }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
+            <div class="form-group" style="margin:0;">
+                <label>Start date</label>
+                <input type="date" id="trip-start" class="form-control" required>
+            </div>
+            <div class="form-group" style="margin:0;">
+                <label>End date <span style="color:var(--text-muted);font-weight:400;">(optional)</span></label>
+                <input type="date" id="trip-end" class="form-control">
+            </div>
+        </div>
+        <div class="form-group" style="margin-bottom:1rem;">
+            <label>Description <span style="color:var(--text-muted);font-weight:400;">(optional)</span></label>
+            <input type="text" id="trip-description" class="form-control" placeholder="A few words about this adventure...">
+        </div>
+        <div style="display:flex;gap:0.5rem;">
+            <button class="btn btn-primary" onclick="createAdventure(this)">create</button>
+            <button class="btn btn-outline" onclick="closeCreateModal()">cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── Full-screen Adventure Detail ── -->
+<div id="trip-fullscreen" class="trip-fullscreen">
+    <div id="trip-map"></div>
+    <div id="trip-map-loading-bar"></div>
+    <div class="trip-map-hint" id="place-hint">click on the map to place a marker</div>
+    <div class="trip-map-hint" id="blurb-pin-hint" style="top:58px;">click on the map to pin location</div>
+
+    <!-- Map controls -->
+    <div class="adv-style-overlay">
+        <button class="adv-style-btn active" data-style="Streets" onclick="setMapStyle(this)">streets</button>
+        <button class="adv-style-btn" data-style="Dark" onclick="setMapStyle(this)">dark</button>
+        <button class="adv-style-btn" data-style="Satellite" onclick="setMapStyle(this)">satellite</button>
+    </div>
+    <div id="adv-map-info"></div>
+
+    <!-- Floating back button — shown only when panel is on right -->
+    <button class="trip-back-btn" id="trip-back-float" onclick="closeTrip()" style="display:none;left:16px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        back
+    </button>
+
+    <!-- Floating Left Panel -->
+    <div class="trip-sidebar" id="trip-sidebar">
+        <div class="adv-panel-header">
+            <div class="adv-panel-title-row">
+                <!-- Embedded back — shown when panel is left -->
+                <button class="adv-back-embedded" id="back-embedded" onclick="closeTrip()" title="back">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                </button>
+                <h2 class="adv-panel-title" id="sidebar-trip-name"></h2>
+                <div style="display:flex;gap:0.125rem;flex-shrink:0;">
+                    <!-- Move panel side -->
+                    <button class="adv-icon-btn" onclick="toggleSide()" title="move panel to other side">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 10 20 15 15 20"/><path d="M4 4v7a4 4 0 0 0 4 4h12"/></svg>
+                    </button>
+                    <!-- Settings -->
+                    <button class="adv-icon-btn" onclick="openSettings()" title="settings">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    </button>
+                </div>
+            </div>
+            <div class="adv-panel-meta" id="sidebar-trip-dates"></div>
+        </div>
+
+        <div class="adv-tabs">
+            <button class="adv-tab active" onclick="switchAdvTab('journal',this)">journal</button>
+            <button class="adv-tab" onclick="switchAdvTab('details',this)">details</button>
+            <button class="adv-tab" onclick="switchAdvTab('people',this)">people</button>
+            <button class="adv-tab" onclick="switchAdvTab('share',this)">share</button>
+        </div>
+
+        <!-- Journal tab -->
+        <div class="adv-tab-panel active-panel" id="tab-journal">
+            <button class="adv-compose" id="compose-area-btn" onclick="openCompose()"
+                style="width:100%;text-align:left;cursor:pointer;color:var(--text-muted);font-size:0.875rem;font-family:var(--font-body);margin-bottom:0.75rem;display:block;">
+                write a post…
+            </button>
+            <div id="timeline-list"></div>
+            <div id="timeline-load-more" style="text-align:center;display:none;margin-top:0.5rem;">
+                <button class="btn btn-outline btn-sm" onclick="loadMoreTimeline()">load more</button>
+            </div>
+            <button class="adv-inline-btn" style="display:block;margin-top:0.625rem;" onclick="toggleMilestoneForm()">+ milestone</button>
+            <div class="adv-compose" id="milestone-form" style="display:none;margin-top:0.5rem;">
+                <div style="display:flex;gap:0.375rem;margin-bottom:0.375rem;">
+                    <input type="text" id="ms-emoji" class="form-control" value="🏁" style="max-width:48px;padding:0.25rem;text-align:center;">
+                    <input type="text" id="ms-title" class="form-control" placeholder="milestone title">
+                </div>
+                <input type="text" id="ms-desc" class="form-control" placeholder="description (optional)" style="margin-bottom:0.375rem;">
+                <input type="datetime-local" id="ms-date" class="form-control" style="margin-bottom:0.375rem;">
+                <div style="display:flex;gap:0.375rem;">
+                    <button class="btn btn-primary btn-sm" onclick="saveMilestone()">save</button>
+                    <button class="btn btn-outline btn-sm" onclick="toggleMilestoneForm()">cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Details tab -->
+        <div class="adv-tab-panel" id="tab-details">
+            <div class="adv-section-label">notes</div>
+            <textarea class="adv-notes" id="trip-notes" placeholder="write about this adventure..."></textarea>
+            <div class="notes-status" id="notes-status"></div>
+
+            <div class="adv-section-label" style="margin-top:1rem;">
+                photos
+                <label class="adv-inline-btn" style="cursor:pointer;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> add
+                    <input type="file" accept="image/*" multiple style="display:none;" id="adv-photo-input" onchange="uploadAdventurePhotos(this)">
+                </label>
+            </div>
+            <div class="adv-photos-grid" id="adv-photos-grid"><span class="adv-no-photos">no photos yet</span></div>
+
+            <div class="adv-section-label" style="margin-top:1rem;">
+                pins
+                <button class="adv-inline-btn" id="add-pin-btn" onclick="startAddPlace()">+ add</button>
+            </div>
+            <div id="places-list"></div>
+            <div id="place-form-container"></div>
+
+            <div class="adv-section-label" style="margin-top:1rem;">visits</div>
+            <div style="display:flex;gap:4px;margin-bottom:0.625rem;">
+                <button class="btn btn-outline btn-sm active" onclick="switchVisitsTab('countries',this)" style="font-size:0.6875rem;padding:2px 10px;">countries</button>
+                <button class="btn btn-outline btn-sm" onclick="switchVisitsTab('cities',this)" style="font-size:0.6875rem;padding:2px 10px;">cities</button>
+            </div>
+            <div id="visits-countries-pane">
+                <table class="visits-table">
+                    <thead><tr><th>Country</th><th>Cities</th><th>Time</th></tr></thead>
+                    <tbody id="visits-countries-body"><tr><td colspan="3" style="color:var(--text-muted);padding:4px 0;">loading...</td></tr></tbody>
+                </table>
+            </div>
+            <div id="visits-cities-pane" style="display:none;">
+                <table class="visits-table">
+                    <thead><tr><th>City</th><th>Country</th><th>Time</th></tr></thead>
+                    <tbody id="visits-cities-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- People tab -->
+        <div class="adv-tab-panel" id="tab-people">
+            <div class="adv-section-label" style="margin-top:0;">members</div>
+            <div id="members-list" style="margin-bottom:0.5rem;"></div>
+            <div id="add-member-area" style="display:none;">
+                <div style="display:flex;gap:0.375rem;margin-top:0.25rem;">
+                    <input type="text" id="add-member-input" class="form-control" placeholder="username" style="font-size:0.8125rem;padding:0.25rem 0.5rem;" onkeydown="if(event.key==='Enter')addMember()">
+                    <button class="btn btn-outline btn-sm" onclick="addMember()">add</button>
+                </div>
+                <div id="add-member-error" style="font-size:0.75rem;color:var(--danger);margin-top:0.25rem;"></div>
+            </div>
+        </div>
+
+        <!-- Share tab -->
+        <div class="adv-tab-panel" id="tab-share">
+            <div class="adv-share-toggle-row" id="creator-share-section" style="display:none;">
+                <span class="adv-share-label">visibility</span>
+                <button id="toggle-public-btn" class="btn btn-outline btn-sm" onclick="togglePublic()">make public</button>
+            </div>
+            <div id="share-link-area" style="display:none;margin-top:0.5rem;">
+                <div class="adv-share-link-row">
+                    <span class="adv-share-prefix">/adventure/</span>
+                    <input type="text" class="adv-share-slug-input" id="share-slug-input" onchange="saveSlug(this.value)" onblur="saveSlug(this.value)" onkeydown="if(event.key==='Enter'){this.blur();}">
+                    <button class="btn btn-outline btn-sm" style="font-size:0.6875rem;padding:3px 8px;flex-shrink:0;" onclick="copyShareLink()">copy</button>
+                </div>
+                <div class="adv-pin-row">
+                    <span class="adv-pin-label">access pin</span>
+                    <input type="text" class="adv-pin-input" id="share-pin-input" placeholder="none" maxlength="20" onchange="savePin(this.value)" onblur="savePin(this.value)" onkeydown="if(event.key==='Enter'){this.blur();}">
+                </div>
+                <div class="adv-share-saved" id="share-saved-msg" style="display:none;">saved</div>
+            </div>
+            <div id="member-share-link" style="display:none;margin-top:0.5rem;">
+                <div class="adv-share-link-row">
+                    <input type="text" id="share-link-input" readonly onclick="this.select()" style="flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:0;color:var(--text-muted);font-family:var(--font-body);font-size:0.7rem;padding:0.25rem 0.5rem;outline:none;">
+                    <button class="btn btn-outline btn-sm" style="font-size:0.6875rem;padding:3px 8px;flex-shrink:0;" onclick="copyShareLink()">copy</button>
+                </div>
+            </div>
+            <div style="margin-top:1.5rem;">
+                <button class="btn btn-danger btn-sm" onclick="deleteTripFromDetail()">delete adventure</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Post View Modal ── -->
+<div class="adv-modal-overlay" id="post-modal-overlay" onclick="if(event.target===this)closePost()">
+    <div class="adv-modal adv-post-modal">
+        <div class="adv-modal-header" style="margin-bottom:0;">
+            <span id="post-modal-label" style="font-size:0.75rem;font-weight:600;color:var(--text-muted);">post</span>
+            <button class="adv-modal-close" onclick="closePost()">✕</button>
+        </div>
+        <div id="post-modal-body" style="padding-top:0.875rem;"></div>
+    </div>
+</div>
+
+<!-- ── Settings Modal ── -->
+<div class="adv-modal-overlay" id="settings-modal-overlay" onclick="if(event.target===this)closeSettings()">
+    <div class="adv-modal adv-modal-sm">
+        <div class="adv-modal-header">
+            <h2 class="adv-modal-title">adventure settings</h2>
+            <button class="adv-modal-close" onclick="closeSettings()">✕</button>
+        </div>
+
+        <div class="adv-settings-section">name &amp; dates</div>
+        <div class="form-group">
+            <label>Name</label>
+            <input type="text" id="settings-name" class="form-control" placeholder="Adventure name">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:1rem;">
+            <div class="form-group" style="margin:0;">
+                <label>Start date</label>
+                <input type="date" id="settings-start" class="form-control">
+            </div>
+            <div class="form-group" style="margin:0;">
+                <label>End date <span style="color:var(--text-muted);font-weight:400;">(optional)</span></label>
+                <input type="date" id="settings-end" class="form-control">
+            </div>
+        </div>
+
+        <div class="adv-settings-section">device</div>
+        <div class="form-group">
+            <select id="settings-device" class="form-control">
+                {% for device in devices %}
+                <option value="{{ device.device_id }}">{{ device.name|default:device.device_id }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="adv-settings-section">notes</div>
+        <textarea class="adv-notes" id="settings-notes" placeholder="Write about this adventure..." style="min-height:72px;"></textarea>
+
+        <div class="adv-settings-section">sharing</div>
+        <div id="settings-share-section" style="display:none;">
+            <div class="adv-share-toggle-row">
+                <span class="adv-share-label">visibility</span>
+                <button id="settings-public-btn" class="btn btn-outline btn-sm" onclick="settingsTogglePublic()">make public</button>
+            </div>
+            <div id="settings-link-area" style="display:none;margin-top:0.625rem;">
+                <div class="adv-share-link-row">
+                    <span class="adv-share-prefix">/adventure/</span>
+                    <input type="text" class="adv-share-slug-input" id="settings-slug-input">
+                    <button class="btn btn-outline btn-sm" style="font-size:0.6875rem;padding:3px 8px;flex-shrink:0;" onclick="copyShareLinkSettings()">copy</button>
+                </div>
+                <div class="adv-pin-row">
+                    <span class="adv-pin-label">access pin</span>
+                    <input type="text" class="adv-pin-input" id="settings-pin-input" placeholder="none" maxlength="20">
+                </div>
+            </div>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:1.5rem;gap:0.5rem;">
+            <button class="btn btn-danger btn-sm" onclick="deleteTripFromDetail()">delete</button>
+            <div style="display:flex;gap:0.5rem;">
+                <button class="btn btn-outline" onclick="closeSettings()">cancel</button>
+                <button class="btn btn-primary" onclick="saveAllSettings()">save</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const list = document.getElementById('tbl-list'), form = document.getElementById('tbl-form');
+    const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+    const fmt = (d) => d ? new Date(d + 'T12:00').toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'}) : '';
+    async function load() {
+        const d = await fetch('/api/tripblog/').then((r) => r.json()).catch(() => ({blogs: []}));
+        list.innerHTML = (d.blogs || []).filter((b) => b.accepted).map((b) => `<a class="tbl-card" href="/trip/${b.id}/">
+            <span class="cv" style="${b.cover ? `background-image:url('${esc(b.cover)}')` : ''}"></span>
+            <div><b>${esc(b.name)}</b><span>${esc(fmt(b.start_date))}${b.end_date ? ' – ' + esc(fmt(b.end_date)) : ''}${b.live ? ' · <em class="live">live</em>' : ''}${b.featured ? ' · in menu' : ''}</span></div></a>`).join('');
+    }
+    document.getElementById('tbl-new-btn').onclick = () => {
+        form.hidden = !form.hidden;
+        if (!form.hidden) { if (!form.start_date.value) form.start_date.value = new Date().toISOString().slice(0, 10); form.name.focus(); }
+    };
+    document.getElementById('tbl-cancel').onclick = () => { form.hidden = true; };
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const r = await fetch('/api/tripblog/', {method: 'POST', credentials: 'same-origin',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
+            body: JSON.stringify({name: form.name.value, start_date: form.start_date.value, end_date: form.end_date.value || null,
+                share_location: form.share_location.checked, featured: true})});
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { roamlyAlert(d.error || 'Could not create the trip blog.'); return; }
+        location.href = d.url;
+    });
+    load();
+})();
+const csrfToken = '{{ csrf_token }}';
+let tripMap = null;
+let currentTripId = null;
+let currentTripData = null;
+let placingMode = false;
+let notesSaveTimeout = null;
+let currentIsCreator = false;
+let timelinePage = 1;
+let timelineHasMore = false;
+let composeLocation = null;
+let visitsLoaded = false;
+let blurbPlacingMode = false;
+let currentPanelSide = localStorage.getItem('roamly_panel_side') || 'left';
+let currentPostId = null;
+const timelineEventsMap = {};
+
+const _speedGradient = localStorage.getItem('roamly_speed_gradient') || 'on';
+const _showHeatmap   = localStorage.getItem('roamly_show_heatmap') || 'on';
+const _heatIntensity = localStorage.getItem('roamly_heatmap_intensity') || 'medium';
+const _dotSizePref   = localStorage.getItem('roamly_dot_size') || 'medium';
+const _lineGapMs     = parseInt(localStorage.getItem('roamly_line_gap_minutes') || '20', 10) * 60 * 1000;
+const _detailZoom    = parseInt(localStorage.getItem('roamly_detail_zoom') || '8', 10);
+
+const _DOT_SIZES = { small:[8,2,12,4,16,8], medium:[8,3,12,6,16,12], large:[8,5,12,9,16,18] };
+const _HEAT_INTENSITY = { low:[0,0.2,13,0.7], medium:[0,0.4,13,1.4], high:[0,0.8,13,2.5] };
+const _dotArgs  = _DOT_SIZES[_dotSizePref] || _DOT_SIZES.medium;
+const _heatArgs = _HEAT_INTENSITY[_heatIntensity] || _HEAT_INTENSITY.medium;
+
+function _speedColorExpr() {
+    return ['case',['<=',['coalesce',['get','speed'],0],1.0],'#3b82f6',['interpolate',['linear'],['get','speed'],1.0,'#3b82f6',5.0,'#22c55e',15.0,'#f59e0b',30.0,'#ef4444']];
+}
+
+const mapStyles = {
+    'Streets': { version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf', sources:{'osm':{type:'raster',tiles:['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png{{ CARTO_TILE_QS|escapejs }}'],tileSize:256}}, layers:[{id:'osm',type:'raster',source:'osm'}] },
+    'Dark':    { version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf', sources:{'carto':{type:'raster',tiles:['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png{{ CARTO_TILE_QS|escapejs }}'],tileSize:256}}, layers:[{id:'carto',type:'raster',source:'carto'}] },
+    'Satellite':{ version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf', sources:{'esri':{type:'raster',tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],tileSize:256,maxzoom:19}}, layers:[{id:'esri',type:'raster',source:'esri'}] }
+};
+let currentMapStyle = localStorage.getItem('roamly_map_tile_style') || 'Streets';
+
+// ─── List filtering ───────────────────────────────────────────
+
+let allTrips = [];
+let currentFilter = 'all';
+
+function setFilter(filter, btn) {
+    currentFilter = filter;
+    document.querySelectorAll('.adv-filter-chip').forEach(b => b.classList.remove('active'));
+    // btn is optional: the empty state calls this with no event target, and
+    // dereferencing it unconditionally would throw.
+    (btn || document.querySelector(`.adv-filter-chip[data-filter="${filter}"]`)
+         || document.querySelector('.adv-filter-chip'))?.classList.add('active');
+    renderAdventureCards();
+}
+
+function filterAdventures() { renderAdventureCards(); }
+
+function renderAdventureCards() {
+    const search = (document.getElementById('adv-search').value || '').toLowerCase();
+    const deviceFilter = document.getElementById('adv-device-filter').value;
+    const sort = document.getElementById('adv-sort').value;
+    const now = new Date();
+
+    let trips = allTrips.filter(t => {
+        if (search && !t.name.toLowerCase().includes(search)) return false;
+        if (deviceFilter && t.device !== deviceFilter) return false;
+        const start = new Date(t.start_time);
+        const end = new Date(t.end_time);
+        const openEnded = end.getFullYear() >= 2099;
+        if (currentFilter === 'active') return openEnded || end >= now;
+        if (currentFilter === 'public') return t.is_public;
+        if (currentFilter === 'week')  return start >= new Date(now - 7*86400000);
+        if (currentFilter === 'month') return start >= new Date(now - 30*86400000);
+        return true;
+    });
+
+    if (sort === 'oldest') trips.sort((a,b) => new Date(a.start_time) - new Date(b.start_time));
+    else if (sort === 'points') trips.sort((a,b) => b.location_count - a.location_count);
+    else trips.sort((a,b) => new Date(b.start_time) - new Date(a.start_time));
+
+    if (!trips.length) {
+        // Two genuinely different situations that used to render the identical
+        // string: a brand-new account with nothing to show, and someone with
+        // five adventures whose filter happens to match none of them. The
+        // filter runs above this check, so the second case was indistinguishable
+        // from the first — and the first offered no way to get started.
+        const filtered = (allTrips || []).length > 0;
+        document.getElementById('trips-list').innerHTML = filtered
+            ? `<div class="adv-empty">
+                   <p>No adventures match this filter.</p>
+                   <button class="btn btn-outline btn-sm" onclick="setFilter('all')">Show all adventures</button>
+               </div>`
+            : `<div class="adv-empty">
+                   <div style="font-size:2rem;margin-bottom:0.5rem;">🧭</div>
+                   <p style="font-weight:600;color:var(--text);margin-bottom:0.35rem;">No adventures yet</p>
+                   <p style="margin-bottom:0.9rem;">An adventure pulls the points you already recorded
+                      between two dates into a shareable story — a ride, a hike, a road trip.</p>
+                   <button class="btn btn-primary btn-sm" onclick="openCreateModal()">Create your first adventure</button>
+               </div>`;
+        return;
+    }
+
+    document.getElementById('trips-list').innerHTML = trips.map(trip => {
+        const start = new Date(trip.start_time);
+        const end = new Date(trip.end_time);
+        const openEnded = end.getFullYear() >= 2099;
+        const isActive = openEnded || end >= now;
+        const sameDay = !openEnded && start.toDateString() === end.toDateString();
+        const dateStr = openEnded
+            ? start.toLocaleDateString([], {month:'short',day:'numeric',year:'numeric'}) + ' – ongoing'
+            : sameDay
+                ? start.toLocaleDateString([], {weekday:'short',month:'short',day:'numeric'})
+                : start.toLocaleDateString([], {month:'short',day:'numeric'}) + ' – ' + end.toLocaleDateString([], {month:'short',day:'numeric',year:'numeric'});
+        const pts = trip.location_count.toLocaleString();
+        const badges = [];
+        if (trip.is_public) badges.push('<span class="adv-badge adv-badge-public">public</span>');
+        if (isActive) badges.push('<span class="adv-badge adv-badge-active">active</span>');
+        const readTime = trip.read_time_min ? `${trip.read_time_min} min read` : '';
+        const coverHtml = trip.cover_thumbnail ? `<img class="adv-card-cover" src="${escHtml(trip.cover_thumbnail)}" alt="" loading="lazy">` : '';
+        return `<div class="adv-card" role="button" tabindex="0"
+            onclick="location.href='/adventures/${trip.id}/edit/'"
+            onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();location.href='/adventures/${trip.id}/edit/';}"
+            aria-label="Open adventure ${escHtml(trip.name || 'Untitled')}">
+            ${coverHtml}
+            <div class="adv-card-body">
+                <div class="adv-card-name">${escHtml(trip.name)}</div>
+                ${trip.subtitle ? `<div class="adv-card-subtitle">${escHtml(trip.subtitle)}</div>` : ''}
+                <div class="adv-card-dates">${dateStr}</div>
+                <div class="adv-card-meta"><span>${escHtml(trip.device)}</span><span>${pts} pts</span>${trip.member_count > 1 ? `<span>${trip.member_count} members</span>` : ''}</div>
+                ${!trip.subtitle && trip.description ? `<div class="adv-card-desc">${escHtml(trip.description)}</div>` : ''}
+                <div class="adv-card-actions">
+                    ${badges.join('')}
+                    ${readTime ? `<span class="adv-card-read-time">${readTime}</span>` : ''}
+                    <button class="adv-card-map-btn" onclick="event.stopPropagation();openTrip(${trip.id})" title="open map view">🗺️ map</button>
+                    ${trip.is_public ? `<a class="adv-card-pub-btn" href="/adventure/${escHtml(trip.public_slug)}/" onclick="event.stopPropagation()" target="_blank">🔗 public</a>` : ''}
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function advSkeletonCards(n) {
+    let out = '';
+    const w = [60, 45, 70, 50, 55, 40];
+    for (let i = 0; i < n; i++) {
+        out += `<div class="adv-card" aria-hidden="true" style="pointer-events:none;">
+            <div class="skeleton" style="width:100%;height:120px;border-radius:0;"></div>
+            <div class="adv-card-body">
+                <div class="skeleton skel-line lg" style="width:${w[i % w.length]}%;margin-bottom:0.55rem;"></div>
+                <div class="skeleton skel-line sm" style="width:35%;margin-bottom:0.7rem;"></div>
+                <div class="skeleton skel-line sm" style="width:55%;"></div>
+            </div>
+        </div>`;
+    }
+    return out;
+}
+
+async function loadAdventures() {
+    const host = document.getElementById('trips-list');
+    host.innerHTML = advSkeletonCards(6);
+    host.setAttribute('aria-busy', 'true');
+    try {
+        // aria-busy was cleared on the success path only, so a failure left the
+        // container permanently announcing itself as loading — and the error
+        // state had no way to retry.
+        const data = await window.roamlyFetch('/api/trips/', {toast: false});
+        allTrips = data.trips || [];
+        renderAdventureCards();
+    } catch (e) {
+        host.innerHTML = `<div class="rly-load-error" role="alert">
+            <span>${e.message || 'Could not load your adventures.'}</span>
+            <button type="button" class="rly-retry-btn" onclick="loadAdventures()">Retry</button>
+        </div>`;
+    } finally {
+        host.removeAttribute('aria-busy');
+    }
+}
+
+// ─── Create modal ─────────────────────────────────────────────
+
+function openCreateModal() {
+    document.getElementById('create-modal-overlay').classList.add('active');
+    if (!document.getElementById('trip-start').value) document.getElementById('trip-start').value = toDateInput(new Date());
+}
+function closeCreateModal() { document.getElementById('create-modal-overlay').classList.remove('active'); }
+function toDateInput(d) { return d.toISOString().slice(0, 10); }
+
+function setDatePreset(preset) {
+    const today = new Date(); today.setHours(0,0,0,0);
+    const start = document.getElementById('trip-start'), end = document.getElementById('trip-end');
+    const addDays = (d,n) => { const r=new Date(d); r.setDate(r.getDate()+n); return r; };
+    switch(preset) {
+        case 'today':   start.value=toDateInput(today); end.value=toDateInput(today); break;
+        case 'yesterday': { const yd=addDays(today,-1); start.value=toDateInput(yd); end.value=toDateInput(yd); break; }
+        case 'week':    { const mon=new Date(today); mon.setDate(today.getDate()-today.getDay()+(today.getDay()===0?-6:1)); start.value=toDateInput(mon); end.value=toDateInput(today); break; }
+        case 'month':   { const ms=new Date(today.getFullYear(),today.getMonth(),1); start.value=toDateInput(ms); end.value=toDateInput(today); break; }
+        case 'since7':  start.value=toDateInput(addDays(today,-7)); end.value=toDateInput(today); break;
+        case 'since30': start.value=toDateInput(addDays(today,-30)); end.value=toDateInput(today); break;
+        case 'open':    start.value=toDateInput(today); end.value=''; break;
+    }
+}
+
+function localDateToUTC(dateStr, endOfDay) {
+    const [y,m,d] = dateStr.split('-').map(Number);
+    return (endOfDay ? new Date(y,m-1,d,23,59,59) : new Date(y,m-1,d,0,0,0)).toISOString();
+}
+
+async function createAdventure(btn) {
+    const startVal = document.getElementById('trip-start').value;
+    if (!startVal) { await roamlyAlert('Please choose a start date.'); return; }
+    const endVal = document.getElementById('trip-end').value;
+    // Disable while in flight. There was no guard and no .catch(), so a
+    // double-click created two adventures and a network failure produced
+    // nothing at all — no error, no dismissal, just an unchanged modal.
+    if (btn) { btn.disabled = true; btn.dataset.label = btn.textContent; btn.textContent = 'creating…'; }
+    try {
+        await window.roamlyFetch('/api/trips/create/', {
+            method: 'POST',
+            json: {
+                name: document.getElementById('trip-name').value || 'Untitled Adventure',
+                device_id: document.getElementById('trip-device').value,
+                start_time: localDateToUTC(startVal, false),
+                end_time: endVal ? localDateToUTC(endVal, true) : '',
+                description: document.getElementById('trip-description').value,
+            },
+            errorMessage: "Couldn't create the adventure",
+        });
+        closeCreateModal();
+        loadAdventures();
+    } catch (e) { /* roamlyFetch has toasted the real reason */ }
+    finally {
+        if (btn) { btn.disabled = false; btn.textContent = btn.dataset.label || 'create'; }
+    }
+}
+
+// ─── Full-screen Trip View ────────────────────────────────────
+
+function openTrip(id) {
+    currentTripId = id;
+    document.getElementById('trip-fullscreen').classList.add('active');
+    document.body.style.overflow = 'hidden';
+    updatePanelSide();
+    document.querySelectorAll('.adv-tab').forEach((b,i) => b.classList.toggle('active', i===0));
+    document.querySelectorAll('.adv-tab-panel').forEach((p,i) => p.style.display = i===0?'':'none');
+    visitsLoaded = false;
+    if (tripMap) { tripMap.remove(); tripMap = null; }
+    tripMap = new maplibregl.Map({ container:'trip-map', style:mapStyles[currentMapStyle], center:[0,20], zoom:2 });
+    tripMap.addControl(new maplibregl.NavigationControl(), 'bottom-right');
+    tripMap.on('load', () => loadTripDetail(id));
+    tripMap.on('click', (e) => {
+        if (placingMode) { placingMode=false; document.getElementById('add-pin-btn').textContent='+ add'; document.getElementById('place-hint').classList.remove('active'); tripMap.getCanvas().style.cursor=''; showPlaceForm(e.lngLat.lat,e.lngLat.lng); }
+        else if (blurbPlacingMode) { blurbPlacingMode=false; const pb=document.getElementById('compose-pin-btn');if(pb)pb.classList.remove('placing'); document.getElementById('blurb-pin-hint').classList.remove('active'); tripMap.getCanvas().style.cursor=''; setBlurbLocation(e.lngLat.lat,e.lngLat.lng); }
+    });
+}
+
+function closeTrip() {
+    document.getElementById('trip-fullscreen').classList.remove('active');
+    document.body.style.overflow = '';
+    if (tripMap) { tripMap.remove(); tripMap=null; }
+    currentTripId=null; currentTripData=null; placingMode=false; blurbPlacingMode=false; composeLocation=null; visitsLoaded=false; timelinePage=1;
+    loadAdventures();
+}
+
+function showTripMapLoading() { document.getElementById('trip-map-loading-bar').classList.add('active'); }
+function hideTripMapLoading(infoText) {
+    document.getElementById('trip-map-loading-bar').classList.remove('active');
+    const bar=document.getElementById('adv-map-info');
+    if(infoText){bar.textContent=infoText;bar.style.display='';}else bar.style.display='none';
+}
+
+function loadTripDetail(id) {
+    showTripMapLoading();
+    fetch(`/api/trips/${id}/`)
+        .then(r => { if(!r.ok) return r.json().then(body=>{const err=new Error(`HTTP ${r.status}`);err._serverMsg=body.error?`${body.type}: ${body.error}`:`HTTP ${r.status}`;throw err;}).catch(()=>{throw new Error(`HTTP ${r.status}`);}); return r.json(); })
+        .then(data => {
+            if(!data.id) throw new Error('Invalid response');
+            currentTripData=data; currentIsCreator=data.is_creator;
+            document.getElementById('sidebar-trip-name').textContent=data.name;
+            const startD=new Date(data.start_time), endD=new Date(data.end_time), openEnded=endD.getFullYear()>=2099;
+            const ptCount=(data.total_location_count||data.locations.length).toLocaleString();
+            document.getElementById('sidebar-trip-dates').textContent=`${startD.toLocaleDateString([],{month:'short',day:'numeric',year:'numeric'})} – ${openEnded?'ongoing':endD.toLocaleDateString([],{month:'short',day:'numeric',year:'numeric'})} · ${ptCount} pts · ${data.device_name||''}`;
+            document.getElementById('trip-notes').value=data.description||'';
+            renderTripOnMap(data); renderPlaces(data.places||[]); renderMembers(data.members||[]); renderSharingOptions(data);
+            timelinePage=1; timelineHasMore=false;
+            document.getElementById('timeline-list').innerHTML='';
+            document.getElementById('adv-photos-grid').innerHTML='<span class="adv-no-photos">loading...</span>';
+            loadTimeline(id,1);
+        })
+        .catch(err => { hideTripMapLoading(); document.getElementById('sidebar-trip-name').textContent='Error loading adventure'; document.getElementById('sidebar-trip-dates').textContent=err._serverMsg||err.message; });
+}
+
+const ADV_MAP_LIMIT = 20000;
+const ADV_HEATMAP_COLOR = ['interpolate',['linear'],['heatmap-density'],0,'rgba(33,102,172,0)',0.2,'rgb(103,169,207)',0.4,'rgb(209,229,240)',0.6,'rgb(253,219,199)',0.8,'rgb(239,138,98)',1,'rgb(178,24,43)'];
+const MEMBER_COLORS = ['#e8763d','#7f9b6d','#7ba3b8','#a888a0','#cf9a44','#c0674a'];
+
+function renderTripOnMap(data) {
+    if(!tripMap||!data.locations.length){hideTripMapLoading();return;}
+    tripMap.getStyle().layers.filter(l=>l.id.startsWith('member-')||['adv-heat','adv-dots','adv-line','place-circles','place-markers'].includes(l.id)).forEach(l=>{if(tripMap.getLayer(l.id))tripMap.removeLayer(l.id);});
+    Object.keys(tripMap.getStyle().sources||{}).filter(id=>id.startsWith('member-')||['adv-pts','adv-line','place-circles','place-markers'].includes(id)).forEach(id=>{if(tripMap.getSource(id))tripMap.removeSource(id);});
+
+    const features=data.locations.map(l=>({type:'Feature',geometry:{type:'Point',coordinates:[l.lng,l.lat]},properties:{timestamp:l.timestamp,city:l.city,country:l.country,speed:l.speed}}));
+    const coords=data.locations.map(l=>[l.lng,l.lat]);
+    tripMap.addSource('adv-pts',{type:'geojson',data:{type:'FeatureCollection',features}});
+
+    if(_showHeatmap==='on'){
+        tripMap.addLayer({id:'adv-heat',type:'heatmap',source:'adv-pts',maxzoom:data.locations.length<ADV_MAP_LIMIT?16:13,
+            paint:{'heatmap-intensity':['interpolate',['linear'],['zoom'],..._heatArgs],'heatmap-radius':['interpolate',['linear'],['zoom'],0,6,13,26],'heatmap-opacity':['interpolate',['linear'],['zoom'],0,0.75,11,0.6,13,0.1],'heatmap-color':ADV_HEATMAP_COLOR}});
+    }
+    tripMap.addLayer({id:'adv-dots',type:'circle',source:'adv-pts',minzoom:_detailZoom,
+        paint:{'circle-color':_speedGradient==='on'?_speedColorExpr():'#e8763d','circle-radius':['interpolate',['linear'],['zoom'],..._dotArgs],'circle-stroke-width':1,'circle-stroke-color':'rgba(255,255,255,0.6)','circle-opacity':['interpolate',['linear'],['zoom'],_detailZoom,0,_detailZoom+2,1]}});
+
+    const _connectLines=localStorage.getItem('roamly_connect_lines')||'off';
+    if(coords.length>1&&_connectLines==='on'){
+        const lineFeatures=[]; let seg=[coords[0]];
+        for(let i=1;i<data.locations.length;i++){const gap=new Date(data.locations[i].timestamp)-new Date(data.locations[i-1].timestamp);if(gap>_lineGapMs){if(seg.length>1)lineFeatures.push({type:'Feature',geometry:{type:'LineString',coordinates:seg}});seg=[coords[i]];}else seg.push(coords[i]);}
+        if(seg.length>1)lineFeatures.push({type:'Feature',geometry:{type:'LineString',coordinates:seg}});
+        if(lineFeatures.length){tripMap.addSource('adv-line',{type:'geojson',data:{type:'FeatureCollection',features:lineFeatures}});tripMap.addLayer({id:'adv-line',type:'line',source:'adv-line',minzoom:_detailZoom,paint:{'line-color':'#e8763d','line-width':2,'line-opacity':0.55}});}
+    }
+
+    renderPlaceMarkers(data.places||[]);
+
+    const memberEntries=Object.entries(data.member_locations||{});
+    let allCoords=[...coords];
+    memberEntries.forEach(([username,locs],i)=>{
+        const color=MEMBER_COLORS[i%MEMBER_COLORS.length];
+        const srcId=`member-pts-${i}`,dotId=`member-dots-${i}`,lineId=`member-line-${i}`;
+        const mf=locs.map(l=>({type:'Feature',geometry:{type:'Point',coordinates:[l.lng,l.lat]},properties:{timestamp:l.timestamp,speed:l.speed,member:username}}));
+        const mc=locs.map(l=>[l.lng,l.lat]); allCoords=allCoords.concat(mc);
+        tripMap.addSource(srcId,{type:'geojson',data:{type:'FeatureCollection',features:mf}});
+        tripMap.addLayer({id:dotId,type:'circle',source:srcId,minzoom:_detailZoom,paint:{'circle-color':color,'circle-radius':['interpolate',['linear'],['zoom'],..._dotArgs],'circle-stroke-width':1,'circle-stroke-color':'rgba(255,255,255,0.6)','circle-opacity':['interpolate',['linear'],['zoom'],_detailZoom,0,_detailZoom+2,1]}});
+        if(mc.length>1){const lf=[];let seg=[mc[0]];for(let j=1;j<locs.length;j++){const gap=new Date(locs[j].timestamp)-new Date(locs[j-1].timestamp);if(gap>_lineGapMs){if(seg.length>1)lf.push({type:'Feature',geometry:{type:'LineString',coordinates:seg}});seg=[mc[j]];}else seg.push(mc[j]);}if(seg.length>1)lf.push({type:'Feature',geometry:{type:'LineString',coordinates:seg}});if(lf.length){tripMap.addSource(lineId,{type:'geojson',data:{type:'FeatureCollection',features:lf}});tripMap.addLayer({id:lineId,type:'line',source:lineId,paint:{'line-color':color,'line-width':2,'line-opacity':0.55}});}}
+        tripMap.on('click',dotId,(e)=>{if(placingMode)return;const p=e.features[0].properties;const ts=new Date(p.timestamp);new maplibregl.Popup({offset:10,closeButton:false}).setLngLat(e.features[0].geometry.coordinates.slice()).setHTML(`<div style="font-weight:600;font-size:0.8125rem;">${escHtml(p.member)}</div><div style="color:var(--text-muted);font-size:0.75rem;">${ts.toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</div>`).addTo(tripMap);});
+        tripMap.on('mouseenter',dotId,()=>{if(!placingMode)tripMap.getCanvas().style.cursor='pointer';});
+        tripMap.on('mouseleave',dotId,()=>{if(!placingMode)tripMap.getCanvas().style.cursor='';});
+    });
+
+    const allLngs=allCoords.map(c=>c[0]),allLats=allCoords.map(c=>c[1]);
+    tripMap.fitBounds([[Math.min(...allLngs),Math.min(...allLats)],[Math.max(...allLngs),Math.max(...allLats)]],{padding:60});
+    tripMap.once('idle',()=>hideTripMapLoading(`${(data.total_location_count||data.locations.length).toLocaleString()} pts · ${data.device_name||''}`));
+
+    tripMap.on('click','adv-dots',(e)=>{
+        if(placingMode)return;
+        const props=e.features[0].properties,coordsPt=e.features[0].geometry.coordinates.slice();
+        const ts=new Date(props.timestamp),timeStr=ts.toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+        const place=[props.city,props.country].filter(Boolean).join(', ');
+        const _spUnit=localStorage.getItem('roamly_speed_unit')||'kmh';
+        const spd=props.speed!=null&&props.speed>0?`<div style="color:var(--text-muted);margin-top:2px;">${_spUnit==='mph'?(props.speed*2.23694).toFixed(1)+' mph':(props.speed*3.6).toFixed(1)+' km/h'}</div>`:'';
+        new maplibregl.Popup({offset:10,closeButton:false}).setLngLat(coordsPt).setHTML(`<div style="font-weight:600;font-size:0.8125rem;">${timeStr}</div>`+(place?`<div style="color:var(--text-muted);font-size:0.75rem;margin-top:2px;">${escHtml(place)}</div>`:'')+spd).addTo(tripMap);
+    });
+    tripMap.on('mouseenter','adv-dots',()=>{if(!placingMode)tripMap.getCanvas().style.cursor='pointer';});
+    tripMap.on('mouseleave','adv-dots',()=>{if(!placingMode)tripMap.getCanvas().style.cursor='';});
+}
+
+function renderPlaceMarkers(places) {
+    if(!tripMap)return;
+    ['place-circles','place-markers'].forEach(id=>{if(tripMap.getLayer(id))tripMap.removeLayer(id);if(tripMap.getSource(id))tripMap.removeSource(id);});
+    if(!places.length)return;
+    tripMap.addSource('place-circles',{type:'geojson',data:{type:'FeatureCollection',features:places.map(p=>({type:'Feature',geometry:{type:'Polygon',coordinates:[makeCircle(p.longitude,p.latitude,p.radius)]},properties:{id:p.id,name:p.name}}))}});
+    tripMap.addLayer({id:'place-circles',type:'fill',source:'place-circles',paint:{'fill-color':'#7ba3b8','fill-opacity':0.12}});
+    tripMap.addSource('place-markers',{type:'geojson',data:{type:'FeatureCollection',features:places.map(p=>({type:'Feature',geometry:{type:'Point',coordinates:[p.longitude,p.latitude]},properties:{id:p.id,name:p.name,time_spent_display:p.time_spent_display||'',lng:p.longitude,lat:p.latitude}}))}});
+    tripMap.addLayer({id:'place-markers',type:'circle',source:'place-markers',paint:{'circle-color':'#7ba3b8','circle-radius':7,'circle-stroke-width':2,'circle-stroke-color':'#ffffff'}});
+    let pinTooltip=null;
+    tripMap.on('mouseenter','place-markers',(e)=>{tripMap.getCanvas().style.cursor='pointer';const p=e.features[0].properties,c=e.features[0].geometry.coordinates.slice();const ts=p.time_spent_display?`<div style="color:var(--text-muted);font-size:0.75rem;margin-top:2px;">${escHtml(p.time_spent_display)} here</div>`:'';pinTooltip=new maplibregl.Popup({offset:12,closeButton:false,closeOnClick:false}).setLngLat(c).setHTML(`<div style="font-weight:600;font-size:0.8125rem;">${escHtml(p.name)}</div>${ts}`).addTo(tripMap);});
+    tripMap.on('mouseleave','place-markers',()=>{tripMap.getCanvas().style.cursor='';if(pinTooltip){pinTooltip.remove();pinTooltip=null;}});
+    tripMap.on('click','place-markers',(e)=>{const p=e.features[0].properties;tripMap.flyTo({center:[p.lng,p.lat],zoom:Math.max(tripMap.getZoom(),14),duration:600});document.querySelectorAll('.adv-pin-item').forEach(el=>{el.style.background=el.querySelector('.adv-pin-name')?.textContent===p.name?'rgba(59,130,246,0.1)':'';});});
+}
+
+function makeCircle(lng,lat,radiusM,steps=64){const coords=[],km=radiusM/1000;for(let i=0;i<=steps;i++){const a=(i/steps)*2*Math.PI;coords.push([lng+(km*Math.cos(a))/(111.32*Math.cos(lat*Math.PI/180)),lat+(km*Math.sin(a))/111.32]);}return coords;}
+
+// ─── Notes ───────────────────────────────────────────────────
+
+document.getElementById('trip-notes').addEventListener('input',()=>{
+    clearTimeout(notesSaveTimeout);
+    document.getElementById('notes-status').textContent='typing...';
+    notesSaveTimeout=setTimeout(saveNotes,800);
+});
+
+function saveNotes(){
+    const notes=document.getElementById('trip-notes').value;
+    document.getElementById('notes-status').textContent='saving...';
+    fetch(`/api/trips/${currentTripId}/update/`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},body:JSON.stringify({description:notes})})
+    .then(r=>r.json()).then(()=>{document.getElementById('notes-status').textContent='saved';setTimeout(()=>{if(document.getElementById('notes-status').textContent==='saved')document.getElementById('notes-status').textContent='';},2000);})
+    .catch(()=>{document.getElementById('notes-status').textContent='error saving';});
+}
+
+// ─── Settings Modal ───────────────────────────────────────────
+
+function openSettings(){
+    if(!currentTripData)return;
+    const data=currentTripData;
+    document.getElementById('settings-name').value=data.name||'';
+    const toLocalDate=d=>{const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${day}`;};
+    document.getElementById('settings-start').value=toLocalDate(new Date(data.start_time));
+    const endD=new Date(data.end_time);
+    document.getElementById('settings-end').value=endD.getFullYear()>=2099?'':toLocalDate(endD);
+    document.getElementById('settings-notes').value=data.description||'';
+    const devSel=document.getElementById('settings-device');
+    if(devSel&&data.device_name){for(const opt of devSel.options){if(opt.text===data.device_name||opt.value===data.device_name){devSel.value=opt.value;break;}}}
+    const ss=document.getElementById('settings-share-section'),la=document.getElementById('settings-link-area'),btn=document.getElementById('settings-public-btn');
+    if(currentIsCreator){
+        ss.style.display='';
+        if(data.is_public){btn.textContent='make private';btn.classList.remove('btn-outline');btn.classList.add('btn-primary');la.style.display='';document.getElementById('settings-slug-input').value=data.public_slug||'';document.getElementById('settings-pin-input').value=data.access_pin||'';}
+        else{btn.textContent='make public';btn.classList.add('btn-outline');btn.classList.remove('btn-primary');la.style.display='none';}
+    }else{ss.style.display='none';la.style.display='none';}
+    document.getElementById('settings-modal-overlay').classList.add('active');
+}
+
+function closeSettings(){ document.getElementById('settings-modal-overlay').classList.remove('active'); }
+
+function settingsTogglePublic(){
+    fetch(`/api/trips/${currentTripId}/toggle-public/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(r=>r.json()).then(data=>{
+        if(currentTripData)Object.assign(currentTripData,{is_public:data.is_public,public_slug:data.public_slug});
+        renderSharingOptions(currentTripData);
+        const btn=document.getElementById('settings-public-btn'),la=document.getElementById('settings-link-area');
+        if(data.is_public){btn.textContent='make private';btn.classList.remove('btn-outline');btn.classList.add('btn-primary');la.style.display='';document.getElementById('settings-slug-input').value=data.public_slug||'';}
+        else{btn.textContent='make public';btn.classList.add('btn-outline');btn.classList.remove('btn-primary');la.style.display='none';}
+    });
+}
+
+async function saveAllSettings(){
+    const name=document.getElementById('settings-name').value.trim();
+    const startVal=document.getElementById('settings-start').value;
+    if(!name||!startVal){await roamlyAlert('Name and start date are required.');return;}
+    const endVal=document.getElementById('settings-end').value;
+    const body={name,device_id:document.getElementById('settings-device').value,start_time:localDateToUTC(startVal,false),end_time:endVal?localDateToUTC(endVal,true):'',description:document.getElementById('settings-notes').value};
+    const slug=document.getElementById('settings-slug-input').value.trim();
+    if(slug)body.public_slug=slug;
+    body.access_pin=document.getElementById('settings-pin-input').value.trim();
+    fetch(`/api/trips/${currentTripId}/update/`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},body:JSON.stringify(body)})
+    .then(r=>r.json()).then(data=>{if(data.error){roamlyAlert(data.error);return;}closeSettings();loadTripDetail(currentTripId);});
+}
+
+function copyShareLinkSettings(){
+    const slug=(document.getElementById('settings-slug-input').value.trim())||(currentTripData&&currentTripData.public_slug);
+    if(slug)navigator.clipboard.writeText(`${window.location.origin}/adventure/${slug}/`).catch(()=>{});
+}
+
+// ─── Places ───────────────────────────────────────────────────
+
+function renderPlaces(places){
+    const list=document.getElementById('places-list');
+    if(!places.length){list.innerHTML='<div class="adv-no-pins">no pins yet — click + add to drop one on the map</div>';return;}
+    const pinSvg=`<svg width="12" height="16" viewBox="0 0 32 44" fill="none" style="flex-shrink:0;margin-top:1px;"><path d="M16 2C9.37 2 4 7.37 4 14c0 9.5 12 28 12 28S28 23.5 28 14C28 7.37 22.63 2 16 2z" fill="white" stroke="var(--primary)" stroke-width="2.5"/><circle cx="16" cy="14" r="5" fill="var(--primary)"/></svg>`;
+    list.innerHTML=places.map(p=>`<div class="adv-pin-item" onclick="flyToPlace(${p.longitude},${p.latitude})">${pinSvg}<span class="adv-pin-name">${escHtml(p.name)}</span><span class="adv-pin-meta">${p.time_spent_display||''}</span><button class="adv-pin-del" onclick="event.stopPropagation();deletePlace(${p.id})">&times;</button></div>`).join('');
+}
+
+function flyToPlace(lng,lat){if(tripMap)tripMap.flyTo({center:[lng,lat],zoom:15,duration:1000});}
+
+function startAddPlace(){
+    if(placingMode){placingMode=false;document.getElementById('add-pin-btn').textContent='+ add';document.getElementById('place-hint').classList.remove('active');tripMap.getCanvas().style.cursor='';return;}
+    placingMode=true;document.getElementById('add-pin-btn').textContent='× cancel';document.getElementById('place-hint').classList.add('active');tripMap.getCanvas().style.cursor='crosshair';
+}
+
+function showPlaceForm(lat,lng){
+    ['temp-place','temp-place-circle'].forEach(id=>{if(tripMap.getLayer(id))tripMap.removeLayer(id);if(tripMap.getSource(id))tripMap.removeSource(id);});
+    tripMap.addSource('temp-place',{type:'geojson',data:{type:'Feature',geometry:{type:'Point',coordinates:[lng,lat]}}});
+    tripMap.addLayer({id:'temp-place',type:'circle',source:'temp-place',paint:{'circle-color':'#cf9a44','circle-radius':8,'circle-stroke-width':2,'circle-stroke-color':'#fff'}});
+    updateTempCircle(lng,lat,100);
+    document.getElementById('place-form-container').innerHTML=`<div class="adv-place-form"><div class="form-group"><label>Pin name</label><input type="text" id="pf-name" class="form-control" placeholder="e.g. Summit, Café, Hotel"></div><div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:0.375rem;">${lat.toFixed(5)}, ${lng.toFixed(5)}</div><div style="display:flex;gap:0.375rem;"><button class="btn btn-primary btn-sm" onclick="savePlace(${lat},${lng})">drop pin</button><button class="btn btn-outline btn-sm" onclick="cancelPlaceForm()">cancel</button></div></div>`;
+}
+
+function updateTempCircle(lng,lat,radiusM){
+    const id='temp-place-circle';if(tripMap.getLayer(id))tripMap.removeLayer(id);if(tripMap.getSource(id))tripMap.removeSource(id);
+    tripMap.addSource(id,{type:'geojson',data:{type:'Feature',geometry:{type:'Polygon',coordinates:[makeCircle(lng,lat,radiusM)]}}});
+    tripMap.addLayer({id,type:'fill',source:id,paint:{'fill-color':'#cf9a44','fill-opacity':0.2}});
+}
+
+function cancelPlaceForm(){
+    document.getElementById('place-form-container').innerHTML='';
+    document.getElementById('add-pin-btn').textContent='+ add';placingMode=false;document.getElementById('place-hint').classList.remove('active');
+    if(tripMap){['temp-place','temp-place-circle'].forEach(id=>{if(tripMap.getLayer(id))tripMap.removeLayer(id);if(tripMap.getSource(id))tripMap.removeSource(id);});tripMap.getCanvas().style.cursor='';}
+}
+
+function savePlace(lat,lng){
+    const name=document.getElementById('pf-name').value.trim()||'Pin';
+    fetch(`/api/trips/${currentTripId}/places/create/`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},body:JSON.stringify({name,latitude:lat,longitude:lng,radius:100,notes:''})})
+    .then(r=>r.json()).then(data=>{if(data.status==='ok'){cancelPlaceForm();loadTripDetail(currentTripId);}else roamlyAlert(data.error||'Error creating place');});
+}
+
+async function deletePlace(placeId){
+    if(!await roamlyConfirm('Delete this place?', {danger:true}))return;
+    fetch(`/api/trips/${currentTripId}/places/${placeId}/delete/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>loadTripDetail(currentTripId));
+}
+
+// ─── Timeline ─────────────────────────────────────────────────
+
+function loadTimeline(id,page){
+    fetch(`/api/trips/${id}/timeline/?page=${page}`).then(r=>r.json()).then(data=>{
+        timelineHasMore=data.has_more;
+        document.getElementById('timeline-load-more').style.display=data.has_more?'block':'none';
+        if(page===1){
+            const allPhotos=[];
+            data.events.forEach(ev=>{
+                if(ev.type==='blurb'){
+                    timelineEventsMap[ev.id]=ev;
+                    if(ev.photos&&ev.photos.length)ev.photos.forEach(p=>allPhotos.push(p));
+                }
+            });
+            const grid=document.getElementById('adv-photos-grid');
+            grid.innerHTML=allPhotos.length?allPhotos.map(p=>`<img src="${p.thumb}" onclick="window.open('${p.url}','_blank')" alt="">`).join(''):'<span class="adv-no-photos">no photos yet</span>';
+        } else {
+            data.events.forEach(ev=>{ if(ev.type==='blurb') timelineEventsMap[ev.id]=ev; });
+        }
+        if(!data.events.length&&page===1){document.getElementById('timeline-list').innerHTML='<div style="font-size:0.75rem;color:var(--text-muted);padding:0.25rem 0;">no entries yet</div>';return;}
+        const html=data.events.map(ev=>ev.type==='milestone'?renderMilestoneInline(ev):renderPostCard(ev)).join('');
+        if(page===1)document.getElementById('timeline-list').innerHTML=html;
+        else document.getElementById('timeline-list').insertAdjacentHTML('beforeend',html);
+    });
+}
+
+function loadMoreTimeline(){timelinePage++;loadTimeline(currentTripId,timelinePage);}
+
+function renderMilestoneInline(ev){
+    const date=new Date(ev.date).toLocaleDateString();
+    const delBtn=ev.can_delete?`<button class="adv-event-del" onclick="deleteMilestone(${ev.id})">&times;</button>`:'';
+    return `<div class="adv-milestone"><div class="adv-ms-emoji">${ev.emoji}</div><div style="flex:1;"><div class="adv-ms-title">${escHtml(ev.title)}</div>${ev.description?`<div class="adv-ms-desc">${escHtml(ev.description)}</div>`:''}<div class="adv-ms-date">${date}</div></div>${delBtn}</div>`;
+}
+
+function renderPostCard(ev){
+    const lines=(ev.text||'').split('\n').filter(l=>l.trim());
+    const rawTitle=lines[0]?lines[0].replace(/^#+\s*/,''):'';
+    const title=rawTitle.slice(0,60)||((ev.photos&&ev.photos.length)?`📷 ${ev.photos.length} photo${ev.photos.length>1?'s':''}`:'(no text)');
+    const preview=lines.length>1?lines[1].replace(/^#+\s*/,'').replace(/\*+/g,'').slice(0,80):'';
+    const date=new Date(ev.created_at).toLocaleDateString([],{month:'short',day:'numeric'});
+    const metaParts=[escHtml(ev.author),date];
+    if(ev.comment_count>0)metaParts.push(`${ev.comment_count} comment${ev.comment_count!==1?'s':''}`);
+    if(ev.photos&&ev.photos.length)metaParts.push(`${ev.photos.length} photo${ev.photos.length>1?'s':''}`);
+    return `<div class="adv-post-card" id="post-card-${ev.id}" onclick="openPost(${ev.id})">
+        <div class="adv-post-title">${escHtml(title)}</div>
+        ${preview?`<div class="adv-post-preview">${escHtml(preview)}</div>`:''}
+        <div class="adv-post-card-meta">${metaParts.join(' · ')}</div>
+    </div>`;
+}
+
+async function deleteBlurb(blurbId){
+    if(!await roamlyConfirm('Delete this post?', {danger:true}))return;
+    closePost();
+    fetch(`/api/trips/${currentTripId}/blurbs/${blurbId}/delete/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>{timelinePage=1;loadTimeline(currentTripId,1);});
+}
+async function deleteMilestone(msId){if(!await roamlyConfirm('Delete this milestone?', {danger:true}))return;fetch(`/api/trips/${currentTripId}/milestones/${msId}/delete/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>{timelinePage=1;loadTimeline(currentTripId,1);});}
+
+// ─── Post view modal ──────────────────────────────────────────
+
+function openPost(blurbId){
+    const ev=timelineEventsMap[blurbId];
+    if(!ev)return;
+    currentPostId=blurbId;
+    const lbl=document.getElementById('post-modal-label');if(lbl)lbl.textContent='post';
+    const time=new Date(ev.created_at).toLocaleString([],{month:'long',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'});
+    const bodyHtml=renderMarkdown(ev.text||'');
+    const photosHtml=ev.photos&&ev.photos.length?`<div class="adv-post-photos">${ev.photos.map(p=>`<img src="${p.thumb}" onclick="window.open('${p.url}','_blank')" alt="" loading="lazy">`).join('')}</div>`:'';
+    const locHtml=ev.location_name?`<div class="adv-post-loc"><svg width="11" height="14" viewBox="0 0 28 36" fill="none"><path d="M14 2C8.48 2 4 6.48 4 12c0 7.5 10 22 10 22s10-14.5 10-22c0-5.52-4.48-10-10-10z" fill="var(--primary)" opacity=".8"/><circle cx="14" cy="12" r="4" fill="white"/></svg> ${escHtml(ev.location_name)}</div>`:'';
+    const delBtn=ev.can_delete?`<button class="btn btn-danger btn-sm" style="font-size:0.6875rem;padding:3px 10px;margin-left:auto;" onclick="deleteBlurb(${ev.id})">delete</button>`:'';
+    document.getElementById('post-modal-body').innerHTML=`
+        <div class="adv-post-modal-meta"><strong>${escHtml(ev.author)}</strong><span>·</span><span>${escHtml(time)}</span>${delBtn}</div>
+        ${bodyHtml?`<div class="adv-post-body">${bodyHtml}</div>`:''}
+        ${photosHtml}${locHtml}
+        <div class="adv-comments-section">
+            <div class="adv-comments-label">comments</div>
+            <div id="post-comments-list" style="margin-bottom:0.5rem;"></div>
+            <div class="add-comment-row">
+                <input type="text" id="post-comment-input" placeholder="add a comment..." onkeydown="if(event.key==='Enter')submitPostComment(${ev.id})">
+                <button onclick="submitPostComment(${ev.id})">post</button>
+            </div>
+        </div>`;
+    document.getElementById('post-modal-overlay').classList.add('active');
+    loadPostComments(blurbId);
+}
+
+function closePost(){
+    document.getElementById('post-modal-overlay').classList.remove('active');
+    currentPostId=null;
+}
+
+function loadPostComments(blurbId){
+    const list=document.getElementById('post-comments-list');
+    if(!list)return;
+    fetch(`/api/trips/${currentTripId}/blurbs/${blurbId}/comments/`).then(r=>r.json()).then(data=>{
+        if(!list)return;
+        list.innerHTML=data.comments.map(c=>{const d=c.can_delete?`<button style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:0.7rem;padding:0 2px;" onclick="deletePostComment(${c.id})">&times;</button>`:'';return `<div class="comment-item"><span class="comment-author">${escHtml(c.author)}</span><span class="comment-text">${escHtml(c.text)}</span>${d}</div>`;}).join('')||'<div style="font-size:0.75rem;color:var(--text-muted);padding:2px 0;">no comments yet</div>';
+    });
+}
+
+function submitPostComment(blurbId){
+    const input=document.getElementById('post-comment-input');
+    const text=input.value.trim();if(!text)return;
+    fetch(`/api/trips/${currentTripId}/blurbs/${blurbId}/comments/create/`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},body:JSON.stringify({text})}).then(()=>{
+        input.value='';loadPostComments(blurbId);
+        if(timelineEventsMap[blurbId]){
+            timelineEventsMap[blurbId].comment_count=(timelineEventsMap[blurbId].comment_count||0)+1;
+            const card=document.getElementById(`post-card-${blurbId}`);
+            if(card)card.outerHTML=renderPostCard(timelineEventsMap[blurbId]);
+        }
+    });
+}
+
+async function deletePostComment(commentId){
+    if(!await roamlyConfirm('Delete comment?', {danger:true}))return;
+    fetch(`/api/trips/${currentTripId}/comments/${commentId}/delete/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>{if(currentPostId)loadPostComments(currentPostId);});
+}
+
+// ─── Panel side toggle ────────────────────────────────────────
+
+function toggleSide(){
+    currentPanelSide=currentPanelSide==='left'?'right':'left';
+    localStorage.setItem('roamly_panel_side',currentPanelSide);
+    updatePanelSide();
+}
+
+function updatePanelSide(){
+    const sidebar=document.getElementById('trip-sidebar');
+    const floatBtn=document.getElementById('trip-back-float');
+    const embeddedBtn=document.getElementById('back-embedded');
+    if(currentPanelSide==='right'){
+        sidebar.classList.add('panel-right');
+        if(floatBtn)floatBtn.style.display='';
+        if(embeddedBtn)embeddedBtn.style.display='none';
+    }else{
+        sidebar.classList.remove('panel-right');
+        if(floatBtn)floatBtn.style.display='none';
+        if(embeddedBtn)embeddedBtn.style.display='';
+    }
+}
+
+// ─── Markdown renderer ────────────────────────────────────────
+
+function renderMarkdown(text){
+    if(!text)return'';
+    let h=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    h=h.replace(/^# (.+)$/gm,'<h3 style="font-size:1.125rem;font-weight:700;margin:0.875rem 0 0.25rem;line-height:1.3;">$1</h3>');
+    h=h.replace(/^## (.+)$/gm,'<h4 style="font-size:0.9375rem;font-weight:700;margin:0.75rem 0 0.25rem;color:var(--text-muted);">$1</h4>');
+    h=h.replace(/^### (.+)$/gm,'<h4 style="font-size:0.875rem;font-weight:700;margin:0.625rem 0 0.25rem;">$1</h4>');
+    h=h.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+    h=h.replace(/\*(.+?)\*/g,'<em>$1</em>');
+    h=h.replace(/^---$/gm,'<hr style="border:none;border-top:1px solid var(--border);margin:1rem 0;">');
+    h=h.replace(/\n/g,'<br>');
+    h=h.replace(/<\/h[34]><br>/g,(m)=>m.replace('<br>',''));
+    h=h.replace(/<hr[^>]*><br>/g,(m)=>m.replace('<br>',''));
+    return h;
+}
+
+// ─── Format toolbar helpers ───────────────────────────────────
+
+function wrapSelection(prefix,suffix){
+    const ta=document.getElementById('compose-text');
+    const s=ta.selectionStart,e=ta.selectionEnd;
+    const sel=ta.value.slice(s,e)||'text';
+    ta.value=ta.value.slice(0,s)+prefix+sel+suffix+ta.value.slice(e);
+    ta.setSelectionRange(s+prefix.length,s+prefix.length+sel.length);
+    ta.focus();
+}
+
+function insertHeading(){
+    const ta=document.getElementById('compose-text');
+    const s=ta.selectionStart,e=ta.selectionEnd;
+    const sel=ta.value.slice(s,e)||'Title';
+    const clean=sel.replace(/^#+\s*/,'');
+    ta.value=ta.value.slice(0,s)+'# '+clean+ta.value.slice(e);
+    ta.setSelectionRange(s+2,s+2+clean.length);
+    ta.focus();
+}
+
+function toggleMilestoneForm(){const f=document.getElementById('milestone-form');f.style.display=f.style.display==='none'?'block':'none';if(f.style.display==='block'){const now=new Date();document.getElementById('ms-date').value=new Date(now-now.getTimezoneOffset()*60000).toISOString().slice(0,16);}}
+
+async function saveMilestone(){
+    const title=document.getElementById('ms-title').value.trim();if(!title){await roamlyAlert('Title required');return;}
+    fetch(`/api/trips/${currentTripId}/milestones/create/`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},body:JSON.stringify({title,emoji:document.getElementById('ms-emoji').value||'🏁',description:document.getElementById('ms-desc').value,date:document.getElementById('ms-date').value})})
+    .then(r=>r.json()).then(data=>{if(data.status==='ok'){toggleMilestoneForm();document.getElementById('ms-title').value='';document.getElementById('ms-desc').value='';timelinePage=1;loadTimeline(currentTripId,1);}});
+}
+
+// ─── Blurb compose (modal) ────────────────────────────────────
+
+let _composeDraftText = '';
+let _composeDraftReturnToModal = false;
+
+function openCompose(){
+    currentPostId=null;
+    const draft=_composeDraftText;_composeDraftText='';
+    const locDisplay=composeLocation?`${composeLocation.lat.toFixed(4)}, ${composeLocation.lng.toFixed(4)}`:'';
+    document.getElementById('post-modal-body').innerHTML=`
+        <div class="adv-format-toolbar" style="margin-bottom:0.625rem;">
+            <button class="adv-fmt-btn" onclick="wrapSelection('**','**')"><strong>B</strong></button>
+            <button class="adv-fmt-btn" onclick="wrapSelection('*','*')"><em>I</em></button>
+            <button class="adv-fmt-btn" onclick="insertHeading()" style="font-size:0.7rem;">H1</button>
+            <button class="adv-fmt-btn" onclick="wrapSelection('\n\n---\n\n','')" style="letter-spacing:-.05em;">———</button>
+        </div>
+        <textarea class="adv-compose-modal-textarea" id="compose-text" placeholder="write something…"></textarea>
+        <div class="adv-compose-row" style="border-top:1px solid var(--border);padding-top:0.5rem;margin-top:0.5rem;">
+            <label class="adv-compose-tool" style="cursor:pointer;" title="add photos">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                <input type="file" id="compose-photos" accept="image/*" multiple style="display:none;" onchange="previewPhotos(this)">
+            </label>
+            <button class="adv-compose-tool" id="compose-pin-btn" onclick="startBlurbPinModeFromModal()" title="pin on map">
+                <svg width="13" height="17" viewBox="0 0 28 36" fill="none"><path d="M14 2C8.48 2 4 6.48 4 12c0 7.5 10 22 10 22s10-14.5 10-22c0-5.52-4.48-10-10-10z" fill="currentColor" opacity=".9"/><circle cx="14" cy="12" r="4" fill="white"/></svg>
+            </button>
+            <span class="adv-compose-loc" id="compose-location-display">${escHtml(locDisplay)}</span>
+            <button class="adv-compose-tool" id="compose-clear-loc" onclick="clearComposeLocation()" style="${composeLocation?'':'display:none'}">✕</button>
+            <button class="btn btn-primary" style="margin-left:auto;" onclick="submitBlurb()">publish</button>
+        </div>
+        <div class="adv-photo-preview" id="compose-photo-preview" style="margin-top:0.5rem;"></div>`;
+    const lbl=document.getElementById('post-modal-label');if(lbl)lbl.textContent='new post';
+    document.getElementById('post-modal-overlay').classList.add('active');
+    const ta=document.getElementById('compose-text');
+    if(draft)ta.value=draft;
+    ta.focus();
+}
+
+function startBlurbPinModeFromModal(){
+    if(!tripMap)return;
+    _composeDraftText=document.getElementById('compose-text')?.value||'';
+    _composeDraftReturnToModal=true;
+    document.getElementById('post-modal-overlay').classList.remove('active');
+    if(placingMode){placingMode=false;document.getElementById('add-pin-btn').textContent='+ add';document.getElementById('place-hint').classList.remove('active');}
+    blurbPlacingMode=true;
+    document.getElementById('blurb-pin-hint').classList.add('active');
+    if(tripMap)tripMap.getCanvas().style.cursor='crosshair';
+}
+
+function setBlurbLocation(lat,lng){
+    composeLocation={lat,lng};
+    const display=document.getElementById('compose-location-display');
+    const clearBtn=document.getElementById('compose-clear-loc');
+    if(display)display.textContent=`${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    if(clearBtn)clearBtn.style.display='';
+    if(tripMap){
+        if(tripMap.getLayer('blurb-pin'))tripMap.removeLayer('blurb-pin');
+        if(tripMap.getSource('blurb-pin'))tripMap.removeSource('blurb-pin');
+        tripMap.addSource('blurb-pin',{type:'geojson',data:{type:'Feature',geometry:{type:'Point',coordinates:[lng,lat]}}});
+        tripMap.addLayer({id:'blurb-pin',type:'circle',source:'blurb-pin',paint:{'circle-color':'#7ba3b8','circle-radius':8,'circle-stroke-width':2,'circle-stroke-color':'#fff'}});
+    }
+    if(_composeDraftReturnToModal){_composeDraftReturnToModal=false;openCompose();}
+}
+
+function clearComposeLocation(){
+    composeLocation=null;
+    const display=document.getElementById('compose-location-display');
+    const clearBtn=document.getElementById('compose-clear-loc');
+    if(display)display.textContent='';
+    if(clearBtn)clearBtn.style.display='none';
+    if(tripMap){if(tripMap.getLayer('blurb-pin'))tripMap.removeLayer('blurb-pin');if(tripMap.getSource('blurb-pin'))tripMap.removeSource('blurb-pin');}
+}
+
+function previewPhotos(input){
+    const p=document.getElementById('compose-photo-preview');
+    if(!p)return;
+    p.innerHTML='';
+    Array.from(input.files).slice(0,5).forEach(f=>{const img=document.createElement('img');img.src=URL.createObjectURL(f);p.appendChild(img);});
+}
+
+function submitBlurb(){
+    const taEl=document.getElementById('compose-text');
+    const text=taEl?taEl.value.trim():'';if(!text)return;
+    const formData=new FormData();formData.append('text',text);
+    if(composeLocation){formData.append('latitude',composeLocation.lat);formData.append('longitude',composeLocation.lng);formData.append('location_name',document.getElementById('compose-location-display').textContent);}
+    const pi=document.getElementById('compose-photos');
+    if(pi)Array.from(pi.files).slice(0,5).forEach(f=>formData.append('photos',f));
+    fetch(`/api/trips/${currentTripId}/blurbs/create/`,{method:'POST',headers:{'X-CSRFToken':csrfToken},body:formData}).then(r=>r.json()).then(data=>{
+        if(data.status==='ok'){
+            closePost();
+            clearComposeLocation();
+            timelinePage=1;loadTimeline(currentTripId,1);
+        }else roamlyAlert(data.error||'Error posting');
+    });
+}
+
+// ─── Members ──────────────────────────────────────────────────
+
+function renderMembers(members){
+    document.getElementById('add-member-area').style.display=currentIsCreator?'block':'none';
+    const list=document.getElementById('members-list');
+    if(!members.length){list.innerHTML='<div style="font-size:0.8125rem;color:var(--text-muted);">no members yet</div>';return;}
+    list.innerHTML=members.map(m=>{
+        let av;if(m.avatar&&m.avatar.type==='image'&&m.avatar.url)av=`<img src="${m.avatar.url}" alt="">`;else if(m.avatar&&m.avatar.type==='initials')av=`<span style="background:${m.avatar.color};color:#fff;width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:0.6875rem;font-weight:700;">${m.avatar.initials}</span>`;else av=m.username.charAt(0).toUpperCase();
+        const rb=currentIsCreator&&m.role!=='creator'?`<button class="member-remove-btn" onclick="removeMember(${m.user_id})">&times;</button>`:'';
+        return `<div class="member-item"><div class="member-avatar">${av}</div><span class="member-name">${escHtml(m.username)}</span><span class="member-role">${m.pending ? 'invited' : m.role}</span>${rb}</div>`;
+    }).join('');
+}
+
+function addMember(){const input=document.getElementById('add-member-input'),username=input.value.trim();if(!username)return;const e=document.getElementById('add-member-error');e.textContent='';fetch(`/api/trips/${currentTripId}/members/add/`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},body:JSON.stringify({username})}).then(r=>r.json()).then(data=>{if(data.status==='ok'){input.value='';loadTripDetail(currentTripId);window.roamlyToast('Invitation sent — they join from their own account.',{type:'success'});}else e.textContent=data.error||'Error';}).catch(()=>{e.textContent='Could not send the invitation.';});}
+async function removeMember(userId){if(!await roamlyConfirm('Remove this member?', {danger:true}))return;fetch(`/api/trips/${currentTripId}/members/${userId}/remove/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>loadTripDetail(currentTripId));}
+
+async function uploadAdventurePhotos(input){const files=Array.from(input.files).slice(0,10);if(!files.length)return;document.getElementById('adv-photos-grid').innerHTML='<span class="adv-no-photos">uploading...</span>';const fd=new FormData();fd.append('text','📷');files.forEach(f=>fd.append('photos',f));await fetch(`/api/trips/${currentTripId}/blurbs/create/`,{method:'POST',headers:{'X-CSRFToken':csrfToken},body:fd});input.value='';timelinePage=1;loadTimeline(currentTripId,1);}
+
+// ─── Sharing ──────────────────────────────────────────────────
+
+function renderSharingOptions(data){
+    const cr=document.getElementById('creator-share-section'),ml=document.getElementById('member-share-link'),la=document.getElementById('share-link-area'),btn=document.getElementById('toggle-public-btn');
+    if(currentIsCreator){cr.style.display='';ml.style.display='none';if(data.is_public){btn.textContent='make private';btn.classList.remove('btn-outline');btn.classList.add('btn-primary');la.style.display='';document.getElementById('share-slug-input').value=data.public_slug||'';document.getElementById('share-pin-input').value=data.access_pin||'';}else{btn.textContent='make public';btn.classList.add('btn-outline');btn.classList.remove('btn-primary');la.style.display='none';}}
+    else{cr.style.display='none';if(data.is_public){ml.style.display='';document.getElementById('share-link-input').value=`${window.location.origin}/adventure/${data.public_slug}/`;}else ml.style.display='none';}
+}
+
+function togglePublic(){fetch(`/api/trips/${currentTripId}/toggle-public/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(r=>r.json()).then(data=>{currentTripData=Object.assign(currentTripData||{},{is_public:data.is_public,public_slug:data.public_slug});renderSharingOptions(currentTripData);});}
+
+let slugSaveTimeout=null;
+function saveSlug(value){clearTimeout(slugSaveTimeout);const slug=value.trim();if(!slug||slug===(currentTripData&&currentTripData.public_slug))return;slugSaveTimeout=setTimeout(()=>{fetch(`/api/trips/${currentTripId}/update/`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},body:JSON.stringify({public_slug:slug})}).then(r=>r.json()).then(data=>{if(data.error){roamlyAlert(data.error);document.getElementById('share-slug-input').value=currentTripData.public_slug||'';}else{currentTripData.public_slug=data.public_slug;flashShareSaved();}});},600);}
+
+let pinSaveTimeout=null;
+function savePin(value){clearTimeout(pinSaveTimeout);const pin=value.trim();if(pin===(currentTripData&&currentTripData.access_pin))return;pinSaveTimeout=setTimeout(()=>{fetch(`/api/trips/${currentTripId}/update/`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},body:JSON.stringify({access_pin:pin})}).then(r=>r.json()).then(()=>{if(currentTripData)currentTripData.access_pin=pin;flashShareSaved();});},600);}
+
+function flashShareSaved(){const msg=document.getElementById('share-saved-msg');if(!msg)return;msg.style.display='';setTimeout(()=>{msg.style.display='none';},1500);}
+function copyShareLink(){const slug=currentTripData&&currentTripData.public_slug;if(slug)navigator.clipboard.writeText(`${window.location.origin}/adventure/${slug}/`).then(()=>flashShareSaved()).catch(()=>{});}
+
+// ─── Visits ───────────────────────────────────────────────────
+
+function switchVisitsTab(tab,btn){btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');document.getElementById('visits-countries-pane').style.display=tab==='countries'?'':'none';document.getElementById('visits-cities-pane').style.display=tab==='cities'?'':'none';}
+
+function loadVisits(){
+    if(visitsLoaded)return;visitsLoaded=true;
+    fetch(`/api/trips/${currentTripId}/visits/`).then(r=>r.json()).then(data=>{
+        document.getElementById('visits-countries-body').innerHTML=data.countries.map(c=>`<tr><td>${escHtml(c.country)}</td><td>${c.city_count}</td><td>${formatDuration(c.time_spent)}</td></tr>`).join('')||'<tr><td colspan="3" style="color:var(--text-muted)">no data</td></tr>';
+        document.getElementById('visits-cities-body').innerHTML=data.cities.map(c=>`<tr><td>${escHtml(c.city)}</td><td>${escHtml(c.country)}</td><td>${formatDuration(c.time_spent)}</td></tr>`).join('')||'<tr><td colspan="3" style="color:var(--text-muted)">no data</td></tr>';
+    });
+}
+
+function formatDuration(s){if(!s)return'-';if(s<60)return`${s}s`;const d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),m=Math.floor((s%3600)/60);if(d>0)return`${d}d ${h}h`;if(h>0)return`${h}h ${m}m`;return`${m}m`;}
+
+// ─── Map style ────────────────────────────────────────────────
+
+function setMapStyle(btn){
+    document.querySelectorAll('.adv-style-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
+    currentMapStyle=btn.dataset.style;localStorage.setItem('roamly_map_tile_style',currentMapStyle);
+    if(tripMap){tripMap.setStyle(mapStyles[currentMapStyle]);tripMap.once('styledata',()=>{if(currentTripData)renderTripOnMap(currentTripData);if(composeLocation)setBlurbLocation(composeLocation.lat,composeLocation.lng);});}
+}
+
+// ─── Delete & tabs ────────────────────────────────────────────
+
+async function deleteTripFromDetail(){if(!await roamlyConfirm('Delete this adventure? This cannot be undone.', {danger:true}))return;closeSettings();fetch(`/api/trips/${currentTripId}/delete/`,{method:'POST',headers:{'X-CSRFToken':csrfToken}}).then(()=>closeTrip());}
+
+function switchAdvTab(tab,btn){
+    document.querySelectorAll('.adv-tab').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
+    document.querySelectorAll('.adv-tab-panel').forEach(p=>p.style.display='none');
+    document.getElementById('tab-'+tab).style.display='';
+    if(tab==='details'&&!visitsLoaded)loadVisits();
+}
+
+function escHtml(str){if(!str)return'';return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+
+// ─── Init ─────────────────────────────────────────────────────
+
+document.querySelectorAll('.adv-style-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.style === currentMapStyle);
+});
+
+loadAdventures();
+</script>
+{% endblock %}
