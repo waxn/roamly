@@ -1,0 +1,2329 @@
+{% extends "tracker/base.html" %}
+{% load static %}
+{% block title %}Map - Roamly{% endblock %}
+
+{% block extra_css %}
+#map-container {
+    position: relative;
+    height: calc(100vh - var(--nav-h) - var(--bottom-nav-height));
+    width: 100%;
+    z-index: 1;
+}
+#map { width: 100%; height: 100%; }
+
+/* Fog of war — sits above the basemap, below the sidebar/controls. */
+#fog-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+    pointer-events: none;
+    display: none;
+}
+
+/* ── Floating collapsible sidebar ── */
+.map-sidebar {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 10;
+    display: flex;
+    flex-direction: row;
+    align-items: flex-end;
+    pointer-events: none;
+}
+
+.sidebar-content {
+    width: 220px;
+    max-width: 220px;
+    max-height: calc(100vh - var(--nav-h, 56px) - 80px);
+    background: var(--bg-glass);
+
+
+    border: 1px solid var(--border);
+    border-radius:0;
+    padding: 12px 10px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    pointer-events: all;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.22);
+    transition: opacity 0.18s ease, transform 0.22s ease, max-width 0.22s ease, padding 0.18s ease;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+.sidebar-section {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+.sidebar-label {
+    font-size: 0.6rem;
+    font-family: var(--font-body);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--text-muted);
+    padding-bottom: 1px;
+}
+.sidebar-content select,
+.sidebar-content input[type="date"] {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.18);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius:0;
+    padding: 6px 8px;
+    font-size: 0.775rem;
+    font-family: var(--font-body);
+    font-weight: 600;
+    
+    outline: none;
+    box-sizing: border-box;
+    appearance: auto;
+}
+.sidebar-date-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.sidebar-date-row input[type="date"] {
+    font-size: 0.75rem;
+}
+.date-hint {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    
+    letter-spacing: 0.02em;
+    padding: 1px 2px;
+}
+.place-filter[hidden] { display: none; }
+.place-filter-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--primary);
+    background: rgba(232, 118, 61, 0.12);
+    padding: 4px 4px 4px 8px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text);
+}
+.place-filter-chip span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.place-filter-chip button {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0 4px;
+    cursor: pointer;
+}
+.place-filter-chip button:hover { color: var(--text); }
+.date-reset-btn {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.18);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius:0;
+    padding: 5px 8px;
+    font-size: 0.72rem;
+    font-family: var(--font-body);
+    font-weight: 600;
+    
+    cursor: pointer;
+    outline: none;
+}
+.date-reset-btn:hover {
+    color: var(--text);
+    border-color: var(--text-muted);
+}
+
+/* Basemap button group — grid so extra basemaps (e.g. Mapbox) wrap onto their
+   own rows instead of squishing together on one line. Mapbox gets its own
+   group below rather than more columns here: the sidebar is only 220px, so
+   six buttons on one grid cannot label themselves legibly. */
+.sidebar-btn-group {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid var(--border);
+    border-radius:0;
+    padding: 3px;
+    gap: 2px;
+}
+.sidebar-sublabel {
+    font-size: 0.55rem;
+    font-family: var(--font-body);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--text-muted);
+    opacity: 0.75;
+    margin-top: 2px;
+}
+.style-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    padding: 4px 2px;
+    border-radius:0;
+    font-size: 0.7rem;
+    font-family: var(--font-body);
+    font-weight: 700;
+    min-width: 0;
+    overflow: hidden;
+    cursor: pointer;
+    /* Wrap rather than ellipsize: "Outdoor Dark" in a third of the sidebar
+       reads better on two lines than as "Outdoor D…". */
+    white-space: normal;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+    transition: background 0.12s, color 0.12s;
+}
+.style-btn.active { background: var(--primary); color: #fff; }
+.style-btn:not(.active):hover { color: var(--text); }
+
+/* Layer toggle buttons */
+.sidebar-tools { display: flex; flex-direction: column; gap: 4px; }
+.tool-btn {
+    background: rgba(0, 0, 0, 0.12);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 7px 10px;
+    border-radius:0;
+    font-size: 0.775rem;
+    font-family: var(--font-body);
+    font-weight: 700;
+    
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.tool-btn:hover:not(.active) { color: var(--text); border-color: var(--text-muted); }
+.tool-btn.active {
+    background: rgba(59, 130, 246, 0.14);
+    color: var(--primary);
+    border-color: var(--primary);
+}
+.tool-btn-badge {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    font-weight: 700;
+}
+.tool-btn.active .tool-btn-badge { color: var(--primary); }
+
+/* map info — bottom left */
+.map-info {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    z-index: 10;
+    background: var(--bg-glass);
+
+
+    border: 1px solid var(--border);
+    border-radius:0;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    padding: 6px 12px;
+    font-size: 0.75rem;
+    font-family: var(--font-body);
+    font-weight: 700;
+    
+    color: var(--text-muted);
+    max-width: calc(100% - 80px);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* load-more prompt — centered top */
+.map-detail-controls {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    display: none;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius:0;
+    padding: 8px 10px;
+    font-size: 0.75rem;
+    font-family: var(--font-body);
+    font-weight: 700;
+    
+    color: var(--text-muted);
+}
+.map-detail-controls button {
+    border: 1px solid var(--border);
+    background: var(--primary);
+    color: #fff;
+    border-radius:0;
+    font-size: 0.75rem;
+    font-family: var(--font-body);
+    font-weight: 700;
+    
+    padding: 5px 10px;
+    cursor: pointer;
+}
+.map-detail-controls button[disabled] { opacity: 0.6; cursor: default; }
+
+/* Popup theming */
+.maplibregl-popup-content {
+    background: var(--bg-card) !important;
+    color: var(--text) !important;
+    border: 1px solid var(--border) !important;
+    border-radius:0 !important;
+    padding: 12px !important;
+    font-size: 0.8125rem;
+    font-family: var(--font-body) !important;
+    font-weight: 700 !important;
+    
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+.maplibregl-popup-tip { border-top-color: var(--bg-card) !important; }
+.maplibregl-popup-close-button {
+    color: var(--text-muted) !important;
+    width: 28px; height: 28px; line-height: 28px;
+    font-size: 1.25rem; font-weight: 700; border-radius:0;
+    top: 8px; right: 8px; background: rgba(0, 0, 0, 0.08);
+}
+.maplibregl-map, .maplibregl-ctrl {
+    font-family: var(--font-body) !important;
+    font-weight: 700 !important;
+
+}
+
+/* My-places labels.
+   HTML markers rather than a MapLibre symbol layer: the design system's fonts
+   (Fraunces / IBM Plex) don't exist as SDF glyph PBFs, so a symbol layer can
+   only ever render the stock demotiles font. DOM markers also live outside the
+   style, so they survive basemap swaps instead of needing to be re-added.
+   `--place-color` is set inline per marker from CustomPlace.color.
+
+   position MUST stay absolute. This element is the marker itself, so MapLibre
+   also puts .maplibregl-marker on it — and that rule's `position:absolute` is
+   single-class specificity, same as ours, while this block loads later (base
+   .html pulls maplibre-gl.css in <head>, extra_css renders far below). So any
+   position we set here wins over MapLibre's. `relative` dropped the tags into
+   normal flow, where a display:flex box stretched the full viewport width and
+   the transform positioned them from the wrong origin. Absolute also gives the
+   tail's pseudo-elements their containing block. */
+.cell-legend {
+    display: none;
+    padding: 8px 2px 2px;
+}
+.cell-legend.on { display: block; }
+.cell-legend-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-body);
+    font-size: 10px;
+    color: var(--text-secondary, var(--text-muted));
+    padding: 1px 0;
+}
+.cell-legend-swatch {
+    width: 10px;
+    height: 10px;
+    flex: 0 0 auto;
+    border: 1px solid var(--border);
+}
+/* Hue is the carrier; opacity is the signal. Saying so is the whole legend —
+   a gradient bar would imply the colour itself encodes strength. */
+.cell-legend-note {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+.place-tag {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--bg-card);
+    border: 1px solid var(--place-color, var(--border));
+    padding: 3px 7px;
+    font-family: var(--font-body);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    line-height: 1.25;
+    color: var(--text);
+    white-space: nowrap;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+    user-select: none;
+}
+.place-tag-dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    background: var(--place-color, var(--primary));
+}
+/* Tail — two stacked wedges so the box's 1px border carries on around the
+   point. The outer wedge is the border colour; the inner one paints the fill
+   back over it and over the box's bottom border, so the tail reads as part of
+   the box rather than a shape stuck under it.
+   `top` percentages resolve against the padding box, so the outer wedge needs
+   the +1px border back to start at the box's true bottom edge — that puts its
+   7px tip exactly on the marker's anchor coordinate (the -7px marker offset
+   lifts the box by the same amount). The inner wedge deliberately keeps the
+   plain 100% so it starts 1px higher and covers the bottom border. */
+.place-tag::before,
+.place-tag::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    width: 0;
+    height: 0;
+}
+.place-tag::before {
+    top: calc(100% + 1px);
+    margin-left: -6px;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 7px solid var(--place-color, var(--border));
+}
+.place-tag::after {
+    top: 100%;
+    margin-left: -5px;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 5px solid var(--bg-card);
+}
+
+/* Loading bar */
+#map-loading-bar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 5px;
+    z-index: 20;
+    overflow: hidden;
+    display: none;
+    pointer-events: none;
+}
+#map-loading-bar.active { display: block; }
+#map-loading-bar::after {
+    content: '';
+    position: absolute;
+    top: 0; left: -60%; width: 60%; height: 100%;
+    background: var(--primary, #e8763d);
+    animation: loading-sweep 1.4s infinite cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes loading-sweep {
+    0% { left: -60%; }
+    100% { left: 160%; }
+}
+
+/* Replay panel — bottom center */
+.replay-panel {
+    position: absolute;
+    bottom: 52px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 12;
+    display: none;
+    align-items: center;
+    gap: 10px;
+    width: min(640px, calc(100% - 24px));
+    background: var(--bg-glass);
+
+
+    border: 1px solid var(--border);
+    border-radius:0;
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.3);
+    padding: 10px 14px;
+    font-family: var(--font-body);
+    font-weight: 700;
+    
+    color: var(--text);
+}
+.replay-panel.active { display: flex; }
+.replay-panel input[type="date"] {
+    background: var(--bg-card); color: var(--text);
+    border: 1px solid var(--border); border-radius:0;
+    padding: 5px 8px; font-size: 0.75rem;
+    font-family: var(--font-body); font-weight: 700;
+}
+.replay-panel button.rp-btn {
+    border: 1px solid var(--border); background: var(--primary); color: #fff;
+    border-radius:0; font-size: 0.75rem;
+    font-family: var(--font-body); font-weight: 700;
+     padding: 5px 12px; cursor: pointer;
+}
+.replay-panel button.rp-btn[disabled] { opacity: 0.5; cursor: default; }
+.replay-panel input[type="range"] {
+    flex: 1; min-width: 80px; accent-color: var(--primary); cursor: pointer;
+}
+.replay-panel select {
+    background: var(--bg-card); color: var(--text);
+    border: 1px solid var(--border); border-radius:0;
+    padding: 5px 6px; font-size: 0.7rem;
+    font-family: var(--font-body); font-weight: 700;
+}
+.replay-clock {
+    font-size: 0.75rem; color: var(--text-muted);
+    min-width: 132px; text-align: right; white-space: nowrap;
+}
+.replay-close {
+    background: none; border: none; color: var(--text-muted);
+    font-size: 1.1rem; cursor: pointer; padding: 0 2px;
+}
+
+/* ── Right-click context menu ── */
+.map-ctx-menu {
+    position: fixed;
+    z-index: 200;
+    background: var(--bg-glass);
+
+
+    border: 1px solid var(--border);
+    border-radius:0;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.32);
+    padding: 4px;
+    min-width: 168px;
+    display: none;
+    font-family: var(--font-body);
+}
+.map-ctx-menu.open { display: block; }
+.map-ctx-coords {
+    padding: 5px 10px 3px;
+    font-size: 0.67rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.02em;
+    font-family: monospace;
+    white-space: nowrap;
+}
+.map-ctx-divider { height: 1px; background: var(--border); margin: 3px 0; }
+.map-ctx-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius:0;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--text);
+    
+    cursor: pointer;
+    background: none;
+    border: none;
+    width: 100%;
+    text-align: left;
+    transition: background 0.1s;
+    font-family: var(--font-body);
+}
+.map-ctx-item:hover { background: rgba(255,255,255,0.07); }
+.map-ctx-danger { color: var(--accent); }
+.map-ctx-danger:hover { background: rgba(255,107,107,0.12); }
+
+/* ── Add-place quick panel ── */
+.map-addplace-panel {
+    position: absolute;
+    bottom: 52px;
+    right: 12px;
+    z-index: 12;
+    width: 208px;
+    background: var(--bg-glass);
+
+
+    border: 1px solid var(--border);
+    border-radius:0;
+    padding: 12px;
+    box-shadow: 0 10px 32px rgba(0,0,0,0.3);
+    display: none;
+}
+.map-addplace-panel.open { display: block; }
+.map-addplace-title {
+    font-size: 0.6rem;
+    font-family: var(--font-body);
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+.map-addplace-panel input[type="text"] {
+    width: 100%;
+    box-sizing: border-box;
+    background: rgba(0,0,0,0.18);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius:0;
+    padding: 6px 8px;
+    font-size: 0.775rem;
+    font-family: var(--font-body);
+    font-weight: 600;
+    outline: none;
+    margin-bottom: 8px;
+    text-transform: none;
+}
+.map-addplace-panel input[type="text"]::placeholder { color: var(--text-muted); }
+.map-addplace-radius-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.map-addplace-radius-row input[type="range"] { flex: 1; accent-color: var(--primary); }
+.map-addplace-rval {
+    font-size: 0.7rem;
+    font-family: var(--font-body);
+    font-weight: 700;
+    color: var(--text-muted);
+    min-width: 42px;
+    text-align: right;
+    
+}
+.map-addplace-hint {
+    font-size: 0.67rem;
+    font-family: var(--font-body);
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+}
+.map-addplace-actions { display: flex; gap: 6px; }
+.map-addplace-actions button {
+    flex: 1;
+    padding: 7px 0;
+    font-size: 0.775rem;
+    border-radius:0;
+    cursor: pointer;
+    font-family: var(--font-body);
+    font-weight: 700;
+    
+    border: 1px solid var(--border);
+}
+.map-addplace-actions .btn-save {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}
+.map-addplace-actions .btn-save:disabled { opacity: 0.5; cursor: default; }
+.map-addplace-actions .btn-cancel { background: none; color: var(--text-muted); }
+
+/* ═══ beta: newspaper map ═══ */
+.sidebar-content{
+    background:var(--bg-card);border:1px solid var(--border);border-top:4px double var(--rule);
+    box-shadow:none;width:232px;max-width:232px;padding:14px 12px;gap:14px;
+}
+.sidebar-label,.sidebar-sublabel{font-family:var(--label);font-weight:600;font-size:0.62rem;letter-spacing:0.14em;color:var(--text-dim);opacity:1;
+    border-bottom:1px solid var(--hair);padding-bottom:3px}
+.sidebar-content select,.sidebar-content input[type="date"],.date-reset-btn{
+    background:var(--bg-input);border:1px solid var(--border-strong);font-family:var(--serif);font-weight:400;font-size:0.9rem;
+}
+.sidebar-btn-group{background:none;border:1px solid var(--border-strong);padding:0;gap:0}
+.style-btn{font-family:var(--label);font-weight:600;font-size:0.64rem;letter-spacing:0.04em;padding:6px 3px;border-right:1px solid var(--hair)}
+.style-btn.active{background:var(--text);color:var(--bg)}
+.tool-btn{background:none;border:1px solid var(--border);font-family:var(--serif);font-weight:400;font-size:0.95rem;padding:6px 10px}
+.tool-btn:hover:not(.active){border-color:var(--border-strong)}
+.tool-btn.active{background:var(--primary-soft);border-color:var(--primary);color:var(--text)}
+.tool-btn-badge{font-family:var(--label);font-size:0.6rem;letter-spacing:0.1em}
+.place-filter-chip{background:var(--primary-soft);border-color:var(--primary);font-family:var(--serif);font-weight:400}
+.map-info,.map-detail-controls{background:var(--bg-card);border:1px solid var(--border);border-top:2px solid var(--rule);box-shadow:none;
+    font-family:var(--label);font-weight:500;font-size:0.72rem;letter-spacing:0.04em}
+.map-detail-controls button{background:var(--text);color:var(--bg);border-color:var(--text);font-family:var(--label);letter-spacing:0.1em;text-transform:uppercase;font-size:0.66rem}
+.maplibregl-popup-content{background:var(--bg-card) !important;border:1px solid var(--border-strong) !important;border-top:3px double var(--rule) !important;
+    font-family:var(--serif) !important;font-weight:400 !important;box-shadow:none !important;font-size:0.95rem}
+.maplibregl-popup-content b,.maplibregl-popup-content strong{font-family:var(--font-display);font-weight:700}
+.maplibregl-map,.maplibregl-ctrl{font-family:var(--label) !important;font-weight:500 !important}
+.maplibregl-ctrl-group{border-radius:0 !important;background:var(--bg-card) !important;border:1px solid var(--border-strong) !important;box-shadow:none !important}
+{% endblock %}
+
+{% block content %}
+<div id="map-container">
+
+    <!-- Floating left sidebar -->
+    <div class="map-sidebar" id="map-sidebar">
+        <div class="sidebar-content">
+
+            <div class="sidebar-section">
+                <div class="sidebar-label">time range</div>
+                <select id="time-range">
+                    <option value="1">Last hour</option>
+                    <option value="6">Last 6 hours</option>
+                    <option value="24">Last 24 hours</option>
+                    <option value="72">Last 3 days</option>
+                    <option value="168">Last week</option>
+                    <option value="720">Last 30 days</option>
+                    <option value="all">All time</option>
+                </select>
+                <div class="sidebar-date-row">
+                    <input type="date" id="start-date" title="Start day — leave the end blank to show the selected time range from this day">
+                    <input type="date" id="end-date" title="End day (optional) — set both for an exact range">
+                    <div class="date-hint" id="date-hint" hidden></div>
+                    <button class="date-reset-btn" id="date-reset" type="button" hidden>reset to default view</button>
+                </div>
+            </div>
+
+            <div class="sidebar-section place-filter" id="place-filter" hidden>
+                <div class="sidebar-label">place</div>
+                <div class="place-filter-chip">
+                    <span id="place-filter-label"></span>
+                    <button type="button" id="place-filter-clear" title="Show everywhere again" aria-label="Clear place filter">&times;</button>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-label">device</div>
+                <select id="device-filter">
+                    <option value="">All devices</option>
+                    {% for device in devices %}
+                    <option value="{{ device.device_id }}">{{ device.name|default:device.device_id }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="sidebar-section" id="basemap-section">
+                <div class="sidebar-label">basemap</div>
+                {# Buttons built by map-core.js from #roamly-basemaps (Admin Panel → Basemaps). #}
+            </div>
+
+            <div class="sidebar-section">
+                <div class="sidebar-label">layers</div>
+                <div class="sidebar-tools">
+                    <button class="tool-btn" id="globe-btn" type="button">
+                        globe
+                        <span class="tool-btn-badge" id="globe-badge"></span>
+                    </button>
+                    <button class="tool-btn" id="scratch-btn" type="button">
+                        scratch map
+                        <span class="tool-btn-badge" id="scratch-badge"></span>
+                    </button>
+                    <button class="tool-btn" id="places-btn" type="button">
+                        my places
+                        <span class="tool-btn-badge" id="places-badge"></span>
+                    </button>
+                    <button class="tool-btn" id="fog-btn" type="button">
+                        fog of war
+                        <span class="tool-btn-badge" id="fog-badge"></span>
+                    </button>
+                    {% comment %}Two toggles rather than one, because they obey
+                       different clocks: the signal layer follows the range
+                       picker above, while towers are always all-time — a tower
+                       you once saw stays one, the same argument fog of war
+                       makes for its own layer.{% endcomment %}
+                    <button class="tool-btn" id="cellsig-btn" type="button"
+                            title="Signal strength at each place a reading was taken. Follows the time range above.">
+                        cell signal
+                        <span class="tool-btn-badge" id="cellsig-badge"></span>
+                    </button>
+                    <button class="tool-btn" id="cellcov-btn" type="button"
+                            title="Where each network actually had signal — only ground a reading was taken on, never interpolated.">
+                        cell coverage
+                        <span class="tool-btn-badge" id="cellcov-badge"></span>
+                    </button>
+                    <button class="tool-btn" id="celltower-btn" type="button"
+                            title="Estimated tower positions, from all time regardless of the range above. A tower only ever seen from one spot is drawn as a ring, not a dot.">
+                        cell towers
+                        <span class="tool-btn-badge" id="celltower-badge"></span>
+                    </button>
+                    {% comment %}Hides the GPS track layers so the cell layers
+                       above are readable on their own. Reuses replay's existing
+                       setBaseLayersVisible so there is one definition of "the
+                       base layers".{% endcomment %}
+                    <button class="tool-btn" id="hidetrack-btn" type="button"
+                            title="Hide the GPS points and lines, leaving only the layers above.">
+                        hide track
+                        <span class="tool-btn-badge" id="hidetrack-badge"></span>
+                    </button>
+                    {% if ROAD_SNAP_ENABLED %}
+                    {% comment %}Display-only, this-browser-only. Deliberately NOT called
+                       "snap to roads": that is the name of the account-wide
+                       master switch in Settings, and two controls sharing one
+                       name is why the real switch went unfound.{% endcomment %}
+                    <button class="tool-btn" id="snap-btn" type="button"
+                            title="Show this map's points on their snapped road positions. Display only, and only in this browser — road snapping itself is switched on for your whole account in Settings → Road Snapping.">
+                        snapped view
+                        <span class="tool-btn-badge" id="snap-badge"></span>
+                    </button>
+                    {% endif %}
+                    <button class="tool-btn" id="inferred-btn" type="button">
+                        filled gaps
+                        <span class="tool-btn-badge" id="inferred-badge"></span>
+                    </button>
+                    <button class="tool-btn" id="suspect-btn" type="button">
+                        hide outliers
+                        <span class="tool-btn-badge" id="suspect-badge"></span>
+                    </button>
+                    <button class="tool-btn" id="replay-btn" type="button">
+                        replay day
+                        <span class="tool-btn-badge" id="replay-badge"></span>
+                    </button>
+                </div>
+                {% comment %}The speed gradient gets away without a legend
+                   because "fast is red" is intuitive; "-95 dBm is green" is
+                   not.{% endcomment %}
+                <div class="cell-legend" id="cell-legend">
+                    <div id="cell-legend-rows"></div>
+                    <div class="cell-legend-note">fainter = weaker signal</div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Replay panel (contextual, bottom center) -->
+    <div class="replay-panel" id="replay-panel">
+        <input type="date" id="replay-date" title="Day to replay">
+        <button class="rp-btn" id="replay-play" type="button" disabled>play</button>
+        <input type="range" id="replay-slider" min="0" max="1000" value="0" disabled>
+        <select id="replay-speed" title="Playback speed (track time per real second)">
+            <option value="60">1 min/s</option>
+            <option value="300">5 min/s</option>
+            <option value="900" selected>15 min/s</option>
+            <option value="3600">1 hr/s</option>
+            <option value="10800">3 hr/s</option>
+        </select>
+        <span class="replay-clock" id="replay-clock">—</span>
+        <button class="replay-close" id="replay-close" type="button" title="Close replay">&times;</button>
+    </div>
+
+    <!-- Right-click context menu -->
+    <div class="map-ctx-menu" id="map-ctx-menu">
+        <div class="map-ctx-coords" id="ctx-coords"></div>
+        <div class="map-ctx-divider"></div>
+        <button class="map-ctx-item map-ctx-danger" id="ctx-delete-point" style="display:none;">× delete this point</button>
+        <button class="map-ctx-item" id="ctx-add-place">+ add place here</button>
+        <button class="map-ctx-item" id="ctx-copy-coords">copy coordinates</button>
+    </div>
+
+    <!-- Quick add-place panel -->
+    <div class="map-addplace-panel" id="map-addplace-panel">
+        <div class="map-addplace-title">new place</div>
+        <input type="text" id="addplace-name" placeholder="home, work, coffee shop…" maxlength="200" autocomplete="off">
+        <div class="map-addplace-radius-row">
+            <input type="range" id="addplace-radius" min="25" max="2000" step="25" value="150">
+            <span class="map-addplace-rval" id="addplace-rval">150 m</span>
+        </div>
+        <div class="map-addplace-hint">drag the marker to reposition.</div>
+        <div class="map-addplace-actions">
+            <button class="btn-save" id="addplace-save">save</button>
+            <button class="btn-cancel" id="addplace-cancel">cancel</button>
+        </div>
+    </div>
+
+    <div id="map-loading-bar"></div>
+    <div class="map-info" id="map-info">loading...</div>
+    <div class="map-detail-controls" id="map-detail-controls">
+        <span id="map-detail-hint"></span>
+        <button id="map-load-more-btn" type="button">load all points</button>
+    </div>
+
+    <div id="map"></div>
+    <canvas id="fog-canvas"></canvas>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ basemaps|json_script:"roamly-basemaps" }}
+<script>
+window.ROAMLY_MAP_CFG = {
+    mapboxToken: '{{ MAPBOX_TOKEN|escapejs }}',
+    cartoQs: '{{ CARTO_TILE_QS|escapejs }}',
+    csrfToken: '{{ csrf_token }}',
+    snapAvailable: {{ ROAD_SNAP_ENABLED|yesno:"true,false" }},
+    // Gates the whole Trip Lines mode in map-core.js. Not set on the editor
+    // page, so the editor's own "connect points with lines" behaviour (a
+    // simple in-place overlay on the accumulated detail layer) is untouched.
+    tripLinesEnabled: true,
+    // All time draws a cached overview of every visited cell and switches to
+    // the PostGIS vector tiles as you zoom in. PostGIS-only; the editor and
+    // SQLite installs keep the decimated /api/track/ path.
+    allTimeOverview: {{ has_postgis|yesno:"true,false" }},
+};
+window.ROAMLY_MAP_HOOKS = {};
+</script>
+<script src="{% static 'tracker/map-core.js' %}"></script>
+<script>
+
+// ═══════════════════════════════════════════════════════════════════
+// 3D globe projection (MapLibre GL v5)
+// ═══════════════════════════════════════════════════════════════════
+const globeBtn = document.getElementById('globe-btn');
+let globeOn = localStorage.getItem('roamly_globe') === 'on';
+
+function applyProjection() {
+    try { map.setProjection({ type: globeOn ? 'globe' : 'mercator' }); } catch (e) {}
+}
+globeBtn.classList.toggle('active', globeOn);
+
+globeBtn.addEventListener('click', () => {
+    globeOn = !globeOn;
+    localStorage.setItem('roamly_globe', globeOn ? 'on' : 'off');
+    globeBtn.classList.toggle('active', globeOn);
+    applyProjection();
+    // Fog is a flat-screen mask — it can't be drawn over a globe. See setFog().
+    if (globeOn && fogOn) setFog(false);
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Scratch map — highlight countries visited, US states individually
+// ═══════════════════════════════════════════════════════════════════
+const SCRATCH_URL = "{% static 'tracker/data/world-countries.json' %}";
+const SCRATCH_STATES_URL = "{% static 'tracker/data/us-states.json' %}";
+const scratchBtn = document.getElementById('scratch-btn');
+const scratchBadge = document.getElementById('scratch-badge');
+let scratchOn = false;
+let scratchGeo = null;
+let scratchStatesGeo = null;
+let visitedCodes = [];
+let visitedCount = 0;
+let visitedStates = [];
+
+async function loadScratchData() {
+    if (!scratchGeo) scratchGeo = await fetch(SCRATCH_URL).then(r => { if (!r.ok) throw new Error('scratch geo failed'); return r.json(); });
+    if (!scratchStatesGeo) scratchStatesGeo = await fetch(SCRATCH_STATES_URL).then(r => { if (!r.ok) throw new Error('scratch states geo failed'); return r.json(); });
+    if (!visitedCodes.length) {
+        try {
+            const d = await fetch('/api/countries/').then(r => r.json());
+            visitedCodes = d.codes || [];
+            visitedCount = d.count || visitedCodes.length;
+            visitedStates = d.states || [];
+        } catch (e) { visitedCodes = []; visitedStates = []; }
+    }
+}
+
+function addScratchLayers() {
+    if (!scratchGeo || map.getSource('scratch-src')) return;
+    // US is shaded state-by-state below, so the whole-country fill excludes it
+    // to avoid painting a flat blob underneath the per-state detail.
+    map.addSource('scratch-src', { type: 'geojson', data: scratchGeo });
+    map.addLayer({
+        id: 'scratch-fill', type: 'fill', source: 'scratch-src',
+        filter: ['all', ['in', ['get', 'cc'], ['literal', visitedCodes]], ['!=', ['get', 'cc'], 'US']],
+        paint: { 'fill-color': '#d0694a', 'fill-opacity': 0.45 },
+    });
+    map.addLayer({
+        id: 'scratch-line', type: 'line', source: 'scratch-src',
+        filter: ['all', ['in', ['get', 'cc'], ['literal', visitedCodes]], ['!=', ['get', 'cc'], 'US']],
+        paint: { 'line-color': '#d0694a', 'line-width': 1, 'line-opacity': 0.9 },
+    });
+
+    map.addSource('scratch-states-src', { type: 'geojson', data: scratchStatesGeo });
+    map.addLayer({
+        id: 'scratch-states-fill', type: 'fill', source: 'scratch-states-src',
+        filter: ['in', ['get', 'name'], ['literal', visitedStates]],
+        paint: { 'fill-color': '#d0694a', 'fill-opacity': 0.45 },
+    });
+    map.addLayer({
+        id: 'scratch-states-line', type: 'line', source: 'scratch-states-src',
+        filter: ['in', ['get', 'name'], ['literal', visitedStates]],
+        paint: { 'line-color': '#d0694a', 'line-width': 1, 'line-opacity': 0.9 },
+    });
+}
+
+function removeScratchLayers() {
+    ['scratch-fill', 'scratch-line', 'scratch-states-fill', 'scratch-states-line'].forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
+    ['scratch-src', 'scratch-states-src'].forEach(s => { if (map.getSource(s)) map.removeSource(s); });
+}
+
+scratchBtn.addEventListener('click', async () => {
+    scratchOn = !scratchOn;
+    scratchBtn.classList.toggle('active', scratchOn);
+    if (scratchOn) {
+        try {
+            await loadScratchData();
+        } catch (e) {
+            scratchOn = false;
+            scratchBtn.classList.toggle('active', false);
+            if (window.roamlyToast) window.roamlyToast('Failed to load scratch map data.', { type: 'error' });
+            return;
+        }
+        addScratchLayers();
+        const n = visitedCount || visitedCodes.length;
+        const s = visitedStates.length;
+        const parts = [];
+        if (n) parts.push(`${n} ${n === 1 ? 'country' : 'countries'}`);
+        if (s) parts.push(`${s} ${s === 1 ? 'state' : 'states'}`);
+        scratchBadge.textContent = parts.join(', ');
+    } else {
+        removeScratchLayers();
+        scratchBadge.textContent = '';
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// My Places — optional layer of the user's custom geofences
+// ═══════════════════════════════════════════════════════════════════
+const placesBtn = document.getElementById('places-btn');
+const placesBadge = document.getElementById('places-badge');
+let placesOn = localStorage.getItem('roamly_show_places') === 'on';
+let myPlaces = null;
+let placeMarkers = [];
+
+function placeCircleGeoJSON(lat, lng, radiusM, props, steps = 64) {
+    const coords = [];
+    const latR = radiusM / 111320.0;
+    const lngR = radiusM / (111320.0 * Math.cos(lat * Math.PI / 180));
+    for (let i = 0; i <= steps; i++) {
+        const t = (i / steps) * 2 * Math.PI;
+        coords.push([lng + lngR * Math.cos(t), lat + latR * Math.sin(t)]);
+    }
+    return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] }, properties: props };
+}
+
+async function loadMyPlaces() {
+    if (myPlaces) return;
+    try {
+        const d = await fetch('/api/places/').then(r => r.json());
+        myPlaces = d.places || [];
+    } catch (e) { myPlaces = []; }
+}
+
+// Name tags are DOM markers, not a symbol layer — see .place-tag in the CSS.
+// They're anchored bottom-centre and lifted by the tail's height so the tail
+// tip lands exactly on the place's centre coordinate.
+function addPlaceMarkers() {
+    removePlaceMarkers();
+    (myPlaces || []).forEach(p => {
+        const el = document.createElement('div');
+        el.className = 'place-tag';
+        el.style.setProperty('--place-color', p.color || 'var(--primary)');
+        const dot = document.createElement('span');
+        dot.className = 'place-tag-dot';
+        const name = document.createElement('span');
+        name.textContent = p.name;
+        el.append(dot, name);
+        placeMarkers.push(
+            new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -7] })
+                .setLngLat([p.lng, p.lat])
+                .addTo(map)
+        );
+    });
+}
+
+function removePlaceMarkers() {
+    placeMarkers.forEach(m => m.remove());
+    placeMarkers = [];
+}
+
+// Circles are GL layers, so they're tied to the style and must be re-added
+// after every style swap. Guards internally instead of at the call sites so
+// the styledata retry below can just call it blind.
+function addPlacesLayers() {
+    if (!placesOn || !myPlaces || !myPlaces.length) return;
+    if (!map.isStyleLoaded() || map.getSource('myplaces-src')) return;
+    const circles = myPlaces.map(p => placeCircleGeoJSON(p.lat, p.lng, p.radius_m, { name: p.name, color: p.color }));
+    map.addSource('myplaces-src', { type: 'geojson', data: { type: 'FeatureCollection', features: circles } });
+    map.addLayer({ id: 'myplaces-fill', type: 'fill', source: 'myplaces-src',
+        paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.15 } });
+    map.addLayer({ id: 'myplaces-line', type: 'line', source: 'myplaces-src',
+        paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.9 } });
+}
+
+function removePlacesLayers() {
+    ['myplaces-fill', 'myplaces-line'].forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
+    if (map.getSource('myplaces-src')) map.removeSource('myplaces-src');
+    removePlaceMarkers();
+}
+
+async function applyPlacesToggle() {
+    placesBtn.classList.toggle('active', placesOn);
+    if (placesOn) {
+        await loadMyPlaces();
+        if (!placesOn) return;  // toggled back off while the fetch was in flight
+        addPlaceMarkers();
+        addPlacesLayers();      // no-ops if the style isn't ready; styledata retries
+        const n = (myPlaces || []).length;
+        placesBadge.textContent = n ? `${n} ${n === 1 ? 'place' : 'places'}` : 'none yet';
+    } else {
+        removePlacesLayers();
+        placesBadge.textContent = '';
+    }
+}
+
+placesBtn.addEventListener('click', async () => {
+    placesOn = !placesOn;
+    localStorage.setItem('roamly_show_places', placesOn ? 'on' : 'off');
+    await applyPlacesToggle();
+});
+
+if (placesOn) applyPlacesToggle();
+
+// ═══════════════════════════════════════════════════════════════════
+// Cell coverage — signal readings, measured coverage, and towers
+//
+// Three independent toggles, because they answer different questions and obey
+// different clocks. Signal and coverage follow the range picker; towers are
+// deliberately all-time, the same reasoning fog of war applies to itself — a
+// tower you once saw stays one.
+//
+// Colour is CARRIER (hue) x SIGNAL (opacity). The hues come from the server so
+// the map and the Cell page cannot disagree about which network is which.
+// ═══════════════════════════════════════════════════════════════════
+const cellSigBtn = document.getElementById('cellsig-btn');
+const cellSigBadge = document.getElementById('cellsig-badge');
+const cellCovBtn = document.getElementById('cellcov-btn');
+const cellCovBadge = document.getElementById('cellcov-badge');
+const cellTowerBtn = document.getElementById('celltower-btn');
+const cellTowerBadge = document.getElementById('celltower-badge');
+const cellLegend = document.getElementById('cell-legend');
+const cellLegendRows = document.getElementById('cell-legend-rows');
+let cellSigOn = localStorage.getItem('roamly_cell_signal') === 'on';
+let cellCovOn = localStorage.getItem('roamly_cell_coverage') === 'on';
+let cellTowersOn = localStorage.getItem('roamly_cell_towers') === 'on';
+let cellSigData = null, cellCovData = null, cellTowerData = null;
+let cellCarriers = [];
+
+// Signal drives opacity, not hue — hue is spoken for by the carrier. The
+// breakpoints are the 3GPP-meaningful RSRP thresholds, so a faint dot really
+// does mean a reading you would have noticed.
+const CELL_ALPHA = [
+    'interpolate', ['linear'], ['get', 'dbm'],
+    -115, 0.14, -105, 0.30, -95, 0.50, -85, 0.72, -75, 0.92,
+];
+
+function cellMergeCarriers(list) {
+    if (!list || !list.length) return;
+    const seen = new Set(cellCarriers.map(c => c.key));
+    list.forEach(c => { if (!seen.has(c.key)) cellCarriers.push(c); });
+    renderCellLegend();
+}
+
+function renderCellLegend() {
+    const show = (cellSigOn || cellCovOn || cellTowersOn) && cellCarriers.length;
+    cellLegend.classList.toggle('on', !!show);
+    if (!show) return;
+    cellLegendRows.innerHTML = '';
+    cellCarriers.forEach(c => {
+        const row = document.createElement('div');
+        row.className = 'cell-legend-row';
+        const sw = document.createElement('span');
+        sw.className = 'cell-legend-swatch';
+        sw.style.background = c.color;
+        const nm = document.createElement('span');
+        nm.textContent = c.name;
+        row.append(sw, nm);
+        cellLegendRows.appendChild(row);
+    });
+}
+
+// ── Fetching ───────────────────────────────────────────────────────
+async function loadCellSignal(force) {
+    if (cellSigData && !force) return;
+    try {
+        const d = await fetch(`/api/cells/?${buildFilterParams()}`).then(r => r.json());
+        const rats = d.rats || [], roles = d.roles || [], cells = d.cells || [];
+        const sites = d.sites || [];
+        const car = d.carriers || [];
+        cellMergeCarriers(car);
+        cellSigData = (d.samples || []).map(s => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [s[0], s[1]] },
+            properties: {
+                // A null dbm keeps the cold end of the opacity ramp rather than
+                // dropping out of the interpolate, which paints nothing.
+                dbm: s[2] === null ? -121 : s[2],
+                rat: rats[s[3]] || '', role: roles[s[4]] || '',
+                cell: cells[s[5]] || '',
+                site: s[14] >= 0 ? (sites[s[14]] || '') : '',
+                color: (car[s[6]] || {}).color || '#8a8f98',
+                carrier: (car[s[6]] || {}).name || 'Unknown',
+                ts: s[7], level: s[8], band: s[9], sim: s[10],
+                pci: s[11], earfcn: s[12], rsrq: s[13],
+            },
+        }));
+        cellSigData.total = d.count || 0;
+        cellSigData.stride = d.stride || 1;
+    } catch (e) { cellSigData = []; }
+}
+
+async function loadCellCoverage(force) {
+    if (cellCovData && !force) return;
+    try {
+        const d = await fetch(`/api/cells/coverage/?${buildFilterParams()}`).then(r => r.json());
+        const car = d.carriers || [];
+        cellMergeCarriers(car);
+        const g = d.cells_per_deg || 800;
+        cellCovData = (d.cells || []).map(c => {
+            const s = c[0] / g, w = c[1] / g, n = (c[0] + 1) / g, e = (c[1] + 1) / g;
+            return {
+                type: 'Feature',
+                geometry: { type: 'Polygon', coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]] },
+                properties: {
+                    dbm: c[3], samples: c[4],
+                    color: (car[c[2]] || {}).color || '#8a8f98',
+                    carrier: (car[c[2]] || {}).name || 'Unknown',
+                },
+            };
+        });
+    } catch (e) { cellCovData = []; }
+}
+
+async function loadCellTowers() {
+    if (cellTowerData) return;
+    try {
+        const d = await fetch('/api/cells/towers/').then(r => r.json());
+        const car = d.carriers || [];
+        cellMergeCarriers(car);
+        cellTowerData = (d.towers || []).map(t => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [t.lng, t.lat] },
+            properties: Object.assign({}, t, {
+                color: (car[t.carrier] || {}).color || '#8a8f98',
+                carrierName: (car[t.carrier] || {}).name || 'Unknown',
+                // Metres-per-pixel stops for the uncertainty ring. MapLibre
+                // requires ['zoom'] to be the input of a TOP-LEVEL interpolate,
+                // so a pixel floor cannot be applied by wrapping it in ['max'] —
+                // that throws and silently kills the whole layer. The floor is
+                // baked into per-feature stop values instead, the same trick the
+                // dwell blobs use.
+                ...towerRingStops(t.lat, t.range_m || 0),
+            }),
+        }));
+    } catch (e) { cellTowerData = []; }
+}
+
+const TOWER_RING_MIN_PX = 6;
+function towerRingStops(lat, meters) {
+    const out = {};
+    for (let z = 0; z <= 20; z += 2) {
+        const mpp = 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, z);
+        out['px_z' + z] = Math.max(TOWER_RING_MIN_PX, meters / mpp);
+    }
+    return out;
+}
+function towerRingExpr() {
+    const stops = [];
+    for (let z = 0; z <= 20; z += 2) stops.push(z, ['get', 'px_z' + z]);
+    return ['interpolate', ['exponential', 2], ['zoom'], ...stops];
+}
+
+// ── Layers (all guard internally, so the styledata retry can call blind) ──
+function addCellCoverageLayers() {
+    if (!cellCovOn || !cellCovData || !cellCovData.length) return;
+    if (!map.isStyleLoaded() || map.getSource('cellcov-src')) return;
+    map.addSource('cellcov-src', { type: 'geojson',
+        data: { type: 'FeatureCollection', features: cellCovData } });
+    map.addLayer({ id: 'cellcov-layer', type: 'fill', source: 'cellcov-src',
+        paint: { 'fill-color': ['get', 'color'], 'fill-opacity': CELL_ALPHA } });
+}
+function removeCellCoverageLayers() {
+    if (map.getLayer('cellcov-layer')) map.removeLayer('cellcov-layer');
+    if (map.getSource('cellcov-src')) map.removeSource('cellcov-src');
+}
+
+function addCellSignalLayers() {
+    if (!cellSigOn || !cellSigData || !cellSigData.length) return;
+    if (!map.isStyleLoaded() || map.getSource('cellsig-src')) return;
+    map.addSource('cellsig-src', { type: 'geojson',
+        data: { type: 'FeatureCollection', features: cellSigData } });
+    map.addLayer({ id: 'cellsig-layer', type: 'circle', source: 'cellsig-src',
+        paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 2, 12, 4, 16, 7],
+            'circle-color': ['get', 'color'],
+            'circle-opacity': CELL_ALPHA,
+        } });
+}
+function removeCellSignalLayers() {
+    if (map.getLayer('cellsig-layer')) map.removeLayer('cellsig-layer');
+    if (map.getSource('cellsig-src')) map.removeSource('cellsig-src');
+}
+
+function addCellTowerLayers() {
+    if (!cellTowersOn || !cellTowerData || !cellTowerData.length) return;
+    if (!map.isStyleLoaded() || map.getSource('celltower-src')) return;
+    map.addSource('celltower-src', { type: 'geojson',
+        data: { type: 'FeatureCollection', features: cellTowerData } });
+    // An unconstrained tower gets a RING at its estimated range, not a dot.
+    // Every reading of it came from effectively one spot, so the data says
+    // roughly how far away it is and nothing at all about which direction —
+    // drawing a confident dot there put towers inside people's houses.
+    map.addLayer({ id: 'celltower-ring', type: 'circle', source: 'celltower-src',
+        filter: ['==', ['get', 'confidence'], 'unconstrained'],
+        paint: {
+            'circle-radius': towerRingExpr(),
+            'circle-color': ['get', 'color'],
+            'circle-opacity': 0.05,
+            'circle-stroke-width': 1.5,
+            'circle-stroke-color': ['get', 'color'],
+            'circle-stroke-opacity': 0.55,
+        } });
+    map.addLayer({ id: 'celltower-layer', type: 'circle', source: 'celltower-src',
+        paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'],
+                6, ['max', 3, ['*', 1.4, ['ln', ['max', 1, ['get', 'samples']]]]],
+                14, ['max', 6, ['*', 2.6, ['ln', ['max', 1, ['get', 'samples']]]]]],
+            'circle-color': ['get', 'color'],
+            // A hollow centre for an unconstrained tower: it marks where you
+            // stood, not where the tower is.
+            'circle-opacity': ['case', ['==', ['get', 'confidence'], 'unconstrained'], 0.0, 0.7],
+            'circle-stroke-width': ['case', ['==', ['get', 'confidence'], 'unconstrained'], 1, 1.5],
+            'circle-stroke-color': ['get', 'color'],
+            'circle-stroke-opacity': ['case', ['==', ['get', 'confidence'], 'unconstrained'], 0.5, 0.95],
+        } });
+    map.addLayer({ id: 'celltower-label', type: 'symbol', source: 'celltower-src',
+        minzoom: 12,
+        layout: { 'text-field': ['upcase', ['get', 'rat']], 'text-size': 10,  // strongest RAT at the site
+                  'text-offset': [0, 1.3], 'text-allow-overlap': false },
+        paint: { 'text-color': ['get', 'color'], 'text-halo-color': '#000', 'text-halo-width': 1 } });
+}
+function removeCellTowerLayers() {
+    ['celltower-label', 'celltower-layer', 'celltower-ring'].forEach(l => {
+        if (map.getLayer(l)) map.removeLayer(l);
+    });
+    if (map.getSource('celltower-src')) map.removeSource('celltower-src');
+}
+
+// ── Toggles ────────────────────────────────────────────────────────
+async function applyCellSignalToggle(force) {
+    cellSigBtn.classList.toggle('active', cellSigOn);
+    if (cellSigOn) {
+        cellSigBadge.textContent = 'loading…';
+        await loadCellSignal(force);
+        if (!cellSigOn) return;  // toggled back off while the fetch was in flight
+        removeCellSignalLayers();
+        addCellSignalLayers();   // no-ops if the style isn't ready; styledata retries
+        const n = cellSigData.length, total = cellSigData.total || n;
+        cellSigBadge.textContent = n
+            ? (cellSigData.stride > 1 ? `${n} of ${total}` : `${n} readings`) : 'none yet';
+    } else {
+        removeCellSignalLayers();
+        cellSigBadge.textContent = '';
+    }
+    renderCellLegend();
+}
+
+async function applyCellCoverageToggle(force) {
+    cellCovBtn.classList.toggle('active', cellCovOn);
+    if (cellCovOn) {
+        cellCovBadge.textContent = 'loading…';
+        await loadCellCoverage(force);
+        if (!cellCovOn) return;
+        removeCellCoverageLayers();
+        addCellCoverageLayers();
+        const n = cellCovData.length;
+        cellCovBadge.textContent = n ? `${n} areas` : 'none yet';
+    } else {
+        removeCellCoverageLayers();
+        cellCovBadge.textContent = '';
+    }
+    renderCellLegend();
+}
+
+async function applyCellTowerToggle() {
+    cellTowerBtn.classList.toggle('active', cellTowersOn);
+    if (cellTowersOn) {
+        cellTowerBadge.textContent = 'loading…';
+        await loadCellTowers();
+        if (!cellTowersOn) return;
+        addCellTowerLayers();
+        const n = cellTowerData.length;
+        const weak = cellTowerData.filter(t => t.properties.confidence === 'unconstrained').length;
+        cellTowerBadge.textContent = n
+            ? (weak ? `${n} (${weak} unplaced)` : `${n} towers`) : 'none yet';
+    } else {
+        removeCellTowerLayers();
+        cellTowerBadge.textContent = '';
+    }
+    renderCellLegend();
+}
+
+cellSigBtn.addEventListener('click', async () => {
+    cellSigOn = !cellSigOn;
+    localStorage.setItem('roamly_cell_signal', cellSigOn ? 'on' : 'off');
+    await applyCellSignalToggle();
+});
+cellCovBtn.addEventListener('click', async () => {
+    cellCovOn = !cellCovOn;
+    localStorage.setItem('roamly_cell_coverage', cellCovOn ? 'on' : 'off');
+    await applyCellCoverageToggle();
+});
+cellTowerBtn.addEventListener('click', async () => {
+    cellTowersOn = !cellTowersOn;
+    localStorage.setItem('roamly_cell_towers', cellTowersOn ? 'on' : 'off');
+    await applyCellTowerToggle();
+});
+
+// ── Popups ─────────────────────────────────────────────────────────
+// Registered once, unconditionally. MapLibre's delegated layer listeners don't
+// dedupe, so registering these inside the add* functions would stack a firing
+// per past style swap.
+function cellBars(level) {
+    if (level === null || level === undefined) return '';
+    return ' · ' + '▮'.repeat(Math.max(0, level)) + '▯'.repeat(Math.max(0, 4 - level));
+}
+function cellSimLabel(s) {
+    return (s === undefined || s === null || s < 0) ? 'default SIM' : `SIM ${s + 1}`;
+}
+function cellPopup(lngLat, html) {
+    new maplibregl.Popup({ closeButton: true, maxWidth: '300px' })
+        .setLngLat(lngLat)
+        .setHTML(`<div style="font-family:var(--font-body);font-size:12px;line-height:1.55">${html}</div>`)
+        .addTo(map);
+}
+
+map.on('click', 'cellsig-layer', e => {
+    const p = e.features[0].properties;
+    const when = p.ts ? new Date(p.ts * 1000).toLocaleString() : '';
+    const band = p.band ? `Band ${p.band}` : (p.earfcn ? `EARFCN ${p.earfcn}` : 'band unknown');
+    cellPopup(e.features[0].geometry.coordinates.slice(), `
+        <strong style="color:${p.color}">${p.carrier}</strong>
+        · ${(p.rat || '').toUpperCase()} · ${p.role}<br>
+        <span style="font-family:var(--font-mono)">${p.dbm} dBm</span>${cellBars(p.level)}
+        ${p.rsrq !== null && p.rsrq !== undefined ? ` · RSRQ ${p.rsrq}` : ''}<br>
+        ${band} · ${cellSimLabel(p.sim)}<br>
+        <span style="font-family:var(--font-mono);font-size:11px">${p.cell || 'no cell id'}</span>
+        ${p.pci !== null && p.pci !== undefined ? ` · PCI ${p.pci}` : ''}<br>
+        <span style="color:var(--text-muted)">${when}</span>`);
+});
+map.on('mouseenter', 'cellsig-layer', () => map.getCanvas().style.cursor = 'pointer');
+map.on('mouseleave', 'cellsig-layer', () => map.getCanvas().style.cursor = '');
+
+map.on('click', 'cellcov-layer', e => {
+    const p = e.features[0].properties;
+    cellPopup(e.lngLat, `
+        <strong style="color:${p.color}">${p.carrier}</strong><br>
+        best here: <span style="font-family:var(--font-mono)">${p.dbm} dBm</span><br>
+        ${p.samples} reading${p.samples === 1 ? '' : 's'} in this square`);
+});
+map.on('mouseenter', 'cellcov-layer', () => map.getCanvas().style.cursor = 'pointer');
+map.on('mouseleave', 'cellcov-layer', () => map.getCanvas().style.cursor = '');
+
+map.on('click', 'celltower-layer', e => {
+    const t = e.features[0].properties;
+    const bands = (t.bands && t.bands.length)
+        ? `Band${t.bands.length > 1 ? 's' : ''} ${t.bands.join(', ')}`
+        : 'bands unknown';
+    const rats = (t.rats && t.rats.length ? t.rats : [t.rat]).join('/').toUpperCase();
+    const seen = d => d ? new Date(d).toLocaleDateString() : '?';
+    // The honest part. An unconstrained tower was only ever seen from one spot,
+    // so its marker is where YOU were, and the ring is the only thing the data
+    // actually says about where the tower is.
+    // Three verdicts, and they mean genuinely different things — see
+    // cell_utils.estimate_tower. 'rough' is the subtle one: plenty of spread,
+    // but all from one line, so the position is pinned lengthways and free
+    // sideways.
+    const place = t.confidence === 'unconstrained'
+        ? `<em style="color:var(--clay-amber)">Position unknown — only ever seen from one spot.
+           The ring is roughly how far away it is (~${t.range_m} m), in some direction.</em>`
+        : t.confidence === 'rough'
+        ? `<em style="color:var(--clay-amber)">Rough — ${t.spread_m} m of readings but only from
+           ${t.arcs} direction${t.arcs === 1 ? '' : 's'}, so it could be off to one side.
+           Pass it from another angle to sharpen it.</em>`
+        : `<em style="color:var(--text-muted)">Estimated from ${t.spread_m} m of readings
+           taken from ${t.arcs} directions.</em>`;
+    cellPopup(e.features[0].geometry.coordinates.slice(), `
+        <strong style="color:${t.color}">${t.carrierName}</strong> · ${rats}<br>
+        <span style="font-family:var(--font-mono);font-size:11px">${t.id}</span><br>
+        ${t.sectors} cell${t.sectors === 1 ? '' : 's'} · ${bands} · ${cellSimLabel(t.sim_slot)}<br>
+        ${t.samples} reading${t.samples === 1 ? '' : 's'} ·
+        ${t.best_dbm} to ${t.worst_dbm} dBm<br>
+        ${seen(t.first_seen)} – ${seen(t.last_seen)}<br>
+        ${place}<br>
+        <a href="#" id="cell-isolate">show this tower's readings</a>`);
+    // Filters the already-loaded dense source rather than asking the server
+    // again — which is also what links the sparse layer to the dense one.
+    setTimeout(() => {
+        const a = document.getElementById('cell-isolate');
+        if (a) a.addEventListener('click', ev => {
+            ev.preventDefault();
+            if (map.getLayer('cellsig-layer')) {
+                // Matches on SITE, not cell: a tower is a mast now, so this
+                // shows every sector and band of it rather than one of twelve.
+                map.setFilter('cellsig-layer', ['==', ['get', 'site'], t.id]);
+                cellSigBadge.textContent = `filtered to ${t.id}`;
+            } else {
+                roamlyToast('Turn on the "cell signal" layer first.', { type: 'error' });
+            }
+        });
+    }, 0);
+});
+map.on('mouseenter', 'celltower-layer', () => map.getCanvas().style.cursor = 'pointer');
+map.on('mouseleave', 'celltower-layer', () => map.getCanvas().style.cursor = '');
+
+// The signal and coverage layers follow the range picker, so they re-fetch when
+// it changes. Hooked to the controls directly rather than to loadCurrentMode():
+// that lives in the shared map-core.js, which /editor/ also loads and where
+// none of these functions exist. The tower layer is all-time and never
+// re-fetches, which is the whole reason it is a separate toggle.
+['time-range', 'start-date', 'end-date', 'device-filter'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => {
+        if (cellSigOn) applyCellSignalToggle(true);
+        if (cellCovOn) applyCellCoverageToggle(true);
+    });
+});
+
+if (cellSigOn) applyCellSignalToggle();
+if (cellCovOn) applyCellCoverageToggle();
+if (cellTowersOn) applyCellTowerToggle();
+
+// ═══════════════════════════════════════════════════════════════════
+// Filled gaps — points the map editor generated.
+//
+// Styled to read as part of the track rather than as a foreign object: the same
+// per-device colour and dot size as a recorded fix, with a detached ring in a
+// colour used nowhere else to say it was reconstructed. That mirrors how a
+// snapped point is marked (mauve ring) without being mistaken for one.
+// ═══════════════════════════════════════════════════════════════════
+const INF_SOURCE = 'inferred-src';
+const INF_RING_LAYER = 'inferred-ring';
+const INF_DOTS_LAYER = 'inferred-dots';
+const INF_LINE_LAYER = 'inferred-line';
+const INF_RING_COLOR = '#4fc3d9';   // cyan: not in the device palette, not the snap mauve
+const inferredBtn = document.getElementById('inferred-btn');
+const inferredBadge = document.getElementById('inferred-badge');
+let inferredOn = (localStorage.getItem('roamly_show_inferred') || 'on') === 'on';
+let inferredFC = { type: 'FeatureCollection', features: [] };
+let inferredCount = 0;
+
+// Idempotent and called from both style.load and styledata — isStyleLoaded() can
+// still be false when style.load fires, and it never fires again.
+function addInferredLayers() {
+    if (!inferredOn) return;
+    if (!map.isStyleLoaded() || map.getSource(INF_SOURCE)) return;
+    map.addSource(INF_SOURCE, { type: 'geojson', data: inferredFC });
+
+    if (connectLines === 'on') {
+        map.addLayer({
+            id: INF_LINE_LAYER, type: 'line', source: INF_SOURCE,
+            filter: ['==', ['geometry-type'], 'LineString'],
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: {
+                'line-color': ['get', 'color'], 'line-width': 3,
+                'line-opacity': 0.7, 'line-dasharray': [2, 2],
+            },
+        });
+    }
+    // Ring under the dot, same construction as the snapped-point halo.
+    map.addLayer({
+        id: INF_RING_LAYER, type: 'circle', source: INF_SOURCE,
+        filter: ['==', ['geometry-type'], 'Point'],
+        minzoom: DETAIL_MIN_ZOOM,
+        paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'],
+                8, dotSizeArgs[1] + 1.5, 12, dotSizeArgs[3] + 2, 16, dotSizeArgs[5] + 2.5],
+            'circle-color': 'rgba(0,0,0,0)',
+            'circle-stroke-width': 1.2,
+            'circle-stroke-color': INF_RING_COLOR,
+            'circle-stroke-opacity': 0.95,
+        },
+    });
+    map.addLayer({
+        id: INF_DOTS_LAYER, type: 'circle', source: INF_SOURCE,
+        filter: ['==', ['geometry-type'], 'Point'],
+        minzoom: DETAIL_MIN_ZOOM,
+        paint: {
+            // Device colour and dot size exactly as a recorded point. These carry
+            // no speed, so the gradient's fallback branch already yields the
+            // device colour and the two layers agree.
+            'circle-color': ['get', 'color'],
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], ...dotSizeArgs],
+            'circle-stroke-width': 1.6,
+            'circle-stroke-color': INF_RING_COLOR,
+        },
+    });
+
+    map.on('click', INF_DOTS_LAYER, e => {
+        const p = e.features[0].properties;
+        const ts = p.timestamp ? new Date(p.timestamp) : null;
+        let html = '<strong>filled gap</strong>'
+            + '<br><span style="color:var(--text-muted)">added in the map editor, '
+            + 'not a recorded fix</span>';
+        if (ts && !isNaN(ts.getTime())) {
+            html += `<br><span style="color:var(--text-muted)">${ts.toLocaleString()}</span>`;
+        }
+        new maplibregl.Popup({ offset: 10 })
+            .setLngLat(e.features[0].geometry.coordinates.slice())
+            .setHTML(html).addTo(map);
+    });
+    map.on('mouseenter', INF_DOTS_LAYER, () => map.getCanvas().style.cursor = 'pointer');
+    map.on('mouseleave', INF_DOTS_LAYER, () => map.getCanvas().style.cursor = '');
+}
+
+function removeInferredLayers() {
+    [INF_LINE_LAYER, INF_RING_LAYER, INF_DOTS_LAYER].forEach(l => {
+        if (map.getLayer(l)) map.removeLayer(l);
+    });
+    if (map.getSource(INF_SOURCE)) map.removeSource(INF_SOURCE);
+}
+
+function updateInferredBadge() {
+    if (!inferredBadge) return;
+    inferredBadge.textContent = inferredOn
+        ? (inferredCount ? `${inferredCount.toLocaleString()} pts` : 'none here')
+        : '';
+}
+
+function loadInferredGaps() {
+    if (!inferredOn) return;
+    // Generated points carry no geocode labels, so a place filter can't select
+    // them — leave them off rather than show the whole map's worth.
+    if (Object.keys(placeFilter).length) {
+        removeInferredLayers();
+        inferredCount = 0;
+        updateInferredBadge();
+        return;
+    }
+    const params = new URLSearchParams(buildFilterParams());
+    const b = map.getBounds();
+    params.set('min_lng', b.getWest());
+    params.set('min_lat', b.getSouth());
+    params.set('max_lng', b.getEast());
+    params.set('max_lat', b.getNorth());
+
+    fetch(`/api/inferred/?${params.toString()}`)
+        .then(r => r.json())
+        .then(d => {
+            if (!inferredOn) return;
+            const features = [];
+            let n = 0;
+            (d.batches || []).forEach(batch => {
+                const color = deviceColor(batch.device_id || 'default');
+                if (batch.coords.length >= 2) {
+                    features.push({
+                        type: 'Feature',
+                        geometry: { type: 'LineString', coordinates: batch.coords },
+                        properties: { color, batch: batch.id },
+                    });
+                }
+                batch.points.forEach(p => {
+                    n++;
+                    features.push({
+                        type: 'Feature',
+                        geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+                        properties: { id: p.id, timestamp: p.timestamp, color, batch: batch.id },
+                    });
+                });
+            });
+            inferredFC = { type: 'FeatureCollection', features };
+            inferredCount = n;
+            updateInferredBadge();
+            addInferredLayers();
+            if (map.getSource(INF_SOURCE)) map.getSource(INF_SOURCE).setData(inferredFC);
+        })
+        .catch(() => {});
+}
+
+// ── Hide outliers ────────────────────────────────────────────────────────────
+// Points the quality scan flagged as 'suspect'. Purely a display filter — the rows are
+// untouched in the database, and distance/stats never counted them anyway.
+const suspectBtn = document.getElementById('suspect-btn');
+const suspectBadge = document.getElementById('suspect-badge');
+
+function updateSuspectBadge() {
+    if (!suspectBadge) return;
+    const n = suspectCount();
+    suspectBadge.textContent = n ? `${n.toLocaleString()} hidden` : '';
+}
+
+if (suspectBtn) {
+    suspectBtn.classList.toggle('active', hideSuspect);
+    suspectBtn.addEventListener('click', () => {
+        setHideSuspect(!hideSuspect);
+        suspectBtn.classList.toggle('active', hideSuspect);
+        updateSuspectBadge();
+    });
+    map.on('load', updateSuspectBadge);
+    map.on('moveend', () => setTimeout(updateSuspectBadge, 500));
+}
+
+if (inferredBtn) {
+    inferredBtn.classList.toggle('active', inferredOn);
+    updateInferredBadge();
+    inferredBtn.addEventListener('click', () => {
+        inferredOn = !inferredOn;
+        localStorage.setItem('roamly_show_inferred', inferredOn ? 'on' : 'off');
+        inferredBtn.classList.toggle('active', inferredOn);
+        if (inferredOn) {
+            loadInferredGaps();
+        } else {
+            removeInferredLayers();
+            inferredFC = { type: 'FeatureCollection', features: [] };
+            inferredCount = 0;
+            updateInferredBadge();
+        }
+    });
+}
+
+// The core owns load/moveend/filter-change; feature layers just add their own
+// listeners rather than the core knowing about them.
+map.on('load', loadInferredGaps);
+map.on('moveend', () => setTimeout(loadInferredGaps, 450));
+['time-range', 'device-filter', 'start-date', 'end-date'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => setTimeout(loadInferredGaps, 60));
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Fog of war — dim everywhere the user has never been.
+//
+// Always all-time, never date-filtered: explored territory stays explored.
+// The map's own points are viewport- and date-scoped, so the mask is fed by
+// /api/fog/ instead — distinct ~110m cells over the whole history.
+//
+// Rendered as a 2D canvas over the map rather than a MapLibre layer: a world
+// polygon with tens of thousands of holes is hopeless to tessellate, whereas
+// punching holes with destination-out is O(visible cells) per frame.
+// ═══════════════════════════════════════════════════════════════════
+const fogBtn = document.getElementById('fog-btn');
+const fogBadge = document.getElementById('fog-badge');
+const fogCanvas = document.getElementById('fog-canvas');
+const fogCtx = fogCanvas.getContext('2d');
+
+const FOG_REVEAL_M = 200;      // how far you "see" from a visited point
+const FOG_ALPHA = 0.75;        // unexplored dimming; basemap still shows through
+const FOG_COLOR = '10, 14, 20';
+
+let fogOn = localStorage.getItem('roamly_fog') === 'on';
+let fogCells = null;           // Int32Array [gy, gx, gy, gx, ...] of grid indices
+let fogPerDeg = 1000;
+let fogIndex = null;           // "gyDeg:gxDeg" -> [offsets into fogCells]
+let fogLoading = null;         // in-flight promise, so concurrent toggles share one fetch
+let fogLabel = '';
+
+async function loadFogCells() {
+    if (fogCells) return;
+    if (fogLoading) return fogLoading;
+    fogLoading = (async () => {
+        try {
+            const d = await fetch('/api/fog/').then(r => r.json());
+            fogPerDeg = d.per_deg || 1000;
+            fogCells = Int32Array.from(d.cells || []);
+            // Bucket cells by whole degree so a frame only projects what's on screen.
+            fogIndex = new Map();
+            for (let i = 0; i < fogCells.length; i += 2) {
+                const key = Math.floor(fogCells[i] / fogPerDeg) + ':' + Math.floor(fogCells[i + 1] / fogPerDeg);
+                let bucket = fogIndex.get(key);
+                if (!bucket) { bucket = []; fogIndex.set(key, bucket); }
+                bucket.push(i);
+            }
+            const n = d.count || 0;
+            fogLabel = n ? `${n.toLocaleString()} cells` : 'nothing explored yet';
+        } catch (e) {
+            fogCells = new Int32Array(0);
+            fogIndex = new Map();
+            fogLabel = 'failed to load';
+        }
+    })();
+    await fogLoading;
+    fogLoading = null;
+}
+
+// Buckets worth scanning this frame. Walking the viewport degree-by-degree is
+// right when zoomed in, but at world zoom that's ~65k lookups per frame — more
+// than the whole index. Whichever set is smaller wins; the per-cell screen cull
+// in drawFog() catches the rest either way.
+function fogBucketsInView() {
+    const b = map.getBounds();
+    const pad = 1;  // buckets are whole degrees, so reach one past each edge
+    const y0 = Math.floor(b.getSouth()) - pad, y1 = Math.ceil(b.getNorth()) + pad;
+    let x0 = Math.floor(b.getWest()) - pad, x1 = Math.ceil(b.getEast()) + pad;
+    // Bounds crossing the antimeridian come back with west > east; unwrap so the
+    // loop still runs, and wrap each degree back into range on lookup.
+    if (x1 < x0) x1 += 360;
+
+    const span = (y1 - y0 + 1) * (x1 - x0 + 1);
+    if (span > fogIndex.size) return fogIndex.values();
+
+    const out = [];
+    for (let dy = y0; dy <= y1; dy++) {
+        for (let dx = x0; dx <= x1; dx++) {
+            const wrapped = ((dx + 180) % 360 + 360) % 360 - 180;
+            const bucket = fogIndex.get(dy + ':' + wrapped);
+            if (bucket) out.push(bucket);
+        }
+    }
+    return out;
+}
+
+function drawFog() {
+    if (!fogOn || !fogCells || globeOn) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const w = fogCanvas.clientWidth, h = fogCanvas.clientHeight;
+    if (fogCanvas.width !== w * dpr || fogCanvas.height !== h * dpr) {
+        fogCanvas.width = w * dpr;
+        fogCanvas.height = h * dpr;
+    }
+    fogCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    fogCtx.clearRect(0, 0, w, h);
+    fogCtx.fillStyle = `rgba(${FOG_COLOR}, ${FOG_ALPHA})`;
+    fogCtx.fillRect(0, 0, w, h);
+
+    // Reveal radius is fixed in metres, so convert once from the centre latitude
+    // rather than per cell — it varies negligibly across a single viewport.
+    const centreLat = map.getCenter().lat;
+    const mPerPx = 156543.03392 * Math.cos(centreLat * Math.PI / 180) / Math.pow(2, map.getZoom());
+    const rPx = Math.max(1.2, FOG_REVEAL_M / mPerPx);
+
+    fogCtx.globalCompositeOperation = 'destination-out';
+    for (const bucket of fogBucketsInView()) {
+        for (const i of bucket) {
+            const p = map.project([fogCells[i + 1] / fogPerDeg, fogCells[i] / fogPerDeg]);
+            if (p.x < -rPx || p.y < -rPx || p.x > w + rPx || p.y > h + rPx) continue;
+            // Soft edge so the revealed area reads as a glow, not a stamped hole.
+            const g = fogCtx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rPx);
+            g.addColorStop(0, 'rgba(0,0,0,1)');
+            g.addColorStop(0.6, 'rgba(0,0,0,1)');
+            g.addColorStop(1, 'rgba(0,0,0,0)');
+            fogCtx.fillStyle = g;
+            fogCtx.beginPath();
+            fogCtx.arc(p.x, p.y, rPx, 0, Math.PI * 2);
+            fogCtx.fill();
+        }
+    }
+    fogCtx.globalCompositeOperation = 'source-over';
+}
+
+async function setFog(on) {
+    fogOn = on;
+    localStorage.setItem('roamly_fog', fogOn ? 'on' : 'off');
+    fogBtn.classList.toggle('active', fogOn);
+    fogCanvas.style.display = fogOn ? 'block' : 'none';
+    if (!fogOn) { fogBadge.textContent = ''; return; }
+    // A flat mask can't wrap a sphere, so fog forces mercator (see globe-btn).
+    if (globeOn) {
+        globeOn = false;
+        localStorage.setItem('roamly_globe', 'off');
+        globeBtn.classList.toggle('active', false);
+        applyProjection();
+    }
+    fogBadge.textContent = fogLabel || 'loading…';
+    await loadFogCells();
+    fogBadge.textContent = fogLabel;
+    drawFog();
+}
+
+fogBtn.addEventListener('click', () => setFog(!fogOn));
+
+// 'render' fires every frame the map paints, which is what keeps the mask glued
+// to the basemap during pan/zoom/rotate — 'move' alone drifts visibly.
+map.on('render', drawFog);
+window.addEventListener('resize', drawFog);
+
+if (fogOn) setFog(true);
+
+// Re-apply projection + scratch + places layers after any basemap style swap.
+map.on('style.load', () => {
+    applyProjection();
+    if (scratchOn) addScratchLayers();
+    addPlacesLayers();
+    addInferredLayers();
+    addCellSignalLayers();
+    addCellCoverageLayers();
+    addCellTowerLayers();
+});
+
+// Places-circle retry. isStyleLoaded() can still be false at the instant
+// style.load fires, and style.load won't fire again — so the one attempt used
+// to be dropped on the floor and the layer just never appeared. styledata
+// fires repeatedly while the style settles, and addPlacesLayers is idempotent,
+// so the layer reliably lands on whichever tick is ready.
+map.on('styledata', addPlacesLayers);
+map.on('styledata', addInferredLayers);
+const hideTrackBtn = document.getElementById('hidetrack-btn');
+const hideTrackBadge = document.getElementById('hidetrack-badge');
+function renderHideTrack() {
+    hideTrackBtn.classList.toggle('active', hideTrack);
+    hideTrackBadge.textContent = hideTrack ? 'hidden' : '';
+    applyBaseLayerVisibility();
+}
+hideTrackBtn.addEventListener('click', () => {
+    hideTrack = !hideTrack;
+    localStorage.setItem('roamly_hide_track', hideTrack ? 'on' : 'off');
+    renderHideTrack();
+});
+// Re-applied on every style tick: a basemap swap re-adds the base layers
+// visible, which would quietly undo the toggle.
+map.on('styledata', applyBaseLayerVisibility);
+
+map.on('styledata', addCellSignalLayers);
+map.on('styledata', addCellCoverageLayers);
+map.on('styledata', addCellTowerLayers);
+
+// ═══════════════════════════════════════════════════════════════════
+// Daily replay — scrub/animate a single day's track
+// ═══════════════════════════════════════════════════════════════════
+const replayBtn = document.getElementById('replay-btn');
+const replayPanel = document.getElementById('replay-panel');
+const replayDateEl = document.getElementById('replay-date');
+const replayPlayBtn = document.getElementById('replay-play');
+const replaySlider = document.getElementById('replay-slider');
+const replaySpeedEl = document.getElementById('replay-speed');
+const replayClock = document.getElementById('replay-clock');
+const replayCloseBtn = document.getElementById('replay-close');
+const replayBadge = document.getElementById('replay-badge');
+
+const REPLAY_TRAIL_SRC = 'replay-trail';
+const REPLAY_HEAD_SRC = 'replay-head';
+const REPLAY_STEPS = 1000;
+
+let replayActive = false;
+let replayDevices = [];
+let replayTMin = 0, replayTMax = 0;
+let replayRAF = null;
+let replayPlaying = false;
+let replayCurrentFrac = 0;
+
+function baseLayerIds() {
+    const ids = [];
+    activeSources.forEach(id => { [`${id}-heat`, `${id}-dots`].forEach(l => ids.push(l)); });
+    [ACC_HEAT_LAYER, ACC_LINES_LAYER, ACC_SNAP_RING_LAYER, ACC_DOTS_LAYER].forEach(l => ids.push(l));
+    // Filled gaps hide with the rest of the base layers during replay.
+    [INF_LINE_LAYER, INF_RING_LAYER, INF_DOTS_LAYER].forEach(l => ids.push(l));
+    // Trip Lines mode's own layers — only exist when that mode is active, but
+    // when it is, replay must hide them the same way it hides the point-mode
+    // base layers, or the static lines/blobs would stay visible underneath
+    // the animated trail.
+    [TRIP_LINE_LAYER, TRIP_DWELL_LAYER, TRIP_EXPAND_LINE_LAYER, TRIP_EXPAND_DOT_LAYER].forEach(l => ids.push(l));
+    [OVERVIEW_HEAT_LAYER, OVERVIEW_DOTS_LAYER, ALLTIME_DOTS_LAYER].forEach(l => ids.push(l));
+    return ids;
+}
+// Whether the GPS track is hidden on purpose, so the cell layers can be read
+// on their own. Replay hides the same layers for its own reasons, so both go
+// through applyBaseLayerVisibility rather than calling setBaseLayersVisible
+// directly — otherwise whichever finished last would win.
+let hideTrack = localStorage.getItem('roamly_hide_track') === 'on';
+function applyBaseLayerVisibility() {
+    setBaseLayersVisible(!hideTrack && !replayActive);
+}
+
+// Init here rather than beside the button wiring above: `hideTrack` and
+// `replayActive` are `let`, so touching them from a line that runs during
+// parse would hit the temporal dead zone. Everything up there only runs from a
+// click or a map event, which is after this point.
+renderHideTrack();
+
+function setBaseLayersVisible(visible) {
+    baseLayerIds().forEach(l => {
+        if (map.getLayer(l)) map.setLayoutProperty(l, 'visibility', visible ? 'visible' : 'none');
+    });
+}
+
+function ensureReplayLayers() {
+    if (!map.getSource(REPLAY_TRAIL_SRC)) {
+        map.addSource(REPLAY_TRAIL_SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        map.addLayer({
+            id: REPLAY_TRAIL_SRC, type: 'line', source: REPLAY_TRAIL_SRC,
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: { 'line-color': ['get', 'color'], 'line-width': 4, 'line-opacity': 0.85 },
+        });
+    }
+    if (!map.getSource(REPLAY_HEAD_SRC)) {
+        map.addSource(REPLAY_HEAD_SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        map.addLayer({
+            id: REPLAY_HEAD_SRC, type: 'circle', source: REPLAY_HEAD_SRC,
+            paint: {
+                'circle-radius': 7, 'circle-color': ['get', 'color'],
+                'circle-stroke-width': 2, 'circle-stroke-color': '#fff',
+            },
+        });
+    }
+}
+function removeReplayLayers() {
+    [REPLAY_TRAIL_SRC, REPLAY_HEAD_SRC].forEach(id => {
+        if (map.getLayer(id)) map.removeLayer(id);
+        if (map.getSource(id)) map.removeSource(id);
+    });
+}
+
+function todayLocalISO() {
+    const d = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+async function loadReplayDay(dateStr) {
+    if (!dateStr) return;
+    replayPlayBtn.disabled = true;
+    replaySlider.disabled = true;
+    replayClock.textContent = 'loading…';
+    replayBadge.textContent = dateStr;
+    stopReplayPlayback();
+
+    const params = new URLSearchParams();
+    params.set('start_date', toLocalDateTimeParam(dateStr, 'start'));
+    params.set('end_date', toLocalDateTimeParam(dateStr, 'end'));
+    params.set('all', '1');
+    params.set('limit', '50000');
+    params.set('offset', '0');
+    const deviceId = document.getElementById('device-filter').value;
+    if (deviceId) params.set('device_id', deviceId);
+
+    let data;
+    try {
+        const r = await fetch(`/api/locations/?${params.toString()}`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        data = await r.json();
+    } catch (e) {
+        replayClock.textContent = 'error loading';
+        replayDevices = [];
+        return;
+    }
+
+    replayDevices = [];
+    let tMin = Infinity, tMax = -Infinity;
+    (data.devices || []).forEach(device => {
+        const color = deviceColor(device.device_id || device.name || 'default');
+        let pts = (device.locations || [])
+            .map(loc => ({ t: new Date(loc.timestamp).getTime(), c: [loc.lng, loc.lat] }))
+            .filter(p => !isNaN(p.t))
+            .sort((a, b) => a.t - b.t);
+        // Drop teleport outliers (a single wildly-off fix that spikes the line
+        // out and back) and split the track into contiguous segments on big
+        // gaps, so we never draw a straight line across a tracking gap.
+        const segments = buildReplaySegments(pts);
+        pts = segments.flat();
+        if (pts.length) {
+            replayDevices.push({ color, pts, segments });
+            tMin = Math.min(tMin, pts[0].t);
+            tMax = Math.max(tMax, pts[pts.length - 1].t);
+        }
+    });
+
+    if (!replayDevices.length) {
+        replayClock.textContent = 'no data this day';
+        ensureReplayLayers();
+        map.getSource(REPLAY_TRAIL_SRC).setData({ type: 'FeatureCollection', features: [] });
+        map.getSource(REPLAY_HEAD_SRC).setData({ type: 'FeatureCollection', features: [] });
+        return;
+    }
+
+    replayTMin = tMin;
+    replayTMax = tMax;
+    ensureReplayLayers();
+    replaySlider.disabled = false;
+    replayPlayBtn.disabled = false;
+    replaySlider.value = 0;
+    renderReplayAt(0);
+
+    let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+    replayDevices.forEach(d => d.pts.forEach(p => {
+        minLng = Math.min(minLng, p.c[0]); maxLng = Math.max(maxLng, p.c[0]);
+        minLat = Math.min(minLat, p.c[1]); maxLat = Math.max(maxLat, p.c[1]);
+    }));
+    if (minLng !== Infinity) map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 80, maxZoom: 15, duration: 600 });
+}
+
+const REPLAY_SEG_GAP_MS = 20 * 60 * 1000;  // gap that breaks the drawn line
+const REPLAY_MAX_SPEED_MS = 305;            // ~1100 km/h: faster ⇒ teleport outlier
+
+function _replayDistM(a, b) {
+    const R = 6371000, toR = Math.PI / 180;
+    const dLat = (b[1] - a[1]) * toR, dLon = (b[0] - a[0]) * toR;
+    const s = Math.sin(dLat / 2) ** 2 +
+        Math.cos(a[1] * toR) * Math.cos(b[1] * toR) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+}
+
+// Reject teleport outliers and split a time-sorted point list into contiguous
+// segments on large gaps. Returns an array of point arrays.
+function buildReplaySegments(pts) {
+    const segments = [];
+    let cur = null, prev = null;
+    for (const p of pts) {
+        const newSeg = prev === null || (p.t - prev.t) > REPLAY_SEG_GAP_MS;
+        if (!newSeg) {
+            const dt = (p.t - prev.t) / 1000;
+            if (dt > 0 && _replayDistM(prev.c, p.c) / dt > REPLAY_MAX_SPEED_MS) continue;
+            cur.push(p);
+        } else {
+            cur = [p];
+            segments.push(cur);
+        }
+        prev = p;
+    }
+    return segments.filter(s => s.length);
+}
+
+function renderReplayAt(frac) {
+    if (!replayDevices.length) return;
+    const t = replayTMin + (replayTMax - replayTMin) * frac;
+    const trail = [], heads = [];
+    replayDevices.forEach(d => {
+        let head = null;  // smoothly-interpolated current position
+        (d.segments || [d.pts]).forEach(seg => {
+            const coords = [];
+            for (let i = 0; i < seg.length; i++) {
+                const p = seg[i];
+                if (p.t <= t) { coords.push(p.c); head = p.c; }
+                else {
+                    // Interpolate within this segment so the head glides along the
+                    // line with the clock instead of snapping point-to-point.
+                    if (i > 0 && seg[i - 1].t <= t) {
+                        const a = seg[i - 1], f = (t - a.t) / (p.t - a.t);
+                        const ic = [a.c[0] + (p.c[0] - a.c[0]) * f, a.c[1] + (p.c[1] - a.c[1]) * f];
+                        coords.push(ic);
+                        head = ic;
+                    }
+                    break;
+                }
+            }
+            if (coords.length >= 2) trail.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: { color: d.color } });
+        });
+        if (head) heads.push({ type: 'Feature', geometry: { type: 'Point', coordinates: head }, properties: { color: d.color } });
+    });
+    map.getSource(REPLAY_TRAIL_SRC).setData({ type: 'FeatureCollection', features: trail });
+    map.getSource(REPLAY_HEAD_SRC).setData({ type: 'FeatureCollection', features: heads });
+    replayClock.textContent = new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function stopReplayPlayback() {
+    replayPlaying = false;
+    if (replayRAF) { cancelAnimationFrame(replayRAF); replayRAF = null; }
+    replayPlayBtn.textContent = 'play';
+}
+
+function startReplayPlayback() {
+    if (!replayDevices.length) return;
+    if (parseInt(replaySlider.value, 10) >= REPLAY_STEPS) replaySlider.value = 0;
+    replayPlaying = true;
+    replayPlayBtn.textContent = 'pause';
+    replayCurrentFrac = parseInt(replaySlider.value, 10) / REPLAY_STEPS;
+    const spanMs = Math.max(1, replayTMax - replayTMin);
+    let lastTick = null;
+    const tick = now => {
+        if (!replayPlaying) return;
+        if (lastTick !== null) {
+            // speed = track-seconds advanced per real second, so the clock ticks
+            // at exactly the rate the dropdown names (e.g. "15 min/s").
+            const speed = parseFloat(replaySpeedEl.value) || 900;
+            replayCurrentFrac += (now - lastTick) * speed / spanMs;
+        }
+        lastTick = now;
+        if (replayCurrentFrac >= 1) replayCurrentFrac = 1;
+        replaySlider.value = Math.round(replayCurrentFrac * REPLAY_STEPS);
+        renderReplayAt(replayCurrentFrac);
+        if (replayCurrentFrac >= 1) { stopReplayPlayback(); return; }
+        replayRAF = requestAnimationFrame(tick);
+    };
+    replayRAF = requestAnimationFrame(tick);
+}
+
+replayBtn.addEventListener('click', () => {
+    replayActive = !replayActive;
+    replayBtn.classList.toggle('active', replayActive);
+    replayPanel.classList.toggle('active', replayActive);
+    if (replayActive) {
+        setBaseLayersVisible(false);
+        const s = document.getElementById('start-date').value;
+        if (!replayDateEl.value) replayDateEl.value = s || todayLocalISO();
+        loadReplayDay(replayDateEl.value);
+    } else {
+        closeReplay();
+    }
+});
+
+function closeReplay() {
+    replayActive = false;
+    replayBtn.classList.remove('active');
+    replayPanel.classList.remove('active');
+    replayBadge.textContent = '';
+    stopReplayPlayback();
+    removeReplayLayers();
+    // Not setBaseLayersVisible(true) — the "hide track" toggle may be on, and
+    // ending a replay must not silently override it. One function owns the
+    // answer for both callers.
+    applyBaseLayerVisibility();
+}
+
+replayCloseBtn.addEventListener('click', closeReplay);
+replayDateEl.addEventListener('change', () => { if (replayActive) loadReplayDay(replayDateEl.value); });
+replayPlayBtn.addEventListener('click', () => { replayPlaying ? stopReplayPlayback() : startReplayPlayback(); });
+replaySlider.addEventListener('input', () => {
+    stopReplayPlayback();
+    replayCurrentFrac = parseInt(replaySlider.value, 10) / REPLAY_STEPS;
+    renderReplayAt(replayCurrentFrac);
+});
+
+// Apply saved globe projection on first load.
+map.on('load', applyProjection);
+
+// ═══════════════════════════════════════════════════════════════════
+// Right-click context menu + quick add-place
+// ═══════════════════════════════════════════════════════════════════
+const ctxMenu = document.getElementById('map-ctx-menu');
+const ctxCoordsEl = document.getElementById('ctx-coords');
+const ctxAddPlaceBtn = document.getElementById('ctx-add-place');
+const ctxCopyCoordsBtn = document.getElementById('ctx-copy-coords');
+const ctxDeletePointBtn = document.getElementById('ctx-delete-point');
+const addplacePanel = document.getElementById('map-addplace-panel');
+const addplaceNameEl = document.getElementById('addplace-name');
+const addplaceRadiusEl = document.getElementById('addplace-radius');
+const addplaceRvalEl = document.getElementById('addplace-rval');
+const addplaceSaveBtn = document.getElementById('addplace-save');
+
+let ctxLngLat = null;
+let ctxPointId = null;
+let addplaceMarker = null;
+let addplaceRadius = 150;
+
+function closeCtxMenu() { ctxMenu.classList.remove('open'); }
+
+// Detail dot layers that carry a deletable per-point `id` (loaded from
+// /api/locations/ — present at detail zoom in both renderer modes).
+function deletableDotLayers() {
+    const layers = [ACC_DOTS_LAYER].filter(id => map.getLayer(id));
+    activeSources.forEach(srcId => {
+        const lid = `${srcId}-dots`;
+        if (map.getLayer(lid)) layers.push(lid);
+    });
+    return layers;
+}
+
+map.on('contextmenu', (e) => {
+    ctxLngLat = e.lngLat;
+    ctxCoordsEl.textContent = `${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}`;
+    ctxCopyCoordsBtn.textContent = 'copy coordinates';
+
+    // Is an individual GPS point under the cursor? If so, offer to delete it.
+    ctxPointId = null;
+    const layers = deletableDotLayers();
+    if (layers.length) {
+        const hit = map.queryRenderedFeatures(e.point, { layers })
+            .find(f => f.properties && f.properties.id != null);
+        if (hit) ctxPointId = hit.properties.id;
+    }
+    ctxDeletePointBtn.style.display = (ctxPointId != null) ? '' : 'none';
+
+    const rect = document.getElementById('map-container').getBoundingClientRect();
+    ctxMenu.style.left = Math.min(rect.left + e.point.x, window.innerWidth - 184) + 'px';
+    ctxMenu.style.top = Math.min(rect.top + e.point.y, window.innerHeight - 120) + 'px';
+    ctxMenu.classList.add('open');
+});
+
+// Remove a deleted point from the accumulated detail layer without a reload.
+function removeAccPointById(id) {
+    for (const [key, f] of accMap) {
+        if (f.properties && Number(f.properties.id) === Number(id)) {
+            accMap.delete(key);
+            break;
+        }
+    }
+    if (map.getSource(ACC_SOURCE_ID)) map.getSource(ACC_SOURCE_ID).setData(getAccFC());
+    if (connectLines === 'on' && map.getSource(ACC_LINES_SOURCE)) {
+        map.getSource(ACC_LINES_SOURCE).setData(buildLinesFC());
+    }
+}
+
+ctxDeletePointBtn.addEventListener('click', async () => {
+    if (ctxPointId == null) return;
+    const id = ctxPointId;
+    closeCtxMenu();
+    if (!await roamlyConfirm('Delete this GPS point? This cannot be undone.', {danger:true})) return;
+    try {
+        const res = await fetch(`/api/locations/${id}/delete/`, { method: 'DELETE', headers: { 'X-CSRFToken': csrfToken } });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            await roamlyAlert(err.error || 'Failed to delete point.');
+            return;
+        }
+        removeAccPointById(id);
+        loadTrack(false);
+    } catch (_) {
+        await roamlyAlert('Failed to delete point.');
+    }
+});
+
+map.on('click', closeCtxMenu);
+document.addEventListener('click', (e) => { if (!ctxMenu.contains(e.target)) closeCtxMenu(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeCtxMenu(); closeAddPlace(); } });
+
+function redrawAddplaceCircle() {
+    if (!map.getSource('addplace-circle') || !addplaceMarker) return;
+    const ll = addplaceMarker.getLngLat();
+    map.getSource('addplace-circle').setData(placeCircleGeoJSON(ll.lat, ll.lng, addplaceRadius, {}));
+}
+
+function openAddPlace(lngLat) {
+    closeCtxMenu();
+    ctxLngLat = lngLat;
+    addplaceRadius = 150;
+    addplaceRadiusEl.value = 150;
+    addplaceRvalEl.textContent = '150 m';
+    addplaceNameEl.value = '';
+
+    if (addplaceMarker) addplaceMarker.remove();
+    addplaceMarker = new maplibregl.Marker({ color: '#e8763d', draggable: true })
+        .setLngLat([lngLat.lng, lngLat.lat])
+        .addTo(map);
+    addplaceMarker.on('dragend', redrawAddplaceCircle);
+
+    if (map.getSource('addplace-circle')) {
+        redrawAddplaceCircle();
+    } else {
+        map.addSource('addplace-circle', { type: 'geojson', data: placeCircleGeoJSON(lngLat.lat, lngLat.lng, addplaceRadius, {}) });
+        map.addLayer({ id: 'addplace-fill', type: 'fill', source: 'addplace-circle',
+            paint: { 'fill-color': '#e8763d', 'fill-opacity': 0.18 } });
+        map.addLayer({ id: 'addplace-line', type: 'line', source: 'addplace-circle',
+            paint: { 'line-color': '#e8763d', 'line-width': 2, 'line-opacity': 0.9 } });
+    }
+
+    addplacePanel.classList.add('open');
+    setTimeout(() => addplaceNameEl.focus(), 50);
+}
+
+function closeAddPlace() {
+    addplacePanel.classList.remove('open');
+    if (addplaceMarker) { addplaceMarker.remove(); addplaceMarker = null; }
+    ['addplace-fill', 'addplace-line'].forEach(l => { if (map.getLayer(l)) map.removeLayer(l); });
+    if (map.getSource('addplace-circle')) map.removeSource('addplace-circle');
+}
+
+addplaceRadiusEl.addEventListener('input', () => {
+    addplaceRadius = parseInt(addplaceRadiusEl.value);
+    addplaceRvalEl.textContent = addplaceRadius + ' m';
+    redrawAddplaceCircle();
+});
+
+ctxAddPlaceBtn.addEventListener('click', () => {
+    if (ctxLngLat) openAddPlace(ctxLngLat);
+});
+
+ctxCopyCoordsBtn.addEventListener('click', () => {
+    if (!ctxLngLat) return;
+    navigator.clipboard.writeText(`${ctxLngLat.lat.toFixed(6)}, ${ctxLngLat.lng.toFixed(6)}`).then(() => {
+        ctxCopyCoordsBtn.textContent = 'copied!';
+        setTimeout(() => { ctxCopyCoordsBtn.textContent = 'copy coordinates'; }, 1500);
+    });
+    closeCtxMenu();
+});
+
+addplaceSaveBtn.addEventListener('click', async () => {
+    const name = addplaceNameEl.value.trim();
+    if (!name) { addplaceNameEl.focus(); return; }
+    const ll = addplaceMarker ? addplaceMarker.getLngLat() : ctxLngLat;
+    if (!ll) return;
+    addplaceSaveBtn.disabled = true;
+    addplaceSaveBtn.textContent = 'saving…';
+    try {
+        const res = await fetch('/api/places/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+            body: JSON.stringify({ name, lat: ll.lat, lng: ll.lng, radius_m: addplaceRadius })
+        });
+        if (!res.ok) { const err = await res.json().catch(() => ({})); await roamlyAlert(err.error || 'save failed'); return; }
+        closeAddPlace();
+        // Refresh the places layer if it's currently shown
+        myPlaces = null;
+        if (placesOn) {
+            removePlacesLayers();
+            await applyPlacesToggle();
+        }
+    } finally {
+        addplaceSaveBtn.disabled = false;
+        addplaceSaveBtn.textContent = 'save';
+    }
+});
+
+document.getElementById('addplace-cancel').addEventListener('click', closeAddPlace);
+</script>
+{% endblock %}

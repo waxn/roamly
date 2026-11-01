@@ -1,0 +1,1399 @@
+{% extends "tracker/base.html" %}
+{% block title %}Stats - Roamly{% endblock %}
+{# No map on this page — skip MapLibre (~1MB JS + 70KB CSS). #}
+{% block map_css %}{% endblock %}
+{% block map_js %}{% endblock %}
+
+{% block extra_css %}
+.stats-filters {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.stats-filters select, .stats-filters input {
+    background: var(--bg-input);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius:0;
+    padding: 0.4rem 0.85rem;
+    font-size: 0.8125rem;
+    font-family: var(--font-body);
+    font-weight: 500;
+    outline: none;
+}
+.stats-filters select:focus, .stats-filters input:focus {
+    border-color: var(--border-bright);
+    box-shadow: 0 0 0 3px var(--primary-soft);
+}
+.chart-container {
+    position: relative;
+    width: 100%;
+    height: 240px;
+    margin-top: 0.75rem;
+}
+.chart-container canvas {
+    width: 100%;
+    height: 100%;
+}
+.chart-tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius:0;
+    padding: 0.325rem 0.5rem;
+    font-size: 0.75rem;
+    font-family: var(--font-body);
+    color: var(--text);
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 10;
+}
+.chart-hover-line {
+    position: absolute;
+    width: 1px;
+    background: var(--border-bright);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s;
+}
+.chart-hover-dot {
+    position: absolute;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--primary);
+    border: 2px solid var(--bg-card);
+    box-shadow: 0 0 0 4px var(--primary-soft);
+    transform: translate(-50%, -50%);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s;
+}
+
+/* ── Transport mode breakdown ───────────────────────────────────────────── */
+.tm-row {
+    display: grid;
+    grid-template-columns: 5.5rem 1fr auto;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.4rem 0;
+}
+.tm-row + .tm-row { border-top: 1px solid var(--border); }
+.tm-name { font-size: 0.8125rem; color: var(--text); }
+.tm-track {
+    background: var(--bg-input);
+    height: 8px;
+    overflow: hidden;
+}
+.tm-fill { height: 100%; transition: width 0.4s ease; }
+.tm-val {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+.tm-empty { font-size: 0.875rem; color: var(--text-muted); }
+
+/* ── Distance heatmap (trailing year, one square per day) ───────────────── */
+.heat-card { position: relative; }
+.heat-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.25rem 0 0.375rem;
+}
+.heatmap {
+    --heat-cell: 12px;
+    --heat-gap: 3px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 0.5rem;
+    row-gap: 0.375rem;
+    width: max-content;
+}
+.heat-months, .heat-grid { grid-column: 2; }
+.heat-dows { grid-column: 1; grid-row: 2; }
+.heat-months {
+    grid-row: 1;
+    display: grid;
+    grid-auto-rows: 11px;
+    column-gap: var(--heat-gap);
+}
+.heat-month {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-muted);
+    line-height: 11px;
+    white-space: nowrap;
+}
+.heat-dows {
+    display: grid;
+    grid-template-rows: repeat(7, var(--heat-cell));
+    gap: var(--heat-gap);
+}
+.heat-dow {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-muted);
+    line-height: var(--heat-cell);
+    text-align: right;
+}
+.heat-grid {
+    grid-row: 2;
+    display: grid;
+    grid-auto-flow: column;
+    grid-template-rows: repeat(7, var(--heat-cell));
+    grid-auto-columns: var(--heat-cell);
+    gap: var(--heat-gap);
+}
+.heat-cell {
+    width: var(--heat-cell);
+    height: var(--heat-cell);
+    border-radius: 0;
+    border: 1px solid var(--border);
+    background: var(--bg-input);
+}
+.heat-cell[data-day] { cursor: pointer; }
+.heat-cell[data-day]:hover { outline: 1px solid var(--border-bright); outline-offset: 1px; }
+.heat-void { visibility: hidden; }
+.heat-years {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text);
+}
+.heat-year-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font: inherit;
+    line-height: 1;
+    padding: 0.125rem 0.4rem;
+    cursor: pointer;
+}
+.heat-year-btn:hover:not(:disabled) { color: var(--text); border-color: var(--border-bright); }
+.heat-year-btn:disabled { opacity: 0.35; cursor: default; }
+.heat-legend {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.375rem;
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+.heat-legend .heat-cell { cursor: default; }
+
+/* ═══ beta: newspaper statistics ═══ */
+.page-toolbar{align-items:flex-end;border-bottom:4px double var(--rule);padding-bottom:1rem;margin-bottom:1.2rem}
+.page-toolbar h1{font-size:clamp(2.8rem,7vw,5.2rem);line-height:0.95}
+.page-toolbar .page-lead{font-size:1.15rem;margin-top:0.5rem}
+.stats-filters select,.stats-filters input{font-family:var(--label);font-weight:500;font-size:0.8rem;border-color:var(--border-strong)}
+.stats-filters select:focus,.stats-filters input:focus{border-color:var(--primary);box-shadow:none}
+#snapshot-bar{margin-top:0 !important}
+#snapshot-updated{font-family:var(--label);letter-spacing:0.04em}
+
+/* the four headline numbers: a ruled strip, not four boxes */
+#stats-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);margin-bottom:2rem}
+#stats-grid .card.stat-card{background:none;border:none;border-left:1px solid var(--hair);border-radius:0;margin:0;padding:1.4rem 1rem;text-align:left}
+#stats-grid .card.stat-card:first-child{border-left:none;padding-left:0}
+#stats-grid .stat-value{font-size:clamp(2.4rem,5vw,4rem);line-height:1;color:var(--text)}
+#stats-grid .stat-label{font-family:var(--label);font-weight:600;letter-spacing:0.14em;margin-top:0.7rem}
+#yearly-compare-grid .card{border-top:1px solid var(--rule)}
+#yearly-heading{font-family:var(--font-display);font-size:2.2rem !important;letter-spacing:-0.03em;border:none !important;border-top:4px double var(--rule) !important;padding-top:1.2rem !important}
+.heat-year-btn{border-radius:0;font-family:var(--label)}
+@media (max-width:760px){
+    #stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+    #stats-grid .card.stat-card:nth-child(odd){border-left:none;padding-left:0}
+}
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-toolbar">
+        <div>
+            <h1>Statistics</h1>
+            <p class="page-lead" style="margin-bottom:0;">distance, places visited, and trends over time.</p>
+        </div>
+        <div class="stats-filters toolbar-actions">
+            <select id="stats-range">
+                <option value="24">Last 24 hours</option>
+                <option value="72">Last 3 days</option>
+                <option value="168" selected>Last week</option>
+                <option value="720">Last 30 days</option>
+                <option value="2160">Last 90 days</option>
+                <option value="8760">Last year</option>
+                <option value="all">All time</option>
+            </select>
+            <input type="date" id="stats-start" title="Start date">
+            <input type="date" id="stats-end" title="End date">
+        </div>
+    </div>
+    <div id="snapshot-bar" style="display:flex;align-items:center;gap:0.6rem;justify-content:flex-end;margin-top:-0.5rem;margin-bottom:1rem;">
+        <span id="snapshot-updated" style="font-size:0.75rem;color:var(--text-muted);font-weight:600;white-space:nowrap;">updated …</span>
+        <button id="snapshot-recalc" class="btn btn-outline btn-sm" title="Recompute now">↻ recalculate</button>
+    </div>
+
+    <div class="grid grid-4" id="stats-grid">
+        <div class="card stat-card">
+            <div class="stat-value" id="stat-points"><span class="skeleton skel-statval"></span></div>
+            <div class="stat-label">total points</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-value" id="stat-countries"><span class="skeleton skel-statval"></span></div>
+            <div class="stat-label">countries</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-value" id="stat-cities"><span class="skeleton skel-statval"></span></div>
+            <div class="stat-label">cities</div>
+        </div>
+        <div class="card stat-card">
+            <div class="stat-value" id="stat-distance"><span class="skeleton skel-statval"></span></div>
+            <div class="stat-label" id="stat-distance-label">Distance</div>
+        </div>
+    </div>
+
+    <div class="grid grid-2">
+        <div class="card" style="grid-column: 1 / -1;">
+            <div class="card-header">Distance Travelled</div>
+            <div class="chart-container">
+                <canvas id="distance-chart"></canvas>
+                <div class="chart-hover-line" id="chart-hline"></div>
+                <div class="chart-hover-dot" id="chart-hdot"></div>
+                <div class="chart-tooltip" id="chart-tooltip"></div>
+            </div>
+        </div>
+        <div class="card heat-card" style="grid-column: 1 / -1;">
+            <div class="card-header" style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;">
+                <span>Daily Distance</span>
+                <span style="display:flex;align-items:baseline;gap:0.75rem;flex-wrap:wrap;justify-content:flex-end;">
+                    <span id="heat-summary" style="font-size:0.75rem;font-weight:500;color:var(--text-muted);font-family:var(--font-mono);"></span>
+                    <span class="heat-years">
+                        <button type="button" class="heat-year-btn" id="heat-prev" aria-label="Previous year">&lsaquo;</button>
+                        <span id="heat-year"></span>
+                        <button type="button" class="heat-year-btn" id="heat-next" aria-label="Next year">&rsaquo;</button>
+                    </span>
+                </span>
+            </div>
+            <div class="heat-scroll">
+                <div class="heatmap">
+                    <div class="heat-months" id="heat-months"></div>
+                    <div class="heat-dows" id="heat-dows"></div>
+                    <div class="heat-grid" id="heat-grid"></div>
+                </div>
+            </div>
+            <div class="heat-legend" id="heat-legend"></div>
+            <div class="chart-tooltip" id="heat-tooltip"></div>
+        </div>
+        <div class="card" style="grid-column: 1 / -1;">
+            <div class="card-header" style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem;">
+                <span>How You Travelled</span>
+                <span id="transport-summary" style="font-size:0.75rem;font-weight:500;color:var(--text-muted);font-family:var(--font-mono);"></span>
+            </div>
+            <div id="transport-body"></div>
+        </div>
+        <div class="card">
+            <div class="card-header">Timeline</div>
+            <div id="timeline-info" style="font-size: 0.875rem; color: var(--text-muted);">
+                <span class="skeleton skel-line" style="display:block;width:70%;margin-bottom:0.5rem;"></span>
+                <span class="skeleton skel-line" style="display:block;width:65%;margin-bottom:0.5rem;"></span>
+                <span class="skeleton skel-line" style="display:block;width:45%;"></span>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header">States / Regions</div>
+            <div id="stat-states" style="font-size: 0.875rem; color: var(--text-muted);"><span class="skeleton skel-line" style="display:inline-block;width:55%;"></span></div>
+        </div>
+    </div>
+
+    <!-- Yearly Overview -->
+    <div style="margin-top: 1.5rem;">
+        <div class="card-header" style="padding: 0; margin-bottom: 1rem; font-size: 1rem; font-weight: 700; color: var(--text);" id="yearly-heading">Yearly Overview</div>
+
+        <!-- Period Comparison -->
+        <div class="grid grid-3" style="margin-bottom: 1rem;" id="yearly-compare-grid">
+            <div class="card" style="padding: 1rem;">
+                <div style="font-size: 0.75rem; color: var(--text-muted);  font-weight: 600; margin-bottom: 0.5rem;">this week</div>
+                <div id="week-pts" class="stat-value" style="font-size: 1.5rem;"><span class="skeleton skel-statval"></span></div>
+                <div style="font-size: 0.75rem; color: var(--text-muted);">points</div>
+                <div id="week-delta" style="font-size: 0.75rem; margin-top: 0.375rem;"></div>
+                <div id="week-places" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;"></div>
+            </div>
+            <div class="card" style="padding: 1rem;">
+                <div style="font-size: 0.75rem; color: var(--text-muted);  font-weight: 600; margin-bottom: 0.5rem;">this month</div>
+                <div id="month-pts" class="stat-value" style="font-size: 1.5rem;"><span class="skeleton skel-statval"></span></div>
+                <div style="font-size: 0.75rem; color: var(--text-muted);">points</div>
+                <div id="month-delta" style="font-size: 0.75rem; margin-top: 0.375rem;"></div>
+                <div id="month-places" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;"></div>
+            </div>
+            <div class="card" style="padding: 1rem;">
+                <div style="font-size: 0.75rem; color: var(--text-muted);  font-weight: 600; margin-bottom: 0.5rem;" id="year-label">this year</div>
+                <div id="year-pts" class="stat-value" style="font-size: 1.5rem;"><span class="skeleton skel-statval"></span></div>
+                <div style="font-size: 0.75rem; color: var(--text-muted);">points</div>
+                <div id="year-delta" style="font-size: 0.75rem; margin-top: 0.375rem;"></div>
+                <div id="year-places" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;"></div>
+            </div>
+        </div>
+
+        <div class="grid grid-2">
+            <!-- Monthly Breakdown Chart -->
+            <div class="card">
+                <div class="card-header" id="monthly-chart-title">Monthly Activity</div>
+                <div class="chart-container" style="height: 160px;" id="yearly-chart-wrap">
+                    <canvas id="yearly-chart"></canvas>
+                    <div class="chart-hover-line" id="yearly-hline"></div>
+                    <div class="chart-hover-dot" id="yearly-hdot"></div>
+                    <div class="chart-tooltip" id="yearly-tooltip"></div>
+                </div>
+            </div>
+
+            <!-- Top Places -->
+            <div class="card">
+                <div class="card-header">Most Visited</div>
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+                    <button class="btn btn-outline btn-sm" id="mv-cities-btn" onclick="switchMV('cities')" style="border-color: var(--primary); color: var(--primary);">cities</button>
+                    <button class="btn btn-outline btn-sm" id="mv-countries-btn" onclick="switchMV('countries')">countries</button>
+                    <button class="btn btn-outline btn-sm" id="mv-places-btn" onclick="switchMV('places')">places</button>
+                </div>
+                <div id="most-visited-list" style="font-size: 0.8125rem;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function getFilterParams() {
+    const range = document.getElementById('stats-range').value;
+    const startDate = document.getElementById('stats-start').value;
+    const endDate = document.getElementById('stats-end').value;
+    const params = new URLSearchParams();
+
+    if (startDate && endDate) {
+        params.set('start_date', startDate);
+        params.set('end_date', endDate);
+    } else if (range === 'all') {
+        params.set('all', '1');
+    } else {
+        params.set('hours', range);
+    }
+    return params;
+}
+
+function formatDistance(km) {
+    const unit = localStorage.getItem('roamly_speed_unit') || 'kmh';
+    if (unit === 'mph') return (km * 0.621371).toFixed(1) + ' mi';
+    return km.toFixed(1) + ' km';
+}
+
+function isImperial() {
+    return (localStorage.getItem('roamly_speed_unit') || 'kmh') === 'mph';
+}
+
+// ── How you travelled — distance split by detected transport mode ────────────
+// Populated by the "Detect Transport Modes" job in Settings → Background Jobs;
+// until that's run, every point is unclassified and the card says so.
+const TM_LABELS = { still: 'still', walk: 'walking', cycle: 'cycling', vehicle: 'vehicle', plane: 'flying' };
+const TM_COLORS = {
+    still: 'var(--text-dim)',
+    walk: 'var(--clay-mint)',
+    cycle: 'var(--clay-amber)',
+    vehicle: 'var(--clay-sky)',
+    plane: 'var(--clay-lavender)',
+};
+
+function loadTransport() {
+    const body = document.getElementById('transport-body');
+    const summary = document.getElementById('transport-summary');
+    body.innerHTML = [70, 45, 30].map(w => `<div class="tm-row">
+            <span class="skeleton skel-line" style="width:70%;"></span>
+            <span class="tm-track"><span class="skeleton" style="display:block;width:${w}%;height:100%;"></span></span>
+            <span class="skeleton skel-line" style="width:3.5rem;"></span>
+        </div>`).join('');
+    summary.textContent = '';
+
+    fetch(`/api/transport/breakdown/?${getFilterParams()}`)
+        .then(r => r.json())
+        .then(data => {
+            // 'still' is excluded from the bars: it's most of the points and would
+            // dwarf every real mode, and standing still isn't travelling.
+            const moving = (data.modes || []).filter(m => m.mode !== 'still' && m.km > 0);
+            if (!moving.length) {
+                body.innerHTML = data.unclassified
+                    ? '<div class="tm-empty">No modes detected in this range. Run <strong>Detect Transport Modes</strong> in Settings → Background Jobs.</div>'
+                    : '<div class="tm-empty">No travel in this range.</div>';
+                return;
+            }
+            const total = moving.reduce((s, m) => s + m.km, 0);
+            body.innerHTML = moving.map(m => {
+                const pct = total > 0 ? (m.km / total * 100) : 0;
+                return `<div class="tm-row">
+                    <span class="tm-name">${TM_LABELS[m.mode] || m.mode}</span>
+                    <span class="tm-track"><span class="tm-fill" style="width:${pct.toFixed(1)}%;background:${TM_COLORS[m.mode] || 'var(--primary)'};"></span></span>
+                    <span class="tm-val">${formatDistance(m.km)} · ${pct.toFixed(0)}%</span>
+                </div>`;
+            }).join('');
+            summary.textContent = data.unclassified
+                ? `${data.unclassified.toLocaleString()} points unclassified`
+                : `${formatDistance(total)} total`;
+        })
+        .catch(() => {
+            body.innerHTML = '<div class="tm-empty">Could not load transport breakdown.</div>';
+        });
+}
+
+function loadStats() {
+    const params = getFilterParams();
+
+    // Only the main grid tiles — the yearly tiles are refilled by
+    // loadYearlyOverview(), which range changes don't trigger, so skeletoning
+    // them here would leave them stuck shimmering.
+    document.querySelectorAll('#stats-grid .stat-value').forEach(el => el.innerHTML = '<span class="skeleton skel-statval"></span>');
+    document.getElementById('stat-states').innerHTML = '<span class="skeleton skel-line" style="display:inline-block;width:55%;"></span>';
+    document.getElementById('timeline-info').innerHTML =
+        '<span class="skeleton skel-line" style="display:block;width:70%;margin-bottom:0.5rem;"></span>' +
+        '<span class="skeleton skel-line" style="display:block;width:65%;margin-bottom:0.5rem;"></span>' +
+        '<span class="skeleton skel-line" style="display:block;width:45%;"></span>';
+
+    loadTransport();
+
+    fetch(`/api/stats/?${params}`)
+        .then(r => { if (!r.ok) throw new Error('stats request failed'); return r.json(); })
+        .then(data => {
+            document.getElementById('stat-points').textContent = data.total_points.toLocaleString();
+            document.getElementById('stat-countries').textContent = data.countries;
+            document.getElementById('stat-cities').textContent = data.cities;
+            document.getElementById('stat-states').textContent = `${data.states} states/regions visited`;
+
+            let timeline = '';
+            if (data.first_location) {
+                const first = new Date(data.first_location);
+                const last = new Date(data.last_location);
+                const days = Math.ceil((last - first) / (1000 * 60 * 60 * 24));
+                timeline = `First: ${first.toLocaleDateString()}<br>Last: ${last.toLocaleDateString()}<br>Span: ${days} day${days !== 1 ? 's' : ''}`;
+            } else {
+                timeline = 'No data in this range';
+            }
+            document.getElementById('timeline-info').innerHTML = timeline;
+        })
+        .catch(() => {
+            document.querySelectorAll('#stats-grid .stat-value').forEach(el => el.textContent = '—');
+            document.getElementById('timeline-info').innerHTML =
+                '<span style="color:var(--danger);">Failed to load stats. <a href="#" onclick="loadStats();return false;">Retry</a></span>';
+        });
+
+    const distParams = new URLSearchParams(params.toString());
+    const range = document.getElementById('stats-range').value;
+    if (range === '24' || range === '72') distParams.set('granularity', 'hourly');
+    fetch(`/api/distance/?${distParams}`)
+        .then(r => { if (!r.ok) throw new Error('distance request failed'); return r.json(); })
+        .then(data => {
+            document.getElementById('stat-distance').textContent = formatDistance(data.total_km);
+            document.getElementById('stat-distance-label').textContent = isImperial() ? 'Total Miles' : 'Total Kilometres';
+            drawChart(data.days, data.distances, range);
+        })
+        .catch(() => {
+            document.getElementById('stat-distance').textContent = '—';
+            if (window.roamlyToast) window.roamlyToast('Failed to load distance chart.', { type: 'error' });
+        });
+}
+
+let chartPoints = [];   // distance chart hover points: {x, y, tip, mapUrl}
+let chartGeom = null;   // {top, height} plot area for the hover guide line
+let yearlyPoints = [];  // monthly chart hover points
+let yearlyGeom = null;
+
+// "#rrggbb" + alpha → "rgba(...)"; falls back to the teal accent.
+function hexA(hex, a) {
+    const m = (hex || '').trim().match(/^#?([0-9a-f]{6})$/i);
+    if (!m) return `rgba(13,191,172,${a})`;
+    const n = parseInt(m[1], 16);
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
+// Monotone cubic (Fritsch–Carlson) bezier control points for a set of {x,y}
+// points. The resulting curve passes through EVERY point and never overshoots,
+// so the line always intercepts the data dots. Returns one {cp1,cp2} per segment.
+function monotoneSpline(pts) {
+    const nseg = pts.length - 1;
+    const segs = [];
+    if (nseg < 1) return segs;
+    const dx = [], dy = [], m = [];
+    for (let i = 0; i < nseg; i++) {
+        dx[i] = pts[i + 1].x - pts[i].x;
+        dy[i] = pts[i + 1].y - pts[i].y;
+        m[i] = dx[i] === 0 ? 0 : dy[i] / dx[i];
+    }
+    const t = new Array(nseg + 1);
+    t[0] = m[0];
+    t[nseg] = m[nseg - 1];
+    for (let i = 1; i < nseg; i++) {
+        t[i] = (m[i - 1] * m[i] <= 0) ? 0 : (m[i - 1] + m[i]) / 2;
+    }
+    for (let i = 0; i < nseg; i++) {
+        if (m[i] === 0) { t[i] = 0; t[i + 1] = 0; continue; }
+        const a = t[i] / m[i], b = t[i + 1] / m[i];
+        const s = a * a + b * b;
+        if (s > 9) {
+            const tau = 3 / Math.sqrt(s);
+            t[i] = tau * a * m[i];
+            t[i + 1] = tau * b * m[i];
+        }
+    }
+    for (let i = 0; i < nseg; i++) {
+        segs.push({
+            cp1x: pts[i].x + dx[i] / 3,
+            cp1y: pts[i].y + t[i] * dx[i] / 3,
+            cp2x: pts[i + 1].x - dx[i] / 3,
+            cp2y: pts[i + 1].y - t[i + 1] * dx[i] / 3,
+        });
+    }
+    return segs;
+}
+
+// Attach nearest-point hover (guide line + dot + tooltip, optional click-through)
+// to a canvas line chart. getState() returns {points, geom, width}.
+function attachChartHover(canvas, els, getState) {
+    function nearest(mx, points) {
+        let best = null, bestD = Infinity;
+        for (const p of points) {
+            const d = Math.abs(p.x - mx);
+            if (d < bestD) { bestD = d; best = p; }
+        }
+        return best;
+    }
+    function hide() {
+        els.tooltip.style.opacity = '0';
+        if (els.hline) els.hline.style.opacity = '0';
+        if (els.hdot) els.hdot.style.opacity = '0';
+        canvas.style.cursor = '';
+    }
+    canvas.addEventListener('mousemove', function(e) {
+        const { points, geom, width } = getState();
+        if (!points || !points.length || !geom) { hide(); return; }
+        const rect = canvas.getBoundingClientRect();
+        const hit = nearest(e.clientX - rect.left, points);
+        if (!hit) { hide(); return; }
+        els.tooltip.innerHTML = hit.tip.replace('\n', '<br>');
+        els.tooltip.style.opacity = '1';
+        const tx = Math.max(48, Math.min((width || rect.width) - 48, hit.x));
+        els.tooltip.style.left = tx + 'px';
+        els.tooltip.style.bottom = (rect.height - hit.y + 14) + 'px';
+        els.tooltip.style.top = '';
+        els.tooltip.style.transform = 'translateX(-50%)';
+        if (els.hline) {
+            els.hline.style.left = hit.x + 'px';
+            els.hline.style.top = geom.top + 'px';
+            els.hline.style.height = geom.height + 'px';
+            els.hline.style.opacity = '1';
+        }
+        if (els.hdot) {
+            els.hdot.style.left = hit.x + 'px';
+            els.hdot.style.top = hit.y + 'px';
+            els.hdot.style.opacity = '1';
+        }
+        canvas.style.cursor = hit.mapUrl ? 'pointer' : 'default';
+    });
+    canvas.addEventListener('mouseleave', hide);
+    canvas.addEventListener('click', function(e) {
+        const { points } = getState();
+        if (!points || !points.length) return;
+        const rect = canvas.getBoundingClientRect();
+        const hit = nearest(e.clientX - rect.left, points);
+        if (hit && hit.mapUrl) window.location.href = hit.mapUrl;
+    });
+}
+
+// Advance a 'YYYY-MM-DD' string by N days without timezone issues
+// 'YYYY-MM-DD' / 'YYYY-MM-DD HH' for a Date in the browser's own zone.
+function localDateStr(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function localHourKey(d) {
+    return `${localDateStr(d)} ${String(d.getHours()).padStart(2, '0')}`;
+}
+
+function addDays(dateStr, n) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d + n));
+    return dt.toISOString().slice(0, 10);
+}
+
+// Advance a 'YYYY-MM-DD HH' string by N hours without timezone issues
+function addHours(key, n) {
+    const dateStr = key.slice(0, 10);
+    const hour = parseInt(key.slice(11), 10) + n;
+    const days = Math.floor(hour / 24);
+    const h = hour % 24;
+    const newDate = days > 0 ? addDays(dateStr, days) : dateStr;
+    return newDate + ' ' + String(h).padStart(2, '0');
+}
+
+function groupDays(days, distancesKm, range) {
+    // 24h = hourly, 72h = 3-hour blocks, 168h/720h = daily,
+    // 2160h = 3-day groups, 8760h/all = monthly
+    let mode;
+    if (range === '24') mode = 'hourly';
+    else if (range === '72') mode = '3hourly';
+    else if (range === '168' || range === '720') mode = 'daily';
+    else if (range === '2160') mode = '3day';
+    else mode = 'monthly';
+
+    // Compute fill boundaries. For ranged views always span the full period to now
+    // so bars appear even when there's no data at the edges.
+    const now = new Date();
+    const hours = (!isNaN(parseInt(range))) ? parseInt(range) : null;
+    const rangeStartTs = hours ? new Date(now - hours * 3600000) : null;
+
+    // Local date/hour strings: the API buckets by the user's local day and hour
+    // (UserTimezoneMiddleware), so UTC keys here would add a phantom empty day
+    // every evening and shift the hourly fill by the UTC offset.
+    const todayStr = localDateStr(now);
+    const nowHourKey = localHourKey(now);
+    const rangeStartDate = rangeStartTs ? localDateStr(rangeStartTs) : null;
+    const rangeStartHour = rangeStartTs ? localHourKey(rangeStartTs) : null;
+
+    // For daily/hourly: build map then fill the full window
+    if (mode === 'daily') {
+        const map = new Map(days.map((d, i) => [d, distancesKm[i]]));
+        const filled = [], filledVals = [];
+        const fillStart = rangeStartDate || (days.length ? days[0] : todayStr);
+        const fillEnd = todayStr;
+        for (let d = fillStart; d <= fillEnd; d = addDays(d, 1)) {
+            filled.push(d);
+            filledVals.push(map.get(d) || 0);
+        }
+        return { labels: filled, values: filledVals, sublabels: null, mode };
+    }
+
+    if (mode === 'hourly') {
+        const map = new Map(days.map((d, i) => [d, distancesKm[i]]));
+        const filled = [], filledVals = [];
+        const fillStart = rangeStartHour || (days.length ? days[0] : nowHourKey);
+        const fillEnd = nowHourKey;
+        for (let k = fillStart; k <= fillEnd; k = addHours(k, 1)) {
+            filled.push(k);
+            filledVals.push(map.get(k) || 0);
+        }
+        return { labels: filled, values: filledVals, sublabels: null, mode };
+    }
+
+    // Grouped modes: build buckets from data
+    const buckets = new Map();
+    for (let i = 0; i < days.length; i++) {
+        let key;
+        if (mode === 'monthly') {
+            key = days[i].slice(0, 7);
+        } else if (mode === '3day') {
+            const [y, m, d] = days[i].split('-').map(Number);
+            const epochDays = Math.floor(Date.UTC(y, m - 1, d) / 86400000);
+            key = String(Math.floor(epochDays / 3));
+        } else { // 3hourly — days[i] like '2026-02-18 14'
+            const dateStr = days[i].slice(0, 10);
+            const hour = parseInt(days[i].slice(11), 10);
+            key = dateStr + ' ' + String(Math.floor(hour / 3) * 3).padStart(2, '0');
+        }
+        if (!buckets.has(key)) buckets.set(key, { total: 0, count: 0, first: days[i], last: days[i] });
+        const b = buckets.get(key);
+        b.total += distancesKm[i];
+        b.count++;
+        b.last = days[i];
+    }
+
+    // Determine fill start/end keys for grouped modes
+    let fillFirstKey, fillLastKey;
+    if (mode === 'monthly') {
+        const nowMonthKey = now.toISOString().slice(0, 7);
+        if (rangeStartDate) {
+            fillFirstKey = rangeStartDate.slice(0, 7);
+        } else {
+            const dataKeys = Array.from(buckets.keys()).sort();
+            fillFirstKey = dataKeys.length ? dataKeys[0] : nowMonthKey;
+        }
+        fillLastKey = nowMonthKey;
+    } else if (mode === '3day') {
+        const nowEpochBucket = Math.floor(Math.floor(now.getTime() / 86400000) / 3);
+        if (rangeStartDate) {
+            const [ry, rm, rd] = rangeStartDate.split('-').map(Number);
+            fillFirstKey = String(Math.floor(Math.floor(Date.UTC(ry, rm - 1, rd) / 86400000) / 3));
+        } else {
+            const dataKeys = Array.from(buckets.keys()).sort();
+            fillFirstKey = dataKeys.length ? dataKeys[0] : String(nowEpochBucket);
+        }
+        fillLastKey = String(nowEpochBucket);
+    } else { // 3hourly
+        const nowBlockKey = nowHourKey.slice(0, 10) + ' ' + String(Math.floor(now.getUTCHours() / 3) * 3).padStart(2, '0');
+        if (rangeStartHour) {
+            const rh = parseInt(rangeStartHour.slice(11), 10);
+            fillFirstKey = rangeStartHour.slice(0, 10) + ' ' + String(Math.floor(rh / 3) * 3).padStart(2, '0');
+        } else {
+            const dataKeys = Array.from(buckets.keys()).sort();
+            fillFirstKey = dataKeys.length ? dataKeys[0] : nowBlockKey;
+        }
+        fillLastKey = nowBlockKey;
+    }
+
+    // Fill gaps across the full window
+    if (mode === 'monthly') {
+        let [cy, cm] = fillFirstKey.split('-').map(Number);
+        const [ly, lm] = fillLastKey.split('-').map(Number);
+        while (cy < ly || (cy === ly && cm <= lm)) {
+            const k = `${cy}-${String(cm).padStart(2,'0')}`;
+            if (!buckets.has(k)) buckets.set(k, { total: 0, count: 0, first: k, last: k });
+            if (++cm > 12) { cm = 1; cy++; }
+        }
+    } else if (mode === '3day') {
+        for (let k = parseInt(fillFirstKey); k <= parseInt(fillLastKey); k++) {
+            const sk = String(k);
+            if (!buckets.has(sk)) {
+                const d = new Date(k * 3 * 86400000);
+                const ds = d.toISOString().slice(0, 10);
+                buckets.set(sk, { total: 0, count: 0, first: ds, last: ds });
+            }
+        }
+    } else { // 3hourly
+        for (let k = fillFirstKey; k <= fillLastKey; k = addHours(k, 3)) {
+            if (!buckets.has(k)) buckets.set(k, { total: 0, count: 0, first: k, last: k });
+        }
+    }
+
+    const labels = [], values = [], sublabels = [];
+    for (const [key, b] of Array.from(buckets.entries()).sort()) {
+        labels.push(key);
+        values.push(b.total);
+        if (mode === 'monthly') {
+            const [y, m] = key.split('-');
+            const monthName = new Date(parseInt(y), parseInt(m) - 1).toLocaleString('default', { month: 'short' });
+            sublabels.push({ label: `${monthName} '${y.slice(2)}`, range: b.count > 0 ? `${b.first} – ${b.last}` : key, days: b.count, unit: 'day' });
+        } else if (mode === '3day') {
+            const p = b.first.split('-');
+            sublabels.push({ label: `${p[1]}/${p[2]}`, range: b.count > 0 ? `${b.first} – ${b.last}` : b.first, days: b.count, unit: 'day' });
+        } else { // 3hourly
+            const blockStart = parseInt(key.slice(11), 10);
+            const blockEnd = blockStart + 2;
+            const dateStr = key.slice(0, 10);
+            sublabels.push({
+                label: `${String(blockStart).padStart(2,'0')}:00`,
+                range: `${dateStr} ${String(blockStart).padStart(2,'0')}:00–${String(blockEnd).padStart(2,'0')}:59`,
+                days: b.count, unit: 'hr'
+            });
+        }
+    }
+    return { labels, values, sublabels, mode };
+}
+
+function drawChart(days, distancesKm, range) {
+    const canvas = document.getElementById('distance-chart');
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.parentElement.getBoundingClientRect();
+
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const W = rect.width;
+    const H = rect.height;
+    const pad = { top: 20, right: 16, bottom: 40, left: 52 };
+    const cW = W - pad.left - pad.right;
+    const cH = H - pad.top - pad.bottom;
+
+    const css = getComputedStyle(document.documentElement);
+    const accent = (css.getPropertyValue('--primary') || '#e8763d').trim();
+    const gridCol = (css.getPropertyValue('--border') || '#30352a').trim();
+    const textCol = (css.getPropertyValue('--text-muted') || '#a9a794').trim();
+
+    ctx.clearRect(0, 0, W, H);
+    chartPoints = [];
+    chartGeom = { top: pad.top, height: cH };
+
+    if (!days.length) {
+        ctx.fillStyle = textCol;
+        ctx.font = "13px var(--font-body)";
+        ctx.textAlign = 'center';
+        ctx.fillText('No distance data in this range', W / 2, H / 2);
+        return;
+    }
+
+    const imperial = isImperial();
+    const grouped = groupDays(days, distancesKm, range || '168');
+    const isGrouped = grouped.sublabels !== null;
+    const rawValues = grouped.values;
+    const values = rawValues.map(d => imperial ? d * 0.621371 : d);
+    const n = values.length;
+
+    const maxVal = Math.max(...values, 0.1);
+    const niceMax = Math.ceil(maxVal / (maxVal > 100 ? 50 : maxVal > 10 ? 5 : 1)) * (maxVal > 100 ? 50 : maxVal > 10 ? 5 : 1);
+
+    // Grid + y-axis labels
+    const gridLines = 4;
+    ctx.lineWidth = 1;
+    ctx.font = "11px var(--font-body)";
+    for (let i = 0; i <= gridLines; i++) {
+        const y = pad.top + cH - (cH * i / gridLines);
+        ctx.strokeStyle = gridCol;
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(W - pad.right, y);
+        ctx.stroke();
+        ctx.fillStyle = textCol;
+        ctx.textAlign = 'right';
+        const val = (niceMax * i / gridLines);
+        ctx.fillText(val % 1 === 0 ? val.toString() : val.toFixed(1), pad.left - 8, y + 4);
+    }
+
+    // Unit label
+    ctx.fillStyle = textCol;
+    ctx.font = "10px var(--font-body)";
+    ctx.textAlign = 'left';
+    ctx.fillText(imperial ? 'mi' : 'km', pad.left - 8, pad.top - 6);
+
+    // Point coordinates
+    const xOf = (i) => n === 1 ? pad.left + cW / 2 : pad.left + (i / (n - 1)) * cW;
+    const yOf = (v) => pad.top + cH - (v / niceMax) * cH;
+    const pts = values.map((v, i) => ({ x: xOf(i), y: yOf(v) }));
+
+    // Smooth path that passes through every data point (monotone cubic)
+    const segs = monotoneSpline(pts);
+    const trace = () => {
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 0; i < segs.length; i++) {
+            ctx.bezierCurveTo(segs[i].cp1x, segs[i].cp1y, segs[i].cp2x, segs[i].cp2y, pts[i + 1].x, pts[i + 1].y);
+        }
+    };
+
+    if (pts.length >= 2) {
+        // Gradient area fill under the line
+        const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + cH);
+        grad.addColorStop(0, hexA(accent, 0.30));
+        grad.addColorStop(1, hexA(accent, 0.02));
+        trace();
+        ctx.lineTo(pts[pts.length - 1].x, pad.top + cH);
+        ctx.lineTo(pts[0].x, pad.top + cH);
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+        // The line itself
+        trace();
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 2;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.stroke();
+    }
+
+    // Dots (only when sparse enough to stay clean) + hover points + map links
+    const showDots = n <= 31;
+    for (let i = 0; i < n; i++) {
+        if (pts.length === 1 || showDots) {
+            ctx.beginPath();
+            ctx.arc(pts[i].x, pts[i].y, pts.length === 1 ? 4 : 3, 0, Math.PI * 2);
+            ctx.fillStyle = accent;
+            ctx.fill();
+        }
+        const dist = formatDistance(rawValues[i]);
+        let tip;
+        if (isGrouped) {
+            const s = grouped.sublabels[i];
+            tip = `${s.range}\n${dist} (${s.days} ${s.unit}${s.days !== 1 ? 's' : ''})`;
+        } else if (grouped.mode === 'hourly') {
+            const hour = grouped.labels[i].slice(11);
+            tip = `${grouped.labels[i].slice(0, 10)} ${hour}:00–${hour}:59\n${dist}`;
+        } else {
+            tip = `${grouped.labels[i]}\n${dist}`;
+        }
+        let mapStart, mapEnd;
+        if (isGrouped) {
+            const parts = (grouped.sublabels[i].range || '').split(' – ');
+            mapStart = parts[0].slice(0, 10);
+            mapEnd = parts[parts.length - 1].slice(0, 10);
+        } else if (grouped.mode === 'hourly') {
+            mapStart = grouped.labels[i].slice(0, 10);
+            mapEnd = mapStart;
+        } else {
+            mapStart = grouped.labels[i];
+            mapEnd = grouped.labels[i];
+        }
+        chartPoints.push({ x: pts[i].x, y: pts[i].y, tip, mapUrl: `/map/?start=${mapStart}&end=${mapEnd}` });
+    }
+
+    // X-axis labels
+    ctx.fillStyle = textCol;
+    ctx.font = "10px var(--font-body)";
+    ctx.textAlign = 'center';
+    const maxLabels = Math.floor(cW / 60);
+    const step = Math.max(1, Math.ceil(n / maxLabels));
+    for (let i = 0; i < n; i += step) {
+        const x = pts[i].x;
+        const y = H - pad.bottom + 16;
+        if (isGrouped) {
+            ctx.fillText(grouped.sublabels[i].label, x, y);
+        } else if (grouped.mode === 'hourly') {
+            ctx.fillText(`${grouped.labels[i].slice(11)}:00`, x, y);
+        } else {
+            const parts = grouped.labels[i].split('-');
+            ctx.fillText(`${parts[1]}/${parts[2]}`, x, y);
+        }
+    }
+}
+
+// Distance chart hover (guide line + dot + tooltip, click-through to the map)
+attachChartHover(
+    document.getElementById('distance-chart'),
+    {
+        tooltip: document.getElementById('chart-tooltip'),
+        hline: document.getElementById('chart-hline'),
+        hdot: document.getElementById('chart-hdot'),
+    },
+    () => ({
+        points: chartPoints,
+        geom: chartGeom,
+        width: document.getElementById('distance-chart').parentElement.getBoundingClientRect().width,
+    })
+);
+
+// Monthly Activity chart hover (month + point count, click-through to the map)
+attachChartHover(
+    document.getElementById('yearly-chart'),
+    {
+        tooltip: document.getElementById('yearly-tooltip'),
+        hline: document.getElementById('yearly-hline'),
+        hdot: document.getElementById('yearly-hdot'),
+    },
+    () => ({
+        points: yearlyPoints,
+        geom: yearlyGeom,
+        width: document.getElementById('yearly-chart').parentElement.getBoundingClientRect().width,
+    })
+);
+
+// Event listeners
+document.getElementById('stats-range').addEventListener('change', () => {
+    document.getElementById('stats-start').value = '';
+    document.getElementById('stats-end').value = '';
+    loadStats();
+});
+
+['stats-start', 'stats-end'].forEach(id => {
+    document.getElementById(id).addEventListener('change', () => {
+        const s = document.getElementById('stats-start').value;
+        const e = document.getElementById('stats-end').value;
+        if (s && e) {
+            document.getElementById('stats-range').value = 'all';
+            loadStats();
+        }
+    });
+});
+
+// Handle resize
+let resizeTimer;
+window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+        // Re-fetch to redraw chart
+        const params = getFilterParams();
+        const range = document.getElementById('stats-range').value;
+        const distParams = new URLSearchParams(params.toString());
+        if (range === '24' || range === '72') distParams.set('granularity', 'hourly');
+        fetch(`/api/distance/?${distParams}`)
+            .then(r => r.json())
+            .then(data => drawChart(data.days, data.distances, range));
+        if (yearlyData) drawYearlyChart(yearlyData.monthly_breakdown, yearlyData.year);
+    }, 200);
+});
+
+// Deep-link support (e.g. from a summary email's "View in stats" link):
+// ?start=YYYY-MM-DD&end=YYYY-MM-DD initializes the range picker before the
+// first load. Mirrors map-core.js's ?start=&end= handling.
+(function() {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get('start') && p.get('end')) {
+        document.getElementById('stats-start').value = p.get('start');
+        document.getElementById('stats-end').value = p.get('end');
+        document.getElementById('stats-range').value = 'all';
+    }
+})();
+
+loadStats();
+loadYearlyOverview();
+loadHeatmap();
+window.onSnapshotReady = function() { loadStats(); loadYearlyOverview(); loadHeatmap(); };
+
+// ─── Daily distance heatmap (calendar year) ────────────────────
+// Deliberately independent of the toolbar range filter: it always shows one
+// whole calendar year, Jan 1 – Dec 31, with the days still to come drawn as
+// empty squares. Fetched once with `all=1&granularity=daily` (the one distance
+// request served straight from the precomputed StatsSnapshot); stepping
+// between years just redraws from that.
+
+const HEAT_ALPHA = [null, 0.22, 0.45, 0.7, 1];   // index = level 1..4; 0 renders as empty
+const DOW_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', ''];
+
+function heatCellStyle(level) {
+    if (!level) return '';
+    return `background:${hexA(heatAccent(), HEAT_ALPHA[level])};border-color:${hexA(heatAccent(), Math.min(1, HEAT_ALPHA[level] + 0.15))};`;
+}
+
+function heatAccent() {
+    return (getComputedStyle(document.documentElement).getPropertyValue('--primary') || '#e8763d').trim();
+}
+
+// Bucket daily distances into 4 levels by quartile of the *active* days. Daily
+// distance is heavily skewed — a year of short commutes plus a handful of
+// travel days — so a linear scale would flatten almost every day to level 1.
+// Quartiles adapt to whatever the user's history actually looks like.
+function makeHeatLevel(values) {
+    const nz = values.filter(v => v > 0).sort((a, b) => a - b);
+    if (!nz.length) return null;
+    const q = p => nz[Math.min(nz.length - 1, Math.floor(p * nz.length))];
+    let t = [q(0.25), q(0.5), q(0.75)];
+    if (!(t[0] < t[1] && t[1] < t[2])) {
+        // Quartiles collapse when most active days are identical. Fall back to an
+        // even split of the range so the ramp still separates them.
+        const lo = nz[0], hi = nz[nz.length - 1];
+        if (hi <= lo) return v => (v > 0 ? 4 : 0);
+        t = [1, 2, 3].map(i => lo + (hi - lo) * i / 4);
+    }
+    return v => {
+        if (!(v > 0)) return 0;
+        if (v <= t[0]) return 1;
+        if (v <= t[1]) return 2;
+        if (v <= t[2]) return 3;
+        return 4;
+    };
+}
+
+// Monday-first row index (0=Mon .. 6=Sun) for a 'YYYY-MM-DD' string. Parsed as
+// UTC to match the API's day keys and to dodge local-timezone date shifts.
+function dowIndex(dateStr) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7;
+}
+
+let heatData = { days: [], distances: [] };
+let heatYear = new Date().getFullYear();
+
+function loadHeatmap() {
+    fetch('/api/distance/?all=1&granularity=daily')
+        .then(r => r.json())
+        .then(data => {
+            heatData = { days: data.days || [], distances: data.distances || [] };
+            drawHeatmap();
+        });
+}
+
+function heatFirstYear() {
+    const first = heatData.days.find((d, i) => heatData.distances[i] > 0);
+    const thisYear = new Date().getFullYear();
+    return first ? Math.min(thisYear, parseInt(first.slice(0, 4), 10)) : thisYear;
+}
+
+function drawHeatmap() {
+    const grid = document.getElementById('heat-grid');
+    const monthsEl = document.getElementById('heat-months');
+    const dowsEl = document.getElementById('heat-dows');
+    const legendEl = document.getElementById('heat-legend');
+    const summaryEl = document.getElementById('heat-summary');
+
+    const thisYear = new Date().getFullYear();
+    heatYear = Math.max(heatFirstYear(), Math.min(thisYear, heatYear));
+    document.getElementById('heat-year').textContent = heatYear;
+    document.getElementById('heat-prev').disabled = heatYear <= heatFirstYear();
+    document.getElementById('heat-next').disabled = heatYear >= thisYear;
+
+    const byDay = new Map(heatData.days.map((d, i) => [d, heatData.distances[i]]));
+
+    // Whole Mon–Sun columns from the week holding Jan 1 to the week holding
+    // Dec 31 (53 or 54 of them). Local "today", because the API's day keys are
+    // the user's local days — a UTC date runs a day ahead every evening.
+    const yearStart = `${heatYear}-01-01`;
+    const yearEnd = `${heatYear}-12-31`;
+    const today = localDateStr(new Date());
+    const gridStart = addDays(yearStart, -dowIndex(yearStart));
+    const daysInYear = (Date.UTC(heatYear + 1, 0, 1) - Date.UTC(heatYear, 0, 1)) / 86400000;
+    const weeks = Math.ceil((dowIndex(yearStart) + daysInYear) / 7);
+
+    const cells = [];
+    const windowVals = [];
+    for (let c = 0; c < weeks; c++) {
+        for (let r = 0; r < 7; r++) {
+            const day = addDays(gridStart, c * 7 + r);
+            if (day < yearStart || day > yearEnd) { cells.push(null); continue; }
+            if (day > today) { cells.push({ day, future: true }); continue; }
+            const km = byDay.get(day) || 0;
+            cells.push({ day, km });
+            windowVals.push(km);
+        }
+    }
+
+    const levelOf = makeHeatLevel(windowVals);
+    const activeDays = windowVals.filter(v => v > 0).length;
+    const totalKm = windowVals.reduce((a, b) => a + b, 0);
+
+    dowsEl.innerHTML = DOW_LABELS.map(l => `<div class="heat-dow">${l}</div>`).join('');
+
+    grid.innerHTML = cells.map(c => {
+        if (!c) return '<div class="heat-cell heat-void"></div>';
+        if (c.future) return '<div class="heat-cell"></div>';
+        const level = levelOf ? levelOf(c.km) : 0;
+        const tip = `${c.day}\n${c.km > 0 ? formatDistance(c.km) : 'no distance'}`;
+        return `<div class="heat-cell" style="${heatCellStyle(level)}" data-day="${c.day}" data-tip="${tip.replace(/\n/g, '&#10;')}"></div>`;
+    }).join('');
+
+    // Month labels sit above the column holding each month's 1st; skipped when
+    // too close to the previous label to fit without overlapping.
+    let lastCol = -3;
+    const labels = [];
+    for (let m = 1; m <= 12; m++) {
+        const first = `${heatYear}-${String(m).padStart(2, '0')}-01`;
+        const col = Math.floor((Date.parse(first) - Date.parse(gridStart)) / (7 * 86400000));
+        if (col - lastCol >= 3) {
+            labels.push(`<div class="heat-month" style="grid-column:${col + 1} / span 3;">${MONTH_NAMES[m - 1]}</div>`);
+            lastCol = col;
+        }
+    }
+    monthsEl.style.gridTemplateColumns = `repeat(${weeks}, var(--heat-cell))`;
+    monthsEl.innerHTML = labels.join('');
+
+    summaryEl.textContent = activeDays
+        ? `${formatDistance(totalKm)} over ${activeDays} active day${activeDays !== 1 ? 's' : ''}`
+        : `no distance data in ${heatYear}`;
+
+    legendEl.innerHTML = 'less'
+        + [0, 1, 2, 3, 4].map(l => `<div class="heat-cell" style="${heatCellStyle(l)}"></div>`).join('')
+        + 'more';
+}
+
+document.getElementById('heat-prev').addEventListener('click', () => { heatYear--; drawHeatmap(); });
+document.getElementById('heat-next').addEventListener('click', () => { heatYear++; drawHeatmap(); });
+
+// Hover/click on the cells (delegated — the grid is rebuilt on every draw).
+(function attachHeatmapHover() {
+    const card = document.querySelector('.heat-card');
+    const grid = document.getElementById('heat-grid');
+    const tooltip = document.getElementById('heat-tooltip');
+
+    grid.addEventListener('mouseover', function(e) {
+        const cell = e.target.closest('.heat-cell[data-day]');
+        if (!cell) return;
+        tooltip.innerHTML = cell.dataset.tip.replace('\n', '<br>');
+        tooltip.style.opacity = '1';
+        const cr = card.getBoundingClientRect();
+        const r = cell.getBoundingClientRect();
+        const x = Math.max(60, Math.min(cr.width - 60, r.left - cr.left + r.width / 2));
+        tooltip.style.left = x + 'px';
+        tooltip.style.top = (r.top - cr.top - 34) + 'px';
+        tooltip.style.transform = 'translateX(-50%)';
+    });
+    grid.addEventListener('mouseleave', () => { tooltip.style.opacity = '0'; });
+    grid.addEventListener('click', function(e) {
+        const cell = e.target.closest('.heat-cell[data-day]');
+        if (!cell) return;
+        window.location.href = `/map/?start=${cell.dataset.day}&end=${cell.dataset.day}`;
+    });
+})();
+
+// ─── Yearly Overview ───────────────────────────────────────────
+
+let yearlyData = null;
+let mvMode = 'cities';
+
+function pct(a, b) {
+    if (!b) return null;
+    return Math.round(((a - b) / b) * 100);
+}
+
+function deltaHtml(curr, prev) {
+    const p = pct(curr, prev);
+    if (p === null) return '';
+    const sign = p >= 0 ? '+' : '';
+    const color = p >= 0 ? 'var(--primary)' : 'var(--danger)';
+    return `<span style="color:${color};font-weight:600;">${sign}${p}%</span> vs previous`;
+}
+
+async function loadYearlyOverview() {
+    // loadStats() in this same file already checked r.ok, cleared its skeleton
+    // and offered a Retry; this one did none of it, so the three yearly tiles
+    // shimmered permanently on any failure.
+    let data;
+    try {
+        data = await window.roamlyFetch('/api/stats/yearly/',
+                                        {errorMessage: "Couldn't load the yearly overview"});
+    } catch (e) {
+        ['week', 'month', 'year'].forEach(k => {
+            ['pts', 'delta', 'places'].forEach(part => {
+                const el = document.getElementById(`${k}-${part}`);
+                if (el) { el.textContent = part === 'pts' ? '—' : ''; el.classList.remove('skeleton', 'skel-statval'); }
+            });
+        });
+        const host = document.getElementById('yearly-heading');
+        if (host) host.textContent = 'Overview unavailable';
+        return;
+    }
+    yearlyData = data;
+    if (window.setSnapshotUpdated) window.setSnapshotUpdated(data.computed_at);
+    document.getElementById('yearly-heading').textContent = `${data.year} Overview`;
+    document.getElementById('year-label').textContent = `${data.year}`;
+    document.getElementById('monthly-chart-title').textContent = `${data.year} — Monthly Activity`;
+
+    // Week
+    document.getElementById('week-pts').textContent = data.this_week.points.toLocaleString();
+    document.getElementById('week-delta').innerHTML = deltaHtml(data.this_week.points, data.last_week.points);
+    document.getElementById('week-places').textContent =
+        `${data.this_week.countries} countr${data.this_week.countries !== 1 ? 'ies' : 'y'} · ${data.this_week.cities} cit${data.this_week.cities !== 1 ? 'ies' : 'y'}`;
+
+    // Month
+    document.getElementById('month-pts').textContent = data.this_month.points.toLocaleString();
+    document.getElementById('month-delta').innerHTML = deltaHtml(data.this_month.points, data.last_month.points);
+    document.getElementById('month-places').textContent =
+        `${data.this_month.countries} countr${data.this_month.countries !== 1 ? 'ies' : 'y'} · ${data.this_month.cities} cit${data.this_month.cities !== 1 ? 'ies' : 'y'}`;
+
+    // Year
+    document.getElementById('year-pts').textContent = data.this_year.points.toLocaleString();
+    document.getElementById('year-delta').innerHTML = deltaHtml(data.this_year.points, data.last_year.points);
+    document.getElementById('year-places').textContent =
+        `${data.this_year.countries} countr${data.this_year.countries !== 1 ? 'ies' : 'y'} · ${data.this_year.cities} cit${data.this_year.cities !== 1 ? 'ies' : 'y'}`;
+
+    drawYearlyChart(data.monthly_breakdown, data.year);
+    renderMostVisited(data);
+}
+
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function drawYearlyChart(monthly, year) {
+    const canvas = document.getElementById('yearly-chart');
+    const wrap = document.getElementById('yearly-chart-wrap');
+    if (!canvas || !monthly.length) return;
+    const dpr = window.devicePixelRatio || 1;
+    const W = wrap.offsetWidth, H = 160;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const PAD = { top: 14, right: 10, bottom: 24, left: 10 };
+    const cw = W - PAD.left - PAD.right;
+    const ch = H - PAD.top - PAD.bottom;
+    const maxPts = Math.max(...monthly.map(m => m.points), 1);
+
+    const css = getComputedStyle(document.documentElement);
+    const accent = (css.getPropertyValue('--primary') || '#e8763d').trim();
+    const textCol = (css.getPropertyValue('--text-muted') || '#a9a794').trim();
+
+    ctx.clearRect(0, 0, W, H);
+    yearlyPoints = [];
+    yearlyGeom = { top: PAD.top, height: ch };
+
+    const n = monthly.length;
+    const xOf = (i) => n === 1 ? PAD.left + cw / 2 : PAD.left + (i / (n - 1)) * cw;
+    const yOf = (v) => PAD.top + ch - (v / maxPts) * ch;
+    const pts = monthly.map((m, i) => ({ x: xOf(i), y: yOf(m.points) }));
+
+    const segs = monotoneSpline(pts);
+    const trace = () => {
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 0; i < segs.length; i++) {
+            ctx.bezierCurveTo(segs[i].cp1x, segs[i].cp1y, segs[i].cp2x, segs[i].cp2y, pts[i + 1].x, pts[i + 1].y);
+        }
+    };
+
+    if (pts.length >= 2) {
+        const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + ch);
+        grad.addColorStop(0, hexA(accent, 0.28));
+        grad.addColorStop(1, hexA(accent, 0.02));
+        trace();
+        ctx.lineTo(pts[pts.length - 1].x, PAD.top + ch);
+        ctx.lineTo(pts[0].x, PAD.top + ch);
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+        trace();
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 2;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.stroke();
+    }
+
+    ctx.textAlign = 'center';
+    monthly.forEach((m, i) => {
+        ctx.beginPath();
+        ctx.arc(pts[i].x, pts[i].y, pts.length === 1 ? 4 : 3, 0, Math.PI * 2);
+        ctx.fillStyle = accent;
+        ctx.fill();
+
+        ctx.fillStyle = textCol;
+        ctx.font = `600 10px var(--font-body)`;
+        ctx.fillText(MONTH_NAMES[m.month - 1], pts[i].x, H - 6);
+
+        const mm = String(m.month).padStart(2, '0');
+        const lastDay = new Date(year, m.month, 0).getDate();
+        yearlyPoints.push({
+            x: pts[i].x, y: pts[i].y,
+            tip: `${MONTH_NAMES[m.month - 1]} ${year}\n${m.points.toLocaleString()} points`,
+            mapUrl: `/map/?start=${year}-${mm}-01&end=${year}-${mm}-${lastDay}`,
+        });
+    });
+}
+
+function _fmtDuration(secs) {
+    if (secs < 3600) return `${Math.round(secs / 60)}m`;
+    const h = Math.floor(secs / 3600), m = Math.round((secs % 3600) / 60);
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function renderMostVisited(data) {
+    const list = document.getElementById('most-visited-list');
+    let items;
+    if (mvMode === 'cities') {
+        items = (data.top_cities || []).map(c => ({ label: `${c.city}, ${c.country}`, count: c.count, sub: null }));
+    } else if (mvMode === 'countries') {
+        items = (data.top_countries || []).map(c => ({ label: c.country, count: c.count, sub: null }));
+    } else {
+        items = (data.top_places || []).map(p => ({ label: p.name, count: p.count, sub: _fmtDuration(p.total_time), custom: !!p.is_custom }));
+    }
+    if (!items.length) {
+        list.innerHTML = mvMode === 'places'
+            ? '<span style="color:var(--text-muted);font-size:0.8125rem;">No place visits yet — add your own on the Places page, or download places on the search page and let location data accumulate.</span>'
+            : '<span style="color:var(--text-muted);">No data yet</span>';
+        return;
+    }
+    const max = items[0]?.count || 1;
+    list.innerHTML = items.slice(0, 8).map(item => {
+        const pct = Math.round((item.count / max) * 100);
+        const barColor = item.custom ? 'var(--accent)' : 'var(--primary)';
+        const dot = item.custom ? '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:5px;vertical-align:middle;"></span>' : '';
+        return `<div style="margin-bottom:0.5rem;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
+                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%;">${dot}${escHtmlStats(item.label)}</span>
+                <span style="color:var(--text-muted);font-size:0.75rem;white-space:nowrap;">${item.sub ? item.sub + ' · ' : ''}${item.count.toLocaleString()} visit${item.count !== 1 ? 's' : ''}</span>
+            </div>
+            <div style="height:4px;background:var(--bg-input);border-radius:0;">
+                <div style="height:100%;width:${pct}%;background:${barColor};border-radius:0;"></div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function switchMV(mode) {
+    mvMode = mode;
+    document.getElementById('mv-cities-btn').style.cssText = mode === 'cities' ? 'border-color:var(--primary);color:var(--primary);' : '';
+    document.getElementById('mv-countries-btn').style.cssText = mode === 'countries' ? 'border-color:var(--primary);color:var(--primary);' : '';
+    document.getElementById('mv-places-btn').style.cssText = mode === 'places' ? 'border-color:var(--primary);color:var(--primary);' : '';
+    if (yearlyData) renderMostVisited(yearlyData);
+}
+
+function escHtmlStats(s) {
+    if (!s) return '';
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+</script>
+{% endblock %}
