@@ -234,8 +234,8 @@ class BetaUIMiddleware:
     ``/beta/...`` links (the viewer stays in beta while navigating). Literal
     ``/api/...`` calls in page JS are unprefixed and keep working.
 
-    The only difference is that ``tracker/beta.css`` is injected last in
-    ``<head>``, so it overrides the page's own styles. Removing the look means
+    The only difference is that ``tracker/beta.css`` (the newsprint look) is
+    injected last in ``<head>``, so it overrides the page's own styles. Removing the look means
     deleting that file; nothing on the classic pages references it.
 
     Sits directly after GZipMiddleware, i.e. *inside* it, so it sees the
@@ -266,7 +266,8 @@ class BetaUIMiddleware:
         try:
             html = response.content.decode(response.charset or 'utf-8')
             tag = '<link rel="stylesheet" href="%s">' % static('tracker/beta.css')
-            if '</head>' in html:
+            # A page that carries its own beta styling (landing_beta.html) opts out.
+            if '</head>' in html and 'data-beta-own' not in html[:600]:
                 response.content = html.replace('</head>', tag + '</head>', 1).encode(
                     response.charset or 'utf-8')
         except Exception:

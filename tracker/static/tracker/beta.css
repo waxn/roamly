@@ -1,3 +1,127 @@
-/* Injected last in <head> on /beta/* pages by BetaUIMiddleware. Intentionally
-   empty: the landing page's look lives in landing_beta.html. Put shared rules
-   for other beta pages here as they get redesigned. */
+/* The "newsprint at night" look, injected last in <head> on every /beta/* page by
+   BetaUIMiddleware (except pages that style themselves, like landing_beta.html).
+
+   Almost every page, app and standalone, is built on the same CSS variable names,
+   so the bulk of this is a token swap; the rest restyles the shared components
+   (masthead nav, cards, buttons, forms, tables). Delete this file to drop the look. */
+
+:root,
+:root[data-theme],
+[data-theme="light"],
+[data-theme="dark"]{
+    color-scheme:dark;
+
+    --bg:#16140f;--bg-card:#1e1b14;--bg-elevated:#27231a;--bg-glass:rgba(22,20,15,0.94);--bg-input:#110f0b;--bg-sidebar:#1a1812;
+    --text:#ebe4d2;--text-muted:#bcb39e;--text-dim:#8f8772;
+    --border:rgba(235,228,210,0.2);--border-strong:rgba(235,228,210,0.42);--border-subtle:rgba(235,228,210,0.12);
+    --border-bright:rgba(224,97,74,0.65);
+    --primary:#e0614a;--primary-hover:#ee7660;--primary-soft:rgba(224,97,74,0.15);
+    --accent:#d9674d;--danger:#e0614a;--success:#8fb07c;--warning:#d4a24a;
+    --moss:#8fa87e;--map-blue:#86aabd;
+    --clay-mint:#8fa87e;--clay-coral:#d9674d;--clay-amber:#d4a24a;--clay-lavender:#a98fa0;--clay-sky:#86aabd;
+    --link:#eadcc0;--link-hover:#e0614a;
+
+    --rule:rgba(235,228,210,0.55);--hair:rgba(235,228,210,0.18);
+
+    --clay-shadow:none;--clay-shadow-sm:none;--clay-shadow-hover:none;--clay-shadow-inset:none;--clay-shadow-btn:none;
+    --radius-clay:0;--radius-clay-sm:0;--radius-clay-lg:0;--radius-clay-xl:0;--radius:0;--radius-sm:0;
+
+    --serif:'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua','URW Palladio L',Georgia,'Times New Roman',serif;
+    --label:'IBM Plex Sans',system-ui,sans-serif;
+    --font-display:'Fraunces','Iowan Old Style',Georgia,serif;
+    --font-body:var(--serif);
+}
+
+html{color-scheme:dark}
+body{
+    font-family:var(--serif);
+    background-color:var(--bg);
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 .95 0 0 0 0 .8 0 0 0 .06 0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+body::before{display:none}
+::selection{background:var(--primary);color:#16140f}
+a{text-decoration-color:rgba(235,228,210,0.4)}
+
+h1,h2,h3,h4{font-family:var(--font-display);font-weight:700;letter-spacing:-0.02em}
+
+/* ── masthead: the navbar ── */
+.navbar{
+    background:var(--bg);border-bottom:4px double var(--rule);
+    height:auto;min-height:var(--nav-h);padding-top:0.5rem;padding-bottom:0.5rem;
+}
+.navbar-wordmark{font-family:var(--font-display);font-weight:700;font-size:2rem;letter-spacing:-0.04em;color:var(--text)}
+.navbar-mark{height:34px}
+.navbar-nav a,.navbar-nav-toggle,.navbar-user-toggle,.navbar-user-name{font-family:var(--label);font-weight:600;font-size:0.7rem;letter-spacing:0.14em}
+.navbar-nav a.active,.navbar-nav-toggle.active{color:var(--text);border-bottom-color:var(--primary)}
+.nav-dropdown-menu{background:var(--bg-card);border:1.5px solid var(--rule);border-radius:0;box-shadow:none}
+.nav-dropdown-menu a{font-family:var(--serif);font-size:0.98rem;text-transform:none;letter-spacing:0}
+.nav-dropdown-menu a:hover{background:var(--bg-elevated);color:var(--primary)}
+.nav-dropdown-menu a.active{color:var(--primary)}
+
+/* ── bottom nav (phones) ── */
+.bottom-nav{background:var(--bg);border-top:4px double var(--rule)}
+.bottom-nav a{font-family:var(--label);font-weight:600;letter-spacing:0.08em;text-transform:uppercase}
+.bottom-nav a.active{color:var(--primary)}
+
+/* ── page headings ── */
+.page-header{padding-bottom:1rem;margin-bottom:1.6rem;border-bottom:1px solid var(--hair)}
+.page-header h1,.page-toolbar h1{font-family:var(--font-display);font-weight:700;font-size:clamp(2.2rem,5vw,3.6rem);letter-spacing:-0.035em;line-height:1}
+.page-header .page-lead{font-size:1.1rem;max-width:40rem;color:var(--text-muted)}
+.page-toolbar{padding-bottom:0.9rem;border-bottom:1px solid var(--hair)}
+
+/* ── cards: a boxed column with a double rule on top ── */
+.card{background:var(--bg-card);border:1px solid var(--border);border-top:4px double var(--rule);border-radius:0}
+.card:hover{border-color:var(--border-strong);border-top-color:var(--rule)}
+.card-header{font-family:var(--font-display);font-weight:700;font-size:1.4rem;letter-spacing:-0.02em;border-bottom:1px solid var(--hair)}
+.card-coral,.card-lavender,.card-amber,.card-sky,.card-teal{border-left-width:1px;border-left-style:solid}
+.card-coral{border-left-color:var(--accent)}.card-lavender{border-left-color:var(--clay-lavender)}
+.card-amber{border-left-color:var(--clay-amber)}.card-sky{border-left-color:var(--clay-sky)}.card-teal{border-left-color:var(--primary)}
+.card.stat-card .stat-value,.stat-value{font-family:var(--font-display);font-weight:700;letter-spacing:-0.03em;font-variant-numeric:lining-nums tabular-nums}
+
+/* ── buttons: print-style, square, small caps ── */
+.btn,.btn-submit,.btn-home{font-family:var(--label);font-weight:600;font-size:0.72rem;letter-spacing:0.12em;text-transform:uppercase;border-radius:0}
+.btn{border-width:1.5px}
+.btn-primary,.btn-submit,.btn-home{background:var(--text);color:var(--bg);border-color:var(--text)}
+.btn-primary:hover,.btn-submit:hover,.btn-home:hover{background:var(--primary);border-color:var(--primary);color:#16140f}
+.btn-outline{background:transparent;border-color:var(--border-strong);color:var(--text)}
+.btn-outline:hover{background:var(--text);border-color:var(--text);color:var(--bg)}
+.btn-danger{background:var(--danger);color:#16140f;border-color:var(--danger)}
+.btn-ghost{color:var(--text-muted)}
+.btn-sm{font-size:0.68rem}
+
+/* ── forms ── */
+.form-group label,label{font-family:var(--label)}
+.form-group label{font-size:0.72rem;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:var(--text-muted)}
+.form-control,input[type="text"],input[type="email"],input[type="password"],input[type="number"],input[type="search"],input[type="url"],input[type="date"],select,textarea{
+    border-radius:0;box-shadow:none;font-family:var(--serif);font-weight:400;font-size:1rem;
+}
+.form-control{background:var(--bg-input);border:1px solid var(--border-strong)}
+.form-control:focus{border-color:var(--primary);box-shadow:none;outline:2px solid var(--primary-soft);outline-offset:0}
+
+/* ── tables ── */
+th{font-family:var(--label);font-weight:600;font-size:0.68rem;letter-spacing:0.12em;color:var(--text-dim)}
+thead th,table th{border-bottom:2px solid var(--rule)}
+td{font-size:0.97rem}
+
+/* ── tabs ── */
+.pill-tabs{border:1.5px solid var(--rule)}
+.pill-tabs .tab-btn,.pill-tabs button.tab-btn{font-family:var(--label);font-weight:600;font-size:0.68rem;letter-spacing:0.12em}
+.pill-tabs .tab-btn.active{background:var(--text);color:var(--bg)}
+[data-theme="light"] .pill-tabs .tab-btn.active{color:var(--bg)}
+
+/* ── dialogs, toasts, banners, notification panel keep their shape, take the new tokens ── */
+.rly-dialog,.rly-toast,.notif-panel{border-radius:0;box-shadow:none;border:1.5px solid var(--rule)}
+
+/* ── standalone pages (login, signup, docs, legal, errors) ── */
+.logo-word,.nav-word,.nav-brand .nav-word{font-family:var(--font-display);font-weight:700;letter-spacing:-0.04em}
+.page-hero h1,.card h1,.code{font-family:var(--font-display);font-weight:700;letter-spacing:-0.035em}
+.doc-card,.sidebar{border-radius:0}
+.doc-card{border-top:4px double var(--rule)}
+.doc-card h2{font-family:var(--font-display);font-weight:700}
+.doc-card p,.doc-card li,.content-area p,.content-area li{font-family:var(--serif)}
+.nav{border-bottom:4px double var(--rule)}
+.footer,footer{border-top:4px double var(--rule)}
+
+@media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto}
+}
