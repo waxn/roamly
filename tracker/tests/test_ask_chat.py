@@ -313,3 +313,53 @@ def test_bad_chat_id_is_not_found(client, llm):
     resp = client.post('/api/ask/send/', json.dumps({'message': 'x', 'chat_id': 'abc'}),
                        content_type='application/json')
     assert resp.status_code == 404
+
+
+# ── Streaming details ───────────────────────────────────────────────────
+
+class _SSE:
+    """A streamed provider reply, as requests hands it over: raw bytes."""
+    def __init__(self, chunks, status=200):
+        self.status_code = status
+        self.headers = {'Content-Type': 'text/event-stream'}  # no charset, like most servers
+        self._lines = [('data: ' + json.dumps(c, ensure_ascii=False)).encode() for c in chunks]
+        self._lines.append(b'data: [DONE]')
+
+    def iter_lines(self, decode_unicode=False):
+        yield from self._lines
+
+    def json(self):
+        return {'error': {'message': 'Unrecognized request argument: stream_options'}}
+
+    def close(self):
+        pass
+
+
+def test_stream_decodes_utf8_and_retries_without_stream_options(monkeypatch):
+    sent = []
+
+    def post(url, json=None, **kw):
+        sent.append(json)
+        if 'stream_options' in json:
+            return _SSE([], status=400)
+        return _SSE([{'choices': [{'delta': {'content': 'Where next? 🌍 — '}}]},
+                     {'choices': [{'delta': {'content': 'Lisboa'}}]},
+                     {'choices': [], 'usage': {'prompt_tokens': 50, 'completion_tokens': 7}}])
+
+    monkeypatch.setattr(ai_tasks, 'validate_outbound_url', lambda *a, **k: None)
+    monkeypatch.setattr(ai_tasks._session, 'post', post)
+    monkeypatch.setattr(ai_tasks, '_NO_STREAM_OPTIONS', set())
+    profile = type('P', (), {'ai_base_url': 'https://strict.example', 'ai_model': 'm', 'ai_api_key': 'k'})()
+    ev = list(ai_tasks._provider_stream(profile, []))
+    assert ''.join(v for k, v in ev if k == 'delta') == 'Where next? 🌍 — Lisboa'
+    assert ev[-1][1]['usage']['completion_tokens'] == 7
+    assert 'stream_options' in sent[0] and 'stream_options' not in sent[1]
+
+
+def test_turn_stats_are_streamed_and_saved(client, user, llm):
+    llm.rounds = ['Twelve chars']
+    evs = send(client, message='hi')
+    stats = next(e for e in evs if e['type'] == 'done')['stats']
+    # The fake provider reports no usage, so output is an estimate.
+    assert stats['estimated'] and stats['out_tokens'] == 3 and stats['rounds'] == 1
+    assert AskMessage.objects.get(role='assistant').meta['stats'] == stats
