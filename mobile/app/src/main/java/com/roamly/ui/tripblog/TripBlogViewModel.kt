@@ -228,6 +228,16 @@ class TripBlogViewModel @Inject constructor(
         }
     }
 
+    /** Where the map picker should open: the poster's own latest fix, else a
+     *  traveller, else the newest post. Null when the trip has nothing yet. */
+    suspend fun pickerArea(): Pair<Double, Double>? {
+        val st = _state.value
+        st.blogId?.let { id -> repo.myLocation(id)?.let { return it.lat to it.lon } }
+        val s = st.status ?: return null
+        (s.people.firstOrNull { !it.stale } ?: s.people.firstOrNull())?.let { return it.spot.lat to it.spot.lon }
+        return s.pins.lastOrNull()?.let { it.lat to it.lon }
+    }
+
     fun resetComposer() { _composer.value = ComposerState() }
 
     /** Copy the media into the outbox and hand off to the worker. */

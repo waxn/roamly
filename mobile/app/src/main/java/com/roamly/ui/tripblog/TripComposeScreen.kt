@@ -151,6 +151,7 @@ fun TripComposeScreen(viewModel: TripBlogViewModel, onDone: () -> Unit) {
     if (picking) {
         PickLocationDialog(
             start = if (c.lat != null && c.lon != null) GeoPoint(c.lat!!, c.lon!!) else null,
+            area = viewModel::pickerArea,
             onDismiss = { picking = false },
             onPicked = { gp -> picking = false; viewModel.setPicked(gp.latitude, gp.longitude) },
         )
@@ -158,7 +159,12 @@ fun TripComposeScreen(viewModel: TripBlogViewModel, onDone: () -> Unit) {
 }
 
 @Composable
-private fun PickLocationDialog(start: GeoPoint?, onDismiss: () -> Unit, onPicked: (GeoPoint) -> Unit) {
+private fun PickLocationDialog(
+    start: GeoPoint?,
+    area: suspend () -> Pair<Double, Double>?,
+    onDismiss: () -> Unit,
+    onPicked: (GeoPoint) -> Unit,
+) {
     val context = LocalContext.current
     var chosen by remember { mutableStateOf(start) }
     val mapView = remember {
@@ -186,6 +192,16 @@ private fun PickLocationDialog(start: GeoPoint?, onDismiss: () -> Unit, onPicked
         start?.let { marker.position = it; mapView.overlays.add(marker) }
         mapView.onResume()
         onDispose { mapView.onPause(); mapView.onDetach() }
+    }
+    // Open on where the trip is now rather than on the whole world. A tap made
+    // while this is loading wins.
+    LaunchedEffect(Unit) {
+        if (start != null) return@LaunchedEffect
+        val (lat, lon) = area() ?: return@LaunchedEffect
+        if (chosen == null) {
+            mapView.controller.setZoom(11.0)
+            mapView.controller.setCenter(GeoPoint(lat, lon))
+        }
     }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxWidth(0.95f).fillMaxHeight(0.8f), color = MaterialTheme.colorScheme.surface) {
