@@ -11400,6 +11400,24 @@ def _place_membership(places, lat, lng):
     return best
 
 
+def _create_custom_place(user, name, lat, lng, radius_m=150.0, notes=''):
+    """Create a CustomPlace and refresh what depends on it. Shared by the
+    Places page and an approved Ask proposal."""
+    radius_m = max(10.0, min(float(radius_m), 50000.0))
+    count = CustomPlace.objects.filter(user=user).count()
+    place = CustomPlace.objects.create(
+        user=user, name=name[:200], latitude=lat, longitude=lng,
+        radius_m=radius_m, color=_PLACE_COLORS[count % len(_PLACE_COLORS)],
+        notes=notes or '',
+    )
+    _bust_user_cache(user.id)
+    # The new place may cover a suggested cluster — drop it from the queue now
+    # rather than leaving a confirmed place sitting there for the TTL.
+    cache.delete(f"suggestions:{user.id}")
+    db_thread(_refresh_places_snapshot, args=(user,)).start()
+    return place
+
+
 @login_required
 @require_http_methods(["GET", "POST"])
 def places_api(request):
@@ -11418,17 +11436,7 @@ def places_api(request):
             radius_m = float(data.get('radius_m', 150))
         except (KeyError, ValueError, TypeError):
             return JsonResponse({'error': 'lat, lng required'}, status=400)
-        radius_m = max(10.0, min(radius_m, 50000.0))
-        count = CustomPlace.objects.filter(user=request.user).count()
-        place = CustomPlace.objects.create(
-            user=request.user, name=name[:200], latitude=lat, longitude=lng,
-            radius_m=radius_m, color=_PLACE_COLORS[count % len(_PLACE_COLORS)],
-        )
-        _bust_user_cache(request.user.id)
-        # The new place may cover a suggested cluster — drop it from the queue now
-        # rather than leaving a confirmed place sitting there for the TTL.
-        cache.delete(f"suggestions:{request.user.id}")
-        db_thread(_refresh_places_snapshot, args=(request.user,)).start()
+        place = _create_custom_place(request.user, name, lat, lng, radius_m)
         return JsonResponse(_serialize_place(place))
 
     # GET list → serve the precomputed snapshot when available.
