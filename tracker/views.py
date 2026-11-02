@@ -12517,6 +12517,9 @@ def _journal_compute_streaks(dates):
     return {'current': current, 'longest': longest, 'total': len(dateset)}
 
 
+_JOURNAL_RECAP_LIMIT = 12   # per account, per hour
+
+
 @login_required
 def journals_view(request):
     return render(request, 'tracker/journals.html')
@@ -12616,6 +12619,34 @@ def journals_list_api(request):
             'location_name': e.location_name,
         })
     return JsonResponse({'entries': entries})
+
+
+@login_required
+@require_POST
+def journal_recap_api(request):
+    """Write an AI recap of the past few days for the Journals side panel.
+
+    POST rather than GET because every call spends the user's provider credits,
+    so a prefetch must not be able to trigger one, and it is rate limited for
+    the same reason. CSRF-checked, the page sends the token; the app has no
+    caller here. The result goes back in this response and is stored nowhere."""
+    from . import ai_tasks, journal_recap
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if not profile.ai_configured:
+        return JsonResponse({'error': 'AI is not set up.', 'setup': True}, status=503)
+    if _rate_limited(request, 'journal_recap', _JOURNAL_RECAP_LIMIT, 3600,
+                     identifier=str(request.user.id), include_ip=False):
+        return JsonResponse({'error': 'That is a lot of recaps for one hour. Try again later.'}, status=429)
+    try:
+        recap = journal_recap.build_recap(profile)
+    except (ai_tasks.AIProviderError, journal_recap.RecapError) as e:
+        return JsonResponse({'error': str(e)}, status=502)
+    except Exception:
+        logger.exception('journal_recap_api failed')
+        return JsonResponse({'error': 'Something went wrong writing your recap.'}, status=500)
+    response = JsonResponse(recap)
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 @login_required

@@ -370,6 +370,51 @@
     box-shadow: var(--clay-shadow-sm);
 }
 .j-skeleton { color: var(--text-muted); padding: 2rem; text-align: center; }
+
+/* ── AI recap side panel ── */
+.j-recap-btn { width: 100%; justify-content: center; margin-bottom: 1rem; }
+.j-recap {
+    position: fixed; right: 0; z-index: 1500;
+    top: var(--nav-h, 0px); bottom: var(--bottom-nav-height);
+    width: min(420px, 100vw);
+    display: none; flex-direction: column;
+    background: var(--bg-card);
+    border-left: 1px solid var(--border);
+    box-shadow: var(--clay-shadow-hover);
+}
+.j-recap.open { display: flex; }
+.j-recap-head {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem;
+    padding: 1.1rem 1.25rem 0.9rem;
+    border-bottom: 1px solid var(--border);
+}
+.j-recap-title { font-family: var(--font-display); font-size: 1.15rem; font-weight: 600; text-transform: none; }
+.j-recap-span { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem; }
+.j-recap-close {
+    flex-shrink: 0; width: 34px; height: 34px; border: 1px solid var(--border); border-radius: var(--radius-clay-sm);
+    background: transparent; color: var(--text-muted); font-size: 1.2rem; line-height: 1; cursor: pointer;
+}
+.j-recap-close:hover { color: var(--text); border-color: var(--border-bright); }
+.j-recap-body { flex: 1; min-height: 0; overflow-y: auto; padding: 1.1rem 1.25rem 1.5rem; font-size: 0.93rem; line-height: 1.6; }
+.j-recap-body p { margin: 0 0 0.8rem; }
+.j-recap-section {
+    font-family: var(--font-display); font-size: 0.95rem; font-weight: 600; text-transform: none;
+    margin: 1.2rem 0 0.45rem;
+}
+.j-recap-section:first-child { margin-top: 0; }
+.j-recap-loading { display: flex; align-items: center; gap: 0.6rem; color: var(--text-muted); }
+.j-recap-loading .spinner { flex-shrink: 0; margin: 0; }
+.j-recap-note { color: var(--text-muted); }
+.j-recap-error { color: var(--danger); }
+.j-recap-facts { border-top: 1px solid var(--border); margin-top: 1rem; }
+.j-recap-fact {
+    display: grid; grid-template-columns: 1fr auto; gap: 0 0.75rem; align-items: baseline;
+    padding: 0.5rem 0; border-bottom: 1px solid var(--border);
+}
+.j-recap-fact .l { font-size: 0.8rem; color: var(--text-muted); }
+.j-recap-fact .v { font-family: var(--font-mono); font-size: 0.9rem; text-align: right; }
+.j-recap-fact .e { grid-column: 1 / -1; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim); text-align: right; }
+.j-recap-foot { font-size: 0.75rem; color: var(--text-dim); margin-top: 1rem; }
 {% endblock %}
 
 {% block content %}
@@ -412,6 +457,7 @@
                 <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
                 write today's entry
             </button>
+            <button class="btn btn-outline j-recap-btn" id="j-recap-toggle" aria-expanded="false" aria-controls="j-recap">recap my past few days</button>
             <div class="j-search-wrap">
                 <input class="j-search-input" id="j-search" type="text" placeholder="search entries…" autocomplete="off">
                 <button class="j-search-clear" id="j-search-clear" title="Clear">×</button>
@@ -438,6 +484,18 @@
         </div>
     </div>
 </div>
+
+<!-- AI recap: closed on every page load, and nothing in it is kept -->
+<aside class="j-recap" id="j-recap" aria-labelledby="j-recap-title">
+    <div class="j-recap-head">
+        <div>
+            <div class="j-recap-title" id="j-recap-title" tabindex="-1">Your past few days</div>
+            <div class="j-recap-span" id="j-recap-span"></div>
+        </div>
+        <button class="j-recap-close" id="j-recap-close" title="Close" aria-label="Close recap">&times;</button>
+    </div>
+    <div class="j-recap-body" id="j-recap-body" aria-live="polite"></div>
+</aside>
 
 <!-- Editor Modal -->
 <div class="j-modal-overlay" id="j-modal-overlay">
@@ -645,6 +703,99 @@ function renderEntryCards(entries, container) {
         </div>`;
     }).join('');
 }
+
+// ── AI recap ──
+// The panel is the whole opt-in: opening it is what asks the provider, each time,
+// and closing it throws the recap away. Nothing is remembered, so a reload starts closed.
+const AI_READY = {{ AI_ASK_ENABLED|yesno:"true,false" }};
+const recapPanel = document.getElementById('j-recap');
+const recapBody = document.getElementById('j-recap-body');
+const recapSpan = document.getElementById('j-recap-span');
+const recapToggle = document.getElementById('j-recap-toggle');
+let recapAbort = null;
+
+function recapParas(paras) { return paras.map(p=>`<p>${escapeHtml(p)}</p>`).join(''); }
+
+function recapShort(dStr) {
+    const [y,m,d] = dStr.split('-').map(Number);
+    return `${MONTHS[m-1].slice(0,3)} ${d}`;
+}
+
+function renderRecap(r) {
+    recapSpan.textContent = `${recapShort(r.from)} – ${recapShort(r.to)}`;
+    if (r.status === 'empty') {
+        recapBody.innerHTML = `<p class="j-recap-note">Nothing was recorded in the past ${r.days} days, so there is nothing to recap.</p>`;
+        return;
+    }
+    let html = `<div class="j-recap-section">Recap</div>${recapParas(r.summary)}`;
+    if (r.has_earlier) {
+        if (r.comparison.length) html += `<div class="j-recap-section">Compared with before</div>${recapParas(r.comparison)}`;
+    } else {
+        html += `<p class="j-recap-note">Not enough earlier data to compare these days with yet.</p>`;
+    }
+    const earlierLabel = r.weeks_compared === 1 ? 'same days last week' : `average of ${r.weeks_compared} earlier weeks`;
+    html += `<div class="j-recap-facts">${r.facts.map(f=>`
+        <div class="j-recap-fact">
+            <span class="l">${escapeHtml(f.label)}</span><span class="v">${escapeHtml(f.value)}</span>
+            ${f.earlier ? `<span class="e">${escapeHtml(f.earlier)} · ${earlierLabel}</span>` : ''}
+        </div>`).join('')}</div>`;
+    let source = 'From your location history';
+    if (r.journals_used) source += ` and ${r.journals_used} journal ${r.journals_used === 1 ? 'entry' : 'entries'}`;
+    html += `<p class="j-recap-foot">${source}. Written by your AI provider and not saved.${r.journals_allowed ? '' : ' Journal text is left out unless you allow it in <a href="/settings/#notifications">AI Ask settings</a>.'}</p>`;
+    recapBody.innerHTML = html;
+}
+
+function recapSetupNote() {
+    recapBody.innerHTML = `<p class="j-recap-note">Recaps use the AI provider from your AI Ask settings, the same one as the summary emails.</p>
+        <p><a href="/settings/#notifications">Set up AI Ask in Settings</a></p>`;
+}
+
+function recapError(message) {
+    recapBody.innerHTML = `<p class="j-recap-error">${escapeHtml(message)}</p>
+        <button class="btn btn-outline btn-sm" id="j-recap-retry">try again</button>`;
+    document.getElementById('j-recap-retry').addEventListener('click', loadRecap);
+}
+
+function loadRecap() {
+    if (recapAbort) recapAbort.abort();
+    const abort = recapAbort = new AbortController();
+    recapBody.innerHTML = `<div class="j-recap-loading"><span class="spinner"></span><span>Reading your past few days…</span></div>`;
+    fetch('/api/journals/recap/', {method:'POST', headers:{'X-CSRFToken':csrfToken}, signal:abort.signal})
+        .then(r=>r.json().catch(()=>({})).then(d=>({ok:r.ok, data:d})))
+        .then(({ok, data})=>{
+            if (abort !== recapAbort) return;
+            if (ok) renderRecap(data);
+            else if (data.setup) recapSetupNote();
+            else recapError(data.error || 'Could not write your recap.');
+        })
+        .catch(e=>{
+            if (e.name !== 'AbortError' && abort === recapAbort) recapError('Could not reach Roamly. Check your connection.');
+        });
+}
+
+function openRecap() {
+    recapPanel.classList.add('open');
+    recapToggle.setAttribute('aria-expanded', 'true');
+    document.getElementById('j-recap-title').focus({preventScroll:true});
+    if (AI_READY) loadRecap(); else recapSetupNote();
+}
+
+function closeRecap() {
+    if (recapAbort) recapAbort.abort();
+    recapAbort = null;
+    recapPanel.classList.remove('open');
+    recapToggle.setAttribute('aria-expanded', 'false');
+    recapBody.innerHTML = '';
+    recapSpan.textContent = '';
+    recapToggle.focus({preventScroll:true});
+}
+
+recapToggle.addEventListener('click', ()=>{ recapPanel.classList.contains('open') ? closeRecap() : openRecap(); });
+document.getElementById('j-recap-close').addEventListener('click', closeRecap);
+document.addEventListener('keydown', e=>{
+    if (e.key === 'Escape' && recapPanel.classList.contains('open')
+        && !document.getElementById('j-modal-overlay').classList.contains('open')) closeRecap();
+});
 
 // ── Search ──
 let searchTimer = null;
