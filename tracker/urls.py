@@ -1,6 +1,7 @@
 from django.urls import path
 from . import views
 from . import trip_blog_views as tbv
+from . import ask_views
 
 app_name = 'tracker'
 
@@ -106,6 +107,13 @@ urlpatterns = [
     # AI Ask API
     path('api/ask/', views.ask_api, name='ask_api'),
     path('api/ask/test/', views.ask_test_api, name='ask_test_api'),
+    path('api/ask/send/', ask_views.send_api, name='ask_send'),
+    path('api/ask/map/', ask_views.map_api, name='ask_map'),
+    path('api/ask/chats/', ask_views.chats_api, name='ask_chats'),
+    path('api/ask/chats/<int:chat_id>/', ask_views.chat_detail_api, name='ask_chat'),
+    path('api/ask/chats/<int:chat_id>/rename/', ask_views.chat_rename_api, name='ask_chat_rename'),
+    path('api/ask/chats/<int:chat_id>/pin/', ask_views.chat_pin_api, name='ask_chat_pin'),
+    path('api/ask/chats/<int:chat_id>/delete/', ask_views.chat_delete_api, name='ask_chat_delete'),
     path('api/profile/ai-config/', views.profile_ai_config_api, name='profile_ai_config'),
     path('api/profile/mapbox-token/', views.profile_mapbox_token_api, name='profile_mapbox_token'),
     path('api/profile/distance-unit/', views.profile_distance_unit_api, name='profile_distance_unit'),
