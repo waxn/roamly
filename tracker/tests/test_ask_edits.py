@@ -9,15 +9,9 @@ from django.utils import timezone
 
 from tracker import ai_tasks, ask_edits
 from tracker.models import AskChat, AskProposal, CustomPlace, Flight, JournalEntry, UserProfile
-from tracker.tests.test_ask_chat import _clean, _user, client, llm, send, user  # noqa: F401
+from tracker.tests.test_ask_chat import _clean, _user, call, client, llm, send, user  # noqa: F401
 
 pytestmark = pytest.mark.django_db
-
-
-def call(tool, /, **args):
-    # Positional-only, so a tool argument called ``name`` doesn't collide.
-    return {'id': f'c-{tool}', 'type': 'function',
-            'function': {'name': tool, 'arguments': json.dumps(args)}}
 
 
 def approve(client, pid):

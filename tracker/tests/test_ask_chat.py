@@ -81,9 +81,10 @@ def llm(monkeypatch):
     return LLM
 
 
-def call(name, **args):
-    return {'id': f'c-{name}', 'type': 'function',
-            'function': {'name': name, 'arguments': json.dumps(args)}}
+def call(tool, /, **args):
+    # Positional-only, so a tool argument called ``name`` doesn't collide.
+    return {'id': f'c-{tool}', 'type': 'function',
+            'function': {'name': tool, 'arguments': json.dumps(args)}}
 
 
 def events(resp):
