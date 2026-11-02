@@ -1,288 +1,1178 @@
 {% extends "tracker/base.html" %}
 {% block title %}Ask - Roamly{% endblock %}
-{# No map on this page — skip MapLibre (~1MB JS + 70KB CSS). #}
-{% block map_css %}{% endblock %}
-{% block map_js %}{% endblock %}
 
 {% block extra_css %}
-.ask-wrap {
-    display: flex;
-    flex-direction: column;
-    /* Cap the height so the input bar sits at a comfortable height rather than
-       pinned to the very bottom of tall screens. */
-    height: min(calc(100vh - 280px), 600px);
-    min-height: 360px;
+body:has(.ask-app) { overflow: hidden; }
+/* Pinned between the navbar and the bottom nav, so the base page's version
+   footer can't make the document scroll the header under the navbar. */
+.ask-app {
+    position: fixed; top: var(--nav-h); left: 0; right: 0; bottom: var(--bottom-nav-height);
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr) 0;
+    border-top: 1px solid var(--border);
+    transition: grid-template-columns 0.25s var(--ease-out);
 }
-.ask-messages {
-    flex: 1;
-    overflow-y: auto;
-    padding: 0.5rem 0.25rem 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.85rem;
+.ask-app.map-open { grid-template-columns: 260px minmax(0, 1fr) minmax(320px, 44%); }
+
+/* ── Chat list ── */
+.ask-side {
+    display: flex; flex-direction: column; min-height: 0;
+    border-right: 1px solid var(--border);
+    background: var(--bg-card);
 }
-.ask-msg { display: flex; }
-.ask-msg.user { justify-content: flex-end; }
-.ask-msg.assistant { justify-content: flex-start; }
-.ask-bubble {
-    max-width: min(80%, 620px);
-    padding: 0.7rem 0.95rem;
-    border-radius:0;
-    font-size: 0.95rem;
-    line-height: 1.5;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    text-transform: none;
+.ask-side-head { padding: 0.9rem 0.8rem 0.6rem; display: flex; gap: 0.5rem; }
+.ask-new { flex: 1; justify-content: center; }
+.ask-side .ask-side-close { display: none; }
+.ask-chats { flex: 1; overflow-y: auto; padding: 0.2rem 0.5rem 1rem; }
+.ask-chats-label {
+    font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.06em;
+    color: var(--text-dim); text-transform: uppercase; padding: 0.8rem 0.45rem 0.35rem;
 }
-.ask-msg.user .ask-bubble {
-    background: var(--primary);
-    color: #fff;
-    border-bottom-right-radius: 5px;
+.ask-chat-row {
+    display: flex; align-items: center; gap: 0.25rem;
+    border-radius: var(--radius-sm); padding: 0.1rem 0.15rem 0.1rem 0.5rem;
+    cursor: pointer; color: var(--text-muted);
 }
-.ask-msg.assistant .ask-bubble {
-    background: var(--bg-glass);
-    border: 1px solid var(--border);
-    color: var(--text);
-    border-bottom-left-radius: 5px;
+.ask-chat-row:hover { background: var(--bg-elevated); color: var(--text); }
+.ask-chat-row.active { background: var(--primary-soft); color: var(--text); }
+.ask-chat-title {
+    flex: 1; min-width: 0; padding: 0.45rem 0; font-size: 0.88rem;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.ask-bubble strong { font-weight: 700; }
-.ask-msg.assistant .ask-bubble a {
-    color: var(--primary);
-    font-weight: 600;
-    text-decoration: underline;
-    text-underline-offset: 2px;
+.ask-chat-title input {
+    width: 100%; font: inherit; color: var(--text); background: var(--bg-input);
+    border: 1px solid var(--border-bright); border-radius: 4px; padding: 0.15rem 0.35rem;
 }
-.ask-msg.user .ask-bubble a { color: #fff; text-decoration: underline; }
-.ask-thinking {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: var(--text-muted);
-    font-size: 0.9rem;
+.ask-row-btn {
+    border: 0; background: none; color: var(--text-dim); cursor: pointer;
+    width: 26px; height: 26px; border-radius: 4px; display: none;
+    align-items: center; justify-content: center; font-size: 0.85rem; flex-shrink: 0;
 }
-.ask-empty {
-    margin: auto;
-    text-align: center;
-    color: var(--text-muted);
-    max-width: 460px;
+.ask-chat-row:hover .ask-row-btn, .ask-chat-row.active .ask-row-btn { display: inline-flex; }
+.ask-row-btn:hover { background: var(--bg-glass); color: var(--text); }
+.ask-row-btn.danger:hover { color: var(--danger); }
+.ask-side-empty { color: var(--text-dim); font-size: 0.85rem; padding: 0.6rem 0.5rem; }
+.ask-side-foot {
+    padding: 0.7rem 0.9rem; border-top: 1px solid var(--border);
+    font-size: 0.75rem; color: var(--text-dim); line-height: 1.4;
 }
-.ask-suggestions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    justify-content: center;
-    margin-top: 1.1rem;
+
+/* ── Conversation ── */
+.ask-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
+.ask-topbar {
+    align-items: center; gap: 0.5rem;
+    padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border);
 }
+.ask-topbar-title { flex: 1; min-width: 0; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ask-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+.ask-thread { max-width: 760px; margin: 0 auto; padding: 1.5rem 1.25rem 2rem; display: flex; flex-direction: column; gap: 1.4rem; }
+.ask-turn.user { display: flex; justify-content: flex-end; }
+.ask-turn.user .ask-text {
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    padding: 0.65rem 0.95rem; border-radius: var(--radius); max-width: 85%;
+    white-space: pre-wrap; word-wrap: break-word;
+}
+.ask-turn.assistant { display: flex; gap: 0.75rem; }
+.ask-avatar {
+    flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%;
+    background: var(--primary-soft); color: var(--primary);
+    display: flex; align-items: center; justify-content: center; font-size: 0.9rem; margin-top: 0.1rem;
+}
+.ask-body { flex: 1; min-width: 0; }
+.ask-text { font-size: 0.96rem; line-height: 1.6; color: var(--text); word-wrap: break-word; }
+.ask-text p { margin: 0 0 0.7rem; }
+.ask-text p:last-child { margin-bottom: 0; }
+.ask-text ul, .ask-text ol { margin: 0 0 0.7rem; padding-left: 1.3rem; }
+.ask-text li { margin: 0.15rem 0; }
+.ask-text h4 { font-family: var(--font-display); font-size: 1.02rem; margin: 0.9rem 0 0.4rem; }
+.ask-text hr { border: 0; border-top: 1px solid var(--border); margin: 0.9rem 0; }
+.ask-text code { font-family: var(--font-mono); font-size: 0.85em; background: var(--bg-elevated); padding: 0.05rem 0.3rem; border-radius: 3px; }
+.ask-text a { color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
+.ask-text a:hover { color: var(--link-hover); }
+.ask-text a.ask-daylink::after { content: ' ⌖'; font-size: 0.8em; opacity: 0.7; }
+.ask-cursor::after {
+    content: ''; display: inline-block; width: 0.5em; height: 1em; vertical-align: -0.15em;
+    background: var(--primary); margin-left: 2px; animation: ask-blink 1s steps(2) infinite;
+}
+@keyframes ask-blink { 50% { opacity: 0; } }
+.ask-status {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    color: var(--text-muted); font-size: 0.86rem; margin-bottom: 0.5rem;
+}
+.ask-status .spinner { width: 13px; height: 13px; }
+.ask-cards { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+.ask-card {
+    display: flex; align-items: center; gap: 0.6rem; max-width: 100%;
+    border: 1px solid var(--border); background: var(--bg-card); color: var(--text);
+    border-radius: var(--radius); padding: 0.5rem 0.75rem 0.5rem 0.55rem; cursor: pointer;
+    font: inherit; text-align: left; transition: border-color 0.15s, background 0.15s;
+}
+.ask-card:hover { border-color: var(--border-bright); }
+.ask-card.active { border-color: var(--primary); background: var(--primary-soft); }
+.ask-card-icon {
+    width: 30px; height: 30px; border-radius: 6px; flex-shrink: 0;
+    background: var(--bg-elevated); display: flex; align-items: center; justify-content: center;
+}
+.ask-card-title { font-size: 0.86rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.ask-card-sub { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); }
+.ask-actions { display: flex; gap: 0.25rem; margin-top: 0.4rem; opacity: 0; transition: opacity 0.15s; }
+.ask-turn.assistant:hover .ask-actions, .ask-turn.assistant:last-child .ask-actions { opacity: 1; }
+.ask-act {
+    border: 0; background: none; color: var(--text-dim); cursor: pointer;
+    font-size: 0.78rem; padding: 0.2rem 0.45rem; border-radius: 4px; font-family: var(--font-body);
+}
+.ask-act:hover { background: var(--bg-elevated); color: var(--text); }
+.ask-error-msg {
+    color: var(--danger); font-size: 0.88rem; border: 1px solid var(--danger);
+    border-radius: var(--radius); padding: 0.55rem 0.8rem;
+}
+
+.ask-welcome { margin: auto; max-width: 620px; padding: 3rem 1.25rem 2rem; text-align: center; }
+.ask-welcome h1 { font-family: var(--font-display); font-size: 1.9rem; margin: 0 0 0.4rem; }
+.ask-welcome p { color: var(--text-muted); margin: 0 0 1.5rem; }
+.ask-suggestions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.55rem; text-align: left; }
 .ask-chip {
-    padding: 0.5rem 0.85rem;
-    border-radius:0;
-    border: 1px solid var(--border);
-    background: var(--bg-glass);
-    color: var(--text);
-    font-size: 0.85rem;
-    cursor: pointer;
+    border: 1px solid var(--border); background: var(--bg-card); color: var(--text);
+    border-radius: var(--radius); padding: 0.7rem 0.85rem; cursor: pointer;
+    font: inherit; font-size: 0.88rem; text-align: left; line-height: 1.35;
     transition: border-color 0.15s, background 0.15s;
 }
-.ask-chip:hover { border-color: var(--border-bright); background: var(--primary-soft); }
-.ask-error {
-    color: var(--danger);
-    font-size: 0.85rem;
-    padding: 0.4rem 0.25rem;
+.ask-chip:hover { border-color: var(--border-bright); background: var(--bg-elevated); }
+.ask-chip small { display: block; color: var(--text-dim); font-size: 0.74rem; margin-top: 0.15rem; }
+
+.ask-composer { padding: 0 1.25rem 1rem; }
+.ask-composer-inner {
+    max-width: 760px; margin: 0 auto; display: flex; align-items: flex-end; gap: 0.5rem;
+    border: 1px solid var(--border-strong, var(--border)); background: var(--bg-input);
+    border-radius: var(--radius-clay-lg, 14px); padding: 0.45rem 0.45rem 0.45rem 0.95rem;
 }
-.ask-inputbar {
-    display: flex;
-    gap: 0.6rem;
-    align-items: flex-end;
-    padding-top: 0.75rem;
-    border-top: 1px solid var(--border);
-}
+.ask-composer-inner:focus-within { border-color: var(--border-bright); box-shadow: 0 0 0 3px var(--primary-soft); }
 .ask-textarea {
-    flex: 1;
-    resize: none;
-    max-height: 140px;
-    padding: 0.75rem 1rem;
-    border-radius:0;
-    border: 1px solid var(--border);
-    background: var(--bg-glass);
-    color: var(--text);
-    font-size: 0.95rem;
-    font-family: var(--font-body);
-    outline: none;
-    line-height: 1.4;
-    box-sizing: border-box;
+    flex: 1; resize: none; border: 0; outline: none; background: transparent; color: var(--text);
+    font: inherit; font-size: 0.96rem; line-height: 1.45; padding: 0.4rem 0; max-height: 200px;
 }
-.ask-textarea:focus { border-color: var(--border-bright); box-shadow: 0 0 0 3px var(--primary-soft); }
 .ask-send {
-    flex-shrink: 0;
-    height: 44px;
+    flex-shrink: 0; width: 38px; height: 38px; border-radius: 50%; border: 0; cursor: pointer;
+    background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center;
 }
+.ask-send:disabled { opacity: 0.4; cursor: default; }
+.ask-send.stop { background: var(--text); color: var(--bg); }
+.ask-hint { max-width: 760px; margin: 0.4rem auto 0; font-size: 0.72rem; color: var(--text-dim); text-align: center; }
+
+/* ── Map panel ── */
+.ask-mappanel {
+    display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
+    border-left: 1px solid var(--border); background: var(--bg-card);
+}
+.ask-map-head { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border); }
+.ask-map-titles { flex: 1; min-width: 0; }
+.ask-map-title { font-weight: 600; font-size: 0.92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ask-map-meta { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); }
+.ask-map-wrap { flex: 1; position: relative; min-height: 0; }
+#ask-map { position: absolute; inset: 0; }
+.ask-map-loading {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    background: color-mix(in srgb, var(--bg-card) 60%, transparent); z-index: 2; color: var(--text-muted); gap: 0.5rem;
+}
+.ask-map-loading.on { display: flex; }
+.ask-map-tabs { display: flex; gap: 0.35rem; overflow-x: auto; padding: 0.5rem 0.75rem; border-top: 1px solid var(--border); }
+.ask-map-tabs:empty { display: none; }
+.ask-map-tab {
+    flex-shrink: 0; border: 1px solid var(--border); background: none; color: var(--text-muted);
+    border-radius: 999px; padding: 0.25rem 0.7rem; font: inherit; font-size: 0.78rem; cursor: pointer;
+    max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ask-map-tab.active { border-color: var(--primary); color: var(--text); background: var(--primary-soft); }
+.ask-icon-btn {
+    border: 0; background: none; color: var(--text-muted); cursor: pointer;
+    width: 32px; height: 32px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0; text-decoration: none; font-size: 0.95rem;
+}
+.ask-icon-btn:hover { background: var(--bg-elevated); color: var(--text); }
+
+@media (max-width: 1100px) {
+    .ask-app, .ask-app.map-open { grid-template-columns: 220px minmax(0, 1fr) 0; }
+    .ask-app.map-open { grid-template-columns: 220px minmax(0, 1fr) minmax(300px, 46%); }
+}
+@media (max-width: 860px) {
+    .ask-app, .ask-app.map-open { grid-template-columns: minmax(0, 1fr); }
+    .ask-side {
+        position: fixed; z-index: 9990; top: var(--nav-h); bottom: var(--bottom-nav-height); left: 0;
+        width: min(300px, 85vw); transform: translateX(-102%); visibility: hidden;
+        transition: transform 0.22s var(--ease-out), visibility 0s linear 0.22s;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.35);
+    }
+    .ask-app.side-open .ask-side { transform: none; visibility: visible; transition: transform 0.22s var(--ease-out); }
+    .ask-side .ask-side-close { display: inline-flex; }
+    .ask-mappanel {
+        position: fixed; z-index: 9989; left: 0; right: 0; bottom: var(--bottom-nav-height);
+        height: 62%; border-left: 0; border-top: 1px solid var(--border-bright);
+        /* Past its own height plus the bottom nav it sits on, or its header peeks out. */
+        transform: translateY(calc(100% + var(--bottom-nav-height) + 24px));
+        visibility: hidden;
+        transition: transform 0.25s var(--ease-out), visibility 0s linear 0.25s;
+        box-shadow: 0 -10px 40px rgba(0,0,0,0.3);
+    }
+    .ask-app.map-open .ask-mappanel { transform: none; visibility: visible; transition: transform 0.25s var(--ease-out); }
+    .ask-suggestions { grid-template-columns: minmax(0, 1fr); }
+    .ask-thread { padding: 1rem 1rem 1.5rem; }
+    .ask-composer { padding: 0 0.75rem 0.75rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .ask-app, .ask-side, .ask-mappanel { transition: none; }
+    .ask-cursor::after { animation: none; }
+}
+/* ── Header, modes, follow-ups ── */
+.ask-topbar { display: flex; }
+.ask-topbar .ask-burger { display: none; }
+.ask-mode-badge {
+    font-family: var(--font-mono); font-size: 0.68rem; color: var(--primary);
+    border: 1px solid var(--primary); border-radius: 999px; padding: 0.05rem 0.5rem; flex-shrink: 0;
+}
+.ask-mode-badge:empty { display: none; }
+.ask-search { padding: 0 0.8rem 0.4rem; }
+.ask-search input {
+    width: 100%; box-sizing: border-box; font: inherit; font-size: 0.85rem; color: var(--text);
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 0.4rem 0.6rem;
+}
+.ask-search input:focus { outline: none; border-color: var(--border-bright); }
+.ask-chat-pin { font-size: 0.7rem; color: var(--primary); flex-shrink: 0; }
+.ask-modes { max-width: 760px; margin: 0 auto 0.45rem; display: flex; gap: 0.35rem; overflow-x: auto; scrollbar-width: none; }
+.ask-modes::-webkit-scrollbar { display: none; }
+.ask-mode {
+    flex-shrink: 0; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-muted);
+    border-radius: 999px; padding: 0.25rem 0.75rem; font: inherit; font-size: 0.8rem; cursor: pointer;
+}
+.ask-mode:hover { color: var(--text); border-color: var(--border-bright); }
+.ask-mode.active { color: var(--text); border-color: var(--primary); background: var(--primary-soft); }
+.ask-followups { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.7rem; }
+.ask-followup {
+    border: 1px solid var(--border); background: none; color: var(--text); cursor: pointer;
+    border-radius: 999px; padding: 0.3rem 0.8rem; font: inherit; font-size: 0.82rem; text-align: left;
+}
+.ask-followup:hover { border-color: var(--primary); background: var(--primary-soft); }
+.ask-followup::before { content: '↳ '; color: var(--text-dim); }
+.ask-sources { font-size: 0.74rem; color: var(--text-dim); margin-top: 0.55rem; }
+.ask-sources summary { cursor: pointer; list-style: none; }
+.ask-sources summary::-webkit-details-marker { display: none; }
+.ask-sources summary::before { content: '▸ '; }
+.ask-sources[open] summary::before { content: '▾ '; }
+.ask-sources ul { margin: 0.3rem 0 0; padding-left: 1.1rem; }
+.ask-turn.user { flex-direction: column; align-items: flex-end; gap: 0.25rem; }
+.ask-turn.user .ask-actions { opacity: 0; margin: 0; }
+.ask-turn.user:hover .ask-actions { opacity: 1; }
+.ask-edit { width: min(85%, 640px); }
+.ask-edit textarea {
+    width: 100%; box-sizing: border-box; font: inherit; font-size: 0.95rem; color: var(--text);
+    background: var(--bg-input); border: 1px solid var(--border-bright); border-radius: var(--radius);
+    padding: 0.6rem 0.8rem; resize: vertical; min-height: 70px;
+}
+.ask-edit-btns { display: flex; justify-content: flex-end; gap: 0.4rem; margin-top: 0.35rem; }
+.ask-welcome-group { text-align: left; margin-top: 1.2rem; }
+.ask-welcome-group h2 {
+    font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-dim); font-weight: 600; margin: 0 0 0.45rem;
+}
+.ask-pin {
+    width: 26px; height: 26px; border-radius: 50% 50% 50% 4px; transform: rotate(-45deg);
+    background: var(--clay-sky, #7ba3b8); border: 2px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.ask-pin span { transform: rotate(45deg); color: #fff; font: 700 11px var(--font-mono); }
+.ask-pin.dot span { display: none; }
+.ask-popup { font-family: var(--font-body); color: #1a1612; max-width: 240px; }
+.ask-popup b { display: block; font-size: 0.9rem; margin-bottom: 0.15rem; }
+.ask-popup p { margin: 0; font-size: 0.8rem; line-height: 1.35; }
+.ask-map-legend { position: absolute; left: 10px; top: 10px; z-index: 1; display: flex; gap: 0.6rem;
+    font-size: 0.72rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 0.25rem 0.55rem; color: var(--text-muted); }
+.ask-map-legend:empty { display: none; }
+.ask-map-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 0.3rem; vertical-align: -1px; }
+@media (min-width: 861px) { .ask-topbar { padding: 0.5rem 1rem; } }
+@media (max-width: 860px) { .ask-topbar .ask-burger { display: inline-flex; } }
 {% endblock %}
 
 {% block content %}
-<div class="container">
-    <div class="page-header">
-        <h1>Ask</h1>
-        <p class="page-lead">ask anything about where you've been — answered from your own location history.</p>
-    </div>
+<div class="ask-app" id="ask-app">
+    <aside class="ask-side" id="ask-side" aria-label="Chats">
+        <div class="ask-side-head">
+            <button class="btn btn-primary ask-new" type="button" onclick="newChat()" title="New chat (Ctrl+Shift+O)">＋ New chat</button>
+            <button class="ask-icon-btn ask-side-close" type="button" onclick="toggleSide(false)" aria-label="Close chats">✕</button>
+        </div>
+        <div class="ask-search"><input type="search" id="ask-search" placeholder="Search chats…" aria-label="Search chats" class="rly-native"></div>
+        <div class="ask-chats" id="ask-chats"><div class="ask-side-empty">Loading…</div></div>
+        <div class="ask-side-foot">Ask reads your history, flights and adventures and can plan with you. It can't change, add or delete anything.</div>
+    </aside>
 
-    <div class="ask-wrap">
-        <div class="ask-messages" id="ask-messages">
-            <div class="ask-empty" id="ask-empty">
-                <div style="font-size:2rem;margin-bottom:0.3rem;">🗺️</div>
-                <div>I can search your travel history. Ask me things like:</div>
-                <div class="ask-suggestions" id="ask-suggestions"></div>
+    <section class="ask-main">
+        <div class="ask-topbar">
+            <button class="ask-icon-btn ask-burger" type="button" onclick="toggleSide(true)" aria-label="Chats">☰</button>
+            <div class="ask-topbar-title" id="ask-topbar-title">New chat</div>
+            <span class="ask-mode-badge" id="ask-mode-badge"></span>
+            <button class="ask-icon-btn" type="button" id="ask-export" onclick="exportChat()" title="Download as Markdown" aria-label="Download as Markdown" disabled>⤓</button>
+            <button class="ask-icon-btn" type="button" onclick="newChat()" title="New chat" aria-label="New chat">＋</button>
+        </div>
+        <div class="ask-scroll" id="ask-scroll">
+            <div class="ask-thread" id="ask-thread"></div>
+        </div>
+        <div class="ask-composer">
+            <div class="ask-modes" id="ask-modes" role="radiogroup" aria-label="Mode"></div>
+            <div class="ask-composer-inner">
+                <textarea class="ask-textarea rly-native" id="ask-input" rows="1" placeholder="Ask about where you've been…" autocomplete="off"></textarea>
+                <button class="ask-send" id="ask-send" type="button" onclick="onSendClick()" aria-label="Send" disabled></button>
             </div>
+            <div class="ask-hint">Your history is read, never changed. Suggestions are the AI's, not your data — check details before you travel.</div>
         </div>
-        <div class="ask-error" id="ask-error" style="display:none;"></div>
-        <div class="ask-inputbar">
-            <textarea class="ask-textarea" id="ask-input" rows="1" placeholder="Ask about your location history…" autocomplete="off"></textarea>
-            <button class="btn btn-primary ask-send" id="ask-send" onclick="sendAsk()">Send</button>
+    </section>
+
+    <aside class="ask-mappanel" id="ask-mappanel" aria-label="Map">
+        <div class="ask-map-head">
+            <div class="ask-map-titles">
+                <div class="ask-map-title" id="ask-map-title">Map</div>
+                <div class="ask-map-meta" id="ask-map-meta"></div>
+            </div>
+            <a class="ask-icon-btn" id="ask-map-full" href="/map/" title="Open in the full map" aria-label="Open in the full map">↗</a>
+            <button class="ask-icon-btn" type="button" onclick="closeMap()" title="Close map" aria-label="Close map">✕</button>
         </div>
-    </div>
+        <div class="ask-map-wrap">
+            <div id="ask-map"></div>
+            <div class="ask-map-legend" id="ask-map-legend"></div>
+            <div class="ask-map-loading" id="ask-map-loading"><span class="spinner"></span> loading…</div>
+        </div>
+        <div class="ask-map-tabs" id="ask-map-tabs"></div>
+    </aside>
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
+(() => {
 const CSRF = '{{ csrf_token }}';
-const messages = [];           // [{role:'user'|'assistant', content:str}]
-let busy = false;
+const TZ = new Date().getTimezoneOffset();
+const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+const SPEED_UNIT = localStorage.getItem('roamly_speed_unit') || 'kmh';
+const INK = theme === 'light' ? '#ffffff' : '#1a1612';
 
-const elMsgs = document.getElementById('ask-messages');
-const elEmpty = document.getElementById('ask-empty');
-const elInput = document.getElementById('ask-input');
-const elSend = document.getElementById('ask-send');
-const elError = document.getElementById('ask-error');
+const $ = id => document.getElementById(id);
+const elApp = $('ask-app'), elThread = $('ask-thread'), elScroll = $('ask-scroll');
+const elInput = $('ask-input'), elSend = $('ask-send'), elChats = $('ask-chats');
 
-function escapeHtml(s) {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
-// Minimal, safe formatting: escape first, then **bold** and internal markdown
-// links [text](/path). Only "/"-prefixed URLs are linked (no quotes/brackets in
-// the path) so model output can't inject markup or external/JS URLs.
-function format(text) {
-    return escapeHtml(text)
-        .replace(/\[([^\]]+)\]\((\/[^)\s"'<>]+)\)/g,
-            '<a href="$2" target="_blank" rel="noopener">$1</a>')
-        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-}
-
-function addBubble(role, html) {
-    elEmpty && elEmpty.remove();
-    const row = document.createElement('div');
-    row.className = 'ask-msg ' + role;
-    const bubble = document.createElement('div');
-    bubble.className = 'ask-bubble';
-    bubble.innerHTML = html;
-    row.appendChild(bubble);
-    elMsgs.appendChild(row);
-    elMsgs.scrollTop = elMsgs.scrollHeight;
-    return bubble;
-}
-
-function askSuggestion(el) {
-    elInput.value = el.dataset.q || el.textContent;
-    sendAsk();
-}
-
-// A daily-summary chip is always shown first; the rest are picked at random
-// from this pool on each load so it feels fresh.
-const DAILY_SUMMARY = 'Summarize my day today — where did I go?';
-const SUGGESTION_POOL = [
-    'Have I been to Old Orchard Beach?',
-    'When was I last at the spa?',
-    'When did we go to Oklahoma?',
-    'How many countries have I visited?',
-    'What cities did I visit last month?',
-    'How far did I travel this week?',
-    'Where did I go yesterday?',
-    'Which states have I been to?',
-    'When did I last visit the beach?',
-    'What did I do last weekend?',
-    'Summarize my travels this year',
-    'What are the places I visit most often?',
+const MODES = [
+    ['', 'Auto'], ['plan', '🧭 Plan a trip'], ['brainstorm', '💡 Brainstorm'],
+    ['flights', '✈️ Flights'], ['recap', '📖 Recap'],
 ];
+let chats = [];
+let chatId = null;
+let chatMode = '';
+let streaming = null;       // controller of the reply still being written
+let lastCtl = null;         // the newest request, still open while follow-ups load
+let mapCards = [];
+let activeCard = -1;
 
-function renderSuggestions() {
-    const wrap = document.getElementById('ask-suggestions');
-    if (!wrap) return;
-    const pool = SUGGESTION_POOL.slice();
-    for (let i = pool.length - 1; i > 0; i--) {       // Fisher–Yates shuffle
-        const j = Math.floor(Math.random() * (i + 1));
-        [pool[i], pool[j]] = [pool[j], pool[i]];
+// ── Formatting ───────────────────────────────────────────────────────────
+// Escape first, then a small markdown subset. Only "/"-prefixed links survive,
+// so model output can never inject markup or an external / javascript: URL.
+function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function inline(s) {
+    return s
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\[([^\]]+)\]\((\/[^)\s"'<>]+)\)/g, (m, label, href) => {
+            const day = /^\/map\/\?date=(\d{4}-\d{2}-\d{2})$/.exec(href);
+            return day
+                ? `<a href="${href}" class="ask-daylink" data-date="${day[1]}" title="Show on the map">${label}</a>`
+                : `<a href="${href}" target="_blank" rel="noopener">${label}</a>`;
+        })
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>')
+        .replace(/(^|[^_\w])_([^_\n]+)_(?!\w)/g, '$1<em>$2</em>');
+}
+function format(text) {
+    const lines = esc(text).split('\n');
+    const out = [];
+    let list = null, para = [];
+    const flushPara = () => { if (para.length) { out.push('<p>' + inline(para.join('<br>')) + '</p>'); para = []; } };
+    const flushList = () => { if (list) { out.push(`<${list.tag}>` + list.items.map(i => '<li>' + inline(i) + '</li>').join('') + `</${list.tag}>`); list = null; } };
+    for (const raw of lines) {
+        const line = raw.trimEnd();
+        let m;
+        if (!line.trim()) { flushPara(); flushList(); continue; }
+        if (/^\s*(-{3,}|\*{3,})\s*$/.test(line)) { flushPara(); flushList(); out.push('<hr>'); continue; }
+        if ((m = /^#{1,6}\s+(.*)$/.exec(line))) { flushPara(); flushList(); out.push('<h4>' + inline(m[1]) + '</h4>'); continue; }
+        if ((m = /^\s*[-*•]\s+(.*)$/.exec(line)) || (m = /^\s*(\d+)[.)]\s+(.*)$/.exec(line))) {
+            const ordered = m.length === 3;
+            const tag = ordered ? 'ol' : 'ul';
+            flushPara();
+            if (!list || list.tag !== tag) { flushList(); list = { tag, items: [] }; }
+            list.items.push(ordered ? m[2] : m[1]);
+            continue;
+        }
+        flushList();
+        para.push(line);
     }
-    const picks = [DAILY_SUMMARY, ...pool.slice(0, 3)];
-    wrap.innerHTML = '';
-    picks.forEach(q => {
-        const chip = document.createElement('span');
-        chip.className = 'ask-chip';
-        chip.dataset.q = q;
-        chip.textContent = q;
-        chip.onclick = () => askSuggestion(chip);
-        wrap.appendChild(chip);
+    flushPara(); flushList();
+    return out.join('');
+}
+
+function post(url, body) {
+    return fetch(url, { method: 'POST', headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body) }).then(r => r.json());
+}
+
+// ── Sidebar ──────────────────────────────────────────────────────────────
+function relDay(iso) {
+    const d = new Date(iso), now = new Date();
+    const days = Math.floor((new Date(now.toDateString()) - new Date(d.toDateString())) / 86400000);
+    if (days <= 0) return 'Today';
+    if (days === 1) return 'Yesterday';
+    if (days < 7) return 'Previous 7 days';
+    if (days < 30) return 'Previous 30 days';
+    return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+}
+function renderChats() {
+    if (!chats.length) {
+        elChats.innerHTML = `<div class="ask-side-empty">${$('ask-search').value.trim() ? 'No chats match.' : 'No saved chats yet.'}</div>`;
+        return;
+    }
+    elChats.innerHTML = '';
+    let group = null;
+    for (const c of chats) {
+        const g = c.pinned ? 'Pinned' : relDay(c.updated_at);
+        if (g !== group) {
+            group = g;
+            const lab = document.createElement('div');
+            lab.className = 'ask-chats-label';
+            lab.textContent = g;
+            elChats.appendChild(lab);
+        }
+        const row = document.createElement('div');
+        row.className = 'ask-chat-row' + (c.id === chatId ? ' active' : '');
+        row.innerHTML = `<div class="ask-chat-title"></div>
+            <button class="ask-row-btn" type="button" data-a="pin"></button>
+            <button class="ask-row-btn" type="button" data-a="ren" title="Rename" aria-label="Rename">✎</button>
+            <button class="ask-row-btn danger" type="button" data-a="del" title="Delete" aria-label="Delete">🗑</button>`;
+        row.querySelector('.ask-chat-title').textContent = c.title;
+        const pin = row.querySelector('[data-a="pin"]');
+        pin.textContent = c.pinned ? '★' : '☆';
+        pin.title = c.pinned ? 'Unpin' : 'Pin';
+        row.addEventListener('click', () => openChat(c.id));
+        pin.addEventListener('click', e => { e.stopPropagation(); togglePin(c); });
+        row.querySelector('[data-a="ren"]').addEventListener('click', e => { e.stopPropagation(); startRename(row, c); });
+        row.querySelector('[data-a="del"]').addEventListener('click', e => { e.stopPropagation(); deleteChat(c); });
+        elChats.appendChild(row);
+    }
+}
+let searchSeq = 0;
+function loadChats() {
+    const q = $('ask-search').value.trim();
+    const seq = ++searchSeq;
+    return fetch('/api/ask/chats/' + (q ? '?q=' + encodeURIComponent(q) : ''))
+        .then(r => r.json()).then(d => { if (seq === searchSeq) { chats = d.chats || []; renderChats(); } })
+        .catch(() => { elChats.innerHTML = '<div class="ask-side-empty">Couldn\'t load chats.</div>'; });
+}
+let searchTimer = null;
+$('ask-search').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadChats, 250); });
+function upsertChat(row) {
+    const old = chats.find(c => c.id === row.id);
+    if (old) Object.assign(old, row); else chats.unshift(row);
+    chats.sort((a, b) => (b.pinned - a.pinned) || b.updated_at.localeCompare(a.updated_at));
+    renderChats();
+    if (row.id === chatId) $('ask-topbar-title').textContent = row.title;
+}
+function togglePin(c) {
+    post(`/api/ask/chats/${c.id}/pin/`, { pinned: !c.pinned }).then(d => {
+        if (d.status === 'ok') { c.pinned = d.pinned; upsertChat(c); }
     });
 }
-renderSuggestions();
+function startRename(row, c) {
+    const box = row.querySelector('.ask-chat-title');
+    const input = document.createElement('input');
+    input.value = c.title;
+    input.maxLength = 120;
+    input.className = 'rly-native';
+    box.textContent = '';
+    box.appendChild(input);
+    input.focus(); input.select();
+    input.addEventListener('click', e => e.stopPropagation());
+    let done = false;
+    const finish = save => {
+        if (done) return; done = true;
+        const title = input.value.trim();
+        if (!save || !title || title === c.title) { renderChats(); return; }
+        post(`/api/ask/chats/${c.id}/rename/`, { title }).then(d => {
+            if (d.title) { c.title = d.title; if (c.id === chatId) $('ask-topbar-title').textContent = d.title; }
+            renderChats();
+        });
+    };
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); });
+    input.addEventListener('blur', () => finish(true));
+}
+async function deleteChat(c) {
+    const ok = await roamlyConfirm(`Delete “${c.title}”? This removes the conversation only — none of your history.`,
+        { title: 'Delete chat', danger: true, confirmText: 'Delete' });
+    if (!ok) return;
+    await post(`/api/ask/chats/${c.id}/delete/`, {});
+    chats = chats.filter(x => x.id !== c.id);
+    if (c.id === chatId) newChat(); else renderChats();
+}
+function toggleSide(open) { elApp.classList.toggle('side-open', open); }
+window.toggleSide = toggleSide;
+
+// ── Modes ────────────────────────────────────────────────────────────────
+function renderModes() {
+    const wrap = $('ask-modes');
+    wrap.innerHTML = '';
+    for (const [id, label] of MODES) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'ask-mode' + (id === chatMode ? ' active' : '');
+        b.setAttribute('role', 'radio');
+        b.setAttribute('aria-checked', id === chatMode ? 'true' : 'false');
+        b.textContent = label;
+        b.onclick = () => { chatMode = id; renderModes(); elInput.focus(); };
+        wrap.appendChild(b);
+    }
+    const label = (MODES.find(m => m[0] === chatMode) || ['', ''])[1];
+    $('ask-mode-badge').textContent = chatMode ? label.replace(/^\S+\s/, '') : '';
+    const ph = {
+        plan: 'Where to, and when?',
+        brainstorm: 'What should we brainstorm?',
+        flights: 'Your flights, or a flight number…',
+        recap: 'Recap which period?',
+    }[chatMode];
+    elInput.placeholder = ph || 'Ask about where you\'ve been…';
+}
+
+// ── Conversation view ────────────────────────────────────────────────────
+const WELCOME = [
+    ['Your history', [
+        ['Summarize my day today', 'with a map of where I went', ''],
+        ['What did I do last weekend?', 'stays, towns and a map', ''],
+        ['How far have I travelled this year?', '', ''],
+        ['Which countries have I visited?', '', ''],
+        ['Where do I spend most of my time?', '', ''],
+        ['When was I last at the beach?', '', ''],
+    ]],
+    ['Plan & brainstorm', [
+        ['Plan a long weekend somewhere I have never been', 'based on where you usually go', 'plan'],
+        ['Brainstorm day trips within 2 hours of home', 'pinned on a map', 'brainstorm'],
+        ['Which US states am I missing? Suggest a road trip', '', 'plan'],
+        ['Ideas for my next adventure', 'from your past trips', 'brainstorm'],
+    ]],
+    ['Flights', [
+        ['Show all my flights on a map', '', 'flights'],
+        ['What was my longest flight?', '', 'flights'],
+        ['My flying stats this year', '', 'flights'],
+    ]],
+];
+function pick(arr, n) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+    return a.slice(0, n);
+}
+function renderWelcome() {
+    elThread.innerHTML = `<div class="ask-welcome">
+        <h1>Where to next?</h1>
+        <p>Ask about anywhere you've been, every flight you've logged and every adventure — or plan the next one together. I'll show it on a map.</p>
+        <div class="ask-welcome-groups"></div></div>`;
+    const host = elThread.querySelector('.ask-welcome-groups');
+    WELCOME.forEach(([title, items], gi) => {
+        const g = document.createElement('div');
+        g.className = 'ask-welcome-group';
+        g.innerHTML = `<h2>${esc(title)}</h2><div class="ask-suggestions"></div>`;
+        const wrap = g.querySelector('.ask-suggestions');
+        const chosen = gi === 0 ? [items[0], ...pick(items.slice(1), 3)] : pick(items, 2);
+        chosen.forEach(([q, sub, mode]) => {
+            const b = document.createElement('button');
+            b.type = 'button'; b.className = 'ask-chip';
+            b.innerHTML = esc(q) + (sub ? `<small>${esc(sub)}</small>` : '');
+            b.onclick = () => { if (mode) { chatMode = mode; renderModes(); } elInput.value = q; send(); };
+            wrap.appendChild(b);
+        });
+        host.appendChild(g);
+    });
+}
+function scrollDown(force) {
+    const near = elScroll.scrollHeight - elScroll.scrollTop - elScroll.clientHeight < 160;
+    if (force || near) elScroll.scrollTop = elScroll.scrollHeight;
+}
+function clearFollowups() { elThread.querySelectorAll('.ask-followups').forEach(n => n.remove()); }
+function refreshLastActions() {
+    // Regenerate and Edit only make sense on the latest exchange.
+    elThread.querySelectorAll('[data-act="regen"], [data-act="edit"]').forEach(b => b.hidden = true);
+    const turns = elThread.querySelectorAll('.ask-turn');
+    const lastA = [...turns].reverse().find(t => t.classList.contains('assistant'));
+    const lastU = [...turns].reverse().find(t => t.classList.contains('user'));
+    if (lastA && !streaming) lastA.querySelector('[data-act="regen"]').hidden = false;
+    if (lastU && !streaming) lastU.querySelector('[data-act="edit"]').hidden = false;
+}
+function addUserTurn(text) {
+    elThread.querySelector('.ask-welcome')?.remove();
+    const t = document.createElement('div');
+    t.className = 'ask-turn user';
+    t.innerHTML = '<div class="ask-text"></div><div class="ask-actions"><button class="ask-act" type="button" data-act="edit" hidden>Edit</button></div>';
+    t.querySelector('.ask-text').textContent = text;
+    t.querySelector('[data-act="edit"]').addEventListener('click', () => startEdit(t));
+    elThread.appendChild(t);
+    return t;
+}
+function addAssistantTurn() {
+    const t = document.createElement('div');
+    t.className = 'ask-turn assistant';
+    t.innerHTML = `<div class="ask-avatar" aria-hidden="true">✦</div>
+        <div class="ask-body"><div class="ask-status-slot"></div><div class="ask-text"></div>
+        <div class="ask-cards"></div><div class="ask-sources-slot"></div>
+        <div class="ask-actions">
+            <button class="ask-act" type="button" data-act="copy">Copy</button>
+            <button class="ask-act" type="button" data-act="regen" hidden>↻ Regenerate</button>
+        </div><div class="ask-followups-slot"></div></div>`;
+    elThread.appendChild(t);
+    const turn = {
+        el: t, text: '',
+        textEl: t.querySelector('.ask-text'),
+        statusEl: t.querySelector('.ask-status-slot'),
+        cardsEl: t.querySelector('.ask-cards'),
+    };
+    t.querySelector('[data-act="copy"]').addEventListener('click', e => {
+        navigator.clipboard?.writeText(turn.text).then(() => {
+            e.target.textContent = 'Copied'; setTimeout(() => e.target.textContent = 'Copy', 1400);
+        });
+    });
+    t.querySelector('[data-act="regen"]').addEventListener('click', () => regenerate());
+    return turn;
+}
+function setSources(turn, sources) {
+    const slot = turn.el.querySelector('.ask-sources-slot');
+    slot.innerHTML = '';
+    if (!sources || !sources.length) return;
+    const d = document.createElement('details');
+    d.className = 'ask-sources';
+    d.innerHTML = `<summary>Looked at ${sources.length} source${sources.length > 1 ? 's' : ''}</summary><ul></ul>`;
+    sources.forEach(s => { const li = document.createElement('li'); li.textContent = s; d.querySelector('ul').appendChild(li); });
+    slot.appendChild(d);
+}
+function setFollowups(turn, items) {
+    clearFollowups();
+    if (!items || !items.length) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'ask-followups';
+    items.forEach(q => {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'ask-followup'; b.textContent = q;
+        b.onclick = () => { elInput.value = q; send(); };
+        wrap.appendChild(b);
+    });
+    turn.el.querySelector('.ask-followups-slot').appendChild(wrap);
+    scrollDown();
+}
+function setStatus(turn, text) {
+    turn.statusEl.innerHTML = text ? `<div class="ask-status"><span class="spinner"></span>${esc(text)}</div>` : '';
+}
+let renderQueued = false;
+function renderText(turn, live) {
+    if (live) {
+        if (renderQueued) return;
+        renderQueued = true;
+        requestAnimationFrame(() => { renderQueued = false; paintText(turn, true); });
+    } else paintText(turn, false);
+}
+function paintText(turn, live) {
+    turn.textEl.innerHTML = format(turn.text);
+    turn.textEl.classList.remove('ask-cursor');
+    if (live) {
+        let last = turn.textEl.lastElementChild;
+        if (last && /^(UL|OL)$/.test(last.tagName)) last = last.lastElementChild;
+        (last || turn.textEl).classList.add('ask-cursor');
+    }
+    scrollDown();
+}
+function cardSub(card) {
+    if (card.kind === 'flights') return card.year ? `flights · ${card.year}` : 'all flights';
+    if (card.kind === 'pins') return `${card.pins.length} place${card.pins.length > 1 ? 's' : ''}${card.connect ? ' · route' : ''}`;
+    if (card.date) return card.date;
+    if (card.start_date) return card.start_date === card.end_date ? card.start_date : `${card.start_date} → ${card.end_date}`;
+    return [card.city, card.state, card.country].filter(Boolean).join(', ');
+}
+const CARD_ICONS = {
+    history: '<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/>',
+    flights: '<path d="M2 16l20-8-8 12-2-5-5-2z"/>',
+    pins: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
+};
+function addCard(turn, card, autoOpen) {
+    const idx = registerCard(card);
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'ask-card'; b.dataset.idx = idx;
+    b.innerHTML = `<span class="ask-card-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${CARD_ICONS[card.kind || 'history'] || CARD_ICONS.history}</svg></span>
+        <span><span class="ask-card-title"></span><br><span class="ask-card-sub"></span></span>`;
+    b.querySelector('.ask-card-title').textContent = card.title || 'Map';
+    b.querySelector('.ask-card-sub').textContent = cardSub(card);
+    b.addEventListener('click', () => showCard(idx));
+    turn.cardsEl.appendChild(b);
+    if (autoOpen) showCard(idx);
+}
+function cardKey(c) {
+    if (c.kind === 'pins') return JSON.stringify(['pins', c.title, c.pins.map(p => [p.lat, p.lon])]);
+    return JSON.stringify([c.kind || 'history', c.year, c.date, c.start_date, c.end_date, c.city, c.state, c.country]);
+}
+function registerCard(card) {
+    const k = cardKey(card);
+    const found = mapCards.findIndex(c => cardKey(c) === k);
+    if (found >= 0) return found;
+    mapCards.push(card);
+    renderTabs();
+    return mapCards.length - 1;
+}
+
+function clearThread() {
+    elThread.innerHTML = '';
+    mapCards = []; activeCard = -1;
+    renderTabs();
+    closeMap();
+}
+function newChat() {
+    lastCtl?.abort();
+    chatId = null;
+    chatMode = '';
+    renderModes();
+    history.replaceState(null, '', '/ask/');
+    clearThread();
+    renderWelcome();
+    renderChats();
+    $('ask-topbar-title').textContent = 'New chat';
+    $('ask-export').disabled = true;
+    toggleSide(false);
+    elInput.focus();
+}
+window.newChat = newChat;
+
+function openChat(id) {
+    lastCtl?.abort();
+    toggleSide(false);
+    fetch(`/api/ask/chats/${id}/`).then(r => r.ok ? r.json() : Promise.reject())
+        .then(d => {
+            chatId = d.id;
+            chatMode = d.mode || '';
+            renderModes();
+            history.replaceState(null, '', `/ask/?chat=${d.id}`);
+            clearThread();
+            $('ask-topbar-title').textContent = d.title;
+            let lastTurn = null, lastMeta = null;
+            for (const m of d.messages) {
+                if (m.role === 'user') { addUserTurn(m.content); continue; }
+                const turn = addAssistantTurn();
+                turn.text = m.content;
+                renderText(turn, false);
+                (m.cards || []).forEach(c => addCard(turn, c, false));
+                setSources(turn, (m.meta || {}).sources);
+                lastTurn = turn; lastMeta = m.meta || {};
+            }
+            if (lastTurn && lastMeta.followups && d.messages[d.messages.length - 1].role === 'assistant')
+                setFollowups(lastTurn, lastMeta.followups);
+            if (!d.messages.length) renderWelcome();
+            $('ask-export').disabled = !d.messages.length;
+            refreshLastActions();
+            renderChats();
+            scrollDown(true);
+        })
+        .catch(() => { roamlyToast('That chat could not be opened.', { type: 'error' }); newChat(); });
+}
+
+// ── Sending ──────────────────────────────────────────────────────────────
+const ICON_SEND = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 2.5 13.5 8l-1.1 1.1-3.6-3.6V14H7.2V5.5L3.6 9.1 2.5 8z"/></svg>';
+const ICON_STOP = '<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect width="12" height="12" rx="2"/></svg>';
+function setStreaming(on) {
+    elSend.classList.toggle('stop', on);
+    elSend.setAttribute('aria-label', on ? 'Stop' : 'Send');
+    elSend.innerHTML = on ? ICON_STOP : ICON_SEND;
+    updateSendState();
+    refreshLastActions();
+}
+function updateSendState() { elSend.disabled = !streaming && !elInput.value.trim(); }
+function onSendClick() { if (streaming) streaming.abort(); else send(); }
+window.onSendClick = onSendClick;
+
+function send() {
+    const text = elInput.value.trim();
+    if (!text || streaming) return;
+    elInput.value = ''; autoGrow();
+    clearFollowups();
+    const userTurn = addUserTurn(text);
+    run({ message: text, chat_id: chatId, mode: chatMode }, { userTurn, text });
+}
+function regenerate(editedText) {
+    if (streaming || !chatId) return;
+    // Drop everything after the last question, then answer it again.
+    const turns = [...elThread.querySelectorAll('.ask-turn')];
+    const lastU = turns.reverse().find(t => t.classList.contains('user'));
+    if (!lastU) return;
+    while (lastU.nextSibling) lastU.nextSibling.remove();
+    if (editedText != null) lastU.querySelector('.ask-text').textContent = editedText;
+    clearFollowups();
+    const body = { chat_id: chatId, regenerate: true, mode: chatMode };
+    if (editedText != null) body.message = editedText;
+    run(body, { regen: true, userTurn: lastU, text: editedText });
+}
+function startEdit(t) {
+    if (streaming) return;
+    const textEl = t.querySelector('.ask-text');
+    const original = textEl.textContent;
+    const box = document.createElement('div');
+    box.className = 'ask-edit';
+    box.innerHTML = `<textarea class="rly-native"></textarea><div class="ask-edit-btns">
+        <button class="btn btn-sm btn-outline" type="button" data-e="cancel">Cancel</button>
+        <button class="btn btn-sm btn-primary" type="button" data-e="send">Send</button></div>`;
+    const ta = box.querySelector('textarea');
+    ta.value = original;
+    textEl.hidden = true;
+    t.querySelector('.ask-actions').hidden = true;
+    t.insertBefore(box, textEl);
+    ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+    const close = () => { box.remove(); textEl.hidden = false; t.querySelector('.ask-actions').hidden = false; };
+    box.querySelector('[data-e="cancel"]').onclick = close;
+    const go = () => { const v = ta.value.trim(); close(); if (v && v !== original) regenerate(v); };
+    box.querySelector('[data-e="send"]').onclick = go;
+    ta.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); go(); }
+        if (e.key === 'Escape') close();
+    });
+}
+
+async function run(body, ctx) {
+    const turn = addAssistantTurn();
+    setStatus(turn, 'Thinking…');
+    renderText(turn, true);
+    scrollDown(true);
+    const ctl = new AbortController();
+    streaming = lastCtl = ctl;
+    setStreaming(true);
+    let openedMap = false, failed = false, finalText = null;
+    try {
+        const resp = await fetch('/api/ask/send/', {
+            method: 'POST', signal: ctl.signal,
+            headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...body, tz_offset: TZ }),
+        });
+        if (!resp.ok || !resp.body) {
+            let msg = 'Something went wrong.';
+            try { msg = (await resp.json()).error || msg; } catch (e) {}
+            throw new Error(msg);
+        }
+        const reader = resp.body.getReader();
+        const dec = new TextDecoder();
+        let buf = '';
+        for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buf += dec.decode(value, { stream: true });
+            let nl;
+            while ((nl = buf.indexOf('\n')) >= 0) {
+                const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+                if (!line.trim()) continue;
+                let ev; try { ev = JSON.parse(line); } catch (e) { continue; }
+                if (ev.type === 'chat') {
+                    chatId = ev.id;
+                    history.replaceState(null, '', `/ask/?chat=${ev.id}`);
+                    upsertChat(ev);
+                    $('ask-export').disabled = false;
+                } else if (ev.type === 'status') setStatus(turn, ev.text);
+                else if (ev.type === 'delta') { setStatus(turn, ''); turn.text += ev.text; renderText(turn, true); }
+                else if (ev.type === 'map') { addCard(turn, ev.card, !openedMap); openedMap = true; }
+                else if (ev.type === 'done') {
+                    finalText = turn.text = ev.text;
+                    setStatus(turn, '');
+                    renderText(turn, false);
+                    setSources(turn, ev.sources);
+                    // The answer is in: unlock the composer while follow-ups load.
+                    streaming = null;
+                    setStreaming(false);
+                }
+                else if (ev.type === 'saved') upsertChat(ev);
+                else if (ev.type === 'followups') {
+                    upsertChat(ev);
+                    // Only if this is still the newest answer on screen.
+                    if (turn.el === [...elThread.querySelectorAll('.ask-turn.assistant')].pop()) setFollowups(turn, ev.items);
+                }
+                else if (ev.type === 'error') throw new Error(ev.error);
+            }
+        }
+    } catch (e) {
+        if (e.name === 'AbortError') {
+            if (finalText == null && !turn.text) turn.text = '_Stopped._';
+        } else if (finalText == null) {
+            failed = true;
+            turn.el.remove();
+            if (!ctx.regen) ctx.userTurn.remove();
+            const err = document.createElement('div');
+            err.className = 'ask-error-msg';
+            err.textContent = e.message || 'Network error — please try again.';
+            elThread.appendChild(err);
+            setTimeout(() => err.remove(), 9000);
+            if (!ctx.regen) { elInput.value = ctx.text; autoGrow(); }
+            if (!ctx.regen && !elThread.querySelector('.ask-turn')) { chatId = null; renderWelcome(); }
+            loadChats();
+            // A failed regenerate kept the old reply on the server: show it again.
+            if (ctx.regen && chatId) setTimeout(() => openChat(chatId), 50);
+        }
+    } finally {
+        const mine = streaming === ctl;
+        if (mine) streaming = null;
+        if (lastCtl === ctl) lastCtl = null;
+        if (!failed && turn.el.isConnected) {
+            setStatus(turn, '');
+            renderText(turn, false);
+        }
+        // A newer request may already own the composer; leave its Stop button be.
+        if (mine || streaming === null) setStreaming(false);
+        if (window.matchMedia('(min-width: 861px)').matches) elInput.focus();
+        scrollDown();
+    }
+}
+// ── Export ───────────────────────────────────────────────────────────────
+async function exportChat() {
+    if (!chatId) return;
+    const d = await fetch(`/api/ask/chats/${chatId}/`).then(r => r.json()).catch(() => null);
+    if (!d || !d.messages) { roamlyToast('Could not export this chat.', { type: 'error' }); return; }
+    const lines = [`# ${d.title}`, '', `_Exported from Roamly Ask, ${new Date().toLocaleString()}_`, ''];
+    for (const m of d.messages) {
+        lines.push(m.role === 'user' ? `**You:** ${m.content}` : m.content, '');
+        for (const c of m.cards || []) lines.push(`> 🗺 Map: ${c.title}${c.kind === 'pins' ? ' — ' + c.pins.map(p => p.name).join(', ') : ''}`, '');
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = (d.title || 'chat').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 60) + '.md';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+window.exportChat = exportChat;
 
 function autoGrow() {
     elInput.style.height = 'auto';
-    elInput.style.height = Math.min(elInput.scrollHeight, 140) + 'px';
+    elInput.style.height = Math.min(elInput.scrollHeight, 200) + 'px';
+    updateSendState();
 }
 elInput.addEventListener('input', autoGrow);
-elInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAsk(); }
+elInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!streaming) send(); }
+    if (e.key === 'ArrowUp' && !elInput.value && !streaming) {
+        const lastU = [...elThread.querySelectorAll('.ask-turn.user')].pop();
+        if (lastU) { e.preventDefault(); startEdit(lastU); }
+    }
+});
+document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'o' || e.key === 'O')) { e.preventDefault(); newChat(); }
+    if (e.key === '/' && document.activeElement === document.body) { e.preventDefault(); elInput.focus(); }
 });
 
-function setBusy(b) {
-    busy = b;
-    elInput.disabled = b;
-    elSend.disabled = b;
+// Day links in an answer open that day in the side map; modifier-click still
+// follows the link to the full map.
+elThread.addEventListener('click', e => {
+    const a = e.target.closest('a.ask-daylink');
+    if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    showCard(registerCard({ date: a.dataset.date, title: a.textContent }));
+});
+
+// ── Map panel ────────────────────────────────────────────────────────────
+let map = null, mapReady = null, loadSeq = 0, markers = [];
+const EMPTY = { type: 'FeatureCollection', features: [] };
+function ensureMap() {
+    if (mapReady) return mapReady;
+    mapReady = new Promise(resolve => {
+        map = new maplibregl.Map({
+            container: 'ask-map',
+            style: {
+                version: 8,
+                sources: { base: {
+                    type: 'raster', tileSize: 256,
+                    tiles: ['https://basemaps.cartocdn.com/' + (theme === 'light' ? 'light_all' : 'dark_all') + '/{z}/{x}/{y}.png{{ CARTO_TILE_QS|escapejs }}'],
+                    attribution: '&copy; OpenStreetMap &copy; CARTO',
+                }},
+                layers: [{ id: 'base', type: 'raster', source: 'base' }],
+            },
+            center: [0, 20], zoom: 1, attributionControl: { compact: true },
+        });
+        map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+        map.on('load', () => {
+            for (const id of ['ask-lines', 'ask-dots', 'ask-ends', 'ask-arcs', 'ask-airports', 'ask-route'])
+                map.addSource(id, { type: 'geojson', data: EMPTY });
+            map.addLayer({ id: 'ask-lines-casing', type: 'line', source: 'ask-lines',
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: { 'line-color': INK, 'line-width': 6, 'line-opacity': 0.7 } });
+            map.addLayer({ id: 'ask-lines', type: 'line', source: 'ask-lines',
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: { 'line-color': '#e8763d', 'line-width': 3.2 } });
+            map.addLayer({ id: 'ask-dots', type: 'circle', source: 'ask-dots',
+                paint: { 'circle-color': '#e8763d', 'circle-opacity': 0.75,
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 1.6, 10, 3, 15, 4.5],
+                    'circle-stroke-width': 0.5, 'circle-stroke-color': INK } });
+            map.addLayer({ id: 'ask-ends', type: 'circle', source: 'ask-ends',
+                paint: { 'circle-radius': 6, 'circle-color': ['get', 'color'],
+                    'circle-stroke-width': 2, 'circle-stroke-color': '#fff' } });
+            map.addLayer({ id: 'ask-arcs', type: 'line', source: 'ask-arcs',
+                layout: { 'line-cap': 'round' },
+                paint: { 'line-color': '#e8763d', 'line-opacity': 0.8,
+                    'line-width': ['interpolate', ['linear'], ['get', 'n'], 1, 1.4, 5, 3, 20, 5.5] } });
+            map.addLayer({ id: 'ask-airports', type: 'circle', source: 'ask-airports',
+                paint: { 'circle-color': '#7ba3b8', 'circle-stroke-width': 1.5, 'circle-stroke-color': '#fff',
+                    'circle-radius': ['interpolate', ['linear'], ['get', 'n'], 1, 3.5, 10, 6, 60, 10] } });
+            map.addLayer({ id: 'ask-route', type: 'line', source: 'ask-route',
+                layout: { 'line-cap': 'round', 'line-join': 'round' },
+                paint: { 'line-color': '#7ba3b8', 'line-width': 2.5, 'line-dasharray': [2, 1.6] } });
+            const popup = (lngLat, title, note) => {
+                const el = document.createElement('div');
+                el.className = 'ask-popup';
+                const b = document.createElement('b'); b.textContent = title; el.appendChild(b);
+                if (note) { const p = document.createElement('p'); p.textContent = note; el.appendChild(p); }
+                new maplibregl.Popup({ offset: 10 }).setLngLat(lngLat).setDOMContent(el).addTo(map);
+            };
+            map.on('click', 'ask-airports', e => {
+                const p = e.features[0].properties;
+                popup(e.lngLat, p.code + (p.city ? ' · ' + p.city : ''), `${p.n} flight${p.n > 1 ? 's' : ''}`);
+            });
+            map.on('click', 'ask-arcs', e => {
+                const p = e.features[0].properties;
+                popup(e.lngLat, p.label, `flown ${p.n}×`);
+            });
+            for (const id of ['ask-airports', 'ask-arcs']) {
+                map.on('mouseenter', id, () => map.getCanvas().style.cursor = 'pointer');
+                map.on('mouseleave', id, () => map.getCanvas().style.cursor = '');
+            }
+            map._askPopup = popup;
+            resolve(map);
+        });
+    });
+    return mapReady;
 }
-
-function sendAsk() {
-    const q = elInput.value.trim();
-    if (!q || busy) return;
-    elError.style.display = 'none';
-    const userRow = addBubble('user', format(q)).closest('.ask-msg');
-    messages.push({ role: 'user', content: q });
-    elInput.value = '';
-    autoGrow();
-    setBusy(true);
-
-    const thinking = addBubble('assistant',
-        '<span class="ask-thinking"><span class="spinner"></span> searching your history…</span>');
-
-    // On failure, revert this turn entirely and put the text back for an easy retry.
-    const revert = (msg) => {
-        thinking.closest('.ask-msg').remove();
-        userRow.remove();
-        messages.pop();
-        elInput.value = q;
-        autoGrow();
-        showError(msg);
-    };
-
-    fetch('/api/ask/', {
-        method: 'POST',
-        headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages, tz_offset: new Date().getTimezoneOffset() }),
-    })
-    .then(r => r.json().then(d => ({ ok: r.ok, d })))
-    .then(({ ok, d }) => {
-        if (ok && d.reply) {
-            thinking.innerHTML = format(d.reply);
-            messages.push({ role: 'assistant', content: d.reply });
+function fmtDist(km) {
+    if (km == null) return '';
+    return SPEED_UNIT === 'mph' ? `${(km * 0.621371).toFixed(1)} mi` : `${km.toFixed(1)} km`;
+}
+function renderTabs() {
+    const wrap = $('ask-map-tabs');
+    wrap.innerHTML = '';
+    if (mapCards.length < 2) return;
+    mapCards.forEach((c, i) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'ask-map-tab' + (i === activeCard ? ' active' : '');
+        b.textContent = c.title || cardSub(c);
+        b.title = cardSub(c);
+        b.onclick = () => showCard(i);
+        wrap.appendChild(b);
+    });
+}
+function markActive() {
+    document.querySelectorAll('.ask-card').forEach(b => b.classList.toggle('active', +b.dataset.idx === activeCard));
+    renderTabs();
+}
+function clearMapData(m) {
+    for (const id of ['ask-lines', 'ask-dots', 'ask-ends', 'ask-arcs', 'ask-airports', 'ask-route']) m.getSource(id).setData(EMPTY);
+    markers.forEach(mk => mk.remove());
+    markers = [];
+    $('ask-map-legend').innerHTML = '';
+}
+function pinsGeo(card) {
+    const lons = card.pins.map(p => p.lon), lats = card.pins.map(p => p.lat);
+    return { mode: 'pins', count: card.pins.length, pins: card.pins, connect: card.connect,
+        bounds: [Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)],
+        url: `/map/?lat=${card.pins[0].lat}&lng=${card.pins[0].lon}&zoom=11` };
+}
+async function showCard(idx) {
+    const card = mapCards[idx];
+    if (!card) return;
+    activeCard = idx;
+    markActive();
+    elApp.classList.add('map-open');
+    toggleSide(false);
+    $('ask-map-title').textContent = card.title || 'Map';
+    $('ask-map-meta').textContent = cardSub(card);
+    $('ask-map-loading').classList.add('on');
+    const seq = ++loadSeq;
+    let geoP;
+    if (card.kind === 'pins') geoP = Promise.resolve(pinsGeo(card));
+    else {
+        const params = new URLSearchParams({ tz_offset: TZ });
+        for (const k of ['kind', 'year', 'title', 'date', 'start_date', 'end_date', 'city', 'state', 'country'])
+            if (card[k] != null && card[k] !== '') params.set(k, card[k]);
+        geoP = fetch('/api/ask/map/?' + params).then(r => r.ok ? r.json() : r.json().then(d => Promise.reject(new Error(d.error || 'Map failed'))));
+    }
+    try {
+        const [m, geo] = await Promise.all([ensureMap(), geoP]);
+        if (seq !== loadSeq) return;
+        m.resize();
+        setTimeout(() => m.resize(), 260);  // after the panel's open transition
+        clearMapData(m);
+        $('ask-map-full').href = geo.url || '/map/';
+        const bits = [cardSub(card)];
+        if (geo.mode === 'flights') {
+            bits.push(`${geo.count} flight${geo.count === 1 ? '' : 's'}`, `${geo.airports.length} airports`);
+            m.getSource('ask-arcs').setData({ type: 'FeatureCollection', features: geo.arcs.map(a => ({
+                type: 'Feature', properties: { n: a.n, label: a.label }, geometry: { type: 'LineString', coordinates: a.coords } })) });
+            m.getSource('ask-airports').setData({ type: 'FeatureCollection', features: geo.airports.map(a => ({
+                type: 'Feature', properties: a, geometry: { type: 'Point', coordinates: [a.lon, a.lat] } })) });
+            $('ask-map-legend').innerHTML = '<span><i style="background:#e8763d"></i>routes</span><span><i style="background:#7ba3b8"></i>airports</span>';
+        } else if (geo.mode === 'pins') {
+            const numbered = geo.pins.some(p => p.order) || geo.connect;
+            geo.pins.forEach((p, i) => {
+                const el = document.createElement('div');
+                el.className = 'ask-pin' + (numbered ? '' : ' dot');
+                const n = document.createElement('span'); n.textContent = p.order || i + 1; el.appendChild(n);
+                el.title = p.name;
+                el.addEventListener('click', ev => { ev.stopPropagation(); m._askPopup([p.lon, p.lat], p.name, p.note); });
+                markers.push(new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([p.lon, p.lat]).addTo(m));
+            });
+            if (geo.connect && geo.pins.length > 1)
+                m.getSource('ask-route').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: geo.pins.map(p => [p.lon, p.lat]) } });
+            $('ask-map-legend').innerHTML = '<span><i style="background:#7ba3b8"></i>suggested by Ask — not your history</span>';
         } else {
-            revert(d.error || 'Something went wrong.');
+            bits.push(`${(geo.count || 0).toLocaleString()} points`);
+            if (geo.distance_km != null) bits.push(fmtDist(geo.distance_km));
+            if (geo.mode === 'lines') {
+                m.getSource('ask-lines').setData({ type: 'FeatureCollection', features: (geo.segments || []).map(c => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: c } })) });
+                if (geo.segments?.length) {
+                    const first = geo.segments[0][0], lastSeg = geo.segments[geo.segments.length - 1];
+                    m.getSource('ask-ends').setData({ type: 'FeatureCollection', features: [
+                        { type: 'Feature', properties: { color: '#7f9b6d' }, geometry: { type: 'Point', coordinates: first } },
+                        { type: 'Feature', properties: { color: '#d0694a' }, geometry: { type: 'Point', coordinates: lastSeg[lastSeg.length - 1] } }] });
+                    $('ask-map-legend').innerHTML = '<span><i style="background:#7f9b6d"></i>start</span><span><i style="background:#d0694a"></i>end</span>';
+                }
+            } else {
+                m.getSource('ask-dots').setData({ type: 'FeatureCollection', features: (geo.points || []).map(c => ({ type: 'Feature', geometry: { type: 'Point', coordinates: c } })) });
+            }
+            if (geo.thinned) bits.push('thinned');
         }
-    })
-    .catch(() => revert('Network error — please try again.'))
-    .finally(() => { setBusy(false); elInput.focus(); elMsgs.scrollTop = elMsgs.scrollHeight; });
+        $('ask-map-meta').textContent = bits.filter(Boolean).join(' · ');
+        if (geo.bounds) {
+            const [w, s, e, n] = geo.bounds;
+            if (w === e && s === n) m.flyTo({ center: [w, s], zoom: 12, duration: 600 });
+            else m.fitBounds([[w, s], [e, n]], { padding: 56, maxZoom: 15, duration: 600 });
+        } else roamlyToast('Nothing recorded to show for that.', { type: 'error' });
+    } catch (e) {
+        if (seq === loadSeq) roamlyToast(e.message || 'The map could not load.', { type: 'error' });
+    } finally {
+        if (seq === loadSeq) $('ask-map-loading').classList.remove('on');
+    }
 }
+function closeMap() {
+    elApp.classList.remove('map-open');
+    activeCard = -1;
+    markActive();
+}
+window.closeMap = closeMap;
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && elApp.classList.contains('map-open') && document.activeElement !== elInput) closeMap();
+});
 
-function showError(msg) {
-    elError.textContent = msg;
-    elError.style.display = 'block';
-}
+// ── Start ────────────────────────────────────────────────────────────────
+renderModes();
+setStreaming(false);
+loadChats();
+const initial = new URLSearchParams(location.search).get('chat');
+if (initial && /^\d+$/.test(initial)) openChat(+initial); else renderWelcome();
+if (window.matchMedia('(min-width: 861px)').matches) elInput.focus();
+})();
 </script>
 {% endblock %}
