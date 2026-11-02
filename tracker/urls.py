@@ -268,10 +268,14 @@ urlpatterns = [
     path('api/journals/stats/', views.journal_stats_api, name='journal_stats_api'),
     path('api/journals/search/', views.journal_search_api, name='journal_search_api'),
     path('api/journals/recap/', views.journal_recap_api, name='journal_recap_api'),
+    path('api/journals/settings/', views.journal_settings_api, name='journal_settings_api'),
     path('api/journals/photos/<int:photo_id>/delete/', views.journal_photo_delete_api, name='journal_photo_delete_api'),
     path('api/journals/<str:date_str>/', views.journal_detail_api, name='journal_detail_api'),
     path('api/journals/<str:date_str>/save/', views.journal_save_api, name='journal_save_api'),
     path('api/journals/<str:date_str>/delete/', views.journal_delete_api, name='journal_delete_api'),
+    path('api/journals/<str:date_str>/move/', views.journal_move_api, name='journal_move_api'),
+    path('api/journals/<str:date_str>/weather/', views.journal_weather_api, name='journal_weather_api'),
+    path('api/journals/<str:date_str>/autofill/', views.journal_autofill_api, name='journal_autofill_api'),
     path('api/journals/<str:date_str>/photos/', views.journal_photos_api, name='journal_photos_api'),
 
     # Health API (Health Connect)

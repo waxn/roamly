@@ -1236,6 +1236,12 @@ class UserProfile(models.Model):
     # Opt-in: let the Ask assistant read journal entries (they can be sensitive,
     # so this is off by default and gated separately from ai_ask_enabled).
     ai_allow_journals = models.BooleanField(default=False)
+    # Journals settings cog. The AI pair is opt-in because it sends the entry to
+    # the user's provider; each fills only a blank field, after the entry closes.
+    journal_auto_title = models.BooleanField(default=False)
+    journal_auto_mood = models.BooleanField(default=False)
+    # Fill a blank weather field from Open-Meteo (a rounded location leaves the server).
+    journal_auto_weather = models.BooleanField(default=True)
 
     # Optional Mapbox public access token (pk.…). Stored server-side so the
     # user's Mapbox basemap choice follows them across every device — web and

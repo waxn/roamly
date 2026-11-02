@@ -47,7 +47,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from django.core.cache import cache
 from django.core.serializers.json import DjangoJSONEncoder
-from django.db import connection, transaction
+from django.db import IntegrityError, connection, transaction
 from django.contrib.staticfiles import finders
 
 from .forms import SignUpForm, APIKeyForm, AdventureForm
@@ -12708,6 +12708,113 @@ def journal_detail_api(request, date_str):
         }
 
     return JsonResponse({'entry': entry_data, 'track': track})
+
+
+_JOURNAL_AUTOFILL_LIMIT = 40   # per account, per hour: each call spends provider credits
+_JOURNAL_WEATHER_LIMIT = 120   # per account, per hour
+_JOURNAL_SETTINGS = ('journal_auto_title', 'journal_auto_mood', 'journal_auto_weather')
+
+
+def _journal_settings_payload(profile):
+    out = {k.replace('journal_', ''): getattr(profile, k) for k in _JOURNAL_SETTINGS}
+    out['ai_available'] = profile.ai_configured
+    return out
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def journal_settings_api(request):
+    """The Journals settings cog. Each toggle autosaves alone, so a POST applies
+    only the keys it carries."""
+    profile = request.user.profile
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body or b'{}')
+        except (json.JSONDecodeError, ValueError):
+            return JsonResponse({'error': 'Invalid JSON'}, status=400)
+        changed = []
+        for field in _JOURNAL_SETTINGS:
+            key = field.replace('journal_', '')
+            if key in data:
+                setattr(profile, field, bool(data[key]))
+                changed.append(field)
+        if changed:
+            profile.save(update_fields=changed)
+    return JsonResponse(_journal_settings_payload(profile))
+
+
+@login_required
+def journal_weather_api(request, date_str):
+    """A day's weather for a blank field. Reads only: the value is saved with the
+    entry, so opening a day and leaving creates nothing."""
+    d = _journal_parse_date(date_str)
+    if d is None:
+        return JsonResponse({'error': 'Invalid date'}, status=400)
+    if not request.user.profile.journal_auto_weather:
+        return JsonResponse({'weather': ''})
+    if _rate_limited(request, 'journal_weather', _JOURNAL_WEATHER_LIMIT, 3600,
+                     identifier=f'u{request.user.id}', include_ip=False):
+        return JsonResponse({'weather': ''})
+    from . import journal_assist
+    entry = JournalEntry.objects.filter(user=request.user, date=d).first()
+    return JsonResponse({'weather': journal_assist.weather_for(request.user, d, entry)})
+
+
+@login_required
+@require_POST
+def journal_autofill_api(request, date_str):
+    """Fill a saved entry's blank title / mood with the user's AI provider."""
+    from . import ai_tasks, journal_assist
+    d = _journal_parse_date(date_str)
+    if d is None:
+        return JsonResponse({'error': 'Invalid date'}, status=400)
+    profile = request.user.profile
+    if not profile.ai_configured:
+        return JsonResponse({'error': 'Set up an AI provider in Settings first.'}, status=400)
+    entry = get_object_or_404(JournalEntry, user=request.user, date=d)
+    if _rate_limited(request, 'journal_autofill', _JOURNAL_AUTOFILL_LIMIT, 3600,
+                     identifier=f'u{request.user.id}', include_ip=False):
+        return JsonResponse({'error': 'Too many requests. Try again later.'}, status=429)
+    try:
+        return JsonResponse(journal_assist.autofill(profile, entry))
+    except (ai_tasks.AIProviderError, journal_assist.AutofillError) as e:
+        return JsonResponse({'error': str(e)}, status=502)
+
+
+@login_required
+@require_POST
+def journal_move_api(request, date_str):
+    """Move an entry, with its photos, to another day. There is one entry per
+    day, so a taken day is refused rather than merged."""
+    d = _journal_parse_date(date_str)
+    try:
+        target = _journal_parse_date(str(json.loads(request.body or b'{}').get('date') or ''))
+    except (json.JSONDecodeError, ValueError, AttributeError):
+        target = None
+    if d is None or target is None:
+        return JsonResponse({'error': 'Invalid date'}, status=400)
+    entry = JournalEntry.objects.filter(user=request.user, date=d).first()
+    if entry is None:
+        return JsonResponse({'error': 'Nothing saved for this day yet.'}, status=404)
+    if target == d:
+        return JsonResponse({'status': 'ok', 'date': d.isoformat()})
+    if JournalEntry.objects.filter(user=request.user, date=target).exists():
+        return JsonResponse({'error': 'There is already an entry on that day.'}, status=409)
+    # Weather that was filled in for the old day would now describe the wrong
+    # one. A value that differs from the old day's lookup was typed: it stays.
+    fields = ['date', 'updated_at']
+    if entry.weather and request.user.profile.journal_auto_weather:
+        from . import journal_assist
+        if entry.weather == journal_assist.weather_for(request.user, d, entry):
+            entry.weather = journal_assist.weather_for(request.user, target, entry)
+            fields.append('weather')
+    entry.date = target
+    try:
+        with transaction.atomic():
+            entry.save(update_fields=fields)
+    except IntegrityError:
+        return JsonResponse({'error': 'There is already an entry on that day.'}, status=409)
+    return JsonResponse({'status': 'ok', 'date': target.isoformat(), 'weather': entry.weather})
 
 
 @login_required
