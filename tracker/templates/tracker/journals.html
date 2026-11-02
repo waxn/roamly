@@ -253,7 +253,12 @@
     font-family: var(--font-display);
     font-size: 1.25rem; font-weight: 800; letter-spacing: -0.01em;
     text-transform: none; line-height: 1.15;
+    display: block; padding: 0; border: 0; background: none; color: inherit; text-align: left; cursor: pointer;
+    border-bottom: 1px dashed transparent;
 }
+.j-edit-date:hover, .j-edit-date:focus-visible { border-bottom-color: var(--primary); outline: none; }
+.j-date-wrap { position: relative; }
+.j-date-input { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .j-edit-weekday { font-size: 0.75rem; font-weight: 800; color: var(--primary); letter-spacing: 0.04em; text-transform: uppercase; }
 .j-edit-tools { display: flex; gap: 0.35rem; flex-shrink: 0; }
 .j-save-pill {
@@ -372,6 +377,25 @@
 .j-skeleton { color: var(--text-muted); padding: 2rem; text-align: center; }
 
 /* ── AI recap side panel ── */
+.journal-wrap .page-header { position: relative; padding-right: 3rem; }
+.j-cog { position: absolute; top: 0; right: 0; z-index: 20; }
+.j-cog-btn {
+    width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; padding: 0;
+    border: 1px solid var(--border); background: var(--bg-card); color: var(--text-muted); cursor: pointer;
+}
+.j-cog-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.j-cog:hover .j-cog-btn, .j-cog.open .j-cog-btn { color: var(--primary); border-color: var(--primary); }
+/* The padding is the bridge: the pointer crosses it from cog to popup without leaving .j-cog. */
+.j-cog-pop { display: none; position: absolute; top: 100%; right: 0; padding-top: 6px; width: min(310px, calc(100vw - 32px)); }
+.j-cog:hover .j-cog-pop, .j-cog:focus-within .j-cog-pop, .j-cog.open .j-cog-pop { display: block; }
+.j-cog-card { background: var(--bg-card); border: 1px solid var(--border-strong); padding: 0.9rem; box-shadow: var(--clay-shadow-hover); }
+.j-cog-title { font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 0.6rem; }
+.j-cog-row { display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.45rem 0; cursor: pointer; font-size: 0.88rem; line-height: 1.35; text-transform: none; }
+.j-cog-row input { accent-color: var(--primary); width: 16px; height: 16px; margin-top: 0.1rem; flex: none; }
+.j-cog-row small { display: block; color: var(--text-muted); font-size: 0.75rem; margin-top: 0.1rem; }
+.j-cog-row.off { opacity: 0.55; cursor: default; }
+.j-cog-note { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.4rem; }
+
 .j-recap-btn { width: 100%; justify-content: center; margin-bottom: 1rem; }
 .j-recap {
     position: fixed; right: 0; z-index: 1500;
@@ -422,6 +446,20 @@
     <div class="page-header">
         <h1>Journals</h1>
         <p class="page-lead">one entry a day — what happened, how it felt, and the map of where you went.</p>
+        <div class="j-cog" id="j-cog">
+            <button type="button" class="j-cog-btn" id="j-cog-btn" aria-label="Journal settings" aria-haspopup="true" aria-expanded="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.17V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-2.82-1.17l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 3.09 15H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.17-2.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.26V4a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 2.82 1.17l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 20.91 11H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+            <div class="j-cog-pop">
+                <div class="j-cog-card">
+                    <div class="j-cog-title">Journal settings</div>
+                    <label class="j-cog-row"><input type="checkbox" data-setting="auto_title"><span>AI title<small>Titles a day you left untitled, when you close the entry</small></span></label>
+                    <label class="j-cog-row"><input type="checkbox" data-setting="auto_mood"><span>AI mood emoji<small>Picks an emoji for how the day felt, if you didn't</small></span></label>
+                    <label class="j-cog-row"><input type="checkbox" data-setting="auto_weather"><span>Fetch the weather<small>Fills a blank weather field from Open-Meteo, using the day's rough location</small></span></label>
+                    <div class="j-cog-note" id="j-cog-note" hidden></div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="j-stats" id="j-stats" aria-busy="true">
@@ -506,7 +544,10 @@
             <div class="j-edit-head">
                 <div>
                     <div class="j-edit-weekday" id="j-edit-weekday"></div>
-                    <div class="j-edit-date" id="j-edit-date"></div>
+                    <div class="j-date-wrap">
+                        <button type="button" class="j-edit-date" id="j-edit-date" title="Change the date"></button>
+                        <input type="date" class="j-date-input rly-native" id="j-date-input" tabindex="-1" aria-label="Move this entry to another day">
+                    </div>
                 </div>
                 <div class="j-edit-tools">
                     <span class="j-save-pill" id="j-save-pill"></span>
@@ -557,6 +598,8 @@ let currentDate = null;                // editor's date string
 let currentEntry = null;
 let jmap = null, jmapLoaded = false, jDrawSeq = 0;
 let saveTimer = null;
+let dirty = false;                     // unsaved edits in the open entry
+let editedThisOpen = false;            // anything typed since the entry opened
 
 const theme = localStorage.getItem('roamly_theme') || 'dark';
 const basemap = theme === 'light'
@@ -847,11 +890,13 @@ searchClear.addEventListener('click', clearSearch);
 // ── Editor ──
 function openEntry(dateStr) {
     flushSave();
+    editedThisOpen = false;
     currentDate = dateStr;
     document.getElementById('j-modal-overlay').classList.add('open');
     document.body.style.overflow = 'hidden';
     document.getElementById('j-edit-date').textContent = fmtLong(dateStr);
     document.getElementById('j-edit-weekday').textContent = fmtWeekday(dateStr);
+    document.getElementById('j-date-input').value = dateStr;
     currentMood = '';
     renderMoodRow('');
     document.getElementById('j-title').value = '';
@@ -874,15 +919,126 @@ function openEntry(dateStr) {
         renderPhotos(data.entry.photos || []);
         updateWordCount();
         renderDayMap(data.track);
+        fillWeather(dateStr);
     });
 }
 
+// Into the field only: it is saved with the entry, so just opening a day creates nothing.
+function fillWeather(dateStr) {
+    if (!journalSettings || !journalSettings.auto_weather) return;
+    if (document.getElementById('j-weather').value) return;
+    fetch(`/api/journals/${dateStr}/weather/`).then(r=>r.ok ? r.json() : {}).then(d=>{
+        const input = document.getElementById('j-weather');
+        if (d.weather && currentDate === dateStr && !input.value) input.value = d.weather;
+    }).catch(()=>{});
+}
+
+function refreshLists() { loadMonth(); loadRecent(); loadStats(); }
+
 function closeEntry() {
-    flushSave();
+    const dateStr = currentDate;
+    const edited = editedThisOpen;
+    const needsAi = journalSettings && journalSettings.ai_available &&
+        ((journalSettings.auto_title && !document.getElementById('j-title').value.trim()) ||
+         (journalSettings.auto_mood && !currentMood)) &&
+        document.getElementById('j-body').value.trim();
+    const saved = flushSave();
     document.getElementById('j-modal-overlay').classList.remove('open');
     document.body.style.overflow = '';
-    loadMonth(); loadRecent(); loadStats();
+    editedThisOpen = false;
+    saved.then(ok => {
+        refreshLists();
+        if (ok && edited && needsAi) autofillEntry(dateStr);
+    });
 }
+
+// After the save has landed, never on the autosave: that fires every pause in typing.
+function autofillEntry(dateStr) {
+    fetch(`/api/journals/${dateStr}/autofill/`, {method:'POST', headers:{'X-CSRFToken':csrfToken}})
+        .then(r=>r.json().then(d=>({ok:r.ok, d})))
+        .then(({ok, d})=>{
+            if (!ok) {
+                if (window.roamlyToast) window.roamlyToast(d.error || 'The AI title could not be generated.', {type:'error'});
+                return;
+            }
+            if (!d.title && !d.mood) return;
+            refreshLists();
+            if (currentDate === dateStr && document.getElementById('j-modal-overlay').classList.contains('open')) {
+                if (d.title && !document.getElementById('j-title').value) document.getElementById('j-title').value = d.title;
+                if (d.mood && !currentMood) { currentMood = d.mood; renderMoodRow(currentMood); }
+            }
+            if (window.roamlyToast) window.roamlyToast(`${d.mood || ''} ${d.title || 'Mood added'}`.trim());
+        }).catch(()=>{});
+}
+
+async function moveEntry(target) {
+    const input = document.getElementById('j-date-input');
+    const from = currentDate;
+    if (!target || target === from) { input.value = from; return; }
+    await flushSave();
+    if (dirty) { input.value = from; return; }      // the save failed: don't move what isn't stored
+    const r = await fetch(`/api/journals/${from}/move/`, {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},
+        body: JSON.stringify({date: target}),
+    }).catch(()=>null);
+    if (r && r.status === 404) { openEntry(target); return; }   // nothing saved yet: just a different day
+    const d = r ? await r.json().catch(()=>({})) : {};
+    if (!r || !r.ok) {
+        input.value = from;
+        window.roamlyAlert(d.error || 'Could not move this entry.');
+        return;
+    }
+    openEntry(d.date);
+    refreshLists();
+    if (window.roamlyToast) window.roamlyToast(`Moved to ${fmtLong(d.date)}`);
+}
+
+// ── Settings cog ──
+let journalSettings = null;
+const cog = document.getElementById('j-cog');
+function renderJournalSettings() {
+    const s = journalSettings;
+    cog.querySelectorAll('input[data-setting]').forEach(box=>{
+        const ai = box.dataset.setting !== 'auto_weather';
+        box.checked = !!s[box.dataset.setting];
+        box.disabled = ai && !s.ai_available;
+        box.closest('.j-cog-row').classList.toggle('off', box.disabled);
+    });
+    const note = document.getElementById('j-cog-note');
+    note.hidden = s.ai_available;
+    note.textContent = s.ai_available ? '' : 'The AI options use the provider from your AI Ask settings. Set one up in Settings to turn them on.';
+}
+function saveJournalSetting(box) {
+    fetch('/api/journals/settings/', {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},
+        body: JSON.stringify({[box.dataset.setting]: box.checked}),
+    }).then(r=>{ if (!r.ok) throw new Error('settings'); return r.json(); }).then(s=>{
+        journalSettings = s; renderJournalSettings();
+    }).catch(()=>{
+        box.checked = !box.checked;
+        if (window.roamlyToast) window.roamlyToast('Could not save that setting.', {type:'error'});
+    });
+}
+cog.querySelectorAll('input[data-setting]').forEach(box=>box.addEventListener('change', ()=>saveJournalSetting(box)));
+// Hover opens it with a mouse; a tap has no hover, so the button toggles it too.
+const cogBtn = document.getElementById('j-cog-btn');
+cogBtn.addEventListener('click', e=>{
+    e.stopPropagation();
+    cogBtn.setAttribute('aria-expanded', String(cog.classList.toggle('open')));
+});
+document.addEventListener('click', e=>{
+    if (!cog.contains(e.target)) { cog.classList.remove('open'); cogBtn.setAttribute('aria-expanded', 'false'); }
+});
+fetch('/api/journals/settings/').then(r=>r.ok ? r.json() : null).then(s=>{
+    if (s) { journalSettings = s; renderJournalSettings(); }
+}).catch(()=>{});
+
+const dateBtn = document.getElementById('j-edit-date');
+const dateInput = document.getElementById('j-date-input');
+dateBtn.addEventListener('click', ()=>{
+    try { dateInput.showPicker(); } catch (_) { dateInput.focus(); dateInput.click(); }
+});
+dateInput.addEventListener('change', ()=>moveEntry(dateInput.value));
 
 function renderMoodRow(active) {
     document.getElementById('j-mood-row').innerHTML = MOODS.map(m=>
@@ -914,15 +1070,22 @@ function updateWordCount() {
 
 // ── Autosave ──
 function scheduleSave() {
+    dirty = true;
+    editedThisOpen = true;
     const pill = document.getElementById('j-save-pill');
     pill.className = 'j-save-pill saving';
     pill.textContent = '• saving…';
     clearTimeout(saveTimer);
     saveTimer = setTimeout(flushSave, 800);
 }
+// Only what changed is sent. Saving on every close wrote a blank row for any day
+// merely opened, and could overwrite an entry with the empty form if it closed
+// before the entry had loaded. Resolves true once nothing is left unsaved.
 function flushSave() {
     clearTimeout(saveTimer);
-    if (!currentDate) return;
+    if (!currentDate) return Promise.resolve(false);
+    if (!dirty) return Promise.resolve(true);
+    dirty = false;
     const pill = document.getElementById('j-save-pill');
     const body = {
         title: document.getElementById('j-title').value,
@@ -936,7 +1099,7 @@ function flushSave() {
     // entry was lost, and with no .catch() a network failure left the pill
     // frozen on whatever it last said. A journal entry is typed prose — telling
     // someone it is saved when it is not is the worst thing this page can do.
-    fetch(`/api/journals/${currentDate}/save/`, {
+    return fetch(`/api/journals/${currentDate}/save/`, {
         method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},
         body: JSON.stringify(body)
     }).then(r => {
@@ -945,13 +1108,16 @@ function flushSave() {
     }).then(()=>{
         pill.className = 'j-save-pill saved';
         pill.textContent = '✓ saved';
+        return true;
     }).catch(()=>{
+        dirty = true;
         pill.className = 'j-save-pill failed';
         pill.textContent = '⚠ not saved — retry';
         pill.onclick = flushSave;
         if (window.roamlyToast) {
             window.roamlyToast('Could not save this entry. Your text is still here — press "not saved" to try again.', {type:'error'});
         }
+        return false;
     });
 }
 
@@ -987,6 +1153,7 @@ function deletePhoto(id) {
 
 async function deleteEntry() {
     if (!await roamlyConfirm('Delete this journal entry? This cannot be undone.', {danger:true})) return;
+    clearTimeout(saveTimer); dirty = false;      // or the pending autosave recreates it
     fetch(`/api/journals/${currentDate}/delete/`, {method:'POST', headers:{'X-CSRFToken':csrfToken}})
         .then(()=>{ document.getElementById('j-modal-overlay').classList.remove('open'); document.body.style.overflow=''; loadMonth(); loadRecent(); loadStats(); });
 }
