@@ -73,8 +73,8 @@ def resolve_and_check(host):
             raise OutboundURLError(
                 f"'{host}' resolves to a private or reserved address ({ip}), "
                 "which this server will not connect to. Set "
-                "ALLOW_PRIVATE_OUTBOUND=1 if you are deliberately pointing "
-                "Roamly at a service on your own network."
+                "ALLOW_PRIVATE_OUTBOUND=true in .env and restart if you are "
+                "deliberately pointing Roamly at a service on your own network."
             )
 
 
@@ -93,9 +93,14 @@ def validate_outbound_url(url, *, allow_http=None, label='URL'):
         allow_http = _allow_private()
     schemes = ('https', 'http') if allow_http else ('https',)
     if parsed.scheme not in schemes:
-        raise OutboundURLError(
-            f"{label} must start with " + " or ".join(f"{s}://" for s in schemes) + "."
-        )
+        msg = f"{label} must start with " + " or ".join(f"{s}://" for s in schemes) + "."
+        if parsed.scheme == 'http':
+            # The usual reason for http:// is a model server on the LAN, which
+            # the same setting also has to allow — say so rather than leave the
+            # self-hoster guessing.
+            msg += (" Plain http:// is only allowed for services on your own "
+                    "network: set ALLOW_PRIVATE_OUTBOUND=true in .env and restart.")
+        raise OutboundURLError(msg)
     if not parsed.hostname:
         raise OutboundURLError(f"{label} has no hostname.")
     resolve_and_check(parsed.hostname)
