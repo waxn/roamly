@@ -2878,3 +2878,39 @@ class TripSubscriber(models.Model):
         if not self.token:
             self.token = secrets.token_hex(16)
         super().save(*args, **kwargs)
+
+
+class AskChat(models.Model):
+    """A saved conversation in the AI Ask tab. Holds only the dialogue — the
+    assistant is read-only, so a chat never refers to anything it could have
+    changed. Config-adjacent private text ⇒ excluded from backups, like the AI
+    provider settings."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='ask_chats')
+    title = models.CharField(max_length=120, blank=True)
+    # Set once the model has named the chat, so a later turn doesn't rename it
+    # and a title the user typed is never overwritten.
+    titled = models.BooleanField(default=False)
+    pinned = models.BooleanField(default=False)
+    mode = models.CharField(max_length=16, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['user', '-updated_at'], name='tracker_askchat_user_idx')]
+
+
+class AskMessage(models.Model):
+    """One turn of an AskChat. ``cards`` are the map cards the assistant showed
+    (small parameter dicts, not geometry — the map re-reads the user's own
+    points when a card is opened, so a card can never go stale or leak)."""
+    ROLES = [('user', 'user'), ('assistant', 'assistant')]
+    chat = models.ForeignKey(AskChat, on_delete=models.CASCADE, related_name='messages')
+    role = models.CharField(max_length=10, choices=ROLES)
+    content = models.TextField(blank=True)
+    cards = models.JSONField(default=list, blank=True)
+    # {"sources": [what it looked at], "followups": [suggested next questions]}
+    meta = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['id']
