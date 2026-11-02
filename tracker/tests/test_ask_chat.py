@@ -304,10 +304,10 @@ def test_mode_is_kept_and_auto_clears_it(client, user, llm):
     chat = AskChat.objects.get(user=user)
     assert chat.mode == 'plan'
     send(client, message='more', chat_id=chat.id)
-    assert 'day-by-day plan' in llm.sent[-1]['messages'][0]['content']
+    assert 'propose a concrete day-by-day plan' in llm.sent[-1]['messages'][0]['content']
     send(client, message='just facts', chat_id=chat.id, mode='')
     chat.refresh_from_db()
-    assert chat.mode == '' and 'day-by-day plan' not in llm.sent[-1]['messages'][0]['content']
+    assert chat.mode == '' and 'propose a concrete day-by-day plan' not in llm.sent[-1]['messages'][0]['content']
 
 
 def test_bad_chat_id_is_not_found(client, llm):
