@@ -56,6 +56,11 @@ services:
       # below (which only take effect once the container is actually running).
       network: host
     container_name: roamly_web
+    # Lets the container reach a service on this machine (a local model server)
+    # as http://host.docker.internal:<port>. localhost inside the container is
+    # the container itself. Docker Desktop has this built in; Linux needs it.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     depends_on:
       redis:
@@ -139,4 +144,9 @@ services:
       # the legacy name and, if set, is tried first ahead of the pool.
       - OVERPASS_URLS=${OVERPASS_URLS:-}
       - OVERPASS_URL=${OVERPASS_URL:-}
+      # Lets the endpoints you configure (AI provider, OSRM, S3 backups, Overpass)
+      # be a LAN, Docker-network or localhost address over plain http://, e.g. a
+      # local Ollama or LM Studio. Off by default: on an instance with other
+      # accounts it lets any of them point the server at internal services.
+      - ALLOW_PRIVATE_OUTBOUND=${ALLOW_PRIVATE_OUTBOUND:-false}
 
