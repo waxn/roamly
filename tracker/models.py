@@ -2881,10 +2881,10 @@ class TripSubscriber(models.Model):
 
 
 class AskChat(models.Model):
-    """A saved conversation in the AI Ask tab. Holds only the dialogue — the
-    assistant is read-only, so a chat never refers to anything it could have
-    changed. Config-adjacent private text ⇒ excluded from backups, like the AI
-    provider settings."""
+    """A saved conversation in the AI Ask tab. Holds only the dialogue (and the
+    AskProposals it made) — the assistant is read-only, and a proposal changes
+    nothing until the user approves it. Config-adjacent private text ⇒ excluded
+    from backups, like the AI provider settings."""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='ask_chats')
     title = models.CharField(max_length=120, blank=True)
     # Set once the model has named the chat, so a later turn doesn't rename it
@@ -2911,6 +2911,43 @@ class AskMessage(models.Model):
     # {"sources": [what it looked at], "followups": [suggested next questions]}
     meta = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['id']
+
+
+class AskProposal(models.Model):
+    """A change the Ask assistant proposed and the user has to approve.
+
+    The model can never write: its ``propose_*`` tools only validate and return
+    a draft, which the chat stores here and shows as a card. Approving applies
+    exactly ``payload`` to one record (see ``tracker/ask_edits.py``), after
+    checking the record still matches ``before``, so a change the user didn't
+    see can never ride along. Chat-adjacent ⇒ excluded from backups."""
+    KINDS = [('flight_add', 'Add flight'), ('flight_update', 'Edit flight'),
+             ('journal', 'Journal entry'), ('place_add', 'Add place')]
+    STATUSES = [('pending', 'Pending'), ('approved', 'Approved'), ('denied', 'Denied'),
+                ('failed', 'Failed')]
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='ask_proposals')
+    chat = models.ForeignKey(AskChat, on_delete=models.CASCADE, related_name='proposals')
+    # Set when the assistant's reply is saved; a regenerate that deletes the
+    # reply deletes its proposals with it.
+    message = models.ForeignKey(AskMessage, on_delete=models.CASCADE, null=True, blank=True,
+                                related_name='proposals')
+    kind = models.CharField(max_length=16, choices=KINDS)
+    target_id = models.IntegerField(null=True, blank=True)  # flight id; None for a new record
+    target_key = models.CharField(max_length=20, blank=True)  # journal date
+    summary = models.CharField(max_length=200)
+    # What approving applies, and what the touched fields held when proposed.
+    payload = models.JSONField(default=dict)
+    before = models.JSONField(default=dict, blank=True)
+    # [{"label", "before", "after"}] — what the card shows.
+    rows = models.JSONField(default=list, blank=True)
+    status = models.CharField(max_length=10, choices=STATUSES, default='pending')
+    error = models.CharField(max_length=300, blank=True)
+    result_id = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['id']

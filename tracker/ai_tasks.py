@@ -1,5 +1,9 @@
 """AI "Ask" feature — OpenAI-compatible chat with read-only history tools.
 
+The chat page also offers ``propose_*`` tools (``tracker/ask_edits.py``). They
+write nothing either: they hand back a draft the user approves or denies on a
+card, and only that click changes a record.
+
 The user asks a natural-language question about their own location history
 ("have I been to Old Orchard Beach?", "when was I last at the spa?"). We call
 the user's configured OpenAI-compatible provider with a set of **read-only**
@@ -252,14 +256,19 @@ MAP_TOOL_SCHEMAS = MAP_TOOL_SCHEMAS + MAP_EXTRA_SCHEMAS
 _MAP_TOOL_NAMES = {t["function"]["name"] for t in MAP_TOOL_SCHEMAS}
 
 
-def build_tool_schemas(profile, maps=False):
+def build_tool_schemas(profile, maps=False, edits=False):
     """Tools offered to the model — journal tools only when the user opted in,
-    the map tool only where there is a map to show it on."""
+    the map tool only where there is a map to show it on, and the propose
+    tools only where there is a card to approve them on (the chat page)."""
+    journals = bool(getattr(profile, "ai_allow_journals", False))
     tools = list(TOOL_SCHEMAS)
-    if getattr(profile, "ai_allow_journals", False):
+    if journals:
         tools += JOURNAL_TOOL_SCHEMAS
     if maps:
         tools += MAP_TOOL_SCHEMAS
+    if edits:
+        from .ask_edits import edit_schemas
+        tools += edit_schemas(journals)
     return tools
 
 
@@ -617,9 +626,19 @@ _CHAT_DIRECTIVE = (
     "Formatting: Markdown — short paragraphs, bullet or numbered lists, ### "
     "headings for longer plans, **bold** for key facts. For a day-by-day plan "
     "use a heading per day.\n\n"
-    "You can only read. You cannot add, change or delete any location, flight, "
-    "adventure, journal or setting; if asked to, say so and point to the page "
-    "where they can do it themselves."
+    "Changes: you cannot change anything yourself. For exactly four things you "
+    "may PROPOSE a change, which the user then approves or denies on a card: "
+    "adding a flight (propose_add_flight — call lookup_flight first when they "
+    "give a flight number and date, and use only what it returns or what the "
+    "user said), editing a logged flight (propose_update_flight, only the "
+    "fields that should change), filling in an empty journal title, mood or "
+    "weather or adding text to the end of an entry (propose_journal_entry), "
+    "and adding a custom place (propose_add_place). Propose only what the user "
+    "asked for, one proposal per change, and after proposing say it is waiting "
+    "for their approval — never that it was saved. Notes like \"[Proposed "
+    "change: … — APPROVED]\" in the conversation tell you what they decided. "
+    "Anything else (locations, adventures, settings, deleting) you cannot "
+    "change; say so and point to the page where they can do it themselves."
 )
 
 ASK_MODES = {
@@ -684,7 +703,7 @@ def _sanitize_client_messages(client_messages):
     return clean[-_MAX_CLIENT_TURNS:]
 
 
-def _run_one_tool(user, call, tz_offset, journals_allowed, maps=False):
+def _run_one_tool(user, call, tz_offset, journals_allowed, maps=False, edits=False):
     fn = (call.get("function") or {})
     name = fn.get("name")
     try:
@@ -701,6 +720,15 @@ def _run_one_tool(user, call, tz_offset, journals_allowed, maps=False):
         return {"error": "Journal access is not enabled for this account."}
     if name in _MAP_TOOL_NAMES and not maps:
         return {"error": "Maps can't be shown here."}
+    from . import ask_edits
+    if name in ask_edits.EDIT_TOOL_NAMES:
+        # Proposals need the chat page's approval card; anywhere else (the
+        # app's one-shot /api/ask/) there is no way to approve one.
+        if not edits:
+            return {"error": "Changes can't be proposed here."}
+        if name in ask_edits.JOURNAL_EDIT_NAMES and not journals_allowed:
+            return {"error": "Journal access is not enabled for this account."}
+        handler = ask_edits.EDIT_DISPATCH[name]
     if handler is None:
         return {"error": f"unknown tool '{name}'"}
     started = time.monotonic()
@@ -715,7 +743,7 @@ def _run_one_tool(user, call, tz_offset, journals_allowed, maps=False):
         logger.info("AI tool %s took %d ms", name, (time.monotonic() - started) * 1000)
 
 
-def _run_tool_calls(user, tool_calls, tz_offset, journals_allowed, maps=False):
+def _run_tool_calls(user, tool_calls, tz_offset, journals_allowed, maps=False, edits=False):
     """Run one model turn's tool calls and return their results in call order.
 
     They are independent reads, so several run side by side. Worker threads
@@ -725,7 +753,7 @@ def _run_tool_calls(user, tool_calls, tz_offset, journals_allowed, maps=False):
     a thread's connection otherwise outlives it (see scheduler_utils.db_thread).
     """
     if len(tool_calls) == 1:
-        return [_run_one_tool(user, tool_calls[0], tz_offset, journals_allowed, maps)]
+        return [_run_one_tool(user, tool_calls[0], tz_offset, journals_allowed, maps, edits)]
 
     from django.db import connections
     from django.utils import timezone
@@ -734,7 +762,7 @@ def _run_tool_calls(user, tool_calls, tz_offset, journals_allowed, maps=False):
     def work(call):
         try:
             with timezone.override(tz):
-                return _run_one_tool(user, call, tz_offset, journals_allowed, maps)
+                return _run_one_tool(user, call, tz_offset, journals_allowed, maps, edits)
         finally:
             connections.close_all()
 
@@ -812,6 +840,7 @@ _TOOL_STATUS = {
     "read_journal_entry": "Reading a journal entry…",
     "show_map": "Drawing a map…",
     **_ask_tools.TOOL_STATUS,
+    **__import__("tracker.ask_edits", fromlist=["TOOL_STATUS"]).TOOL_STATUS,
 }
 
 
@@ -954,17 +983,23 @@ def ask_events(user, history, profile, tz_offset=0, mode=None):
     ``{"type": "done", "text", "cards", "sources", "stats"}`` – finished; the
     whole answer, plus time and token counts (see :func:`_turn_stats`)
 
+    ``{"type": "proposal", "draft"}`` – a change for the user to approve; the
+    caller stores it (nothing here writes)
+
     ``history`` is user/assistant turns, newest last. Reads only: every tool
-    here is a read-only query scoped to ``user``. Raises AIProviderError."""
+    here is a read-only query scoped to ``user``, and a propose tool's result
+    is only a draft. Raises AIProviderError."""
     messages = [{"role": "system",
                  "content": _system_prompt(user, profile, tz_offset, maps=True, mode=mode)}]
     messages.extend(_sanitize_client_messages(history))
     if len(messages) == 1:
         raise AIProviderError("No question was provided.")
 
-    tools = build_tool_schemas(profile, maps=True)
+    from .ask_edits import MAX_PER_TURN
+    tools = build_tool_schemas(profile, maps=True, edits=True)
     journals_allowed = bool(getattr(profile, "ai_allow_journals", False))
     text, cards, used = [], [], []
+    proposals = 0
     turn_started = time.monotonic()
     rounds = []  # per provider call: {"usage", "gen_s", "wall_s", "chars"}
 
@@ -1005,12 +1040,21 @@ def ask_events(user, history, profile, tz_offset=0, mode=None):
             label = _TOOL_STATUS.get(name, "Looking that up…")
             used.append(label.rstrip("…"))
             yield {"type": "status", "text": label}
-        results = _run_tool_calls(user, tool_calls, tz_offset, journals_allowed, maps=True)
+        results = _run_tool_calls(user, tool_calls, tz_offset, journals_allowed, maps=True,
+                                  edits=True)
         for call, result in zip(tool_calls, results):
             result, card = _lift_card(result)
             if card:
                 cards.append(card)
                 yield {"type": "map", "card": card}
+            if isinstance(result, dict) and "_proposal" in result:
+                result = dict(result)
+                draft = result.pop("_proposal")
+                proposals += 1
+                if proposals > MAX_PER_TURN:
+                    result = {"error": "Too many changes proposed in one answer."}
+                else:
+                    yield {"type": "proposal", "draft": draft}
             messages.append({"role": "tool", "tool_call_id": call.get("id"),
                              "content": json.dumps(result, default=str)})
 
