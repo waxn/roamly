@@ -14,6 +14,8 @@ ai_system_prompt). Provider format is OpenAI Chat Completions only.
 import datetime
 import json
 import logging
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -24,6 +26,10 @@ _MAX_TOOL_ITERATIONS = 5
 # Keep at most this many of the most recent client turns (bounds token use).
 _MAX_CLIENT_TURNS = 20
 _REQUEST_TIMEOUT = 45
+# Tool calls from one model turn run side by side, up to this many.
+_MAX_PARALLEL_TOOLS = 4
+
+_session = requests.Session()
 
 
 from .net_utils import validate_outbound_url, OutboundURLError
@@ -246,12 +252,27 @@ def _tool_get_day_detail(user, date=None, tz_offset=0, **_):
     return views._compute_day_detail(user, str(date).strip(), tz_offset)
 
 
+def _snapshot_json(user, field):
+    """One JSON column of the user's finished StatsSnapshot, or None.
+
+    The all-time tools below used to rescan the whole history on every call,
+    several seconds each on a large account. The nightly snapshot holds the
+    same payloads from the same helpers. Never kicks a compute — a missing
+    snapshot just means the caller falls back to the live path."""
+    from .models import StatsSnapshot
+    snap = (StatsSnapshot.objects.filter(user=user, status='done')
+            .only('id', field).first())
+    return (getattr(snap, field, None) or None) if snap else None
+
+
 def _tool_list_visited_places(user, level="city", **_):
     from . import views
     from .models import Location
     level = (level or "city").lower()
-    locations = Location.objects.filter(device__user=user).exclude(city="")
-    data = views._compute_visits_from_qs(locations)
+    data = _snapshot_json(user, 'visits_json')
+    if data is None:
+        locations = Location.objects.filter(device__user=user).exclude(city="")
+        data = views._compute_visits_from_qs(locations)
     if level == "country":
         rows = data.get("countries", [])[:25]
         return {"level": level, "places": [
@@ -305,6 +326,13 @@ def _tool_get_distance(user, start_date=None, end_date=None, **_):
     from django.utils import timezone
     from . import views
     from .models import Location
+
+    if not start_date and not end_date:
+        snap = _snapshot_json(user, 'stats_json')
+        dist = (snap or {}).get('distance')
+        if dist:
+            return {"total_km": dist.get("total_km", 0), "days_count": len(dist.get("days", []))}
+
     locations = Location.objects.filter(device__user=user)
 
     def _parse(d, end=False):
@@ -339,6 +367,11 @@ def _tool_get_distance(user, start_date=None, end_date=None, **_):
 def _tool_get_history_overview(user, **_):
     from . import views
     from .models import Location
+    snap = _snapshot_json(user, 'stats_json')
+    if snap:
+        # The per-day distance series is for the Stats page; the model only
+        # needs the counts, and it would be thousands of tokens.
+        return {k: v for k, v in snap.items() if k != 'distance'}
     locations = Location.objects.filter(device__user=user)
     return views._compute_overview_from_qs(locations, user)
 
@@ -416,7 +449,9 @@ def _provider_chat(profile, messages, tools=None):
         body["tools"] = tools
         body["tool_choice"] = "auto"
     try:
-        resp = requests.post(
+        # A shared Session keeps the TLS connection alive between the loop's
+        # round-trips instead of paying a handshake on each one.
+        resp = _session.post(
             url,
             headers={
                 "Authorization": f"Bearer {profile.ai_api_key}",
@@ -510,7 +545,10 @@ def _system_prompt(user, profile, tz_offset=0):
         "they have been, when, and how long. Always call the provided tools to look "
         "up facts rather than guessing or relying on prior knowledge; if a search "
         "only matches at the state level, call get_day_detail for the relevant dates "
-        "to name specific cities and stops. If a tool returns no results, say so "
+        "to name specific cities and stops. Every round of tool calls costs the user "
+        "a wait, so when several lookups are independent (several dates, or overview "
+        "plus distance), request them all in the same turn rather than one at a "
+        "time. If a tool returns no results, say so "
         "plainly. Be concise and conversational, and cite concrete dates from the "
         "tool results. Dwell/time values from tools are in seconds unless noted as "
         f"hours.{journals}\n\n" + _DATE_LINK_DIRECTIVE
@@ -531,6 +569,62 @@ def _sanitize_client_messages(client_messages):
     return clean[-_MAX_CLIENT_TURNS:]
 
 
+def _run_one_tool(user, call, tz_offset, journals_allowed):
+    fn = (call.get("function") or {})
+    name = fn.get("name")
+    try:
+        args = json.loads(fn.get("arguments") or "{}")
+        if not isinstance(args, dict):
+            args = {}
+    except (ValueError, TypeError):
+        args = {}
+    args.pop("tz_offset", None)  # server-supplied only; never from the model
+    handler = TOOL_DISPATCH.get(name)
+    if name in _JOURNAL_TOOL_NAMES and not journals_allowed:
+        # Defense in depth: never read journals unless opted in, even if a
+        # model hallucinates the tool name.
+        return {"error": "Journal access is not enabled for this account."}
+    if handler is None:
+        return {"error": f"unknown tool '{name}'"}
+    started = time.monotonic()
+    try:
+        # tz_offset is passed to every handler; those that don't need
+        # it absorb it via **_ (only day/date tools use it).
+        return handler(user, tz_offset=tz_offset, **args)
+    except Exception:
+        logger.exception("AI tool %s failed", name)
+        return {"error": "tool failed to run"}
+    finally:
+        logger.info("AI tool %s took %d ms", name, (time.monotonic() - started) * 1000)
+
+
+def _run_tool_calls(user, tool_calls, tz_offset, journals_allowed):
+    """Run one model turn's tool calls and return their results in call order.
+
+    They are independent reads, so several run side by side. Worker threads
+    need two things the request thread has implicitly: the active timezone
+    (thread-local, and the distance/day bucketing depends on it) and their own
+    DB connections, which must be closed on the way out — with conn_max_age set
+    a thread's connection otherwise outlives it (see scheduler_utils.db_thread).
+    """
+    if len(tool_calls) == 1:
+        return [_run_one_tool(user, tool_calls[0], tz_offset, journals_allowed)]
+
+    from django.db import connections
+    from django.utils import timezone
+    tz = timezone.get_current_timezone()
+
+    def work(call):
+        try:
+            with timezone.override(tz):
+                return _run_one_tool(user, call, tz_offset, journals_allowed)
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=_MAX_PARALLEL_TOOLS) as pool:
+        return list(pool.map(work, tool_calls))
+
+
 def run_ask(user, client_messages, profile, tz_offset=0):
     """Run the tool-calling loop and return the assistant's final text answer.
     ``tz_offset`` (browser Date.getTimezoneOffset() minutes) anchors "today" and
@@ -544,7 +638,9 @@ def run_ask(user, client_messages, profile, tz_offset=0):
     journals_allowed = bool(getattr(profile, "ai_allow_journals", False))
 
     for _ in range(_MAX_TOOL_ITERATIONS):
+        started = time.monotonic()
         data = _provider_chat(profile, messages, tools=tools)
+        logger.info("AI provider call took %d ms", (time.monotonic() - started) * 1000)
         choice = data["choices"][0]
         msg = choice.get("message", {}) or {}
         tool_calls = msg.get("tool_calls")
@@ -558,31 +654,8 @@ def run_ask(user, client_messages, profile, tz_offset=0):
             "content": msg.get("content") or "",
             "tool_calls": tool_calls,
         })
-        for call in tool_calls:
-            fn = (call.get("function") or {})
-            name = fn.get("name")
-            try:
-                args = json.loads(fn.get("arguments") or "{}")
-                if not isinstance(args, dict):
-                    args = {}
-            except (ValueError, TypeError):
-                args = {}
-            args.pop("tz_offset", None)  # server-supplied only; never from the model
-            handler = TOOL_DISPATCH.get(name)
-            if name in _JOURNAL_TOOL_NAMES and not journals_allowed:
-                # Defense in depth: never read journals unless opted in, even if a
-                # model hallucinates the tool name.
-                result = {"error": "Journal access is not enabled for this account."}
-            elif handler is None:
-                result = {"error": f"unknown tool '{name}'"}
-            else:
-                try:
-                    # tz_offset is passed to every handler; those that don't need
-                    # it absorb it via **_ (only day/date tools use it).
-                    result = handler(user, tz_offset=tz_offset, **args)
-                except Exception:
-                    logger.exception("AI tool %s failed", name)
-                    result = {"error": "tool failed to run"}
+        results = _run_tool_calls(user, tool_calls, tz_offset, journals_allowed)
+        for call, result in zip(tool_calls, results):
             messages.append({
                 "role": "tool",
                 "tool_call_id": call.get("id"),
