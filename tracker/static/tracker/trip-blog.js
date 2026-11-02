@@ -593,8 +593,10 @@
             if (pick) md.querySelector('[data-ok]').disabled = false;
             pm.on('click', (e) => {
                 pick = {lat: e.lngLat.lat, lon: e.lngLat.lng};
-                if (!marker) marker = new maplibregl.Marker({color: '#e8763d'}).addTo(pm);
-                marker.setLngLat(e.lngLat);
+                // A marker needs its position before addTo(): without one MapLibre
+                // throws on every click and the handler never reaches the button.
+                if (marker) marker.setLngLat(e.lngLat);
+                else marker = new maplibregl.Marker({color: '#e8763d'}).setLngLat(e.lngLat).addTo(pm);
                 md.querySelector('[data-ok]').disabled = false;
             });
             const done = (v) => { pm.remove(); ov.remove(); md.remove(); resolve(v); };
