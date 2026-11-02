@@ -223,6 +223,8 @@ def send_api(request):
                     elif ev['type'] == 'done':
                         parts[:] = [ev['text']]
                         meta['sources'] = ev.get('sources') or []
+                        if ev.get('stats'):
+                            meta['stats'] = ev['stats']
                     yield _line(ev)
             msg = save()
             yield _line({'type': 'saved', **_chat_row(chat), 'message_id': msg.id if msg else None})

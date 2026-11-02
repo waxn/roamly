@@ -254,6 +254,17 @@ body:has(.ask-app) { overflow: hidden; }
 .ask-followup:hover { border-color: var(--primary); background: var(--primary-soft); }
 .ask-followup::before { content: '↳ '; color: var(--text-dim); }
 .ask-sources { font-size: 0.74rem; color: var(--text-dim); margin-top: 0.55rem; }
+.ask-stats { font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-dim); margin-top: 0.35rem; cursor: default; }
+.ask-table { overflow-x: auto; margin: 0 0 0.8rem; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.ask-table table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+.ask-table th, .ask-table td { padding: 0.45rem 0.7rem; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
+.ask-table th { background: var(--bg-elevated); font-weight: 600; white-space: nowrap; }
+.ask-table tr:last-child td { border-bottom: 0; }
+.ask-table tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--bg-elevated) 45%, transparent); }
+/* base.html's version line sits right after <main>; under the pinned app it
+   landed on top of the composer. The version moves into the chat list. */
+body:has(.ask-app) #main-content + div { display: none; }
+.ask-version { display: block; margin-top: 0.35rem; font-family: var(--font-mono); font-size: 0.66rem; opacity: 0.7; }
 .ask-sources summary { cursor: pointer; list-style: none; }
 .ask-sources summary::-webkit-details-marker { display: none; }
 .ask-sources summary::before { content: '▸ '; }
@@ -301,7 +312,7 @@ body:has(.ask-app) { overflow: hidden; }
         </div>
         <div class="ask-search"><input type="search" id="ask-search" placeholder="Search chats…" aria-label="Search chats" class="rly-native"></div>
         <div class="ask-chats" id="ask-chats"><div class="ask-side-empty">Loading…</div></div>
-        <div class="ask-side-foot">Ask reads your history, flights and adventures and can plan with you. It can't change, add or delete anything.</div>
+        <div class="ask-side-foot">Ask reads your history, flights and adventures and can plan with you. It can't change, add or delete anything.<span class="ask-version">v{{ APP_VERSION }}</span></div>
     </aside>
 
     <section class="ask-main">
@@ -389,16 +400,44 @@ function inline(s) {
         .replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>')
         .replace(/(^|[^_\w])_([^_\n]+)_(?!\w)/g, '$1<em>$2</em>');
 }
+// A Markdown table row: "| a | b |" (outer pipes optional) → its cells.
+function tableCells(line) {
+    let t = line.trim();
+    if (t.startsWith('|')) t = t.slice(1);
+    if (t.endsWith('|')) t = t.slice(0, -1);
+    return t.split('|').map(c => c.trim());
+}
+const TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 function format(text) {
     const lines = esc(text).split('\n');
     const out = [];
     let list = null, para = [];
     const flushPara = () => { if (para.length) { out.push('<p>' + inline(para.join('<br>')) + '</p>'); para = []; } };
     const flushList = () => { if (list) { out.push(`<${list.tag}>` + list.items.map(i => '<li>' + inline(i) + '</li>').join('') + `</${list.tag}>`); list = null; } };
-    for (const raw of lines) {
-        const line = raw.trimEnd();
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trimEnd();
         let m;
         if (!line.trim()) { flushPara(); flushList(); continue; }
+        // A header row followed by a |---|---| separator starts a table, which
+        // runs until the first line without a pipe.
+        if (line.includes('|') && i + 1 < lines.length && TABLE_SEP.test(lines[i + 1]) && lines[i + 1].includes('-')) {
+            flushPara(); flushList();
+            const head = tableCells(line);
+            const align = tableCells(lines[i + 1]).map(c =>
+                c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : '');
+            const cell = (tag, c, j) => `<${tag}${align[j] ? ` style="text-align:${align[j]}"` : ''}>${inline(c)}</${tag}>`;
+            const rows = [];
+            i += 2;
+            while (i < lines.length && lines[i].includes('|') && lines[i].trim()) {
+                const cells = tableCells(lines[i]);
+                rows.push('<tr>' + head.map((_, j) => cell('td', cells[j] || '', j)).join('') + '</tr>');
+                i++;
+            }
+            i--;
+            out.push('<div class="ask-table"><table><thead><tr>' + head.map((c, j) => cell('th', c, j)).join('') +
+                '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>');
+            continue;
+        }
         if (/^\s*(-{3,}|\*{3,})\s*$/.test(line)) { flushPara(); flushList(); out.push('<hr>'); continue; }
         if ((m = /^#{1,6}\s+(.*)$/.exec(line))) { flushPara(); flushList(); out.push('<h4>' + inline(m[1]) + '</h4>'); continue; }
         if ((m = /^\s*[-*•]\s+(.*)$/.exec(line)) || (m = /^\s*(\d+)[.)]\s+(.*)$/.exec(line))) {
@@ -623,7 +662,7 @@ function addAssistantTurn() {
     t.className = 'ask-turn assistant';
     t.innerHTML = `<div class="ask-avatar" aria-hidden="true">✦</div>
         <div class="ask-body"><div class="ask-status-slot"></div><div class="ask-text"></div>
-        <div class="ask-cards"></div><div class="ask-sources-slot"></div>
+        <div class="ask-cards"></div><div class="ask-sources-slot"></div><div class="ask-stats-slot"></div>
         <div class="ask-actions">
             <button class="ask-act" type="button" data-act="copy">Copy</button>
             <button class="ask-act" type="button" data-act="regen" hidden>↻ Regenerate</button>
@@ -652,6 +691,29 @@ function setSources(turn, sources) {
     d.innerHTML = `<summary>Looked at ${sources.length} source${sources.length > 1 ? 's' : ''}</summary><ul></ul>`;
     sources.forEach(s => { const li = document.createElement('li'); li.textContent = s; d.querySelector('ul').appendChild(li); });
     slot.appendChild(d);
+}
+function fmtTokens(n) {
+    return n >= 10000 ? (n / 1000).toFixed(0) + 'k' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+}
+function setStats(turn, st) {
+    const slot = turn.el.querySelector('.ask-stats-slot');
+    slot.innerHTML = '';
+    if (!st) return;
+    const parts = [];
+    if (st.seconds != null) parts.push(st.seconds < 60 ? `${st.seconds.toFixed(1)}s` : `${Math.floor(st.seconds / 60)}m ${Math.round(st.seconds % 60)}s`);
+    if (st.out_tokens) parts.push(`${st.estimated ? '~' : ''}${fmtTokens(st.out_tokens)} tokens`);
+    if (st.tok_s) parts.push(`${st.estimated ? '~' : ''}${st.tok_s.toFixed(st.tok_s < 10 ? 1 : 0)} tok/s`);
+    if (!parts.length) return;
+    const el = document.createElement('div');
+    el.className = 'ask-stats';
+    el.textContent = parts.join(' · ');
+    const tip = [];
+    if (st.in_tokens) tip.push(`${st.in_tokens.toLocaleString()} input tokens (context)`);
+    if (st.out_tokens) tip.push(`${st.out_tokens.toLocaleString()} output tokens${st.estimated ? ' (estimated — the provider reported none)' : ''}`);
+    if (st.rounds) tip.push(`${st.rounds} model call${st.rounds > 1 ? 's' : ''}`);
+    tip.push('tok/s counts streaming time only');
+    el.title = tip.join('\n');
+    slot.appendChild(el);
 }
 function setFollowups(turn, items) {
     clearFollowups();
@@ -766,6 +828,7 @@ function openChat(id) {
                 renderText(turn, false);
                 (m.cards || []).forEach(c => addCard(turn, c, false));
                 setSources(turn, (m.meta || {}).sources);
+                setStats(turn, (m.meta || {}).stats);
                 lastTurn = turn; lastMeta = m.meta || {};
             }
             if (lastTurn && lastMeta.followups && d.messages[d.messages.length - 1].role === 'assistant')
@@ -884,6 +947,7 @@ async function run(body, ctx) {
                     setStatus(turn, '');
                     renderText(turn, false);
                     setSources(turn, ev.sources);
+                    setStats(turn, ev.stats);
                     // The answer is in: unlock the composer while follow-ups load.
                     streaming = null;
                     setStreaming(false);
