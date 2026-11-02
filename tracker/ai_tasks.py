@@ -815,21 +815,22 @@ _TOOL_STATUS = {
 }
 
 
-def _provider_stream(profile, messages, tools=None):
-    """Like _provider_chat but streamed. Yields ("delta", text) as text arrives,
-    then one ("final", {"content", "tool_calls"}). A provider that ignores
-    ``stream`` and answers with plain JSON is handled too, as one big delta."""
-    base = (profile.ai_base_url or "").rstrip("/")
-    try:
-        validate_outbound_url(base, label="AI base URL")
-    except OutboundURLError as exc:
-        raise AIProviderError(str(exc))
+# Base URLs that rejected ``stream_options``, so later turns don't pay a failed
+# request to find out again. Per process; a restart just asks once more.
+_NO_STREAM_OPTIONS = set()
+
+
+def _stream_post(profile, base, messages, tools, usage):
     body = {"model": profile.ai_model, "messages": messages, "stream": True}
+    if usage:
+        # OpenAI's way to get token counts on a streamed reply: one extra final
+        # chunk carrying ``usage``. Ollama, LM Studio, vLLM and llama.cpp honour it.
+        body["stream_options"] = {"include_usage": True}
     if tools:
         body["tools"] = tools
         body["tool_choice"] = "auto"
     try:
-        resp = _session.post(
+        return _session.post(
             f"{base}/chat/completions",
             headers={
                 "Authorization": f"Bearer {profile.ai_api_key}",
@@ -844,32 +845,76 @@ def _provider_stream(profile, messages, tools=None):
         raise AIProviderError("The AI provider timed out. Try again.")
     except requests.exceptions.RequestException:
         raise AIProviderError("The AI provider is unreachable. Check the base URL.")
+
+
+def _provider_stream(profile, messages, tools=None):
+    """Like _provider_chat but streamed. Yields ("delta", text) as text arrives,
+    then one ("final", {"content", "tool_calls", "usage", "gen_s"}). ``usage`` is
+    the provider's token counts when it reports them, else None; ``gen_s`` is
+    the time from the first streamed token to the last. A provider that ignores
+    ``stream`` and answers with plain JSON is handled too, as one big delta."""
+    base = (profile.ai_base_url or "").rstrip("/")
+    try:
+        validate_outbound_url(base, label="AI base URL")
+    except OutboundURLError as exc:
+        raise AIProviderError(str(exc))
+    want_usage = base not in _NO_STREAM_OPTIONS
+    resp = _stream_post(profile, base, messages, tools, want_usage)
+    if want_usage and resp.status_code in (400, 422):
+        # Strict OpenAI-compatible servers refuse fields they don't know. Ask
+        # again without it rather than failing the turn over a statistic.
+        resp.close()
+        _NO_STREAM_OPTIONS.add(base)
+        resp = _stream_post(profile, base, messages, tools, False)
     try:
         _raise_for_status(resp)
         if "text/event-stream" not in (resp.headers.get("Content-Type") or ""):
+            started = time.monotonic()
             try:
-                msg = (resp.json().get("choices") or [{}])[0].get("message") or {}
-            except ValueError:
+                data = json.loads(resp.content.decode("utf-8", errors="replace"))
+                msg = (data.get("choices") or [{}])[0].get("message") or {}
+            except (ValueError, AttributeError):
                 raise AIProviderError("The AI provider returned a non-JSON response.")
             if msg.get("content"):
                 yield "delta", msg["content"]
             yield "final", {"content": msg.get("content") or "",
-                            "tool_calls": msg.get("tool_calls") or None}
+                            "tool_calls": msg.get("tool_calls") or None,
+                            "usage": data.get("usage") or None,
+                            "gen_s": time.monotonic() - started}
             return
 
         content = []
         calls = {}  # index -> {"id", "type", "function": {"name", "arguments"}}
+        usage = None
+        first = last = None
         try:
-            for raw in resp.iter_lines(decode_unicode=True):
-                if not raw or not raw.startswith("data:"):
+            # Raw bytes, decoded here as UTF-8. requests' own decode_unicode uses
+            # the Content-Type charset, and an event stream usually names none,
+            # so it fell back to Latin-1 and every emoji and dash came out as
+            # "ð…" / "â…". A line is always whole, so decoding per line is safe.
+            for raw_bytes in resp.iter_lines():
+                if not raw_bytes:
+                    continue
+                raw = raw_bytes.decode("utf-8", errors="replace")
+                if not raw.startswith("data:"):
                     continue
                 payload = raw[5:].strip()
                 if payload == "[DONE]":
                     break
                 try:
-                    delta = (json.loads(payload).get("choices") or [{}])[0].get("delta") or {}
-                except (ValueError, AttributeError):
+                    chunk = json.loads(payload)
+                except ValueError:
                     continue
+                if not isinstance(chunk, dict):
+                    continue
+                if chunk.get("usage"):
+                    usage = chunk["usage"]
+                choices = chunk.get("choices") or []
+                delta = (choices[0].get("delta") if choices else None) or {}
+                if delta:
+                    now = time.monotonic()
+                    first = first or now
+                    last = now
                 text = delta.get("content")
                 if text:
                     content.append(text)
@@ -888,7 +933,9 @@ def _provider_stream(profile, messages, tools=None):
         except requests.exceptions.RequestException:
             raise AIProviderError("The connection to the AI provider dropped. Try again.")
         yield "final", {"content": "".join(content),
-                        "tool_calls": [calls[i] for i in sorted(calls)] or None}
+                        "tool_calls": [calls[i] for i in sorted(calls)] or None,
+                        "usage": usage,
+                        "gen_s": (last - first) if first else 0.0}
     finally:
         resp.close()
 
@@ -904,7 +951,8 @@ def ask_events(user, history, profile, tz_offset=0, mode=None):
     ``{"type": "status", "text"}``  – what it is doing now
     ``{"type": "delta", "text"}``   – a piece of the answer
     ``{"type": "map", "card"}``     – a map card to show
-    ``{"type": "done", "text", "cards"}`` – finished; the whole answer
+    ``{"type": "done", "text", "cards", "sources", "stats"}`` – finished; the
+    whole answer, plus time and token counts (see :func:`_turn_stats`)
 
     ``history`` is user/assistant turns, newest last. Reads only: every tool
     here is a read-only query scoped to ``user``. Raises AIProviderError."""
@@ -917,6 +965,8 @@ def ask_events(user, history, profile, tz_offset=0, mode=None):
     tools = build_tool_schemas(profile, maps=True)
     journals_allowed = bool(getattr(profile, "ai_allow_journals", False))
     text, cards, used = [], [], []
+    turn_started = time.monotonic()
+    rounds = []  # per provider call: {"usage", "gen_s", "wall_s", "chars"}
 
     for round_no in range(_CHAT_MAX_ROUNDS + 1):
         last_round = round_no >= _CHAT_MAX_ROUNDS
@@ -936,8 +986,16 @@ def ask_events(user, history, profile, tz_offset=0, mode=None):
                 yield {"type": "delta", "text": val}
             else:
                 final = val
-        logger.info("AI provider stream took %d ms", (time.monotonic() - started) * 1000)
-        tool_calls = (final or {}).get("tool_calls")
+        wall = time.monotonic() - started
+        logger.info("AI provider stream took %d ms", wall * 1000)
+        final = final or {}
+        rounds.append({
+            "usage": final.get("usage"), "gen_s": final.get("gen_s") or 0.0, "wall_s": wall,
+            "chars": len(final.get("content") or "") + sum(
+                len((c.get("function") or {}).get("arguments") or "")
+                for c in final.get("tool_calls") or []),
+        })
+        tool_calls = final.get("tool_calls")
         if not tool_calls or last_round:
             break
 
@@ -958,7 +1016,40 @@ def ask_events(user, history, profile, tz_offset=0, mode=None):
 
     answer = "".join(text).strip() or "I couldn't find an answer to that."
     yield {"type": "done", "text": answer, "cards": cards,
-           "sources": list(dict.fromkeys(used))}
+           "sources": list(dict.fromkeys(used)),
+           "stats": _turn_stats(rounds, time.monotonic() - turn_started)}
+
+
+def _turn_stats(rounds, seconds):
+    """Time and token figures for the small line under an answer.
+
+    ``out_tokens`` is everything the model generated this turn, across every
+    tool round (tool arguments are tokens it had to produce too). ``in_tokens``
+    is the last round's prompt, i.e. how big the context had grown. When a
+    provider reports no usage, output is estimated at ~4 characters a token and
+    flagged ``estimated``. ``tok_s`` divides by streaming time only (first token
+    to last), so it measures the model rather than the wait for a first token
+    or the tools; a provider that didn't stream falls back to its whole call."""
+    reported = [r for r in rounds if r["usage"]]
+    if rounds and len(reported) == len(rounds):
+        out = sum(int(r["usage"].get("completion_tokens") or 0) for r in rounds)
+        in_tokens = int(rounds[-1]["usage"].get("prompt_tokens") or 0) or None
+        estimated = False
+    else:
+        out = round(sum(r["chars"] for r in rounds) / 4)
+        in_tokens = None
+        estimated = True
+    gen = sum(r["gen_s"] for r in rounds)
+    if gen < 0.05:
+        gen = sum(r["wall_s"] for r in rounds)
+    return {
+        "seconds": round(seconds, 2),
+        "out_tokens": out,
+        "in_tokens": in_tokens,
+        "tok_s": round(out / gen, 1) if out and gen > 0 else None,
+        "rounds": len(rounds),
+        "estimated": estimated,
+    }
 
 
 _FOLLOWUP_PROMPT = (
