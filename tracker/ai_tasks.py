@@ -209,12 +209,58 @@ JOURNAL_TOOL_SCHEMAS = [
 
 _JOURNAL_TOOL_NAMES = {"search_journals", "read_journal_entry"}
 
+from .ask_tools import DATA_TOOL_SCHEMAS, MAP_EXTRA_SCHEMAS  # noqa: E402
 
-def build_tool_schemas(profile):
-    """Tools offered to the model — journal tools only when the user opted in."""
+TOOL_SCHEMAS = TOOL_SCHEMAS + DATA_TOOL_SCHEMAS
+
+# Offered only in the Ask chat, whose page can draw the card. It changes nothing:
+# it validates the parameters, counts the matching points and hands the browser a
+# small description of what to draw.
+MAP_TOOL_SCHEMAS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "show_map",
+            "description": (
+                "Show part of the user's own location history on a map beside the "
+                "chat. Use it whenever a map would help: 'show me last Saturday', "
+                "'where did I go on that trip', 'map my time in Portland'. Give a "
+                "single date, or a start/end date range, and/or a place "
+                "(city/state/country, exactly as the tools returned them). Short "
+                "date spans draw as a route; longer spans or place filters draw as "
+                "dots. You get back how many points matched; the user sees the map. "
+                "Call it again for a second map."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Short caption for the card."},
+                    "date": {"type": "string", "description": "One day, YYYY-MM-DD."},
+                    "start_date": {"type": "string", "description": "Range start, YYYY-MM-DD."},
+                    "end_date": {"type": "string", "description": "Range end, YYYY-MM-DD."},
+                    "city": {"type": "string"},
+                    "state": {"type": "string"},
+                    "country": {"type": "string"},
+                },
+            },
+        },
+    },
+]
+
+
+MAP_TOOL_SCHEMAS = MAP_TOOL_SCHEMAS + MAP_EXTRA_SCHEMAS
+_MAP_TOOL_NAMES = {t["function"]["name"] for t in MAP_TOOL_SCHEMAS}
+
+
+def build_tool_schemas(profile, maps=False):
+    """Tools offered to the model — journal tools only when the user opted in,
+    the map tool only where there is a map to show it on."""
+    tools = list(TOOL_SCHEMAS)
     if getattr(profile, "ai_allow_journals", False):
-        return TOOL_SCHEMAS + JOURNAL_TOOL_SCHEMAS
-    return TOOL_SCHEMAS
+        tools += JOURNAL_TOOL_SCHEMAS
+    if maps:
+        tools += MAP_TOOL_SCHEMAS
+    return tools
 
 
 # ── Tool implementations (read-only, user-scoped, token-trimmed) ───────────
@@ -417,7 +463,26 @@ def _tool_read_journal_entry(user, date=None, **_):
     }
 
 
+def _tool_show_map(user, tz_offset=0, **args):
+    from . import ask_map
+    try:
+        card = ask_map.clean_card(args)
+    except ask_map.CardError as e:
+        return {"error": str(e)}
+    summary = ask_map.summarize(user, card, tz_offset)
+    if not summary.get("point_count"):
+        return {"error": "No recorded points match that, so there is nothing to map."}
+    # "_card" is lifted off by the runner: the model sees the summary, the
+    # browser gets the card.
+    return {"shown": True, **summary, "_card": card}
+
+
+from . import ask_tools as _ask_tools  # noqa: E402
+
 TOOL_DISPATCH = {
+    **_ask_tools.DATA_DISPATCH,
+    **_ask_tools.MAP_DISPATCH,
+    "show_map": _tool_show_map,
     "search_history": _tool_search_history,
     "get_day_detail": _tool_get_day_detail,
     "list_visited_places": _tool_list_visited_places,
@@ -469,6 +534,18 @@ def _provider_chat(profile, messages, tools=None):
     except requests.exceptions.RequestException:
         raise AIProviderError("The AI provider is unreachable. Check the base URL.")
 
+    _raise_for_status(resp)
+
+    try:
+        data = resp.json()
+    except ValueError:
+        raise AIProviderError("The AI provider returned a non-JSON response.")
+    if not data.get("choices"):
+        raise AIProviderError("The AI provider returned an unexpected response.")
+    return data
+
+
+def _raise_for_status(resp):
     if resp.status_code in (401, 403):
         raise AIProviderError("The AI provider rejected the API key.")
     if resp.status_code == 404:
@@ -482,14 +559,6 @@ def _provider_chat(profile, messages, tools=None):
         raise AIProviderError("The AI provider returned a server error. Try again.")
     if resp.status_code != 200:
         raise AIProviderError(_error_message(resp) or "Unexpected response from the AI provider.")
-
-    try:
-        data = resp.json()
-    except ValueError:
-        raise AIProviderError("The AI provider returned a non-JSON response.")
-    if not data.get("choices"):
-        raise AIProviderError("The AI provider returned an unexpected response.")
-    return data
 
 
 def _error_message(resp):
@@ -527,9 +596,55 @@ def _local_today(tz_offset):
     return (now_utc - datetime.timedelta(minutes=tz_offset)).date()
 
 
-def _system_prompt(user, profile, tz_offset=0):
+# The chat page's extra brief: a travel companion as well as a history lookup.
+# The read-only rule is stated to the model too, but it is enforced by there
+# being no tool that writes — not by the prompt.
+_CHAT_DIRECTIVE = (
+    "You are also a travel companion. Besides looking things up, you can help "
+    "plan trips, brainstorm ideas, recommend destinations, restaurants and "
+    "routes, explain flights, and suggest what to do next. Facts about the user "
+    "(where they went, their flights, adventures, habits) must come from the "
+    "tools. General travel knowledge — destinations, seasons, tips, distances, "
+    "typical flight times — may come from what you know; mark it as a "
+    "suggestion and never present it as something from their history. Ground "
+    "recommendations in their history when it helps (\"you loved X, so Y\"; "
+    "list_unvisited for somewhere new; search_near to check if they've been "
+    "close).\n\n"
+    "Maps: show_map draws their own history (a day, a range, a place); "
+    "show_flights_map draws their flight routes; show_places pins places you "
+    "suggest or discuss (give real coordinates; connect=true for an ordered "
+    "route). Use a map whenever the answer is about where — not for pure counts.\n\n"
+    "Formatting: Markdown — short paragraphs, bullet or numbered lists, ### "
+    "headings for longer plans, **bold** for key facts. For a day-by-day plan "
+    "use a heading per day.\n\n"
+    "You can only read. You cannot add, change or delete any location, flight, "
+    "adventure, journal or setting; if asked to, say so and point to the page "
+    "where they can do it themselves."
+)
+
+ASK_MODES = {
+    "plan": ("The user wants help planning a trip. Ask at most one or two short "
+             "clarifying questions only if essential (dates, budget, pace), otherwise "
+             "propose a concrete day-by-day plan, pin the stops with show_places "
+             "(connect=true) and note travel times between them."),
+    "brainstorm": ("Brainstorm with the user: offer several varied, specific ideas "
+                   "(6–10), each one line with why it fits them, then invite them to "
+                   "pick one to develop. Pin the ideas with show_places when they are places."),
+    "flights": ("Focus on flights: their flight log (list_flights, get_flight_stats, "
+                "show_flights_map) and live flight information (lookup_flight)."),
+    "recap": ("Write a warm, vivid recap of the period the user names from their "
+              "history — the story of where they went, with a map."),
+}
+
+
+def _system_prompt(user, profile, tz_offset=0, maps=False, mode=None):
+    tail = _DATE_LINK_DIRECTIVE
+    if maps:
+        tail += "\n\n" + _CHAT_DIRECTIVE
+    if mode in ASK_MODES:
+        tail += "\n\nThis conversation: " + ASK_MODES[mode]
     if profile.ai_system_prompt and profile.ai_system_prompt.strip():
-        return profile.ai_system_prompt.strip() + "\n\n" + _DATE_LINK_DIRECTIVE
+        return profile.ai_system_prompt.strip() + "\n\n" + tail
     today = _local_today(tz_offset).isoformat()
     name = user.first_name or user.username
     journals = (
@@ -551,7 +666,7 @@ def _system_prompt(user, profile, tz_offset=0):
         "time. If a tool returns no results, say so "
         "plainly. Be concise and conversational, and cite concrete dates from the "
         "tool results. Dwell/time values from tools are in seconds unless noted as "
-        f"hours.{journals}\n\n" + _DATE_LINK_DIRECTIVE
+        f"hours.{journals}\n\n" + tail
     )
 
 
@@ -569,7 +684,7 @@ def _sanitize_client_messages(client_messages):
     return clean[-_MAX_CLIENT_TURNS:]
 
 
-def _run_one_tool(user, call, tz_offset, journals_allowed):
+def _run_one_tool(user, call, tz_offset, journals_allowed, maps=False):
     fn = (call.get("function") or {})
     name = fn.get("name")
     try:
@@ -584,6 +699,8 @@ def _run_one_tool(user, call, tz_offset, journals_allowed):
         # Defense in depth: never read journals unless opted in, even if a
         # model hallucinates the tool name.
         return {"error": "Journal access is not enabled for this account."}
+    if name in _MAP_TOOL_NAMES and not maps:
+        return {"error": "Maps can't be shown here."}
     if handler is None:
         return {"error": f"unknown tool '{name}'"}
     started = time.monotonic()
@@ -598,7 +715,7 @@ def _run_one_tool(user, call, tz_offset, journals_allowed):
         logger.info("AI tool %s took %d ms", name, (time.monotonic() - started) * 1000)
 
 
-def _run_tool_calls(user, tool_calls, tz_offset, journals_allowed):
+def _run_tool_calls(user, tool_calls, tz_offset, journals_allowed, maps=False):
     """Run one model turn's tool calls and return their results in call order.
 
     They are independent reads, so several run side by side. Worker threads
@@ -608,7 +725,7 @@ def _run_tool_calls(user, tool_calls, tz_offset, journals_allowed):
     a thread's connection otherwise outlives it (see scheduler_utils.db_thread).
     """
     if len(tool_calls) == 1:
-        return [_run_one_tool(user, tool_calls[0], tz_offset, journals_allowed)]
+        return [_run_one_tool(user, tool_calls[0], tz_offset, journals_allowed, maps)]
 
     from django.db import connections
     from django.utils import timezone
@@ -617,7 +734,7 @@ def _run_tool_calls(user, tool_calls, tz_offset, journals_allowed):
     def work(call):
         try:
             with timezone.override(tz):
-                return _run_one_tool(user, call, tz_offset, journals_allowed)
+                return _run_one_tool(user, call, tz_offset, journals_allowed, maps)
         finally:
             connections.close_all()
 
@@ -656,6 +773,7 @@ def run_ask(user, client_messages, profile, tz_offset=0):
         })
         results = _run_tool_calls(user, tool_calls, tz_offset, journals_allowed)
         for call, result in zip(tool_calls, results):
+            result, _card = _lift_card(result)
             messages.append({
                 "role": "tool",
                 "tool_call_id": call.get("id"),
@@ -670,6 +788,208 @@ def run_ask(user, client_messages, profile, tz_offset=0):
     data = _provider_chat(profile, messages)
     return data["choices"][0].get("message", {}).get("content") or \
         "I gathered some data but couldn't complete the answer."
+
+
+def _lift_card(result):
+    """Split a tool result into (what the model sees, the map card or None)."""
+    if isinstance(result, dict) and "_card" in result:
+        result = dict(result)
+        return result, result.pop("_card")
+    return result, None
+
+
+# ── Streaming (the Ask chat page) ──────────────────────────────────────────
+
+_TOOL_STATUS = {
+    "search_history": "Searching your history…",
+    "get_day_detail": "Looking at a day…",
+    "list_visited_places": "Listing places you've been…",
+    "list_custom_places": "Checking your places…",
+    "get_custom_place_detail": "Looking at a place…",
+    "get_distance": "Measuring distance…",
+    "get_history_overview": "Getting an overview…",
+    "search_journals": "Searching your journal…",
+    "read_journal_entry": "Reading a journal entry…",
+    "show_map": "Drawing a map…",
+    **_ask_tools.TOOL_STATUS,
+}
+
+
+def _provider_stream(profile, messages, tools=None):
+    """Like _provider_chat but streamed. Yields ("delta", text) as text arrives,
+    then one ("final", {"content", "tool_calls"}). A provider that ignores
+    ``stream`` and answers with plain JSON is handled too, as one big delta."""
+    base = (profile.ai_base_url or "").rstrip("/")
+    try:
+        validate_outbound_url(base, label="AI base URL")
+    except OutboundURLError as exc:
+        raise AIProviderError(str(exc))
+    body = {"model": profile.ai_model, "messages": messages, "stream": True}
+    if tools:
+        body["tools"] = tools
+        body["tool_choice"] = "auto"
+    try:
+        resp = _session.post(
+            f"{base}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {profile.ai_api_key}",
+                "Content-Type": "application/json",
+            },
+            json=body,
+            timeout=_REQUEST_TIMEOUT,
+            allow_redirects=False,
+            stream=True,
+        )
+    except requests.exceptions.Timeout:
+        raise AIProviderError("The AI provider timed out. Try again.")
+    except requests.exceptions.RequestException:
+        raise AIProviderError("The AI provider is unreachable. Check the base URL.")
+    try:
+        _raise_for_status(resp)
+        if "text/event-stream" not in (resp.headers.get("Content-Type") or ""):
+            try:
+                msg = (resp.json().get("choices") or [{}])[0].get("message") or {}
+            except ValueError:
+                raise AIProviderError("The AI provider returned a non-JSON response.")
+            if msg.get("content"):
+                yield "delta", msg["content"]
+            yield "final", {"content": msg.get("content") or "",
+                            "tool_calls": msg.get("tool_calls") or None}
+            return
+
+        content = []
+        calls = {}  # index -> {"id", "type", "function": {"name", "arguments"}}
+        try:
+            for raw in resp.iter_lines(decode_unicode=True):
+                if not raw or not raw.startswith("data:"):
+                    continue
+                payload = raw[5:].strip()
+                if payload == "[DONE]":
+                    break
+                try:
+                    delta = (json.loads(payload).get("choices") or [{}])[0].get("delta") or {}
+                except (ValueError, AttributeError):
+                    continue
+                text = delta.get("content")
+                if text:
+                    content.append(text)
+                    yield "delta", text
+                for tc in delta.get("tool_calls") or []:
+                    slot = calls.setdefault(tc.get("index", len(calls)), {
+                        "id": "", "type": "function",
+                        "function": {"name": "", "arguments": ""}})
+                    if tc.get("id"):
+                        slot["id"] = tc["id"]
+                    fn = tc.get("function") or {}
+                    if fn.get("name"):
+                        slot["function"]["name"] += fn["name"]
+                    if fn.get("arguments"):
+                        slot["function"]["arguments"] += fn["arguments"]
+        except requests.exceptions.RequestException:
+            raise AIProviderError("The connection to the AI provider dropped. Try again.")
+        yield "final", {"content": "".join(content),
+                        "tool_calls": [calls[i] for i in sorted(calls)] or None}
+    finally:
+        resp.close()
+
+
+# The chat runs longer plans (several lookups, then a map or two) than the
+# one-shot /api/ask/ needs.
+_CHAT_MAX_ROUNDS = 8
+
+
+def ask_events(user, history, profile, tz_offset=0, mode=None):
+    """The Ask chat's tool loop as a stream of events (dicts):
+
+    ``{"type": "status", "text"}``  – what it is doing now
+    ``{"type": "delta", "text"}``   – a piece of the answer
+    ``{"type": "map", "card"}``     – a map card to show
+    ``{"type": "done", "text", "cards"}`` – finished; the whole answer
+
+    ``history`` is user/assistant turns, newest last. Reads only: every tool
+    here is a read-only query scoped to ``user``. Raises AIProviderError."""
+    messages = [{"role": "system",
+                 "content": _system_prompt(user, profile, tz_offset, maps=True, mode=mode)}]
+    messages.extend(_sanitize_client_messages(history))
+    if len(messages) == 1:
+        raise AIProviderError("No question was provided.")
+
+    tools = build_tool_schemas(profile, maps=True)
+    journals_allowed = bool(getattr(profile, "ai_allow_journals", False))
+    text, cards, used = [], [], []
+
+    for round_no in range(_CHAT_MAX_ROUNDS + 1):
+        last_round = round_no >= _CHAT_MAX_ROUNDS
+        if last_round:
+            messages.append({"role": "user",
+                             "content": "Please answer now using what you've gathered so far."})
+        started = time.monotonic()
+        final = None
+        pending_gap = bool(text)
+        for kind, val in _provider_stream(profile, messages, None if last_round else tools):
+            if kind == "delta":
+                if pending_gap:
+                    text.append("\n\n")
+                    yield {"type": "delta", "text": "\n\n"}
+                    pending_gap = False
+                text.append(val)
+                yield {"type": "delta", "text": val}
+            else:
+                final = val
+        logger.info("AI provider stream took %d ms", (time.monotonic() - started) * 1000)
+        tool_calls = (final or {}).get("tool_calls")
+        if not tool_calls or last_round:
+            break
+
+        messages.append({"role": "assistant", "content": final.get("content") or "",
+                         "tool_calls": tool_calls})
+        for name in dict.fromkeys((c.get("function") or {}).get("name") for c in tool_calls):
+            label = _TOOL_STATUS.get(name, "Looking that up…")
+            used.append(label.rstrip("…"))
+            yield {"type": "status", "text": label}
+        results = _run_tool_calls(user, tool_calls, tz_offset, journals_allowed, maps=True)
+        for call, result in zip(tool_calls, results):
+            result, card = _lift_card(result)
+            if card:
+                cards.append(card)
+                yield {"type": "map", "card": card}
+            messages.append({"role": "tool", "tool_call_id": call.get("id"),
+                             "content": json.dumps(result, default=str)})
+
+    answer = "".join(text).strip() or "I couldn't find an answer to that."
+    yield {"type": "done", "text": answer, "cards": cards,
+           "sources": list(dict.fromkeys(used))}
+
+
+_FOLLOWUP_PROMPT = (
+    "You write the follow-up chips for a travel-history chat. Given the last "
+    "exchange, reply with JSON only: {\"title\": <3-6 word chat title>, "
+    "\"followups\": [<3 short questions the USER might ask next, under 60 "
+    "characters each, in the user's voice>]}. Followups must be things the "
+    "assistant could answer: their own travel history, flights, trip ideas, "
+    "maps. Never suggest editing or deleting anything."
+)
+
+
+def followups(profile, question, answer):
+    """(title, [follow-up questions]) for the chat page. Best effort: any
+    failure returns ("", []) and the page just shows none."""
+    msgs = [{"role": "system", "content": _FOLLOWUP_PROMPT},
+            {"role": "user", "content": json.dumps({"question": question[:1500],
+                                                    "answer": answer[:3000]})}]
+    try:
+        data = _provider_chat(profile, msgs)
+    except AIProviderError:
+        return "", []
+    raw = (data["choices"][0].get("message") or {}).get("content") or ""
+    start, end = raw.find("{"), raw.rfind("}")
+    try:
+        obj = json.loads(raw[start:end + 1]) if start >= 0 else {}
+    except ValueError:
+        return "", []
+    title = str(obj.get("title") or "").strip().strip('"')[:80]
+    items = [str(q).strip()[:90] for q in (obj.get("followups") or []) if str(q).strip()]
+    return title, items[:3]
 
 
 def test_connection(profile):
