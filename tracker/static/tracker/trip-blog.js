@@ -9,6 +9,7 @@
     const $ = (id) => document.getElementById(id);
     const PALETTE = ['#e8763d', '#7ba3b8', '#7f9b6d', '#cf9a44', '#a888a0', '#d0694a', '#6b7fa3', '#4f8a7b'];
     const CHUNK = 8 * 1024 * 1024;
+    const PICK_ZOOM = 11;           // about a city, the map picker's opening view
 
     // ── utilities ───────────────────────────────────────────────────────────
     const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
@@ -586,8 +587,23 @@
                 <div class="tb-pickmap"><div id="tb-pick-map"></div></div>
                 <div class="tb-row" style="margin-top:12px;justify-content:flex-end"><button class="tb-btn" data-x>Cancel</button><button class="tb-btn primary" data-ok disabled>Use this spot</button></div></div>`;
             document.body.append(ov, md);
-            const centre = start ? [start.lon, start.lat] : (status && status.pins.length ? [status.pins[status.pins.length - 1].lon, status.pins[status.pins.length - 1].lat] : [10, 30]);
-            const pm = new maplibregl.Map({container: 'tb-pick-map', style: baseStyle(), center: centre, zoom: start || (status && status.pins.length) ? 11 : 1.5});
+            // Open on where the trip is now, so a tap needs no zooming across the
+            // world first: the chosen spot, else a traveller or the newest post
+            // straight away, then the poster's own latest fix once it arrives.
+            const fresh = status && (status.people.find((p) => !p.stale) || status.people[0]);
+            const newest = status && status.pins[status.pins.length - 1];
+            const guess = start ? [start.lon, start.lat] : fresh ? [fresh.spot.lon, fresh.spot.lat]
+                : newest ? [newest.lon, newest.lat] : null;
+            const pm = new maplibregl.Map({container: 'tb-pick-map', style: baseStyle(),
+                center: guess || [10, 30], zoom: guess ? PICK_ZOOM : 1.5});
+            let closed = false, touched = false;
+            pm.on('dragstart', () => { touched = true; });
+            pm.on('wheel', () => { touched = true; });
+            if (!start) {
+                memberApi(memberUrl('/my-location/')).then((d) => {
+                    if (d.location && !closed && !touched && !pick) pm.jumpTo({center: [d.location.lon, d.location.lat], zoom: PICK_ZOOM});
+                }).catch(() => {});
+            }
             let marker = null, pick = start ? {lat: start.lat, lon: start.lon} : null;
             if (pick) marker = new maplibregl.Marker({color: '#e8763d'}).setLngLat([pick.lon, pick.lat]).addTo(pm);
             if (pick) md.querySelector('[data-ok]').disabled = false;
@@ -599,7 +615,7 @@
                 else marker = new maplibregl.Marker({color: '#e8763d'}).setLngLat(e.lngLat).addTo(pm);
                 md.querySelector('[data-ok]').disabled = false;
             });
-            const done = (v) => { pm.remove(); ov.remove(); md.remove(); resolve(v); };
+            const done = (v) => { closed = true; pm.remove(); ov.remove(); md.remove(); resolve(v); };
             ov.onclick = () => done(null);
             md.addEventListener('click', (e) => {
                 if (e.target.closest('[data-x]')) done(null);
