@@ -56,6 +56,11 @@ jobs:
       - name: Lint
         run: ruff check tracker roamly --select E9,F63,F7,F82
 
+      # Pages render through the manifest static storage, which the container
+      # builds with collectstatic on start; without it every page 500s.
+      - name: Collect static files
+        run: python manage.py collectstatic --noinput -v 0
+
       # Failures are re-emitted as workflow annotations, which (unlike job
       # logs) can be read without auth on a public repo — same as mobile-check.
       - name: Test
