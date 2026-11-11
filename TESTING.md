@@ -1,9 +1,11 @@
 # Testing Roamly
 
-There are currently **no tests** — `find . -name "test*.py"` matches only two
-unrelated migrations, and `mobile/` has none either. Meanwhile
-`.github/workflows/docker-publish.yml` builds and pushes to Docker Hub on every
-push to `main` with no gate whatsoever.
+`tracker/tests/` holds the Django suite (Ask chat and proposals, achievements,
+editor places, journal helpers, trip blog, outbound URL guards) and
+`mobile/app/src/test/` the Android JVM tests (`BcbpTest`). CI runs the Django
+suite against PostGIS in `.github/workflows/tests.yml`, and
+`docker-publish.yml` only pushes an image when it passes; `mobile-check.yml`
+runs the Android tests.
 
 This document is the plan for changing that. It is deliberately ordered by value
 rather than by coverage: the point is to protect the things whose failure is
@@ -35,9 +37,10 @@ Two real examples from this codebase:
 `requirements-dev.txt`:
 
 ```
-pytest>=8.0
-pytest-django>=4.8
+pytest>=9.0
+pytest-django>=4.14
 factory-boy>=3.3
+ruff>=0.16
 ```
 
 `pyproject.toml`:
