@@ -253,6 +253,18 @@ def test_other_member_cannot_edit_post(client, blog, owner, django_user_model):
     assert client.get(f"/api/tripblog/{blog.id}/feed/").status_code == 404
 
 
+def test_countries_start_when_member_joined(blog, owner, django_user_model):
+    mom = django_user_model.objects.create_user('mom', password='pw-123456')
+    joined = timezone.now() - timedelta(days=2)
+    TripBlogMember.objects.create(blog=blog, user=mom, accepted_at=joined, share_location=True)
+    # Before she joined (but inside the trip window): must not count.
+    _fix(mom, 48.85, 2.35, when=joined - timedelta(days=3), city='Paris', cc='FR')
+    _fix(mom, *KYOTO, when=joined + timedelta(hours=1))
+    members = list(blog.members.all())
+    codes = tb._visited_country_codes(blog, members)
+    assert 'JP' in codes and 'FR' not in codes
+
+
 def test_video_chunks_are_idempotent(client, blog, owner, settings, monkeypatch):
     from tracker import video_tasks
     kicked = []

@@ -330,8 +330,8 @@ def _group_line(people):
 
 def _visited_country_codes(blog, members):
     from .models import Location
-    user_ids = [m.user_id for m in members if m.share_location]
-    if not user_ids:
+    sharing = [m for m in members if m.share_location and m.accepted_at]
+    if not sharing:
         return []
     key = f"tripcc:{blog.id}:{gen(blog.id)}:{today_local(blog)}"
     hit = cache.get(key)
@@ -339,7 +339,13 @@ def _visited_country_codes(blog, members):
         return hit
     tz = blog_zone(blog)
     start = timezone.make_aware(datetime.combine(blog.start_date, dt_time.min), tz)
-    q = Location.objects.filter(device__user_id__in=user_ids, timestamp__gte=start)
+    # Each traveller counts only from when they joined: accepting is the
+    # consent, so an earlier start_date must not reach back into history they
+    # never agreed to share (the AdventureMember.accepted_at lesson).
+    window = Q()
+    for m in sharing:
+        window |= Q(device__user_id=m.user_id, timestamp__gte=max(start, m.accepted_at))
+    q = Location.objects.filter(window)
     if blog.end_date:
         q = q.filter(timestamp__lt=timezone.make_aware(
             datetime.combine(blog.end_date + timedelta(days=1), dt_time.min), tz))
