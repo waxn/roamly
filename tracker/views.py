@@ -12354,8 +12354,10 @@ def _journal_day_bounds(d, tz_offset=0):
     With the default of 0 the bounds are the UTC calendar day (server TIME_ZONE).
     """
     try:
-        tz_offset = int(tz_offset)
-    except (TypeError, ValueError):
+        # Real offsets are within ±14h; clamping keeps a junk value from
+        # overflowing timedelta into a 500.
+        tz_offset = max(-1440, min(int(tz_offset), 1440))
+    except (TypeError, ValueError, OverflowError):
         tz_offset = 0
     start = datetime.combine(d, dt_time.min) + timedelta(minutes=tz_offset)
     end = datetime.combine(d, dt_time.max) + timedelta(minutes=tz_offset)
