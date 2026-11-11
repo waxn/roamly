@@ -594,6 +594,15 @@ def _apply_location(post, data, author_tz):
     return None
 
 
+def _media_order(request, post):
+    """The position a new photo/video asked for, else the end of the post.
+    Junk input falls back to the end rather than raising a 500."""
+    try:
+        return max(0, min(int(request.POST.get('order')), 10_000))
+    except (TypeError, ValueError):
+        return post.media.count()
+
+
 def _own_post(request, blog_id, post_id):
     _member(request, blog_id)
     post = get_object_or_404(TripPost, pk=post_id, blog_id=blog_id)
@@ -717,7 +726,7 @@ def trip_post_photo_api(request, blog_id, post_id):
         full, thumb, w, h, exif = tb.process_photo(up)
     except ValueError as exc:
         return _bad(str(exc))
-    order = int(request.POST.get('order') or post.media.count())
+    order = _media_order(request, post)
     media = TripPostMedia.objects.create(post=post, media_type='image', image=full,
                                          thumbnail=thumb, width=w, height=h, order=order)
     if post.published:
@@ -768,7 +777,7 @@ def trip_post_video_api(request, blog_id, post_id):
             # original name, and the name itself is never stored.
             post=post, media_type='video', status='uploading',
             upload_id=f"{uuid.uuid4().hex[:24]}{ext}", total_chunks=total,
-            order=int(request.POST.get('order') or post.media.count()))
+            order=_media_order(request, post))
     else:
         media = get_object_or_404(TripPostMedia, pk=media_id, post=post, media_type='video')
         if media.status != 'uploading':
