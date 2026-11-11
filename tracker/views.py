@@ -2421,6 +2421,12 @@ def site_overpass_config_api(request):
             return JsonResponse(
                 {'error': f'Too many endpoints (max {overpass.MAX_ENDPOINTS}). '
                           'Each one is a potential attempt on every request.'}, status=400)
+        from .net_utils import OutboundURLError, validate_outbound_url
+        for url in parsed:
+            try:
+                validate_outbound_url(url, label=url)
+            except OutboundURLError as exc:
+                return JsonResponse({'error': str(exc)}, status=400)
         # Store the admin's text as typed (minus surrounding whitespace) so the
         # textarea round-trips; parsing happens at read time.
         config.overpass_urls = raw[:4000]

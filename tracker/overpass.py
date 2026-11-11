@@ -65,6 +65,8 @@ from typing import NamedTuple, Optional
 from django.conf import settings as django_settings
 from django.core.cache import cache
 
+from .net_utils import OutboundURLError, urlopen_no_redirect, validate_outbound_url
+
 logger = logging.getLogger(__name__)
 
 HEADERS = {'User-Agent': 'Roamly (self-hosted location tracker)'}
@@ -299,6 +301,9 @@ def classify(exc):
       and gets called unreachable. That misreading is the whole bug this module
       exists to fix.
     """
+    if isinstance(exc, OutboundURLError):
+        # Refused before any request went out — no endpoint was reached.
+        return 'unreachable', str(exc)
     if isinstance(exc, urllib.error.HTTPError):
         note = _HTTP_NOTES.get(exc.code, '')
         return 'http', f'HTTP {exc.code} {exc.reason}{note}'
@@ -310,10 +315,16 @@ def classify(exc):
 
 
 def _post(url, query, timeout):
-    """POST one Overpass QL query and return the parsed JSON. Raises on failure."""
+    """POST one Overpass QL query and return the parsed JSON. Raises on failure.
+
+    The endpoint is admin-configured, so it gets the same outbound check as every
+    other configured URL, immediately before connecting (DNS can change after
+    the save), and redirects are refused rather than followed.
+    """
+    validate_outbound_url(url, label='Overpass endpoint')
     body = urllib.parse.urlencode({'data': query}).encode()
     req = urllib.request.Request(url, body, HEADERS)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with urlopen_no_redirect(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode())
 
 
@@ -347,7 +358,9 @@ def overpass_query(query, timeout=SOCKET_TIMEOUT, beat=None):
             last_msg, last_url = msg, url
             if kind == 'http':
                 status = exc.code if isinstance(exc, urllib.error.HTTPError) else None
-                if status in _FAILOVER_STATUSES:
+                # A refused redirect also says nothing about the query — the
+                # mirror moved or is misconfigured — so it fails over too.
+                if status in _FAILOVER_STATUSES or (status and 300 <= status < 400):
                     # The mirror is down rather than objecting to the query, so
                     # the next one is worth a try. Recorded in `kinds` as a
                     # timeout: it is reached-but-no-usable-answer, which is what
