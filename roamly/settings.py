@@ -241,8 +241,16 @@ if not DEBUG:
     # instance — and HSTS in particular is remembered by the browser for as long
     # as it says, so getting it wrong is not something a redeploy undoes.
     SECURE_HSTS_SECONDS = int(os.environ.get('HSTS_SECONDS', '0'))
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = SECURE_HSTS_SECONDS > 0
-    SECURE_HSTS_PRELOAD = SECURE_HSTS_SECONDS > 0
+    # Subdomains and preload are separate opt-ins. Preload is close to
+    # irreversible (removal from browser lists takes months) and
+    # includeSubDomains reaches every other host on the domain, so neither may
+    # follow from merely turning HSTS on.
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = (
+        SECURE_HSTS_SECONDS > 0
+        and os.environ.get('HSTS_INCLUDE_SUBDOMAINS', 'False').lower() in ('true', '1'))
+    SECURE_HSTS_PRELOAD = (
+        SECURE_HSTS_SECONDS > 0
+        and os.environ.get('HSTS_PRELOAD', 'False').lower() in ('true', '1'))
     SECURE_SSL_REDIRECT = os.environ.get('SSL_REDIRECT', 'False').lower() in ('true', '1')
 
 # Allow the server to make outbound requests to private/LAN addresses. OFF by
