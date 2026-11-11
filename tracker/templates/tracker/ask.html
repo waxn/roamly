@@ -424,7 +424,7 @@ function esc(s) {
 function inline(s) {
     return s
         .replace(/`([^`]+)`/g, '<code>$1</code>')
-        .replace(/\[([^\]]+)\]\((\/[^)\s"'<>]+)\)/g, (m, label, href) => {
+        .replace(/\[([^\]]+)\]\((\/(?![\/\\])[^)\s"'<>]+)\)/g, (m, label, href) => {
             const day = /^\/map\/\?date=(\d{4}-\d{2}-\d{2})$/.exec(href);
             return day
                 ? `<a href="${href}" class="ask-daylink" data-date="${day[1]}" title="Show on the map">${label}</a>`
