@@ -34,5 +34,5 @@ qrcode==8.2
 # Upstream is abandoned (final release 1.2.2, June 2024). See CLAUDE.md.
 geoip2fast==1.2.2
 timezonefinder==9.2.0
-ijson==3.5.1
+ijson==3.6.0
 google-auth==2.58.0
