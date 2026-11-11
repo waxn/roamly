@@ -35,4 +35,4 @@ qrcode==8.2
 geoip2fast==1.2.2
 timezonefinder==9.2.0
 ijson==3.6.0
-google-auth==2.58.0
+google-auth==2.62.2
