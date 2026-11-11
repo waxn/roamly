@@ -7,7 +7,7 @@ suite against PostGIS in `.github/workflows/tests.yml`, and
 `docker-publish.yml` only pushes an image when it passes; `mobile-check.yml`
 runs the Android tests.
 
-This document is the plan for changing that. It is deliberately ordered by value
+The rest of this document is the plan for widening it. It is ordered by value
 rather than by coverage: the point is to protect the things whose failure is
 *silent*, not to reach a percentage.
 
