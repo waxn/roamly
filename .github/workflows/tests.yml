@@ -56,5 +56,19 @@ jobs:
       - name: Lint
         run: ruff check tracker roamly --select E9,F63,F7,F82
 
+      # Failures are re-emitted as workflow annotations, which (unlike job
+      # logs) can be read without auth on a public repo — same as mobile-check.
       - name: Test
-        run: pytest --create-db -q
+        shell: bash
+        run: |
+          set -o pipefail
+          status=0
+          pytest --create-db -q -rfE --tb=line 2>&1 | tee pytest.log || status=$?
+          set +e
+          grep -E '^(FAILED|ERROR) ' pytest.log | head -40 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
+          grep -E '^E  +' pytest.log | head -40 | while IFS= read -r line; do
+            echo "::warning::${line}"
+          done
+          exit $status
