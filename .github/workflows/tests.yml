@@ -11,6 +11,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # The Dockerfile's own base image, so CI installs the same Debian packages
+    # the app runs on rather than whatever the runner's Ubuntu calls them.
+    container: python:3.13-slim
     permissions:
       contents: read
 
@@ -21,19 +24,16 @@ jobs:
           POSTGRES_USER: roamly
           POSTGRES_PASSWORD: roamly
           POSTGRES_DB: roamly
-        ports:
-          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U roamly"
           --health-interval 5s --health-timeout 5s --health-retries 20
       redis:
         image: redis:8.10-alpine
-        ports:
-          - 6379:6379
 
     env:
-      DATABASE_URL: postgis://roamly:roamly@localhost:5432/roamly
-      REDIS_URL: redis://localhost:6379/1
+      # Services are reached by name from inside a container job.
+      DATABASE_URL: postgis://roamly:roamly@db:5432/roamly
+      REDIS_URL: redis://redis:6379/1
       SECRET_KEY: ci-only-not-a-secret
       DEBUG: 'False'
 
@@ -41,24 +41,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.13'
-          cache: pip
-          cache-dependency-path: |
-            requirements.txt
-            constraints.txt
-            requirements-dev.txt
-
       - name: Install GeoDjango system libraries
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            binutils libproj-dev gdal-bin libgdal-dev libgeos-dev ffmpeg
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            binutils libproj-dev gdal-bin libgdal-dev libgeos-dev libpq-dev gcc ffmpeg
 
       - name: Install dependencies
-        run: pip install -c constraints.txt -r requirements.txt -r requirements-dev.txt
+        run: pip install --no-cache-dir -c constraints.txt -r requirements.txt -r requirements-dev.txt
 
       # Only the rules that mean "this cannot work": syntax errors and
       # undefined names. pyproject.toml's wider set is for local use until the
