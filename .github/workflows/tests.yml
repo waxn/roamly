@@ -1,0 +1,70 @@
+name: Tests
+
+# Lint + pytest against a real PostGIS, the way the app runs. Called by
+# docker-publish.yml before it builds, so an image is only pushed when the
+# suite passes; also runnable by hand and on pull requests.
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    services:
+      db:
+        image: postgis/postgis:16-3.5
+        env:
+          POSTGRES_USER: roamly
+          POSTGRES_PASSWORD: roamly
+          POSTGRES_DB: roamly
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U roamly"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:8.10-alpine
+        ports:
+          - 6379:6379
+
+    env:
+      DATABASE_URL: postgis://roamly:roamly@localhost:5432/roamly
+      REDIS_URL: redis://localhost:6379/1
+      SECRET_KEY: ci-only-not-a-secret
+      DEBUG: 'False'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            constraints.txt
+            requirements-dev.txt
+
+      - name: Install GeoDjango system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            binutils libproj-dev gdal-bin libgdal-dev libgeos-dev ffmpeg
+
+      - name: Install dependencies
+        run: pip install -c constraints.txt -r requirements.txt -r requirements-dev.txt
+
+      # Only the rules that mean "this cannot work": syntax errors and
+      # undefined names. pyproject.toml's wider set is for local use until the
+      # existing findings are worked through.
+      - name: Lint
+        run: ruff check tracker roamly --select E9,F63,F7,F82
+
+      - name: Test
+        run: pytest --create-db -q
