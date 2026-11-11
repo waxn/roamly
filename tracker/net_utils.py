@@ -41,6 +41,9 @@ def _allow_private():
     return bool(getattr(settings, 'ALLOW_PRIVATE_OUTBOUND', False))
 
 
+_SHARED_ADDRESS_SPACE = ipaddress.ip_network('100.64.0.0/10')
+
+
 def _is_blocked_ip(ip_str):
     """True when an address is one we must never let the server be pointed at."""
     try:
@@ -54,6 +57,9 @@ def _is_blocked_ip(ip_str):
         or ip.is_reserved
         or ip.is_multicast
         or ip.is_unspecified
+        # 100.64.0.0/10 — carrier-grade NAT and Tailscale. Not is_private,
+        # but on a self-hosted box it is exactly "another machine of mine".
+        or (ip.version == 4 and ip in _SHARED_ADDRESS_SPACE)
     )
 
 

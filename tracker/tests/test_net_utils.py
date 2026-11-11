@@ -25,3 +25,12 @@ def test_overpass_refuses_private_endpoint(settings):
 def test_refused_endpoint_classifies_as_unreachable():
     kind, msg = overpass.classify(net_utils.OutboundURLError('nope'))
     assert kind == 'unreachable' and msg == 'nope'
+
+
+@pytest.mark.parametrize('ip', ['100.64.0.1', '100.100.100.100', '127.0.0.1', '169.254.169.254', '10.0.0.5'])
+def test_internal_addresses_are_blocked(ip):
+    assert net_utils._is_blocked_ip(ip)
+
+
+def test_public_address_is_allowed():
+    assert not net_utils._is_blocked_ip('1.1.1.1')
