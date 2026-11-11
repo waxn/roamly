@@ -253,6 +253,18 @@ def test_other_member_cannot_edit_post(client, blog, owner, django_user_model):
     assert client.get(f"/api/tripblog/{blog.id}/feed/").status_code == 404
 
 
+def test_member_cannot_move_dates(client, blog, owner, django_user_model):
+    mom = django_user_model.objects.create_user('mom', password='pw-123456')
+    TripBlogMember.objects.create(blog=blog, user=mom, accepted_at=timezone.now())
+    start = blog.start_date
+    client.force_login(mom)
+    r = _json(client, f"/api/tripblog/{blog.id}/", {'start_date': '1970-01-01', 'subtitle': 'hi'})
+    assert r.status_code == 200
+    assert r.json()['ignored'] == ['start_date']
+    blog.refresh_from_db()
+    assert blog.start_date == start and blog.subtitle == 'hi'
+
+
 def test_countries_start_when_member_joined(blog, owner, django_user_model):
     mom = django_user_model.objects.create_user('mom', password='pw-123456')
     joined = timezone.now() - timedelta(days=2)

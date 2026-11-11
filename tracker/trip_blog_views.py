@@ -259,6 +259,15 @@ def trip_blog_api(request, blog_id):
     if data is None:
         return _bad('Invalid JSON')
     fields = []
+    # The dates decide which part of every traveller's history the public
+    # header reads, so only the owner may move them. A member's request still
+    # saves the rest; the dates are dropped and echoed back as ignored.
+    ignored = []
+    if m.role != 'owner':
+        for key in ('start_date', 'end_date'):
+            if key in data:
+                data.pop(key)
+                ignored.append(key)
     if 'name' in data:
         name = str(data.get('name') or '').strip()[:200]
         if not name:
@@ -297,7 +306,10 @@ def trip_blog_api(request, blog_id):
             cache.delete(f"tripfeatured:{request.user.id}")
         m.refresh_from_db()
     tb.bump(blog.id)
-    return JsonResponse(_blog_payload(blog, m))
+    out = _blog_payload(blog, m)
+    if ignored:
+        out['ignored'] = ignored
+    return JsonResponse(out)
 
 
 @login_required
