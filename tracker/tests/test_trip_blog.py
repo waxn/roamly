@@ -156,6 +156,11 @@ def test_fuzz_is_stable_and_bounded():
     moved = (real[0] + 0.004, real[1])             # ~450 m
     c = tb.fuzz_spot(1, 2, *moved, now + timedelta(hours=7, minutes=1))
     assert _haversine(moved, c[:2]) <= c[2]
+    # Leaving and coming back starts a new stay but gives the same dot, so
+    # repeated day trips can't be averaged back to the true spot.
+    tb.fuzz_spot(1, 2, real[0] + 0.5, real[1], now + timedelta(hours=8))
+    back = tb.fuzz_spot(1, 2, *real, now + timedelta(hours=9))
+    assert back == a
 
 
 def test_status_never_contains_raw_fix(client, blog, owner):

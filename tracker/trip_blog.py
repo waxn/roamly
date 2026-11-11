@@ -236,8 +236,8 @@ def fuzz_spot(blog_id, user_id, lat, lon, ts):
     A stay starts at the first fix of it (cached); a fix more than
     FUZZ_NEW_STAY_M from the stay's start begins a new one. Within a stay the
     dot is the person's position — snapped to a ~250 m grid so small moves do
-    not show — moved by an HMAC-derived bearing and distance that stays the same
-    until the stay ends or its radius tier widens. Polling for hours therefore
+    not show — moved by an HMAC-derived bearing and distance fixed per grid
+    cell and radius tier, so coming back to a place gives the same dot. Polling for hours therefore
     yields the same dot, not a cloud of samples to average back to the truth,
     and the true position is always within the returned radius of the dot.
     """
@@ -246,7 +246,7 @@ def fuzz_spot(blog_id, user_id, lat, lon, ts):
     now_s = ts.timestamp()
     if (not anchor or _haversine_m(anchor['lat'], anchor['lon'], lat, lon) > FUZZ_NEW_STAY_M
             or now_s < anchor['since']):
-        anchor = {'lat': lat, 'lon': lon, 'since': now_s, 'nonce': secrets.token_hex(8)}
+        anchor = {'lat': lat, 'lon': lon, 'since': now_s}
     cache.set(key, anchor, FUZZ_ANCHOR_TTL)
 
     still_s = max(0.0, now_s - anchor['since'])
@@ -255,14 +255,17 @@ def fuzz_spot(blog_id, user_id, lat, lon, ts):
         if still_s >= after:
             tier = i
     radius = FUZZ_TIERS[tier][1]
-    # Nonce-keyed, not coordinate-keyed: the anchor coordinates are the secret.
+    glat, glon = round(lat * 400) / 400, round(lon * 400) / 400    # ~250 m grid
+    # Keyed on the grid cell (under SECRET_KEY), not on a random per-stay
+    # nonce: with a nonce, every return to the same spot after a day trip drew
+    # a fresh offset around the same grid point, and enough of them average
+    # back to it. One cell, one tier, one dot.
     digest = hmac.new(settings.SECRET_KEY.encode(),
-                      f"tripfuzz:{blog_id}:{user_id}:{anchor['nonce']}:{tier}".encode(),
+                      f"tripfuzz:{blog_id}:{user_id}:{glat:.4f}:{glon:.4f}:{tier}".encode(),
                       hashlib.sha256).digest()
     bearing = int.from_bytes(digest[:4], 'big') / 2 ** 32 * 2 * math.pi
     # ≤ 0.6 r from the grid point, plus ≤ ~200 m of grid snap, stays inside r.
     frac = 0.35 + 0.25 * int.from_bytes(digest[4:8], 'big') / 2 ** 32
-    glat, glon = round(lat * 400) / 400, round(lon * 400) / 400    # ~250 m grid
     flat, flon = _offset(glat, glon, frac * radius, bearing)
     return round(flat, 4), round(flon, 4), radius
 
