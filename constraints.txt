@@ -13,7 +13,7 @@
 # dependency tree would need a real resolver (pip-tools/uv), and a partial file
 # that claims to be complete is worse than one that says what it covers.
 #
-# Verified against PyPI 2026-09-15.
+# Verified against PyPI 2026-11-11.
 
 Django==6.1.3
 gunicorn==26.2.0
@@ -22,7 +22,7 @@ psycopg2-binary==2.9.13
 dj-database-url==3.1.2
 django-cors-headers==4.9.0
 Pillow==13.0.0
-boto3==1.43.95
+boto3==1.44.0
 django-redis==7.0.0
 # Held below 2.4.0 on purpose — see the note in requirements.txt (commit ba00fdb).
 numpy==2.3.5
