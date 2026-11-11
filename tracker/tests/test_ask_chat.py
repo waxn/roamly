@@ -381,3 +381,12 @@ def test_stream_is_cut_off_past_the_size_cap(monkeypatch):
     assert len(final['content']) < 10000
     assert final['tool_calls'] is None
 
+
+def test_send_is_rate_limited_per_account(client, user, llm, monkeypatch):
+    from tracker import ask_views
+    monkeypatch.setattr(ask_views, '_SEND_LIMIT_PER_HOUR', 1)
+    llm.rounds = ['First answer.']
+    send(client, message='Hi')
+    resp = client.post('/api/ask/send/', json.dumps({'message': 'Again', 'tz_offset': 0}),
+                       content_type='application/json')
+    assert resp.status_code == 429

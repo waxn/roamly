@@ -123,6 +123,11 @@ def chat_delete_api(request, chat_id):
     return JsonResponse({'status': 'ok'})
 
 
+# Generous for a person, and a ceiling for a script: a turn can run several
+# tool rounds, each a streamed provider call holding a gthread worker.
+_SEND_LIMIT_PER_HOUR = 120
+
+
 def _line(event):
     return json.dumps(event, default=str) + '\n'
 
@@ -141,6 +146,13 @@ def send_api(request):
     profile, err = _gate(request)
     if err:
         return err
+    # Each turn holds a worker for as long as the provider streams, against a
+    # base URL the user chose, so turns are counted per account.
+    from .views import _rate_limited
+    if _rate_limited(request, 'ask_send', _SEND_LIMIT_PER_HOUR, 3600,
+                     identifier=f'u{request.user.id}', include_ip=False):
+        return JsonResponse({'error': "You've sent a lot of questions this hour. "
+                                      'Try again in a little while.'}, status=429)
     data = _body(request)
     if data is None:
         return JsonResponse({'error': 'Invalid request.'}, status=400)
