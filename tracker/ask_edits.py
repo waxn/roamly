@@ -133,6 +133,7 @@ FLIGHT_FIELDS = (
 )
 _FLIGHT_LABELS = {
     'flight_number': 'Flight', 'date': 'Date', 'airline_name': 'Airline',
+    'airline_iata': 'Airline code (IATA)', 'airline_icao': 'Airline code (ICAO)',
     'dep_iata': 'From', 'arr_iata': 'To',
     'sched_dep': 'Scheduled departure', 'sched_arr': 'Scheduled arrival',
     'actual_dep': 'Actual departure', 'actual_arr': 'Actual arrival',
@@ -306,6 +307,13 @@ def propose_update_flight(user, flight_id=None, changes=None, **_):
         if k in diff or (k in ('dep_iata', 'arr_iata') and any(x.startswith(k[:4]) for x in diff)):
             rows.append({"label": _FLIGHT_LABELS[k], "before": _flight_value(f, k) or '—',
                          "after": _flight_value(g, k) or '—'})
+    # The card is what the user approves, so every change must be on it: a
+    # field with no label of its own still gets a row rather than going unseen.
+    shown = {k for k in _FLIGHT_LABELS if k in diff} | {
+        x for x in diff if x[:4] in ('dep_', 'arr_')}
+    for k in sorted(set(diff) - shown):
+        rows.append({"label": k.replace('_', ' ').capitalize(),
+                     "before": _flight_value(f, k) or '—', "after": _flight_value(g, k) or '—'})
     summary = f'Edit {_flight_summary(f)}'
     return {"proposed": summary, "fields": sorted(diff), "note": _AWAITING, "_proposal": {
         "kind": "flight_update", "target_id": f.id, "summary": summary[:200],

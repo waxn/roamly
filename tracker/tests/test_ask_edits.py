@@ -109,6 +109,15 @@ def test_flight_edit_changes_only_the_listed_fields(client, user, llm):
     assert after['seat'] == '3C' and after['booking_ref'] == 'XYZ789'
 
 
+def test_flight_edit_card_shows_every_change(client, user, llm):
+    f = Flight.objects.create(user=user, flight_number='UA234', date=date(2026, 11, 1),
+                              dep_iata='BOS', arr_iata='LIS', airline_iata='UA')
+    propose(client, llm, call('propose_update_flight', flight_id=f.id,
+                              changes={'airline_iata': 'TP'}))
+    p = AskProposal.objects.get()
+    assert {'label': 'Airline code (IATA)', 'before': 'UA', 'after': 'TP'} in p.rows
+
+
 def test_flight_edit_is_refused_when_the_flight_changed_since(client, user, llm):
     f = Flight.objects.create(user=user, flight_number='UA234', date=date(2026, 11, 1),
                               dep_iata='BOS', arr_iata='LIS', seat='12A')
