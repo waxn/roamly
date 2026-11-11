@@ -364,3 +364,20 @@ def test_turn_stats_are_streamed_and_saved(client, user, llm):
     # The fake provider reports no usage, so output is an estimate.
     assert stats['estimated'] and stats['out_tokens'] == 3 and stats['rounds'] == 1
     assert AskMessage.objects.get(role='assistant').meta['stats'] == stats
+
+
+def test_stream_is_cut_off_past_the_size_cap(monkeypatch):
+    big = 'x' * 1000
+    chunks = [{'choices': [{'delta': {'content': big}}]}] * 50
+    chunks.append({'choices': [{'delta': {'tool_calls': [
+        {'index': 0, 'id': 't', 'function': {'name': 'show_map', 'arguments': '{"da'}}]}}]})
+    monkeypatch.setattr(ai_tasks, 'validate_outbound_url', lambda *a, **k: None)
+    monkeypatch.setattr(ai_tasks._session, 'post', lambda *a, **k: _SSE(chunks))
+    monkeypatch.setattr(ai_tasks, '_STREAM_MAX_BYTES', 5000)
+    profile = type('P', (), {'ai_base_url': 'https://slow.example', 'ai_model': 'm', 'ai_api_key': 'k'})()
+    ev = list(ai_tasks._provider_stream(profile, []))
+    final = ev[-1][1]
+    assert final['content'].endswith(ai_tasks._CUT_OFF_NOTE)
+    assert len(final['content']) < 10000
+    assert final['tool_calls'] is None
+

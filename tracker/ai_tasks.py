@@ -844,6 +844,15 @@ _TOOL_STATUS = {
 }
 
 
+# Bounds on one streamed provider call. _REQUEST_TIMEOUT only limits the wait
+# between bytes, so a base URL that trickles (or never stops) would otherwise
+# hold a gthread worker and grow memory indefinitely. Hitting either keeps what
+# arrived, the way a stop or disconnect does.
+_STREAM_MAX_BYTES = 512 * 1024
+_STREAM_DEADLINE_S = 240
+_CUT_OFF_NOTE = "\n\n_(The reply was cut off: it ran too long.)_"
+
+
 # Base URLs that rejected ``stream_options``, so later turns don't pay a failed
 # request to find out again. Per process; a restart just asks once more.
 _NO_STREAM_OPTIONS = set()
@@ -899,8 +908,18 @@ def _provider_stream(profile, messages, tools=None):
         _raise_for_status(resp)
         if "text/event-stream" not in (resp.headers.get("Content-Type") or ""):
             started = time.monotonic()
+            body = bytearray()
             try:
-                data = json.loads(resp.content.decode("utf-8", errors="replace"))
+                for piece in resp.iter_content(chunk_size=16384):
+                    body.extend(piece)
+                    if len(body) > _STREAM_MAX_BYTES:
+                        raise AIProviderError("The AI provider's reply was too large.")
+                    if time.monotonic() - started > _STREAM_DEADLINE_S:
+                        raise AIProviderError("The AI provider took too long to answer.")
+            except requests.exceptions.RequestException:
+                raise AIProviderError("The connection to the AI provider dropped. Try again.")
+            try:
+                data = json.loads(bytes(body).decode("utf-8", errors="replace"))
                 msg = (data.get("choices") or [{}])[0].get("message") or {}
             except (ValueError, AttributeError):
                 raise AIProviderError("The AI provider returned a non-JSON response.")
@@ -916,14 +935,22 @@ def _provider_stream(profile, messages, tools=None):
         calls = {}  # index -> {"id", "type", "function": {"name", "arguments"}}
         usage = None
         first = last = None
+        started = time.monotonic()
+        received = 0
+        cut_off = False
         try:
             # Raw bytes, decoded here as UTF-8. requests' own decode_unicode uses
             # the Content-Type charset, and an event stream usually names none,
             # so it fell back to Latin-1 and every emoji and dash came out as
             # "ð…" / "â…". A line is always whole, so decoding per line is safe.
             for raw_bytes in resp.iter_lines():
+                if (time.monotonic() - started > _STREAM_DEADLINE_S
+                        or received > _STREAM_MAX_BYTES):
+                    cut_off = True
+                    break
                 if not raw_bytes:
                     continue
+                received += len(raw_bytes)
                 raw = raw_bytes.decode("utf-8", errors="replace")
                 if not raw.startswith("data:"):
                     continue
@@ -961,6 +988,12 @@ def _provider_stream(profile, messages, tools=None):
                         slot["function"]["arguments"] += fn["arguments"]
         except requests.exceptions.RequestException:
             raise AIProviderError("The connection to the AI provider dropped. Try again.")
+        if cut_off:
+            # Tool-call arguments cut mid-stream are not valid JSON, so a
+            # cut-off round answers with its text alone.
+            content.append(_CUT_OFF_NOTE)
+            yield "delta", _CUT_OFF_NOTE
+            calls = {}
         yield "final", {"content": "".join(content),
                         "tool_calls": [calls[i] for i in sorted(calls)] or None,
                         "usage": usage,
