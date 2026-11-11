@@ -39,7 +39,7 @@ from datetime import datetime, timedelta, timezone as dt_timezone
 from django.db import close_old_connections, connection
 from django.utils import timezone
 
-from .net_utils import validate_outbound_host, OutboundURLError
+from .net_utils import validate_outbound_host, OutboundURLError, urlopen_no_redirect
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +92,7 @@ def _fetch_band_data(host, token, user_id, from_date, to_date):
         'User-Agent': 'Roamly',
     })
     try:
-        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+        with urlopen_no_redirect(req, timeout=REQUEST_TIMEOUT) as resp:
             payload = json.loads(resp.read().decode('utf-8'))
     except urllib.error.HTTPError as exc:
         # 401 is by far the most likely failure and the most actionable, so it
@@ -101,7 +101,7 @@ def _fetch_band_data(host, token, user_id, from_date, to_date):
             raise ZeppError(
                 "Zepp rejected the token (HTTP %d). App tokens expire — "
                 "re-capture it from the Zepp app." % exc.code)
-        raise ZeppError("Zepp returned HTTP %d" % exc.code)
+        raise ZeppError("Zepp returned HTTP %d %s" % (exc.code, exc.reason))
     except Exception as exc:
         raise ZeppError("Could not reach Zepp: %s" % exc)
 

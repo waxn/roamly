@@ -26,6 +26,8 @@ refusing it outright would just get the feature worked around.
 
 import ipaddress
 import socket
+import urllib.error
+import urllib.request
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -116,3 +118,26 @@ def validate_outbound_host(host, *, label='Host'):
         raise OutboundURLError(f"{label} must be a bare hostname.")
     resolve_and_check(host)
     return host
+
+
+class _RefuseRedirect(urllib.request.HTTPRedirectHandler):
+    """Turn every 3xx into an HTTPError instead of following it.
+
+    A validated host can still answer with a redirect to 169.254.169.254 or a
+    service on the Docker network, and urllib would follow it, carrying our
+    headers (Zepp's apptoken included). The `requests` call sites already pass
+    allow_redirects=False; this is the urllib equivalent. The target is kept in
+    the reason so an admin whose mirror merely moved can fix the URL.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(
+            req.full_url, code, f"{msg} (redirect to {newurl} refused)", headers, fp)
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_RefuseRedirect)
+
+
+def urlopen_no_redirect(req, timeout):
+    """urllib.request.urlopen for configured URLs: never follows a redirect."""
+    return _NO_REDIRECT_OPENER.open(req, timeout=timeout)
