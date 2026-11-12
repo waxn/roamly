@@ -1,0 +1,53 @@
+/* Palette: blueprint. Colour tokens only, see tracker/appearance.py. */
+html[data-palette="blueprint"] {
+    color-scheme: dark;
+    --bg: #0b2a4b;
+    --bg-card: rgba(15, 52, 92, 0.72);
+    --bg-elevated: #113a66;
+    --bg-glass: rgba(11, 42, 75, 0.95);
+    --bg-input: rgba(6, 28, 52, 0.7);
+    --border: rgba(232, 242, 255, 0.32);
+    --border-strong: rgba(232, 242, 255, 0.7);
+    --border-bright: #ffd25a;
+    --text: #eaf3ff;
+    --text-muted: #b5cde8;
+    --text-dim: #7fa0c4;
+    --primary: #ffd25a;
+    --primary-hover: #ffe082;
+    --primary-soft: rgba(255, 210, 90, 0.14);
+    --on-primary: #0b2a4b;
+    --accent: #8fd0ff;
+    --moss: #8ee6b4;
+    --map-blue: #8fd0ff;
+    --danger: #ff7a64;
+    --success: #8ee6b4;
+    --warning: #ffd25a;
+    --link: #ffd25a;
+    --link-hover: #ffe59a;
+    --clay-mint: #8ee6b4;
+    --clay-coral: #ff8f7a;
+    --clay-amber: #ffd25a;
+    --clay-lavender: #d6b8ff;
+    --clay-sky: #8fd0ff;
+    --surface-0: #081f39;
+    --paper: #eaf3ff;
+    --paper-ink: #0b2a4b;
+
+    &[data-theme="light"] {
+        color-scheme: light;
+        --bg: #eef3f8;
+        --bg-card: rgba(255, 255, 255, 0.75);
+        --bg-elevated: #ffffff;
+        --bg-glass: rgba(238, 243, 248, 0.95);
+        --bg-input: #ffffff;
+        --border: rgba(14, 50, 96, 0.3);
+        --border-strong: rgba(14, 50, 96, 0.7);
+        --text: #0e3260;
+        --text-muted: #3d5f86;
+        --text-dim: #6d89a8;
+        --primary: #e8a10a;
+        --primary-hover: #cf8f06;
+        --link: #b36b00;
+        --surface-0: #e3ebf3;
+    }
+}

@@ -1,0 +1,54 @@
+/* Palette: transit. Colour tokens only, see tracker/appearance.py. */
+html[data-palette="transit"] {
+    color-scheme: dark;
+    --bg: #0a0b0d;
+    --bg-card: #121418;
+    --bg-elevated: #1a1d22;
+    --bg-glass: rgba(10, 11, 13, 0.95);
+    --bg-input: #0d0f12;
+    --border: #23272e;
+    --border-strong: #3a3f48;
+    --border-bright: rgba(255, 205, 0, 0.8);
+    --text: #f4f4f0;
+    --text-muted: #a5a9b0;
+    --text-dim: #6b7079;
+    --primary: #ffcd00;
+    --primary-hover: #ffda3d;
+    --primary-soft: rgba(255, 205, 0, 0.12);
+    --on-primary: #0a0b0d;
+    --accent: #e4312b;
+    --moss: #00a651;
+    --map-blue: #1a82e2;
+    --danger: #e4312b;
+    --success: #00a651;
+    --warning: #ff8a00;
+    --link-hover: #a9d3ff;
+    --clay-mint: #00a651;     /* green line */
+    --clay-coral: #e4312b;    /* red line */
+    --clay-amber: #ff8a00;    /* orange line */
+    --clay-lavender: #e35ea6; /* pink line */
+    --clay-sky: #1a82e2;      /* blue line */
+    --link: #6fb6ff;
+    --surface-0: #000000;
+    --paper: #f4f4f0;
+    --paper-ink: #0a0b0d;
+
+    &[data-theme="light"] {
+        color-scheme: light;
+        --bg: #f2f2ee;
+        --bg-card: #ffffff;
+        --bg-elevated: #f7f7f4;
+        --bg-glass: rgba(255, 255, 255, 0.95);
+        --bg-input: #ffffff;
+        --border: #dcdcd6;
+        --border-strong: #b9b9b1;
+        --text: #0a0b0d;
+        --text-muted: #4a4e55;
+        --text-dim: #7b7f86;
+        --primary: #ffcd00;
+        --primary-hover: #f2c200;
+        --link: #0b5cad;
+        --link-hover: #073d74;
+        --surface-0: #0a0b0d;
+    }
+}

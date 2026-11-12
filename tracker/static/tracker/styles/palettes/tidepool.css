@@ -1,0 +1,55 @@
+/* Palette: tidepool. Colour tokens only, see tracker/appearance.py. */
+html[data-palette="tidepool"] {
+    color-scheme: dark;
+    --bg: #03141a;
+    --bg-card: rgba(9, 42, 50, 0.62);
+    --bg-elevated: #0d3a42;
+    --bg-glass: rgba(4, 26, 32, 0.8);
+    --bg-input: rgba(2, 18, 23, 0.65);
+    --border: rgba(160, 255, 235, 0.13);
+    --border-strong: rgba(160, 255, 235, 0.28);
+    --border-bright: rgba(95, 242, 208, 0.75);
+    --text: #e3fbf6;
+    --text-muted: #9ccfc6;
+    --text-dim: #5f8f89;
+    --primary: #5ff2d0;
+    --primary-hover: #8ff7e0;
+    --primary-soft: rgba(95, 242, 208, 0.14);
+    --on-primary: #03231f;
+    --accent: #ff7b6b;
+    --moss: #9bd36a;
+    --map-blue: #6fc9ff;
+    --danger: #ff6b6b;
+    --success: #9bd36a;
+    --warning: #f1d39a;
+    --link-hover: #c9fff3;
+    --clay-mint: #9bd36a;     /* kelp */
+    --clay-coral: #ff7b6b;    /* coral */
+    --clay-amber: #f1d39a;    /* sand */
+    --clay-lavender: #ff8fc7; /* anemone */
+    --clay-sky: #6fc9ff;      /* shallows */
+    --link: #8ff7e0;
+    --surface-0: #020d11;
+    --paper: #e3fbf6;
+    --paper-ink: #03231f;
+
+    &[data-theme="light"] {
+        color-scheme: light;
+        --bg: #dff3f0;
+        --bg-card: rgba(255, 255, 255, 0.62);
+        --bg-elevated: #ffffff;
+        --bg-glass: rgba(240, 252, 250, 0.82);
+        --bg-input: rgba(255, 255, 255, 0.8);
+        --border: rgba(10, 90, 85, 0.12);
+        --border-strong: rgba(10, 90, 85, 0.25);
+        --text: #06302d;
+        --text-muted: #3c6b66;
+        --text-dim: #6f9893;
+        --primary: #0b9e86;
+        --primary-hover: #088571;
+        --on-primary: #ffffff;
+        --link: #077566;
+        --link-hover: #04544a;
+        --surface-0: #cfe9e5;
+    }
+}

@@ -1,0 +1,19 @@
+/* Background: stones. Three huge out-of-focus stones lying under still water, breathing slowly. Coloured only by palette tokens. */
+@keyframes bgs-breathe {
+    0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+    50% { transform: translate3d(2%, -1.5%, 0) scale(1.04); }
+}
+html[data-bg="stones"] {
+    body { background: var(--bg); }
+    body::before {
+        inset: -10%;
+        z-index: -1;
+        background:
+            radial-gradient(38% 30% at 18% 22%, color-mix(in srgb, var(--primary) 8%, transparent), transparent 70%),
+            radial-gradient(34% 28% at 84% 78%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 70%),
+            radial-gradient(30% 24% at 70% 18%, color-mix(in srgb, var(--clay-sky) 6%, transparent), transparent 70%);
+        opacity: 1;
+        animation: bgs-breathe 26s ease-in-out infinite;
+    }
+    @media (prefers-reduced-motion: reduce) { body::before { animation: none; } }
+}

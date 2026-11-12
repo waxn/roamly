@@ -1,0 +1,56 @@
+/* Palette: pebble. Colour tokens only, see tracker/appearance.py. */
+html[data-palette="pebble"] {
+    color-scheme: dark;
+    --bg: #121211;
+    --bg-card: #1c1b19;
+    --bg-elevated: #24231f;
+    --bg-glass: rgba(18, 18, 17, 0.88);
+    --bg-input: #151513;
+    --border: rgba(255, 250, 235, 0.06);
+    --border-strong: rgba(255, 250, 235, 0.13);
+    --border-bright: rgba(169, 199, 159, 0.6);
+    --text: #ecebe5;
+    --text-muted: #aeaca2;
+    --text-dim: #74726a;
+    --primary: #a9c79f;
+    --primary-hover: #bcd8b2;
+    --primary-soft: rgba(169, 199, 159, 0.13);
+    --on-primary: #17200f;
+    --accent: #dc9a7e;
+    --moss: #a9c79f;
+    --map-blue: #94acc4;
+    --danger: #e5826d;
+    --success: #a9c79f;
+    --warning: #dcc49a;
+    --link-hover: #e0f0da;
+    --clay-mint: #a9c79f;     /* lichen */
+    --clay-coral: #dc9a7e;    /* river clay */
+    --clay-amber: #dcc49a;    /* sand */
+    --clay-lavender: #c2a9b8; /* heather */
+    --clay-sky: #94acc4;      /* slate */
+    --link: #bcd8b2;
+    --surface-0: #0e0e0d;
+    --paper: #ecebe5;
+    --paper-ink: #1c1b19;
+
+    &[data-theme="light"] {
+        color-scheme: light;
+        --bg: #e9e7e1;
+        --bg-card: #f3f2ed;
+        --bg-elevated: #fbfaf7;
+        --bg-glass: rgba(243, 242, 237, 0.9);
+        --bg-input: #e4e2db;
+        --border: rgba(40, 38, 30, 0.07);
+        --border-strong: rgba(40, 38, 30, 0.14);
+        --text: #22221f;
+        --text-muted: #5d5b53;
+        --text-dim: #8e8b81;
+        --primary: #5f8a53;
+        --primary-hover: #4e7644;
+        --primary-soft: rgba(95, 138, 83, 0.12);
+        --on-primary: #ffffff;
+        --link: #3f6a35;
+        --link-hover: #2c4f24;
+        --surface-0: #dcdad3;
+    }
+}

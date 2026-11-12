@@ -1,0 +1,29 @@
+/* Background: crt. A tube: curved vignette, scanlines over everything, a slow roll bar (backgrounds/crt.js). Coloured only by palette tokens. */
+@keyframes bgc-roll { from { transform: translateY(-100%); } to { transform: translateY(100vh); } }
+html[data-bg="crt"] {
+    body {
+        background: radial-gradient(130% 110% at 50% 45%, color-mix(in srgb, var(--bg-elevated) 70%, var(--bg)) 0%, var(--bg) 55%, var(--surface-0) 100%);
+        background-attachment: fixed;
+    }
+    body::before { display: none; }
+    body::after {
+        content: '';
+        position: fixed; inset: 0;
+        z-index: 9000;
+        pointer-events: none;
+        background:
+            repeating-linear-gradient(180deg, rgba(0, 0, 0, 0.22) 0 1px, transparent 1px 3px),
+            radial-gradient(120% 100% at 50% 50%, transparent 62%, rgba(0, 0, 0, 0.55) 100%);
+    }
+    &[data-theme="light"] body { background: var(--bg); }
+    &[data-theme="light"] body::after { background: repeating-linear-gradient(180deg, color-mix(in srgb, var(--text) 5%, transparent) 0 1px, transparent 1px 3px); }
+    .bgc-roll {
+        position: fixed; left: 0; right: 0; top: 0;
+        height: 120px;
+        z-index: 9001;
+        pointer-events: none;
+        background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--primary) 4%, transparent), transparent);
+        animation: bgc-roll 7s linear infinite;
+    }
+    @media (prefers-reduced-motion: reduce) { .bgc-roll { display: none; } }
+}

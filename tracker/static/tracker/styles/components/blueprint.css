@@ -1,0 +1,340 @@
+/* ════════════════════════════════════════════════════════════════════
+   BLUEPRINT — drafted on cyanotype.
+   Prussian-blue sheet, white linework, a drafting grid, yellow marker for
+   anything you can act on. Tiles are drawn panels with registration
+   crosses at the corners and a drawing number; page titles carry a
+   dimension line measuring their own width; hover a tile and its
+   dimensions are called out; a crosshair follows the cursor with live
+   coordinates; a title block sits in the corner of the sheet.
+   ════════════════════════════════════════════════════════════════════ */
+
+@keyframes bp-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes bp-spin { to { transform: rotate(360deg); } }
+@keyframes bp-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+html[data-style="blueprint"] {
+    --line: color-mix(in srgb, color-mix(in srgb, var(--text-muted) 5%, var(--text)) 90%, transparent);
+    --line-dim: color-mix(in srgb, color-mix(in srgb, var(--text-muted) 5%, var(--text)) 32%, transparent);
+    --line-faint: color-mix(in srgb, color-mix(in srgb, var(--text-muted) 5%, var(--text)) 12%, transparent);
+    --marker: var(--primary);
+    --clay-shadow: none;
+    --clay-shadow-sm: none;
+    --clay-shadow-hover: none;
+    --clay-shadow-inset: none;
+    --clay-shadow-btn: none;
+    --nav-h: 62px;
+    --hatch: repeating-linear-gradient(45deg, color-mix(in srgb, color-mix(in srgb, var(--text-muted) 5%, var(--text)) 14%, transparent) 0 1px, transparent 1px 7px);
+    --cross: linear-gradient(var(--line), var(--line));
+
+    &[data-theme="light"] {
+        --line: color-mix(in srgb, var(--text) 90%, transparent);
+        --line-dim: color-mix(in srgb, var(--text) 35%, transparent);
+        --line-faint: color-mix(in srgb, var(--text) 10%, transparent);
+        --marker: var(--primary);
+    }
+
+    ::selection { background: var(--marker); color: var(--bg); }
+
+    body {
+        scrollbar-color: color-mix(in srgb, color-mix(in srgb, var(--text-muted) 5%, var(--text)) 40%, transparent) transparent;
+    }
+
+    h1, h2, h3 { font-family: var(--font-body); }
+
+    /* ── Navbar: the sheet's top margin ── */
+    .navbar {
+        background: color-mix(in srgb, var(--surface-0) 92%, transparent);
+        backdrop-filter: blur(4px);
+        border-bottom: 1px solid var(--line);
+        box-shadow: 0 3px 0 -2px var(--line-dim);
+    }
+    &[data-theme="light"] .navbar { background: color-mix(in srgb, var(--bg) 92%, transparent); }
+    .navbar-mark { filter: brightness(0) invert(1); opacity: 0.9; }
+    &[data-theme="light"] .navbar-mark { filter: brightness(0) invert(0.18) sepia(1) hue-rotate(180deg) saturate(3); }
+    .navbar-wordmark {
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: 1.05rem;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: var(--text);
+        display: inline-flex;
+        flex-direction: column;
+        line-height: 1.1;
+    }
+    .navbar-wordmark::after {
+        content: 'SHEET 01 / REV C';
+        font-family: var(--font-mono);
+        font-size: 0.52rem;
+        font-weight: 400;
+        letter-spacing: 0.2em;
+        color: var(--text-dim);
+    }
+    .navbar-nav a, .navbar-nav-toggle {
+        font-family: var(--font-mono);
+        font-size: 0.7rem;
+        font-weight: 500;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        border-bottom: none;
+        position: relative;
+    }
+    .navbar-nav a:hover, .navbar-nav-toggle:hover { color: var(--text); }
+    .navbar-nav a.active, .navbar-nav-toggle.active { color: var(--marker); border-bottom: none; }
+    .navbar-nav a.active::before, .navbar-nav a.active::after { position: absolute; top: 50%; transform: translateY(-50%); color: var(--marker); font-weight: 400; }
+    .navbar-nav a.active::before { content: '['; left: 0.1rem; }
+    .navbar-nav a.active::after { content: ']'; right: 0.1rem; }
+    .navbar-user-toggle { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); border-radius: var(--r-3); }
+    .navbar-user-toggle:hover { background: var(--line-faint); color: var(--text); }
+    .notif-dot { background: var(--marker); box-shadow: 0 0 0 2px var(--bg); }
+
+    .nav-dropdown-menu, .notif-panel, .rly-select-menu, .rly-cal {
+        background: color-mix(in srgb, color-mix(in srgb, var(--surface-0) 40%, var(--bg)) 97%, transparent);
+        border: 1px solid var(--line);
+        outline: 1px solid var(--line-dim);
+        outline-offset: 3px;
+        border-radius: var(--r-3);
+        box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.7);
+    }
+    &[data-theme="light"] .nav-dropdown-menu, &[data-theme="light"] .notif-panel, &[data-theme="light"] .rly-select-menu, &[data-theme="light"] .rly-cal { background: #fff; }
+    .nav-dropdown-menu a { font-family: var(--font-mono); font-size: 0.74rem; letter-spacing: 0.08em; text-transform: uppercase; border-radius: var(--r-3); }
+    .nav-dropdown-menu a:hover { background: var(--hatch); color: var(--text); }
+    .nav-dropdown-menu a.active { background: transparent; color: var(--marker); }
+
+    /* ── Page title with a dimension line ── */
+    .page-header h1, .page-toolbar h1 {
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: clamp(1.7rem, 3.6vw, 2.6rem);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text);
+        position: relative;
+        display: inline-block;
+    }
+    .page-header .page-lead { font-family: var(--font-mono); font-size: 0.84rem; color: var(--text-muted); margin-top: 1.7rem; letter-spacing: 0.01em; }
+    .page-toolbar { padding-bottom: 1rem; }
+
+    /* ── Drawn panels ── */
+    .card {
+        position: relative;
+        background:
+            var(--cross) left 6px top 12px / 1px 13px no-repeat, var(--cross) left 0 top 18px / 13px 1px no-repeat,
+            var(--cross) right 6px top 12px / 1px 13px no-repeat, var(--cross) right 0 top 18px / 13px 1px no-repeat,
+            var(--cross) left 6px bottom 12px / 1px 13px no-repeat, var(--cross) left 0 bottom 18px / 13px 1px no-repeat,
+            var(--cross) right 6px bottom 12px / 1px 13px no-repeat, var(--cross) right 0 bottom 18px / 13px 1px no-repeat,
+            var(--bg-card);
+        border: 1px solid var(--line-dim);
+        border-radius: var(--r-3);
+        box-shadow: inset 0 0 0 5px transparent, inset 0 0 0 6px var(--line-faint);
+        padding: 1.8rem 1.9rem;
+        counter-increment: bp-dwg;
+    }
+    .card:hover { border-color: var(--line); }
+    main { counter-reset: bp-dwg; }
+    .card-header {
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: 0.95rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        border-bottom: 1px solid var(--line-dim);
+        padding-bottom: 0.6rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 1rem;
+    }
+    .card-header::after {
+        content: 'DWG A-' counter(bp-dwg, decimal-leading-zero);
+        font-family: var(--font-mono);
+        font-weight: 400;
+        font-size: 0.6rem;
+        letter-spacing: 0.16em;
+        color: var(--text-dim);
+        border: 1px solid var(--line-dim);
+        padding: 0.12rem 0.35rem;
+        white-space: nowrap;
+    }
+    .card-coral, .card-lavender, .card-amber, .card-sky, .card-teal { border-left: 1px solid var(--line-dim); }
+    .card-coral { --bp-c: var(--clay-coral); }
+    .card-lavender { --bp-c: var(--clay-lavender); }
+    .card-amber { --bp-c: var(--clay-amber); }
+    .card-sky { --bp-c: var(--clay-sky); }
+    .card-teal { --bp-c: var(--marker); }
+    .card-coral .card-header, .card-lavender .card-header, .card-amber .card-header, .card-sky .card-header, .card-teal .card-header { border-bottom: 2px solid var(--bp-c); }
+    /* hover call-out (blueprint.js) */
+
+    /* ── Figures ── */
+    .stat-value {
+        font-family: var(--font-mono);
+        font-weight: 500;
+        font-size: 2.05rem;
+        letter-spacing: 0.02em;
+        color: var(--text);
+    }
+    .stat-value-coral { color: var(--clay-coral); }
+    .stat-value-amber { color: var(--marker); }
+    .stat-value-sky { color: var(--clay-sky); }
+    .stat-value-lavender { color: var(--clay-lavender); }
+    .stat-label { font-family: var(--font-mono); letter-spacing: 0.16em; color: var(--text-dim); }
+    .card.stat-card .stat-value { border-bottom: 1px dashed var(--line-dim); display: inline-block; padding-bottom: 0.2rem; }
+
+    /* ── Controls ── */
+    .btn {
+        border-radius: var(--r-2);
+        font-family: var(--font-mono);
+        font-size: 0.74rem;
+        font-weight: 500;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--text);
+        transition: background 0.15s, color 0.15s;
+    }
+    .btn:hover { background: var(--hatch); }
+    .btn-primary { background: var(--marker); color: var(--bg); border-color: var(--marker); }
+    .btn-primary:hover { background: var(--primary-hover); color: var(--bg); }
+    .btn-danger { border-color: var(--danger); color: var(--danger); background: transparent; }
+    .btn-danger:hover { background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--danger) 25%, transparent) 0 1px, transparent 1px 7px); color: var(--danger); }
+    .btn-outline { border-color: var(--line); color: var(--text); background: transparent; }
+    .btn-outline:hover { border-color: var(--marker); color: var(--marker); }
+    .btn:active { transform: translate(1px, 1px); }
+
+    .form-group label, .pref-label { font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-dim); }
+    .form-control, .rly-select-trigger, .rly-date-trigger {
+        background: var(--bg-input);
+        border: 1px dashed var(--line-dim);
+        border-radius: var(--r-2);
+        font-family: var(--font-mono);
+        font-weight: 400;
+    }
+    .form-control:focus, .rly-select.open .rly-select-trigger, .rly-date.open .rly-date-trigger, .rly-select-trigger:focus-visible, .rly-date-trigger:focus-visible {
+        border: 1px solid var(--marker);
+        box-shadow: 0 0 0 3px var(--primary-soft);
+    }
+    input[type="checkbox"], input[type="radio"] { accent-color: var(--marker); }
+    .rly-select-option { font-family: var(--font-mono); border-radius: var(--r-2); }
+    .rly-select-option:hover, .rly-select-option.active { background: var(--hatch); }
+    .rly-select-option.selected { color: var(--marker); }
+    .rly-cal-day { border-radius: var(--r-3); }
+    .rly-cal-day.selected, .rly-cal-month.selected { background: var(--marker); color: var(--bg); }
+    .rly-cal-day.today { box-shadow: inset 0 0 0 1px var(--marker); }
+
+    /* tabs: a scale rule */
+    .pill-tabs {
+        background: transparent;
+        border: 1px solid var(--line);
+        border-radius: var(--r-2);
+        padding-bottom: 6px;
+        background-image: repeating-linear-gradient(90deg, var(--line-dim) 0 1px, transparent 1px 10px);
+        background-size: 100% 5px;
+        background-repeat: no-repeat;
+        background-position: bottom;
+    }
+    .pill-tabs .tab-btn, .pill-tabs button.tab-btn { font-family: var(--font-mono); letter-spacing: 0.12em; border-right: 1px solid var(--line-dim); color: var(--text-muted); }
+    .pill-tabs .tab-btn:hover { background: var(--hatch); color: var(--text); }
+    .pill-tabs .tab-btn.active, &[data-theme="light"] .pill-tabs .tab-btn.active { background: var(--marker); color: color-mix(in srgb, var(--text) 80%, #000); }
+
+    /* tables: a schedule, fully ruled */
+    table { border: 1px solid var(--line-dim); }
+    th, td { border: 1px solid var(--line-dim); }
+    th { font-family: var(--font-mono); letter-spacing: 0.14em; color: var(--text); background: color-mix(in srgb, color-mix(in srgb, var(--text-muted) 5%, var(--text)) 5%, transparent); }
+    td { font-family: var(--font-mono); font-size: 0.82rem; }
+    tr:hover { background: transparent; }
+    tbody tr:hover td { background: var(--hatch); }
+
+    .badge {
+        background: transparent;
+        border: 1px solid currentColor;
+        border-radius: var(--r-pill);
+        font-family: var(--font-mono);
+        font-weight: 500;
+        font-size: 0.62rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        padding: 0.12rem 0.55rem;
+        color: var(--text);
+    }
+    .badge-success { color: var(--clay-mint); background: transparent; }
+    .badge-warning { color: var(--marker); background: transparent; }
+    .badge-coral { color: var(--clay-coral); background: transparent; }
+    .badge-lavender { color: var(--clay-lavender); background: transparent; }
+    .badge-sky { color: var(--clay-sky); background: transparent; }
+    .badge-teal { color: var(--bg); background: var(--marker); border-color: var(--marker); }
+
+    .alert {
+        border-radius: var(--r-3);
+        border: 1px solid var(--al, var(--line));
+        background: transparent;
+        color: var(--text);
+        font-family: var(--font-mono);
+        font-size: 0.82rem;
+        position: relative;
+        padding-left: 3.6rem;
+    }
+    .alert::before {
+        content: 'NOTE';
+        position: absolute; left: 0; top: 0; bottom: 0;
+        width: 2.8rem;
+        display: grid; place-items: center;
+        border-right: 1px solid var(--al, var(--line));
+        font-size: 0.58rem;
+        letter-spacing: 0.14em;
+        color: var(--al, var(--line));
+        background: var(--hatch);
+    }
+    .alert-success { --al: var(--clay-mint); background: transparent; color: var(--text); }
+    .alert-success::before { content: 'OK'; }
+    .alert-error { --al: var(--danger); background: transparent; color: var(--text); }
+    .alert-error::before { content: 'FAULT'; }
+    .alert-info { --al: var(--marker); background: transparent; color: var(--text); }
+
+    .spinner { border: 1px solid var(--line-dim); border-top: 2px solid var(--marker); border-radius: 50%; animation: bp-spin 1.2s linear infinite; }
+    .skeleton { background: var(--hatch), color-mix(in srgb, color-mix(in srgb, var(--text-muted) 5%, var(--text)) 4%, transparent); border-radius: var(--r-2); }
+    .skeleton::after { display: none; }
+
+    .rly-dialog-overlay { background: color-mix(in srgb, color-mix(in srgb, var(--surface-0) 60%, #000) 75%, transparent); }
+    .rly-dialog { background: color-mix(in srgb, var(--bg-elevated) 70%, var(--bg)); border: 1px solid var(--line); outline: 1px solid var(--line-dim); outline-offset: 5px; border-radius: var(--r-4); box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.8); }
+    &[data-theme="light"] .rly-dialog { background: #fff; }
+    .rly-dialog-title { font-family: var(--font-body); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; font-size: 1.05rem; border-bottom: 1px solid var(--line-dim); padding-bottom: 0.5rem; }
+    .rly-dialog-msg { font-family: var(--font-mono); font-size: 0.86rem; }
+    .rly-dialog-btn { border-radius: var(--r-4); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.74rem; background: transparent; border: 1px solid var(--line); color: var(--text); }
+    .rly-dialog-btn-primary { background: var(--marker); border-color: var(--marker); color: var(--bg); }
+    .rly-dialog-btn-danger { border-color: var(--danger); color: var(--danger); background: transparent; }
+    .rly-dialog-field input { border-radius: var(--r-4); background: var(--bg-input); border: 1px dashed var(--line-dim); }
+    .rly-toast { background: color-mix(in srgb, var(--bg-elevated) 70%, var(--bg)); border: 1px solid var(--line); border-left: 4px solid var(--clay-mint); border-radius: var(--r-4); font-family: var(--font-mono); font-size: 0.82rem; box-shadow: 0 14px 30px -10px rgba(0, 0, 0, 0.7); }
+    .rly-toast-error { border-left-color: var(--danger); }
+    .rly-intro-bar { background: color-mix(in srgb, var(--bg-elevated) 70%, var(--bg)); border-top: 1px solid var(--line); }
+    .rly-intro-title { font-family: var(--font-body); text-transform: uppercase; letter-spacing: 0.12em; }
+    .rly-intro-next { background: var(--marker); color: var(--bg); border-color: var(--marker); border-radius: var(--r-4); font-family: var(--font-mono); text-transform: uppercase; }
+    .rly-banner { background: var(--marker); color: var(--bg); font-family: var(--font-mono); }
+
+    .bottom-nav { background: color-mix(in srgb, var(--surface-0) 96%, transparent); border-top: 1px solid var(--line); }
+    .bottom-nav a { color: var(--text-dim);  }
+    .bottom-nav a.active { color: var(--marker); }
+    .bottom-nav a.active .bottom-nav-icon-wrap { background: transparent; box-shadow: inset 0 0 0 1px var(--marker); }
+
+    .maplibregl-popup-content { background: color-mix(in srgb, var(--bg-elevated) 70%, var(--bg)); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-3); font-family: var(--font-mono); }
+    .maplibregl-popup-tip { border-top-color: var(--line) !important; border-bottom-color: var(--line) !important; }
+    .maplibregl-ctrl-group { background: color-mix(in srgb, var(--bg-elevated) 70%, var(--bg)); border: 1px solid var(--line); border-radius: var(--r-3); }
+    .maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(1); }
+
+    /* the cursor crosshair + readout, and the corner title block (blueprint.js) */
+    &[data-theme="light"] .bp-titleblock { background: rgba(255, 255, 255, 0.9); }
+
+    @media (max-width: 768px) {
+        .bp-titleblock, .bp-xh, .bp-yh, .bp-coords { display: none; }
+        .navbar-wordmark::after { display: none; }
+    }
+
+    /* ── Page chrome: the map sidebar and floating panels, and their buttons,
+       take this look's surfaces too (the shape layer handles their corners). ── */
+    :is(.sidebar-content, .replay-panel, .map-ctx-menu, .map-addplace-panel, .cell-legend, .map-detail-controls) { background: color-mix(in srgb, var(--bg-elevated) 92%, transparent); border: 1px solid var(--line); outline: 1px solid var(--line-dim); outline-offset: 3px; box-shadow: none; }
+    :is(.tool-btn, .style-btn, .replay-panel button.rp-btn, .date-reset-btn, .map-detail-controls button) { background: transparent; border: 1px solid var(--line-dim); color: var(--text); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; }
+    :is(.tool-btn, .style-btn, .replay-panel button.rp-btn, .date-reset-btn, .map-detail-controls button):hover { filter: brightness(1.08); }
+    :is(.tool-btn.active, .style-btn.active) { background: var(--marker); color: var(--on-primary, #0b2a4b); border-color: var(--marker); }
+    .sidebar-label { color: var(--text-dim); }
+}

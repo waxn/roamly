@@ -1,0 +1,57 @@
+/* Palette: basecamp. Colour tokens only, see tracker/appearance.py. */
+html[data-palette="basecamp"] {
+    color-scheme: dark;
+    --bg: #0c0803;
+    --bg-card: #0c0803;
+    --bg-elevated: #1a1206;
+    --bg-glass: rgba(12, 8, 3, 0.96);
+    --bg-input: #120c04;
+    --border: #5a3c00;
+    --border-strong: #a86f00;
+    --border-bright: #ffb000;
+    --text: #ffb000;
+    --text-muted: #d18f12;
+    --text-dim: #8a5c08;
+    --primary: #ffb000;
+    --primary-hover: #ffc433;
+    --primary-soft: rgba(255, 176, 0, 0.14);
+    --on-primary: #0c0803;
+    --accent: #ff7a1a;
+    --moss: #ffd27a;
+    --map-blue: #ffe2a3;
+    --danger: #ff5a1a;
+    --success: #ffd27a;
+    --warning: #ffb000;
+    --link: #ffd27a;
+    --link-hover: #fff0cc;
+    --clay-mint: #ffd27a;
+    --clay-coral: #ff7a1a;
+    --clay-amber: #ffb000;
+    --clay-lavender: #e9a25c;
+    --clay-sky: #ffe2a3;
+    --surface-0: #050301;
+    --paper: #ffb000;
+    --paper-ink: #0c0803;
+
+    &[data-theme="light"] {
+        color-scheme: light;
+        --bg: #f4e9cf;
+        --bg-card: #f4e9cf;
+        --bg-elevated: #eadcb9;
+        --bg-glass: rgba(244, 233, 207, 0.96);
+        --bg-input: #fbf3df;
+        --border: #d2b98a;
+        --border-strong: #b98a4a;
+        --text: #7a4300;
+        --text-muted: #8f5a12;
+        --text-dim: #b38a4f;
+        --primary: #8a4b00;
+        --primary-hover: #6e3c00;
+        --on-primary: #f4e9cf;
+        --link: #5c3200;
+        --link-hover: #3a1f00;
+        --surface-0: #eadcb9;
+        --paper: #8a4b00;
+        --paper-ink: #f4e9cf;
+    }
+}

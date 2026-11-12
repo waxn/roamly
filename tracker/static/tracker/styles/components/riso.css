@@ -1,0 +1,316 @@
+/* ════════════════════════════════════════════════════════════════════
+   RISO — a photocopied punk travel zine.
+   Black recycled stock, three fluoro inks (pink, blue, yellow) that never
+   quite line up. Headlines print twice, slightly off; the offset slips
+   further the faster you scroll (riso.js). Cards are pasted-in cut-outs
+   held down with tape, buttons are stickers, badges are highlighter
+   swipes, and the active nav item gets circled in marker.
+   ════════════════════════════════════════════════════════════════════ */
+
+@keyframes rs-jitter {
+    0%, 100% { transform: translate(0, 0); }
+    25% { transform: translate(0.5px, -0.5px); }
+    50% { transform: translate(-0.5px, 0.4px); }
+    75% { transform: translate(0.3px, 0.6px); }
+}
+@keyframes rs-scribble { from { stroke-dashoffset: 300; } to { stroke-dashoffset: 0; } }
+@keyframes rs-spin { to { transform: rotate(360deg); } }
+
+html[data-style="riso"] {
+    --ink-pink: var(--primary);
+    --ink-blue: var(--accent);
+    --ink-yellow: var(--clay-amber);
+    --mis: 0px;
+    --clay-shadow: 5px 5px 0 var(--ink-blue);
+    --clay-shadow-sm: 3px 3px 0 var(--ink-blue);
+    --clay-shadow-hover: 7px 7px 0 var(--ink-blue);
+    --clay-shadow-inset: none;
+    --clay-shadow-btn: none;
+    --nav-h: 66px;
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.7' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    --halftone-pink: radial-gradient(circle, var(--ink-pink) 30%, transparent 33%);
+    --halftone-blue: radial-gradient(circle, var(--ink-blue) 30%, transparent 33%);
+
+    ::selection { background: var(--ink-yellow); color: var(--bg); }
+
+    body {
+        scrollbar-color: var(--ink-pink) transparent;
+    }
+    /* halftone dots fading in from two corners, in two inks */
+
+    h1, h2, h3 { font-family: var(--font-body); }
+
+    /* ── Navbar: a strip of pink ink ── */
+    .navbar {
+        background: var(--bg);
+        border-bottom: 3px solid var(--text);
+        box-shadow: 0 5px 0 -1px var(--ink-pink);
+        height: calc(var(--nav-h) - 8px);
+        margin-bottom: 8px;
+    }
+    .navbar-mark { filter: grayscale(1) brightness(2.2) contrast(1.2); mix-blend-mode: screen; }
+    &[data-theme="light"] .navbar-mark { filter: grayscale(1) brightness(0.4); mix-blend-mode: multiply; }
+    .navbar-wordmark {
+        font-family: var(--font-body);
+        font-weight: 700;
+        font-size: 1.55rem;
+        letter-spacing: -0.05em;
+        text-transform: uppercase;
+        color: var(--text);
+        text-shadow: calc(-2px - var(--mis)) 1px 0 var(--ink-pink), calc(2px + var(--mis)) -1px 0 var(--ink-blue);
+    }
+    .navbar-nav a, .navbar-nav-toggle {
+        position: relative;
+        font-family: var(--font-mono);
+        font-size: 0.74rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        border-bottom: none;
+    }
+    .navbar-nav a:hover, .navbar-nav-toggle:hover { color: var(--ink-yellow); }
+    .navbar-nav a.active, .navbar-nav-toggle.active { color: var(--text); border-bottom: none; }
+    /* hand-drawn marker circle (riso.js injects the SVG) */
+    .navbar-user-toggle { font-family: var(--font-mono); text-transform: uppercase; font-size: 0.74rem; color: var(--text-muted); }
+    .navbar-user-toggle:hover { background: transparent; color: var(--ink-yellow); }
+    .notif-dot { background: var(--ink-pink); }
+
+    .nav-dropdown-menu, .notif-panel, .rly-select-menu, .rly-cal {
+        background: var(--grain), var(--bg-card);
+        border: 2px solid var(--text);
+        border-radius: var(--r-3);
+        box-shadow: 6px 6px 0 var(--ink-pink);
+    }
+    .nav-dropdown-menu { transform: rotate(-1deg); }
+    .nav-dropdown-menu a { font-family: var(--font-mono); text-transform: uppercase; font-size: 0.76rem; letter-spacing: 0.04em; border-radius: var(--r-3); color: var(--text-muted); }
+    .nav-dropdown-menu a:hover { background: var(--ink-yellow); color: var(--bg); }
+    .nav-dropdown-menu a.active { background: transparent; color: var(--ink-pink); }
+
+    /* ── Headlines: printed twice, off-register ── */
+    .page-header h1, .page-toolbar h1 {
+        font-family: var(--font-body);
+        font-weight: 700;
+        font-size: clamp(2.4rem, 6vw, 4.6rem);
+        line-height: 0.92;
+        letter-spacing: -0.055em;
+        text-transform: uppercase;
+        color: var(--text);
+        text-shadow: calc(-3px - var(--mis)) 2px 0 var(--ink-pink), calc(3px + var(--mis)) -2px 0 var(--ink-blue);
+    }
+    .page-header .page-lead {
+        display: inline;
+        font-family: var(--font-mono);
+        font-size: 0.9rem;
+        color: var(--bg);
+        background: var(--ink-yellow);
+        padding: 0.1rem 0.35rem;
+        line-height: 1.9;
+        box-decoration-break: clone;
+        -webkit-box-decoration-break: clone;
+    }
+    .page-header { margin-bottom: 2rem; }
+    .page-header .page-lead { margin-top: 0.8rem; }
+
+    /* ── Cards: cut-outs pasted onto the page ── */
+    .card {
+        position: relative;
+        background: var(--grain), var(--bg-card);
+        border: 2px solid var(--text);
+        border-radius: var(--r-3);
+        box-shadow: 6px 6px 0 var(--rs-shadow, var(--ink-blue));
+        transition: transform 0.25s cubic-bezier(.3, 1.5, .5, 1), box-shadow 0.2s;
+    }
+    /* tilted like a paste-up, but never a card that hosts an overlay: a
+       transform would trap its position:fixed children inside the card */
+    .card:not(:has([class*="modal"], [class*="overlay"], dialog, .maplibregl-map)) { transform: rotate(var(--rs-rot, 0deg)); }
+    .card:nth-child(3n+1) { --rs-rot: -0.4deg; }
+    .card:nth-child(3n+2) { --rs-rot: 0.35deg; --rs-shadow: var(--ink-pink); }
+    .card:nth-child(3n) { --rs-rot: -0.15deg; }
+    .card:hover { transform: none; box-shadow: 9px 9px 0 var(--rs-shadow, var(--ink-blue)); border-color: var(--text); }
+    /* tape */
+    .card::after {
+        content: '';
+        position: absolute;
+        top: -11px; left: 50%;
+        width: 74px; height: 22px;
+        margin-left: -37px;
+        background: color-mix(in srgb, var(--clay-amber) 42%, transparent);
+        transform: rotate(-3deg);
+        clip-path: polygon(2% 0, 100% 6%, 98% 100%, 0 94%);
+        pointer-events: none;
+    }
+    .card:nth-child(2n)::after { left: auto; right: 14px; margin-left: 0; transform: rotate(4deg); background: color-mix(in srgb, var(--primary) 40%, transparent); }
+    .card-header {
+        font-family: var(--font-body);
+        font-weight: 700;
+        font-size: 1.25rem;
+        letter-spacing: -0.03em;
+        text-transform: uppercase;
+        border-bottom: 2px dashed var(--border);
+    }
+    .card-coral, .card-lavender, .card-amber, .card-sky, .card-teal { border-left-width: 2px; border-left-color: var(--text); }
+    .card-coral { --rs-shadow: var(--ink-pink); }
+    .card-amber { --rs-shadow: var(--ink-yellow); }
+    .card-sky { --rs-shadow: var(--ink-blue); }
+    .card-lavender { --rs-shadow: var(--clay-lavender); }
+    .card-teal { --rs-shadow: var(--ink-pink); }
+
+    /* ── Stats: fat numerals, double-printed ── */
+    .card.stat-card { background: var(--halftone-pink) 0 0 / 8px 8px, var(--bg-card); background-blend-mode: normal; }
+    .card.stat-card::before {
+        content: '';
+        position: absolute; inset: 0;
+        background: linear-gradient(135deg, var(--bg-card) 45%, transparent 100%);
+        pointer-events: none;
+    }
+    .card.stat-card > * { position: relative; }
+    .stat-value {
+        font-family: var(--font-body);
+        font-weight: 700;
+        font-size: 2.7rem;
+        letter-spacing: -0.06em;
+        color: var(--text);
+        text-shadow: calc(-2px - var(--mis)) 2px 0 var(--ink-pink), calc(2px + var(--mis)) -1px 0 var(--ink-blue);
+    }
+    .stat-value-coral { text-shadow: calc(-2px - var(--mis)) 2px 0 var(--ink-pink), calc(2px + var(--mis)) -1px 0 var(--ink-yellow); }
+    .stat-value-amber { color: var(--ink-yellow); text-shadow: calc(-2px - var(--mis)) 2px 0 var(--ink-pink); }
+    .stat-value-sky { color: var(--text); text-shadow: calc(-2px - var(--mis)) 2px 0 var(--ink-blue), calc(2px + var(--mis)) -1px 0 var(--ink-yellow); }
+    .stat-label { font-family: var(--font-mono); color: var(--text); background: var(--bg); display: inline-block; padding: 0.1rem 0.35rem; letter-spacing: 0.08em; }
+    &[data-theme="light"] .stat-label { background: var(--text); color: var(--bg); }
+
+    /* ── Buttons: stickers ── */
+    .btn {
+        border: 2px solid var(--text);
+        border-radius: var(--r-2);
+        font-family: var(--font-mono);
+        font-weight: 600;
+        font-size: 0.8rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        box-shadow: 4px 4px 0 var(--ink-blue);
+        transition: transform 0.08s, box-shadow 0.08s, background 0.15s;
+    }
+    .btn:hover { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 var(--ink-blue); }
+    .btn:active { transform: translate(4px, 4px); box-shadow: 0 0 0 var(--ink-blue); }
+    .btn-primary { background: var(--ink-pink); color: var(--bg); }
+    .btn-primary:hover { background: var(--primary-hover); color: var(--bg); }
+    .btn-danger { background: var(--danger); color: var(--bg); box-shadow: 4px 4px 0 var(--ink-yellow); }
+    .btn-outline { background: var(--bg-card); color: var(--text); }
+    .btn-outline:hover { background: var(--ink-yellow); color: var(--bg); border-color: var(--text); }
+    .btn-sm { box-shadow: 3px 3px 0 var(--ink-blue); }
+
+    /* ── Forms ── */
+    .form-group label, .pref-label { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text); }
+    .form-control, .rly-select-trigger, .rly-date-trigger {
+        background: var(--bg-input);
+        border: 2px solid var(--text);
+        border-radius: var(--r-2);
+        font-family: var(--font-mono);
+        font-weight: 500;
+    }
+    .form-control:focus, .rly-select.open .rly-select-trigger, .rly-date.open .rly-date-trigger, .rly-select-trigger:focus-visible, .rly-date-trigger:focus-visible {
+        border-color: var(--ink-pink);
+        box-shadow: 4px 4px 0 var(--ink-pink);
+    }
+    input[type="checkbox"], input[type="radio"] { accent-color: var(--ink-pink); }
+    .rly-select-option { font-family: var(--font-mono); border-radius: var(--r-2); }
+    .rly-select-option:hover, .rly-select-option.active { background: var(--ink-yellow); color: var(--bg); }
+    .rly-cal-day { border-radius: var(--r-3); }
+    .rly-cal-day.selected, .rly-cal-month.selected { background: var(--ink-pink); color: var(--bg); }
+
+    /* ── Tabs ── */
+    .pill-tabs { border: 2px solid var(--text); border-radius: var(--r-3); background: var(--bg-card); box-shadow: 4px 4px 0 var(--ink-pink); }
+    .pill-tabs .tab-btn, .pill-tabs button.tab-btn { font-family: var(--font-mono); border-right: 2px solid var(--text); font-weight: 600; }
+    .pill-tabs .tab-btn:hover { background: var(--ink-yellow); color: var(--bg); }
+    .pill-tabs .tab-btn.active, &[data-theme="light"] .pill-tabs .tab-btn.active { background: var(--text); color: var(--bg); }
+
+    /* ── Tables: photocopied ── */
+    th { color: var(--ink-pink); font-family: var(--font-mono); border-bottom: 2px solid var(--text); letter-spacing: 0.08em; }
+    td { border-bottom: 1px dashed var(--border); font-family: var(--font-mono); font-size: 0.84rem; }
+    td:first-child { font-family: var(--font-body); font-weight: 700; text-transform: uppercase; letter-spacing: -0.02em; }
+    tr:hover { background: transparent; }
+    tbody tr:hover td { background: linear-gradient(180deg, transparent 30%, color-mix(in srgb, var(--clay-amber) 28%, transparent) 30% 80%, transparent 80%); }
+
+    /* ── Badges: highlighter swipes ── */
+    .badge {
+        border: none;
+        border-radius: var(--r-1);
+        font-family: var(--font-mono);
+        font-weight: 600;
+        font-size: 0.7rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--bg);
+        background: linear-gradient(100deg, transparent 2%, var(--hl, var(--ink-yellow)) 4% 96%, transparent 98%);
+        padding: 0.16rem 0.55rem;
+        transform: rotate(-1.5deg) skewX(-6deg);
+    }
+    .badge:nth-child(2n) { transform: rotate(1deg) skewX(-6deg); }
+    .badge-success { --hl: var(--clay-mint); }
+    .badge-warning { --hl: var(--ink-yellow); }
+    .badge-coral { --hl: var(--ink-pink); }
+    .badge-lavender { --hl: color-mix(in srgb, var(--clay-lavender) 70%, #fff); }
+    .badge-sky { --hl: color-mix(in srgb, var(--accent) 65%, #fff); }
+    .badge-teal { --hl: var(--ink-pink); }
+
+    /* ── Alerts: stamped notes ── */
+    .alert { border: 2px solid var(--text); border-radius: var(--r-3); font-family: var(--font-mono); background: var(--bg-card); color: var(--text); padding-left: 4.3rem; position: relative; box-shadow: 4px 4px 0 var(--al, var(--ink-yellow)); }
+    .alert::before {
+        content: 'NB!';
+        position: absolute; left: 0.6rem; top: 50%;
+        transform: translateY(-50%) rotate(-8deg);
+        font-family: var(--font-body);
+        font-weight: 700;
+        font-size: 0.95rem;
+        color: var(--bg);
+        background: var(--al, var(--ink-yellow));
+        padding: 0.1rem 0.35rem;
+    }
+    .alert-success { --al: var(--clay-mint); color: var(--text); background: var(--bg-card); border-color: var(--text); }
+    .alert-success::before { content: 'YES'; }
+    .alert-error { --al: var(--ink-pink); color: var(--text); background: var(--bg-card); border-color: var(--text); }
+    .alert-error::before { content: 'UH-OH'; font-size: 0.75rem; }
+    .alert-info { color: var(--text); background: var(--bg-card); border-color: var(--text); }
+
+    .spinner { border: 3px solid var(--ink-blue); border-top-color: var(--ink-pink); border-radius: 50%; animation: rs-spin 0.7s steps(8) infinite; }
+    .skeleton { background: var(--halftone-blue) 0 0 / 6px 6px, var(--bg-elevated); border-radius: var(--r-2); opacity: 0.6; }
+
+    /* ── Dialogs & toasts ── */
+    .rly-dialog-overlay { background: color-mix(in srgb, var(--surface-0) 70%, transparent); }
+    .rly-dialog { background: var(--grain), var(--bg-card); border: 3px solid var(--text); border-radius: var(--r-4); box-shadow: 10px 10px 0 var(--ink-pink); transform: rotate(-0.6deg); }
+    .rly-dialog-title { font-family: var(--font-body); font-weight: 700; text-transform: uppercase; letter-spacing: -0.04em; font-size: 1.6rem; text-shadow: -2px 1px 0 var(--ink-pink), 2px -1px 0 var(--ink-blue); }
+    .rly-dialog-msg { font-family: var(--font-mono); }
+    .rly-dialog-btn { border: 2px solid var(--text); border-radius: var(--r-4); font-family: var(--font-mono); text-transform: uppercase; box-shadow: 3px 3px 0 var(--ink-blue); }
+    .rly-dialog-btn-primary { background: var(--ink-pink); color: var(--bg); }
+    .rly-dialog-btn-danger { background: var(--danger); color: var(--bg); }
+    .rly-toast { background: var(--ink-yellow); color: var(--bg); border: 2px solid var(--bg); border-radius: var(--r-4); font-family: var(--font-mono); box-shadow: 5px 5px 0 var(--ink-pink); }
+    .rly-toast.show { rotate: 1.5deg; }
+    .rly-toast-msg, .rly-toast-close { color: var(--bg); }
+    .rly-toast-error { background: var(--ink-pink); box-shadow: 5px 5px 0 var(--ink-blue); }
+    .rly-intro-bar { background: var(--ink-yellow); color: var(--bg); border-top: 3px solid var(--bg); }
+    .rly-intro-title, .rly-intro-body, .rly-intro-progress, .rly-intro-skip { color: var(--bg); }
+    .rly-intro-next { background: var(--ink-pink); color: var(--bg); border: 2px solid var(--bg); border-radius: var(--r-4); box-shadow: 4px 4px 0 var(--bg); }
+    .rly-banner { background: var(--ink-pink); color: var(--bg); font-family: var(--font-mono); }
+
+    .bottom-nav { background: var(--bg); border-top: 3px solid var(--text); box-shadow: 0 -5px 0 -1px var(--ink-pink); }
+    .bottom-nav a { color: var(--text-muted);  }
+    .bottom-nav a.active { color: var(--text); }
+    .bottom-nav a.active .bottom-nav-icon-wrap { background: var(--ink-yellow); color: var(--bg); border-radius: var(--r-3); transform: rotate(-4deg); }
+
+    .maplibregl-popup-content { background: var(--bg-card); color: var(--text); border: 2px solid var(--text); border-radius: var(--r-3); box-shadow: 5px 5px 0 var(--ink-pink); font-family: var(--font-mono); }
+    .maplibregl-ctrl-group { border: 2px solid var(--text); border-radius: var(--r-3); box-shadow: 3px 3px 0 var(--ink-blue); }
+
+    @media (prefers-reduced-motion: reduce) {
+        .rs-circle path { animation: none; stroke-dasharray: none; }
+        .card { transition: none; }
+    }
+
+    /* ── Page chrome: the map sidebar and floating panels, and their buttons,
+       take this look's surfaces too (the shape layer handles their corners). ── */
+    :is(.sidebar-content, .replay-panel, .map-ctx-menu, .map-addplace-panel, .cell-legend, .map-detail-controls) { background: var(--grain), var(--bg-card); border: 2px solid var(--text); box-shadow: 6px 6px 0 var(--ink-pink); }
+    :is(.tool-btn, .style-btn, .replay-panel button.rp-btn, .date-reset-btn, .map-detail-controls button) { background: var(--bg-card); border: 2px solid var(--text); color: var(--text); font-family: var(--font-mono); text-transform: uppercase; box-shadow: 3px 3px 0 var(--ink-blue); }
+    :is(.tool-btn, .style-btn, .replay-panel button.rp-btn, .date-reset-btn, .map-detail-controls button):hover { filter: brightness(1.08); }
+    :is(.tool-btn.active, .style-btn.active) { background: var(--ink-pink); color: var(--bg); box-shadow: 3px 3px 0 var(--ink-blue); }
+    .sidebar-label { color: var(--text-dim); }
+}

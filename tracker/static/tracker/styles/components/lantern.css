@@ -1,0 +1,471 @@
+/* ════════════════════════════════════════════════════════════════════
+   LANTERN — the field notebook after dark.
+   Field Journal's descendant: same cartographic soul, but read by a
+   hurricane lamp in a tent. Warm walnut ink, a lamp glow that follows the
+   cursor, stitched leather chrome, cream index cards for anything that
+   pops up, rubber-stamp badges and numbered § sections.
+   Every rule is scoped to html[data-style="lantern"] via native nesting.
+   ════════════════════════════════════════════════════════════════════ */
+
+@keyframes ln-flicker {
+    0%, 100% { opacity: 1; }
+    8% { opacity: 0.92; } 9% { opacity: 1; }
+    47% { opacity: 0.96; } 48% { opacity: 0.9; } 50% { opacity: 1; }
+    77% { opacity: 0.97; }
+}
+@keyframes ln-stamp {
+    0% { transform: scale(1.9) rotate(-9deg); opacity: 0; }
+    60% { transform: scale(0.94) rotate(var(--ln-rot, -2deg)); opacity: 1; }
+    100% { transform: scale(1) rotate(var(--ln-rot, -2deg)); opacity: 1; }
+}
+@keyframes ln-needle {
+    0%, 100% { transform: rotate(-6deg); }
+    50% { transform: rotate(9deg); }
+}
+@keyframes ln-ink {
+    to { transform: scale(2.6); opacity: 0; }
+}
+
+html[data-style="lantern"] {
+    --paper-rule: color-mix(in srgb, color-mix(in srgb, var(--clay-sky) 95%, #000) 32%, transparent);
+    --stitch: color-mix(in srgb, var(--primary) 22%, transparent);
+    --clay-shadow: 0 14px 34px -14px rgba(0, 0, 0, 0.8), 0 2px 6px rgba(0, 0, 0, 0.35);
+    --clay-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+    --clay-shadow-hover: 0 22px 44px -16px rgba(0, 0, 0, 0.85);
+    --clay-shadow-inset: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+    --clay-shadow-btn: 0 2px 0 rgba(0, 0, 0, 0.45);
+    --nav-h: 64px;
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 .85 0 0 0 0 .6 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    --squiggle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='8' viewBox='0 0 120 8'%3E%3Cpath d='M0 4 Q 7.5 0 15 4 T 30 4 T 45 4 T 60 4 T 75 4 T 90 4 T 105 4 T 120 4' fill='none' stroke='%23f29a3b' stroke-width='1.4' opacity='.55'/%3E%3C/svg%3E");
+
+    &[data-theme="light"] {
+        --stitch: color-mix(in srgb, color-mix(in srgb, var(--primary) 70%, var(--text)) 28%, transparent);
+    }
+
+    ::selection { background: color-mix(in srgb, var(--primary) 38%, transparent); color: color-mix(in srgb, var(--primary-hover) 15%, #fff); }
+
+    body {
+        counter-reset: ln-sec;
+        scrollbar-color: var(--border-strong) transparent;
+    }
+
+    /* The lamp: a warm pool of light that follows the pointer (lantern.js
+       feeds --lx/--ly). Above content, below chrome, never takes input. */
+
+    h1, h2, h3 { font-family: var(--font-display); }
+    a { text-decoration-style: dotted; text-decoration-thickness: 1px; }
+
+    /* ── Navbar: a leather strap with a stitched seam ── */
+    .navbar {
+        background:
+            linear-gradient(180deg, color-mix(in srgb, var(--bg-elevated) 50%, var(--bg)), color-mix(in srgb, var(--surface-0) 75%, var(--bg-card))),
+            var(--grain);
+        background-blend-mode: normal;
+        border-bottom: 1px solid #000;
+        box-shadow: 0 1px 0 color-mix(in srgb, color-mix(in srgb, var(--primary-hover) 70%, #fff) 6%, transparent), 0 10px 24px -14px rgba(0, 0, 0, 0.9);
+        height: var(--nav-h);
+    }
+    .navbar::after {
+        content: '';
+        position: absolute; left: 10px; right: 10px; bottom: 6px;
+        border-bottom: 1px dashed var(--stitch);
+        pointer-events: none;
+    }
+    &[data-theme="light"] .navbar { background: linear-gradient(180deg, color-mix(in srgb, var(--clay-amber) 25%, var(--text)), var(--surface-0)); }
+    &[data-theme="light"] .navbar .navbar-wordmark,
+    &[data-theme="light"] .navbar-nav a,
+    &[data-theme="light"] .navbar-nav-toggle,
+    &[data-theme="light"] .navbar-user-toggle,
+    &[data-theme="light"] .notif-toggle { color: color-mix(in srgb, var(--clay-amber) 20%, var(--bg-card)); }
+
+    .navbar-wordmark {
+        font-weight: 700;
+        font-size: 1.65rem;
+        font-variation-settings: "opsz" 144;
+        text-shadow: 0 0 22px color-mix(in srgb, var(--primary) 35%, transparent);
+    }
+    .navbar-mark { filter: drop-shadow(0 0 8px color-mix(in srgb, var(--primary) 45%, transparent)); }
+    .navbar-nav a, .navbar-nav-toggle {
+        position: relative;
+        font-family: var(--font-display);
+        font-size: 0.95rem;
+        font-weight: 500;
+        letter-spacing: 0;
+        text-transform: none;
+        color: color-mix(in srgb, var(--text-muted) 80%, var(--text));
+        border-bottom: none;
+        padding: 0.55rem 0.75rem;
+    }
+    .navbar-nav a:hover, .navbar-nav-toggle:hover { color: color-mix(in srgb, var(--link) 30%, #fff); text-shadow: 0 0 12px color-mix(in srgb, var(--primary) 60%, transparent); }
+    .navbar-nav a.active, .navbar-nav-toggle.active { color: var(--primary); border-bottom: none; }
+    /* the hanging ribbon bookmark under the active section */
+    .navbar-nav a.active::after, .navbar-nav-toggle.active::after {
+        content: '';
+        position: absolute;
+        left: 50%; top: calc(100% + 0.62rem);
+        width: 14px; height: 24px;
+        margin-left: -7px;
+        background: linear-gradient(90deg, color-mix(in srgb, var(--danger) 75%, #000), var(--danger) 45%, color-mix(in srgb, var(--danger) 80%, #000));
+        clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 74%, 0 100%);
+        filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.5));
+        pointer-events: none;
+    }
+    .nav-caret { stroke-width: 2; }
+    &[data-theme="light"] .navbar .btn-outline { color: color-mix(in srgb, var(--clay-amber) 20%, var(--bg-card)); border-color: color-mix(in srgb, color-mix(in srgb, var(--clay-amber) 20%, var(--bg-card)) 40%, transparent); }
+    .navbar-user-toggle { font-family: var(--font-display); font-size: 0.95rem; font-weight: 500; color: color-mix(in srgb, var(--text-muted) 80%, var(--text)); }
+    .navbar-user-toggle:hover { background: color-mix(in srgb, color-mix(in srgb, var(--primary-hover) 70%, #fff) 6%, transparent); color: color-mix(in srgb, var(--link) 30%, #fff); }
+    .notif-toggle { color: color-mix(in srgb, var(--text-muted) 80%, var(--text)); }
+
+    /* ── Index cards: every popover is a cream ruled card ── */
+    .nav-dropdown-menu, .notif-panel, .rly-select-menu, .rly-cal, .maplibregl-popup-content {
+        background:
+            linear-gradient(180deg, transparent 2.1rem, color-mix(in srgb, var(--accent) 55%, transparent) 2.1rem, color-mix(in srgb, var(--accent) 55%, transparent) calc(2.1rem + 1px), transparent calc(2.1rem + 1px)),
+            repeating-linear-gradient(180deg, transparent 0 1.55rem, var(--paper-rule) 1.55rem calc(1.55rem + 1px)),
+            var(--paper);
+        color: var(--paper-ink);
+        border: none;
+        border-radius: var(--r-2);
+        box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.85), 0 2px 0 rgba(0, 0, 0, 0.25);
+    }
+    .nav-dropdown-menu { padding-top: 0.6rem; transform: rotate(-0.6deg); transform-origin: top left; }
+    .nav-dropdown-end .nav-dropdown-menu { transform: rotate(0.6deg); transform-origin: top right; }
+    .nav-dropdown-menu a {
+        color: color-mix(in srgb, var(--link) 25%, var(--bg));
+        font-family: var(--font-display);
+        font-size: 0.95rem;
+        border-radius: var(--r-1);
+    }
+    .nav-dropdown-menu a:hover { background: color-mix(in srgb, var(--primary) 22%, transparent); color: color-mix(in srgb, var(--primary-hover) 5%, var(--bg)); }
+    .nav-dropdown-menu a.active { color: color-mix(in srgb, var(--danger) 80%, #000); background: transparent; font-weight: 600; }
+    .nav-dropdown-menu a.active::before { content: '✓ '; }
+    .notif-head { color: var(--paper-ink); font-family: var(--font-display); border-bottom-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+    .notif-item, .notif-section, .notif-empty, .notif-meta, .notif-text, .notif-title { color: var(--paper-ink); border-color: color-mix(in srgb, color-mix(in srgb, var(--primary) 15%, var(--bg-card)) 18%, transparent); }
+    .notif-meta, .notif-empty { color: color-mix(in srgb, var(--link) 40%, var(--bg)); }
+    .notif-clear { color: color-mix(in srgb, var(--danger) 80%, #000); }
+    .notif-dot { background: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--bg-elevated) 50%, var(--bg)), 0 0 10px color-mix(in srgb, var(--accent) 90%, transparent); }
+
+    /* ── Page headings ── */
+    .page-header h1, .page-toolbar h1 {
+        font-weight: 700;
+        font-variation-settings: "opsz" 144;
+        font-size: clamp(1.9rem, 3.6vw, 2.7rem);
+        letter-spacing: -0.02em;
+        text-shadow: 0 0 30px color-mix(in srgb, var(--primary) 18%, transparent);
+    }
+    .page-header h1::after {
+        content: '';
+        display: block;
+        width: 7.5rem; height: 8px;
+        margin-top: 0.5rem;
+        background: var(--primary);
+        opacity: 0.55;
+        -webkit-mask: var(--squiggle) repeat-x left center / 60px 8px;
+        mask: var(--squiggle) repeat-x left center / 60px 8px;
+    }
+    .page-header .page-lead { font-family: var(--font-display); font-size: 1.05rem; color: var(--text-muted); }
+
+    /* ── Cards: notebook pages, stitched ── */
+    .card {
+        position: relative;
+        background: var(--grain), linear-gradient(180deg, color-mix(in srgb, color-mix(in srgb, var(--primary-hover) 65%, #fff) 2%, transparent), transparent 40%), var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: inset 0 1px 0 color-mix(in srgb, color-mix(in srgb, var(--primary-hover) 55%, #fff) 5%, transparent), 0 14px 30px -18px rgba(0, 0, 0, 0.9);
+        outline: 1px dashed var(--stitch);
+        outline-offset: -6px;
+        transition: border-color 0.25s, box-shadow 0.35s var(--ease-out), transform 0.35s var(--ease-out);
+    }
+    .card:hover {
+        border-color: var(--border-strong);
+        box-shadow: inset 0 1px 0 color-mix(in srgb, color-mix(in srgb, var(--primary-hover) 55%, #fff) 7%, transparent), 0 22px 40px -20px rgba(0, 0, 0, 0.95), 0 0 0 1px color-mix(in srgb, var(--primary) 6%, transparent);
+    }
+    .card-header {
+        counter-increment: ln-sec;
+        font-size: 1.2rem;
+        font-weight: 600;
+        border-bottom: none;
+        padding-bottom: 0.7rem;
+        position: relative;
+    }
+    .card-header::after {
+        content: '';
+        position: absolute; left: 0; right: 0; bottom: -2px;
+        height: 8px;
+        background: var(--primary);
+        opacity: 0.5;
+        -webkit-mask: var(--squiggle) repeat-x left center / 60px 8px;
+        mask: var(--squiggle) repeat-x left center / 60px 8px;
+        pointer-events: none;
+    }
+    .card-header::before {
+        content: '§ ' counter(ln-sec, decimal-leading-zero);
+        display: block;
+        font-family: var(--font-mono);
+        font-size: 0.62rem;
+        font-weight: 600;
+        letter-spacing: 0.16em;
+        color: var(--primary);
+        opacity: 0.7;
+        margin-bottom: 0.2rem;
+    }
+    .card-coral, .card-lavender, .card-amber, .card-sky, .card-teal { border-left-width: 1px; }
+    .card-coral::before, .card-lavender::before, .card-amber::before, .card-sky::before, .card-teal::before {
+        content: '';
+        position: absolute; top: -1px; right: 1.4rem;
+        width: 18px; height: 30px;
+        clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 76%, 0 100%);
+        background: var(--ln-ribbon, var(--accent));
+        filter: drop-shadow(0 2px 1px rgba(0, 0, 0, 0.5));
+    }
+    .card-coral { --ln-ribbon: var(--clay-coral); }
+    .card-lavender { --ln-ribbon: var(--clay-lavender); }
+    .card-amber { --ln-ribbon: var(--clay-amber); }
+    .card-sky { --ln-ribbon: var(--clay-sky); }
+    .card-teal { --ln-ribbon: var(--primary); }
+
+    /* ── Stat tiles: photo corners and glowing numerals ── */
+    .card.stat-card { padding: 1.5rem 1rem 1.3rem; }
+    .card.stat-card::before, .card.stat-card::after {
+        content: '';
+        position: absolute;
+        width: 16px; height: 16px;
+        border: 2px solid var(--primary);
+        opacity: 0.55;
+        pointer-events: none;
+    }
+    .card.stat-card::before { top: 10px; left: 10px; border-right: none; border-bottom: none; }
+    .card.stat-card::after { bottom: 10px; right: 10px; border-left: none; border-top: none; }
+    .stat-value {
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-variation-settings: "opsz" 144;
+        font-variant-numeric: lining-nums tabular-nums;
+        font-size: 2.35rem;
+        letter-spacing: -0.02em;
+        text-shadow: 0 0 22px color-mix(in srgb, currentColor 40%, transparent);
+    }
+    .stat-label { letter-spacing: 0.16em; color: var(--text-dim); }
+
+    /* ── Buttons: amber leather with a stitched rim ── */
+    .btn {
+        border-radius: var(--radius-sm);
+        font-family: var(--font-body);
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        transition: transform 0.12s, box-shadow 0.2s, background 0.2s, color 0.2s, border-color 0.2s, filter 0.2s;
+        position: relative;
+        overflow: hidden;
+    }
+    .btn-primary {
+        background: linear-gradient(180deg, color-mix(in srgb, var(--primary-hover) 95%, var(--bg-card)), color-mix(in srgb, var(--primary) 90%, var(--bg-card)));
+        color: color-mix(in srgb, var(--primary) 15%, #000);
+        border: 1px solid color-mix(in srgb, var(--primary) 55%, #000);
+        box-shadow: inset 0 1px 0 color-mix(in srgb, color-mix(in srgb, var(--primary-hover) 25%, #fff) 55%, transparent), 0 2px 0 color-mix(in srgb, var(--primary) 35%, #000), 0 8px 18px -8px color-mix(in srgb, var(--primary) 65%, transparent);
+        outline: 1px dashed color-mix(in srgb, color-mix(in srgb, var(--primary) 25%, #000) 45%, transparent);
+        outline-offset: -4px;
+        text-shadow: 0 1px 0 color-mix(in srgb, color-mix(in srgb, var(--primary-hover) 40%, #fff) 45%, transparent);
+    }
+    .btn-primary:hover { background: linear-gradient(180deg, color-mix(in srgb, var(--primary-hover) 90%, #fff), var(--primary)); color: color-mix(in srgb, var(--primary) 10%, #000); box-shadow: inset 0 1px 0 color-mix(in srgb, color-mix(in srgb, var(--primary-hover) 25%, #fff) 60%, transparent), 0 2px 0 color-mix(in srgb, var(--primary) 35%, #000), 0 10px 26px -8px color-mix(in srgb, color-mix(in srgb, var(--primary) 90%, #fff) 85%, transparent); }
+    .btn-primary:active { transform: translateY(2px); box-shadow: inset 0 1px 3px color-mix(in srgb, color-mix(in srgb, var(--primary) 30%, #000) 50%, transparent), 0 0 0 color-mix(in srgb, var(--primary) 35%, #000); }
+    .btn-danger {
+        background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 90%, #fff), color-mix(in srgb, var(--danger) 85%, #000));
+        color: color-mix(in srgb, var(--primary-hover) 15%, #fff);
+        border: 1px solid color-mix(in srgb, var(--danger) 50%, #000);
+        box-shadow: inset 0 1px 0 color-mix(in srgb, color-mix(in srgb, var(--primary) 40%, #fff) 40%, transparent), 0 2px 0 color-mix(in srgb, var(--danger) 35%, #000);
+        outline: 1px dashed color-mix(in srgb, color-mix(in srgb, var(--primary) 30%, #fff) 30%, transparent);
+        outline-offset: -4px;
+    }
+    .btn-danger:active { transform: translateY(2px); box-shadow: none; }
+    .btn-outline {
+        background: color-mix(in srgb, color-mix(in srgb, var(--primary-hover) 65%, #fff) 2%, transparent);
+        border: 1px solid var(--border-strong);
+        color: var(--text);
+        box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+    }
+    .btn-outline:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4), 0 0 16px -4px color-mix(in srgb, var(--primary) 45%, transparent); }
+    .btn-outline:active { transform: translateY(2px); box-shadow: none; }
+
+    /* ── Forms: fill in the blank ── */
+    .form-group label, .pref-label {
+        font-family: var(--font-mono);
+        font-size: 0.68rem;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--text-dim);
+    }
+    .form-control, .rly-select-trigger, .rly-date-trigger {
+        background: var(--bg-input);
+        border: 1px solid var(--border);
+        border-bottom: 1px solid var(--border-strong);
+        border-radius: var(--r-2);
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.35);
+        font-weight: 500;
+    }
+    .form-control:focus, .rly-select.open .rly-select-trigger, .rly-date.open .rly-date-trigger, .rly-select-trigger:focus-visible, .rly-date-trigger:focus-visible {
+        border-color: var(--primary);
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.35), 0 0 0 3px var(--primary-soft), 0 0 18px -4px color-mix(in srgb, var(--primary) 50%, transparent);
+    }
+    input[type="checkbox"], input[type="radio"] { accent-color: var(--primary); }
+
+    .rly-select-option { color: color-mix(in srgb, var(--border-strong) 60%, var(--bg-card)); border-radius: var(--r-1); }
+    .rly-select-option:hover, .rly-select-option.active { background: color-mix(in srgb, var(--primary) 25%, transparent); color: color-mix(in srgb, var(--primary-hover) 5%, var(--bg)); }
+    .rly-select-option.selected { color: color-mix(in srgb, var(--danger) 80%, #000); }
+    .rly-cal-title, .rly-cal-nav, .rly-cal-dow, .rly-cal-day, .rly-cal-foot-btn, .rly-cal-month { color: color-mix(in srgb, var(--border-strong) 60%, var(--bg-card)); }
+    .rly-cal-day:hover, .rly-cal-month:hover { background: color-mix(in srgb, var(--primary) 25%, transparent); }
+    .rly-cal-day.selected, .rly-cal-month.selected { background: color-mix(in srgb, var(--danger) 80%, #000); color: color-mix(in srgb, var(--link) 20%, #fff); }
+    .rly-cal-day.today { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 80%, #000); }
+    .rly-cal-day.disabled { color: color-mix(in srgb, color-mix(in srgb, var(--border-strong) 60%, var(--bg-card)) 35%, transparent); }
+
+    /* ── Tabs: folder tabs ── */
+    .pill-tabs {
+        background: transparent;
+        border: none;
+        border-bottom: 1px solid var(--border-strong);
+        border-radius: 0;
+        overflow: visible;
+        gap: 0.2rem;
+        padding: 0 0.3rem;
+    }
+    .pill-tabs .tab-btn, .pill-tabs button.tab-btn {
+        border: 1px solid var(--border);
+        border-bottom: none;
+        border-radius: var(--r-3) var(--r-3) 0 0;
+        background: color-mix(in srgb, color-mix(in srgb, var(--primary-hover) 65%, #fff) 2%, transparent);
+        font-family: var(--font-display);
+        font-size: 0.88rem;
+        letter-spacing: 0;
+        text-transform: none;
+        margin-bottom: -1px;
+        transition: background 0.2s, color 0.2s, transform 0.2s var(--ease-out);
+    }
+    .pill-tabs .tab-btn:last-child { border-right: 1px solid var(--border); }
+    .pill-tabs .tab-btn:hover { transform: translateY(-2px); background: var(--bg-elevated); }
+    .pill-tabs .tab-btn.active, &[data-theme="light"] .pill-tabs .tab-btn.active {
+        background: var(--bg-card);
+        color: var(--primary);
+        border-color: var(--border-strong);
+        box-shadow: inset 0 2px 0 var(--primary);
+        font-weight: 600;
+    }
+
+    /* ── Tables: the ledger ── */
+    table { font-size: 0.9rem; }
+    th {
+        font-family: var(--font-mono);
+        font-size: 0.64rem;
+        letter-spacing: 0.16em;
+        color: var(--primary);
+        border-bottom: 3px double var(--border-strong);
+    }
+    td { border-bottom: 1px dotted var(--border-strong); }
+    td:first-child { font-family: var(--font-display); font-size: 0.98rem; }
+    tr:hover { background: linear-gradient(90deg, color-mix(in srgb, var(--primary) 10%, transparent), transparent 80%); }
+
+    /* ── Badges: rubber stamps ── */
+    .badge {
+        --ln-rot: -2deg;
+        background: transparent;
+        border: 1.5px solid currentColor;
+        border-radius: var(--r-2);
+        box-shadow: inset 0 0 0 1.5px var(--bg-card), inset 0 0 0 2.5px color-mix(in srgb, currentColor 55%, transparent);
+        font-size: 0.6rem;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        padding: 0.24rem 0.55rem;
+        transform: rotate(var(--ln-rot));
+        mask-image: radial-gradient(circle at 30% 40%, #000 60%, rgba(0, 0, 0, 0.78) 100%);
+    }
+    .badge:nth-child(2n) { --ln-rot: 1.5deg; }
+    .badge:nth-child(3n) { --ln-rot: -0.5deg; }
+    .badge-success, .badge-warning, .badge-coral, .badge-lavender, .badge-sky, .badge-teal { background: transparent; }
+
+    /* ── Alerts: a note clipped to the page ── */
+    .alert {
+        border-radius: var(--r-2);
+        border-left-width: 4px;
+        font-family: var(--font-display);
+        font-size: 0.98rem;
+        padding: 0.85rem 1.1rem 0.85rem 2.4rem;
+        position: relative;
+    }
+    .alert::before { content: '✦'; position: absolute; left: 0.95rem; top: 0.82rem; font-size: 0.9rem; }
+
+    /* ── Loading ── */
+    .spinner { border-color: var(--border-strong); border-top-color: var(--primary); box-shadow: 0 0 12px color-mix(in srgb, var(--primary) 35%, transparent); }
+    .skeleton { background: var(--bg-elevated); --skeleton-sheen: color-mix(in srgb, var(--primary-hover) 10%, transparent); }
+
+    /* ── Dialogs & toasts: index cards ── */
+    .rly-dialog-overlay { background: color-mix(in srgb, color-mix(in srgb, var(--surface-0) 65%, #000) 70%, transparent); backdrop-filter: blur(2px) sepia(0.4); }
+    .rly-dialog {
+        background:
+            linear-gradient(180deg, transparent 3.4rem, color-mix(in srgb, var(--accent) 60%, transparent) 3.4rem, color-mix(in srgb, var(--accent) 60%, transparent) calc(3.4rem + 1px), transparent calc(3.4rem + 1px)),
+            repeating-linear-gradient(180deg, transparent 0 1.6rem, var(--paper-rule) 1.6rem calc(1.6rem + 1px)),
+            var(--paper);
+        color: var(--paper-ink);
+        border: none;
+        border-radius: var(--r-2);
+        box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.9);
+        transform: rotate(-0.8deg);
+    }
+    .rly-dialog-title { font-family: var(--font-display); font-weight: 700; color: var(--paper-ink); font-size: 1.3rem; }
+    .rly-dialog-msg { color: color-mix(in srgb, var(--link) 25%, var(--bg)); font-family: var(--font-display); }
+    .rly-dialog-btn { border-radius: var(--r-2); }
+    .rly-dialog-btn-secondary { background: transparent; color: color-mix(in srgb, var(--link) 25%, var(--bg)); border-color: color-mix(in srgb, color-mix(in srgb, var(--primary) 15%, var(--bg-card)) 35%, transparent); }
+    .rly-dialog-btn-primary { background: color-mix(in srgb, var(--border-strong) 50%, #000); color: var(--paper); border-color: color-mix(in srgb, var(--border-strong) 50%, #000); }
+    .rly-dialog-btn-danger { background: color-mix(in srgb, var(--danger) 80%, #000); border-color: color-mix(in srgb, var(--danger) 80%, #000); color: color-mix(in srgb, var(--link) 20%, #fff); }
+    .rly-dialog-field input { background: rgba(255, 255, 255, 0.5); color: var(--paper-ink); border-color: color-mix(in srgb, color-mix(in srgb, var(--primary) 15%, var(--bg-card)) 35%, transparent); }
+    .rly-toast {
+        background: var(--paper);
+        color: var(--paper-ink);
+        border: none;
+        border-left: 4px solid var(--moss);
+        border-radius: var(--r-1);
+        box-shadow: 0 14px 30px -10px rgba(0, 0, 0, 0.85);
+        font-family: var(--font-display);
+        transform-origin: bottom right;
+    }
+    .rly-toast.show { rotate: -1deg; }
+    .rly-toast-error { border-left-color: var(--accent); }
+    .rly-toast-msg { color: var(--paper-ink); }
+    .rly-toast-close { color: color-mix(in srgb, var(--link) 40%, var(--bg)); }
+    .rly-intro-bar { background: var(--paper); color: var(--paper-ink); border-top: 3px solid var(--accent); }
+    .rly-intro-title { font-family: var(--font-display); color: var(--paper-ink); }
+    .rly-intro-body, .rly-intro-progress, .rly-intro-skip { color: color-mix(in srgb, var(--link) 25%, var(--bg)); }
+    .rly-banner { background: color-mix(in srgb, var(--border-strong) 50%, #000); color: var(--paper); border-bottom: 1px dashed var(--stitch); }
+
+    /* ── Mobile bottom nav ── */
+    .bottom-nav { background: linear-gradient(180deg, color-mix(in srgb, var(--bg-elevated) 50%, var(--bg)), color-mix(in srgb, var(--surface-0) 75%, var(--bg-card))); border-top: 1px solid #000; box-shadow: inset 0 6px 0 -5px var(--stitch), 0 -10px 24px -14px rgba(0, 0, 0, 0.9); }
+    .bottom-nav a { color: color-mix(in srgb, var(--text-muted) 90%, #000);  }
+    .bottom-nav a.active { color: var(--primary); }
+    .bottom-nav a.active .bottom-nav-icon-wrap { background: var(--primary-soft); box-shadow: 0 0 16px -2px color-mix(in srgb, var(--primary) 55%, transparent); }
+
+    /* ── Maps ── */
+    .maplibregl-popup-tip { border-top-color: var(--paper) !important; border-bottom-color: var(--paper) !important; }
+    .maplibregl-popup-content, .maplibregl-popup-content * { color: var(--paper-ink); }
+    .maplibregl-ctrl-group { background: color-mix(in srgb, var(--bg-elevated) 50%, var(--bg)); border: 1px solid var(--border-strong); box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.8); }
+    .maplibregl-ctrl-group button + button { border-top-color: var(--border); }
+    .maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(0.85) sepia(1) saturate(2.5) hue-rotate(-12deg); }
+
+    /* the compass in the corner (lantern.js) */
+
+    @media (max-width: 768px) {
+        .navbar-nav a.active::after { display: none; }
+        .ln-compass { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        body::after { animation: none; }
+        .ln-compass .ln-needle { animation: none; }
+        .badge.ln-stamped { animation: none; }
+        .card, .btn, .pill-tabs .tab-btn { transition: none; }
+    }
+
+    /* ── Page chrome: the map sidebar and floating panels, and their buttons,
+       take this look's surfaces too (the shape layer handles their corners). ── */
+    :is(.sidebar-content, .replay-panel, .map-ctx-menu, .map-addplace-panel, .cell-legend, .map-detail-controls) { background: var(--grain), var(--bg-card); border: 1px solid var(--border-strong); outline: 1px dashed var(--stitch); outline-offset: -5px; box-shadow: var(--clay-shadow); }
+    :is(.tool-btn, .style-btn, .replay-panel button.rp-btn, .date-reset-btn, .map-detail-controls button) { background: color-mix(in srgb, var(--primary) 3%, transparent); border: 1px solid var(--border); color: var(--text); font-family: var(--font-display); font-weight: 500; }
+    :is(.tool-btn, .style-btn, .replay-panel button.rp-btn, .date-reset-btn, .map-detail-controls button):hover { filter: brightness(1.08); }
+    :is(.tool-btn.active, .style-btn.active) { background: linear-gradient(180deg, color-mix(in srgb, var(--primary), #fff 18%), var(--primary)); color: var(--on-primary, #241405); border-color: color-mix(in srgb, var(--primary), #000 45%); }
+    .sidebar-label { color: var(--text-dim); }
+}

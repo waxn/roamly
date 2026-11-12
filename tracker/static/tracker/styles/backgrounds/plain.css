@@ -1,0 +1,5 @@
+/* Background: plain. Nothing behind the page but its own colour. Coloured only by palette tokens. */
+html[data-bg="plain"] {
+    body { background: var(--bg); }
+    body::before { display: none; }
+}

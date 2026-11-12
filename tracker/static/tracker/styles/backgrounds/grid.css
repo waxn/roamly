@@ -1,0 +1,21 @@
+/* Background: grid. A drafting grid, major and minor lines, with a soft sheet vignette. Coloured only by palette tokens. */
+html[data-bg="grid"] {
+    --bgg-major: color-mix(in srgb, var(--text) 11%, transparent);
+    --bgg-minor: color-mix(in srgb, var(--text) 4%, transparent);
+    body {
+        background:
+            linear-gradient(var(--bgg-major) 1px, transparent 1px) 0 0 / 50px 50px,
+            linear-gradient(90deg, var(--bgg-major) 1px, transparent 1px) 0 0 / 50px 50px,
+            linear-gradient(var(--bgg-minor) 1px, transparent 1px) 0 0 / 10px 10px,
+            linear-gradient(90deg, var(--bgg-minor) 1px, transparent 1px) 0 0 / 10px 10px,
+            radial-gradient(120% 90% at 50% 30%, color-mix(in srgb, var(--bg-elevated) 70%, var(--bg)), var(--surface-0) 92%);
+        background-attachment: fixed;
+    }
+    body::before { display: none; }
+    &[data-theme="light"] body {
+        background:
+            linear-gradient(var(--bgg-major) 1px, transparent 1px) 0 0 / 50px 50px,
+            linear-gradient(90deg, var(--bgg-major) 1px, transparent 1px) 0 0 / 50px 50px,
+            var(--bg);
+    }
+}

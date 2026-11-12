@@ -1,0 +1,51 @@
+/* Palette: postmark. Colour tokens only, see tracker/appearance.py. */
+html[data-palette="postmark"] {
+    color-scheme: dark;
+    --bg: #111316;
+    --bg-card: #1a1d22;
+    --bg-elevated: #22262c;
+    --bg-glass: rgba(17, 19, 22, 0.95);
+    --bg-input: #0d0f12;
+    --border: #2c3139;
+    --border-strong: #4a515c;
+    --border-bright: rgba(239, 228, 200, 0.7);
+    --text: #efe4c8;
+    --text-muted: #b3a98f;
+    --text-dim: #7c7562;
+    --primary: #cf2e2a;
+    --primary-hover: #e03c37;
+    --primary-soft: rgba(207, 46, 42, 0.15);
+    --accent: #1f4fa8;
+    --moss: #6f9e75;
+    --map-blue: #6d93d4;
+    --danger: #d9332c;
+    --success: #6f9e75;
+    --warning: #d9a548;
+    --link: #f0c87a;
+    --link-hover: #ffe2a8;
+    --clay-mint: #6f9e75;
+    --clay-coral: #d9534a;
+    --clay-amber: #d9a548;
+    --clay-lavender: #b48aa6;
+    --clay-sky: #6d93d4;
+    --surface-0: #0b0d10;
+    --paper: #efe4c8;
+    --paper-ink: #1a1d22;
+
+    &[data-theme="light"] {
+        color-scheme: light;
+        --bg: #e9e2d1;
+        --bg-card: #f6f0e1;
+        --bg-elevated: #efe7d4;
+        --bg-glass: rgba(246, 240, 225, 0.95);
+        --bg-input: #fffaf0;
+        --border: #cdbf9f;
+        --border-strong: #a8987a;
+        --text: #26221b;
+        --text-muted: #5b5244;
+        --text-dim: #8b806d;
+        --link: #1f4fa8;
+        --link-hover: #143775;
+        --surface-0: #0b0d10;
+    }
+}

@@ -1,0 +1,25 @@
+/* Background: lantern. Warm lamplight pooled at the top, a vignette, faint contours. Coloured only by palette tokens. */
+@keyframes bgl-flicker {
+    0%, 100% { opacity: 1; } 8% { opacity: 0.92; } 9% { opacity: 1; } 47% { opacity: 0.96; } 48% { opacity: 0.9; } 50% { opacity: 1; }
+}
+html[data-bg="lantern"] {
+    body {
+        background:
+            radial-gradient(1200px 700px at 12% -10%, color-mix(in srgb, var(--primary) 11%, transparent), transparent 60%),
+            radial-gradient(900px 600px at 110% 110%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 60%),
+            var(--bg);
+        background-attachment: fixed;
+    }
+    body::before { opacity: 0.045; animation-duration: 220s; z-index: -1; }
+    body::after {
+        content: '';
+        position: fixed; inset: 0;
+        pointer-events: none;
+        z-index: -1;
+        background: radial-gradient(140% 120% at 50% 40%, transparent 55%, rgba(0, 0, 0, 0.45) 100%);
+        animation: bgl-flicker 7s infinite steps(1);
+    }
+    &[data-theme="light"] body::before { opacity: 0.07; }
+    &[data-theme="light"] body::after { background: radial-gradient(140% 120% at 50% 40%, transparent 60%, rgba(80, 50, 10, 0.12) 100%); animation: none; }
+    @media (prefers-reduced-motion: reduce) { body::after { animation: none; } }
+}

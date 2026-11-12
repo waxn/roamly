@@ -1,0 +1,12 @@
+/* Background: network. A metro map in the palette's line colours, drawn by backgrounds/network.js. Coloured only by palette tokens. */
+html[data-bg="network"] {
+    body { background: var(--bg); }
+    body::before {
+        background-image: var(--bgn-map, none), radial-gradient(circle, color-mix(in srgb, var(--text) 50%, transparent) 1px, transparent 1.5px);
+        background-size: 900px 900px, 24px 24px;
+        opacity: 0.08;
+        animation: none;
+        z-index: -1;
+    }
+    &[data-theme="light"] body::before { opacity: 0.14; }
+}

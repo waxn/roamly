@@ -1,0 +1,9 @@
+/* Background: album. A stock-book page: faint glassine pockets every few inches. Coloured only by palette tokens. */
+html[data-bg="album"] {
+    body {
+        background:
+            repeating-linear-gradient(180deg, transparent 0 150px, color-mix(in srgb, var(--text) 2.5%, transparent) 150px 290px, color-mix(in srgb, var(--text) 6%, transparent) 290px 291px, transparent 291px 300px),
+            var(--bg);
+    }
+    body::before { display: none; }
+}

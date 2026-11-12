@@ -1,0 +1,56 @@
+/* Palette: lantern. Colour tokens only, see tracker/appearance.py. */
+html[data-palette="lantern"] {
+    color-scheme: dark;
+    --bg: #100c08;
+    --bg-card: #1a140d;
+    --bg-elevated: #241b11;
+    --bg-glass: rgba(16, 12, 8, 0.94);
+    --bg-input: #15100a;
+    --border: #362a1b;
+    --border-strong: #574327;
+    --border-bright: rgba(242, 154, 59, 0.65);
+    --text: #f1e4c8;
+    --text-muted: #bba67f;
+    --text-dim: #7d6b4f;
+    --primary: #f29a3b;
+    --primary-hover: #ffb35c;
+    --primary-soft: rgba(242, 154, 59, 0.14);
+    --accent: #c9432f;
+    --moss: #93a86c;
+    --map-blue: #86abb9;
+    --danger: #d4472f;
+    --success: #93a86c;
+    --warning: #e3b24e;
+    --link: #f5c37b;
+    --link-hover: #ffe0ad;
+    --clay-mint: #93a86c;
+    --clay-coral: #d4583e;
+    --clay-amber: #e3b24e;
+    --clay-lavender: #b98da3;
+    --clay-sky: #86abb9;
+    --paper: #efe3c6;
+    --paper-ink: #2b2014;
+    --surface-0: #0b0805;
+    --on-primary: #241405;
+
+    &[data-theme="light"] {
+        color-scheme: light;
+        --bg: #ece2cb;
+        --bg-card: #f6efdc;
+        --bg-elevated: #efe5cc;
+        --bg-glass: rgba(246, 239, 220, 0.95);
+        --bg-input: #f2ead6;
+        --border: #d4c39e;
+        --border-strong: #b9a374;
+        --text: #2b2014;
+        --text-muted: #5f4c31;
+        --text-dim: #8d7856;
+        --primary: #c56a14;
+        --primary-hover: #a85709;
+        --primary-soft: rgba(197, 106, 20, 0.12);
+        --accent: #b2351f;
+        --link: #8a4a0e;
+        --link-hover: #5c2f05;
+        --surface-0: #45301b;
+    }
+}

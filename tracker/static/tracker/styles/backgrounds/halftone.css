@@ -1,0 +1,15 @@
+/* Background: halftone. Two inks of halftone dots fading in from opposite corners, on grainy stock. Coloured only by palette tokens. */
+html[data-bg="halftone"] {
+    body { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.7' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"), var(--bg); }
+    body::before {
+        inset: 0;
+        z-index: -1;
+        background:
+            radial-gradient(circle, var(--primary) 30%, transparent 33%) 0 0 / 14px 14px,
+            radial-gradient(circle, var(--accent) 30%, transparent 33%) 7px 7px / 14px 14px;
+        -webkit-mask-image: radial-gradient(70% 60% at 100% 0%, rgba(0, 0, 0, 0.9), transparent 70%), radial-gradient(60% 60% at 0% 100%, rgba(0, 0, 0, 0.9), transparent 70%);
+        mask-image: radial-gradient(70% 60% at 100% 0%, rgba(0, 0, 0, 0.9), transparent 70%), radial-gradient(60% 60% at 0% 100%, rgba(0, 0, 0, 0.9), transparent 70%);
+        opacity: 0.14;
+        animation: none;
+    }
+}

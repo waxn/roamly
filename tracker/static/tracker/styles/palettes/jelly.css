@@ -1,0 +1,51 @@
+/* Palette: jelly. Colour tokens only, see tracker/appearance.py. */
+html[data-palette="jelly"] {
+    color-scheme: dark;
+    --bg: #091113;
+    --bg-card: #13222a;
+    --bg-elevated: #1b2f38;
+    --bg-glass: rgba(9, 17, 19, 0.92);
+    --bg-input: #0c181d;
+    --border: #213843;
+    --border-strong: #2f4d5a;
+    --border-bright: rgba(255, 79, 99, 0.7);
+    --text: #fff5ea;
+    --text-muted: #a8c3c8;
+    --text-dim: #6a8990;
+    --primary: #ff4f63;
+    --primary-hover: #ff6a7c;
+    --primary-soft: rgba(255, 79, 99, 0.16);
+    --accent: #ffb627;
+    --moss: #7ee04f;
+    --map-blue: #3fd3d6;
+    --danger: #ff3048;
+    --success: #7ee04f;
+    --warning: #ffb627;
+    --link-hover: #c8fbfb;
+    --clay-mint: #7ee04f;     /* lime */
+    --clay-coral: #ff4f63;    /* cherry */
+    --clay-amber: #ffb627;    /* mango */
+    --clay-lavender: #ff7ab6; /* bubblegum */
+    --clay-sky: #3fd3d6;      /* aqua */
+    --link: #7fe9eb;
+    --surface-0: #04090a;
+    --paper: #fff5ea;
+    --paper-ink: #2a1420;
+
+    &[data-theme="light"] {
+        color-scheme: light;
+        --bg: #fff3e9;
+        --bg-card: #ffffff;
+        --bg-elevated: #fff7f0;
+        --bg-glass: rgba(255, 255, 255, 0.92);
+        --bg-input: #fff9f3;
+        --border: #f3dccd;
+        --border-strong: #e7c3ae;
+        --text: #2a1420;
+        --text-muted: #6d4a5a;
+        --text-dim: #a37f8f;
+        --link: #c2185b;
+        --link-hover: #8a0f40;
+        --surface-0: #f0cdbb;
+    }
+}

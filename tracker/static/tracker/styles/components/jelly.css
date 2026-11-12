@@ -1,0 +1,439 @@
+/* ════════════════════════════════════════════════════════════════════
+   JELLY — squishy 3D gummies on licorice.
+   Everything is a gummy: glossy highlight, translucent body, a thick candy
+   edge underneath. Buttons squash when pressed and wobble back, cards tilt
+   toward the cursor on a spring, the navbar is a floating gummy island
+   with a goo blob that chases your pointer, and real raymarched jelly
+   blobs (WebGL, jelly.js) drift behind the page. A gummy map pin is the
+   logo. --g on any element is its candy colour; shades derive from it.
+   ════════════════════════════════════════════════════════════════════ */
+
+@keyframes jl-pop {
+    0% { transform: scale(0.55); opacity: 0; }
+    55% { transform: scale(1.06); opacity: 1; }
+    75% { transform: scale(0.97); }
+    100% { transform: scale(1); }
+}
+@keyframes jl-drop {
+    0% { transform: translateY(-26px) scale(1, 1); opacity: 0; }
+    45% { transform: translateY(0) scale(1.04, 0.94); opacity: 1; }
+    65% { transform: translateY(-4px) scale(0.98, 1.03); }
+    82% { transform: translateY(0) scale(1.01, 0.99); }
+    100% { transform: none; opacity: 1; }
+}
+@keyframes jl-spin { to { transform: rotate(360deg); } }
+@keyframes jl-wobble-dot {
+    0%, 100% { border-radius: 50% 50% 50% 50% / 50% 50% 50% 50%; }
+    33% { border-radius: 58% 42% 55% 45% / 45% 56% 44% 55%; }
+    66% { border-radius: 44% 56% 46% 54% / 56% 44% 57% 43%; }
+}
+
+html[data-style="jelly"] {
+    --clay-shadow: 0 8px 0 var(--surface-0), 0 24px 44px -18px rgba(0, 0, 0, 0.85);
+    --clay-shadow-sm: 0 4px 0 var(--surface-0), 0 10px 18px -8px rgba(0, 0, 0, 0.6);
+    --clay-shadow-hover: 0 12px 0 var(--surface-0), 0 30px 50px -18px rgba(0, 0, 0, 0.9);
+    --clay-shadow-inset: inset 0 3px 6px rgba(0, 0, 0, 0.45);
+    --clay-shadow-btn: none;
+    --nav-h: 84px;
+    --ease-spring: cubic-bezier(0.34, 1.7, 0.5, 1);
+    --g: color-mix(in srgb, var(--border-strong) 90%, var(--bg-card));
+
+    &[data-theme="light"] {
+        --clay-shadow: 0 8px 0 var(--surface-0), 0 24px 44px -18px color-mix(in srgb, color-mix(in srgb, var(--primary) 50%, var(--text)) 35%, transparent);
+    }
+
+    &, & *, & *::before, & *::after {
+    --g-hi: color-mix(in oklab, var(--g), white 38%);
+        --g-lo: color-mix(in oklab, var(--g), black 28%);
+        --g-edge: color-mix(in oklab, var(--g), black 55%);
+        --gummy:
+            radial-gradient(120% 85% at 28% 8%, rgba(255, 255, 255, 0.62) 0 7%, rgba(255, 255, 255, 0.12) 18%, transparent 34%),
+            linear-gradient(180deg, var(--g-hi), var(--g) 48%, var(--g-lo));
+        --gummy-shadow:
+            inset 0 -7px 12px -4px rgba(0, 0, 0, 0.32),
+            inset 0 3px 5px rgba(255, 255, 255, 0.35),
+            0 5px 0 var(--g-edge),
+            0 12px 22px -8px color-mix(in srgb, var(--g), transparent 45%);
+    }
+
+    ::selection { background: var(--clay-lavender); color: color-mix(in srgb, var(--primary-hover) 15%, #000); }
+
+    body {
+        scrollbar-color: var(--border-strong) transparent;
+    }
+
+    /* the WebGL jelly field (jelly.js) */
+
+    h1, h2, h3 { font-family: var(--font-display); }
+
+    /* ── Navbar: a floating gummy island ── */
+    .navbar {
+        top: 12px;
+        margin: 12px 14px 10px;
+        height: 62px;
+        border-radius: var(--r-pill);
+        border: none;
+        background: linear-gradient(180deg, var(--border), color-mix(in srgb, var(--bg-elevated) 5%, var(--bg-card)));
+        box-shadow: inset 0 2px 1px rgba(255, 255, 255, 0.12), inset 0 -4px 8px rgba(0, 0, 0, 0.35), 0 7px 0 var(--surface-0), 0 20px 40px -14px rgba(0, 0, 0, 0.8);
+        padding: 0 0.9rem 0 0.6rem;
+    }
+    &[data-theme="light"] .navbar { background: linear-gradient(180deg, #ffffff, color-mix(in srgb, var(--surface-0) 5%, var(--bg))); box-shadow: inset 0 -4px 8px color-mix(in srgb, color-mix(in srgb, var(--primary-hover) 80%, var(--text)) 12%, transparent), 0 7px 0 var(--surface-0), 0 20px 40px -14px color-mix(in srgb, color-mix(in srgb, var(--primary) 50%, var(--text)) 30%, transparent); }
+    .navbar-wordmark {
+        font-weight: 700;
+        font-size: 1.6rem;
+        font-variation-settings: "opsz" 9;
+        letter-spacing: -0.02em;
+        color: var(--text);
+        text-shadow: 0 1px 0 color-mix(in srgb, var(--danger) 50%, #fff), 0 2px 0 color-mix(in srgb, var(--primary) 85%, #000), 0 3px 0 color-mix(in srgb, var(--danger) 75%, var(--bg-card)), 0 4px 0 color-mix(in srgb, var(--danger) 60%, var(--bg)), 0 8px 12px rgba(0, 0, 0, 0.5);
+    }
+    &[data-theme="light"] .navbar-wordmark { color: var(--primary); text-shadow: 0 2px 0 color-mix(in srgb, var(--primary) 85%, #000), 0 4px 0 color-mix(in srgb, var(--danger) 55%, var(--text)), 0 7px 10px color-mix(in srgb, color-mix(in srgb, var(--danger) 50%, var(--text)) 25%, transparent); }
+    .navbar-nav { position: relative; gap: 0.1rem; }
+    .navbar-nav a, .navbar-nav-toggle {
+        position: relative;
+        z-index: 1;
+        font-family: var(--font-body);
+        font-size: 0.86rem;
+        font-weight: 700;
+        letter-spacing: 0;
+        text-transform: none;
+        border-bottom: none;
+        border-radius: var(--r-pill);
+        color: color-mix(in srgb, var(--text-muted) 60%, #fff);
+        padding: 0.6rem 0.85rem;
+        transition: color 0.2s;
+    }
+    &[data-theme="light"] .navbar-nav a, &[data-theme="light"] .navbar-nav-toggle, &[data-theme="light"] .navbar-user-toggle, &[data-theme="light"] .notif-toggle { color: var(--text-muted); }
+    .navbar-nav a:hover, .navbar-nav-toggle:hover { color: #fff; }
+    .navbar-nav a.active, .navbar-nav-toggle.active { color: #fff; border-bottom: none; }
+    /* without JS the active item is its own gummy */
+    &:not([data-fx~="goo"]) .navbar-nav a.active { --g: var(--primary); background: var(--gummy); box-shadow: var(--gummy-shadow); }
+    .navbar-user-toggle { color: color-mix(in srgb, var(--text-muted) 60%, #fff); font-weight: 700; border-radius: var(--r-pill); padding: 0.45rem 0.8rem; }
+    .navbar-user-toggle:hover { background: rgba(255, 255, 255, 0.07); color: #fff; }
+    .notif-toggle { color: color-mix(in srgb, var(--text-muted) 60%, #fff); border-radius: 50%; }
+    .notif-dot { background: var(--clay-amber); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bg-elevated) 5%, var(--bg-card)), 0 0 10px var(--clay-amber); animation: jl-wobble-dot 2.4s infinite; }
+    .btn.navbar-logout-mobile { --g: color-mix(in srgb, var(--border-strong) 90%, var(--bg-card)); }
+
+    /* popovers are gummy bubbles that pop open */
+    .nav-dropdown-menu, .notif-panel, .rly-select-menu, .rly-cal {
+        background: linear-gradient(180deg, var(--border), color-mix(in srgb, var(--border) 20%, var(--bg-card)));
+        border: none;
+        border-radius: var(--r-3);
+        box-shadow: inset 0 2px 1px rgba(255, 255, 255, 0.1), 0 7px 0 var(--surface-0), 0 28px 50px -16px rgba(0, 0, 0, 0.9);
+        padding: 0.5rem;
+    }
+    &[data-theme="light"] .nav-dropdown-menu, &[data-theme="light"] .notif-panel, &[data-theme="light"] .rly-select-menu, &[data-theme="light"] .rly-cal { background: #fff; box-shadow: 0 7px 0 var(--surface-0), 0 28px 50px -16px color-mix(in srgb, color-mix(in srgb, var(--primary) 50%, var(--text)) 30%, transparent); }
+    .nav-dropdown.open > .nav-dropdown-menu, .notif-panel:not([hidden]) { animation: jl-pop 0.42s var(--ease-spring) both; transform-origin: top center; }
+    @media (hover: hover) and (pointer: fine) {
+        .nav-dropdown:hover > .nav-dropdown-menu { animation: jl-pop 0.42s var(--ease-spring) both; transform-origin: top center; }
+    }
+    .nav-dropdown-menu a { border-radius: var(--r-2); font-weight: 600; color: color-mix(in srgb, var(--text-muted) 60%, #fff); padding: 0.55rem 0.85rem; transition: transform 0.25s var(--ease-spring), background 0.15s; }
+    .nav-dropdown-menu a:hover { background: rgba(255, 255, 255, 0.08); color: #fff; transform: translateX(4px) scale(1.02); }
+    .nav-dropdown-menu a.active { --g: var(--primary); background: var(--gummy); box-shadow: inset 0 3px 4px rgba(255, 255, 255, 0.35), 0 3px 0 var(--g-edge); color: #fff; }
+
+    /* ── Headings: candy lettering ── */
+    .page-header h1, .page-toolbar h1 {
+        font-weight: 700;
+        font-variation-settings: "opsz" 9;
+        font-size: clamp(2.1rem, 4.4vw, 3.3rem);
+        letter-spacing: -0.025em;
+        color: var(--text);
+        text-shadow: 0 1px 0 color-mix(in srgb, var(--primary) 30%, #fff), 0 2px 0 color-mix(in srgb, var(--primary) 90%, #fff), 0 3px 0 color-mix(in srgb, var(--primary) 90%, #000), 0 4px 0 color-mix(in srgb, var(--danger) 80%, var(--bg-card)), 0 5px 0 color-mix(in srgb, var(--danger) 70%, #000), 0 6px 0 color-mix(in srgb, var(--danger) 55%, #000), 0 12px 18px rgba(0, 0, 0, 0.55);
+        display: inline-block;
+        transform-origin: 50% 90%;
+    }
+    &[data-theme="light"] .page-header h1, &[data-theme="light"] .page-toolbar h1 { color: var(--primary); text-shadow: 0 2px 0 color-mix(in srgb, var(--primary) 90%, var(--text)), 0 4px 0 color-mix(in srgb, var(--danger) 65%, var(--text)), 0 6px 0 color-mix(in srgb, var(--danger) 55%, #000), 0 12px 16px color-mix(in srgb, color-mix(in srgb, var(--danger) 50%, var(--text)) 22%, transparent); }
+    .page-header .page-lead { font-size: 1.02rem; color: var(--text-muted); margin-top: 0.85rem; }
+
+    /* ── Cards: thick licorice slabs ── */
+    .card {
+        position: relative;
+        background:
+            radial-gradient(140% 70% at 20% 0%, rgba(255, 255, 255, 0.05), transparent 50%),
+            linear-gradient(165deg, color-mix(in srgb, var(--bg-elevated) 75%, var(--bg-card)), color-mix(in srgb, var(--bg-input) 60%, var(--bg-card)));
+        border: none;
+        border-radius: var(--radius);
+        box-shadow: inset 0 2px 1px rgba(255, 255, 255, 0.07), inset 0 -3px 0 rgba(0, 0, 0, 0.3), 0 9px 0 var(--surface-0), 0 26px 40px -20px rgba(0, 0, 0, 0.85);
+        margin-bottom: 1.6rem;
+        transition: box-shadow 0.3s;
+    }
+    &[data-theme="light"] .card { background: linear-gradient(165deg, #ffffff, color-mix(in srgb, var(--bg-input) 50%, var(--bg))); box-shadow: inset 0 -3px 0 color-mix(in srgb, var(--surface-0) 50%, transparent), 0 9px 0 var(--surface-0), 0 26px 40px -20px color-mix(in srgb, color-mix(in srgb, var(--primary) 50%, var(--text)) 30%, transparent); }
+    .card:hover { box-shadow: inset 0 2px 1px rgba(255, 255, 255, 0.09), inset 0 -3px 0 rgba(0, 0, 0, 0.3), 0 9px 0 var(--surface-0), 0 34px 50px -20px rgba(0, 0, 0, 0.9); }
+    .grid { gap: 1.25rem; }
+    .grid > .card { margin-bottom: 0.4rem; }
+    .card-header {
+        font-weight: 700;
+        font-variation-settings: "opsz" 9;
+        font-size: 1.25rem;
+        letter-spacing: -0.01em;
+        border-bottom: none;
+        padding-bottom: 0.3rem;
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+    }
+    .card-header::before {
+        content: '';
+        --g: var(--jl-dot, var(--primary));
+        flex: 0 0 auto;
+        width: 18px; height: 18px;
+        border-radius: 50%;
+        background: var(--gummy);
+        box-shadow: inset 0 -3px 4px -1px rgba(0, 0, 0, 0.3), 0 3px 0 var(--g-edge);
+        animation: jl-wobble-dot 3s infinite;
+    }
+    .card:nth-child(5n+2) { --jl-dot: var(--clay-amber); }
+    .card:nth-child(5n+3) { --jl-dot: var(--clay-sky); }
+    .card:nth-child(5n+4) { --jl-dot: var(--clay-mint); }
+    .card:nth-child(5n+5) { --jl-dot: var(--clay-lavender); }
+    .card-coral, .card-lavender, .card-amber, .card-sky, .card-teal { border-left: none; }
+    .card-coral { --jl-dot: var(--clay-coral); --jl-tint: var(--clay-coral); }
+    .card-lavender { --jl-dot: var(--clay-lavender); --jl-tint: var(--clay-lavender); }
+    .card-amber { --jl-dot: var(--clay-amber); --jl-tint: var(--clay-amber); }
+    .card-sky { --jl-dot: var(--clay-sky); --jl-tint: var(--clay-sky); }
+    .card-teal { --jl-dot: var(--primary); --jl-tint: var(--primary); }
+    .card-coral, .card-lavender, .card-amber, .card-sky, .card-teal {
+        background:
+            radial-gradient(120% 80% at 85% 0%, color-mix(in srgb, var(--jl-tint), transparent 80%), transparent 60%),
+            linear-gradient(165deg, color-mix(in srgb, var(--bg-elevated) 75%, var(--bg-card)), color-mix(in srgb, var(--bg-input) 60%, var(--bg-card)));
+        box-shadow: inset 0 2px 1px rgba(255, 255, 255, 0.07), 0 9px 0 color-mix(in oklab, var(--jl-tint), black 62%), 0 26px 40px -20px color-mix(in srgb, var(--jl-tint), transparent 70%);
+    }
+
+    /* ── Stat tiles: chunky candy numerals ── */
+    .card.stat-card { padding: 1.5rem 1rem 1.35rem; }
+    .stat-value {
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-variation-settings: "opsz" 9;
+        font-variant-numeric: lining-nums tabular-nums;
+        font-size: 2.5rem;
+        letter-spacing: -0.03em;
+        --c: var(--primary);
+        color: color-mix(in oklab, var(--c), white 30%);
+        text-shadow:
+            0 1px 0 color-mix(in oklab, var(--c), black 5%),
+            0 2px 0 color-mix(in oklab, var(--c), black 18%),
+            0 3px 0 color-mix(in oklab, var(--c), black 30%),
+            0 4px 0 color-mix(in oklab, var(--c), black 42%),
+            0 5px 0 color-mix(in oklab, var(--c), black 55%),
+            0 12px 16px rgba(0, 0, 0, 0.5);
+        display: inline-block;
+    }
+    .stat-value-coral { --c: var(--clay-coral); }
+    .stat-value-amber { --c: var(--clay-amber); }
+    .stat-value-sky { --c: var(--clay-sky); }
+    .stat-value-lavender { --c: var(--clay-lavender); }
+    .stat-label { font-family: var(--font-body); font-weight: 700; font-size: 0.72rem; letter-spacing: 0.04em; text-transform: none; color: var(--text-dim); margin-top: 0.7rem; }
+
+    /* ── Buttons: gummies ── */
+    .btn {
+        --g: color-mix(in srgb, var(--border-strong) 90%, var(--bg-card));
+        background: var(--gummy);
+        box-shadow: var(--gummy-shadow);
+        border: none;
+        border-radius: var(--r-pill);
+        color: #fff;
+        font-weight: 700;
+        letter-spacing: 0;
+        padding: 0.62rem 1.25rem;
+        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+        transition: filter 0.2s, box-shadow 0.15s;
+    }
+    .btn:hover { filter: brightness(1.08) saturate(1.1); }
+    .btn:active { transform: translateY(4px); box-shadow: inset 0 -4px 8px -3px rgba(0, 0, 0, 0.35), inset 0 3px 5px rgba(255, 255, 255, 0.3), 0 1px 0 var(--g-edge); }
+    .btn-primary { --g: var(--primary); }
+    .btn-primary:hover { background: var(--gummy); }
+    .btn-danger { --g: color-mix(in srgb, var(--danger) 90%, #000); }
+    .btn-outline { --g: color-mix(in srgb, var(--border-strong) 70%, var(--bg-card)); color: color-mix(in srgb, var(--text-muted) 25%, #fff); }
+    .btn-outline:hover { --g: var(--border-strong); color: #fff; border-color: transparent; }
+    &[data-theme="light"] .btn-outline { --g: color-mix(in srgb, var(--surface-0) 25%, var(--bg)); color: color-mix(in srgb, var(--primary-hover) 30%, var(--text)); text-shadow: none; }
+    .btn-sm { padding: 0.42rem 0.95rem; border-radius: var(--r-pill); }
+
+    /* ── Forms: soft wells ── */
+    .form-group label, .pref-label { font-weight: 700; font-size: 0.82rem; color: var(--text-muted); }
+    .form-control, .rly-select-trigger, .rly-date-trigger {
+        background: color-mix(in srgb, var(--bg-input) 90%, #000);
+        border: 2px solid transparent;
+        border-radius: var(--r-2);
+        box-shadow: inset 0 4px 8px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.06);
+        padding: 0.65rem 1rem;
+        font-weight: 600;
+        transition: border-color 0.2s, box-shadow 0.25s var(--ease-spring);
+    }
+    &[data-theme="light"] .form-control, &[data-theme="light"] .rly-select-trigger, &[data-theme="light"] .rly-date-trigger { background: color-mix(in srgb, var(--bg-elevated) 40%, var(--bg)); box-shadow: inset 0 3px 6px color-mix(in srgb, color-mix(in srgb, var(--primary-hover) 80%, var(--text)) 18%, transparent); }
+    .form-control:focus, .rly-select.open .rly-select-trigger, .rly-date.open .rly-date-trigger, .rly-select-trigger:focus-visible, .rly-date-trigger:focus-visible {
+        border-color: var(--clay-sky);
+        box-shadow: inset 0 4px 8px rgba(0, 0, 0, 0.5), 0 0 0 5px rgba(63, 211, 214, 0.18);
+    }
+    input[type="checkbox"], input[type="radio"] { accent-color: var(--primary); width: 1.1rem; height: 1.1rem; }
+    .rly-select-option { border-radius: var(--r-2); }
+    .rly-select-option:hover, .rly-select-option.active { background: rgba(255, 255, 255, 0.08); }
+    .rly-select-option.selected { color: var(--clay-lavender); }
+    .rly-cal-day { border-radius: 50%; }
+    .rly-cal-day.selected, .rly-cal-month.selected { --g: var(--primary); background: var(--gummy); color: #fff; box-shadow: 0 3px 0 var(--g-edge); }
+    .rly-cal-day.today { box-shadow: inset 0 0 0 2px var(--clay-sky); }
+
+    /* ── Tabs: a gummy tray ── */
+    .pill-tabs {
+        background: color-mix(in srgb, var(--bg-input) 90%, #000);
+        border: none;
+        border-radius: var(--r-pill);
+        padding: 5px;
+        gap: 4px;
+        box-shadow: inset 0 4px 9px rgba(0, 0, 0, 0.55), 0 1px 0 rgba(255, 255, 255, 0.06);
+        overflow: visible;
+    }
+    .pill-tabs .tab-btn, .pill-tabs button.tab-btn {
+        border: none;
+        border-radius: var(--r-pill);
+        font-family: var(--font-body);
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0;
+        text-transform: none;
+        padding: 0.45rem 1.05rem;
+        color: var(--text-muted);
+    }
+    .pill-tabs .tab-btn:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
+    .pill-tabs .tab-btn.active, &[data-theme="light"] .pill-tabs .tab-btn.active {
+        --g: var(--clay-sky);
+        background: var(--gummy);
+        color: color-mix(in srgb, var(--bg-input) 5%, var(--bg-card));
+        text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+        box-shadow: inset 0 -4px 7px -3px rgba(0, 0, 0, 0.3), inset 0 3px 4px rgba(255, 255, 255, 0.45), 0 3px 0 var(--g-edge);
+    }
+
+    /* ── Tables ── */
+    .table-responsive { border-radius: var(--r-2); }
+    table { border-collapse: separate; border-spacing: 0 6px; }
+    th { border-bottom: none; font-family: var(--font-body); font-weight: 700; font-size: 0.72rem; letter-spacing: 0.04em; text-transform: none; color: var(--text-dim); }
+    td { border-bottom: none; background: rgba(255, 255, 255, 0.025); transition: background 0.2s, transform 0.3s var(--ease-spring); }
+    td:first-child { border-radius: var(--r-2) 0 0 var(--r-2); font-weight: 700; }
+    td:last-child { border-radius: 0 var(--r-2) var(--r-2) 0; }
+    tr:hover { background: transparent; }
+    tbody tr:hover td { background: color-mix(in srgb, var(--primary) 10%, transparent); }
+
+    /* ── Badges: gumdrops ── */
+    .badge {
+        --g: color-mix(in srgb, var(--border-strong) 95%, #fff);
+        background: var(--gummy);
+        border: none;
+        border-radius: var(--r-pill);
+        color: #fff;
+        font-family: var(--font-body);
+        font-weight: 700;
+        font-size: 0.7rem;
+        letter-spacing: 0;
+        padding: 0.24rem 0.7rem;
+        box-shadow: inset 0 -3px 5px -2px rgba(0, 0, 0, 0.3), inset 0 2px 3px rgba(255, 255, 255, 0.4), 0 3px 0 var(--g-edge);
+        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+        display: inline-block;
+    }
+    .badge-success { --g: var(--clay-mint); color: color-mix(in srgb, var(--clay-mint) 20%, #000); text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35); }
+    .badge-warning { --g: var(--clay-amber); color: color-mix(in srgb, var(--accent) 25%, #000); text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35); }
+    .badge-coral { --g: var(--clay-coral); }
+    .badge-lavender { --g: var(--clay-lavender); }
+    .badge-sky { --g: var(--clay-sky); color: color-mix(in srgb, var(--bg-input) 5%, var(--bg-card)); text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4); }
+    .badge-teal { --g: var(--primary); }
+
+    /* ── Alerts: jelly bubbles ── */
+    .alert {
+        border: none;
+        border-radius: var(--r-3);
+        font-weight: 600;
+        padding: 0.9rem 1.15rem;
+        color: var(--text);
+        background: color-mix(in srgb, var(--a, var(--clay-sky)), color-mix(in srgb, var(--bg-input) 60%, var(--bg-card)) 82%);
+        box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--a, var(--clay-sky)), transparent 55%), 0 5px 0 color-mix(in oklab, var(--a, var(--clay-sky)), black 65%);
+    }
+    .alert-info { --a: var(--clay-sky); color: color-mix(in srgb, var(--text-muted) 35%, #fff); }
+    .alert-success { --a: var(--clay-mint); color: color-mix(in srgb, var(--clay-mint) 35%, #fff); }
+    .alert-error { --a: var(--clay-coral); color: color-mix(in srgb, var(--primary) 25%, #fff); }
+
+    /* ── Loading ── */
+    .spinner {
+        width: 1.4rem; height: 1.4rem;
+        border: none;
+        border-radius: 50%;
+        background: conic-gradient(from 0deg, var(--clay-coral), var(--clay-amber), var(--clay-mint), var(--clay-sky), var(--clay-lavender), var(--clay-coral));
+        -webkit-mask: radial-gradient(circle, transparent 42%, #000 44%);
+        mask: radial-gradient(circle, transparent 42%, #000 44%);
+        animation: jl-spin 0.8s linear infinite;
+    }
+    .skeleton { background: color-mix(in srgb, var(--bg-elevated) 60%, var(--bg-card)); border-radius: var(--r-2); --skeleton-sheen: color-mix(in srgb, color-mix(in srgb, var(--primary-hover) 75%, #fff) 12%, transparent); }
+
+    /* ── Dialogs & toasts ── */
+    .rly-dialog-overlay { background: color-mix(in srgb, var(--surface-0) 72%, transparent); backdrop-filter: blur(6px); }
+    .rly-dialog {
+        background: linear-gradient(170deg, var(--border), color-mix(in srgb, var(--bg-elevated) 5%, var(--bg-card)));
+        border: none;
+        border-radius: var(--r-4);
+        box-shadow: inset 0 2px 1px rgba(255, 255, 255, 0.12), 0 10px 0 var(--surface-0), 0 40px 70px -20px rgba(0, 0, 0, 0.9);
+    }
+    .rly-dialog-overlay.open .rly-dialog { animation: jl-pop 0.5s var(--ease-spring) both; }
+    .rly-dialog-title { font-family: var(--font-display); font-weight: 700; font-variation-settings: "opsz" 9; font-size: 1.45rem; }
+    .rly-dialog-btn { --g: color-mix(in srgb, var(--border-strong) 90%, var(--bg-card)); background: var(--gummy); border: none; border-radius: var(--r-pill); color: #fff; font-weight: 700; box-shadow: var(--gummy-shadow); }
+    .rly-dialog-btn-primary { --g: var(--primary); }
+    .rly-dialog-btn-danger { --g: color-mix(in srgb, var(--danger) 90%, #000); }
+    .rly-dialog-btn:hover { filter: brightness(1.1); }
+    .rly-dialog-field input { border-radius: var(--r-2); background: color-mix(in srgb, var(--bg-input) 90%, #000); border: 2px solid transparent; box-shadow: inset 0 3px 6px rgba(0, 0, 0, 0.5); }
+    .rly-toast {
+        background: linear-gradient(180deg, var(--border), color-mix(in srgb, var(--bg-elevated) 5%, var(--bg-card)));
+        border: none;
+        border-radius: var(--r-pill);
+        box-shadow: inset 0 2px 1px rgba(255, 255, 255, 0.12), 0 6px 0 var(--surface-0), 0 20px 36px -12px rgba(0, 0, 0, 0.85);
+        padding-left: 2.6rem;
+        position: relative;
+        font-weight: 600;
+    }
+    .rly-toast::before {
+        content: '';
+        --g: var(--clay-mint);
+        position: absolute; left: 0.85rem; top: 50%;
+        width: 18px; height: 18px; margin-top: -9px;
+        border-radius: 50%;
+        background: var(--gummy);
+        box-shadow: 0 2px 0 var(--g-edge);
+    }
+    .rly-toast-error::before { --g: var(--clay-coral); }
+    .rly-toast.show { animation: jl-pop 0.5s var(--ease-spring) both; }
+    .rly-intro-bar { background: linear-gradient(180deg, var(--border), color-mix(in srgb, var(--bg-elevated) 5%, var(--bg-card))); border-top: none; border-radius: var(--r-4) var(--r-4) 0 0; box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.5); }
+    .rly-intro-title { font-family: var(--font-display); font-variation-settings: "opsz" 9; }
+    .rly-intro-next { --g: var(--primary); background: var(--gummy); border: none; border-radius: var(--r-pill); box-shadow: var(--gummy-shadow); }
+    .rly-banner { --g: var(--clay-amber); background: var(--gummy); color: color-mix(in srgb, var(--accent) 25%, #000); font-weight: 700; }
+
+    /* ── Mobile bottom nav: a gummy dock ── */
+    .bottom-nav {
+        left: 10px; right: 10px; bottom: 10px;
+        border: none;
+        border-radius: var(--r-4);
+        background: linear-gradient(180deg, var(--border), color-mix(in srgb, var(--bg-elevated) 5%, var(--bg-card)));
+        box-shadow: inset 0 2px 1px rgba(255, 255, 255, 0.12), 0 6px 0 var(--surface-0), 0 16px 30px rgba(0, 0, 0, 0.6);
+    }
+    .bottom-nav a { color: var(--text-muted);  }
+    .bottom-nav a.active { color: #fff; }
+    .bottom-nav a.active .bottom-nav-icon-wrap { --g: var(--primary); background: var(--gummy); border-radius: 50%; box-shadow: 0 3px 0 var(--g-edge); color: #fff; }
+
+    /* ── Maps ── */
+    .maplibregl-popup-content { background: linear-gradient(180deg, var(--border), color-mix(in srgb, var(--bg-elevated) 5%, var(--bg-card))); color: var(--text); border-radius: var(--r-3); box-shadow: 0 6px 0 var(--surface-0), 0 20px 40px -12px rgba(0, 0, 0, 0.9); }
+    .maplibregl-popup-tip { border-top-color: color-mix(in srgb, var(--bg-elevated) 5%, var(--bg-card)) !important; border-bottom-color: var(--border) !important; }
+    .maplibregl-ctrl-group { background: linear-gradient(180deg, var(--border), color-mix(in srgb, var(--bg-elevated) 5%, var(--bg-card))); border-radius: var(--r-2); box-shadow: 0 4px 0 var(--surface-0), 0 10px 20px rgba(0, 0, 0, 0.5); overflow: hidden; }
+    .maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(1); }
+
+    @media (max-width: 768px) {
+        --nav-h: 74px;
+        .navbar { margin: 8px 8px 8px; top: 8px; height: 58px; }
+        .jl-pin { width: 40px; height: 40px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .card.jl-in, .nav-dropdown-menu, .notif-panel, .rly-dialog, .rly-toast.show { animation: none !important; }
+        .card-header::before, .notif-dot { animation: none; }
+    }
+
+    /* ── Page chrome: the map sidebar and floating panels, and their buttons,
+       take this look's surfaces too (the shape layer handles their corners). ── */
+    :is(.sidebar-content, .replay-panel, .map-ctx-menu, .map-addplace-panel, .cell-legend, .map-detail-controls) { background: linear-gradient(180deg, color-mix(in srgb, var(--bg-elevated), var(--text) 6%), var(--bg-card)); border: none; box-shadow: inset 0 2px 1px rgba(255, 255, 255, 0.1), 0 7px 0 var(--surface-0), 0 24px 44px -16px rgba(0, 0, 0, 0.85); }
+    :is(.tool-btn, .style-btn, .replay-panel button.rp-btn, .date-reset-btn, .map-detail-controls button) { --g: color-mix(in srgb, var(--border-strong) 90%, var(--bg-card)); background: var(--gummy); box-shadow: inset 0 -4px 7px -3px rgba(0, 0, 0, 0.3), inset 0 2px 3px rgba(255, 255, 255, 0.3), 0 3px 0 var(--g-edge); border: none; color: var(--text); font-weight: 700; }
+    :is(.tool-btn, .style-btn, .replay-panel button.rp-btn, .date-reset-btn, .map-detail-controls button):hover { filter: brightness(1.08); }
+    :is(.tool-btn.active, .style-btn.active) { --g: var(--primary); background: var(--gummy); color: #fff; }
+    .sidebar-label { color: var(--text-dim); }
+}

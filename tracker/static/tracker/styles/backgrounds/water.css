@@ -1,0 +1,36 @@
+/* Background: water. Deep water with drifting caustic light and glowing plankton (backgrounds/water.js). Coloured only by palette tokens. */
+@keyframes bgw-drift-a { from { background-position: 0 0, 0 0; } to { background-position: 520px 340px, -780px 510px; } }
+@keyframes bgw-drift-b { from { background-position: 0 0; } to { background-position: -650px 425px; } }
+html[data-bg="water"] {
+    body {
+        background:
+            radial-gradient(120% 80% at 50% -10%, color-mix(in srgb, var(--bg-elevated) 90%, var(--bg)) 0%, transparent 60%),
+            radial-gradient(90% 70% at 10% 110%, color-mix(in srgb, var(--bg-elevated) 60%, var(--bg)) 0%, transparent 60%),
+            linear-gradient(180deg, color-mix(in srgb, var(--bg-elevated) 12%, var(--bg)), var(--surface-0));
+        background-attachment: fixed;
+    }
+    body::before {
+        inset: 0;
+        z-index: -1;
+        background-image: var(--bgw-caustic, none), var(--bgw-caustic, none);
+        background-size: 520px 340px, 780px 510px;
+        opacity: 0.22;
+        mix-blend-mode: screen;
+        animation: bgw-drift-a 38s linear infinite;
+    }
+    body::after {
+        content: '';
+        position: fixed; inset: 0;
+        pointer-events: none;
+        z-index: -1;
+        background-image: var(--bgw-caustic, none);
+        background-size: 650px 425px;
+        opacity: 0.16;
+        mix-blend-mode: screen;
+        animation: bgw-drift-b 51s linear infinite;
+    }
+    &[data-theme="light"] body { background: linear-gradient(180deg, color-mix(in srgb, var(--bg) 70%, #fff), color-mix(in srgb, var(--primary) 6%, var(--bg))); background-attachment: fixed; }
+    &[data-theme="light"] body::before, &[data-theme="light"] body::after { mix-blend-mode: multiply; opacity: 0.15; filter: invert(1) hue-rotate(180deg); }
+    .bgw-plankton { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: -1; }
+    @media (prefers-reduced-motion: reduce) { body::before, body::after { animation: none; } }
+}
