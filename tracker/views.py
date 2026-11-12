@@ -2048,11 +2048,8 @@ def ask_view(request):
 
 @login_required
 def style_lab_view(request):
-    """The Style lab: every alternative visual style side by side, with a
-    gallery of the shared components in mock data so a style can be judged
-    without needing real history. Pure template; the style itself is a
-    client-side choice (localStorage `roamly_style`, see _style_layer.html)."""
-    return render(request, 'tracker/style_lab.html')
+    """The old Style lab URL. The lab now lives in Settings → Appearance."""
+    return redirect(reverse('tracker:settings') + '#appearance')
 
 
 @login_required
@@ -2776,6 +2773,30 @@ def profile_alerts_api(request):
         'alert_no_data_enabled': profile.alert_no_data_enabled,
         'alert_no_data_hours': profile.alert_no_data_hours,
     })
+
+
+@login_required
+def profile_appearance_api(request):
+    """Get or set the account's appearance (Settings → Appearance).
+
+    GET returns the stored appearance, sanitized, plus the preset it matches
+    ('' for a custom mix). POST takes a full or partial appearance (or just
+    {"preset": id}), runs it through appearance.sanitize, so unknown facets
+    or extras can never be stored, and saves it. {"reset": true} clears it,
+    which hands the choice back to Field Journal. Web-only, CSRF-checked."""
+    from . import appearance as ap
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body or '{}')
+        except (json.JSONDecodeError, ValueError):
+            return JsonResponse({'error': 'Invalid request.'}, status=400)
+        if not isinstance(data, dict):
+            return JsonResponse({'error': 'Invalid request.'}, status=400)
+        profile.appearance = {} if data.get('reset') else ap.sanitize(data)
+        profile.save(update_fields=['appearance'])
+    app = ap.sanitize(profile.appearance) if profile.appearance else ap.sanitize({})
+    return JsonResponse({'appearance': app, 'preset': ap.matching_preset(app), 'stored': bool(profile.appearance)})
 
 
 @login_required

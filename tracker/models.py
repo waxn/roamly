@@ -1338,6 +1338,13 @@ class UserProfile(models.Model):
     # client-side tour without touching this flag.
     intro_seen = models.BooleanField(default=True)
 
+    # Settings → Appearance: the chosen look as facets (palette, components,
+    # shape, type, background, extras, size, motion), validated by
+    # tracker.appearance.sanitize. Empty = never chosen, so the browser's own
+    # localStorage copy (or Field Journal) applies. Synced so a look follows
+    # the account across devices. Config ⇒ excluded from backups.
+    appearance = models.JSONField(default=dict, blank=True)
+
     # Health Connect: which writing app's records to trust for a given day when
     # several of them recorded the same walk. Blank means "pick the source with
     # the most data that day", resolved per (day, metric) at read time. Config,

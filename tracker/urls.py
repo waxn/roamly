@@ -41,6 +41,7 @@ urlpatterns = [
     path('ask/', views.ask_view, name='ask'),
     path('settings/', views.settings_view, name='settings'),
     path('styles/', views.style_lab_view, name='style_lab'),
+    path('api/profile/appearance/', views.profile_appearance_api, name='profile_appearance'),
     path('diagnostics/', views.diagnostics_view, name='diagnostics'),
     path('editor/', views.editor_view, name='editor'),
 

@@ -107,6 +107,20 @@ def get_carto_tile_qs():
     return '?key=' + quote(key, safe='')
 
 
+_APPEARANCE_REGISTRY = None
+
+
+def _appearance_registry():
+    """Settings → Appearance registry with static URLs resolved, built once
+    per process (it only changes with a deploy)."""
+    global _APPEARANCE_REGISTRY
+    if _APPEARANCE_REGISTRY is None:
+        from django.templatetags.static import static
+        from . import appearance
+        _APPEARANCE_REGISTRY = appearance.registry(static)
+    return _APPEARANCE_REGISTRY
+
+
 def custom_js_snippet(request):
     """Provide the instance custom JS, the viewer's admin flag, and the per-user
     AI Ask feature flag to all templates."""
@@ -117,6 +131,7 @@ def custom_js_snippet(request):
     road_provider = ''
     intro_pending = False
     featured_trip = None
+    user_appearance = None
     user = getattr(request, 'user', None)
     if user is not None and user.is_authenticated:
         try:
@@ -129,6 +144,11 @@ def custom_js_snippet(request):
         # First-run welcome tour (RoamlyIntro) — only unseen for a brand new
         # signup (see UserProfile.intro_seen); every other profile is True.
         intro_pending = bool(profile and not profile.intro_seen)
+        # The account's look (Settings → Appearance); None when never chosen,
+        # so the browser's own copy applies.
+        if profile and profile.appearance:
+            from .appearance import sanitize
+            user_appearance = sanitize(profile.appearance)
         # Reuse the same profile object — the Ask tab shows only once the user
         # has enabled AI and supplied a base URL, key, and model.
         ai_ask_enabled = bool(profile and profile.ai_configured)
@@ -154,6 +174,8 @@ def custom_js_snippet(request):
         'ROAD_SNAP_ENABLED': road_snap,
         'ROAD_PROVIDER': road_provider,
         'INTRO_PENDING': intro_pending,
+        'APPEARANCE': user_appearance,
+        'APPEARANCE_REGISTRY': _appearance_registry(),
         # The trip blog shown as "Trip" in the nav, {id, name} or None.
         'FEATURED_TRIP': featured_trip,
         # Footer contact link + form (landing + settings). The form only renders
