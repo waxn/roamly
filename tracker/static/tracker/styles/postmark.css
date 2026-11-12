@@ -1,0 +1,428 @@
+/* ════════════════════════════════════════════════════════════════════
+   POSTMARK — a stamp collector's album.
+   Black stock-book pages with glassine pockets. Tiles are stamps: deep
+   engraved colours, a cream frame, perforated edges you could tear along.
+   Chrome is airmail: red-white-blue stripes, PAR AVION labels. Each page
+   title gets a circular postmark with today's date, and stamps arrive
+   already cancelled with wavy lines (postmark.js).
+   ════════════════════════════════════════════════════════════════════ */
+
+@keyframes pm-thunk {
+    0% { transform: scale(1.5) rotate(var(--pm-rot, -12deg)); opacity: 0; }
+    70% { transform: scale(0.96) rotate(var(--pm-rot, -12deg)); opacity: 0.9; }
+    100% { transform: scale(1) rotate(var(--pm-rot, -12deg)); opacity: var(--pm-op, 0.55); }
+}
+@keyframes pm-spin { to { transform: rotate(360deg); } }
+
+html[data-style="postmark"] {
+    --cream: #efe4c8;
+    --cream-dim: rgba(239, 228, 200, 0.62);
+    --airmail-red: #cf2e2a;
+    --airmail-blue: #1f4fa8;
+    --airmail: repeating-linear-gradient(135deg, var(--airmail-red) 0 14px, var(--cream) 14px 22px, var(--airmail-blue) 22px 36px, var(--cream) 36px 44px);
+
+    --clay-mint: #6f9e75;
+    --clay-coral: #d9534a;
+    --clay-amber: #d9a548;
+    --clay-lavender: #b48aa6;
+    --clay-sky: #6d93d4;
+    --link: #f0c87a;
+    --link-hover: #ffe2a8;
+
+    --bg: #111316;
+    --bg-card: #1a1d22;
+    --bg-elevated: #22262c;
+    --bg-glass: rgba(17, 19, 22, 0.95);
+    --bg-input: #0d0f12;
+    --border: #2c3139;
+    --border-strong: #4a515c;
+    --border-bright: rgba(239, 228, 200, 0.7);
+    --text: #efe4c8;
+    --text-muted: #b3a98f;
+    --text-dim: #7c7562;
+    --primary: #cf2e2a;
+    --primary-hover: #e03c37;
+    --primary-soft: rgba(207, 46, 42, 0.15);
+    --accent: #1f4fa8;
+    --moss: #6f9e75;
+    --map-blue: #6d93d4;
+    --danger: #d9332c;
+    --success: #6f9e75;
+    --warning: #d9a548;
+
+    --clay-shadow: 0 16px 34px -14px rgba(0, 0, 0, 0.9);
+    --clay-shadow-sm: 0 3px 10px rgba(0, 0, 0, 0.5);
+    --clay-shadow-hover: 0 22px 40px -14px rgba(0, 0, 0, 0.95);
+    --clay-shadow-inset: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+    --clay-shadow-btn: none;
+    --radius: 2px;
+    --radius-sm: 2px;
+    --radius-clay: 2px;
+    --radius-clay-sm: 2px;
+    --radius-clay-lg: 3px;
+    --radius-clay-xl: 4px;
+    --nav-h: 70px;
+
+    /* a stamp's colour; tiles cycle through engraving inks */
+    --stamp: #1c2c55;
+    --perf: 12px;
+
+    &[data-theme="light"] {
+        --bg: #e9e2d1; --bg-card: #f6f0e1; --bg-elevated: #efe7d4; --bg-input: #fffaf0;
+        --bg-glass: rgba(246, 240, 225, 0.95);
+        --border: #cdbf9f; --border-strong: #a8987a;
+        --text: #26221b; --text-muted: #5b5244; --text-dim: #8b806d;
+        --link: #1f4fa8; --link-hover: #143775;
+    }
+    color-scheme: dark;
+    &[data-theme="light"] { color-scheme: light; }
+
+    ::selection { background: var(--airmail-red); color: var(--cream); }
+
+    body {
+        background:
+            repeating-linear-gradient(180deg, transparent 0 150px, rgba(255, 255, 255, 0.022) 150px 290px, rgba(255, 255, 255, 0.05) 290px 291px, transparent 291px 300px),
+            var(--bg);
+        scrollbar-color: #4a515c transparent;
+    }
+    &[data-theme="light"] body { background: repeating-linear-gradient(180deg, transparent 0 150px, rgba(0, 0, 0, 0.025) 150px 290px, rgba(0, 0, 0, 0.06) 290px 291px, transparent 291px 300px), var(--bg); }
+    body::before { display: none; }
+
+    h1, h2, h3 { font-family: var(--font-display); }
+
+    /* ── Navbar: an airmail envelope's edge ── */
+    .navbar {
+        background: #0b0d10;
+        border-bottom: none;
+        height: calc(var(--nav-h) - 8px);
+        margin-bottom: 8px;
+        box-shadow: 0 8px 0 0 transparent;
+    }
+    .navbar::after {
+        content: '';
+        position: absolute; left: 0; right: 0; bottom: -8px;
+        height: 8px;
+        background: var(--airmail);
+        pointer-events: none;
+    }
+    .navbar-wordmark {
+        font-weight: 700;
+        font-size: 1.5rem;
+        color: var(--cream);
+        display: inline-flex;
+        flex-direction: column;
+        line-height: 0.95;
+    }
+    .navbar-wordmark::after {
+        content: 'PAR AVION · BY AIR MAIL';
+        font-family: var(--font-mono);
+        font-size: 0.5rem;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        color: var(--airmail-blue);
+        background: var(--cream);
+        padding: 0.12rem 0.3rem;
+        margin-top: 0.25rem;
+        white-space: nowrap;
+        align-self: flex-start;
+    }
+    .navbar-mark { filter: sepia(1) saturate(0.4) brightness(1.4); }
+    .navbar-nav a, .navbar-nav-toggle {
+        font-family: var(--font-display);
+        font-size: 0.92rem;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+        text-transform: none;
+        color: #b9ae93;
+        border-bottom: none;
+        border-radius: 2px;
+        position: relative;
+    }
+    .navbar-nav a:hover, .navbar-nav-toggle:hover { color: var(--cream); }
+    .navbar-nav a.active, .navbar-nav-toggle.active { color: var(--cream); border-bottom: none; }
+    .navbar-nav a.active::before, .navbar-nav-toggle.active::before {
+        content: '';
+        position: absolute; left: 0.45rem; right: 0.45rem; bottom: 0.15rem;
+        height: 3px;
+        background: repeating-linear-gradient(90deg, var(--airmail-red) 0 7px, transparent 7px 10px, var(--airmail-blue) 10px 17px, transparent 17px 20px);
+    }
+    .navbar-user-toggle { font-family: var(--font-display); color: #b9ae93; }
+    .navbar-user-toggle:hover { background: rgba(239, 228, 200, 0.06); color: var(--cream); }
+    .notif-dot { background: var(--airmail-red); box-shadow: 0 0 0 2px #0b0d10; }
+
+    /* popovers: envelopes with an airmail rim */
+    .nav-dropdown-menu, .notif-panel, .rly-select-menu, .rly-cal {
+        background: var(--bg-elevated);
+        border: 6px solid transparent;
+        border-image: var(--airmail) 6;
+        border-radius: 0;
+        box-shadow: 0 20px 40px -14px rgba(0, 0, 0, 0.9);
+    }
+    .nav-dropdown-menu a { font-family: var(--font-display); font-size: 0.95rem; border-radius: 1px; }
+    .nav-dropdown-menu a:hover { background: rgba(239, 228, 200, 0.07); color: var(--cream); }
+    .nav-dropdown-menu a.active { background: transparent; color: var(--airmail-red); }
+
+    /* ── Page title + its postmark ── */
+    .page-header, .page-toolbar { position: relative; }
+    .page-header h1, .page-toolbar h1 {
+        font-weight: 700;
+        font-variation-settings: "opsz" 144;
+        font-size: clamp(2rem, 4vw, 3rem);
+        letter-spacing: -0.015em;
+        color: var(--cream);
+    }
+    .page-header .page-lead { font-family: var(--font-display); font-size: 1.05rem; color: var(--text-muted); }
+    .pm-postmark {
+        position: absolute;
+        right: 0.5rem; top: -0.6rem;
+        width: 168px; height: 96px;
+        color: var(--cream);
+        opacity: 0.45;
+        pointer-events: none;
+        --pm-rot: -9deg; --pm-op: 0.45;
+        animation: pm-thunk 0.5s cubic-bezier(.2, 1.4, .4, 1) 0.15s both;
+    }
+    .page-toolbar .pm-postmark { right: auto; left: min(46%, 30rem); top: -1.4rem; }
+
+    /* ── Cards: album mounts. Grid tiles become perforated stamps. ── */
+    .card {
+        position: relative;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 2px;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02), 0 12px 26px -16px rgba(0, 0, 0, 0.9);
+    }
+    .card:hover { border-color: var(--border-strong); }
+    .card-header {
+        font-family: var(--font-display);
+        font-weight: 600;
+        font-size: 1.15rem;
+        color: var(--cream);
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.75rem;
+    }
+    .card-header::after {
+        content: 'ROAMLY POST';
+        font-family: var(--font-mono);
+        font-size: 0.52rem;
+        letter-spacing: 0.2em;
+        color: var(--text-dim);
+        white-space: nowrap;
+    }
+
+    .grid > .card:not(:has([class*="modal"], [class*="overlay"], .maplibregl-map, .rly-select, select, input)),
+    .card.stat-card {
+        --stamp: #1c2c55;
+        background:
+            radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.07), transparent 60%),
+            var(--stamp);
+        border: none;
+        border-radius: 0;
+        padding: calc(var(--perf) + 1.1rem);
+        box-shadow: inset 0 0 0 calc(var(--perf) - 1px) var(--stamp), inset 0 0 0 var(--perf) var(--cream), inset 0 0 0 calc(var(--perf) + 3px) var(--stamp), inset 0 0 0 calc(var(--perf) + 4px) var(--cream-dim);
+        -webkit-mask:
+            radial-gradient(circle, transparent 3.4px, #000 3.9px) calc(var(--perf) / -2) calc(var(--perf) / -2) / var(--perf) var(--perf) round,
+            linear-gradient(#000 0 0) center / calc(100% - var(--perf)) calc(100% - var(--perf)) no-repeat;
+        mask:
+            radial-gradient(circle, transparent 3.4px, #000 3.9px) calc(var(--perf) / -2) calc(var(--perf) / -2) / var(--perf) var(--perf) round,
+            linear-gradient(#000 0 0) center / calc(100% - var(--perf)) calc(100% - var(--perf)) no-repeat;
+        filter: drop-shadow(0 0 0 transparent);
+        transition: transform 0.25s var(--ease-out);
+    }
+    .grid > .card:not(:has([class*="modal"], [class*="overlay"], .maplibregl-map, .rly-select, select, input)):hover,
+    .card.stat-card:hover { transform: translateY(-3px) rotate(-0.4deg); }
+    .grid > .card:nth-child(5n+2), .card.stat-card:nth-child(5n+2) { --stamp: #5a1f24; }
+    .grid > .card:nth-child(5n+3), .card.stat-card:nth-child(5n+3) { --stamp: #1f3d2e; }
+    .grid > .card:nth-child(5n+4), .card.stat-card:nth-child(5n+4) { --stamp: #5b4219; }
+    .grid > .card:nth-child(5n+5), .card.stat-card:nth-child(5n+5) { --stamp: #1b4447; }
+    .grid > .card .card-header, .card.stat-card .card-header { border-bottom-color: var(--cream-dim); }
+    .grid > .card .card-header::after { content: none; }
+    .card-coral { --stamp: #5a1f24 !important; }
+    .card-lavender { --stamp: #4a2c40 !important; }
+    .card-amber { --stamp: #5b4219 !important; }
+    .card-sky { --stamp: #1c2c55 !important; }
+    .card-teal { --stamp: #1b4447 !important; }
+    .card-coral, .card-lavender, .card-amber, .card-sky, .card-teal { border-left: 1px solid var(--border); }
+    &[data-theme="light"] .grid > .card, &[data-theme="light"] .card.stat-card { color: var(--cream); }
+    &[data-theme="light"] .grid > .card .stat-label, &[data-theme="light"] .card.stat-card .stat-label { color: var(--cream-dim); }
+
+    /* the cancellation laid over a stamp (postmark.js) */
+    .pm-cancel {
+        position: absolute;
+        right: -14px; top: 2px;
+        width: 120px; height: 56px;
+        color: var(--cream);
+        pointer-events: none;
+        --pm-op: 0.2;
+        opacity: 0.2;
+        animation: pm-thunk 0.45s cubic-bezier(.2, 1.4, .4, 1) both;
+    }
+
+    .stat-value {
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-variation-settings: "opsz" 144;
+        font-variant-numeric: lining-nums tabular-nums;
+        font-size: 2.5rem;
+        color: var(--cream);
+        letter-spacing: -0.02em;
+    }
+    .stat-value-coral, .stat-value-amber, .stat-value-sky, .stat-value-lavender { color: var(--cream); }
+    .stat-label { font-family: var(--font-mono); color: var(--cream-dim); letter-spacing: 0.18em; }
+
+    /* ── Buttons: airmail labels ── */
+    .btn {
+        border-radius: 2px;
+        font-family: var(--font-body);
+        font-weight: 600;
+        letter-spacing: 0.02em;
+    }
+    .btn-primary {
+        background: var(--airmail-red);
+        color: var(--cream);
+        border: 1px solid #7e1714;
+        box-shadow: inset 0 0 0 2px var(--airmail-red), inset 0 0 0 3px rgba(239, 228, 200, 0.55), 0 2px 0 #5f100e;
+    }
+    .btn-primary:hover { background: var(--primary-hover); color: #fff7e6; }
+    .btn-primary:active { transform: translateY(2px); box-shadow: inset 0 0 0 2px var(--airmail-red), inset 0 0 0 3px rgba(239, 228, 200, 0.55); }
+    .btn-danger { background: #7e1714; color: var(--cream); border: 1px solid #4f0d0b; }
+    .btn-outline { background: transparent; border: 1px solid var(--border-strong); color: var(--cream); }
+    .btn-outline:hover { border-color: var(--cream); color: var(--cream); background: rgba(239, 228, 200, 0.05); }
+    &[data-theme="light"] .btn-outline { color: var(--text); }
+
+    /* ── Forms ── */
+    .form-group label, .pref-label { font-family: var(--font-mono); font-size: 0.66rem; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-dim); }
+    .form-control, .rly-select-trigger, .rly-date-trigger {
+        background: var(--bg-input);
+        border: 1px solid var(--border);
+        border-bottom: 2px solid var(--border-strong);
+        border-radius: 2px;
+        font-weight: 500;
+    }
+    .form-control:focus, .rly-select.open .rly-select-trigger, .rly-date.open .rly-date-trigger, .rly-select-trigger:focus-visible, .rly-date-trigger:focus-visible {
+        border-color: var(--border-strong);
+        border-bottom-color: var(--airmail-red);
+        box-shadow: 0 3px 0 -1px var(--airmail-blue);
+    }
+    input[type="checkbox"], input[type="radio"] { accent-color: var(--airmail-red); }
+    .rly-select-option:hover, .rly-select-option.active { background: rgba(239, 228, 200, 0.08); }
+    .rly-select-option.selected { color: var(--airmail-red); }
+    .rly-cal-day.selected, .rly-cal-month.selected { background: var(--airmail-red); color: var(--cream); }
+    .rly-cal-day.today { box-shadow: inset 0 0 0 1px var(--airmail-blue); }
+
+    /* ── Tabs ── */
+    .pill-tabs { background: #0b0d10; border: 1px solid var(--border); border-radius: 2px; }
+    .pill-tabs .tab-btn, .pill-tabs button.tab-btn { font-family: var(--font-display); font-size: 0.9rem; letter-spacing: 0; text-transform: none; border-right-color: var(--border); }
+    .pill-tabs .tab-btn.active, &[data-theme="light"] .pill-tabs .tab-btn.active { background: var(--cream); color: #1a1d22; box-shadow: inset 0 -3px 0 var(--airmail-red); }
+
+    /* ── Tables: the catalogue ── */
+    th { font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.18em; color: var(--text-dim); border-bottom: 2px solid var(--border-strong); }
+    td { border-bottom: 1px solid var(--border); }
+    td:first-child { font-family: var(--font-display); font-size: 1rem; color: var(--cream); }
+    &[data-theme="light"] td:first-child { color: var(--text); }
+    tr:hover { background: rgba(239, 228, 200, 0.04); }
+
+    /* ── Badges: tiny perforated stamps ── */
+    .badge {
+        --stamp: #3a414d;
+        background: var(--stamp);
+        color: var(--cream);
+        border: none;
+        border-radius: 0;
+        font-family: var(--font-mono);
+        font-weight: 600;
+        font-size: 0.62rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        padding: 0.32rem 0.62rem;
+        box-shadow: inset 0 0 0 2px var(--stamp), inset 0 0 0 3px var(--cream-dim);
+        -webkit-mask: radial-gradient(circle, transparent 1.6px, #000 2px) -3px -3px / 6px 6px round, linear-gradient(#000 0 0) center / calc(100% - 6px) calc(100% - 6px) no-repeat;
+        mask: radial-gradient(circle, transparent 1.6px, #000 2px) -3px -3px / 6px 6px round, linear-gradient(#000 0 0) center / calc(100% - 6px) calc(100% - 6px) no-repeat;
+    }
+    .badge-success { --stamp: #2f5a3d; }
+    .badge-warning { --stamp: #7a5a1c; }
+    .badge-coral { --stamp: #8a2622; }
+    .badge-lavender { --stamp: #5c3a52; }
+    .badge-sky { --stamp: #233f7a; }
+    .badge-teal { --stamp: var(--airmail-red); }
+
+    /* ── Alerts: postal notices ── */
+    .alert {
+        border-radius: 2px;
+        border: 1px solid var(--border);
+        border-left: 6px solid transparent;
+        border-image: none;
+        background: var(--bg-card);
+        color: var(--text);
+        font-family: var(--font-display);
+        font-size: 0.98rem;
+        position: relative;
+        padding-left: 1.4rem;
+    }
+    .alert::before {
+        content: '';
+        position: absolute; left: -6px; top: -1px; bottom: -1px;
+        width: 6px;
+        background: var(--airmail);
+        background-size: 6px 44px;
+    }
+    .alert-success::before { background: var(--clay-mint); }
+    .alert-error::before { background: var(--airmail-red); }
+    .alert-info, .alert-success, .alert-error { color: var(--text); background: var(--bg-card); }
+
+    .spinner { border: 2px dashed var(--cream-dim); border-top-color: var(--airmail-red); animation-duration: 1.4s; }
+    .skeleton { background: var(--bg-elevated); --skeleton-sheen: rgba(239, 228, 200, 0.08); }
+
+    /* ── Dialogs & toasts: envelopes and labels ── */
+    .rly-dialog-overlay { background: rgba(5, 6, 8, 0.75); }
+    .rly-dialog {
+        background: var(--bg-elevated);
+        border: 10px solid transparent;
+        border-image: var(--airmail) 10;
+        border-radius: 0;
+        box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.95);
+    }
+    .rly-dialog-title { font-family: var(--font-display); font-weight: 700; color: var(--cream); font-size: 1.35rem; }
+    .rly-dialog-btn { border-radius: 2px; }
+    .rly-dialog-btn-primary { background: var(--airmail-red); border-color: #7e1714; color: var(--cream); }
+    .rly-dialog-btn-danger { background: #7e1714; border-color: #4f0d0b; color: var(--cream); }
+    .rly-toast {
+        background: var(--cream);
+        color: #1a1d22;
+        border: none;
+        border-radius: 0;
+        font-family: var(--font-display);
+        box-shadow: 0 14px 30px -10px rgba(0, 0, 0, 0.9);
+        border-left: 14px solid transparent;
+        border-image: var(--airmail) 14;
+        border-image-width: 0 0 0 14px;
+    }
+    .rly-toast-msg, .rly-toast-close { color: #1a1d22; }
+    .rly-toast-error { background: #f6d9d3; }
+    .rly-intro-bar { background: var(--bg-elevated); border-top: 8px solid transparent; border-image: var(--airmail) 8; border-image-width: 8px 0 0 0; }
+    .rly-intro-title { font-family: var(--font-display); color: var(--cream); }
+    .rly-intro-next { background: var(--airmail-red); color: var(--cream); border-color: #7e1714; }
+    .rly-banner { background: var(--airmail-blue); color: var(--cream); }
+
+    .bottom-nav { background: #0b0d10; border-top: none; box-shadow: inset 0 6px 0 -1px transparent; }
+    .bottom-nav::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 5px; background: var(--airmail); }
+    .bottom-nav a { font-family: var(--font-display); text-transform: none; color: #9c937d; }
+    .bottom-nav a.active { color: var(--cream); }
+    .bottom-nav a.active .bottom-nav-icon-wrap { background: var(--airmail-red); color: var(--cream); }
+
+    .maplibregl-popup-content { background: var(--bg-elevated); color: var(--text); border-radius: 0; border-top: 5px solid transparent; border-image: var(--airmail) 5; border-image-width: 5px 0 0 0; }
+    .maplibregl-ctrl-group { background: #0b0d10; border: 1px solid var(--border-strong); border-radius: 2px; }
+    .maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(0.9) sepia(0.5); }
+
+    @media (max-width: 768px) {
+        .navbar-wordmark::after { display: none; }
+        .pm-postmark { width: 120px; height: 70px; top: -0.4rem; right: 0; }
+        .page-toolbar .pm-postmark { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .pm-postmark, .pm-cancel { animation: none; }
+    }
+}
