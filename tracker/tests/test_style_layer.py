@@ -12,7 +12,7 @@ from tracker.models import UserProfile
 
 pytestmark = pytest.mark.django_db
 
-STYLES = ['lantern', 'transit', 'jelly', 'riso', 'postmark', 'broadsheet', 'blueprint', 'basecamp']
+STYLES = ['lantern', 'transit', 'jelly', 'riso', 'postmark', 'broadsheet', 'blueprint', 'basecamp', 'pebble', 'tidepool', 'bento']
 LAYER = os.path.join(settings.BASE_DIR, 'tracker', 'templates', 'tracker', '_style_layer.html')
 
 

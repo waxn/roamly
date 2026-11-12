@@ -20,9 +20,12 @@
         postmark:   { name: 'Postmark', blurb: 'A stamp collector’s album. Perforated cards, airmail stripes, cancellations.', bar: '#121417', css: "{% static 'tracker/styles/postmark.css' %}", js: "{% static 'tracker/styles/postmark.js' %}" },
         broadsheet: { name: 'Broadsheet', blurb: 'The night edition. Huge headlines, column rules, drop caps, one red.', bar: '#0e0e0d', css: "{% static 'tracker/styles/broadsheet.css' %}", js: "{% static 'tracker/styles/broadsheet.js' %}" },
         blueprint:  { name: 'Blueprint', blurb: 'Drafted on cyanotype. Dimension lines, registration marks, title blocks.', bar: '#0a2747', css: "{% static 'tracker/styles/blueprint.css' %}", js: "{% static 'tracker/styles/blueprint.js' %}" },
-        basecamp:   { name: 'Basecamp', blurb: 'An amber field terminal in a mountain hut. Phosphor, scanlines, a blinking cursor.', bar: '#0d0904', css: "{% static 'tracker/styles/basecamp.css' %}", js: "{% static 'tracker/styles/basecamp.js' %}" }
+        basecamp:   { name: 'Basecamp', blurb: 'An amber field terminal in a mountain hut. Phosphor, scanlines, a blinking cursor.', bar: '#0d0904', css: "{% static 'tracker/styles/basecamp.css' %}", js: "{% static 'tracker/styles/basecamp.js' %}" },
+        pebble:     { name: 'Pebble', blurb: 'Smooth river stones in the dark. Matte squircles, soft light, one sliding stone.', bar: '#121211', css: "{% static 'tracker/styles/pebble.css' %}", js: "{% static 'tracker/styles/pebble.js' %}" },
+        tidepool:   { name: 'Tidepool', blurb: 'Night water. Frosted squircles, drifting caustics, plankton that glows and ripples.', bar: '#03141a', css: "{% static 'tracker/styles/tidepool.css' %}", js: "{% static 'tracker/styles/tidepool.js' %}" },
+        bento:      { name: 'Bento', blurb: 'Colour-blocked squircle tiles. Chunky numbers that count up, a lime that means go.', bar: '#0e0e0f', css: "{% static 'tracker/styles/bento.css' %}", js: "{% static 'tracker/styles/bento.js' %}" }
     };
-    var order = ['field', 'lantern', 'transit', 'jelly', 'riso', 'postmark', 'broadsheet', 'blueprint', 'basecamp'];
+    var order = ['field', 'lantern', 'transit', 'jelly', 'riso', 'postmark', 'broadsheet', 'blueprint', 'basecamp', 'pebble', 'tidepool', 'bento'];
     var id = null;
     try {
         var q = new URLSearchParams(location.search).get('rly_style');
