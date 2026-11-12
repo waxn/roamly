@@ -408,7 +408,7 @@ html[data-style="broadsheet"] {
     .rly-banner { background: var(--red); color: #fff; font-family: var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; font-size: 0.72rem; }
 
     .bottom-nav { background: var(--bg); border-top: 4px double var(--ink); }
-    .bottom-nav a { font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
+    .bottom-nav a { color: var(--text-dim);  }
     .bottom-nav a.active { color: var(--red); }
     .bottom-nav a.active .bottom-nav-icon-wrap { background: transparent; color: var(--red); box-shadow: inset 0 -2px 0 var(--red); }
 

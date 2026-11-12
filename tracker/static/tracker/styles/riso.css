@@ -357,7 +357,7 @@ html[data-style="riso"] {
     .rly-banner { background: var(--ink-pink); color: #131211; font-family: var(--font-mono); }
 
     .bottom-nav { background: var(--paper); border-top: 3px solid var(--text); box-shadow: 0 -5px 0 -1px var(--ink-pink); }
-    .bottom-nav a { font-family: var(--font-mono); text-transform: uppercase; color: var(--text-muted); }
+    .bottom-nav a { color: var(--text-muted);  }
     .bottom-nav a.active { color: var(--text); }
     .bottom-nav a.active .bottom-nav-icon-wrap { background: var(--ink-yellow); color: #131211; border-radius: 0; transform: rotate(-4deg); }
 

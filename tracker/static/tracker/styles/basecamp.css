@@ -337,7 +337,7 @@ html[data-style="basecamp"] {
     .rly-banner { background: var(--amber); color: var(--bg); text-shadow: none; font-family: var(--font-body); text-transform: uppercase; }
 
     .bottom-nav { background: var(--bg); border-top: 1px solid var(--amber-dim); }
-    .bottom-nav a { font-family: var(--font-body); text-transform: uppercase; color: var(--text-muted); }
+    .bottom-nav a { color: var(--text-muted);  }
     .bottom-nav a.active { color: var(--amber-hi); }
     .bottom-nav a.active .bottom-nav-icon-wrap { background: var(--amber); color: var(--bg); border-radius: 0; }
 

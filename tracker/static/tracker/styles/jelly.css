@@ -486,7 +486,7 @@ html[data-style="jelly"] {
         background: linear-gradient(180deg, #1f3843, #13232b);
         box-shadow: inset 0 2px 1px rgba(255, 255, 255, 0.12), 0 6px 0 #04090a, 0 16px 30px rgba(0, 0, 0, 0.6);
     }
-    .bottom-nav a { font-weight: 700; text-transform: none; color: #a8c3c8; }
+    .bottom-nav a { color: #a8c3c8;  }
     .bottom-nav a.active { color: #fff; }
     .bottom-nav a.active .bottom-nav-icon-wrap { --g: var(--primary); background: var(--gummy); border-radius: 50%; box-shadow: 0 3px 0 var(--g-edge); color: #fff; }
 
