@@ -548,7 +548,7 @@
         .bottom-nav-icon-wrap {
             width: 36px;
             height: 28px;
-            border-radius: 0;
+            border-radius: var(--r-auto, 0);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -902,7 +902,7 @@
             position: relative;
             overflow: hidden;
             background: var(--bg-elevated);
-            border-radius: 6px;
+            border-radius: calc(6px * var(--rk, 1));
         }
         .skeleton::after {
             content: "";
@@ -926,7 +926,7 @@
             .skeleton { animation: skeleton-pulse 1.6s ease-in-out infinite; }
             @keyframes skeleton-pulse { 50% { opacity: 0.55; } }
         }
-        .skel-line { height: 0.8rem; border-radius: 5px; }
+        .skel-line { height: 0.8rem; border-radius: calc(5px * var(--rk, 1)); }
         .skel-line.sm { height: 0.65rem; }
         .skel-line.lg { height: 1.1rem; }
         .skel-text-60 { width: 60%; }
@@ -939,14 +939,14 @@
             display: inline-block;
             width: 2.6em;
             height: 0.72em;
-            border-radius: 6px;
+            border-radius: calc(6px * var(--rk, 1));
             vertical-align: -0.02em;
         }
         /* A generic skeleton card matching the app's .card chrome */
         .skel-card {
             background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 12px;
+            border-radius: calc(12px * var(--rk, 1));
             padding: 1.1rem 1.25rem;
             display: flex;
             flex-direction: column;
@@ -1066,7 +1066,7 @@
         }
         .rly-select-option {
             padding: 0.45rem 0.7rem;
-            border-radius: 0;
+            border-radius: var(--r-auto, 0);
             color: var(--text);
             cursor: pointer;
             white-space: nowrap;
@@ -1085,12 +1085,12 @@
         .rly-cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
         .rly-cal-title {
             font-weight: 800; font-size: 0.9rem; color: var(--text); font-family: var(--font-display);
-            background: none; border: none; cursor: pointer; padding: 4px 10px; border-radius: 0;
+            background: none; border: none; cursor: pointer; padding: 4px 10px; border-radius: var(--r-auto, 0);
             transition: background 0.15s, color 0.15s;
         }
         .rly-cal-title:hover { background: var(--primary-soft); color: var(--primary); }
         .rly-cal-nav {
-            width: 28px; height: 28px; border-radius: 0;
+            width: 28px; height: 28px; border-radius: var(--r-auto, 0);
             background: var(--bg-input); border: 1px solid var(--border);
             color: var(--text-muted); cursor: pointer; font-size: 1.1rem; line-height: 1;
             display: inline-flex; align-items: center; justify-content: center;
@@ -1105,7 +1105,7 @@
         .rly-cal-empty { aspect-ratio: 1; }
         .rly-cal-day {
             aspect-ratio: 1; border: none; background: none; cursor: pointer;
-            color: var(--text); border-radius: 0; font-size: 0.8rem; font-weight: 600;
+            color: var(--text); border-radius: var(--r-auto, 0); font-size: 0.8rem; font-weight: 600;
             font-family: var(--font-body);
             display: inline-flex; align-items: center; justify-content: center;
         }
@@ -1116,7 +1116,7 @@
         .rly-cal-day.disabled:hover { background: none; }
         .rly-cal-foot { display: flex; gap: 6px; margin-top: 10px; }
         .rly-cal-foot-btn {
-            flex: 1; padding: 6px; border-radius: 0;
+            flex: 1; padding: 6px; border-radius: var(--r-auto, 0);
             background: var(--bg-input); border: 1px solid var(--border);
             color: var(--text-muted); cursor: pointer; font-size: 0.68rem;
             font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; font-family: var(--font-mono);
@@ -1126,7 +1126,7 @@
         .rly-cal-months { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
         .rly-cal-month {
             padding: 12px 4px; border: none; background: var(--bg-input);
-            border-radius: 0; color: var(--text); cursor: pointer;
+            border-radius: var(--r-auto, 0); color: var(--text); cursor: pointer;
             font-size: 0.8rem; font-weight: 700; font-family: var(--font-body);
         }
         .rly-cal-month:hover { background: var(--primary-soft); }
@@ -1160,7 +1160,7 @@
         .rly-dialog-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 1.4rem; }
         .rly-dialog-btn {
             font-family: var(--font-body); font-size: 0.85rem; font-weight: 600;
-            padding: 0.55rem 1rem; border-radius: 0; cursor: pointer;
+            padding: 0.55rem 1rem; border-radius: var(--r-auto, 0); cursor: pointer;
             border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text);
         }
         .rly-dialog-btn:hover { border-color: var(--text-dim); }
@@ -1211,7 +1211,7 @@
         .rly-dialog-field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; color: var(--text-muted); }
         .rly-dialog-field input {
             padding: 0.5rem 0.6rem; background: var(--bg-input); color: var(--text);
-            border: 1px solid var(--border); border-radius: 0; font-family: inherit; font-size: 0.875rem;
+            border: 1px solid var(--border); border-radius: var(--r-auto, 0); font-family: inherit; font-size: 0.875rem;
         }
         .rly-dialog-field input:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
         .rly-dialog-btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
@@ -1372,7 +1372,7 @@
                 </button>
                 <div class="nav-dropdown-menu" id="user-menu" role="menu">
                     <a role="menuitem" href="{% url 'tracker:settings' %}" class="{% if request.resolver_match.url_name == 'settings' %}active{% endif %}">Settings</a>
-                    <a role="menuitem" href="{% url 'tracker:style_lab' %}" class="{% if request.resolver_match.url_name == 'style_lab' %}active{% endif %}">Style lab</a>
+                    <a role="menuitem" href="{% url 'tracker:settings' %}#appearance">Appearance</a>
                     <a role="menuitem" href="{% url 'tracker:diagnostics' %}" class="{% if request.resolver_match.url_name == 'diagnostics' %}active{% endif %}">Diagnostics</a>
                     {% if IS_ADMIN %}<a role="menuitem" href="{% url 'tracker:admin_panel' %}" class="{% if request.resolver_match.url_name == 'admin_panel' %}active{% endif %}">Admin Panel</a>{% endif %}
                     <a role="menuitem" href="{% url 'tracker:logout' %}">Logout</a>

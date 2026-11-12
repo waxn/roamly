@@ -1,0 +1,286 @@
+{% comment %}
+  Settings → Appearance. Three cards (the Style lab lives here now):
+    Presets       a whole look in one click
+    Mix and match every facet on its own (registry: tracker/appearance.py)
+    Preview       the shared components on mock data, so a look can be judged
+                  without real history
+  Choosing anything saves to the account (POST /api/profile/appearance/) and
+  reloads the page in the new look; see _style_layer.html for how it loads.
+{% endcomment %}
+<style>
+    .ap-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.85rem; }
+    .ap-preset { display: flex; flex-direction: column; gap: 0.55rem; text-align: left; font: inherit; color: inherit; cursor: pointer; padding: 0.85rem; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm); transition: border-color 0.15s, transform 0.15s; }
+    .ap-preset:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+    .ap-preset.is-current { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+    .ap-strip { display: flex; height: 36px; overflow: hidden; border-radius: calc(var(--radius-sm) * 0.8); }
+    .ap-strip span { flex: 1; }
+    .ap-preset-name { font-family: var(--font-display); font-weight: 600; font-size: 1.02rem; display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; }
+    .ap-preset-blurb { font-size: 0.8rem; color: var(--text-muted); line-height: 1.4; }
+    .ap-status { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; margin-bottom: 1.1rem; font-size: 0.88rem; color: var(--text-muted); }
+    .ap-row { display: grid; grid-template-columns: 9.5rem 1fr; gap: 0.5rem 1rem; padding: 0.95rem 0; border-top: 1px solid var(--border); align-items: start; }
+    .ap-row:first-of-type { border-top: none; }
+    .ap-row-label { font-weight: 600; font-size: 0.86rem; padding-top: 0.45rem; }
+    .ap-row-label small { display: block; font-weight: 400; color: var(--text-dim); font-size: 0.74rem; margin-top: 0.15rem; line-height: 1.35; }
+    .ap-chips { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+    .ap-chip { display: inline-flex; align-items: center; gap: 0.45rem; font: inherit; font-size: 0.8rem; font-weight: 500; cursor: pointer; padding: 0.42rem 0.75rem; color: var(--text-muted); background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm); transition: border-color 0.15s, color 0.15s, background 0.15s; }
+    .ap-chip:hover { color: var(--text); border-color: var(--border-strong); }
+    .ap-chip[aria-pressed="true"] { color: var(--text); border-color: var(--primary); background: var(--primary-soft); }
+    .ap-dots { display: inline-flex; }
+    .ap-dots i { width: 11px; height: 11px; border-radius: 50%; margin-left: -3px; box-shadow: 0 0 0 1.5px var(--bg-input); }
+    .ap-dots i:first-child { margin-left: 0; }
+    .ap-shape { width: 22px; height: 16px; border: 2px solid currentColor; display: inline-block; }
+    .ap-aa { font-size: 1.05rem; line-height: 1; }
+    .ap-extras { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 0.25rem 1rem; }
+    .ap-extra-group { margin-bottom: 0.5rem; }
+    .ap-extra-group h4 { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); margin: 0.4rem 0 0.25rem; font-family: var(--font-mono); }
+    .ap-extra { display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.84rem; color: var(--text-muted); padding: 0.2rem 0; cursor: pointer; }
+    .ap-extra input { margin-top: 0.15rem; accent-color: var(--primary); }
+    .ap-extra em { font-style: normal; color: var(--text-dim); font-size: 0.72rem; }
+    .ap-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+    .ap-saving { opacity: 0.55; pointer-events: none; }
+    /* preview */
+    .ap-pv-row { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
+    .ap-pv-chart { display: flex; align-items: flex-end; gap: 4px; height: 140px; padding-top: 0.5rem; }
+    .ap-pv-chart i { flex: 1; background: var(--primary); opacity: 0.85; min-height: 3px; display: block; }
+    .ap-pv-chart i:nth-child(7n) { background: var(--clay-sky); }
+    .ap-pv-axis { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-dim); margin-top: 0.5rem; }
+    .ap-pv-route { width: 100%; height: auto; display: block; }
+    .ap-pv-check { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; color: var(--text-muted); }
+    .ap-preview .grid { margin-bottom: 1rem; }
+    @media (max-width: 640px) { .ap-row { grid-template-columns: 1fr; } .ap-row-label { padding-top: 0; } }
+</style>
+
+<div class="card settings-span-12" id="ap-presets-card">
+    <div class="card-header">Presets</div>
+    <p style="color:var(--text-muted);font-size:0.88rem;margin-bottom:1rem">A whole look in one click. Every preset is just a starting point: change any part of it below. <span style="white-space:nowrap">Alt + Shift + S</span> flips to the next preset on any page.</p>
+    <div class="ap-presets" id="ap-presets" aria-label="Presets"></div>
+</div>
+
+<div class="card settings-span-12" id="ap-mix-card">
+    <div class="card-header">Mix and Match</div>
+    <div class="ap-status" id="ap-status"></div>
+    <div id="ap-mix"></div>
+    <div class="ap-actions">
+        <button type="button" class="btn btn-outline btn-sm" id="ap-reset">Reset to Field Journal</button>
+        <button type="button" class="btn btn-outline btn-sm" id="ap-copy" hidden>Copy a preview link</button>
+    </div>
+</div>
+
+<div class="card settings-span-12 ap-preview" id="ap-preview-card">
+    <div class="card-header">Preview</div>
+    <p style="color:var(--text-muted);font-size:0.88rem;margin-bottom:1rem">The pieces every page is made of, on made-up data.</p>
+    <div class="page-toolbar" style="margin-bottom:1rem">
+        <h3 style="font-family:var(--font-display);font-size:1.3rem">Statistics</h3>
+        <div class="toolbar-actions">
+            <div class="pill-tabs" style="margin-bottom:0">
+                <button class="tab-btn" type="button">Week</button>
+                <button class="tab-btn active" type="button">Month</button>
+                <button class="tab-btn" type="button">Year</button>
+                <button class="tab-btn" type="button">All time</button>
+            </div>
+            <button class="btn btn-outline btn-sm" type="button">↻ Recalculate</button>
+        </div>
+    </div>
+    <div class="grid grid-4">
+        <div class="card stat-card"><div class="stat-value">1,284,903</div><div class="stat-label">Total points</div></div>
+        <div class="card stat-card"><div class="stat-value stat-value-coral">23</div><div class="stat-label">Countries</div></div>
+        <div class="card stat-card"><div class="stat-value stat-value-amber">412</div><div class="stat-label">Cities</div></div>
+        <div class="card stat-card"><div class="stat-value stat-value-sky">48,213</div><div class="stat-label">Kilometres</div></div>
+    </div>
+    <div class="grid grid-2">
+        <div class="card">
+            <div class="card-header">Distance travelled</div>
+            <div class="ap-pv-chart" id="ap-pv-chart" aria-hidden="true"></div>
+            <div class="ap-pv-axis"><span>Oct 1</span><span>Oct 15</span><span>Oct 31</span></div>
+        </div>
+        <div class="card">
+            <div class="card-header">Last trip</div>
+            <svg class="ap-pv-route" viewBox="0 0 400 170" aria-hidden="true">
+                <path d="M20 140 C 70 120, 80 60, 140 70 S 220 140, 260 100 S 330 30, 380 40" fill="none" stroke="var(--primary)" stroke-width="3" stroke-linecap="round"/>
+                <circle cx="20" cy="140" r="7" fill="var(--bg-card)" stroke="var(--primary)" stroke-width="3"/>
+                <circle cx="140" cy="70" r="5" fill="var(--clay-amber)"/>
+                <circle cx="260" cy="100" r="5" fill="var(--clay-mint)"/>
+                <circle cx="380" cy="40" r="7" fill="var(--primary)"/>
+                <text x="30" y="162" fill="var(--text-muted)" font-size="11" font-family="var(--font-mono)">Belfast, ME</text>
+                <text x="300" y="28" fill="var(--text-muted)" font-size="11" font-family="var(--font-mono)">Montréal, QC</text>
+            </svg>
+            <div class="ap-pv-row" style="margin-top:0.75rem"><span class="badge badge-teal">412 km</span><span class="badge badge-sky">6h 20m</span><span class="badge badge-success">2 countries</span></div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header">Top places</div>
+        <div class="table-responsive">
+            <table>
+                <thead><tr><th class="sortable active-sort">Place <span class="sort-arrow">▼</span></th><th>Region</th><th>Visits</th><th>Time spent</th><th>Type</th></tr></thead>
+                <tbody>
+                    <tr><td>Waldo</td><td>Maine, US</td><td>1,204</td><td>812h</td><td><span class="badge badge-teal">Home</span></td></tr>
+                    <tr><td>Montréal</td><td>Québec, CA</td><td>41</td><td>52h</td><td><span class="badge badge-lavender">City</span></td></tr>
+                    <tr><td>Reykjavík</td><td>Iceland</td><td>4</td><td>61h</td><td><span class="badge badge-coral">Abroad</span></td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="grid grid-2">
+        <div class="card">
+            <div class="card-header">New place</div>
+            <div class="form-group"><label for="ap-pv-name">Name</label><input id="ap-pv-name" class="form-control" value="The good café"></div>
+            <div class="form-group"><label for="ap-pv-radius">Radius</label><select id="ap-pv-radius" class="form-control"><option>50 m</option><option selected>150 m</option><option>400 m</option></select></div>
+            <div class="form-group"><label class="ap-pv-check"><input type="checkbox" checked> Notify me when I arrive</label></div>
+            <div class="ap-pv-row">
+                <button class="btn btn-primary" type="button">Save place</button>
+                <button class="btn btn-outline" type="button">Cancel</button>
+                <button class="btn btn-danger btn-sm" type="button" id="ap-pv-confirm">Delete…</button>
+            </div>
+        </div>
+        <div>
+            <div class="alert alert-info">Road data is downloading: 61 of 140 areas.</div>
+            <div class="alert alert-success">Backup finished: 1,284,903 points and 312 photos.</div>
+            <div class="alert alert-error">Your phone hasn’t sent a point in 9 hours.</div>
+            <div class="card card-coral"><div class="card-header">Journal · Oct 14</div>
+                <p style="color:var(--text-muted);line-height:1.6">Drove up the coast before sunrise, coffee in <a href="#">Camden</a>, then the long way round through the blueberry barrens.</p>
+                <div class="ap-pv-row" style="margin-top:0.6rem"><span class="badge badge-warning">☀ 14°</span><span class="badge badge-lavender">🙂 good</span></div>
+            </div>
+        </div>
+    </div>
+    <div class="ap-pv-row">
+        <span class="spinner" aria-label="Loading"></span>
+        <button class="btn btn-outline btn-sm" type="button" id="ap-pv-toast">Show a toast</button>
+        <button class="btn btn-outline btn-sm" type="button" id="ap-pv-toast-err">Show an error toast</button>
+        <button class="btn btn-outline btn-sm" type="button" id="ap-pv-alert">Show a dialog</button>
+    </div>
+</div>
+
+<script>
+(function () {
+    var RS = window.RoamlyStyle;
+    if (!RS) return;
+    var REG = RS.registry, cur = RS.current;
+    var byId = function (list, id) { return list.find(function (x) { return x.id === id; }); };
+    function h(tag, attrs, kids) {
+        var e = document.createElement(tag);
+        Object.keys(attrs || {}).forEach(function (k) {
+            if (k === 'text') e.textContent = attrs[k];
+            else if (k === 'html') e.innerHTML = attrs[k];
+            else if (k.slice(0, 2) === 'on') e.addEventListener(k.slice(2), attrs[k]);
+            else e.setAttribute(k, attrs[k]);
+        });
+        (kids || []).forEach(function (c) { if (c) e.appendChild(c); });
+        return e;
+    }
+    function commit(next) {
+        document.getElementById('ap-mix-card').classList.add('ap-saving');
+        document.getElementById('ap-presets-card').classList.add('ap-saving');
+        RS.set(next);
+    }
+    function change(key, val) {
+        var n = JSON.parse(JSON.stringify(cur));
+        n[key] = val;
+        commit(n);
+    }
+
+    // presets
+    var pg = document.getElementById('ap-presets');
+    var currentPreset = RS.preset;
+    REG.presets.forEach(function (p) {
+        var strip = h('div', { 'class': 'ap-strip' }, p.swatch.map(function (c) { var s = h('span'); s.style.background = c; return s; }));
+        var name = h('div', { 'class': 'ap-preset-name' }, [h('span', { text: p.name }), p.id === currentPreset ? h('span', { 'class': 'badge badge-teal', text: 'in use' }) : null]);
+        pg.appendChild(h('button', {
+            type: 'button', 'class': 'ap-preset' + (p.id === currentPreset ? ' is-current' : ''), 'aria-pressed': p.id === currentPreset ? 'true' : 'false',
+            onclick: function () { document.getElementById('ap-presets-card').classList.add('ap-saving'); RS.applyPreset(p.id); }
+        }, [strip, name, h('div', { 'class': 'ap-preset-blurb', text: p.blurb })]));
+    });
+
+    // status
+    var st = document.getElementById('ap-status');
+    var label = currentPreset ? 'Matches the ' + byId(REG.presets, currentPreset).name + ' preset.' : 'A custom mix.';
+    st.appendChild(h('span', { 'class': 'badge ' + (currentPreset ? 'badge-teal' : 'badge-lavender'), text: currentPreset ? 'Preset' : 'Custom' }));
+    st.appendChild(h('span', { text: label + ' Changes save to your account and apply on every device.' }));
+
+    // rows
+    var mix = document.getElementById('ap-mix');
+    function row(title, hint, body) {
+        mix.appendChild(h('div', { 'class': 'ap-row' }, [h('div', { 'class': 'ap-row-label', html: '' }, [document.createTextNode(title), hint ? h('small', { text: hint }) : null]), body]));
+    }
+    function chips(key, list, render) {
+        return h('div', { 'class': 'ap-chips', role: 'radiogroup', 'aria-label': key }, list.map(function (it) {
+            var on = cur[key] === it.id;
+            return h('button', { type: 'button', 'class': 'ap-chip', role: 'radio', 'aria-pressed': on ? 'true' : 'false', 'aria-checked': on ? 'true' : 'false', title: it.hint || '',
+                onclick: function () { if (!on) change(key, it.id); } }, render(it));
+        }));
+    }
+    var theme = (function () { try { return localStorage.getItem('roamly_theme') || 'dark'; } catch (e) { return 'dark'; } })();
+    row('Theme', 'Every palette has a dark and a light side. Dark is the home turf.', h('div', { 'class': 'ap-chips' }, [['dark', 'Dark'], ['light', 'Light']].map(function (t) {
+        return h('button', { type: 'button', 'class': 'ap-chip', 'aria-pressed': theme === t[0] ? 'true' : 'false', text: t[1], onclick: function () {
+            if (typeof window.saveTheme === 'function') window.saveTheme(t[0]); else { try { localStorage.setItem('roamly_theme', t[0]); } catch (e) {} document.documentElement.setAttribute('data-theme', t[0]); }
+            var sel = document.getElementById('theme-select'); if (sel) sel.value = t[0];
+            location.reload();
+        } });
+    })));
+    row('Palette', 'Colours only', chips('palette', REG.palette, function (p) {
+        return [h('span', { 'class': 'ap-dots' }, p.swatch.map(function (c) { var i = h('i'); i.style.background = c; return i; })), h('span', { text: p.name })];
+    }));
+    row('Components', 'How cards, buttons, menus and the nav are drawn', chips('components', REG.components, function (c) { return [h('span', { text: c.name })]; }));
+    var radii = { field: '0', sharp: '0', crisp: '3px', soft: '6px', round: '9px', squircle: '10px' };
+    row('Shape', 'Corners everywhere, map sidebar included', chips('shape', REG.shape, function (s) {
+        var box = h('span', { 'class': 'ap-shape' }); box.style.borderRadius = radii[s.id]; if (s.id === 'squircle') box.style.cornerShape = 'squircle';
+        return [box, h('span', { text: s.name })];
+    }));
+    var faces = { field: ['Fraunces', 'IBM Plex Sans'], grotesk: ['IBM Plex Sans', 'IBM Plex Sans'], book: ['Fraunces', 'Fraunces'], mono: ['IBM Plex Mono', 'IBM Plex Mono'] };
+    row('Type', '', chips('type', REG.type, function (t) {
+        var aa = h('span', { 'class': 'ap-aa', text: 'Aa' }); aa.style.fontFamily = "'" + faces[t.id][0] + "'"; aa.style.fontWeight = '600';
+        return [aa, h('span', { text: t.name })];
+    }));
+    row('Background', 'What sits behind the page', chips('bg', REG.bg, function (b) { return [h('span', { text: b.name })]; }));
+
+    // extras, grouped by the preset they came from
+    var groups = {};
+    REG.extras.forEach(function (e) { (groups[e.from] = groups[e.from] || []).push(e); });
+    var exNames = {};
+    REG.extras.forEach(function (e) { if (e.group) (exNames[e.group] = exNames[e.group] || []).push(e.name.toLowerCase()); });
+    var ex = h('div', { 'class': 'ap-extras' });
+    Object.keys(groups).forEach(function (from) {
+        var g = h('div', { 'class': 'ap-extra-group' }, [h('h4', { text: 'From ' + byId(REG.presets, from).name })]);
+        groups[from].forEach(function (e) {
+            var cb = h('input', { type: 'checkbox' });
+            cb.checked = cur.fx.indexOf(e.id) !== -1;
+            cb.addEventListener('change', function () {
+                var fx = cur.fx.filter(function (f) { return f !== e.id; });
+                if (cb.checked) fx.push(e.id);
+                change('fx', fx);
+            });
+            var lab = h('label', { 'class': 'ap-extra' }, [cb, h('span', {}, [document.createTextNode(e.name), e.group ? h('em', { text: ' · one at a time' }) : null])]);
+            if (e.group) lab.title = 'Only one of these at once: ' + exNames[e.group].join(', ');
+            g.appendChild(lab);
+        });
+        ex.appendChild(g);
+    });
+    var exWrap = h('div', {}, [ex, h('div', { 'class': 'ap-chips', style: 'margin-top:0.6rem' }, [
+        h('button', { type: 'button', 'class': 'ap-chip', text: 'All off', onclick: function () { change('fx', []); } })
+    ])]);
+    row('Extras', 'Little behaviours from every preset. Mix freely.', exWrap);
+    row('Text size', '', chips('size', REG.size, function (s) { return [h('span', { text: s.name })]; }));
+    row('Motion', 'Calm stops looping animations and springs. Your system’s reduce-motion setting is always honoured.', chips('motion', REG.motion, function (m) { return [h('span', { text: m.name })]; }));
+
+    document.getElementById('ap-reset').addEventListener('click', function () { commit({ preset: 'field', size: 'm', motion: 'full' }); });
+    if (currentPreset && currentPreset !== 'field') {
+        var copy = document.getElementById('ap-copy');
+        copy.hidden = false;
+        copy.addEventListener('click', function () {
+            var u = new URL(location.origin + '/settings/'); u.searchParams.set('rly_preset', currentPreset); u.hash = 'appearance';
+            (navigator.clipboard ? navigator.clipboard.writeText(u.toString()) : Promise.reject()).then(function () { window.roamlyToast && roamlyToast('Preview link copied.'); }, function () { window.roamlyAlert && roamlyAlert(u.toString(), { title: 'Preview link' }); });
+        });
+    }
+
+    // preview widgets
+    var c = document.getElementById('ap-pv-chart'), seed = 7;
+    for (var i = 0; i < 31; i++) { seed = (seed * 9301 + 49297) % 233280; var b = document.createElement('i'); b.style.height = (8 + (seed / 233280) * 70 + (i % 7 === 5 ? 20 : 0)) + '%'; c.appendChild(b); }
+    document.querySelectorAll('#ap-preview-card .pill-tabs .tab-btn').forEach(function (t) {
+        t.addEventListener('click', function () { t.parentNode.querySelectorAll('.tab-btn').forEach(function (o) { o.classList.toggle('active', o === t); }); });
+    });
+    function on(id, fn) { var el = document.getElementById(id); if (el) el.addEventListener('click', fn); }
+    on('ap-pv-toast', function () { window.roamlyToast && roamlyToast('Place saved.'); });
+    on('ap-pv-toast-err', function () { window.roamlyToast && roamlyToast('Could not reach the server.', { type: 'error' }); });
+    on('ap-pv-alert', function () { window.roamlyAlert && roamlyAlert('Your backup is ready to download.', { title: 'Backup ready' }); });
+    on('ap-pv-confirm', function () { window.roamlyConfirm && roamlyConfirm('Delete “The good café”? Its points stay on the map.', { title: 'Delete place', danger: true, confirmText: 'Delete' }); });
+})();
+</script>

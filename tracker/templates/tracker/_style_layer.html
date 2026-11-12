@@ -1,76 +1,146 @@
 {% load static %}{% comment %}
-  Style layer: optional alternative visual styles on top of Field Journal.
+  Appearance loader (Settings → Appearance; registry in tracker/appearance.py).
 
-  Field Journal (base.html's own CSS) is the default and stays untouched. A
-  style is one CSS file (every rule scoped under html[data-style="<id>"]) plus
-  an optional JS file for behaviour (springs, WebGL, split-flap digits…). Only
-  the chosen style's files are fetched, and they are document.write()n here in
-  <head> so they are parser-inserted and render-blocking: no flash of the
-  default style on load. Choice lives in localStorage `roamly_style`; a
-  `?rly_style=<id>` query param sets it too (so a preview link can be shared),
-  and Alt+Shift+S cycles through every style.
-{% endcomment %}<script>
+  A look is a set of facets, each its own layer: palette, components, shape,
+  type, background, extras, plus text size and motion. Every facet that is not
+  the Field Journal default sets one attribute on <html> (data-palette,
+  data-style, data-shape, data-type, data-bg, data-fx, data-size, data-motion)
+  and pulls in its file. Plain Field Journal sets nothing and loads nothing.
+
+  Files are document.write()n here in <head>, so they are parser-inserted and
+  render-blocking: no flash of the default look on load.
+
+  Where the choice comes from, first match wins:
+    ?rly_preset=<id> / ?rly_style=<id>   (a shareable preview link)
+    the account (UserProfile.appearance), so it follows you across devices
+    this browser's localStorage `roamly_appearance` (signed-out pages, or
+    before anything was ever saved); the legacy `roamly_style` is read once.
+{% endcomment %}{{ APPEARANCE_REGISTRY|json_script:"rly-appearance-registry" }}{{ APPEARANCE|json_script:"rly-appearance-user" }}<script>
+window.__RLY_SIGNED_IN__ = {{ user.is_authenticated|yesno:"true,false" }};
+window.__RLY_CSRF__ = '{{ csrf_token }}';
 (function () {
-    var S = {
-        field:      { name: 'Field Journal', blurb: 'The current look. Topographic ink, trail-blaze orange.', bar: '#14160f', css: '', js: '' },
-        lantern:    { name: 'Lantern', blurb: 'The field notebook after dark — warm lamplight, stitched leather, rubber stamps.', bar: '#100c08', css: "{% static 'tracker/styles/lantern.css' %}", js: "{% static 'tracker/styles/lantern.js' %}" },
-        transit:    { name: 'Transit', blurb: 'Your life as a metro network. Route lines, station signs, split-flap boards.', bar: '#0b0c0e', css: "{% static 'tracker/styles/transit.css' %}", js: "{% static 'tracker/styles/transit.js' %}" },
-        jelly:      { name: 'Jelly', blurb: 'Squishy 3D gummies on licorice. Everything wobbles when you poke it.', bar: '#0a1214', css: "{% static 'tracker/styles/jelly.css' %}", js: "{% static 'tracker/styles/jelly.js' %}" },
-        riso:       { name: 'Riso', blurb: 'A photocopied punk travel zine. Fluoro inks, misprints, tape and halftone.', bar: '#121110', css: "{% static 'tracker/styles/riso.css' %}", js: "{% static 'tracker/styles/riso.js' %}" },
-        postmark:   { name: 'Postmark', blurb: 'A stamp collector’s album. Perforated cards, airmail stripes, cancellations.', bar: '#121417', css: "{% static 'tracker/styles/postmark.css' %}", js: "{% static 'tracker/styles/postmark.js' %}" },
-        broadsheet: { name: 'Broadsheet', blurb: 'The night edition. Huge headlines, column rules, drop caps, one red.', bar: '#0e0e0d', css: "{% static 'tracker/styles/broadsheet.css' %}", js: "{% static 'tracker/styles/broadsheet.js' %}" },
-        blueprint:  { name: 'Blueprint', blurb: 'Drafted on cyanotype. Dimension lines, registration marks, title blocks.', bar: '#0a2747', css: "{% static 'tracker/styles/blueprint.css' %}", js: "{% static 'tracker/styles/blueprint.js' %}" },
-        basecamp:   { name: 'Basecamp', blurb: 'An amber field terminal in a mountain hut. Phosphor, scanlines, a blinking cursor.', bar: '#0d0904', css: "{% static 'tracker/styles/basecamp.css' %}", js: "{% static 'tracker/styles/basecamp.js' %}" },
-        pebble:     { name: 'Pebble', blurb: 'Smooth river stones in the dark. Matte squircles, soft light, one sliding stone.', bar: '#121211', css: "{% static 'tracker/styles/pebble.css' %}", js: "{% static 'tracker/styles/pebble.js' %}" },
-        tidepool:   { name: 'Tidepool', blurb: 'Night water. Frosted squircles, drifting caustics, plankton that glows and ripples.', bar: '#03141a', css: "{% static 'tracker/styles/tidepool.css' %}", js: "{% static 'tracker/styles/tidepool.js' %}" },
-        bento:      { name: 'Bento', blurb: 'Colour-blocked squircle tiles. Chunky numbers that count up, a lime that means go.', bar: '#0e0e0f', css: "{% static 'tracker/styles/bento.css' %}", js: "{% static 'tracker/styles/bento.js' %}" }
-    };
-    var order = ['field', 'lantern', 'transit', 'jelly', 'riso', 'postmark', 'broadsheet', 'blueprint', 'basecamp', 'pebble', 'tidepool', 'bento'];
-    var id = null;
-    try {
-        var q = new URLSearchParams(location.search).get('rly_style');
-        if (q && S[q]) localStorage.setItem('roamly_style', q);
-        id = localStorage.getItem('roamly_style');
-    } catch (e) {}
-    if (!S[id]) id = 'field';
     var de = document.documentElement;
-    de.setAttribute('data-style', id);
-    var s = S[id];
-    if (s.css) {
-        // Theme is otherwise applied at the very end of <body>; the new
-        // styles set it here too so their first paint is already right.
-        try { de.setAttribute('data-theme', localStorage.getItem('roamly_theme') || 'dark'); } catch (e) {}
-        document.write('<link rel="stylesheet" id="rly-style-css" href="' + s.css + '">');
-    }
-    if (s.js) document.write('<script defer id="rly-style-js" src="' + s.js + '"><\/script>');
+    var REG = JSON.parse(document.getElementById('rly-appearance-registry').textContent);
+    var server = JSON.parse(document.getElementById('rly-appearance-user').textContent);
+    var byId = function (list, id) { for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i]; return null; };
+    var D = REG['default'];
+    var FACETS = ['palette', 'components', 'shape', 'type', 'bg'];
 
-    function set(next) {
-        if (!S[next]) return;
-        try { localStorage.setItem('roamly_style', next); } catch (e) {}
-        var u = new URL(location.href);
-        u.searchParams.delete('rly_style');
-        location.replace(u.toString());
+    // Client mirror of appearance.sanitize(): unknown values fall back.
+    function normalize(a) {
+        var out = { palette: D.palette, components: D.components, shape: D.shape, type: D.type, bg: D.bg, fx: [], size: D.size, motion: D.motion };
+        if (!a || typeof a !== 'object') return out;
+        var p = a.preset && byId(REG.presets, a.preset);
+        if (p) { FACETS.forEach(function (k) { out[k] = p.facets[k]; }); out.fx = p.facets.fx.slice(); }
+        FACETS.concat(['size', 'motion']).forEach(function (k) {
+            var key = k === 'components' ? 'components' : k;
+            if (typeof a[k] === 'string' && byId(REG[key === 'components' ? 'components' : key], a[k])) out[k] = a[k];
+        });
+        if (Array.isArray(a.fx)) {
+            var seen = {}, groups = {};
+            out.fx = [];
+            a.fx.forEach(function (f) {
+                var e = byId(REG.extras, f);
+                if (!e || seen[f]) return;
+                if (e.group && groups[e.group]) out.fx.splice(out.fx.indexOf(groups[e.group]), 1);
+                if (e.group) groups[e.group] = f;
+                seen[f] = 1; out.fx.push(f);
+            });
+        }
+        return out;
     }
+    function presetOf(a) {
+        for (var i = 0; i < REG.presets.length; i++) {
+            var f = REG.presets[i].facets, ok = true;
+            FACETS.forEach(function (k) { if (a[k] !== f[k]) ok = false; });
+            if (ok && a.fx.slice().sort().join() === f.fx.slice().sort().join()) return REG.presets[i].id;
+        }
+        return '';
+    }
+
+    var local = null;
+    try {
+        local = JSON.parse(localStorage.getItem('roamly_appearance') || 'null');
+        if (!local) { var legacy = localStorage.getItem('roamly_style'); if (legacy) local = { preset: legacy }; }
+    } catch (e) {}
+    var param = null;
+    try {
+        var q = new URLSearchParams(location.search);
+        var pid = q.get('rly_preset') || q.get('rly_style');
+        if (pid && byId(REG.presets, pid)) param = { preset: pid };
+    } catch (e) {}
+    var app = normalize(param || server || local);
+    try { localStorage.setItem('roamly_appearance', JSON.stringify(app)); localStorage.removeItem('roamly_style'); } catch (e) {}
+
+    var custom = false;
+    function attr(name, val, def) { if (val && val !== def) { de.setAttribute(name, val); custom = true; } }
+    de.setAttribute('data-style', app.components);
+    if (app.components !== 'field') custom = true;
+    attr('data-palette', app.palette, 'field');
+    attr('data-shape', app.shape, 'field');
+    attr('data-type', app.type, 'field');
+    attr('data-bg', app.bg, 'field');
+    attr('data-size', app.size, 'm');
+    attr('data-motion', app.motion, 'full');
+    if (app.fx.length) { de.setAttribute('data-fx', app.fx.join(' ')); custom = true; }
+
+    var css = [], js = [];
+    if (custom) {
+        try { de.setAttribute('data-theme', localStorage.getItem('roamly_theme') || 'dark'); } catch (e) {}
+        css.push(REG.facets_css);
+        var pal = byId(REG.palette, app.palette), comp = byId(REG.components, app.components), bg = byId(REG.bg, app.bg);
+        if (pal && pal.css) css.push(pal.css);
+        if (comp && comp.css) css.push(comp.css);
+        if (bg && bg.css) css.push(bg.css);
+        if (app.fx.length) css.push(REG.extras_css);
+        if (comp && comp.js) js.push(comp.js);
+        if (bg && bg.js) js.push(bg.js);
+        if (app.fx.length) js.push(REG.extras_js);
+    }
+    css.forEach(function (h) { document.write('<link rel="stylesheet" href="' + h + '">'); });
+    js.forEach(function (s) { document.write('<script defer src="' + s + '"><\/script>'); });
+
+    function csrf() { var m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/); return m ? decodeURIComponent(m[1]) : (window.__RLY_CSRF__ || ''); }
+    function save(next, opts) {
+        var n = normalize(next);
+        try { localStorage.setItem('roamly_appearance', JSON.stringify(n)); } catch (e) {}
+        var done = function () {
+            if (opts && opts.noReload) return;
+            var u = new URL(location.href);
+            u.searchParams.delete('rly_style'); u.searchParams.delete('rly_preset');
+            try { sessionStorage.setItem('roamly_appearance_scroll', String(scrollY)); } catch (e) {}
+            // Same URL (e.g. only the #hash) would be a hash navigation, not a load.
+            if (u.toString() === location.href) location.reload(); else location.replace(u.toString());
+        };
+        if (window.__RLY_SIGNED_IN__ === false) return done();
+        fetch('/api/profile/appearance/', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() },
+            body: JSON.stringify(n)
+        }).then(done, done);
+    }
+    try {
+        var y = sessionStorage.getItem('roamly_appearance_scroll');
+        if (y) { sessionStorage.removeItem('roamly_appearance_scroll'); addEventListener('load', function () { scrollTo(0, +y); }); }
+    } catch (e) {}
+
     // Contrast guard. Pages paint plenty of controls `background: var(--primary);
-    // color: #fff`, which is right for Field Journal's orange and unreadable on
-    // a style whose primary is light (signal yellow, phosphor amber…). A style
-    // that sets `--on-primary` in its CSS gets every element whose computed
-    // background is the primary (or its hover) and whose text is light
-    // re-inked with --on-primary. Runs on load and on DOM/class changes.
+    // color: #fff`, unreadable on a light primary (signal yellow, phosphor amber…).
+    // When the palette's --on-primary is dark, any element whose computed
+    // background is the primary (or its hover) and whose text is light is
+    // re-inked with --on-primary. Runs on load, DOM/class changes and hover.
     function rgbOf(v) {
-        var p = document.createElement('i');
-        p.style.color = v; p.style.display = 'none';
-        document.body.appendChild(p);
-        var c = getComputedStyle(p).color; p.remove();
-        return c;
+        var p = document.createElement('i'); p.style.color = v; p.style.display = 'none';
+        document.body.appendChild(p); var c = getComputedStyle(p).color; p.remove(); return c;
     }
     function lum(c) {
         var m = c.match(/[\d.]+/g); if (!m) return 0;
-        return (0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]) / 255;
+        var k = c.indexOf('color(') === 0 ? 1 : 255;
+        return (0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]) / k;
     }
     function contrastGuard() {
-        var cs = getComputedStyle(de);
-        if (!cs.getPropertyValue('--on-primary').trim()) return;
+        var cs = getComputedStyle(de), ink = cs.getPropertyValue('--on-primary').trim();
+        if (!ink || lum(rgbOf(ink)) > 0.5) return;
         var targets = [rgbOf(cs.getPropertyValue('--primary')), rgbOf(cs.getPropertyValue('--primary-hover'))];
         var pending = false, queue = [];
         function check(el) {
@@ -78,57 +148,49 @@
             var s = getComputedStyle(el);
             if (targets.indexOf(s.backgroundColor) !== -1) {
                 if (lum(s.color) > 0.72) { el.style.setProperty('color', 'var(--on-primary)', 'important'); el.dataset.rlyInk = '1'; }
-            } else if (el.dataset.rlyInk) {
-                el.style.removeProperty('color'); delete el.dataset.rlyInk;
-            }
+            } else if (el.dataset.rlyInk) { el.style.removeProperty('color'); delete el.dataset.rlyInk; }
         }
-        function sweep(rootEl) {
-            check(rootEl);
-            var all = rootEl.getElementsByTagName('*');
-            for (var i = 0; i < all.length; i++) check(all[i]);
-        }
-        function flush() {
-            pending = false;
-            var q = queue; queue = [];
-            q.forEach(function (n) { if (n.isConnected) sweep(n); });
-        }
+        function sweep(r) { check(r); var all = r.getElementsByTagName('*'); for (var i = 0; i < all.length; i++) check(all[i]); }
         sweep(document.body);
         new MutationObserver(function (muts) {
-            muts.forEach(function (m) {
-                if (m.type === 'attributes') queue.push(m.target);
-                else m.addedNodes.forEach(function (n) { if (n.nodeType === 1) queue.push(n); });
-            });
-            if (!pending) { pending = true; requestAnimationFrame(flush); }
+            muts.forEach(function (m) { if (m.type === 'attributes') queue.push(m.target); else m.addedNodes.forEach(function (n) { if (n.nodeType === 1) queue.push(n); }); });
+            if (!pending) { pending = true; requestAnimationFrame(function () { pending = false; var q = queue; queue = []; q.forEach(function (n) { if (n.isConnected) sweep(n); }); }); }
         }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
-        // :hover isn't a DOM change, so re-check whatever the pointer is over.
-        function hoverCheck(e) {
-            var t = e.target;
-            requestAnimationFrame(function () {
-                for (var i = 0; t && t.nodeType === 1 && i < 4; i++, t = t.parentElement) check(t);
-            });
-        }
-        document.addEventListener('pointerover', hoverCheck, true);
-        document.addEventListener('pointerout', hoverCheck, true);
+        function hover(e) { var t = e.target; requestAnimationFrame(function () { for (var i = 0; t && t.nodeType === 1 && i < 4; i++, t = t.parentElement) check(t); }); }
+        document.addEventListener('pointerover', hover, true);
+        document.addEventListener('pointerout', hover, true);
     }
-    if (id !== 'field') {
+    if (custom) {
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { setTimeout(contrastGuard, 0); });
         else setTimeout(contrastGuard, 0);
+        var barFor = byId(REG.palette, app.palette);
+        if (barFor && barFor.swatch && barFor.swatch[0]) document.addEventListener('DOMContentLoaded', function () {
+            var m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = barFor.swatch[0];
+        });
     }
 
     window.RoamlyStyle = {
-        current: id, styles: S, order: order, set: set,
-        reducedMotion: function () { return window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches; }
+        registry: REG,
+        current: app,
+        preset: presetOf(app),
+        presetOf: function (a) { return presetOf(normalize(a)); },
+        normalize: normalize,
+        set: save,
+        applyPreset: function (id) {
+            var p = byId(REG.presets, id); if (!p) return;
+            save({ preset: id, size: app.size, motion: app.motion });
+        },
+        reducedMotion: function () {
+            return app.motion === 'calm' || !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+        }
     };
     document.addEventListener('keydown', function (e) {
         if (e.altKey && e.shiftKey && (e.key === 'S' || e.key === 's' || e.code === 'KeyS')) {
             e.preventDefault();
-            set(order[(order.indexOf(id) + 1) % order.length]);
+            var ids = REG.presets.map(function (p) { return p.id; });
+            var cur = presetOf(app) || 'field';
+            window.RoamlyStyle.applyPreset(ids[(ids.indexOf(cur) + 1) % ids.length]);
         }
-    });
-    if (s.bar) document.addEventListener('DOMContentLoaded', function () {
-        if (id === 'field') return;
-        var m = document.querySelector('meta[name="theme-color"]');
-        if (m) m.content = s.bar;
     });
 })();
 </script>
