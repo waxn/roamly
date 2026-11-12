@@ -40,6 +40,7 @@ urlpatterns = [
     path('activities/<int:activity_id>/', views.activity_detail_view, name='activity_detail'),
     path('ask/', views.ask_view, name='ask'),
     path('settings/', views.settings_view, name='settings'),
+    path('styles/', views.style_lab_view, name='style_lab'),
     path('diagnostics/', views.diagnostics_view, name='diagnostics'),
     path('editor/', views.editor_view, name='editor'),
 

@@ -2047,6 +2047,15 @@ def ask_view(request):
 
 
 @login_required
+def style_lab_view(request):
+    """The Style lab: every alternative visual style side by side, with a
+    gallery of the shared components in mock data so a style can be judged
+    without needing real history. Pure template; the style itself is a
+    client-side choice (localStorage `roamly_style`, see _style_layer.html)."""
+    return render(request, 'tracker/style_lab.html')
+
+
+@login_required
 def settings_view(request):
     api_keys = APIKey.objects.filter(user=request.user)
     devices = Device.objects.filter(user=request.user)

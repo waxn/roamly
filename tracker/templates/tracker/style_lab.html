@@ -1,0 +1,206 @@
+{% extends "tracker/base.html" %}
+{% block title %}Style lab - Roamly{% endblock %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
+{% block map_css %}{% endblock %}
+{% block map_js %}{% endblock %}
+
+{% block extra_css %}
+.sl-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 1rem; margin-bottom: 2.25rem; }
+.sl-swatch { display: flex; flex-direction: column; gap: 0.7rem; margin: 0; cursor: pointer; text-align: left; font: inherit; color: inherit; }
+.sl-swatch-strip { display: flex; height: 54px; overflow: hidden; border-radius: inherit; }
+.sl-swatch-strip span { flex: 1; }
+.sl-swatch-name { font-family: var(--font-display); font-size: 1.15rem; font-weight: 600; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.sl-swatch-blurb { font-size: 0.84rem; color: var(--text-muted); line-height: 1.45; flex: 1; }
+.sl-swatch.is-current { outline: 2px solid var(--primary); outline-offset: 3px; }
+.sl-section-title { font-family: var(--font-display); font-size: 1.35rem; font-weight: 600; margin: 2rem 0 1rem; }
+.sl-row { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
+.sl-chart { display: flex; align-items: flex-end; gap: 4px; height: 160px; padding-top: 0.5rem; }
+.sl-chart i { flex: 1; background: var(--primary); opacity: 0.85; min-height: 3px; display: block; }
+.sl-chart i:nth-child(7n) { background: var(--clay-sky); }
+.sl-chart-axis { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-dim); margin-top: 0.5rem; }
+.sl-route { width: 100%; height: auto; display: block; }
+.sl-prose p { color: var(--text-muted); line-height: 1.65; margin-bottom: 0.8rem; }
+.sl-prose p:first-of-type::first-letter { }
+.sl-kbd { font-family: var(--font-mono); font-size: 0.75rem; border: 1px solid var(--border-strong); padding: 0.05rem 0.4rem; border-radius: 4px; }
+.sl-check { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; color: var(--text-muted); }
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Style lab</h1>
+        <p class="page-lead">Eight alternative looks for Roamly, plus the current one. Pick one to use it everywhere on this device, or press <span class="sl-kbd">Alt</span> + <span class="sl-kbd">Shift</span> + <span class="sl-kbd">S</span> on any page to flip to the next.</p>
+    </div>
+
+    <div class="sl-gallery" id="sl-gallery" aria-label="Styles"></div>
+
+    <div class="page-toolbar">
+        <h1>Statistics</h1>
+        <div class="toolbar-actions">
+            <div class="pill-tabs" role="tablist" style="margin-bottom:0">
+                <button class="tab-btn" type="button">Week</button>
+                <button class="tab-btn active" type="button">Month</button>
+                <button class="tab-btn" type="button">Year</button>
+                <button class="tab-btn" type="button">All time</button>
+            </div>
+            <button class="btn btn-outline btn-sm" type="button">↻ Recalculate</button>
+        </div>
+    </div>
+
+    <div class="grid grid-4">
+        <div class="card stat-card"><div class="stat-value">1,284,903</div><div class="stat-label">Total points</div></div>
+        <div class="card stat-card"><div class="stat-value stat-value-coral">23</div><div class="stat-label">Countries</div></div>
+        <div class="card stat-card"><div class="stat-value stat-value-amber">412</div><div class="stat-label">Cities</div></div>
+        <div class="card stat-card"><div class="stat-value stat-value-sky">48,213</div><div class="stat-label">Kilometres</div></div>
+    </div>
+
+    <div class="grid grid-2">
+        <div class="card">
+            <div class="card-header">Distance travelled</div>
+            <div class="sl-chart" id="sl-chart" aria-hidden="true"></div>
+            <div class="sl-chart-axis"><span>Oct 1</span><span>Oct 15</span><span>Oct 31</span></div>
+        </div>
+        <div class="card">
+            <div class="card-header">Last trip</div>
+            <svg class="sl-route" viewBox="0 0 400 170" aria-hidden="true">
+                <path d="M20 140 C 70 120, 80 60, 140 70 S 220 140, 260 100 S 330 30, 380 40" fill="none" stroke="var(--primary)" stroke-width="3" stroke-linecap="round"/>
+                <path d="M20 140 C 70 120, 80 60, 140 70" fill="none" stroke="var(--clay-sky)" stroke-width="3" stroke-dasharray="2 7" stroke-linecap="round" opacity="0.7"/>
+                <circle cx="20" cy="140" r="7" fill="var(--bg-card)" stroke="var(--primary)" stroke-width="3"/>
+                <circle cx="140" cy="70" r="5" fill="var(--clay-amber)"/>
+                <circle cx="260" cy="100" r="5" fill="var(--clay-mint)"/>
+                <circle cx="380" cy="40" r="7" fill="var(--primary)"/>
+                <text x="30" y="162" fill="var(--text-muted)" font-size="11" font-family="var(--font-mono)">Belfast, ME</text>
+                <text x="300" y="28" fill="var(--text-muted)" font-size="11" font-family="var(--font-mono)">Montréal, QC</text>
+            </svg>
+            <div class="sl-row" style="margin-top:0.75rem">
+                <span class="badge badge-teal">412 km</span>
+                <span class="badge badge-sky">6h 20m</span>
+                <span class="badge badge-success">2 countries</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Top places</div>
+        <div class="table-responsive">
+            <table>
+                <thead><tr><th class="sortable active-sort">Place <span class="sort-arrow">▼</span></th><th>Region</th><th>Visits</th><th>Time spent</th><th>Type</th></tr></thead>
+                <tbody>
+                    <tr><td>Waldo</td><td>Maine, US</td><td>1,204</td><td>812h</td><td><span class="badge badge-teal">Home</span></td></tr>
+                    <tr><td>Belfast</td><td>Maine, US</td><td>318</td><td>96h</td><td><span class="badge badge-sky">Town</span></td></tr>
+                    <tr><td>Montréal</td><td>Québec, CA</td><td>41</td><td>52h</td><td><span class="badge badge-lavender">City</span></td></tr>
+                    <tr><td>Bar Harbor</td><td>Maine, US</td><td>12</td><td>19h</td><td><span class="badge badge-warning">Park</span></td></tr>
+                    <tr><td>Reykjavík</td><td>Iceland</td><td>4</td><td>61h</td><td><span class="badge badge-coral">Abroad</span></td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="grid grid-2">
+        <div class="card">
+            <div class="card-header">New place</div>
+            <div class="form-group"><label for="sl-name">Name</label><input id="sl-name" class="form-control" placeholder="Grandma’s house" value="The good café"></div>
+            <div class="form-group"><label for="sl-radius">Radius</label>
+                <select id="sl-radius" class="form-control"><option>50 m</option><option selected>150 m</option><option>400 m</option></select></div>
+            <div class="form-group"><label for="sl-date">First visit</label><input id="sl-date" type="date" class="form-control" value="2026-10-14"></div>
+            <div class="form-group"><label class="sl-check"><input type="checkbox" checked> Notify me when I arrive</label></div>
+            <div class="sl-row">
+                <button class="btn btn-primary" type="button">Save place</button>
+                <button class="btn btn-outline" type="button">Cancel</button>
+                <button class="btn btn-danger btn-sm" type="button" id="sl-confirm">Delete…</button>
+            </div>
+        </div>
+        <div>
+            <div class="alert alert-info">Road data is downloading: 61 of 140 areas.</div>
+            <div class="alert alert-success">Backup finished: 1,284,903 points and 312 photos.</div>
+            <div class="alert alert-error">Your phone hasn’t sent a point in 9 hours.</div>
+            <div class="card card-coral"><div class="card-header">Journal · Oct 14</div>
+                <div class="sl-prose"><p>Drove up the coast before sunrise, coffee in <a href="#">Camden</a>, then the long way round through the blueberry barrens. The fog never lifted.</p></div>
+                <div class="sl-row"><span class="badge badge-warning">☀ 14°</span><span class="badge badge-lavender">🙂 good</span></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-4">
+        <div class="card card-teal"><div class="card-header">Moving</div><div class="stat-value">31%</div><div class="stat-label">of tracked time</div></div>
+        <div class="card card-sky"><div class="card-header">Flights</div><div class="stat-value stat-value-sky">14</div><div class="stat-label">this year</div></div>
+        <div class="card card-amber"><div class="card-header">Streak</div><div class="stat-value stat-value-amber">27</div><div class="stat-label">journal days</div></div>
+        <div class="card card-lavender"><div class="card-header">Badges</div><div class="stat-value stat-value-lavender">38</div><div class="stat-label">unlocked</div></div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Odds and ends</div>
+        <div class="sl-row" style="margin-bottom:1rem">
+            <span class="badge badge-success">synced</span><span class="badge badge-warning">pending</span><span class="badge badge-coral">suspect</span><span class="badge badge-lavender">walk</span><span class="badge badge-sky">drive</span><span class="badge badge-teal">flight</span>
+            <span class="spinner" aria-label="Loading"></span>
+        </div>
+        <div class="sl-row" style="margin-bottom:1rem">
+            <button class="btn btn-outline btn-sm" type="button" id="sl-toast">Show a toast</button>
+            <button class="btn btn-outline btn-sm" type="button" id="sl-toast-err">Show an error toast</button>
+            <button class="btn btn-outline btn-sm" type="button" id="sl-alert">Show a dialog</button>
+        </div>
+        <div style="display:grid;gap:0.5rem;max-width:420px">
+            <div class="skeleton skel-line lg skel-text-60"></div>
+            <div class="skeleton skel-line skel-text-80"></div>
+            <div class="skeleton skel-line sm skel-text-40"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    var RS = window.RoamlyStyle;
+    var swatches = {
+        field: ['#14160f', '#1b1e15', '#e8763d', '#7f9b6d', '#e9e5d8'],
+        lantern: ['#100c08', '#1d160e', '#f29a3b', '#c2412f', '#f1e4c8'],
+        transit: ['#0b0c0e', '#ffcd00', '#e4312b', '#0a7ad8', '#00a651'],
+        jelly: ['#0a1214', '#ff4f63', '#ffb627', '#7ee04f', '#3fd3d6'],
+        riso: ['#121110', '#ff48b0', '#2f6bff', '#ffe800', '#f3efe6'],
+        postmark: ['#121417', '#d6332f', '#1f4fa8', '#e9dfc7', '#b8925a'],
+        broadsheet: ['#0e0e0d', '#191917', '#e8e3d6', '#d9322a', '#7a776d'],
+        blueprint: ['#0a2747', '#0f355e', '#e8f2ff', '#7fc4ff', '#ffd25a'],
+        basecamp: ['#0d0904', '#ffb000', '#ff7a00', '#5a3a00', '#ffd480']
+    };
+    var g = document.getElementById('sl-gallery');
+    if (RS && g) {
+        RS.order.forEach(function (id) {
+            var s = RS.styles[id];
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'card sl-swatch' + (id === RS.current ? ' is-current' : '');
+            b.setAttribute('aria-pressed', id === RS.current ? 'true' : 'false');
+            b.innerHTML = '<div class="sl-swatch-strip">' + (swatches[id] || []).map(function (c) { return '<span style="background:' + c + '"></span>'; }).join('') + '</div>' +
+                '<div class="sl-swatch-name"><span></span>' + (id === RS.current ? '<span class="badge badge-teal">in use</span>' : '') + '</div>' +
+                '<div class="sl-swatch-blurb"></div>';
+            b.querySelector('.sl-swatch-name span').textContent = s.name;
+            b.querySelector('.sl-swatch-blurb').textContent = s.blurb;
+            b.addEventListener('click', function () { RS.set(id); });
+            g.appendChild(b);
+        });
+    }
+    var c = document.getElementById('sl-chart');
+    if (c) {
+        var seed = 7;
+        for (var i = 0; i < 31; i++) {
+            seed = (seed * 9301 + 49297) % 233280;
+            var v = 8 + (seed / 233280) * 70 + (i % 7 === 5 ? 20 : 0);
+            var bar = document.createElement('i');
+            bar.style.height = v + '%';
+            c.appendChild(bar);
+        }
+    }
+    document.querySelectorAll('.pill-tabs .tab-btn').forEach(function (t) {
+        t.addEventListener('click', function () {
+            t.parentNode.querySelectorAll('.tab-btn').forEach(function (o) { o.classList.toggle('active', o === t); });
+        });
+    });
+    function on(id, fn) { var el = document.getElementById(id); if (el) el.addEventListener('click', fn); }
+    on('sl-toast', function () { window.roamlyToast && roamlyToast('Place saved.'); });
+    on('sl-toast-err', function () { window.roamlyToast && roamlyToast('Could not reach the server.', { type: 'error' }); });
+    on('sl-alert', function () { window.roamlyAlert && roamlyAlert('Your backup is ready to download.', { title: 'Backup ready' }); });
+    on('sl-confirm', function () { window.roamlyConfirm && roamlyConfirm('Delete “The good café”? Its points stay on the map.', { title: 'Delete place', danger: true, confirmText: 'Delete' }); });
+})();
+</script>
+{% endblock %}
