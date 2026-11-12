@@ -19,7 +19,7 @@
     background: var(--bg-input);
     color: var(--text);
     border: 1px solid var(--border);
-    border-radius:0;
+    border-radius:var(--r-auto, 0);
     padding: 0.4rem 0.85rem;
     font-size: 0.8125rem;
     font-family: var(--font-body);
@@ -42,7 +42,7 @@
 .h-chart-container canvas { width: 100%; height: 100%; }
 .h-chart-tooltip {
     position: absolute; pointer-events: none;
-    background: var(--bg-card); border: 1px solid var(--border); border-radius: 0;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-auto, 0);
     padding: 0.325rem 0.5rem; font-size: 0.75rem; font-family: var(--font-body);
     color: var(--text); white-space: nowrap; opacity: 0;
     transition: opacity 0.15s; z-index: 10;
@@ -85,7 +85,7 @@
     grid-auto-columns: var(--heat-cell); gap: var(--heat-gap);
 }
 .heat-cell {
-    width: var(--heat-cell); height: var(--heat-cell); border-radius: 0;
+    width: var(--heat-cell); height: var(--heat-cell); border-radius: var(--r-auto, 0);
     border: 1px solid var(--border); background: var(--bg-input);
 }
 .heat-cell[data-day] { cursor: pointer; }

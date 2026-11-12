@@ -43,7 +43,7 @@
 
 
     border: 1px solid var(--border);
-    border-radius:0;
+    border-radius:var(--r-auto, 0);
     padding: 12px 10px;
     overflow-y: auto;
     overflow-x: hidden;
@@ -76,7 +76,7 @@
     background: rgba(0, 0, 0, 0.18);
     color: var(--text);
     border: 1px solid var(--border);
-    border-radius:0;
+    border-radius:var(--r-auto, 0);
     padding: 6px 8px;
     font-size: 0.775rem;
     font-family: var(--font-body);
@@ -129,7 +129,7 @@
     background: rgba(0, 0, 0, 0.18);
     color: var(--text-muted);
     border: 1px solid var(--border);
-    border-radius:0;
+    border-radius:var(--r-auto, 0);
     padding: 5px 8px;
     font-size: 0.72rem;
     font-family: var(--font-body);
@@ -152,7 +152,7 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
     background: rgba(0, 0, 0, 0.18);
     border: 1px solid var(--border);
-    border-radius:0;
+    border-radius:var(--r-auto, 0);
     padding: 3px;
     gap: 2px;
 }
@@ -171,7 +171,7 @@
     border: none;
     color: var(--text-muted);
     padding: 4px 2px;
-    border-radius:0;
+    border-radius:var(--r-auto, 0);
     font-size: 0.7rem;
     font-family: var(--font-body);
     font-weight: 700;
@@ -195,7 +195,7 @@
     border: 1px solid var(--border);
     color: var(--text-muted);
     padding: 7px 10px;
-    border-radius:0;
+    border-radius:var(--r-auto, 0);
     font-size: 0.775rem;
     font-family: var(--font-body);
     font-weight: 700;
@@ -231,7 +231,7 @@
 
 
     border: 1px solid var(--border);
-    border-radius:0;
+    border-radius:var(--r-auto, 0);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
     padding: 6px 12px;
     font-size: 0.75rem;
@@ -257,7 +257,7 @@
     gap: 8px;
     background: var(--bg-card);
     border: 1px solid var(--border);
-    border-radius:0;
+    border-radius:var(--r-auto, 0);
     padding: 8px 10px;
     font-size: 0.75rem;
     font-family: var(--font-body);
@@ -269,7 +269,7 @@
     border: 1px solid var(--border);
     background: var(--primary);
     color: #fff;
-    border-radius:0;
+    border-radius:var(--r-auto, 0);
     font-size: 0.75rem;
     font-family: var(--font-body);
     font-weight: 700;
@@ -284,7 +284,7 @@
     background: var(--bg-card) !important;
     color: var(--text) !important;
     border: 1px solid var(--border) !important;
-    border-radius:0 !important;
+    border-radius:var(--r-auto, 0) !important;
     padding: 12px !important;
     font-size: 0.8125rem;
     font-family: var(--font-body) !important;
@@ -296,7 +296,7 @@
 .maplibregl-popup-close-button {
     color: var(--text-muted) !important;
     width: 28px; height: 28px; line-height: 28px;
-    font-size: 1.25rem; font-weight: 700; border-radius:0;
+    font-size: 1.25rem; font-weight: 700; border-radius:var(--r-auto, 0);
     top: 8px; right: 8px; background: rgba(0, 0, 0, 0.08);
 }
 .maplibregl-map, .maplibregl-ctrl {
@@ -444,7 +444,7 @@
 
 
     border: 1px solid var(--border);
-    border-radius:0;
+    border-radius:var(--r-auto, 0);
     box-shadow: 0 10px 32px rgba(0, 0, 0, 0.3);
     padding: 10px 14px;
     font-family: var(--font-body);
@@ -455,13 +455,13 @@
 .replay-panel.active { display: flex; }
 .replay-panel input[type="date"] {
     background: var(--bg-card); color: var(--text);
-    border: 1px solid var(--border); border-radius:0;
+    border: 1px solid var(--border); border-radius:var(--r-auto, 0);
     padding: 5px 8px; font-size: 0.75rem;
     font-family: var(--font-body); font-weight: 700;
 }
 .replay-panel button.rp-btn {
     border: 1px solid var(--border); background: var(--primary); color: #fff;
-    border-radius:0; font-size: 0.75rem;
+    border-radius:var(--r-auto, 0); font-size: 0.75rem;
     font-family: var(--font-body); font-weight: 700;
      padding: 5px 12px; cursor: pointer;
 }
@@ -471,7 +471,7 @@
 }
 .replay-panel select {
     background: var(--bg-card); color: var(--text);
-    border: 1px solid var(--border); border-radius:0;
+    border: 1px solid var(--border); border-radius:var(--r-auto, 0);
     padding: 5px 6px; font-size: 0.7rem;
     font-family: var(--font-body); font-weight: 700;
 }
@@ -492,7 +492,7 @@
 
 
     border: 1px solid var(--border);
-    border-radius:0;
+    border-radius:var(--r-auto, 0);
     box-shadow: 0 8px 32px rgba(0,0,0,0.32);
     padding: 4px;
     min-width: 168px;
@@ -515,7 +515,7 @@
     align-items: center;
     gap: 8px;
     padding: 7px 10px;
-    border-radius:0;
+    border-radius:var(--r-auto, 0);
     font-size: 0.8rem;
     font-weight: 700;
     color: var(--text);
@@ -543,7 +543,7 @@
 
 
     border: 1px solid var(--border);
-    border-radius:0;
+    border-radius:var(--r-auto, 0);
     padding: 12px;
     box-shadow: 0 10px 32px rgba(0,0,0,0.3);
     display: none;
@@ -564,7 +564,7 @@
     background: rgba(0,0,0,0.18);
     border: 1px solid var(--border);
     color: var(--text);
-    border-radius:0;
+    border-radius:var(--r-auto, 0);
     padding: 6px 8px;
     font-size: 0.775rem;
     font-family: var(--font-body);
@@ -602,7 +602,7 @@
     flex: 1;
     padding: 7px 0;
     font-size: 0.775rem;
-    border-radius:0;
+    border-radius:var(--r-auto, 0);
     cursor: pointer;
     font-family: var(--font-body);
     font-weight: 700;

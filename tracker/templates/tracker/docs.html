@@ -82,7 +82,7 @@
             z-index: 300;
             transition: width 0.08s linear;
             width: 0;
-            border-radius: 0;
+            border-radius: var(--r-auto, 0);
             box-shadow: 0 0 16px rgba(232, 118, 61, 0.6);
         }
 
@@ -131,7 +131,7 @@
             font-weight: 700;
             background: var(--primary-soft);
             border: 1px solid rgba(232, 118, 61, 0.2);
-            border-radius: 0;
+            border-radius: var(--r-auto, 0);
             padding: 0.25rem 0.75rem;
             font-size: 0.75rem;
         }
@@ -147,7 +147,7 @@
             align-items: center;
             gap: 0.4rem;
             padding: 0.55rem 1.15rem;
-            border-radius: 0;
+            border-radius: var(--r-auto, 0);
             border: none;
             font-family: var(--font-body);
             font-size: 0.875rem;
@@ -187,7 +187,7 @@
             color: var(--text-muted);
             cursor: pointer;
             padding: 0.45rem;
-            border-radius: 0;
+            border-radius: var(--r-auto, 0);
             box-shadow: var(--clay-shadow-sm);
         }
 
@@ -231,7 +231,7 @@
         .sidebar-search input {
             width: 100%;
             padding: 0.6rem 0.9rem 0.6rem 2.4rem;
-            border-radius: 0;
+            border-radius: var(--r-auto, 0);
             border: 1px solid var(--border);
             background: var(--bg-input);
             color: var(--text);
@@ -267,7 +267,7 @@
         .sidebar-link.hidden { display: none; }
         .sidebar::-webkit-scrollbar { width: 4px; }
         .sidebar::-webkit-scrollbar-track { background: transparent; }
-        .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 0; }
+        .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: var(--r-auto, 0); }
 
         .sidebar-group { padding: 0 1rem 1.5rem; }
 
@@ -290,7 +290,7 @@
             font-size: 0.9rem;
             font-weight: 600;
             text-decoration: none;
-            border-radius: 0;
+            border-radius: var(--r-auto, 0);
             transition: color 0.15s, background 0.2s, box-shadow 0.2s;
             line-height: 1.35;
             
@@ -337,7 +337,7 @@
         .docs-hero {
             background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 0;
+            border-radius: var(--r-auto, 0);
             padding: clamp(1.75rem, 4vw, 2.75rem);
             margin-bottom: 3rem;
             box-shadow: var(--clay-shadow);
@@ -383,7 +383,7 @@
             align-items: center;
             gap: 0.4rem;
             padding: 0.45rem 1rem;
-            border-radius: 0;
+            border-radius: var(--r-auto, 0);
             border: 1px solid var(--border);
             background: var(--bg-elevated);
             color: var(--text-muted);
@@ -432,7 +432,7 @@
             content: '';
             width: 5px;
             height: 1.1em;
-            border-radius: 0;
+            border-radius: var(--r-auto, 0);
             background: var(--primary);
             flex-shrink: 0;
         }
@@ -486,7 +486,7 @@
             background: rgba(232, 118, 61, 0.1);
             color: var(--primary);
             padding: 0.18rem 0.5rem;
-            border-radius: 0;
+            border-radius: var(--r-auto, 0);
             font-family: 'Courier New', monospace;
             font-size: 0.875em;
             border: 1px solid rgba(232, 118, 61, 0.15);
@@ -496,7 +496,7 @@
         .code-block {
             position: relative;
             margin: 1.5rem 0;
-            border-radius: 0;
+            border-radius: var(--r-auto, 0);
             border: 1px solid var(--border);
             overflow: hidden;
             background: #07090f;
@@ -524,7 +524,7 @@
 
         .copy-btn {
             padding: 0.3rem 0.8rem;
-            border-radius: 0;
+            border-radius: var(--r-auto, 0);
             border: 1px solid var(--border);
             background: var(--bg-elevated);
             color: var(--text-dim);
@@ -571,7 +571,7 @@
             display: flex;
             gap: 1rem;
             padding: 1.25rem 1.4rem;
-            border-radius: 0;
+            border-radius: var(--r-auto, 0);
             margin: 1.75rem 0;
             font-size: 0.95rem;
             font-weight: 500;
@@ -592,7 +592,7 @@
         .table-wrap {
             overflow-x: auto;
             margin: 1.5rem 0;
-            border-radius: 0;
+            border-radius: var(--r-auto, 0);
             border: 1px solid var(--border);
             background: var(--bg-card);
             box-shadow: var(--clay-shadow-sm);
@@ -634,7 +634,7 @@
             gap: 1.25rem;
             background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 0;
+            border-radius: var(--r-auto, 0);
             padding: 1.35rem 1.5rem;
             box-shadow: var(--clay-shadow-sm);
             transition: transform 0.3s var(--ease-spring), box-shadow 0.3s var(--ease-out);
@@ -648,7 +648,7 @@
         .step-num {
             width: 36px;
             height: 36px;
-            border-radius: 0;
+            border-radius: var(--r-auto, 0);
             background: var(--primary);
             display: flex;
             align-items: center;
@@ -680,7 +680,7 @@
         .badge {
             display: inline-block;
             padding: 0.22rem 0.65rem;
-            border-radius: 0;
+            border-radius: var(--r-auto, 0);
             font-size: 0.72rem;
             font-weight: 800;
             font-family: 'Courier New', monospace;
@@ -699,7 +699,7 @@
             height: 48px;
             background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 0;
+            border-radius: var(--r-auto, 0);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -750,7 +750,7 @@
 
         @media (max-width: 600px) {
             .content-area .content { padding: 1.25rem 1rem 6rem; }
-            .docs-hero { border-radius: 0; }
+            .docs-hero { border-radius: var(--r-auto, 0); }
         }
 
         @media (prefers-reduced-motion: reduce) {

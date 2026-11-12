@@ -13,7 +13,7 @@
 .map-sidebar { position:absolute; top:12px; left:12px; z-index:10; display:flex; flex-direction:row; align-items:flex-end; pointer-events:none; }
 .sidebar-content {
     width: 250px; max-width: 250px; max-height: calc(100vh - 100px);
-    background: var(--bg-glass); border: 1px solid var(--border); border-radius:0;
+    background: var(--bg-glass); border: 1px solid var(--border); border-radius:var(--r-auto, 0);
     padding: 12px 10px; overflow-y:auto; overflow-x:hidden; pointer-events:all;
     display:flex; flex-direction:column; gap:12px;
     box-shadow: 0 8px 32px rgba(0,0,0,0.22);
@@ -24,7 +24,7 @@
 .sidebar-tools { display:flex; flex-direction:column; gap:4px; }
 .tool-btn {
     background: rgba(0,0,0,0.12); border:1px solid var(--border); color:var(--text-muted);
-    padding:7px 10px; border-radius:0; font-size:0.775rem; font-family:var(--font-body);
+    padding:7px 10px; border-radius:var(--r-auto, 0); font-size:0.775rem; font-family:var(--font-body);
     font-weight:700; cursor:pointer; text-align:left; display:flex; justify-content:space-between;
     align-items:center; width:100%; transition:background .12s,color .12s,border-color .12s;
 }
@@ -37,7 +37,7 @@
 
 .sidebar-btn-group { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; }
 .style-btn { background:rgba(0,0,0,0.12); border:1px solid var(--border); color:var(--text-muted);
-    padding:6px 4px; border-radius:0; font-size:0.7rem; font-weight:700; cursor:pointer; text-align:center;
+    padding:6px 4px; border-radius:var(--r-auto, 0); font-size:0.7rem; font-weight:700; cursor:pointer; text-align:center;
     min-width:0; overflow:hidden; white-space:normal; line-height:1.2; overflow-wrap:anywhere; }
 .sidebar-sublabel { font-size:0.55rem; font-weight:700; text-transform:uppercase; letter-spacing:0.09em;
     color:var(--text-muted); opacity:0.75; margin-top:6px; margin-bottom:3px; }
@@ -48,7 +48,7 @@
 .ed-field label { font-size:0.65rem; color:var(--text-muted); font-weight:700; }
 .ed-field input, .ed-field select {
     background:var(--bg-input); border:1px solid var(--border); color:var(--text);
-    padding:5px 7px; font-size:0.75rem; font-family:var(--font-body); border-radius:0; width:100%;
+    padding:5px 7px; font-size:0.75rem; font-family:var(--font-body); border-radius:var(--r-auto, 0); width:100%;
 }
 .ed-check { display:flex; align-items:center; gap:6px; font-size:0.72rem; color:var(--text); cursor:pointer; }
 .ed-field .ed-check input { width:auto; flex:0 0 auto; padding:0; }
@@ -69,7 +69,7 @@
     gap:8px; align-items:center; background:var(--bg-glass); border:1px solid var(--border); padding:6px 10px; }
 #map-detail-hint { font-size:0.72rem; color:var(--text-muted); }
 #map-load-more-btn { background:var(--primary); border:none; color:#fff; padding:4px 10px;
-    font-size:0.72rem; font-weight:700; cursor:pointer; border-radius:0; }
+    font-size:0.72rem; font-weight:700; cursor:pointer; border-radius:var(--r-auto, 0); }
 #map-loading-bar { position:absolute; top:0; left:0; height:2px; width:0; background:var(--primary);
     z-index:20; transition:width .3s ease, opacity .3s ease; opacity:0; }
 #map-loading-bar.active { width:70%; opacity:1; }
@@ -77,7 +77,7 @@
 /* Popup theming — the same plate /map/ uses, so a clicked point reads the same here. */
 .maplibregl-popup-content {
     background: var(--bg-card) !important; color: var(--text) !important;
-    border: 1px solid var(--border) !important; border-radius:0 !important;
+    border: 1px solid var(--border) !important; border-radius:var(--r-auto, 0) !important;
     padding: 12px 34px 12px 12px !important; font-size: 0.8125rem;
     font-family: var(--font-body) !important; font-weight: 700 !important;
     box-shadow: 0 4px 12px rgba(0,0,0,0.4);
@@ -92,7 +92,7 @@
 .maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--bg-card) !important; }
 .maplibregl-popup-close-button {
     color: var(--text-muted) !important; width: 28px; height: 28px; line-height: 28px;
-    font-size: 1.25rem; font-weight: 700; border-radius:0;
+    font-size: 1.25rem; font-weight: 700; border-radius:var(--r-auto, 0);
     top: 6px; right: 6px; background: rgba(0, 0, 0, 0.08);
 }
 .maplibregl-popup-close-button:hover { color: var(--text) !important; background: rgba(255,255,255,0.08); }

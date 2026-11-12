@@ -14,12 +14,12 @@
 .fl-table tbody tr { cursor: pointer; }
 .fl-route { font-family: var(--font-mono); font-weight: 600; }
 .fl-route .fl-arrow { color: var(--text-muted); margin: 0 0.3rem; }
-.fl-trk-map { height: 220px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.fl-trk-map { height: 220px; border: 1px solid var(--border); border-radius: calc(8px * var(--rk, 1)); overflow: hidden; }
 .fl-trk-src { font-size: 0.8rem; color: var(--text-muted); margin: 0.5rem 0; }
 .fl-trk-src b { color: var(--text); font-weight: 600; }
 .fl-trk-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .fl-tracked.osk { border-color: var(--clay-lavender); color: var(--clay-lavender); }
-.fl-tracked { display: inline-block; margin-left: 0.4rem; padding: 0 0.35rem; font-family: var(--font-mono); font-size: 0.65rem; border: 1px solid var(--clay-sky); color: var(--clay-sky); border-radius: 4px; vertical-align: middle; }
+.fl-tracked { display: inline-block; margin-left: 0.4rem; padding: 0 0.35rem; font-family: var(--font-mono); font-size: 0.65rem; border: 1px solid var(--clay-sky); color: var(--clay-sky); border-radius: calc(4px * var(--rk, 1)); vertical-align: middle; }
 .fl-track-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; font-size: 0.85rem; margin: -0.2rem 0 0.8rem; }
 .fl-sub { font-size: 0.75rem; color: var(--text-muted); }
 .fl-num a { font-family: var(--font-mono); font-weight: 600; }
@@ -40,7 +40,7 @@
 .fl-year-bar span { position: absolute; top: -1.15rem; left: 50%; transform: translateX(-50%); font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); }
 .fl-year-lbl { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted); }
 .fl-ac-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-bottom: 1rem; }
-.fl-ac-tiles div { border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem; }
+.fl-ac-tiles div { border: 1px solid var(--border); border-radius: calc(8px * var(--rk, 1)); padding: 0.6rem 0.75rem; }
 .fl-ac-tiles b { display: block; font-family: var(--font-mono); font-size: 1.3rem; }
 .fl-ac-tiles span { font-size: 0.72rem; color: var(--text-muted); }
 .fl-ac-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.25rem; }
@@ -63,7 +63,7 @@
 .fl-hint { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.35rem; }
 .fl-status { font-size: 0.8125rem; margin: 0.6rem 0 0.2rem; min-height: 1.1em; }
 .fl-legs { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.5rem 0 0.25rem; }
-.fl-leg { text-align: left; padding: 0.55rem 0.75rem; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text); cursor: pointer; border-radius: 6px; font-size: 0.85rem; }
+.fl-leg { text-align: left; padding: 0.55rem 0.75rem; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text); cursor: pointer; border-radius: calc(6px * var(--rk, 1)); font-size: 0.85rem; }
 .fl-leg:hover { border-color: var(--primary); }
 .fl-section { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin: 1.1rem 0 0.6rem; padding-top: 0.9rem; border-top: 1px solid var(--border); }
 .fl-ap-wrap { position: relative; }
@@ -75,7 +75,7 @@
 .fl-actions { display: flex; gap: 0.5rem; margin-top: 1.25rem; }
 .fl-adv { margin-top: 1rem; padding-top: 0.9rem; border-top: 1px solid var(--border); }
 .fl-adv summary { cursor: pointer; font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.6rem; }
-.fl-pass-img { display: block; max-width: 100%; max-height: 260px; border: 1px solid var(--border); border-radius: 6px; }
+.fl-pass-img { display: block; max-width: 100%; max-height: 260px; border: 1px solid var(--border); border-radius: calc(6px * var(--rk, 1)); }
 .fl-actions .spacer { flex: 1; }
 @media (max-width: 640px) {
     .fl-grid, .fl-lookup-row { grid-template-columns: 1fr; }

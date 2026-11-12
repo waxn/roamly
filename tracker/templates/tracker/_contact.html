@@ -37,7 +37,7 @@ both base.html and landing.html, square-cornered to match the sharp UI.
   .rly-contact-sub{margin:0 0 1.1rem;font-size:0.85rem;color:var(--text-muted);line-height:1.5;}
   .rly-contact-label{display:block;font-size:0.78rem;font-weight:600;color:var(--text-dim);margin:0.85rem 0 0.35rem;}
   .rly-contact-opt{font-weight:400;color:var(--text-muted);}
-  .rly-contact-input{width:100%;box-sizing:border-box;background:var(--bg-input);border:1px solid var(--border);color:var(--text);font-family:var(--font-body);font-size:0.9rem;padding:0.6rem 0.7rem;border-radius:0;}
+  .rly-contact-input{width:100%;box-sizing:border-box;background:var(--bg-input);border:1px solid var(--border);color:var(--text);font-family:var(--font-body);font-size:0.9rem;padding:0.6rem 0.7rem;border-radius:var(--r-auto, 0);}
   .rly-contact-input:focus{outline:none;border-color:var(--primary);}
   .rly-contact-textarea{resize:vertical;min-height:110px;}
   .rly-contact-hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0;}
@@ -45,7 +45,7 @@ both base.html and landing.html, square-cornered to match the sharp UI.
   .rly-contact-status{flex:1;font-size:0.82rem;color:var(--text-muted);}
   .rly-contact-status.err{color:var(--flag,#e8763d);}
   .rly-contact-status.ok{color:var(--success,#7aa06a);}
-  .rly-contact-submit{background:var(--primary);border:1px solid var(--primary);color:#fff;font-family:var(--font-body);font-size:0.88rem;font-weight:600;padding:0.6rem 1.1rem;border-radius:0;cursor:pointer;}
+  .rly-contact-submit{background:var(--primary);border:1px solid var(--primary);color:#fff;font-family:var(--font-body);font-size:0.88rem;font-weight:600;padding:0.6rem 1.1rem;border-radius:var(--r-auto, 0);cursor:pointer;}
   .rly-contact-submit:hover{background:var(--primary-hover);}
   .rly-contact-submit:disabled{opacity:0.6;cursor:default;}
 </style>

@@ -56,7 +56,7 @@
         .btn:hover { background: var(--primary-hover); }
         .pin-row { display: flex; gap: .6rem; justify-content: center; margin-bottom: 1.1rem; }
         .pin-row input { width: 58px; height: 68px; text-align: center; font-size: 1.8rem; font-weight: 600; background: var(--bg-input);
-                         color: var(--text); border: 1px solid var(--border); font-family: var(--font-mono); outline: none; border-radius: 0; }
+                         color: var(--text); border: 1px solid var(--border); font-family: var(--font-mono); outline: none; border-radius: var(--r-auto, 0); }
         .pin-row input:focus { border-color: var(--border-bright); box-shadow: 0 0 0 3px var(--primary-soft); }
         .pin-row.shake { animation: shake .35s; }
         @keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }

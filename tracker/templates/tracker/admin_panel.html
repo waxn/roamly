@@ -523,8 +523,8 @@
                         style="color:var(--danger);border-color:var(--danger);">Delete Road Data</button>
             </div>
             <div id="dl-roads-progress-wrap" style="margin-top:0.6rem;display:none;">
-                <div style="background:var(--bg-input);border-radius:0;height:6px;overflow:hidden;margin-bottom:0.35rem;">
-                    <div id="dl-roads-bar" style="height:100%;width:0%;background:var(--primary);border-radius:0;transition:width 0.4s ease;"></div>
+                <div style="background:var(--bg-input);border-radius:var(--r-auto, 0);height:6px;overflow:hidden;margin-bottom:0.35rem;">
+                    <div id="dl-roads-bar" style="height:100%;width:0%;background:var(--primary);border-radius:var(--r-auto, 0);transition:width 0.4s ease;"></div>
                 </div>
                 <div id="dl-roads-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
             </div>
@@ -554,8 +554,8 @@
                         style="color:var(--danger);border-color:var(--danger);">Delete Subway Data</button>
             </div>
             <div id="dl-subway-progress-wrap" style="margin-top:0.6rem;display:none;">
-                <div style="background:var(--bg-input);border-radius:0;height:6px;overflow:hidden;margin-bottom:0.35rem;">
-                    <div id="dl-subway-bar" style="height:100%;width:0%;background:var(--primary);border-radius:0;transition:width 0.4s ease;"></div>
+                <div style="background:var(--bg-input);border-radius:var(--r-auto, 0);height:6px;overflow:hidden;margin-bottom:0.35rem;">
+                    <div id="dl-subway-bar" style="height:100%;width:0%;background:var(--primary);border-radius:var(--r-auto, 0);transition:width 0.4s ease;"></div>
                 </div>
                 <div id="dl-subway-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
             </div>
@@ -585,8 +585,8 @@
                         style="color:var(--danger);border-color:var(--danger);">Delete POI Data</button>
             </div>
             <div id="dl-poi-progress-wrap" style="margin-top:0.6rem;display:none;">
-                <div style="background:var(--bg-input);border-radius:0;height:6px;overflow:hidden;margin-bottom:0.35rem;">
-                    <div id="dl-poi-bar" style="height:100%;width:0%;background:var(--primary);border-radius:0;transition:width 0.4s ease;"></div>
+                <div style="background:var(--bg-input);border-radius:var(--r-auto, 0);height:6px;overflow:hidden;margin-bottom:0.35rem;">
+                    <div id="dl-poi-bar" style="height:100%;width:0%;background:var(--primary);border-radius:var(--r-auto, 0);transition:width 0.4s ease;"></div>
                 </div>
                 <div id="dl-poi-status" style="font-size:0.8125rem;color:var(--text-muted);"></div>
             </div>
@@ -617,8 +617,8 @@
                         style="color:var(--danger);border-color:var(--danger);">Delete Region Data</button>
             </div>
             <div id="dl-bnd-progress-wrap" style="margin-top:0.6rem;display:none;">
-                <div style="background:var(--bg-input);border-radius:0;height:6px;overflow:hidden;margin-bottom:0.35rem;">
-                    <div id="dl-bnd-bar" style="height:100%;width:0%;background:var(--primary);border-radius:0;transition:width 0.4s ease;"></div>
+                <div style="background:var(--bg-input);border-radius:var(--r-auto, 0);height:6px;overflow:hidden;margin-bottom:0.35rem;">
+                    <div id="dl-bnd-bar" style="height:100%;width:0%;background:var(--primary);border-radius:var(--r-auto, 0);transition:width 0.4s ease;"></div>
                 </div>
                 <div id="dl-bnd-stage" style="font-size:0.8125rem;color:var(--text-muted);"></div>
             </div>
@@ -781,14 +781,14 @@
 .mon-empty { padding:1.25rem; text-align:center; color:var(--text-muted); font-size:0.8rem; }
 .mon-legend { display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:0.5rem; font-size:0.75rem; color:var(--text-muted); }
 .mon-legend span { display:inline-flex; align-items:center; gap:0.35rem; }
-.mon-legend i { width:12px; height:3px; border-radius:2px; display:inline-block; }
+.mon-legend i { width:12px; height:3px; border-radius:calc(2px * var(--rk, 1)); display:inline-block; }
 
 /* Bar rows (status / paths / IPs) */
 .mon-bar { display:grid; grid-template-columns:1fr auto; align-items:center; gap:0.5rem; margin-bottom:0.4rem; font-size:0.78rem; }
 .mon-bar-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--font-mono); }
 .mon-bar-count { font-family:var(--font-mono); color:var(--text-muted); }
-.mon-bar-track { grid-column:1 / -1; height:6px; background:var(--bg-input); border-radius:3px; overflow:hidden; }
-.mon-bar-fill { height:100%; background:var(--primary); border-radius:3px; }
+.mon-bar-track { grid-column:1 / -1; height:6px; background:var(--bg-input); border-radius:calc(3px * var(--rk, 1)); overflow:hidden; }
+.mon-bar-fill { height:100%; background:var(--primary); border-radius:calc(3px * var(--rk, 1)); }
 
 /* Filters + pager */
 .mon-filters { display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; }
@@ -798,7 +798,7 @@
 .ev-row.clickable { cursor:pointer; }
 .ev-row.clickable:hover { background:var(--bg-elevated); }
 .ev-trace { font-family:var(--font-mono); font-size:0.72rem; white-space:pre-wrap; word-break:break-word; background:var(--bg-input); border:1px solid var(--border); padding:0.6rem; margin:0.2rem 0; max-height:320px; overflow:auto; }
-.ev-badge { font-family:var(--font-mono); font-size:0.68rem; padding:1px 7px; border:1px solid var(--border); border-radius:3px; }
+.ev-badge { font-family:var(--font-mono); font-size:0.68rem; padding:1px 7px; border:1px solid var(--border); border-radius:calc(3px * var(--rk, 1)); }
 .ev-badge.err { color:var(--clay-coral); border-color:var(--clay-coral); }
 
 /* Retention */

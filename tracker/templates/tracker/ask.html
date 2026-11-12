@@ -41,11 +41,11 @@ body:has(.ask-app) { overflow: hidden; }
 }
 .ask-chat-title input {
     width: 100%; font: inherit; color: var(--text); background: var(--bg-input);
-    border: 1px solid var(--border-bright); border-radius: 4px; padding: 0.15rem 0.35rem;
+    border: 1px solid var(--border-bright); border-radius: calc(4px * var(--rk, 1)); padding: 0.15rem 0.35rem;
 }
 .ask-row-btn {
     border: 0; background: none; color: var(--text-dim); cursor: pointer;
-    width: 26px; height: 26px; border-radius: 4px; display: none;
+    width: 26px; height: 26px; border-radius: calc(4px * var(--rk, 1)); display: none;
     align-items: center; justify-content: center; font-size: 0.85rem; flex-shrink: 0;
 }
 .ask-chat-row:hover .ask-row-btn, .ask-chat-row.active .ask-row-btn { display: inline-flex; }
@@ -86,7 +86,7 @@ body:has(.ask-app) { overflow: hidden; }
 .ask-text li { margin: 0.15rem 0; }
 .ask-text h4 { font-family: var(--font-display); font-size: 1.02rem; margin: 0.9rem 0 0.4rem; }
 .ask-text hr { border: 0; border-top: 1px solid var(--border); margin: 0.9rem 0; }
-.ask-text code { font-family: var(--font-mono); font-size: 0.85em; background: var(--bg-elevated); padding: 0.05rem 0.3rem; border-radius: 3px; }
+.ask-text code { font-family: var(--font-mono); font-size: 0.85em; background: var(--bg-elevated); padding: 0.05rem 0.3rem; border-radius: calc(3px * var(--rk, 1)); }
 .ask-text a { color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
 .ask-text a:hover { color: var(--link-hover); }
 .ask-text a.ask-daylink::after { content: ' ⌖'; font-size: 0.8em; opacity: 0.7; }
@@ -144,7 +144,7 @@ body:has(.ask-app) { overflow: hidden; }
 .ask-card:hover { border-color: var(--border-bright); }
 .ask-card.active { border-color: var(--primary); background: var(--primary-soft); }
 .ask-card-icon {
-    width: 30px; height: 30px; border-radius: 6px; flex-shrink: 0;
+    width: 30px; height: 30px; border-radius: calc(6px * var(--rk, 1)); flex-shrink: 0;
     background: var(--bg-elevated); display: flex; align-items: center; justify-content: center;
 }
 .ask-card-title { font-size: 0.86rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
@@ -153,7 +153,7 @@ body:has(.ask-app) { overflow: hidden; }
 .ask-turn.assistant:hover .ask-actions, .ask-turn.assistant:last-child .ask-actions { opacity: 1; }
 .ask-act {
     border: 0; background: none; color: var(--text-dim); cursor: pointer;
-    font-size: 0.78rem; padding: 0.2rem 0.45rem; border-radius: 4px; font-family: var(--font-body);
+    font-size: 0.78rem; padding: 0.2rem 0.45rem; border-radius: calc(4px * var(--rk, 1)); font-family: var(--font-body);
 }
 .ask-act:hover { background: var(--bg-elevated); color: var(--text); }
 .ask-error-msg {
@@ -213,13 +213,13 @@ body:has(.ask-app) { overflow: hidden; }
 .ask-map-tabs:empty { display: none; }
 .ask-map-tab {
     flex-shrink: 0; border: 1px solid var(--border); background: none; color: var(--text-muted);
-    border-radius: 999px; padding: 0.25rem 0.7rem; font: inherit; font-size: 0.78rem; cursor: pointer;
+    border-radius: calc(999px * var(--rk, 1)); padding: 0.25rem 0.7rem; font: inherit; font-size: 0.78rem; cursor: pointer;
     max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ask-map-tab.active { border-color: var(--primary); color: var(--text); background: var(--primary-soft); }
 .ask-icon-btn {
     border: 0; background: none; color: var(--text-muted); cursor: pointer;
-    width: 32px; height: 32px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: calc(6px * var(--rk, 1)); display: inline-flex; align-items: center; justify-content: center;
     flex-shrink: 0; text-decoration: none; font-size: 0.95rem;
 }
 .ask-icon-btn:hover { background: var(--bg-elevated); color: var(--text); }
@@ -261,7 +261,7 @@ body:has(.ask-app) { overflow: hidden; }
 .ask-topbar .ask-burger { display: none; }
 .ask-mode-badge {
     font-family: var(--font-mono); font-size: 0.68rem; color: var(--primary);
-    border: 1px solid var(--primary); border-radius: 999px; padding: 0.05rem 0.5rem; flex-shrink: 0;
+    border: 1px solid var(--primary); border-radius: calc(999px * var(--rk, 1)); padding: 0.05rem 0.5rem; flex-shrink: 0;
 }
 .ask-mode-badge:empty { display: none; }
 .ask-search { padding: 0 0.8rem 0.4rem; }
@@ -276,14 +276,14 @@ body:has(.ask-app) { overflow: hidden; }
 .ask-modes::-webkit-scrollbar { display: none; }
 .ask-mode {
     flex-shrink: 0; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-muted);
-    border-radius: 999px; padding: 0.25rem 0.75rem; font: inherit; font-size: 0.8rem; cursor: pointer;
+    border-radius: calc(999px * var(--rk, 1)); padding: 0.25rem 0.75rem; font: inherit; font-size: 0.8rem; cursor: pointer;
 }
 .ask-mode:hover { color: var(--text); border-color: var(--border-bright); }
 .ask-mode.active { color: var(--text); border-color: var(--primary); background: var(--primary-soft); }
 .ask-followups { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.7rem; }
 .ask-followup {
     border: 1px solid var(--border); background: none; color: var(--text); cursor: pointer;
-    border-radius: 999px; padding: 0.3rem 0.8rem; font: inherit; font-size: 0.82rem; text-align: left;
+    border-radius: calc(999px * var(--rk, 1)); padding: 0.3rem 0.8rem; font: inherit; font-size: 0.82rem; text-align: left;
 }
 .ask-followup:hover { border-color: var(--primary); background: var(--primary-soft); }
 .ask-followup::before { content: '↳ '; color: var(--text-dim); }
@@ -330,7 +330,7 @@ body:has(.ask-app) #main-content + div { display: none; }
 .ask-popup b { display: block; font-size: 0.9rem; margin-bottom: 0.15rem; }
 .ask-popup p { margin: 0; font-size: 0.8rem; line-height: 1.35; }
 .ask-map-legend { position: absolute; left: 10px; top: 10px; z-index: 1; display: flex; gap: 0.6rem;
-    font-size: 0.72rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 0.25rem 0.55rem; color: var(--text-muted); }
+    font-size: 0.72rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: calc(6px * var(--rk, 1)); padding: 0.25rem 0.55rem; color: var(--text-muted); }
 .ask-map-legend:empty { display: none; }
 .ask-map-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 0.3rem; vertical-align: -1px; }
 @media (min-width: 861px) { .ask-topbar { padding: 0.5rem 1rem; } }
