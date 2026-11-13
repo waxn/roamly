@@ -318,6 +318,18 @@ html[data-style="tidepool"] {
     :is(.tool-btn, .style-btn, .replay-panel button.rp-btn, .date-reset-btn, .map-detail-controls button):hover { filter: brightness(1.08); }
     :is(.tool-btn.active, .style-btn.active) { background: var(--foam-soft); color: var(--foam); border-color: color-mix(in srgb, var(--foam) 50%, transparent); box-shadow: 0 0 16px -6px var(--foam); }
     .sidebar-label { color: var(--text-dim); }
+
+    /* ── The bar floats, so over the full-page map it floats OVER the map:
+       taken out of flow, the map fills the viewport behind it, and the map's
+       own top overlays drop below the bar. --nav-h keeps its value, so the
+       sidebar still knows how much room the bar takes. ── */
+    &:has(#map-container) {
+        .navbar { position: fixed; top: 12px; left: 0; right: 0; margin: 0 auto; }
+        #map-container { height: calc(100vh - var(--bottom-nav-height)); }
+        .map-sidebar, .map-detail-controls { top: calc(var(--nav-h) + 2px); }
+        .sidebar-content { max-height: calc(100vh - var(--nav-h) - 90px - var(--bottom-nav-height)); }
+        @media (max-width: 768px) { .navbar { top: 8px; } }
+    }
 }
 
 @keyframes tp-ripple { to { transform: scale(1); opacity: 0; } }
