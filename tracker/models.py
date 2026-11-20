@@ -796,6 +796,7 @@ class EditBatch(models.Model):
         ('delete', 'Deleted points'),  # real points moved to the trash
         ('subway', 'Subway route'),    # a GPS gap filled along subway track
         ('relabel', 'Relabelled'),     # town/state/country changed by hand
+        ('auto', 'Auto-filled'),       # single missed fixes filled by gapfill_tasks
     ]
     TARGET_CHOICES = [
         ('inferred', 'Inferred'),      # InferredLocation — invisible to aggregates
@@ -1303,6 +1304,8 @@ class UserProfile(models.Model):
     # so the first sweep covers the whole history once. Operational ⇒ excluded
     # from backups.
     overlap_scan_last_id = models.BigIntegerField(null=True, blank=True)
+    # Cursor for gapfill_tasks (single-missed-fix auto fill); NULL = never scanned.
+    gapfill_scan_last_id = models.BigIntegerField(null=True, blank=True)
 
     # Roads: snap-to-road rendering + tracking-gap filling (see tracker/roads.py).
     # Provider is server-side rather than a localStorage map pref because the
