@@ -60,6 +60,11 @@ class TrackerConfig(AppConfig):
             except Exception:
                 pass
             try:
+                from .gapfill_tasks import start_gapfill_scheduler
+                start_gapfill_scheduler()
+            except Exception:
+                pass
+            try:
                 from .achievement_tasks import start_achievement_scheduler
                 start_achievement_scheduler()
             except Exception:
