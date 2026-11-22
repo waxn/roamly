@@ -187,6 +187,7 @@
 }
 .style-btn.active { background: var(--primary); color: #fff; }
 .style-btn:not(.active):hover { color: var(--text); }
+.sidebar-label-note { font-weight: 600; letter-spacing: 0.04em; text-transform: none; color: var(--primary); }
 
 /* Layer toggle buttons */
 .sidebar-tools { display: flex; flex-direction: column; gap: 4px; }
@@ -662,6 +663,21 @@
                 </select>
             </div>
 
+            {% comment %}Multi-select: each button shows or hides one
+               Location.transport_mode. Detection is a manual job, so most
+               recent points are "unclassified" until it has run.{% endcomment %}
+            <div class="sidebar-section" id="transport-section">
+                <div class="sidebar-label">transport <span class="sidebar-label-note" id="transport-note"></span></div>
+                <div class="sidebar-btn-group transport-group" role="group" aria-label="Transport modes shown">
+                    <button class="style-btn" type="button" data-mode="walk" title="On foot">Walk</button>
+                    <button class="style-btn" type="button" data-mode="cycle" title="By bike">Cycle</button>
+                    <button class="style-btn" type="button" data-mode="vehicle" title="Car, bus, train or ferry: detection can't tell them apart by speed">Vehicle</button>
+                    <button class="style-btn" type="button" data-mode="plane" title="Flights">Plane</button>
+                    <button class="style-btn" type="button" data-mode="still" title="Staying put, including Trip Lines' stop blobs">Still</button>
+                    <button class="style-btn" type="button" data-mode="none" title="Points transport detection hasn't labelled yet. Run Settings → Background Jobs → Detect Transport Modes to sort them.">Unclassified</button>
+                </div>
+            </div>
+
             <div class="sidebar-section" id="basemap-section">
                 <div class="sidebar-label">basemap</div>
                 {# Buttons built by map-core.js from #roamly-basemaps (Admin Panel → Basemaps). #}
@@ -819,6 +835,9 @@ window.ROAMLY_MAP_CFG = {
     // the PostGIS vector tiles as you zoom in. PostGIS-only; the editor and
     // SQLite installs keep the decimated /api/track/ path.
     allTimeOverview: {{ has_postgis|yesno:"true,false" }},
+    // The sidebar's transport buttons (?modes= on every map request). Absent
+    // on the editor, whose filters must not narrow silently by a map setting.
+    transportFilter: true,
 };
 window.ROAMLY_MAP_HOOKS = {};
 </script>
@@ -1537,9 +1556,10 @@ function updateInferredBadge() {
 
 function loadInferredGaps() {
     if (!inferredOn) return;
-    // Generated points carry no geocode labels, so a place filter can't select
-    // them — leave them off rather than show the whole map's worth.
-    if (Object.keys(placeFilter).length) {
+    // Generated points carry no geocode labels or transport mode, so neither a
+    // place nor a transport filter can select them — leave them off rather than
+    // show the whole map's worth.
+    if (Object.keys(placeFilter).length || transportFilterActive()) {
         removeInferredLayers();
         inferredCount = 0;
         updateInferredBadge();
@@ -1596,6 +1616,29 @@ function updateSuspectBadge() {
     const n = suspectCount();
     suspectBadge.textContent = n ? `${n.toLocaleString()} hidden` : '';
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Transport filter — the buttons only flip state; map-core.js's
+// setTransportMode sends ?modes= and reloads every render path.
+// ═══════════════════════════════════════════════════════════════════
+const transportBtns = document.querySelectorAll('#transport-section [data-mode]');
+const transportNote = document.getElementById('transport-note');
+function renderTransportButtons() {
+    transportBtns.forEach(b => {
+        const on = transportModes.has(b.dataset.mode);
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    const hidden = TRANSPORT_MODES.length - transportModes.size;
+    if (transportNote) transportNote.textContent = hidden ? `· ${hidden} hidden` : '';
+}
+transportBtns.forEach(b => b.addEventListener('click', () => {
+    setTransportMode(b.dataset.mode, !transportModes.has(b.dataset.mode));
+    renderTransportButtons();
+    if (inferredOn) loadInferredGaps();
+    if (replayActive && replayDateEl.value) loadReplayDay(replayDateEl.value);
+}));
+renderTransportButtons();
 
 if (suspectBtn) {
     suspectBtn.classList.toggle('active', hideSuspect);
@@ -1947,7 +1990,8 @@ async function loadReplayDay(dateStr) {
     (data.devices || []).forEach(device => {
         const color = deviceColor(device.device_id || device.name || 'default');
         let pts = (device.locations || [])
-            .map(loc => ({ t: new Date(loc.timestamp).getTime(), c: [loc.lng, loc.lat] }))
+            .map(loc => ({ t: new Date(loc.timestamp).getTime(), c: [loc.lng, loc.lat],
+                           hidden: !transportModeShown(loc.transport_mode) }))
             .filter(p => !isNaN(p.t))
             .sort((a, b) => a.t - b.t);
         // Drop teleport outliers (a single wildly-off fix that spikes the line
@@ -2003,6 +2047,9 @@ function buildReplaySegments(pts) {
     const segments = [];
     let cur = null, prev = null;
     for (const p of pts) {
+        // A point the transport filter hides ends the line, so the walk before
+        // a hidden bus ride isn't joined to the walk after it by a chord.
+        if (p.hidden) { prev = null; continue; }
         const newSeg = prev === null || (p.t - prev.t) > REPLAY_SEG_GAP_MS;
         if (!newSeg) {
             const dt = (p.t - prev.t) / 1000;

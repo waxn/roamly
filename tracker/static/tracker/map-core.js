@@ -291,6 +291,49 @@ function clearPlaceFilter() {
     loadCurrentMode(true);
 }
 
+// Transport filter — which Location.transport_mode values the map draws. Sent
+// to the server as ?modes= on every request that also carries the place filter
+// (track, detail points, Trip Lines, the All-time overview and its tiles), so
+// each render path narrows the same way. 'none' is unclassified: everything
+// recorded since the manual detection job last ran. map.html only; the editor
+// leaves TRANSPORT_FILTER_ENABLED off, so its own filters never pick this up.
+const TRANSPORT_FILTER_ENABLED = !!ROAMLY_MAP_CFG.transportFilter;
+const TRANSPORT_MODES = ['walk', 'cycle', 'vehicle', 'plane', 'still', 'none'];
+let transportModes = new Set(TRANSPORT_MODES);
+if (TRANSPORT_FILTER_ENABLED) {
+    try {
+        const saved = localStorage.getItem('roamly_transport_modes');
+        if (saved !== null) transportModes = new Set(saved.split(',').filter(m => TRANSPORT_MODES.includes(m)));
+    } catch (e) {}
+}
+function transportFilterActive() {
+    return TRANSPORT_FILTER_ENABLED && transportModes.size < TRANSPORT_MODES.length;
+}
+function transportModeShown(mode) {
+    return !transportFilterActive() || transportModes.has(mode || 'none');
+}
+function appendModeParams(params) {
+    if (transportFilterActive()) params.set('modes', TRANSPORT_MODES.filter(m => transportModes.has(m)).join(','));
+}
+/** Show or hide one mode, save it, and reload whatever the map is drawing.
+ *  No auto-fit: the user is looking at somewhere and wants it re-drawn there. */
+function setTransportMode(mode, on) {
+    if (on) transportModes.add(mode); else transportModes.delete(mode);
+    try {
+        if (transportFilterActive()) {
+            localStorage.setItem('roamly_transport_modes', TRANSPORT_MODES.filter(m => transportModes.has(m)).join(','));
+        } else {
+            localStorage.removeItem('roamly_transport_modes');
+        }
+    } catch (e) {}
+    clearAccumulated();
+    // Without an auto-fit the camera doesn't move, so no moveend refills the
+    // detail layer that clearAccumulated just emptied: loadTrack does it once
+    // the new track is in (loadViewport needs lastTrackData to be current).
+    reloadDetailAfterTrack = true;
+    loadCurrentMode(false);
+}
+
 function buildFilterParams() {
     const timeRange = document.getElementById('time-range').value;
     const deviceId  = document.getElementById('device-filter').value;
@@ -311,6 +354,7 @@ function buildFilterParams() {
     }
     if (deviceId) params.set('device_id', deviceId);
     appendPlaceParams(params);
+    appendModeParams(params);
     return params.toString();
 }
 
@@ -462,6 +506,7 @@ let fetchedAreas = [];             // {w,s,e,n} bboxes where we have complete da
 let detailLoading = false;
 let detailGen = 0;                 // bumped by clearAccumulated; a response from an older gen is dropped
 let detailFetch = null;            // AbortController of the detail request in flight
+let reloadDetailAfterTrack = false;
 let lastViewportHitLimit = false;  // whether last viewport fetch hit the limit
 let moveDebounce = null;
 
@@ -1051,6 +1096,10 @@ function loadTrack(autoFit) {
         .then(data => {
             renderTrack(data.devices, autoFit);
             hideMapLoading();
+            if (reloadDetailAfterTrack) {
+                reloadDetailAfterTrack = false;
+                maybeLoadViewport();
+            }
             const total = data.devices.reduce((s, d) => s + d.total, 0);
             const shown = data.devices.reduce((s, d) => s + d.points.length, 0);
             const hidden = data.devices.reduce((s, d) => s + (d.hidden || 0), 0);
@@ -1105,6 +1154,7 @@ function overviewTileUrl(data) {
     const dev = document.getElementById('device-filter').value;
     if (dev) p.set('device_id', dev);
     appendPlaceParams(p);
+    appendModeParams(p);
     // The data version: the URL changes whenever the data does, which is what
     // makes the long browser cache (and so prefetching) safe.
     p.set('v', String(data.version || 0));
@@ -1137,6 +1187,7 @@ function loadAllTimeOverview(autoFit) {
     const dev = document.getElementById('device-filter').value;
     if (dev) p.set('device_id', dev);
     appendPlaceParams(p);
+    appendModeParams(p);
     fetch(`/api/map/overview/?${p.toString()}`, { signal: overviewFetch.signal })
         .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
         .then(data => {
