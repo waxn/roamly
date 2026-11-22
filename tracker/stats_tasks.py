@@ -137,6 +137,18 @@ def compute_snapshot(user_id):
             user = User.objects.get(id=user_id)
             all_qs = Location.objects.filter(device__user=user)
 
+            # Label what was recorded since the last pass before the snapshot's
+            # transport breakdown reads the labels. Already per-user and
+            # single-flighted by the lock above, like the quality scan below;
+            # a failure here must not cost the user their stats.
+            try:
+                from .transport_tasks import classify_backlog
+                labelled = classify_backlog(user_id)
+                if labelled:
+                    logger.info(f"Labelled transport mode on {labelled} point(s) for user {user_id}")
+            except Exception:
+                logger.exception(f"Transport detection backlog failed for user {user_id}")
+
             # The snapshot bakes in day boundaries — _compute_distance_from_qs
             # keys its buckets by local day, _compute_yearly_payload starts its
             # week/month/year at local midnight — so the worker has to compute
