@@ -371,6 +371,7 @@ urlpatterns = [
     path('api/poi/match/status/', views.poi_match_status_api, name='poi_match_status'),
     path('api/poi/match/stop/', views.poi_match_stop_api, name='poi_match_stop'),
     path('api/transport/detect/', views.transport_detect_api, name='transport_detect'),
+    path('api/transport/detect/recent/', views.transport_detect_recent_api, name='transport_detect_recent'),
     path('api/transport/detect/status/', views.transport_status_api, name='transport_status'),
     path('api/transport/detect/stop/', views.transport_stop_api, name='transport_stop'),
     path('api/transport/breakdown/', views.transport_breakdown_api, name='transport_breakdown'),

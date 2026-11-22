@@ -3328,9 +3328,11 @@ def _mode_filter(get):
     return tuple(sorted('' if m == 'none' else m for m in picked))
 
 
-def _mode_tag(modes):
-    """Cache-key fragment for a mode filter."""
-    return 'm=' + ','.join(m or 'none' for m in modes)
+def _mode_tag(user_id, modes):
+    """Cache-key fragment for a mode filter. Carries the label generation, since
+    the aggregates it keys (tiles, overview cells) outlive a relabel otherwise."""
+    from .transport_tasks import transport_gen
+    return f"m={','.join(m or 'none' for m in modes)}:{transport_gen(user_id)}"
 
 
 def _apply_mode_filter(qs, get):
@@ -4551,7 +4553,7 @@ def _tile_filters(user_id, get):
         extra_where.append("AND l.transport_mode = ANY(%(modes)s)" if modes else "AND FALSE")
         if modes:
             params["modes"] = list(modes)
-        tag += ':' + _mode_tag(modes)
+        tag += ':' + _mode_tag(user_id, modes)
     return extra_where, params, tag, cache_ttl
 
 
@@ -4984,7 +4986,7 @@ def _visited_cells(user, device_id=None, place=None, modes=None):
     """
     place = place or {}
     cache_key = (f"visited_cells:{user.id}:{device_id or 'all'}:{_place_tag(place) if place else ''}"
-                 f"{':' + _mode_tag(modes) if modes is not None else ''}")
+                 f"{':' + _mode_tag(user.id, modes) if modes is not None else ''}")
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -12126,6 +12128,33 @@ def transport_detect_api(request):
     from .transport_tasks import start_transport_detect
     job = start_transport_detect(request.user.id)
     return JsonResponse({'status': job.status, 'total': job.total})
+
+
+@login_required
+@require_http_methods(["POST"])
+def transport_detect_recent_api(request):
+    """Label the last 24 hours, synchronously, for the map's transport filter.
+
+    The nightly pass (classify_backlog, run with the stats snapshot) leaves
+    everything recorded since then unclassified, so filtering today by mode
+    needs this first. Skipped when no point has arrived since the last run
+    (cache_gen unchanged), and single-flighted so the map's reloads can't stack.
+    """
+    from .transport_tasks import classify_since, RECENT_WINDOW_S
+    uid = request.user.id
+    done_key = f"transport_recent:{uid}"
+    if cache.get(done_key) == cache.get(f"cache_gen:{uid}", 0):
+        return JsonResponse({'classified': 0, 'skipped': True})
+    lock = f"transport_recent_lock:{uid}"
+    if not cache.add(lock, 1, 120):
+        return JsonResponse({'classified': 0, 'skipped': True, 'busy': True})
+    try:
+        n = classify_since(uid, timezone.now() - timedelta(seconds=RECENT_WINDOW_S))
+        # After the run: labelling bumps cache_gen itself.
+        cache.set(done_key, cache.get(f"cache_gen:{uid}", 0), 86400)
+    finally:
+        cache.delete(lock)
+    return JsonResponse({'classified': n, 'skipped': False})
 
 
 @login_required
