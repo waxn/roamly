@@ -222,6 +222,37 @@
 }
 .tool-btn.active .tool-btn-badge { color: var(--primary); }
 
+/* Transport filter: an expandable row in Layers. Chips are standalone
+   (own border, wrap freely), so any number of them reads cleanly. */
+.transport-layer { display: flex; flex-direction: column; gap: 4px; }
+.transport-panel {
+    display: grid; grid-template-rows: 0fr;
+    transition: grid-template-rows 0.18s ease;
+}
+.transport-layer.open .transport-panel { grid-template-rows: 1fr; }
+.transport-chips {
+    overflow: hidden; min-height: 0;
+    display: flex; flex-wrap: wrap; gap: 4px;
+}
+.transport-layer.open .transport-chips { padding: 2px 0 4px; }
+.tp-chip {
+    flex: 0 1 auto;
+    background: rgba(0, 0, 0, 0.12);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 4px 9px;
+    border-radius: var(--r-auto, 0);
+    font-size: 0.7rem; font-family: var(--font-body); font-weight: 700;
+    line-height: 1.2; cursor: pointer;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.tp-chip:hover:not(.active) { color: var(--text); border-color: var(--text-muted); }
+.tp-chip.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+#transport-toggle .tool-btn-badge::after {
+    content: '▾'; display: inline-block; margin-left: 6px; transition: transform 0.18s;
+}
+.transport-layer.open #transport-toggle .tool-btn-badge::after { transform: rotate(180deg); }
+
 /* map info — bottom left */
 .map-info {
     position: absolute;
@@ -663,21 +694,6 @@
                 </select>
             </div>
 
-            {% comment %}Multi-select: each button shows or hides one
-               Location.transport_mode. Detection is a manual job, so most
-               recent points are "unclassified" until it has run.{% endcomment %}
-            <div class="sidebar-section" id="transport-section">
-                <div class="sidebar-label">transport <span class="sidebar-label-note" id="transport-note"></span></div>
-                <div class="sidebar-btn-group transport-group" role="group" aria-label="Transport modes shown">
-                    <button class="style-btn" type="button" data-mode="walk" title="On foot">Walk</button>
-                    <button class="style-btn" type="button" data-mode="cycle" title="By bike">Cycle</button>
-                    <button class="style-btn" type="button" data-mode="vehicle" title="Car, bus, train or ferry: detection can't tell them apart by speed">Vehicle</button>
-                    <button class="style-btn" type="button" data-mode="plane" title="Flights">Plane</button>
-                    <button class="style-btn" type="button" data-mode="still" title="Staying put, including Trip Lines' stop blobs">Still</button>
-                    <button class="style-btn" type="button" data-mode="none" title="Points transport detection hasn't labelled yet. Run Settings → Background Jobs → Detect Transport Modes to sort them.">Unclassified</button>
-                </div>
-            </div>
-
             <div class="sidebar-section" id="basemap-section">
                 <div class="sidebar-label">basemap</div>
                 {# Buttons built by map-core.js from #roamly-basemaps (Admin Panel → Basemaps). #}
@@ -686,6 +702,27 @@
             <div class="sidebar-section">
                 <div class="sidebar-label">layers</div>
                 <div class="sidebar-tools">
+                    {% comment %}Multi-select: each chip shows or hides one
+                       Location.transport_mode. Lives in Layers as an expandable
+                       row; the badge counts what is showing. Detection is a
+                       manual job, so most recent points are "unclassified"
+                       until it has run.{% endcomment %}
+                    <div class="transport-layer" id="transport-section">
+                        <button class="tool-btn" id="transport-toggle" type="button" aria-expanded="false" aria-controls="transport-panel">
+                            transport
+                            <span class="tool-btn-badge" id="transport-note"></span>
+                        </button>
+                        <div class="transport-panel" id="transport-panel">
+                            <div class="transport-chips" role="group" aria-label="Transport modes shown">
+                                <button class="tp-chip" type="button" data-mode="walk" title="On foot">Walk</button>
+                                <button class="tp-chip" type="button" data-mode="cycle" title="By bike">Cycle</button>
+                                <button class="tp-chip" type="button" data-mode="vehicle" title="Car, bus, train or ferry: detection can't tell them apart by speed">Vehicle</button>
+                                <button class="tp-chip" type="button" data-mode="plane" title="Flights">Plane</button>
+                                <button class="tp-chip" type="button" data-mode="still" title="Staying put, including Trip Lines' stop blobs">Still</button>
+                                <button class="tp-chip" type="button" data-mode="none" title="Points transport detection hasn't labelled yet. Run Settings → Background Jobs → Detect Transport Modes to sort them.">Unclassified</button>
+                            </div>
+                        </div>
+                    </div>
                     <button class="tool-btn" id="globe-btn" type="button">
                         globe
                         <span class="tool-btn-badge" id="globe-badge"></span>
@@ -1621,7 +1658,7 @@ function updateSuspectBadge() {
 // Transport filter — the buttons only flip state; map-core.js's
 // setTransportMode sends ?modes= and reloads every render path.
 // ═══════════════════════════════════════════════════════════════════
-const transportBtns = document.querySelectorAll('#transport-section [data-mode]');
+const transportBtns = document.querySelectorAll('#transport-section .tp-chip');
 const transportNote = document.getElementById('transport-note');
 function renderTransportButtons() {
     transportBtns.forEach(b => {
@@ -1629,9 +1666,15 @@ function renderTransportButtons() {
         b.classList.toggle('active', on);
         b.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
-    const hidden = TRANSPORT_MODES.length - transportModes.size;
-    if (transportNote) transportNote.textContent = hidden ? `· ${hidden} hidden` : '';
+    const shown = TRANSPORT_MODES.filter(m => transportModes.has(m)).length;
+    if (transportNote) transportNote.textContent = shown === TRANSPORT_MODES.length ? 'all' : `${shown}/${TRANSPORT_MODES.length}`;
+    if (transportToggle) transportToggle.classList.toggle('active', shown !== TRANSPORT_MODES.length);
 }
+const transportToggle = document.getElementById('transport-toggle');
+if (transportToggle) transportToggle.addEventListener('click', () => {
+    const open = document.getElementById('transport-section').classList.toggle('open');
+    transportToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+});
 transportBtns.forEach(b => b.addEventListener('click', () => {
     setTransportMode(b.dataset.mode, !transportModes.has(b.dataset.mode));
     renderTransportButtons();
