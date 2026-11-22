@@ -12,7 +12,7 @@
     var VERT = 'attribute vec2 p;varying vec2 vUv;void main(){vUv=p;gl_Position=vec4(p,0.,1.);}';
     var FRAG = [
         'precision highp float;',
-        'uniform vec2 uRes;uniform float uTime;uniform vec2 uMouse;uniform float uScroll;uniform float uLight;uniform vec3 uPal[6];',
+        'uniform vec2 uRes;uniform float uTime;uniform float uScroll;uniform float uLight;uniform vec3 uPal[6];uniform vec3 uC[6];uniform float uSq[6];',
         'varying vec2 vUv;',
         'vec3 gcol;',
         'float smin(float a,float b,float k){float h=clamp(.5+.5*(b-a)/k,0.,1.);return mix(b,a,h)-k*h*(1.-h);}',
@@ -21,10 +21,7 @@
         '  float asp=uRes.x/uRes.y; float sz=clamp(asp*.75,.45,1.); float d=1e3; vec3 acc=vec3(0.); float ws=0.;',
         '  for(int i=0;i<6;i++){',
         '    float fi=float(i);',
-        '    vec3 c=vec3(sin(uTime*(.07+.018*fi)+fi*2.1)*asp*.92, cos(uTime*(.06+.015*fi)+fi*1.3)*.86, -.2+.25*sin(fi));',
-        '    c.y+=sin(uScroll*.6+fi)*.12;',
-        '    vec2 dm=c.xy-uMouse; float pull=exp(-dot(dm,dm)*4.);',
-        '    c.xy+=normalize(dm+1e-4)*.28*pull;',
+        '    vec3 c=uC[i]; float pull=uSq[i];',
         '    float r=(.105+.045*sin(fi*1.7+.5)+.018*sin(uTime*1.3+fi))*sz;',
         '    vec3 pp=p-c; pp.y*=1.+.12*sin(uTime*2.+fi*3.);',
         '    float wob=.03*sin(pp.x*8.+uTime*2.1+fi)*sin(pp.y*7.+uTime*1.7)+.02*pull*sin(uTime*9.+fi);',
@@ -87,12 +84,48 @@
         var pal = [];
         ['--clay-coral', '--clay-amber', '--clay-mint', '--clay-sky', '--clay-lavender', '--primary'].forEach(function (t) { pal = pal.concat(tokenRGB(t)); });
         gl.uniform3fv(U.uPal, new Float32Array(pal));
+        U.uC = gl.getUniformLocation(pr, 'uC'); U.uSq = gl.getUniformLocation(pr, 'uSq');
+        var N = 6, bl = [], cArr = new Float32Array(N * 3), sArr = new Float32Array(N);
+        for (var bi = 0; bi < N; bi++) bl.push({ ox: 0, oy: 0, vx: 0, vy: 0 });
+        function radius(i) { var asp = innerWidth / innerHeight, sz = Math.max(.45, Math.min(1, asp * .75)); return (.105 + .045 * Math.sin(i * 1.7 + .5)) * sz * 1.5; }
+        function home(i, time) {
+            var asp = innerWidth / innerHeight;
+            return [Math.sin(time * (.07 + .018 * i) + i * 2.1) * asp * .92,
+                    Math.cos(time * (.06 + .015 * i) + i * 1.3) * .86 + Math.sin(scrollY / innerHeight * .6 + i) * .12,
+                    -.2 + .25 * Math.sin(i)];
+        }
+        // Physics: the pointer shoves blobs (and hands them its own velocity), a weak spring
+        // slowly draws them back to their drifting orbit, walls bounce them.
+        function step(time, dt) {
+            var asp = innerWidth / innerHeight;
+            for (var i = 0; i < N; i++) {
+                var b = bl[i], h = home(i, time), r = radius(i);
+                var cx = h[0] + b.ox, cy = h[1] + b.oy;
+                var dx = cx - mouse.tx, dy = cy - mouse.ty, d = Math.sqrt(dx * dx + dy * dy) + 1e-4, R = .3 + r;
+                var f = 0;
+                if (d < R) {
+                    f = 1 - d / R;
+                    b.vx += dx / d * f * f * 26 * dt + mouse.vx * f * Math.min(1, dt * 14) * .55;
+                    b.vy += dy / d * f * f * 26 * dt + mouse.vy * f * Math.min(1, dt * 14) * .55;
+                }
+                b.vx -= b.ox * .28 * dt; b.vy -= b.oy * .28 * dt;
+                var damp = Math.exp(-.7 * dt); b.vx *= damp; b.vy *= damp;
+                b.ox += b.vx * dt; b.oy += b.vy * dt;
+                cx = h[0] + b.ox; cy = h[1] + b.oy;
+                var lx = asp - r * .4, ly = 1 - r * .4;
+                if (cx > lx) { b.ox -= cx - lx; b.vx = -Math.abs(b.vx) * .6; } else if (cx < -lx) { b.ox -= cx + lx; b.vx = Math.abs(b.vx) * .6; }
+                if (cy > ly) { b.oy -= cy - ly; b.vy = -Math.abs(b.vy) * .6; } else if (cy < -ly) { b.oy -= cy + ly; b.vy = Math.abs(b.vy) * .6; }
+                cArr[i * 3] = h[0] + b.ox; cArr[i * 3 + 1] = h[1] + b.oy; cArr[i * 3 + 2] = h[2];
+                sArr[i] = Math.min(1, f + Math.sqrt(b.vx * b.vx + b.vy * b.vy) * .5);
+            }
+        }
 
-        var mouse = { x: 9, y: 9, tx: 9, ty: 9 };
+        var mouse = { tx: 9, ty: 9, vx: 0, vy: 0, px: 9, py: 9 };
         addEventListener('pointermove', function (e) {
             mouse.tx = (e.clientX / innerWidth * 2 - 1) * (innerWidth / innerHeight);
             mouse.ty = -(e.clientY / innerHeight * 2 - 1);
         }, { passive: true });
+        document.addEventListener('pointerleave', function () { mouse.tx = mouse.ty = 9; });
         var scale = 0.6, frames = 0, slow = 0, last = performance.now(), t0 = last, hidden = false;
         function size() {
             var w = Math.min(1100, Math.round(innerWidth * scale)), h = Math.round(w * innerHeight / innerWidth);
@@ -110,12 +143,12 @@
             gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
             gl.uniform2f(U.uRes, cv.width, cv.height);
             gl.uniform1f(U.uTime, time);
-            gl.uniform2f(U.uMouse, mouse.x, mouse.y);
+            gl.uniform3fv(U.uC, cArr); gl.uniform1fv(U.uSq, sArr);
             gl.uniform1f(U.uScroll, scrollY / innerHeight);
             gl.uniform1f(U.uLight, root.getAttribute('data-theme') === 'light' ? 0.8 : 1);
             gl.drawArrays(gl.TRIANGLES, 0, 3);
         }
-        if (reduced) { draw(12); addEventListener('resize', function () { draw(12); }); return; }
+        if (reduced) { step(12, 0); draw(12); addEventListener('resize', function () { step(12, 0); draw(12); }); return; }
         (function frame(now) {
             var dt = now - last; last = now;
             if (++frames % 90 === 0) {
@@ -123,8 +156,11 @@
                 slow = 0; hidden = covered(); cv.style.display = hidden ? 'none' : '';
             }
             if (dt > 28) slow++;
-            mouse.x += (mouse.tx - mouse.x) * 0.06; mouse.y += (mouse.ty - mouse.y) * 0.06;
-            if (!hidden && !document.hidden) draw((now - t0) / 1000);
+            var sdt = Math.min(.033, Math.max(.001, dt / 1000));
+            mouse.vx = mouse.px > 8 || mouse.tx > 8 ? 0 : (mouse.tx - mouse.px) / sdt * .5 + mouse.vx * .5;
+            mouse.vy = mouse.py > 8 || mouse.tx > 8 ? 0 : (mouse.ty - mouse.py) / sdt * .5 + mouse.vy * .5;
+            mouse.px = mouse.tx; mouse.py = mouse.ty;
+            if (!hidden && !document.hidden) { step((now - t0) / 1000, sdt); draw((now - t0) / 1000); }
             requestAnimationFrame(frame);
         })(last);
         setTimeout(function () { hidden = covered(); cv.style.display = hidden ? 'none' : ''; }, 1500);
