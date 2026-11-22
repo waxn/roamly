@@ -3304,6 +3304,40 @@ def _apply_place_filter(qs, get):
     return _filter_by_place(qs, place) if place else qs
 
 
+# Transport-mode filter (``?modes=walk,cycle,none``), the map sidebar's
+# "transport" buttons. Values are the Location.transport_mode codes plus
+# ``none`` for unclassified (''), which is every point recorded since the
+# manual detection job last ran, so it has to be selectable like any mode.
+_MODE_FILTER_VALUES = ('still', 'walk', 'cycle', 'vehicle', 'plane', 'none')
+
+
+def _mode_filter(get):
+    """The transport-mode filter in a query string, as a sorted tuple of stored
+    ``transport_mode`` values ('' = unclassified).
+
+    ``None`` means no narrowing: the param is absent, or it names every mode.
+    An empty tuple (``modes=`` with nothing ticked) matches nothing, which is
+    what a map with every mode switched off should show.
+    """
+    raw = get.get('modes')
+    if raw is None:
+        return None
+    picked = {m for m in raw.split(',') if m in _MODE_FILTER_VALUES}
+    if len(picked) == len(_MODE_FILTER_VALUES):
+        return None
+    return tuple(sorted('' if m == 'none' else m for m in picked))
+
+
+def _mode_tag(modes):
+    """Cache-key fragment for a mode filter."""
+    return 'm=' + ','.join(m or 'none' for m in modes)
+
+
+def _apply_mode_filter(qs, get):
+    modes = _mode_filter(get)
+    return qs.filter(transport_mode__in=modes) if modes is not None else qs
+
+
 @login_required
 def locations_bounds_api(request):
     """Return the bounding box of all user locations matching current filters. Fast — no point data returned."""
@@ -3332,6 +3366,7 @@ def locations_bounds_api(request):
     if device_id:
         qs = qs.filter(device__device_id=device_id)
     qs = _apply_place_filter(qs, request.GET)
+    qs = _apply_mode_filter(qs, request.GET)
 
     agg = qs.aggregate(
         min_lat=Min('latitude'), max_lat=Max('latitude'),
@@ -3433,6 +3468,7 @@ def track_api(request):
     if device_id:
         qs = qs.filter(device__device_id=device_id)
     qs = _apply_place_filter(qs, request.GET)
+    qs = _apply_mode_filter(qs, request.GET)
 
     # Group by device, then decimate each device's track independently
     devices_map = {}
@@ -3835,7 +3871,7 @@ def _densify_along_roads(profile, verts, mode, budget):
     return out, routed_legs
 
 
-def _build_line_segments(points, dwells, profile, gap_break_s, budget):
+def _build_line_segments(points, dwells, profile, gap_break_s, budget, keep_modes=None):
     """Split one device's points into gated, road-snapped transit LineStrings.
 
     `points` is every point for the device/range in timestamp order. `dwells`
@@ -3848,6 +3884,11 @@ def _build_line_segments(points, dwells, profile, gap_break_s, budget):
     `budget` is the shared per-request routing countdown handed to
     [_densify_along_roads]; see there for why the line follows road curvature
     rather than cutting straight between snapped fixes.
+
+    `keep_modes` is the map's transport filter (see [_mode_filter]); a point
+    whose mode it excludes breaks the run like a stop does. Dropping those
+    points from the query instead would join the walk before a bus ride to the
+    walk after it with a straight chord across the hidden ride.
     """
     from . import roads as roads_mod
 
@@ -3874,7 +3915,8 @@ def _build_line_segments(points, dwells, profile, gap_break_s, budget):
         if acc is not None and acc > _LINE_MAX_ACCURACY_M:
             continue
         epoch = p['ts']
-        if in_visit(epoch):
+        hidden = keep_modes is not None and (p['transport_mode'] or '') not in keep_modes
+        if hidden or in_visit(epoch):
             if current:
                 runs.append(current)
                 current = []
@@ -4016,6 +4058,9 @@ def trip_lines_api(request):
     if device_id:
         qs = qs.filter(device__device_id=device_id)
     qs = _apply_place_filter(qs, request.GET)
+    # Not narrowed in the query (see _build_line_segments): stops are still
+    # detected from the whole stream, so a blob covers the same window either way.
+    keep_modes = _mode_filter(request.GET)
 
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
 
@@ -4055,12 +4100,16 @@ def trip_lines_api(request):
         # halves are derived from one stream and can't disagree about a window.
         found = _detect_dwells(pts, cluster_radius_m=dwell_radius_m,
                                 min_duration_s=dwell_min_min * 60, min_points=dwell_min_points)
-        segments = _build_line_segments(pts, found, profile, gap_break_s, budget)
+        segments = _build_line_segments(pts, found, profile, gap_break_s, budget, keep_modes)
+        # A blob is time spent stationary, so it follows the "still" button
+        # rather than the modes of its member points: before detection has run
+        # every point is unclassified, and the blobs should still be hideable.
+        show_dwells = keep_modes is None or 'still' in keep_modes
         result_devices.append({
             'id': str_id,
             'name': name,
             'segments': segments,
-            'dwells': [_dwell_payload(str_id, d) for d in found],
+            'dwells': [_dwell_payload(str_id, d) for d in found] if show_dwells else [],
         })
 
     # Why the lines may not be hugging roads is otherwise invisible from the
@@ -4226,6 +4275,7 @@ def _locations_api_inner(request):
     if device_id:
         locations = locations.filter(device__device_id=device_id)
     locations = _apply_place_filter(locations, request.GET)
+    locations = _apply_mode_filter(locations, request.GET)
 
     # Additional filter parameters
     q = request.GET.get('q')
@@ -4492,6 +4542,13 @@ def _tile_filters(user_id, get):
         params[f"place_{f}"] = v
     if place:
         tag += ':' + _place_tag(place)
+    modes = _mode_filter(get)
+    if modes is not None:
+        # Every mode switched off: an empty array's type can't be inferred.
+        extra_where.append("AND l.transport_mode = ANY(%(modes)s)" if modes else "AND FALSE")
+        if modes:
+            params["modes"] = list(modes)
+        tag += ':' + _mode_tag(modes)
     return extra_where, params, tag, cache_ttl
 
 
@@ -4907,7 +4964,7 @@ def countries_api(request):
 _FOG_CELLS_PER_DEG = 1000
 
 
-def _visited_cells(user, device_id=None, place=None):
+def _visited_cells(user, device_id=None, place=None, modes=None):
     """Distinct ~110m cells the user has ever been in, with a point count each.
 
     Shared by the fog of war and the map's All-time overview, so the
@@ -4917,10 +4974,14 @@ def _visited_cells(user, device_id=None, place=None):
     a plain TTL is the right trade — same reasoning as StatsSnapshot being
     decoupled from the gen.
 
+    ``modes`` is the map's transport filter ([_mode_filter]); the fog never
+    passes one, since explored ground stays explored however you got there.
+
     Returns ``{'cells': [gy, gx, n, ...], 'bounds': [[w, s], [e, n]] | None}``.
     """
     place = place or {}
-    cache_key = f"visited_cells:{user.id}:{device_id or 'all'}:{_place_tag(place) if place else ''}"
+    cache_key = (f"visited_cells:{user.id}:{device_id or 'all'}:{_place_tag(place) if place else ''}"
+                 f"{':' + _mode_tag(modes) if modes is not None else ''}")
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -4930,6 +4991,8 @@ def _visited_cells(user, device_id=None, place=None):
         qs = qs.filter(device__device_id=device_id)
     if place:
         qs = _filter_by_place(qs, place)
+    if modes is not None:
+        qs = qs.filter(transport_mode__in=modes)
     # order_by() clears Location's Meta.ordering ['-timestamp']; without it the
     # inherited ordering is appended to the GROUP BY and shatters it per row.
     rows = (
@@ -4989,10 +5052,11 @@ def map_overview_api(request):
     if device_id and not Device.objects.filter(user=request.user, device_id=device_id).exists():
         return JsonResponse({'cells': [], 'bounds': None, 'per_deg': _FOG_CELLS_PER_DEG, 'version': 0})
     place = _place_filter(request.GET)
-    data = _visited_cells(request.user, device_id, place)
+    modes = _mode_filter(request.GET)
+    data = _visited_cells(request.user, device_id, place, modes)
     version = _slow_gen(request.user.id)
-    # Warm-up covers the everyday unfiltered view; a place filter is one-off.
-    if HAS_POSTGIS and data['cells'] and not place:
+    # Warm-up covers the everyday unfiltered view; a place or mode filter is one-off.
+    if HAS_POSTGIS and data['cells'] and not place and modes is None:
         _kick_tile_warmup(request.user.id, data['cells'], device_id, version)
     return JsonResponse({**data, 'per_deg': _FOG_CELLS_PER_DEG, 'version': version})
 
