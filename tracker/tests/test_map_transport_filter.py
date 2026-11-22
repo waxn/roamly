@@ -93,6 +93,12 @@ def test_detail_points_narrow_too(client, mixed):
     assert sorted(p['id'] for p in res['locations']) == ids(mixed['vehicle'])
 
 
+def test_detail_points_say_how_they_moved(client, mixed):
+    devices = client.get('/api/locations/', {'all': '1'}).json()['devices']
+    modes = {p['id']: p['transport_mode'] for d in devices for p in d['locations']}
+    assert modes[mixed['walk'][0].id] == 'walk' and modes[mixed[''][0].id] == ''
+
+
 def test_bounds_follow_the_filter(client, mixed):
     b = client.get('/api/locations/bounds/', {'all': '1', 'modes': 'vehicle'}).json()['bounds']
     assert b == [[-69.02, 44.4], [-69.01, 44.4]]

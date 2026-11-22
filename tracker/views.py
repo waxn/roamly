@@ -4428,6 +4428,9 @@ def _locations_api_inner(request):
             "poi_name": getattr(loc, 'poi_name', None) or '',
             "custom_place": custom_place,
             "flag": loc.flag,
+            # The map's replay splits its trail where the transport filter hides
+            # a point, which it can only do if it sees the hidden ones.
+            "transport_mode": loc.transport_mode,
         })
         locations_data.append({
             "id": loc.id,
