@@ -185,15 +185,20 @@ map.on('error', (e) => {
     }
 });
 
+// Basemap buttons only: `.style-btn` is also the look of other sidebar button
+// groups (the transport filter), and a click there must not swap the style to
+// mapStyles[undefined], which empties the map and saves "undefined" as the basemap.
+const BASEMAP_BTNS = '.style-btn[data-style]';
+
 // Restore active button for saved style
-document.querySelectorAll('.style-btn').forEach(b => {
+document.querySelectorAll(BASEMAP_BTNS).forEach(b => {
     b.classList.toggle('active', b.dataset.style === _savedTileStyle);
 });
 
 // Style switcher — re-render track after style swap
-document.querySelectorAll('.style-btn').forEach(btn => {
+document.querySelectorAll(BASEMAP_BTNS).forEach(btn => {
     btn.addEventListener('click', () => {
-        document.querySelectorAll('.style-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll(BASEMAP_BTNS).forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         localStorage.setItem('roamly_map_tile_style', btn.dataset.style);
         _mapboxErrorShown = false;  // allow the diagnostic to show again for the new basemap
