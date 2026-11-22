@@ -28,6 +28,7 @@ All stored in `localStorage` with `roamly_` prefix:
 | `roamly_globe` | on / off | off |
 | `roamly_show_places` | on / off | off |
 | `roamly_show_inferred` | on / off | on (filled-gap layer on the main map) |
+| `roamly_transport_modes` | comma list of walk / cycle / vehicle / plane / still / none | unset = every mode (map sidebar **transport** filter; `none` = unclassified; removed again once every mode is back on) |
 | `roamly_hide_suspect` | on / off | on ("hide outliers" — drops `flag='suspect'` points from the map) |
 | `roamly_fog` | on / off | off |
 | `roamly_map_tile_style` | Streets / Dark / Satellite / Mapbox Streets / Mapbox Outdoors / Mapbox Satellite | Streets |
