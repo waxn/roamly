@@ -639,6 +639,9 @@
             transition: color 0.15s, background 0.15s;
         }
         .pill-tabs .tab-btn:last-child { border-right: none; }
+        /* The group clips (overflow:hidden + its own radius); per-button radii from
+           the shape facet would leave notches and curved separators between tabs. */
+        .pill-tabs .tab-btn, .pill-tabs button.tab-btn, .pill-tabs a.tab-btn { border-radius: 0; }
         .pill-tabs .tab-btn:hover {
             color: var(--text);
             background: var(--bg-elevated);
