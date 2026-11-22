@@ -537,6 +537,84 @@ def display_payload(sm, tolerance_m=2.0, max_points=6000):
     return out
 
 
+def _window_mean(ts, vals, half_s):
+    """Centred time-window mean; ``None`` values are skipped, not zeroed."""
+    n = len(ts)
+    out = [None] * n
+    lo = hi = 0
+    total = 0.0
+    count = 0
+    for i in range(n):
+        while hi < n and ts[hi] <= ts[i] + half_s:
+            if vals[hi] is not None:
+                total += vals[hi]
+                count += 1
+            hi += 1
+        while ts[lo] < ts[i] - half_s:
+            if vals[lo] is not None:
+                total -= vals[lo]
+                count -= 1
+            lo += 1
+        if vals[i] is not None and count:
+            out[i] = total / count
+    return out
+
+
+def chart_series(sm, kind, max_points=1500):
+    """Even-in-time speed/elevation series for the detail page's charts.
+
+    The charts used to plot the map's Douglas-Peucker vertices, which are
+    dense in bends and sparse on straights — a long straight road charted as
+    one ramp between two samples. This works off the full-resolution smoothed
+    track instead: speed is zeroed while auto-paused (so the chart agrees with
+    moving time) and capped at the sport ceiling, then speed and elevation each
+    get a centred time-window mean, and the result is bucketed to
+    ``max_points`` evenly spaced samples across the activity.
+
+    Same per-segment shape as ``display_payload`` (``times``/``speeds`` km/h/
+    ``elevations``/``coords`` as ``[lon, lat]``), so a gap still reads as a
+    break.
+    """
+    by_seg = {}
+    for p in sm:
+        by_seg.setdefault(p[6], []).append(p)
+    segs = list(by_seg.values())
+    dur = sum(s[-1][0] - s[0][0] for s in segs)
+    bw = max(1.0, dur / max_points)
+    spd_half = max(5.0, 1.5 * bw)
+    alt_half = max(15.0, 1.5 * bw)
+    ceiling = sport(kind)['ceiling']
+    flags = moving_flags(sm, kind)
+    out = {'times': [], 'speeds': [], 'elevations': [], 'coords': []}
+    k = 0
+    for s in segs:
+        f = flags[k:k + len(s)]
+        k += len(s)
+        ts = [p[0] for p in s]
+        spd = _window_mean(ts, [min(p[4], ceiling) if m else 0.0 for p, m in zip(s, f)], spd_half)
+        alt = _window_mean(ts, [p[3] for p in s], alt_half)
+        bt, bs, be, bc = [], [], [], []
+        i = 0
+        n = len(s)
+        while i < n:
+            edge = ts[i] + bw
+            j = i
+            while j < n and ts[j] < edge:
+                j += 1
+            mid = s[(i + j - 1) // 2]
+            a = [v for v in alt[i:j] if v is not None]
+            bt.append(int(round(sum(ts[i:j]) / (j - i))))
+            bs.append(round(sum(spd[i:j]) / (j - i) * 3.6, 2))
+            be.append(round(sum(a) / len(a), 1) if a else None)
+            bc.append([round(mid[2], 6), round(mid[1], 6)])
+            i = j
+        out['times'].append(bt)
+        out['speeds'].append(bs)
+        out['elevations'].append(be)
+        out['coords'].append(bc)
+    return out
+
+
 def history_rows(sm, every_s=5.0):
     """Thin a smoothed track to one point per ``every_s`` for the history mirror.
 

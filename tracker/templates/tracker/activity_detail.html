@@ -335,9 +335,21 @@ function drawTimeChart(cfg) {
         if (!runs.length || runs[runs.length - 1][0][3] !== p[3]) runs.push([]);
         runs[runs.length - 1].push(p);
     });
+    // Quadratic curves through the midpoints between samples, so the line
+    // bends through each sample instead of kinking at it.
+    const trace = run => {
+        ctx.moveTo(X(run[0][0]), Y(run[0][1]));
+        for (let i = 1; i < run.length - 1; i++) {
+            const x = X(run[i][0]), y = Y(run[i][1]);
+            ctx.quadraticCurveTo(x, y, (x + X(run[i + 1][0])) / 2, (y + Y(run[i + 1][1])) / 2);
+        }
+        const l = run[run.length - 1];
+        ctx.lineTo(X(l[0]), Y(l[1]));
+    };
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     runs.forEach(run => {
         ctx.beginPath();
-        run.forEach((p, i) => i ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1])));
+        trace(run);
         ctx.strokeStyle = primary; ctx.lineWidth = 1.75; ctx.stroke();
         ctx.lineTo(X(run[run.length - 1][0]), padT + plotH);
         ctx.lineTo(X(run[0][0]), padT + plotH);
@@ -374,18 +386,22 @@ function drawTimeChart(cfg) {
 
 function drawCharts(track) {
     if (!track.segments || !track.segments.length) return;
+    // ``chart`` is the server's even-in-time, full-resolution series; the map's
+    // simplified vertices are only a fallback (they're sparse on straights).
+    const c = track.chart || { times: track.times, speeds: track.speeds,
+                               elevations: track.elevations, coords: track.segments };
     drawTimeChart({
-        canvasId: 'ad-speed', wrapId: 'ad-speed-wrap', times: track.times,
-        values: track.speeds.map(seg => seg.map(v => toDist(v))),
-        coords: track.segments, unit: speedUnit(), ceilP: 0.99,
+        canvasId: 'ad-speed', wrapId: 'ad-speed-wrap', times: c.times,
+        values: c.speeds.map(seg => seg.map(v => toDist(v))),
+        coords: c.coords, unit: speedUnit(), ceilP: 0.99,
         fmt: v => (Math.round(v * 10) / 10).toString(),
     });
-    const elev = (track.elevations || []).map(seg => seg.map(v => v == null ? null : toElev(v)));
+    const elev = (c.elevations || []).map(seg => seg.map(v => v == null ? null : toElev(v)));
     if (elev.some(seg => seg.some(v => v != null))) {
         document.getElementById('ad-elev-card').hidden = false;
         drawTimeChart({
-            canvasId: 'ad-elev', wrapId: 'ad-elev-wrap', times: track.times, values: elev,
-            coords: track.segments, unit: elevUnit(), floorToMin: true,
+            canvasId: 'ad-elev', wrapId: 'ad-elev-wrap', times: c.times, values: elev,
+            coords: c.coords, unit: elevUnit(), floorToMin: true,
             fmt: v => Math.round(v).toString(),
         });
     }

@@ -16757,8 +16757,10 @@ def activity_track_api(request, activity_id):
     """The drawn track: cleaned, smoothed, Douglas-Peucker-simplified segments.
 
     Per-vertex speed (km/h), time (epoch s) and elevation ride alongside so the
-    page can paint the speed gradient and draw time-based speed/elevation
-    charts. Simplification preserves shape instead of keeping every n-th fix.
+    page can paint the speed gradient; ``chart`` is a separate even-in-time,
+    full-resolution series for the speed/elevation charts (the simplified
+    vertices are too sparse on straights to chart). Simplification preserves
+    shape instead of keeping every n-th fix.
     """
     act = _get_activity(request, activity_id)
     if not act:
@@ -16766,13 +16768,15 @@ def activity_track_api(request, activity_id):
     _activity_stats(act)
 
     stamp = int(act.stats_computed_at.timestamp()) if act.stats_computed_at else 0
-    key = f"act:track:{request.user.id}:{act.id}:{stamp}:{act.stats_point_count}"
+    # ``c2``: the payload gained ``chart`` — older cached copies lack it.
+    key = f"act:track:c2:{request.user.id}:{act.id}:{stamp}:{act.stats_point_count}"
     cached = cache.get(key)
     if cached is not None:
         return JsonResponse(cached)
 
     sm = _activity_smoothed(act)
     payload = activity_track.display_payload(sm)
+    payload['chart'] = activity_track.chart_series(sm, act.kind)
     payload['point_count'] = act.point_count
     payload['source'] = 'track' if _activity_complete_track(act) is not None else 'history'
     payload['start'] = [sm[0][2], sm[0][1]] if sm else None
