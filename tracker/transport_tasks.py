@@ -1,6 +1,8 @@
 """Background task: label every GPS point with how the user was moving.
 
-Manually triggered from Settings → Background Jobs. Writes one of MODES onto
+A full run is triggered from Settings → Background Jobs; the nightly stats pass
+labels the backlog (``classify_backlog``) and the map labels the last 24 hours on
+demand (``classify_since``) when its transport filter is narrowed. Writes one of MODES onto
 ``Location.transport_mode`` so the map can colour tracks by mode and Stats can
 break distance down by it.
 
@@ -192,11 +194,98 @@ def _classify(speeds):
     return 'plane'
 
 
-def _transport_worker(user_id):
-    from .models import Location, Device, TransportJob
+def _classify_device(dev_id, start=None, write_from=None, should_stop=None, on_chunk=None):
+    """Label one device's points with how it was moving, oldest first.
+
+    `start` (None = the whole history) is where reading begins; `write_from`
+    (None = everything read) is where writing begins. Reading earlier than
+    writing gives a journey that runs across `write_from` its whole speed
+    profile, while points before it keep the label they already had rather
+    than being rescored from half a journey.
+
+    `should_stop()` aborts between chunks; `on_chunk(processed, classified)`
+    reports progress. Returns ``(processed, classified)``.
+    """
+    from .models import Location
 
     processed = 0
     classified = 0
+    # Journeys are per device and must be walked in time order — one device's
+    # track says nothing about another's.
+    cursor = None       # (timestamp, id) of the last row consumed
+    carry = []
+    while True:
+        if should_stop is not None and should_stop():
+            break
+
+        qs = Location.objects.filter(device_id=dev_id)
+        if start is not None:
+            qs = qs.filter(timestamp__gte=start)
+        if cursor is not None:
+            # Paginate on (timestamp, id), not id alone: imported history gets
+            # its ids in file order, which need not match time order, so an id
+            # cursor would silently skip points.
+            last_ts, last_id = cursor
+            qs = qs.filter(
+                Q(timestamp__gt=last_ts) | Q(timestamp=last_ts, id__gt=last_id)
+            )
+        chunk = list(
+            qs.order_by('timestamp', 'id')
+            .values('id', 'latitude', 'longitude', 'timestamp', 'speed', 'accuracy')[:BATCH_SIZE]
+        )
+        if not chunk:
+            break
+        cursor = (chunk[-1]['timestamp'], chunk[-1]['id'])
+        more = len(chunk) == BATCH_SIZE
+
+        rows = carry + chunk
+        journeys = list(_split_journeys(_point_speeds(rows)))
+        # The last journey may run on into the next chunk, so hold it back and
+        # re-score it there rather than classifying half a drive.
+        if more and journeys:
+            carry = journeys.pop()[0]
+        elif more:
+            carry = rows[-1:]
+        else:
+            carry = []
+
+        assigned = {}
+        for j_rows, j_speeds in journeys:
+            mode = _classify(j_speeds)
+            for r in j_rows:
+                assigned[r['id']] = mode
+
+        # Everything not inside a journey is the user parked somewhere.
+        # Labelling it explicitly (rather than leaving it be) keeps the whole
+        # history classified and makes re-runs idempotent instead of leaving
+        # stale modes behind.
+        held = {r['id'] for r in carry}
+        by_mode = {}
+        for r in rows:
+            if r['id'] in held:
+                continue
+            if write_from is not None and r['timestamp'] < write_from:
+                continue
+            by_mode.setdefault(assigned.get(r['id'], 'still'), []).append(r['id'])
+
+        for mode, ids in by_mode.items():
+            for i in range(0, len(ids), 5000):
+                Location.objects.filter(id__in=ids[i:i + 5000]).update(transport_mode=mode)
+            classified += len(ids)
+
+        processed += len(chunk)
+        if on_chunk is not None:
+            on_chunk(processed, classified)
+
+        if not more:
+            break
+    return processed, classified
+
+
+def _transport_worker(user_id):
+    from .models import Location, Device, TransportJob
+
+    totals = {'processed': 0, 'classified': 0}
     job = None
 
     try:
@@ -212,80 +301,29 @@ def _transport_worker(user_id):
         job.save(update_fields=['total', 'processed', 'classified', 'updated_at'])
         logger.info(f"Transport detection for user {user_id}: {total} points")
 
+        def should_stop():
+            try:
+                job.refresh_from_db()
+            except TransportJob.DoesNotExist:
+                return True
+            return job.status != 'running'
+
         device_ids = list(Device.objects.filter(user_id=user_id).values_list('id', flat=True))
-
         for dev_id in device_ids:
-            # Journeys are per device and must be walked in time order — one
-            # device's track says nothing about another's.
-            cursor = None       # (timestamp, id) of the last row consumed
-            carry = []
-            while True:
-                try:
-                    job.refresh_from_db()
-                    if job.status != 'running':
-                        return
-                except TransportJob.DoesNotExist:
-                    return
+            base = dict(totals)
 
-                qs = Location.objects.filter(device_id=dev_id)
-                if cursor is not None:
-                    # Paginate on (timestamp, id), not id alone: imported history
-                    # gets its ids in file order, which need not match time order,
-                    # so an id cursor would silently skip points.
-                    last_ts, last_id = cursor
-                    qs = qs.filter(
-                        Q(timestamp__gt=last_ts) | Q(timestamp=last_ts, id__gt=last_id)
-                    )
-                chunk = list(
-                    qs.order_by('timestamp', 'id')
-                    .values('id', 'latitude', 'longitude', 'timestamp', 'speed', 'accuracy')[:BATCH_SIZE]
-                )
-                if not chunk:
-                    break
-                cursor = (chunk[-1]['timestamp'], chunk[-1]['id'])
-                more = len(chunk) == BATCH_SIZE
-
-                rows = carry + chunk
-                journeys = list(_split_journeys(_point_speeds(rows)))
-                # The last journey may run on into the next chunk, so hold it back
-                # and re-score it there rather than classifying half a drive.
-                if more and journeys:
-                    carry = journeys.pop()[0]
-                elif more:
-                    carry = rows[-1:]
-                else:
-                    carry = []
-
-                assigned = {}
-                for j_rows, j_speeds in journeys:
-                    mode = _classify(j_speeds)
-                    for r in j_rows:
-                        assigned[r['id']] = mode
-
-                # Everything not inside a journey is the user parked somewhere.
-                # Labelling it explicitly (rather than leaving it be) keeps the
-                # whole history classified and makes re-runs idempotent instead
-                # of leaving stale modes behind.
-                held = {r['id'] for r in carry}
-                by_mode = {}
-                for r in rows:
-                    if r['id'] in held:
-                        continue
-                    by_mode.setdefault(assigned.get(r['id'], 'still'), []).append(r['id'])
-
-                for mode, ids in by_mode.items():
-                    for i in range(0, len(ids), 5000):
-                        Location.objects.filter(id__in=ids[i:i + 5000]).update(transport_mode=mode)
-                    classified += len(ids)
-
-                processed += len(chunk)
-                job.processed = processed
-                job.classified = classified
+            def on_chunk(processed, classified):
+                job.processed = base['processed'] + processed
+                job.classified = base['classified'] + classified
                 job.save(update_fields=['processed', 'classified', 'updated_at'])
                 time.sleep(0.02)
 
-                if not more:
-                    break
+            processed, classified = _classify_device(
+                dev_id, should_stop=should_stop, on_chunk=on_chunk)
+            totals['processed'] += processed
+            totals['classified'] += classified
+            if should_stop():
+                return
 
     except Exception:
         logger.exception(f"Transport detection failed for user {user_id}")
@@ -297,12 +335,79 @@ def _transport_worker(user_id):
             job.save(update_fields=['status', 'updated_at'])
         except Exception:
             pass
+        if totals['classified']:
+            _labels_changed(user_id)
         _running_threads.pop(user_id, None)
         close_old_connections()
         logger.info(
             f"Transport detection done for user {user_id}: "
-            f"{processed} points, {classified} classified"
+            f"{totals['processed']} points, {totals['classified']} classified"
         )
+
+
+# ── Incremental detection: nightly backlog + the map's on-demand last 24h ──
+# The full run above is manual, so without these everything recorded since it
+# last ran stays unclassified — which is exactly the data a map filter for
+# "today" asks about.
+
+# Read this much earlier than the first point being labelled, so a journey
+# under way at that moment is scored from more than its tail.
+_CONTEXT_S = 3600
+# The nightly pass always rescores at least this much, even when nothing is
+# unclassified: the map's on-demand pass labels a journey still in progress
+# from what had arrived so far, and this is what finishes it properly.
+_NIGHTLY_MIN_WINDOW_S = 48 * 3600
+# The map's on-demand window.
+RECENT_WINDOW_S = 24 * 3600
+
+
+def transport_gen(user_id):
+    """Bumped whenever this user's labels change; caches of mode-filtered
+    aggregates (tiles, overview cells) key on it."""
+    from django.core.cache import cache
+    return cache.get(f"transport_gen:{user_id}", 0)
+
+
+def _labels_changed(user_id):
+    from django.core.cache import cache
+    if not cache.add(f"transport_gen:{user_id}", 1, None):
+        try:
+            cache.incr(f"transport_gen:{user_id}")
+        except ValueError:
+            cache.set(f"transport_gen:{user_id}", 1, None)
+    # Track and Trip Lines key on cache_gen.
+    from .views import _bust_user_cache
+    _bust_user_cache(user_id)
+
+
+def classify_since(user_id, since):
+    """Label every point of the user's from `since` on, synchronously.
+    Returns how many points were labelled."""
+    from datetime import timedelta
+    from .models import Device
+
+    classified = 0
+    for dev_id in Device.objects.filter(user_id=user_id).values_list('id', flat=True):
+        _, n = _classify_device(dev_id, start=since - timedelta(seconds=_CONTEXT_S), write_from=since)
+        classified += n
+    if classified:
+        _labels_changed(user_id)
+    return classified
+
+
+def classify_backlog(user_id):
+    """The nightly pass: everything still unclassified, and at least the last
+    48 hours. The first night after an upgrade this is the whole unlabelled
+    history; after that it is about a day."""
+    from datetime import timedelta
+    from .models import Location
+
+    since = timezone.now() - timedelta(seconds=_NIGHTLY_MIN_WINDOW_S)
+    oldest = (Location.objects.filter(device__user_id=user_id, transport_mode='')
+              .order_by('timestamp').values_list('timestamp', flat=True).first())
+    if oldest is not None and oldest < since:
+        since = oldest
+    return classify_since(user_id, since)
 
 
 def _is_thread_alive(user_id):
