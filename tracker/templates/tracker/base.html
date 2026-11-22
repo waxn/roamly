@@ -331,7 +331,7 @@
             color: var(--text-muted);
             background: none;
             border: none;
-            border-bottom: 2px solid transparent;
+            position: relative;
             cursor: pointer;
             margin: 0;
             padding: 0.5rem 0.55rem 0.5rem 0.7rem;
@@ -345,10 +345,14 @@
             transition: color 0.15s, border-color 0.15s;
         }
         .navbar-nav-toggle:hover { color: var(--text); }
-        .navbar-nav-toggle.active {
-            color: var(--primary);
-            border-bottom-color: var(--primary);
+        /* Underline is a pseudo-element, not a border: a border follows the
+           shape facet's corner radius and curls up the sides. */
+        .navbar-nav-toggle::after {
+            content: ''; position: absolute; left: 0; right: 0; bottom: 0;
+            height: 2px; background: transparent; border-radius: 0; transition: background 0.15s;
         }
+        .navbar-nav-toggle.active { color: var(--primary); }
+        .navbar-nav-toggle.active::after { background: var(--primary); }
         .navbar-user-toggle {
             display: inline-flex;
             align-items: center;
