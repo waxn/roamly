@@ -1965,6 +1965,8 @@ async function loadReplayDay(dateStr) {
     replayBadge.textContent = dateStr;
     stopReplayPlayback();
 
+    // Today's points need labelling before the transport filter can split them.
+    if (needsRecentModes()) await ensureRecentModes();
     const params = new URLSearchParams();
     params.set('start_date', toLocalDateTimeParam(dateStr, 'start'));
     params.set('end_date', toLocalDateTimeParam(dateStr, 'end'));

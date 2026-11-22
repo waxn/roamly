@@ -339,6 +339,30 @@ function setTransportMode(mode, on) {
     loadCurrentMode(false);
 }
 
+// Ask the server to label the last 24 hours (transport_detect_recent_api) —
+// at most once per RECENT_MODES_TTL_MS, since points keep arriving but a
+// minute-old label for the latest stretch is good enough.
+const RECENT_MODES_TTL_MS = 5 * 60 * 1000;
+let _recentModesAt = 0;
+let _recentModesReq = null;
+function needsRecentModes() {
+    return transportFilterActive() && Date.now() - _recentModesAt > RECENT_MODES_TTL_MS;
+}
+function ensureRecentModes() {
+    if (!_recentModesReq) {
+        _recentModesReq = fetch('/api/transport/detect/recent/', {
+            method: 'POST',
+            headers: { 'X-CSRFToken': ROAMLY_MAP_CFG.csrfToken || '' },
+        })
+            .then(r => (r.ok ? r.json() : null))
+            .catch(() => null)
+            // Even on failure: a filter that draws unlabelled points as
+            // unclassified beats a map that never loads.
+            .finally(() => { _recentModesAt = Date.now(); _recentModesReq = null; });
+    }
+    return _recentModesReq;
+}
+
 function buildFilterParams() {
     const timeRange = document.getElementById('time-range').value;
     const deviceId  = document.getElementById('device-filter').value;
@@ -493,6 +517,13 @@ const dwellRadiusM = parseInt(localStorage.getItem('roamly_dwell_radius_m') || '
 // returns the whole filtered range decimated into segments + dwell blobs, so
 // there is nothing left for viewport paging to do.
 function loadCurrentMode(autoFit) {
+    // A narrowed transport filter needs today's points labelled first: the
+    // nightly pass hasn't seen them yet, so they'd all be 'unclassified'.
+    if (needsRecentModes()) {
+        showMapLoading('sorting transport modes...');
+        ensureRecentModes().then(() => loadCurrentMode(autoFit));
+        return;
+    }
     if (isOverviewMode()) {
         loadAllTimeOverview(autoFit);
         return;
