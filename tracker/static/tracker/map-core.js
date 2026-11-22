@@ -460,6 +460,8 @@ let accMap = new Map();            // "devId:ts" → Feature, deduped accumulate
 const rawCoords = new Map();       // point id → recorded [lng,lat], so snapping is reversible
 let fetchedAreas = [];             // {w,s,e,n} bboxes where we have complete data (no limit hit)
 let detailLoading = false;
+let detailGen = 0;                 // bumped by clearAccumulated; a response from an older gen is dropped
+let detailFetch = null;            // AbortController of the detail request in flight
 let lastViewportHitLimit = false;  // whether last viewport fetch hit the limit
 let moveDebounce = null;
 
@@ -658,6 +660,9 @@ function repaintAcc() {
 }
 
 function clearAccumulated() {
+    // A detail request sent under the old filters must not land in the new map.
+    detailGen++;
+    if (detailFetch) detailFetch.abort();
     accMap.clear();
     // rawCoords / snapCache survive on purpose — they map an immutable point id
     // to an immutable road position, so a filter change must not force a re-query
@@ -730,11 +735,14 @@ function loadViewport(limit) {
     showMapLoading('loading points...');
 
     const controller = new AbortController();
+    detailFetch = controller;
+    const gen = detailGen;
     const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     fetch(`/api/locations/?${params.toString()}`, { signal: controller.signal })
         .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
         .then(data => {
+            if (gen !== detailGen) return;
             const features = [];
             (data.devices || []).forEach(device => {
                 const color = deviceColor(device.device_id || device.name || 'default');
@@ -769,6 +777,7 @@ function loadViewport(limit) {
             // response lands.
             if (snapOn) showMapLoading('snapping to roads...');
             return fetchSnapsFor(features).then(() => {
+                if (gen !== detailGen) return;
                 applyKnownSnaps(features);
                 mergeAccFeatures(features);
                 repaintTrackSnaps();
@@ -787,6 +796,7 @@ function loadViewport(limit) {
             hideMapLoading();
         })
         .finally(() => {
+            if (detailFetch === controller) detailFetch = null;
             detailLoading = false;
             updateDetailControls();
         });
