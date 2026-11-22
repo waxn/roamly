@@ -141,7 +141,7 @@ function load() {
         .catch(() => {
             el.setAttribute('aria-busy', 'false');
             el.innerHTML = `<div class="act-empty">Couldn't load activities.
-                <button class="btn" onclick="load()">Retry</button></div>`;
+                <button class="btn btn-outline" onclick="load()">Retry</button></div>`;
         });
 }
 
