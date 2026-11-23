@@ -3063,7 +3063,10 @@ document.getElementById('addplace-cancel').addEventListener('click', closeAddPla
         }
         panel.hidden = false;
         pill.setAttribute('aria-expanded', 'true');
-        setEditing(editing);
+        // Typed but unsaved stays as typed: the draft store may be unavailable
+        // (private window), so don't rebuild the box from it.
+        if (ta.value.trim() === (known.get(editing) || '')) setEditing(editing);
+        else renderList();
         if (!known.get(editing) && !window.matchMedia('(pointer: coarse)').matches) ta.focus();
     }
     function close() {
