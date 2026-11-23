@@ -169,6 +169,7 @@ def _build_journals_data(user):
             'date': e.date,
             'title': e.title,
             'body': e.body,
+            'quick_note': e.quick_note,
             'mood': e.mood,
             'weather': e.weather,
             'is_favorite': e.is_favorite,

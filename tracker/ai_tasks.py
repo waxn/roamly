@@ -180,7 +180,7 @@ JOURNAL_TOOL_SCHEMAS = [
         "function": {
             "name": "search_journals",
             "description": (
-                "Search the user's personal journal entries by keyword (title/body), most "
+                "Search the user's personal journal entries by keyword (title/body/quick note), most "
                 "recent first. Returns dates, titles, moods, and short snippets. Use to find "
                 "which days the user wrote about a topic."
             ),
@@ -437,10 +437,10 @@ def _tool_search_journals(user, query=None, **_):
     qs = JournalEntry.objects.filter(user=user)
     q = (query or "").strip()
     if q:
-        qs = qs.filter(Q(title__icontains=q) | Q(body__icontains=q))
+        qs = qs.filter(Q(title__icontains=q) | Q(body__icontains=q) | Q(quick_note__icontains=q))
     entries = []
     for e in qs.order_by("-date")[:25]:
-        body = e.body or ""
+        body = e.body or e.quick_note or ""
         entries.append({
             "date": e.date.isoformat(),
             "title": e.title,
@@ -469,6 +469,7 @@ def _tool_read_journal_entry(user, date=None, **_):
         "is_favorite": e.is_favorite,
         "location_name": e.location_name,
         "body": e.body or "",
+        "quick_note": e.quick_note or "",
     }
 
 

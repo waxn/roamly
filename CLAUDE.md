@@ -99,6 +99,7 @@ The detailed architecture notes live in `docs/claude/`, one file per area. **Rea
 | [`docs/claude/overlaps.md`](docs/claude/overlaps.md) — Device overlaps and notification bell | DeviceOverlap, hide/unhide, bell notifications. |
 | [`docs/claude/places.md`](docs/claude/places.md) — Custom places and geofence notifications | CustomPlace, suggestions, arrival/departure notifications. |
 | [`docs/claude/preferences.md`](docs/claude/preferences.md) — User-facing preferences | localStorage roamly_* preference keys. |
+| [`docs/claude/quick-notes.md`](docs/claude/quick-notes.md) — Quick notes | "What I did today" notes: map bar, notes API, Android evening reminder. |
 | [`docs/claude/sharing.md`](docs/claude/sharing.md) — Adventure membership and location share links | Adventure consent model, LocationShare links. |
 | [`docs/claude/stats.md`](docs/claude/stats.md) — Stats, snapshots and distance | Stats/Visits/Places snapshots, Daily Distance heatmap, stats deep-links, distance travelled. |
 | [`docs/claude/subway-misc.md`](docs/claude/subway-misc.md) — Subway gaps, POI matching, quality scan, settings nav | Subway gap filling, POI matching, flag scan, settings jump-nav. |

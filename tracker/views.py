@@ -8122,7 +8122,7 @@ def _write_backup_json(user, f, progress=None):
     loc_total += hidden_qs.count()
 
     report('Collecting devices')
-    meta = {'version': 25, 'exported_at': timezone.now().isoformat(), 'username': user.username}
+    meta = {'version': 26, 'exported_at': timezone.now().isoformat(), 'username': user.username}
     devices = [{'device_id': d.device_id, 'name': d.name}
                for d in Device.objects.filter(user=user)]
     # The single backup builder: the scheduled S3 backup calls this too, so the
@@ -9213,6 +9213,7 @@ def restore_backup(request):
                         defaults={
                             'title': j.get('title', ''),
                             'body': j.get('body', ''),
+                            'quick_note': j.get('quick_note', ''),
                             'mood': j.get('mood', ''),
                             'weather': j.get('weather', ''),
                             'is_favorite': j.get('is_favorite', False),
@@ -12696,6 +12697,7 @@ def journal_search_api(request):
         qs = qs.filter(
             Q(title__icontains=q) |
             Q(body__icontains=q) |
+            Q(quick_note__icontains=q) |
             Q(mood__icontains=q) |
             Q(weather__icontains=q) |
             Q(location_name__icontains=q)
@@ -12715,10 +12717,13 @@ def journal_search_api(request):
                 snippet = ('…' if start > 0 else '') + e.body[start:end] + ('…' if end < len(e.body) else '')
             else:
                 snippet = e.body.strip().split('\n')[0][:140]
+        elif e.quick_note:
+            snippet = e.quick_note.strip().split('\n')[0][:140]
         entries.append({
             'date': e.date.isoformat(),
             'title': e.title,
             'snippet': snippet,
+            'quick_note': e.quick_note,
             'mood': e.mood,
             'weather': e.weather,
             'is_favorite': e.is_favorite,
@@ -12752,6 +12757,7 @@ def journals_list_api(request):
             'date': e.date.isoformat(),
             'title': e.title,
             'snippet': snippet,
+            'quick_note': e.quick_note,
             'mood': e.mood,
             'weather': e.weather,
             'is_favorite': e.is_favorite,
@@ -12832,6 +12838,7 @@ def journal_detail_api(request, date_str):
             'date': entry.date.isoformat(),
             'title': entry.title,
             'body': entry.body,
+            'quick_note': entry.quick_note,
             'mood': entry.mood,
             'weather': entry.weather,
             'is_favorite': entry.is_favorite,
@@ -12845,7 +12852,7 @@ def journal_detail_api(request, date_str):
         entry_data = {
             'exists': False,
             'date': d.isoformat(),
-            'title': '', 'body': '', 'mood': '', 'weather': '',
+            'title': '', 'body': '', 'quick_note': '', 'mood': '', 'weather': '',
             'is_favorite': False, 'location_name': '', 'pin': None, 'photos': [],
         }
 
@@ -12981,6 +12988,8 @@ def journal_save_api(request, date_str):
         entry.title = (data.get('title') or '')[:300]
     if 'body' in data:
         entry.body = data.get('body') or ''
+    if 'quick_note' in data:
+        entry.quick_note = str(data.get('quick_note') or '').strip()[:_QUICK_NOTE_MAX]
     if 'mood' in data:
         entry.mood = (data.get('mood') or '')[:20]
     if 'weather' in data:
@@ -13057,6 +13066,99 @@ def journal_photo_delete_api(request, photo_id):
     photo = get_object_or_404(JournalPhoto, id=photo_id, entry__user=request.user)
     photo.delete()
     return JsonResponse({'status': 'ok'})
+
+
+# ---------------------------------------------------------------------------
+# Quick notes ("what I did today")
+# ---------------------------------------------------------------------------
+# A day's quick note lives on its JournalEntry (``quick_note``), so Journals
+# shows it on that day. The reverse is deliberately not true: these endpoints
+# and the map only ever return the note, never the journal's title or body.
+
+_QUICK_NOTE_MAX = 2000
+_QUICK_NOTE_LIST_MAX = 400
+
+
+def _quick_note_payload(entry):
+    return {
+        'date': entry.date.isoformat(),
+        'note': entry.quick_note,
+        'updated_at': entry.updated_at.isoformat(),
+    }
+
+
+def _journal_entry_is_blank(entry):
+    """True when nothing but the (now empty) quick note made this entry. Weather
+    is left out: Journals fills it in itself, so it is not something written."""
+    return not (entry.quick_note.strip() or entry.title.strip() or entry.body.strip()
+                or entry.mood or entry.is_favorite or entry.location_name
+                or entry.pin_latitude is not None or entry.photos.exists())
+
+
+@login_required
+def quick_notes_list_api(request):
+    """Notes with text between ``start`` and ``end`` (inclusive YYYY-MM-DD, either
+    optional), newest first. The map asks for the days its range covers."""
+    qs = JournalEntry.objects.filter(user=request.user).exclude(quick_note='')
+    start = _journal_parse_date(request.GET.get('start') or '')
+    end = _journal_parse_date(request.GET.get('end') or '')
+    if (request.GET.get('start') and start is None) or (request.GET.get('end') and end is None):
+        return JsonResponse({'error': 'Invalid date'}, status=400)
+    if start:
+        qs = qs.filter(date__gte=start)
+    if end:
+        qs = qs.filter(date__lte=end)
+    notes = [_quick_note_payload(e) for e in qs.order_by('-date')[:_QUICK_NOTE_LIST_MAX]]
+    return JsonResponse({'notes': notes})
+
+
+@login_required
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def quick_note_api(request, date_str):
+    """Read or write one day's note. POST ``{"note": "..."}``; an empty note
+    clears it, and removes the entry too when the note was all it held."""
+    d = _journal_parse_date(date_str)
+    if d is None:
+        return JsonResponse({'error': 'Invalid date'}, status=400)
+    if request.method == 'GET':
+        entry = JournalEntry.objects.filter(user=request.user, date=d).first()
+        if entry is None:
+            return JsonResponse({'date': d.isoformat(), 'note': '', 'updated_at': None})
+        return JsonResponse(_quick_note_payload(entry))
+
+    err = _require_api_intent(request)
+    if err:
+        return err
+    try:
+        data = json.loads(request.body or b'{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    if not isinstance(data, dict) or not isinstance(data.get('note', ''), str):
+        return JsonResponse({'error': 'note must be a string'}, status=400)
+    note = (data.get('note') or '').strip()
+    if len(note) > _QUICK_NOTE_MAX:
+        return JsonResponse({'error': f'Keep it under {_QUICK_NOTE_MAX} characters.'}, status=400)
+
+    if not note:
+        entry = JournalEntry.objects.filter(user=request.user, date=d).first()
+        if entry is not None:
+            entry.quick_note = ''
+            if _journal_entry_is_blank(entry):
+                entry.delete()
+            else:
+                entry.save(update_fields=['quick_note', 'updated_at'])
+        return JsonResponse({'date': d.isoformat(), 'note': '', 'updated_at': None})
+
+    try:
+        with transaction.atomic():
+            entry, _ = JournalEntry.objects.get_or_create(user=request.user, date=d)
+    except IntegrityError:
+        # A second save for the same day raced this one: the row exists now.
+        entry = JournalEntry.objects.get(user=request.user, date=d)
+    entry.quick_note = note
+    entry.save(update_fields=['quick_note', 'updated_at'])
+    return JsonResponse(_quick_note_payload(entry))
 
 
 # ---------------------------------------------------------------------------

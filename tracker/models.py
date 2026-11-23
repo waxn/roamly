@@ -1562,6 +1562,10 @@ class JournalEntry(models.Model):
     date = models.DateField(db_index=True)
     title = models.CharField(max_length=300, blank=True)
     body = models.TextField(blank=True)
+    # "What I did today": a one-line jot written from the map or the evening
+    # reminder. Journals shows it on the day; the map shows only this, never
+    # the body. Kept on the entry so a day still has one record.
+    quick_note = models.TextField(blank=True)
     mood = models.CharField(max_length=20, blank=True, help_text="Emoji or short mood label")
     weather = models.CharField(max_length=60, blank=True)
     is_favorite = models.BooleanField(default=False)

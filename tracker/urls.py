@@ -290,6 +290,10 @@ urlpatterns = [
     path('api/journals/<str:date_str>/autofill/', views.journal_autofill_api, name='journal_autofill_api'),
     path('api/journals/<str:date_str>/photos/', views.journal_photos_api, name='journal_photos_api'),
 
+    # Quick notes ("what I did today") — on the day's JournalEntry.
+    path('api/notes/', views.quick_notes_list_api, name='quick_notes_list_api'),
+    path('api/notes/<str:date_str>/', views.quick_note_api, name='quick_note_api'),
+
     # Health API (Health Connect)
     # Literal sub-paths first — the <str:date_str> capture would otherwise
     # shadow every one of them, same ordering rule as the journals block above.

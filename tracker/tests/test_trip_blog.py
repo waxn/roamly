@@ -415,7 +415,7 @@ def test_backup_round_trip(client, blog, owner, django_user_model, tmp_path):
     import zipfile
     with zipfile.ZipFile(out) as zf:
         doc = json.loads(zf.read('backup.json'))
-        assert doc['meta']['version'] == 25
+        assert doc['meta']['version'] == 26
         tbd = doc['trip_blogs'][0]
         assert tbd['posts'][0]['text'] == 'Kyoto!' and 'share_links' not in tbd
         assert any(n.startswith('media/tripblog/photos/') for n in zf.namelist())

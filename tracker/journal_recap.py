@@ -132,7 +132,7 @@ def _journal_rows(profile, days):
     rows = []
     for e in JournalEntry.objects.filter(user=profile.user, date__gte=days[0], date__lte=days[-1]).order_by('date'):
         row = {'date': e.date.isoformat(), 'title': e.title, 'mood': e.mood,
-               'weather': e.weather, 'text': (e.body or '').strip()[:MAX_JOURNAL_CHARS]}
+               'weather': e.weather, 'text': '\n'.join(t for t in ((e.quick_note or '').strip(), (e.body or '').strip()) if t)[:MAX_JOURNAL_CHARS]}
         if any(row[k] for k in ('title', 'mood', 'weather', 'text')):
             rows.append(row)
     return rows
