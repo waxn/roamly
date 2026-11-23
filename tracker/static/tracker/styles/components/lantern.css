@@ -463,7 +463,7 @@ html[data-style="lantern"] {
 
     /* ── Page chrome: the map sidebar and floating panels, and their buttons,
        take this look's surfaces too (the shape layer handles their corners). ── */
-    :is(.sidebar-content, .replay-panel, .map-ctx-menu, .map-addplace-panel, .cell-legend, .map-detail-controls) { background: var(--grain), var(--bg-card); border: 1px solid var(--border-strong); outline: 1px dashed var(--stitch); outline-offset: -5px; box-shadow: var(--clay-shadow); }
+    :is(.sidebar-content, .replay-panel, .map-ctx-menu, .map-addplace-panel, .day-notes-pill, .day-notes-panel, .cell-legend, .map-detail-controls) { background: var(--grain), var(--bg-card); border: 1px solid var(--border-strong); outline: 1px dashed var(--stitch); outline-offset: -5px; box-shadow: var(--clay-shadow); }
     :is(.tool-btn, .style-btn, .replay-panel button.rp-btn, .date-reset-btn, .map-detail-controls button) { background: color-mix(in srgb, var(--primary) 3%, transparent); border: 1px solid var(--border); color: var(--text); font-family: var(--font-display); font-weight: 500; }
     :is(.tool-btn, .style-btn, .replay-panel button.rp-btn, .date-reset-btn, .map-detail-controls button):hover { filter: brightness(1.08); }
     :is(.tool-btn.active, .style-btn.active) { background: linear-gradient(180deg, color-mix(in srgb, var(--primary), #fff 18%), var(--primary)); color: var(--on-primary, #241405); border-color: color-mix(in srgb, var(--primary), #000 45%); }

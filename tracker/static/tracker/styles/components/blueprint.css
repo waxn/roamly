@@ -332,7 +332,7 @@ html[data-style="blueprint"] {
 
     /* ── Page chrome: the map sidebar and floating panels, and their buttons,
        take this look's surfaces too (the shape layer handles their corners). ── */
-    :is(.sidebar-content, .replay-panel, .map-ctx-menu, .map-addplace-panel, .cell-legend, .map-detail-controls) { background: color-mix(in srgb, var(--bg-elevated) 92%, transparent); border: 1px solid var(--line); outline: 1px solid var(--line-dim); outline-offset: 3px; box-shadow: none; }
+    :is(.sidebar-content, .replay-panel, .map-ctx-menu, .map-addplace-panel, .day-notes-pill, .day-notes-panel, .cell-legend, .map-detail-controls) { background: color-mix(in srgb, var(--bg-elevated) 92%, transparent); border: 1px solid var(--line); outline: 1px solid var(--line-dim); outline-offset: 3px; box-shadow: none; }
     :is(.tool-btn, .style-btn, .replay-panel button.rp-btn, .date-reset-btn, .map-detail-controls button) { background: transparent; border: 1px solid var(--line-dim); color: var(--text); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; }
     :is(.tool-btn, .style-btn, .replay-panel button.rp-btn, .date-reset-btn, .map-detail-controls button):hover { filter: brightness(1.08); }
     :is(.tool-btn.active, .style-btn.active) { background: var(--marker); color: var(--on-primary, #0b2a4b); border-color: var(--marker); }

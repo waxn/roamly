@@ -293,7 +293,7 @@ html[data-style="basecamp"] {
 
     /* ── Page chrome: the map sidebar and floating panels, and their buttons,
        take this look's surfaces too (the shape layer handles their corners). ── */
-    :is(.sidebar-content, .replay-panel, .map-ctx-menu, .map-addplace-panel, .cell-legend, .map-detail-controls) { background: var(--bg); border: 3px double var(--amber); box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.6); }
+    :is(.sidebar-content, .replay-panel, .map-ctx-menu, .map-addplace-panel, .day-notes-pill, .day-notes-panel, .cell-legend, .map-detail-controls) { background: var(--bg); border: 3px double var(--amber); box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.6); }
     :is(.tool-btn, .style-btn, .replay-panel button.rp-btn, .date-reset-btn, .map-detail-controls button) { background: transparent; border: 1px solid var(--amber-dim); color: var(--amber); font-family: var(--font-body); text-transform: uppercase; }
     :is(.tool-btn, .style-btn, .replay-panel button.rp-btn, .date-reset-btn, .map-detail-controls button):hover { filter: brightness(1.08); }
     :is(.tool-btn.active, .style-btn.active) { background: var(--amber); color: var(--bg); text-shadow: none; }

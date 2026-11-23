@@ -81,7 +81,7 @@ html[data-shape]:not([data-shape="field"]) {
     & :where(.card, [class*="-card"], [class*="panel"], [class*="sidebar"]:not([class*="sidebar-"]), [class*="-modal"]:not([class*="overlay"]):not([class*="modal-"]),
              [class~="modal"], [class*="-menu"], [class*="popup-content"], [class*="popover"], [class*="legend"], [class*="sheet"], [class*="drawer"],
              .alert, .rly-toast, .notif-panel, .rly-select-menu, .rly-cal, .table-responsive, .skel-card, .place-tag,
-             .sidebar-content, .replay-panel, .map-ctx-menu, .map-addplace-panel, .map-detail-controls, .map-info, [class*="-content"]:is([class*="modal"], [class*="dialog"])) {
+             .sidebar-content, .replay-panel, .map-ctx-menu, .map-addplace-panel, .day-notes-pill, .day-notes-panel, .map-detail-controls, .map-info, [class*="-content"]:is([class*="modal"], [class*="dialog"])) {
         --r-auto: var(--r-3);
         border-radius: var(--r-3);
     }

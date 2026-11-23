@@ -355,7 +355,7 @@ html[data-style="postmark"] {
 
     /* ── Page chrome: the map sidebar and floating panels, and their buttons,
        take this look's surfaces too (the shape layer handles their corners). ── */
-    :is(.sidebar-content, .replay-panel, .map-ctx-menu, .map-addplace-panel, .cell-legend, .map-detail-controls) { background: var(--bg-elevated); border: 6px solid transparent; border-image: var(--airmail) 6; box-shadow: var(--clay-shadow); }
+    :is(.sidebar-content, .replay-panel, .map-ctx-menu, .map-addplace-panel, .day-notes-pill, .day-notes-panel, .cell-legend, .map-detail-controls) { background: var(--bg-elevated); border: 6px solid transparent; border-image: var(--airmail) 6; box-shadow: var(--clay-shadow); }
     :is(.tool-btn, .style-btn, .replay-panel button.rp-btn, .date-reset-btn, .map-detail-controls button) { background: transparent; border: 1px solid var(--border-strong); color: var(--cream); font-family: var(--font-display); font-weight: 500; }
     :is(.tool-btn, .style-btn, .replay-panel button.rp-btn, .date-reset-btn, .map-detail-controls button):hover { filter: brightness(1.08); }
     :is(.tool-btn.active, .style-btn.active) { background: var(--airmail-red); color: var(--cream); border-color: color-mix(in srgb, var(--airmail-red), #000 40%); }

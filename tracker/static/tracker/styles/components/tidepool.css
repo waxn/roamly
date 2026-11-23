@@ -313,7 +313,7 @@ html[data-style="tidepool"] {
 
     /* ── Page chrome: the map sidebar and floating panels, and their buttons,
        take this look's surfaces too (the shape layer handles their corners). ── */
-    :is(.sidebar-content, .replay-panel, .map-ctx-menu, .map-addplace-panel, .cell-legend, .map-detail-controls) { background: var(--glass-strong); backdrop-filter: blur(18px) saturate(1.4); -webkit-backdrop-filter: blur(18px) saturate(1.4); border: 1px solid var(--rim); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), var(--clay-shadow); }
+    :is(.sidebar-content, .replay-panel, .map-ctx-menu, .map-addplace-panel, .day-notes-pill, .day-notes-panel, .cell-legend, .map-detail-controls) { background: var(--glass-strong); backdrop-filter: blur(18px) saturate(1.4); -webkit-backdrop-filter: blur(18px) saturate(1.4); border: 1px solid var(--rim); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), var(--clay-shadow); }
     :is(.tool-btn, .style-btn, .replay-panel button.rp-btn, .date-reset-btn, .map-detail-controls button) { background: color-mix(in srgb, var(--text) 6%, transparent); border: 1px solid var(--rim); color: var(--text); font-weight: 600; }
     :is(.tool-btn, .style-btn, .replay-panel button.rp-btn, .date-reset-btn, .map-detail-controls button):hover { filter: brightness(1.08); }
     :is(.tool-btn.active, .style-btn.active) { background: var(--foam-soft); color: var(--foam); border-color: color-mix(in srgb, var(--foam) 50%, transparent); box-shadow: 0 0 16px -6px var(--foam); }
@@ -326,7 +326,7 @@ html[data-style="tidepool"] {
     &:has(#map-container) {
         .navbar { position: fixed; top: 12px; left: 0; right: 0; margin: 0 auto; }
         #map-container { height: calc(100vh - var(--bottom-nav-height)); }
-        .map-sidebar, .map-detail-controls { top: calc(var(--nav-h) + 2px); }
+        .map-sidebar, .map-top-center { top: calc(var(--nav-h) + 2px); }
         .sidebar-content { max-height: calc(100vh - var(--nav-h) - 90px - var(--bottom-nav-height)); }
         @media (max-width: 768px) { .navbar { top: 8px; } }
     }

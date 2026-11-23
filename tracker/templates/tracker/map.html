@@ -350,6 +350,193 @@
 .range-step:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
 .range-step:disabled { opacity: 0.35; cursor: default; }
 
+/* ── Top-centre column: the day-notes pill, then the load-more prompt ── */
+.map-top-center {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 11;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+}
+.map-top-center > * { pointer-events: auto; }
+
+.day-notes { position: relative; display: flex; flex-direction: column; align-items: center; z-index: 2; }
+.day-notes-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    max-width: min(380px, calc(100vw - 300px));
+    background: var(--bg-glass);
+    border: 1px solid var(--border);
+    border-radius: var(--r-auto, 0);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    color: var(--text-muted);
+    padding: 7px 12px;
+    font-size: 0.775rem;
+    font-family: var(--font-body);
+    font-weight: 700;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s;
+}
+.day-notes-pill:hover,
+.day-notes-pill[aria-expanded="true"] { color: var(--text); border-color: var(--text-muted); }
+.dn-pill-icon { display: inline-flex; flex: 0 0 auto; color: var(--primary); }
+.dn-pill-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dn-pill-short { display: none; }
+.day-notes-pill.has-note .dn-pill-text { color: var(--text); font-weight: 600; }
+.dn-pill-today { color: var(--primary); font-weight: 700; }
+.dn-pill-count {
+    flex: 0 0 auto;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    border-left: 1px solid var(--border);
+    padding-left: 8px;
+}
+.day-notes-panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(360px, calc(100vw - 24px));
+    max-height: calc(100vh - var(--nav-h, 60px) - var(--bottom-nav-height, 0px) - 90px);
+    overflow-y: auto;
+    box-sizing: border-box;
+    background: var(--bg-glass);
+    border: 1px solid var(--border);
+    border-radius: var(--r-auto, 0);
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.3);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+.day-notes-panel[hidden] { display: none; }
+.dn-compose { display: flex; flex-direction: column; gap: 6px; }
+.dn-compose-head, .dn-compose-foot, .dn-list-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+.dn-day, .dn-list-head {
+    font-size: 0.6rem;
+    font-family: var(--font-body);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--text-muted);
+}
+.dn-day { color: var(--text); }
+.dn-link {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--primary);
+    font-size: 0.7rem;
+    font-family: var(--font-body);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: none;
+    text-decoration: none;
+    cursor: pointer;
+}
+.dn-link:hover { text-decoration: underline; }
+#day-notes-input {
+    width: 100%;
+    box-sizing: border-box;
+    resize: none;
+    min-height: 58px;
+    max-height: 200px;
+    background: rgba(0, 0, 0, 0.18);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--r-auto, 0);
+    padding: 8px 9px;
+    font-size: 0.85rem;
+    font-family: var(--font-body);
+    font-weight: 500;
+    line-height: 1.4;
+    outline: none;
+}
+#day-notes-input::placeholder { color: var(--text-dim, var(--text-muted)); }
+#day-notes-input:focus { border-color: var(--primary); }
+.dn-status { font-size: 0.7rem; color: var(--text-muted); min-width: 0; }
+.dn-status.error { color: var(--danger, #d4553f); }
+.dn-save {
+    background: var(--primary);
+    color: #fff;
+    border: 1px solid var(--primary);
+    border-radius: var(--r-auto, 0);
+    padding: 5px 14px;
+    font-size: 0.75rem;
+    font-family: var(--font-body);
+    font-weight: 700;
+    cursor: pointer;
+}
+.dn-save:disabled { opacity: 0.45; cursor: default; }
+.dn-list-head { border-top: 1px solid var(--border); padding-top: 10px; }
+.dn-list { list-style: none; margin: 0 -4px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.dn-item {
+    padding: 7px 8px;
+    border: 1px solid transparent;
+    border-radius: var(--r-auto, 0);
+}
+.dn-item:hover { background: rgba(127, 127, 127, 0.08); }
+.dn-item.editing { border-color: var(--primary); }
+.dn-item-head { display: flex; align-items: center; gap: 10px; }
+.dn-item-day {
+    flex: 1;
+    font-size: 0.66rem;
+    font-family: var(--font-body);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-muted);
+}
+.dn-item-text {
+    margin: 3px 0 0;
+    padding: 0;
+    width: 100%;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    color: var(--text);
+    font-size: 0.82rem;
+    font-family: var(--font-body);
+    font-weight: 500;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.dn-item.expanded .dn-item-text { display: block; -webkit-line-clamp: unset; }
+.dn-empty { font-size: 0.75rem; color: var(--text-muted); padding: 2px 4px 4px; line-height: 1.45; }
+
+/* Narrow: the pill moves to the top-right so it clears the sidebar, and on
+   phones it shrinks to "today" (the panel still says everything). */
+@media (max-width: 900px) {
+    .map-top-center { left: auto; right: 12px; transform: none; align-items: flex-end; }
+    .day-notes { align-items: flex-end; }
+    .day-notes-panel { left: auto; right: 0; transform: none; }
+    .day-notes-pill { max-width: calc(100vw - 210px); }
+}
+@media (max-width: 600px) {
+    .dn-pill-text { display: none; }
+    .dn-pill-short { display: inline; }
+    .day-notes-pill { max-width: none; }
+}
+
 /* map info — bottom left */
 .map-info {
     position: absolute;
@@ -374,13 +561,8 @@
     text-overflow: ellipsis;
 }
 
-/* load-more prompt — centered top */
+/* load-more prompt — in the top-centre column, under the notes pill */
 .map-detail-controls {
-    position: absolute;
-    top: 12px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 10;
     display: none;
     align-items: center;
     gap: 8px;
@@ -951,6 +1133,43 @@
         </div>
     </div>
 
+    <!-- "What I did today": a pill along the top that opens today's note and
+         the notes for the days the range covers. The load-more prompt shares
+         this column so the two never overlap. -->
+    <div class="map-top-center" id="map-top-center">
+        <div class="day-notes" id="day-notes">
+            <button class="day-notes-pill" id="day-notes-pill" type="button" aria-expanded="false" aria-controls="day-notes-panel">
+                <span class="dn-pill-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 2.5l3 3L6 13H3v-3z"/><path d="M9 4l3 3"/></svg></span>
+                <span class="dn-pill-text" id="day-notes-pill-text">what did you do today?</span>
+                <span class="dn-pill-short" id="day-notes-pill-short">today</span>
+                <span class="dn-pill-count" id="day-notes-count" hidden></span>
+                <span class="group-chev" aria-hidden="true"></span>
+            </button>
+            <div class="day-notes-panel" id="day-notes-panel" role="region" aria-label="Day notes" hidden>
+                <div class="dn-compose">
+                    <div class="dn-compose-head">
+                        <label class="dn-day" for="day-notes-input" id="day-notes-day">today</label>
+                        <button class="dn-link" id="day-notes-today" type="button" hidden>back to today</button>
+                    </div>
+                    <textarea id="day-notes-input" rows="2" maxlength="2000" placeholder="coffee with sam, long walk by the river…" autocomplete="off"></textarea>
+                    <div class="dn-compose-foot">
+                        <span class="dn-status" id="day-notes-status" aria-live="polite"></span>
+                        <button class="dn-save" id="day-notes-save" type="button" disabled>save</button>
+                    </div>
+                </div>
+                <div class="dn-list-head">
+                    <span id="day-notes-list-label">in this range</span>
+                    <a class="dn-link" href="{% url 'tracker:journals' %}">journals &rarr;</a>
+                </div>
+                <ul class="dn-list" id="day-notes-list"></ul>
+            </div>
+        </div>
+        <div class="map-detail-controls" id="map-detail-controls">
+            <span id="map-detail-hint"></span>
+            <button id="map-load-more-btn" type="button">load all points</button>
+        </div>
+    </div>
+
     <!-- Replay panel (contextual, bottom center) -->
     <div class="replay-panel" id="replay-panel">
         <input type="date" id="replay-date" title="Day to replay">
@@ -993,11 +1212,6 @@
 
     <div id="map-loading-bar"></div>
     <div class="map-info" id="map-info">loading...</div>
-    <div class="map-detail-controls" id="map-detail-controls">
-        <span id="map-detail-hint"></span>
-        <button id="map-load-more-btn" type="button">load all points</button>
-    </div>
-
     <div id="map"></div>
     <canvas id="fog-canvas"></canvas>
 </div>
@@ -2597,6 +2811,284 @@ document.getElementById('addplace-cancel').addEventListener('click', closeAddPla
     }
     new MutationObserver(refreshCounts).observe(sidebar, { subtree: true, attributes: true, attributeFilter: ['class'] });
     refreshCounts();
+})();
+
+// ═══════════════════════════════════════════════════════════════════
+// Quick notes — "what I did today".
+// A note is stored on the day's journal entry (quick_note), but this panel
+// only ever sees the note: /api/notes/ never returns the journal's own text.
+// The list follows the map's range (ROAMLY_MAP_HOOKS.onRangeChanged), so the
+// ‹ › arrows walk the notes along with the track.
+// ═══════════════════════════════════════════════════════════════════
+(function () {
+    const $ = id => document.getElementById(id);
+    const root = $('day-notes');
+    if (!root) return;
+    const pill = $('day-notes-pill'), pillText = $('day-notes-pill-text'), pillCount = $('day-notes-count');
+    const panel = $('day-notes-panel'), ta = $('day-notes-input'), dayLabel = $('day-notes-day');
+    const backToday = $('day-notes-today'), saveBtn = $('day-notes-save'), statusEl = $('day-notes-status');
+    const listEl = $('day-notes-list'), listLabel = $('day-notes-list-label');
+    const DRAFT_KEY = 'roamly_note_draft';
+    const LIST_MAX = 60;
+    const known = new Map();        // date → note, as the server last told us
+    let today = localDateStr(new Date());
+    let editing = today;            // the day the composer writes to
+    let rangeDays = null;
+    let rangeNotes = [];
+    let rangeReq = 0;
+    let saving = false;
+    const expanded = new Set();
+
+    const headers = { 'Content-Type': 'application/json', 'X-CSRFToken': ROAMLY_MAP_CFG.csrfToken || '' };
+    const firstLine = t => (t || '').trim().split('\n')[0];
+
+    function fmtDay(ds, long) {
+        if (ds === today) return 'today';
+        if (ds === addDaysStr(today, -1)) return 'yesterday';
+        const [y, m, d] = ds.split('-').map(Number);
+        const opts = { weekday: 'short', month: 'short', day: 'numeric' };
+        if (y !== new Date().getFullYear()) opts.year = 'numeric';
+        if (!long) delete opts.weekday;
+        return new Date(y, m - 1, d).toLocaleDateString(undefined, opts);
+    }
+
+    function readDraft() {
+        try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); } catch (e) { return null; }
+    }
+    function writeDraft() {
+        try {
+            const text = ta.value;
+            if (text.trim() === (known.get(editing) || '')) localStorage.removeItem(DRAFT_KEY);
+            else localStorage.setItem(DRAFT_KEY, JSON.stringify({ date: editing, text }));
+        } catch (e) {}
+    }
+
+    function autosize() {
+        ta.style.height = 'auto';
+        ta.style.height = Math.min(200, ta.scrollHeight + 2) + 'px';
+    }
+
+    function updateSave() {
+        const cur = ta.value.trim();
+        const was = known.get(editing) || '';
+        saveBtn.disabled = saving || cur === was;
+        saveBtn.textContent = saving ? 'saving…' : (!cur && was ? 'remove' : 'save');
+    }
+
+    function setStatus(text, isError) {
+        statusEl.textContent = text || '';
+        statusEl.classList.toggle('error', !!isError);
+    }
+
+    function renderPill() {
+        const note = known.get(today) || '';
+        pill.classList.toggle('has-note', !!note);
+        pillText.textContent = '';
+        if (note) {
+            const lead = document.createElement('span');
+            lead.className = 'dn-pill-today';
+            lead.textContent = 'today · ';
+            pillText.append(lead, document.createTextNode(firstLine(note)));
+            pill.title = note;
+        } else {
+            pillText.textContent = 'what did you do today?';
+            pill.title = 'Jot down what you did today';
+        }
+        const others = rangeNotes.filter(n => n.date !== today).length;
+        pillCount.hidden = !others;
+        pillCount.textContent = others ? `${others} more` : '';
+        if (others) pillCount.title = `${others} other ${others === 1 ? 'day' : 'days'} with a note in this range`;
+    }
+
+    function renderListLabel() {
+        if (!rangeDays) { listLabel.textContent = 'all notes'; return; }
+        listLabel.textContent = rangeDays.start === rangeDays.end
+            ? fmtDay(rangeDays.start, true)
+            : `${fmtDay(rangeDays.start)} – ${fmtDay(rangeDays.end)}`;
+    }
+
+    function showDay(ds) {
+        $('start-date').value = ds;
+        $('end-date').value = ds;
+        $('time-range').value = 'all';
+        updateDateFilterUI();
+        clearAccumulated();
+        loadCurrentMode(true);
+        notifyRangeChanged();
+    }
+
+    function renderList() {
+        renderListLabel();
+        listEl.textContent = '';
+        if (!rangeNotes.length) {
+            const li = document.createElement('li');
+            li.className = 'dn-empty';
+            li.textContent = rangeDays
+                ? 'No notes for these days yet. Use ‹ › beside the time range to look further back.'
+                : 'No notes yet.';
+            listEl.appendChild(li);
+            return;
+        }
+        const single = rangeDays && rangeDays.start === rangeDays.end;
+        rangeNotes.slice(0, LIST_MAX).forEach(n => {
+            const li = document.createElement('li');
+            li.className = 'dn-item';
+            li.classList.toggle('editing', n.date === editing);
+            li.classList.toggle('expanded', expanded.has(n.date));
+
+            const headRow = document.createElement('div');
+            headRow.className = 'dn-item-head';
+            const day = document.createElement('span');
+            day.className = 'dn-item-day';
+            day.textContent = fmtDay(n.date, true);
+            headRow.appendChild(day);
+            if (!single) {
+                const show = document.createElement('button');
+                show.type = 'button';
+                show.className = 'dn-link';
+                show.textContent = 'show day';
+                show.title = 'Show just this day on the map';
+                show.addEventListener('click', () => showDay(n.date));
+                headRow.appendChild(show);
+            }
+            if (n.date !== editing) {
+                const edit = document.createElement('button');
+                edit.type = 'button';
+                edit.className = 'dn-link';
+                edit.textContent = 'edit';
+                edit.addEventListener('click', () => { setEditing(n.date); ta.focus(); });
+                headRow.appendChild(edit);
+            }
+
+            const text = document.createElement('button');
+            text.type = 'button';
+            text.className = 'dn-item-text';
+            text.textContent = n.note;
+            text.title = 'Show all of it';
+            text.addEventListener('click', () => {
+                if (expanded.has(n.date)) expanded.delete(n.date); else expanded.add(n.date);
+                li.classList.toggle('expanded');
+            });
+            li.append(headRow, text);
+            listEl.appendChild(li);
+        });
+        if (rangeNotes.length > LIST_MAX) {
+            const li = document.createElement('li');
+            li.className = 'dn-empty';
+            li.textContent = `Showing the latest ${LIST_MAX}. The rest are in Journals.`;
+            listEl.appendChild(li);
+        }
+    }
+
+    function setEditing(ds) {
+        editing = ds;
+        dayLabel.textContent = ds === today ? 'today' : fmtDay(ds, true);
+        backToday.hidden = ds === today;
+        const draft = readDraft();
+        ta.value = (draft && draft.date === ds) ? draft.text : (known.get(ds) || '');
+        ta.placeholder = ds === today
+            ? 'what did you do? coffee with sam, long walk by the river…'
+            : 'what did you do that day?';
+        setStatus(draft && draft.date === ds && draft.text.trim() !== (known.get(ds) || '') ? 'unsaved draft' : '');
+        autosize();
+        updateSave();
+        renderList();
+    }
+
+    async function save() {
+        const note = ta.value.trim();
+        if (saving || note === (known.get(editing) || '')) return;
+        const day = editing;
+        saving = true;
+        updateSave();
+        setStatus('');
+        try {
+            const r = await fetch(`/api/notes/${day}/`, { method: 'POST', headers, body: JSON.stringify({ note }) });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(d.error || 'save failed');
+            if (d.note) known.set(day, d.note); else known.delete(day);
+            rangeNotes = rangeNotes.filter(n => n.date !== day);
+            const inRange = !rangeDays || (day >= rangeDays.start && day <= rangeDays.end);
+            if (d.note && inRange) {
+                rangeNotes.push({ date: day, note: d.note });
+                rangeNotes.sort((a, b) => (a.date < b.date ? 1 : -1));
+            }
+            try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+            setStatus(d.note ? 'saved' : 'removed');
+            renderPill();
+            renderList();
+        } catch (e) {
+            setStatus(e.message && e.message !== 'save failed' ? e.message : "couldn't save, try again", true);
+        } finally {
+            saving = false;
+            updateSave();
+        }
+    }
+
+    async function loadRange(days) {
+        const id = ++rangeReq;
+        rangeDays = days;
+        const q = days ? `?start=${days.start}&end=${days.end}` : '';
+        try {
+            const r = await fetch('/api/notes/' + q);
+            if (!r.ok) return;
+            const d = await r.json();
+            if (id !== rangeReq) return;
+            rangeNotes = d.notes || [];
+            rangeNotes.forEach(n => known.set(n.date, n.note));
+            renderPill();
+            renderList();
+        } catch (e) { /* the map still works; the list just stays as it was */ }
+    }
+
+    async function loadToday() {
+        try {
+            const r = await fetch(`/api/notes/${today}/`);
+            if (!r.ok) return;
+            const d = await r.json();
+            if (d.note) known.set(today, d.note); else known.delete(today);
+        } catch (e) {}
+        if (editing === today && !ta.value.trim()) setEditing(today);
+        renderPill();
+    }
+
+    function open() {
+        // Past midnight with the page left open: today has moved on.
+        const now = localDateStr(new Date());
+        if (now !== today) {
+            const wasToday = editing === today;
+            today = now;
+            if (wasToday && ta.value.trim() === (known.get(editing) || '')) editing = today;
+            loadToday();
+        }
+        panel.hidden = false;
+        pill.setAttribute('aria-expanded', 'true');
+        setEditing(editing);
+        if (!known.get(editing) && !window.matchMedia('(pointer: coarse)').matches) ta.focus();
+    }
+    function close() {
+        panel.hidden = true;
+        pill.setAttribute('aria-expanded', 'false');
+    }
+
+    pill.addEventListener('click', () => (panel.hidden ? open() : close()));
+    backToday.addEventListener('click', () => { setEditing(today); ta.focus(); });
+    saveBtn.addEventListener('click', save);
+    ta.addEventListener('input', () => { autosize(); updateSave(); writeDraft(); if (statusEl.textContent) setStatus(''); });
+    ta.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
+    });
+    root.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && !panel.hidden) { e.stopPropagation(); close(); pill.focus(); }
+    });
+    document.addEventListener('pointerdown', e => {
+        if (!panel.hidden && !root.contains(e.target)) close();
+    });
+
+    (ROAMLY_MAP_HOOKS.onRangeChanged = ROAMLY_MAP_HOOKS.onRangeChanged || []).push(loadRange);
+    setEditing(today);
+    loadToday();
+    loadRange(currentRangeDays());
 })();
 </script>
 {% endblock %}
