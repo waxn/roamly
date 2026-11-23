@@ -12,7 +12,8 @@
  * The page must define `window.ROAMLY_MAP_CFG` BEFORE loading this file, and
  * must provide these element ids: map, map-info, map-loading-bar,
  * map-detail-controls, map-detail-hint, map-load-more-btn, time-range,
- * device-filter, start-date, end-date, date-reset, date-hint. Page-specific
+ * device-filter, start-date, end-date, date-reset, date-hint (range-prev and
+ * range-next are optional: the ‹ › that step the range). Page-specific
  * features (globe, scratch, places, fog, replay, editing tools) stay in the
  * page and simply register their own `map.on(...)` listeners.
  */
@@ -439,6 +440,92 @@ function resetDateFilter() {
     updateDateFilterUI();
     clearAccumulated();
     loadCurrentMode(true);
+    notifyRangeChanged();
+}
+
+// ── Range stepping (the ‹ › beside the time range) ──
+//
+// A step moves the window by its own length: a week back from "Last week" is
+// the week before it. "Last N" is treated as the N calendar days ending today,
+// so stepping back from it turns it into anchored mode (a start day plus the
+// same dropdown value) and the dropdown keeps saying how long the window is.
+// Stepping forward onto the current window drops the start day again, so the
+// map is back on the live "Last N" rather than a frozen copy of it. Sub-day
+// ranges step a whole day at a time. Open-ended All time has nothing to step.
+function addDaysStr(dateStr, n) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return localDateStr(new Date(y, m - 1, d + n));
+}
+
+function rangeStepInfo() {
+    const tr = document.getElementById('time-range').value;
+    const s = document.getElementById('start-date').value;
+    const e = document.getElementById('end-date').value;
+    const today = localDateStr(new Date());
+    if (s && e) {
+        const [ys, ms, ds] = s.split('-').map(Number);
+        const [ye, me, de] = e.split('-').map(Number);
+        const len = Math.round((new Date(ye, me - 1, de) - new Date(ys, ms - 1, ds)) / 86400000) + 1;
+        return { mode: 'exact', start: s, end: e, len: Math.max(1, len), today };
+    }
+    if (tr === 'all') return null;
+    const len = Math.max(1, Math.round(parseInt(tr, 10) / 24));
+    if (s) return { mode: 'anchored', start: s, end: anchoredEndDate(s, tr), len, today };
+    return { mode: 'live', start: addDaysStr(today, -(len - 1)), end: today, len, today };
+}
+
+/** The calendar days the current filter covers, as {start, end} (YYYY-MM-DD),
+ *  or null for open-ended All time. "Last 6 hours" just after midnight starts
+ *  yesterday, so it counts from when the window actually begins. */
+function currentRangeDays() {
+    const tr = document.getElementById('time-range').value;
+    const s = document.getElementById('start-date').value;
+    const e = document.getElementById('end-date').value;
+    if (s && e) return { start: s, end: e };
+    if (s) return { start: s, end: anchoredEndDate(s, tr) };
+    if (tr === 'all') return null;
+    const from = new Date(Date.now() - parseInt(tr, 10) * 3600000);
+    return { start: localDateStr(from), end: localDateStr(new Date()) };
+}
+
+function stepRange(dir) {
+    const info = rangeStepInfo();
+    if (!info) return;
+    const startEl = document.getElementById('start-date');
+    const endEl = document.getElementById('end-date');
+    if (info.mode === 'exact') {
+        if (dir > 0 && info.end >= info.today) return;
+        startEl.value = addDaysStr(info.start, dir * info.len);
+        endEl.value = addDaysStr(info.end, dir * info.len);
+    } else {
+        if (dir > 0 && info.mode === 'live') return;
+        const next = addDaysStr(info.start, dir * info.len);
+        // Forward onto (or past) the current window: back to live "Last N".
+        startEl.value = (dir > 0 && next > addDaysStr(info.today, -info.len)) ? '' : next;
+    }
+    updateDateFilterUI();
+    clearAccumulated();
+    loadCurrentMode(true);
+    notifyRangeChanged();
+}
+
+function updateRangeStepButtons() {
+    const prev = document.getElementById('range-prev');
+    const next = document.getElementById('range-next');
+    if (!prev || !next) return;
+    const info = rangeStepInfo();
+    prev.disabled = !info;
+    next.disabled = !info || info.mode === 'live' || (info.mode === 'exact' && info.end >= info.today);
+    const unit = info ? (info.len === 1 ? 'day' : `${info.len} days`) : '';
+    prev.title = info ? `Previous ${unit}` : 'Pick a shorter range to step through it';
+    next.title = next.disabled ? (info ? 'Already showing the latest' : prev.title) : `Next ${unit}`;
+}
+
+/** Run after any change to the time filter. Pages subscribe through
+ *  ROAMLY_MAP_HOOKS.onRangeChanged (an array of functions). */
+function notifyRangeChanged() {
+    updateRangeStepButtons();
+    (ROAMLY_MAP_HOOKS.onRangeChanged || []).forEach(fn => { try { fn(currentRangeDays()); } catch (err) { console.error(err); } });
 }
 
 function toLocalDateTimeParam(dateStr, kind) {
@@ -1886,6 +1973,7 @@ document.getElementById('map-load-more-btn').addEventListener('click', () => {
         updateDateFilterUI();
         clearAccumulated();
         loadCurrentMode(true);
+        if (id === 'time-range') notifyRangeChanged();
     });
 });
 
@@ -1900,10 +1988,18 @@ document.getElementById('map-load-more-btn').addEventListener('click', () => {
         updateDateFilterUI();
         clearAccumulated();
         loadCurrentMode(true);
+        notifyRangeChanged();
     });
 });
 
 document.getElementById('date-reset').addEventListener('click', resetDateFilter);
+{
+    const prev = document.getElementById('range-prev');
+    const next = document.getElementById('range-next');
+    if (prev) prev.addEventListener('click', () => stepRange(-1));
+    if (next) next.addEventListener('click', () => stepRange(1));
+    updateRangeStepButtons();
+}
 
 
 // ═══════════════════════════════════════════════════════════════════
