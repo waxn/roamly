@@ -1,5 +1,6 @@
 package com.roamly.ui.map
 
+import androidx.compose.material.icons.rounded.ChevronLeft
 import android.Manifest
 import android.content.pm.PackageManager
 import android.widget.Toast
@@ -271,33 +272,43 @@ fun MapScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Top-left: the active time range. Tapping it opens the same map-options
-        // sheet as the tune button — the label is the only thing that has to be
-        // visible without opening anything.
-        Surface(
+        // Top-left: the active time range, with ‹ › to step it a window at a
+        // time. Tapping the label opens the same map-options sheet as the tune
+        // button.
+        Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(start = 12.dp, top = 12.dp)
-                .clickable { showOptions = true },
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-            shape = RoundedCornerShape(14.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                .padding(start = 12.dp, top = 12.dp, end = 104.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Surface(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
             ) {
-                Icon(
-                    if (state.timePeriod == TimePeriod.CUSTOM) Icons.Rounded.DateRange else Icons.Rounded.CalendarMonth,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(state.periodLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
-                Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RangeStep(Icons.Rounded.ChevronLeft, "Previous range", enabled = state.canStepBack) { viewModel.stepRange(-1) }
+                    Row(
+                        modifier = Modifier
+                            .clickable { showOptions = true }
+                            .padding(horizontal = 6.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            if (state.timePeriod == TimePeriod.CUSTOM) Icons.Rounded.DateRange else Icons.Rounded.CalendarMonth,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(state.periodLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
+                        Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    RangeStep(Icons.Rounded.ChevronRight, "Next range", enabled = state.canStepForward) { viewModel.stepRange(1) }
+                }
             }
+        }
         }
 
         // Top-right: refresh + map options, in one grouped plate.
@@ -607,6 +618,16 @@ private fun MapOptionsSheet(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RangeStep(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, enabled: Boolean, onClick: () -> Unit) {
+    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(width = 34.dp, height = 36.dp)) {
+        Icon(
+            icon, contentDescription = desc, modifier = Modifier.size(20.dp),
+            tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+        )
     }
 }
 

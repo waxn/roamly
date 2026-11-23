@@ -28,8 +28,27 @@ enum class TimePeriod(val label: String) {
 }
 
 data class DateRange(val start: LocalDate, val end: LocalDate) {
-    val label: String get() = if (start == end) start.toString() else "$start → $end"
+    val label: String get() {
+        val thisYear = LocalDate.now().year
+        fun fmt(d: LocalDate, weekday: Boolean) = d.format(
+            java.time.format.DateTimeFormatter.ofPattern(
+                (if (weekday) "EEE, " else "") + "MMM d" + (if (d.year != thisYear) ", yyyy" else ""),
+                java.util.Locale.getDefault(),
+            )
+        )
+        return if (start == end) fmt(start, weekday = true) else "${fmt(start, false)} – ${fmt(end, false)}"
+    }
 }
+
+/** How many calendar days a live period covers when it is stepped with ‹ ›. */
+internal val TimePeriod.stepDays: Long?
+    get() = when (this) {
+        TimePeriod.H6, TimePeriod.H24 -> 1
+        TimePeriod.D7 -> 7
+        TimePeriod.D30 -> 30
+        TimePeriod.D90 -> 90
+        TimePeriod.ALL, TimePeriod.CUSTOM -> null
+    }
 
 /** points loaded for the initial period view (heatmap-first) */
 private const val PERIOD_LOAD_LIMIT = 20_000
@@ -82,6 +101,20 @@ data class MapUiState(
 ) {
     val periodLabel: String get() = if (timePeriod == TimePeriod.CUSTOM && customDateRange != null)
         customDateRange.label else timePeriod.label
+
+    /** The calendar days on screen (null = all time). "6h" just after midnight
+     *  starts yesterday, so it counts from when the window really begins. */
+    fun rangeDays(now: java.time.LocalDateTime = java.time.LocalDateTime.now()): Pair<LocalDate, LocalDate>? =
+        when (timePeriod) {
+            TimePeriod.ALL -> null
+            TimePeriod.CUSTOM -> customDateRange?.let { it.start to it.end }
+            else -> now.minusHours((timePeriod.hours ?: 0).toLong()).toLocalDate() to now.toLocalDate()
+        }
+
+    val canStepBack: Boolean get() = timePeriod != TimePeriod.ALL &&
+        (timePeriod != TimePeriod.CUSTOM || customDateRange != null)
+    val canStepForward: Boolean get() = timePeriod == TimePeriod.CUSTOM &&
+        customDateRange != null && customDateRange.end.isBefore(LocalDate.now())
 }
 
 @HiltViewModel
@@ -190,11 +223,47 @@ class MapViewModel @Inject constructor(
         viewModelScope.launch { userPreferences.setMapBasemap(name) }
     }
 
+    /** The live period the ‹ arrow stepped away from, so › can land back on it. */
+    private var stepOrigin: TimePeriod? = null
+
+    /**
+     * ‹ / › beside the time range: move the window by its own length. A live
+     * period ("7d") becomes the custom range before it; stepping forward onto
+     * the current window returns to the live period rather than a frozen copy.
+     */
+    fun stepRange(dir: Int) {
+        val s = _uiState.value
+        val today = LocalDate.now()
+        val (start, end) = when (s.timePeriod) {
+            TimePeriod.ALL -> return
+            TimePeriod.CUSTOM -> s.customDateRange?.let { it.start to it.end } ?: return
+            else -> {
+                val len = s.timePeriod.stepDays ?: return
+                if (dir > 0) return
+                stepOrigin = s.timePeriod
+                today.minusDays(len - 1) to today
+            }
+        }
+        val len = java.time.temporal.ChronoUnit.DAYS.between(start, end) + 1
+        if (dir > 0 && !end.isBefore(today)) return
+        val newStart = start.plusDays(dir * len)
+        val newEnd = end.plusDays(dir * len)
+        if (dir > 0 && !newEnd.isBefore(today)) {
+            val origin = stepOrigin?.takeIf { it.stepDays == len }
+                ?: TimePeriod.entries.firstOrNull { it != TimePeriod.H6 && it.stepDays == len }
+            if (origin != null) { setTimePeriod(origin); return }
+            applyCustomRange(DateRange(today.minusDays(len - 1), today))
+            return
+        }
+        applyCustomRange(DateRange(newStart, newEnd))
+    }
+
     fun setTimePeriod(period: TimePeriod) {
         if (period == TimePeriod.CUSTOM) {
             _uiState.update { it.copy(showDateRangePicker = true) }
             return
         }
+        stepOrigin = null
         accumulator.clear()
         lastQueried = null
         didAutoFit = false
@@ -205,6 +274,11 @@ class MapViewModel @Inject constructor(
     }
 
     fun setCustomDateRange(range: DateRange) {
+        stepOrigin = null
+        applyCustomRange(range)
+    }
+
+    private fun applyCustomRange(range: DateRange) {
         accumulator.clear()
         lastQueried = null
         didAutoFit = false
