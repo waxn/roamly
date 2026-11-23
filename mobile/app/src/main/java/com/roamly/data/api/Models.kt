@@ -545,6 +545,7 @@ data class JournalListItem(
     val cover: String? = null,
     @SerializedName("word_count") val wordCount: Int = 0,
     @SerializedName("location_name") val locationName: String? = null,
+    @SerializedName("quick_note") val quickNote: String? = null,
 )
 
 data class JournalListResponse(val entries: List<JournalListItem> = emptyList())
@@ -573,6 +574,7 @@ data class JournalEntryData(
     val date: String = "",
     val title: String = "",
     val body: String = "",
+    @SerializedName("quick_note")    val quickNote: String? = null,
     val mood: String = "",
     val weather: String = "",
     @SerializedName("is_favorite")   val isFavorite: Boolean = false,
@@ -600,10 +602,26 @@ data class JournalDetailResponse(
 data class JournalSaveRequest(
     val title: String? = null,
     val body: String? = null,
+    /** Null leaves the day's quick note as it is (Gson drops null fields). */
+    @SerializedName("quick_note") val quickNote: String? = null,
     val mood: String? = null,
     val weather: String? = null,
     @SerializedName("is_favorite") val isFavorite: Boolean? = null,
 )
+
+// --- Quick notes ("what I did today") ---
+// Stored on the day's journal entry, but these endpoints only ever return the
+// note itself, never the journal's title or body.
+
+data class QuickNote(
+    val date: String = "",
+    val note: String = "",
+    @SerializedName("updated_at") val updatedAt: String? = null,
+)
+
+data class QuickNotesResponse(val notes: List<QuickNote> = emptyList())
+
+data class QuickNoteSaveRequest(val note: String)
 
 data class JournalPhotosResponse(
     val status: String = "",

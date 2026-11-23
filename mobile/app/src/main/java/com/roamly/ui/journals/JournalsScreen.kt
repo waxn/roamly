@@ -295,8 +295,9 @@ private fun RecentRow(entry: JournalListItem, cover: String?, onClick: () -> Uni
                     color = MaterialTheme.colorScheme.onBackground,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
+                val snippet = entry.snippet.ifBlank { entry.quickNote.orEmpty().trim().substringBefore('\n') }
                 Text(
-                    if (entry.title.isBlank()) entry.snippet else "${prettyDate(entry.date)} · ${entry.snippet}",
+                    if (entry.title.isBlank()) snippet else "${prettyDate(entry.date)} · $snippet",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -365,6 +366,19 @@ private fun EntryEditor(editor: JournalEditorState, viewModel: JournalsViewModel
                     onValueChange = viewModel::onTitleChange,
                     label = { Text("Title") },
                     singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                // The quick "what I did today" line. Its own field because it is
+                // the one part of an entry the map shows.
+                OutlinedTextField(
+                    value = editor.quickNote,
+                    onValueChange = viewModel::onQuickNoteChange,
+                    label = { Text("Quick note") },
+                    placeholder = { Text("What you did, in a line") },
+                    supportingText = { Text("Shows on the map") },
+                    minLines = 1,
+                    maxLines = 4,
                     modifier = Modifier.fillMaxWidth(),
                 )
 

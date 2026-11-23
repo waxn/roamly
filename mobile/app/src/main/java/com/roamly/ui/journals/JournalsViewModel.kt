@@ -38,6 +38,8 @@ data class JournalEditorState(
     val exists: Boolean = false,
     val title: String = "",
     val body: String = "",
+    /** The "what I did today" line — the only part of an entry the map shows. */
+    val quickNote: String = "",
     val mood: String = "",
     val weather: String = "",
     val isFavorite: Boolean = false,
@@ -124,7 +126,8 @@ class JournalsViewModel @Inject constructor(
                     _state.update {
                         it.copy(editor = JournalEditorState(
                             date = date, loading = false, exists = e.exists,
-                            title = e.title, body = e.body, mood = e.mood, weather = e.weather,
+                            title = e.title, body = e.body, quickNote = e.quickNote.orEmpty(),
+                            mood = e.mood, weather = e.weather,
                             isFavorite = e.isFavorite, photos = e.photos, track = r.data.track,
                         ))
                     }
@@ -144,6 +147,7 @@ class JournalsViewModel @Inject constructor(
 
     fun onTitleChange(v: String) { editEditor { it.copy(title = v) }; scheduleSave() }
     fun onBodyChange(v: String) { editEditor { it.copy(body = v) }; scheduleSave() }
+    fun onQuickNoteChange(v: String) { editEditor { it.copy(quickNote = v.take(2000)) }; scheduleSave() }
     fun onWeatherChange(v: String) { editEditor { it.copy(weather = v) }; scheduleSave() }
     fun onMoodChange(v: String) { editEditor { it.copy(mood = if (it.mood == v) "" else v) }; scheduleSave() }
     fun onToggleFavorite() { editEditor { it.copy(isFavorite = !it.isFavorite) }; scheduleSave() }
@@ -160,7 +164,7 @@ class JournalsViewModel @Inject constructor(
         val ed = _state.value.editor ?: return
         editEditor { it.copy(saving = true) }
         val req = JournalSaveRequest(
-            title = ed.title, body = ed.body, mood = ed.mood,
+            title = ed.title, body = ed.body, quickNote = ed.quickNote, mood = ed.mood,
             weather = ed.weather, isFavorite = ed.isFavorite,
         )
         repo.save(ed.date.toString(), req)

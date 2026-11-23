@@ -353,6 +353,25 @@ interface RoamlyApi {
     @POST("api/journals/photos/{id}/delete/")
     suspend fun deleteJournalPhoto(@Path("id") id: Int): Response<ResponseBody>
 
+    // --- Quick notes ("what I did today") ---
+
+    /** Days with a note between [start] and [end] (inclusive yyyy-MM-dd, both optional), newest first. */
+    @GET("api/notes/")
+    suspend fun getQuickNotes(
+        @Query("start") start: String? = null,
+        @Query("end") end: String? = null,
+    ): Response<QuickNotesResponse>
+
+    @GET("api/notes/{date}/")
+    suspend fun getQuickNote(@Path("date") date: String): Response<QuickNote>
+
+    /** Upsert; a blank note clears it. */
+    @POST("api/notes/{date}/")
+    suspend fun saveQuickNote(
+        @Path("date") date: String,
+        @Body body: QuickNoteSaveRequest,
+    ): Response<QuickNote>
+
     // --- Devices ---
 
     @GET("api/devices/")
