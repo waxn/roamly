@@ -30,8 +30,8 @@
     left: 12px;
     z-index: 10;
     display: flex;
-    flex-direction: row;
-    align-items: flex-end;
+    flex-direction: column;
+    align-items: flex-start;
     pointer-events: none;
 }
 
@@ -252,6 +252,83 @@
     content: '▾'; display: inline-block; margin-left: 6px; transition: transform 0.18s;
 }
 .transport-layer.open #transport-toggle .tool-btn-badge::after { transform: rotate(180deg); }
+
+/* ── Sidebar head + groups ──
+   The head folds the whole panel away (phones start folded). Each group
+   folds on its own and its count says how many toggles inside are on, so a
+   closed group never hides the fact that it is changing the map. */
+.sidebar-head,
+.group-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    background: none;
+    border: none;
+    margin: 0;
+    padding: 2px;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.6rem;
+    font-family: var(--font-body);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    text-align: left;
+}
+.sidebar-head > span:first-child,
+.group-title { flex: 1; min-width: 0; }
+.sidebar-head:hover,
+.group-head:hover { color: var(--text); }
+.group-head { font-size: 0.64rem; color: var(--text); }
+.sidebar-head-count,
+.group-count {
+    color: var(--primary);
+    letter-spacing: 0.03em;
+    text-transform: none;
+    white-space: nowrap;
+}
+.group-chev {
+    flex: 0 0 auto;
+    width: 6px;
+    height: 6px;
+    margin: 0 2px 3px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(45deg);
+    transition: transform 0.18s ease, margin 0.18s ease;
+}
+[aria-expanded="true"] > .group-chev { transform: rotate(-135deg); margin-bottom: -2px; }
+.sidebar-body { display: flex; flex-direction: column; gap: 12px; }
+.map-sidebar.collapsed .sidebar-body { display: none; }
+.map-sidebar.collapsed .sidebar-content { width: auto; min-width: 150px; padding: 9px 10px; }
+
+.sidebar-group {
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--border);
+    padding-top: 9px;
+    margin-top: -3px;
+}
+.group-body {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.2s ease;
+}
+.sidebar-group.open .group-body { grid-template-rows: 1fr; }
+.group-inner {
+    overflow: hidden;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    visibility: hidden;
+    transition: visibility 0s linear 0.2s, padding 0.2s ease;
+}
+.sidebar-group.open .group-inner { visibility: visible; transition-delay: 0s; padding-top: 9px; }
+@media (prefers-reduced-motion: reduce) {
+    .group-body, .group-inner, .group-chev { transition: none; }
+}
 
 /* map info — bottom left */
 .map-info {
@@ -653,151 +730,197 @@
 {% block content %}
 <div id="map-container">
 
-    <!-- Floating left sidebar -->
+    <!-- Floating left sidebar. Filters stay on top; everything that only
+         changes how the map looks is folded into three groups, each of which
+         remembers whether it was open and counts what is switched on inside. -->
     <div class="map-sidebar" id="map-sidebar">
-        <div class="sidebar-content">
+        <div class="sidebar-content" id="sidebar-content">
 
-            <div class="sidebar-section">
-                <div class="sidebar-label">time range</div>
-                <select id="time-range">
-                    <option value="1">Last hour</option>
-                    <option value="6">Last 6 hours</option>
-                    <option value="24">Last 24 hours</option>
-                    <option value="72">Last 3 days</option>
-                    <option value="168">Last week</option>
-                    <option value="720">Last 30 days</option>
-                    <option value="all">All time</option>
-                </select>
-                <div class="sidebar-date-row">
-                    <input type="date" id="start-date" title="Start day — leave the end blank to show the selected time range from this day">
-                    <input type="date" id="end-date" title="End day (optional) — set both for an exact range">
-                    <div class="date-hint" id="date-hint" hidden></div>
-                    <button class="date-reset-btn" id="date-reset" type="button" hidden>reset to default view</button>
+            <button class="sidebar-head" id="sidebar-collapse" type="button" aria-expanded="true" aria-controls="sidebar-body">
+                <span>map options</span>
+                <span class="sidebar-head-count" id="sidebar-head-count" aria-hidden="true"></span>
+                <span class="group-chev" aria-hidden="true"></span>
+            </button>
+
+            <div class="sidebar-body" id="sidebar-body">
+                <div class="sidebar-section">
+                    <div class="sidebar-label">time range</div>
+                    <select id="time-range">
+                        <option value="1">Last hour</option>
+                        <option value="6">Last 6 hours</option>
+                        <option value="24">Last 24 hours</option>
+                        <option value="72">Last 3 days</option>
+                        <option value="168">Last week</option>
+                        <option value="720">Last 30 days</option>
+                        <option value="all">All time</option>
+                    </select>
+                    <div class="sidebar-date-row">
+                        <input type="date" id="start-date" title="Start day — leave the end blank to show the selected time range from this day">
+                        <input type="date" id="end-date" title="End day (optional) — set both for an exact range">
+                        <div class="date-hint" id="date-hint" hidden></div>
+                        <button class="date-reset-btn" id="date-reset" type="button" hidden>reset to default view</button>
+                    </div>
                 </div>
-            </div>
 
-            <div class="sidebar-section place-filter" id="place-filter" hidden>
-                <div class="sidebar-label">place</div>
-                <div class="place-filter-chip">
-                    <span id="place-filter-label"></span>
-                    <button type="button" id="place-filter-clear" title="Show everywhere again" aria-label="Clear place filter">&times;</button>
+                <div class="sidebar-section place-filter" id="place-filter" hidden>
+                    <div class="sidebar-label">place</div>
+                    <div class="place-filter-chip">
+                        <span id="place-filter-label"></span>
+                        <button type="button" id="place-filter-clear" title="Show everywhere again" aria-label="Clear place filter">&times;</button>
+                    </div>
                 </div>
-            </div>
 
-            <div class="sidebar-section">
-                <div class="sidebar-label">device</div>
-                <select id="device-filter">
-                    <option value="">All devices</option>
-                    {% for device in devices %}
-                    <option value="{{ device.device_id }}">{{ device.name|default:device.device_id }}</option>
-                    {% endfor %}
-                </select>
-            </div>
+                <div class="sidebar-section">
+                    <div class="sidebar-label">device</div>
+                    <select id="device-filter">
+                        <option value="">All devices</option>
+                        {% for device in devices %}
+                        <option value="{{ device.device_id }}">{{ device.name|default:device.device_id }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
 
-            <div class="sidebar-section" id="basemap-section">
-                <div class="sidebar-label">basemap</div>
-                {# Buttons built by map-core.js from #roamly-basemaps (Admin Panel → Basemaps). #}
-            </div>
+                <div class="sidebar-group" id="group-display" data-group="display" data-open-default="1">
+                    <button class="group-head" type="button" aria-expanded="true" aria-controls="group-display-body">
+                        <span class="group-title">map display</span>
+                        <span class="group-count" aria-hidden="true"></span>
+                        <span class="group-chev" aria-hidden="true"></span>
+                    </button>
+                    <div class="group-body" id="group-display-body">
+                        <div class="group-inner">
+                            <div class="sidebar-section" id="basemap-section">
+                                <div class="sidebar-label">basemap</div>
+                                {# Buttons built by map-core.js from #roamly-basemaps (Admin Panel → Basemaps). #}
+                            </div>
 
-            <div class="sidebar-section">
-                <div class="sidebar-label">layers</div>
-                <div class="sidebar-tools">
-                    {% comment %}Multi-select: each chip shows or hides one
-                       Location.transport_mode. Lives in Layers as an expandable
-                       row; the badge counts what is showing. Detection is a
-                       manual job, so most recent points are "unclassified"
-                       until it has run.{% endcomment %}
-                    <div class="transport-layer" id="transport-section">
-                        <button class="tool-btn" id="transport-toggle" type="button" aria-expanded="false" aria-controls="transport-panel">
-                            transport
-                            <span class="tool-btn-badge" id="transport-note"></span>
-                        </button>
-                        <div class="transport-panel" id="transport-panel">
-                            <div class="transport-chips" role="group" aria-label="Transport modes shown">
-                                <button class="tp-chip" type="button" data-mode="walk" title="On foot">Walk</button>
-                                <button class="tp-chip" type="button" data-mode="cycle" title="By bike">Cycle</button>
-                                <button class="tp-chip" type="button" data-mode="vehicle" title="Car, bus, train or ferry: detection can't tell them apart by speed">Vehicle</button>
-                                <button class="tp-chip" type="button" data-mode="plane" title="Flights">Plane</button>
-                                <button class="tp-chip" type="button" data-mode="still" title="Staying put, including Trip Lines' stop blobs">Still</button>
-                                <button class="tp-chip" type="button" data-mode="none" title="Points transport detection hasn't labelled yet. Run Settings → Background Jobs → Detect Transport Modes to sort them.">Unclassified</button>
+                            <div class="sidebar-tools">
+                                <button class="tool-btn" id="globe-btn" type="button">
+                                    globe
+                                    <span class="tool-btn-badge" id="globe-badge"></span>
+                                </button>
+                                <button class="tool-btn" id="scratch-btn" type="button">
+                                    scratch map
+                                    <span class="tool-btn-badge" id="scratch-badge"></span>
+                                </button>
+                                <button class="tool-btn" id="fog-btn" type="button">
+                                    fog of war
+                                    <span class="tool-btn-badge" id="fog-badge"></span>
+                                </button>
                             </div>
                         </div>
                     </div>
-                    <button class="tool-btn" id="globe-btn" type="button">
-                        globe
-                        <span class="tool-btn-badge" id="globe-badge"></span>
-                    </button>
-                    <button class="tool-btn" id="scratch-btn" type="button">
-                        scratch map
-                        <span class="tool-btn-badge" id="scratch-badge"></span>
-                    </button>
-                    <button class="tool-btn" id="places-btn" type="button">
-                        my places
-                        <span class="tool-btn-badge" id="places-badge"></span>
-                    </button>
-                    <button class="tool-btn" id="fog-btn" type="button">
-                        fog of war
-                        <span class="tool-btn-badge" id="fog-badge"></span>
-                    </button>
-                    {% comment %}Two toggles rather than one, because they obey
-                       different clocks: the signal layer follows the range
-                       picker above, while towers are always all-time — a tower
-                       you once saw stays one, the same argument fog of war
-                       makes for its own layer.{% endcomment %}
-                    <button class="tool-btn" id="cellsig-btn" type="button"
-                            title="Signal strength at each place a reading was taken. Follows the time range above.">
-                        cell signal
-                        <span class="tool-btn-badge" id="cellsig-badge"></span>
-                    </button>
-                    <button class="tool-btn" id="cellcov-btn" type="button"
-                            title="Where each network actually had signal — only ground a reading was taken on, never interpolated.">
-                        cell coverage
-                        <span class="tool-btn-badge" id="cellcov-badge"></span>
-                    </button>
-                    <button class="tool-btn" id="celltower-btn" type="button"
-                            title="Estimated tower positions, from all time regardless of the range above. A tower only ever seen from one spot is drawn as a ring, not a dot.">
-                        cell towers
-                        <span class="tool-btn-badge" id="celltower-badge"></span>
-                    </button>
-                    {% comment %}Hides the GPS track layers so the cell layers
-                       above are readable on their own. Reuses replay's existing
-                       setBaseLayersVisible so there is one definition of "the
-                       base layers".{% endcomment %}
-                    <button class="tool-btn" id="hidetrack-btn" type="button"
-                            title="Hide the GPS points and lines, leaving only the layers above.">
-                        hide track
-                        <span class="tool-btn-badge" id="hidetrack-badge"></span>
-                    </button>
-                    {% if ROAD_SNAP_ENABLED %}
-                    {% comment %}Display-only, this-browser-only. Deliberately NOT called
-                       "snap to roads": that is the name of the account-wide
-                       master switch in Settings, and two controls sharing one
-                       name is why the real switch went unfound.{% endcomment %}
-                    <button class="tool-btn" id="snap-btn" type="button"
-                            title="Show this map's points on their snapped road positions. Display only, and only in this browser — road snapping itself is switched on for your whole account in Settings → Road Snapping.">
-                        snapped view
-                        <span class="tool-btn-badge" id="snap-badge"></span>
-                    </button>
-                    {% endif %}
-                    <button class="tool-btn" id="inferred-btn" type="button">
-                        filled gaps
-                        <span class="tool-btn-badge" id="inferred-badge"></span>
-                    </button>
-                    <button class="tool-btn" id="suspect-btn" type="button">
-                        hide outliers
-                        <span class="tool-btn-badge" id="suspect-badge"></span>
-                    </button>
-                    <button class="tool-btn" id="replay-btn" type="button">
-                        replay day
-                        <span class="tool-btn-badge" id="replay-badge"></span>
-                    </button>
                 </div>
-                {% comment %}The speed gradient gets away without a legend
-                   because "fast is red" is intuitive; "-95 dBm is green" is
-                   not.{% endcomment %}
-                <div class="cell-legend" id="cell-legend">
-                    <div id="cell-legend-rows"></div>
-                    <div class="cell-legend-note">fainter = weaker signal</div>
+
+                <div class="sidebar-group" id="group-track" data-group="track" data-open-default="0">
+                    <button class="group-head" type="button" aria-expanded="false" aria-controls="group-track-body">
+                        <span class="group-title">track</span>
+                        <span class="group-count" aria-hidden="true"></span>
+                        <span class="group-chev" aria-hidden="true"></span>
+                    </button>
+                    <div class="group-body" id="group-track-body">
+                        <div class="group-inner">
+                            <div class="sidebar-tools">
+                                {% comment %}Multi-select: each chip shows or hides one
+                                   Location.transport_mode. An expandable row in the Track
+                                   group; the badge counts what is showing. Detection is a
+                                   manual job, so most recent points are "unclassified"
+                                   until it has run.{% endcomment %}
+                                <div class="transport-layer" id="transport-section">
+                                    <button class="tool-btn" id="transport-toggle" type="button" aria-expanded="false" aria-controls="transport-panel">
+                                        transport
+                                        <span class="tool-btn-badge" id="transport-note"></span>
+                                    </button>
+                                    <div class="transport-panel" id="transport-panel">
+                                        <div class="transport-chips" role="group" aria-label="Transport modes shown">
+                                            <button class="tp-chip" type="button" data-mode="walk" title="On foot">Walk</button>
+                                            <button class="tp-chip" type="button" data-mode="cycle" title="By bike">Cycle</button>
+                                            <button class="tp-chip" type="button" data-mode="vehicle" title="Car, bus, train or ferry: detection can't tell them apart by speed">Vehicle</button>
+                                            <button class="tp-chip" type="button" data-mode="plane" title="Flights">Plane</button>
+                                            <button class="tp-chip" type="button" data-mode="still" title="Staying put, including Trip Lines' stop blobs">Still</button>
+                                            <button class="tp-chip" type="button" data-mode="none" title="Points transport detection hasn't labelled yet. Run Settings → Background Jobs → Detect Transport Modes to sort them.">Unclassified</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button class="tool-btn" id="inferred-btn" type="button">
+                                    filled gaps
+                                    <span class="tool-btn-badge" id="inferred-badge"></span>
+                                </button>
+                                <button class="tool-btn" id="suspect-btn" type="button">
+                                    hide outliers
+                                    <span class="tool-btn-badge" id="suspect-badge"></span>
+                                </button>
+                                {% if ROAD_SNAP_ENABLED %}
+                                {% comment %}Display-only, this-browser-only. Deliberately NOT called
+                                   "snap to roads": that is the name of the account-wide
+                                   master switch in Settings, and two controls sharing one
+                                   name is why the real switch went unfound.{% endcomment %}
+                                <button class="tool-btn" id="snap-btn" type="button"
+                                        title="Show this map's points on their snapped road positions. Display only, and only in this browser — road snapping itself is switched on for your whole account in Settings → Road Snapping.">
+                                    snapped view
+                                    <span class="tool-btn-badge" id="snap-badge"></span>
+                                </button>
+                                {% endif %}
+                                {% comment %}Hides the GPS track layers so the other layers
+                                   (cells, places, fog) are readable on their own. Reuses replay's existing
+                                   setBaseLayersVisible so there is one definition of "the
+                                   base layers".{% endcomment %}
+                                <button class="tool-btn" id="hidetrack-btn" type="button"
+                                        title="Hide the GPS points and lines, leaving only the other layers.">
+                                    hide track
+                                    <span class="tool-btn-badge" id="hidetrack-badge"></span>
+                                </button>
+                                <button class="tool-btn" id="replay-btn" type="button">
+                                    replay day
+                                    <span class="tool-btn-badge" id="replay-badge"></span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sidebar-group" id="group-extra" data-group="extra" data-open-default="0">
+                    <button class="group-head" type="button" aria-expanded="false" aria-controls="group-extra-body">
+                        <span class="group-title">extra data</span>
+                        <span class="group-count" aria-hidden="true"></span>
+                        <span class="group-chev" aria-hidden="true"></span>
+                    </button>
+                    <div class="group-body" id="group-extra-body">
+                        <div class="group-inner">
+                            <div class="sidebar-tools">
+                                <button class="tool-btn" id="places-btn" type="button">
+                                    my places
+                                    <span class="tool-btn-badge" id="places-badge"></span>
+                                </button>
+                                {% comment %}Two toggles rather than one, because they obey
+                                   different clocks: the signal layer follows the range
+                                   picker above, while towers are always all-time — a tower
+                                   you once saw stays one, the same argument fog of war
+                                   makes for its own layer.{% endcomment %}
+                                <button class="tool-btn" id="cellsig-btn" type="button"
+                                        title="Signal strength at each place a reading was taken. Follows the time range above.">
+                                    cell signal
+                                    <span class="tool-btn-badge" id="cellsig-badge"></span>
+                                </button>
+                                <button class="tool-btn" id="cellcov-btn" type="button"
+                                        title="Where each network actually had signal — only ground a reading was taken on, never interpolated.">
+                                    cell coverage
+                                    <span class="tool-btn-badge" id="cellcov-badge"></span>
+                                </button>
+                                <button class="tool-btn" id="celltower-btn" type="button"
+                                        title="Estimated tower positions, from all time regardless of the range above. A tower only ever seen from one spot is drawn as a ring, not a dot.">
+                                    cell towers
+                                    <span class="tool-btn-badge" id="celltower-badge"></span>
+                                </button>
+                            </div>
+                            {% comment %}The speed gradient gets away without a legend
+                               because "fast is red" is intuitive; "-95 dBm is green" is
+                               not.{% endcomment %}
+                            <div class="cell-legend" id="cell-legend">
+                                <div id="cell-legend-rows"></div>
+                                <div class="cell-legend-note">fainter = weaker signal</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -2390,5 +2513,66 @@ addplaceSaveBtn.addEventListener('click', async () => {
 });
 
 document.getElementById('addplace-cancel').addEventListener('click', closeAddPlace);
+
+// ═══════════════════════════════════════════════════════════════════
+// Sidebar folding — the whole panel, and each group inside it.
+// Open/closed is remembered per browser; phones keep their own panel state
+// so folding it there doesn't fold it on the desktop. A group's count is
+// read off the buttons themselves (every toggle already sets .active), so no
+// layer has to report in and a new toggle is counted for free.
+// ═══════════════════════════════════════════════════════════════════
+(function () {
+    const KEY = 'roamly_map_sidebar';
+    const sidebar = document.getElementById('map-sidebar');
+    const head = document.getElementById('sidebar-collapse');
+    const headCount = document.getElementById('sidebar-head-count');
+    if (!sidebar || !head) return;
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { saved = {}; }
+    const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {} };
+
+    const groups = [...sidebar.querySelectorAll('.sidebar-group')];
+    function setGroup(g, open) {
+        g.classList.toggle('open', open);
+        g.querySelector('.group-head').setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    groups.forEach(g => {
+        const k = g.dataset.group;
+        setGroup(g, k in saved ? !!saved[k] : g.dataset.openDefault === '1');
+        g.querySelector('.group-head').addEventListener('click', () => {
+            const open = !g.classList.contains('open');
+            setGroup(g, open);
+            saved[k] = open;
+            persist();
+        });
+    });
+
+    const narrow = window.matchMedia('(max-width: 768px)').matches;
+    const panelKey = narrow ? 'panel_narrow' : 'panel';
+    function setPanel(open) {
+        sidebar.classList.toggle('collapsed', !open);
+        head.setAttribute('aria-expanded', open ? 'true' : 'false');
+        head.title = open ? 'Fold map options away' : 'Show map options';
+    }
+    setPanel(panelKey in saved ? !!saved[panelKey] : !narrow);
+    head.addEventListener('click', () => {
+        const open = sidebar.classList.contains('collapsed');
+        setPanel(open);
+        saved[panelKey] = open;
+        persist();
+    });
+
+    function refreshCounts() {
+        let total = 0;
+        groups.forEach(g => {
+            const n = g.querySelectorAll('.tool-btn.active').length;
+            total += n;
+            g.querySelector('.group-count').textContent = n ? `${n} on` : '';
+        });
+        headCount.textContent = total ? `${total} on` : '';
+    }
+    new MutationObserver(refreshCounts).observe(sidebar, { subtree: true, attributes: true, attributeFilter: ['class'] });
+    refreshCounts();
+})();
 </script>
 {% endblock %}
