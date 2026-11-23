@@ -1,5 +1,7 @@
 package com.roamly.ui
 
+import com.roamly.notes.QuickNoteLaunch
+import com.roamly.ui.notes.QuickNotesViewModel
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -168,6 +170,9 @@ fun RoamlyNavHost() {
     val activityOwner = checkNotNull(LocalViewModelStoreOwner.current) {
         "No ViewModelStoreOwner — RoamlyNavHost must be hosted by the Activity"
     }
+    // Safe to build eagerly, unlike the tab VMs above: its init loads nothing,
+    // it waits for the map to hand it a range.
+    val quickNotesViewModel = hiltViewModel<QuickNotesViewModel>(activityOwner)
     val isLoggedIn by authViewModel.isLoggedIn.collectAsState()
     val simpleMode by authViewModel.simpleModeEnabled.collectAsState()
     val trackerPaired by authViewModel.trackerPaired.collectAsState()
@@ -182,6 +187,8 @@ fun RoamlyNavHost() {
     // Check for a newer sideloaded build once logged in (throttled to ~24h).
     LaunchedEffect(isLoggedIn) {
         if (isLoggedIn == true) {
+            // RoamlyApp's start-up arm ran before sign-in on a fresh install.
+            quickNotesViewModel.ensureReminderScheduled()
             updateViewModel.checkOnLaunch()
             authViewModel.refreshFeaturedTrip()
         }
@@ -216,6 +223,20 @@ fun RoamlyNavHost() {
             currentDestination?.route != Screen.FlightScan.route &&
             currentDestination?.route != Screen.FlightEdit.route &&
             currentDestination?.route != Screen.TripCompose.route
+
+    // The evening note reminder was tapped: bring the Map tab forward, where
+    // MapScreen opens the note sheet and consumes the request.
+    val noteLaunch by QuickNoteLaunch.requested.collectAsState()
+    LaunchedEffect(noteLaunch, isLoggedIn, currentDestination) {
+        if (!noteLaunch || isLoggedIn != true || currentDestination == null) return@LaunchedEffect
+        val route = currentDestination?.route
+        if (route == Screen.Login.route || route == Screen.Map.route) return@LaunchedEffect
+        navController.navigate(Screen.Map.route) {
+            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
 
     // A boarding pass shared into Roamly opens the scanner on it, once signed in.
     val sharedUri by IncomingShare.uri.collectAsState()
@@ -297,6 +318,7 @@ fun RoamlyNavHost() {
                 MapScreen(
                     viewModel = mapViewModel,
                     onRecord = { navController.navigate(Screen.Record.route) },
+                    notesViewModel = quickNotesViewModel,
                 )
             }
             composable(Screen.Record.route) {

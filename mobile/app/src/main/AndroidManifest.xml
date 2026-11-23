@@ -177,6 +177,15 @@
             </intent-filter>
         </receiver>
 
+        <!-- Evening "what did you do today?" reminder (notes/QuickNoteReminder). -->
+        <receiver
+            android:name=".receiver.QuickNoteReminderReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.roamly.DAILY_NOTE_REMINDER" />
+            </intent-filter>
+        </receiver>
+
         <!-- Disable default WorkManager initializer so Hilt can own it -->
         <provider
             android:name="androidx.startup.InitializationProvider"

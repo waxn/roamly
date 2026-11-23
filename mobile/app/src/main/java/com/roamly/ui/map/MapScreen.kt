@@ -1,5 +1,9 @@
 package com.roamly.ui.map
 
+import com.roamly.notes.QuickNoteLaunch
+import com.roamly.ui.notes.QuickNotePill
+import com.roamly.ui.notes.QuickNoteSheet
+import com.roamly.ui.notes.QuickNotesViewModel
 import androidx.compose.material.icons.rounded.ChevronLeft
 import android.Manifest
 import android.content.pm.PackageManager
@@ -117,10 +121,30 @@ fun MapScreen(
     onNavigateToDate: ((String) -> Unit)? = null,
     /** Open the activity recorder. Null hides the button (e.g. in a preview). */
     onRecord: (() -> Unit)? = null,
+    /** "What I did today". Null hides the notes pill (e.g. in a preview). */
+    notesViewModel: QuickNotesViewModel? = null,
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     var showOptions by remember { mutableStateOf(false) }
+    var showNotes by remember { mutableStateOf(false) }
+    var focusNoteComposer by remember { mutableStateOf(false) }
+    val notesState = notesViewModel?.uiState?.collectAsState()?.value
+
+    // The notes list follows the map's range, so ‹ › walk the notes with the track.
+    val rangeDays = state.rangeDays()
+    LaunchedEffect(notesViewModel, rangeDays) { notesViewModel?.setRange(rangeDays) }
+    // The evening reminder was tapped: open straight into writing.
+    val noteLaunch by QuickNoteLaunch.requested.collectAsState()
+    LaunchedEffect(noteLaunch, notesViewModel) {
+        if (noteLaunch && notesViewModel != null) {
+            QuickNoteLaunch.consume()
+            notesViewModel.refreshToday()
+            notesViewModel.edit(LocalDate.now())
+            focusNoteComposer = true
+            showNotes = true
+        }
+    }
 
     val holder = remember(viewModel) {
         viewModel.mapHolder ?: run {
@@ -274,7 +298,7 @@ fun MapScreen(
 
         // Top-left: the active time range, with ‹ › to step it a window at a
         // time. Tapping the label opens the same map-options sheet as the tune
-        // button.
+        // button. Under it, the "what I did today" pill.
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -308,7 +332,13 @@ fun MapScreen(
                     RangeStep(Icons.Rounded.ChevronRight, "Next range", enabled = state.canStepForward) { viewModel.stepRange(1) }
                 }
             }
-        }
+            if (notesState != null) {
+                QuickNotePill(state = notesState, onClick = {
+                    notesViewModel?.refreshToday()
+                    focusNoteComposer = false
+                    showNotes = true
+                })
+            }
         }
 
         // Top-right: refresh + map options, in one grouped plate.
@@ -463,6 +493,21 @@ fun MapScreen(
                     .padding(top = 16.dp),
             )
         }
+    }
+
+    if (showNotes && notesViewModel != null && notesState != null) {
+        QuickNoteSheet(
+            state = notesState,
+            focusComposer = focusNoteComposer,
+            onDraftChange = notesViewModel::onDraftChange,
+            onSave = notesViewModel::save,
+            onEdit = notesViewModel::edit,
+            onShowDay = { day ->
+                showNotes = false
+                viewModel.navigateToDate(day.toString())
+            },
+            onDismiss = { showNotes = false; focusNoteComposer = false },
+        )
     }
 
     if (showOptions) {

@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.roamly.data.prefs.UserPreferences
+import com.roamly.notes.QuickNoteReminder
 import com.roamly.tracking.CaptureStats
 import com.roamly.tracking.TrackingCoordinator
 import com.roamly.tracking.UploadWorker
@@ -42,6 +43,9 @@ class RoamlyApp : Application(), Configuration.Provider {
             val active = prefs.trackingEnabled.first() || prefs.autoStartTracking.first()
             if (active) UploadWorker.schedulePeriodic(this@RoamlyApp, prefs.syncOnMobileData.first())
             TrackingCoordinator.resumeTrackingIfNeeded(this@RoamlyApp, prefs)
+            // Re-arm the evening note reminder: an app update or a force-stop
+            // drops pending alarms, and this is the one place that always runs.
+            QuickNoteReminder.scheduleFromPrefs(this@RoamlyApp, prefs)
         }
     }
 
@@ -69,6 +73,7 @@ class RoamlyApp : Application(), Configuration.Provider {
                 description = "When someone in a Family Circle arrives at or leaves a place"
             }
         )
+        QuickNoteReminder.createChannel(manager)
     }
 
     companion object {

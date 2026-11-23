@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.roamly.data.prefs.UserPreferences
+import com.roamly.notes.QuickNoteReminder
 import com.roamly.tracking.LocationTrackingService
 import com.roamly.tracking.TrackingCoordinator
 import com.roamly.tracking.UploadWorker
@@ -46,6 +47,12 @@ class BootReceiver : BroadcastReceiver() {
             // the service start at boot — the alarm will then bring it up.
             TrackingAlarmReceiver.schedule(context)
             UploadWorker.schedulePeriodic(context, syncOnMobileData)
+        }
+        // Alarms do not survive a reboot. Not on the locked boot: prefs live in
+        // credential-protected storage, and BOOT_COMPLETED follows once unlocked.
+        if (action != Intent.ACTION_LOCKED_BOOT_COMPLETED) {
+            runCatching { runBlocking { QuickNoteReminder.scheduleFromPrefs(context, prefs) } }
+                .onFailure { Log.w(TAG, "Could not re-arm the daily note reminder", it) }
         }
     }
 }

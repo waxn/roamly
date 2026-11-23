@@ -78,6 +78,17 @@ fun SettingsScreen(
 
     // ── Permission handling ────────────────────────────────────────────────
     var showBgLocationRationale by remember { mutableStateOf(false) }
+    var showReminderTime by remember { mutableStateOf(false) }
+    if (showReminderTime) {
+        ReminderTimeDialog(
+            minuteOfDay = state.noteReminderMinute,
+            onDismiss = { showReminderTime = false },
+            onConfirm = { minute ->
+                showReminderTime = false
+                viewModel.setNoteReminder(true, minute)
+            },
+        )
+    }
     var showPhoneStateRationale by remember { mutableStateOf(false) }
     // Held in state rather than re-checked inline: checkSelfPermission() is not
     // a snapshot value, so a row reading it directly never updates when the
@@ -633,6 +644,30 @@ fun SettingsScreen(
             )
         }
 
+        // ── Daily note ───────────────────────────────────────────────────
+        ClayCard {
+            ClaySectionHeader("Daily note", Icons.Rounded.EditNote, gradient = clay.secondaryGradient)
+            Spacer(Modifier.height(12.dp))
+            ToggleRow(
+                title = "Evening reminder",
+                subtitle = "A nudge to jot down what you did. Skipped on days you already have.",
+                checked = state.noteReminderEnabled,
+                onCheckedChange = { on ->
+                    if (on && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+                            != PermissionChecker.PERMISSION_GRANTED
+                    ) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    viewModel.setNoteReminder(on, state.noteReminderMinute)
+                },
+            )
+            if (state.noteReminderEnabled) {
+                Spacer(Modifier.height(8.dp))
+                EditableRow(Icons.Rounded.Schedule, "Remind me at", formatMinuteOfDay(context, state.noteReminderMinute)) {
+                    showReminderTime = true
+                }
+            }
+        }
+
         // ── About ────────────────────────────────────────────────────────
         ClayCard {
             ClaySectionHeader("About", Icons.Rounded.Info, gradient = clay.secondaryGradient)
@@ -957,6 +992,39 @@ private fun AdvancedNumberField(label: String, value: Int, hint: String, onApply
         shape = RoundedCornerShape(14.dp),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+private fun formatMinuteOfDay(context: android.content.Context, minuteOfDay: Int): String {
+    val time = java.time.LocalTime.of(minuteOfDay / 60, minuteOfDay % 60)
+    val pattern = if (android.text.format.DateFormat.is24HourFormat(context)) "HH:mm" else "h:mm a"
+    return time.format(java.time.format.DateTimeFormatter.ofPattern(pattern, java.util.Locale.getDefault()))
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReminderTimeDialog(minuteOfDay: Int, onDismiss: () -> Unit, onConfirm: (Int) -> Unit) {
+    val context = LocalContext.current
+    val picker = rememberTimePickerState(
+        initialHour = minuteOfDay / 60,
+        initialMinute = minuteOfDay % 60,
+        is24Hour = android.text.format.DateFormat.is24HourFormat(context),
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Remind me at") },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                TimePicker(state = picker)
+                Text(
+                    "Early evening works best: late enough that the day has happened, early enough that you're still up for it.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(picker.hour * 60 + picker.minute) }) { Text("Set") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 

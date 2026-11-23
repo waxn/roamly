@@ -92,6 +92,11 @@ class UserPreferences @Inject constructor(
         private val KEY_ACTIVITY_STARTED_AT    = longPreferencesKey("activity_started_at")
         private val KEY_ACTIVITY_KIND          = stringPreferencesKey("activity_kind")
 
+        // The evening "what did you do today?" reminder (notes/QuickNoteReminder).
+        // Per device; on by default, since the reminder is the point of the feature.
+        private val KEY_NOTE_REMINDER_ENABLED = booleanPreferencesKey("note_reminder_enabled")
+        private val KEY_NOTE_REMINDER_MINUTE  = intPreferencesKey("note_reminder_minute")
+
         // Last sync result (written by UploadWorker after every run)
         private val KEY_LAST_SYNC_TIME    = longPreferencesKey("last_sync_time")
         private val KEY_LAST_SYNC_SUCCESS = booleanPreferencesKey("last_sync_success")
@@ -247,6 +252,19 @@ class UserPreferences @Inject constructor(
     suspend fun setDeviceIdIfUnset(deviceId: String) {
         context.dataStore.edit { prefs ->
             if (prefs[KEY_DEVICE_ID].isNullOrBlank()) prefs[KEY_DEVICE_ID] = deviceId
+        }
+    }
+
+    val noteReminderEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_NOTE_REMINDER_ENABLED] ?: true }
+    /** Minutes after local midnight. */
+    val noteReminderMinute: Flow<Int> = context.dataStore.data.map {
+        it[KEY_NOTE_REMINDER_MINUTE] ?: com.roamly.notes.QuickNoteReminder.DEFAULT_MINUTE_OF_DAY
+    }
+
+    suspend fun setNoteReminder(enabled: Boolean, minuteOfDay: Int) {
+        context.dataStore.edit {
+            it[KEY_NOTE_REMINDER_ENABLED] = enabled
+            it[KEY_NOTE_REMINDER_MINUTE] = minuteOfDay.coerceIn(0, 24 * 60 - 1)
         }
     }
 

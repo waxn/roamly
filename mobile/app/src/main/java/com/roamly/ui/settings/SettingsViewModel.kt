@@ -28,6 +28,9 @@ data class SettingsUiState(
     val apiKey: String = "",
     /** null = follow system; the switch falls back to the system theme for display. */
     val darkModeOverride: Boolean? = null,
+    // Evening "what did you do today?" reminder
+    val noteReminderEnabled: Boolean = true,
+    val noteReminderMinute: Int = com.roamly.notes.QuickNoteReminder.DEFAULT_MINUTE_OF_DAY,
     // Tracking
     val isTracking: Boolean = false,
     val trackingIntervalSecs: Int = 30,
@@ -89,6 +92,8 @@ class SettingsViewModel @Inject constructor(
         collect(prefs.slowWhenStill) { v -> _state.update { it.copy(slowWhenStill = v) } }
         collect(prefs.cellLoggingEnabled) { v -> _state.update { it.copy(cellLoggingEnabled = v) } }
         collect(prefs.simpleModeEnabled)       { v -> _state.update { it.copy(simpleModeEnabled = v) } }
+        collect(prefs.noteReminderEnabled)     { v -> _state.update { it.copy(noteReminderEnabled = v) } }
+        collect(prefs.noteReminderMinute)      { v -> _state.update { it.copy(noteReminderMinute = v) } }
         collect(prefs.lastSyncTime)          { v -> _state.update { it.copy(lastSyncTime = v) } }
         collect(prefs.lastSyncSuccess)       { v -> _state.update { it.copy(lastSyncSuccess = v) } }
         collect(prefs.lastSyncCount)         { v -> _state.update { it.copy(lastSyncCount = v) } }
@@ -271,6 +276,14 @@ class SettingsViewModel @Inject constructor(
 
     fun setDarkMode(enabled: Boolean) {
         viewModelScope.launch { prefs.setDarkMode(enabled) }
+    }
+
+    /** Save the evening reminder and re-arm (or cancel) its alarm to match. */
+    fun setNoteReminder(enabled: Boolean, minuteOfDay: Int) {
+        viewModelScope.launch {
+            prefs.setNoteReminder(enabled, minuteOfDay)
+            com.roamly.notes.QuickNoteReminder.scheduleFromPrefs(context, prefs)
+        }
     }
 
     fun fetchDiagnostics(

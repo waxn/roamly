@@ -20,6 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import com.roamly.data.local.LocationStore
 import com.roamly.data.prefs.UserPreferences
+import com.roamly.notes.QuickNoteLaunch
+import com.roamly.notes.QuickNoteReminder
 import com.roamly.tracking.TrackingCoordinator
 import com.roamly.tracking.TrackingDatabase
 import com.roamly.tracking.UploadWorker
@@ -115,6 +117,12 @@ class MainActivity : ComponentActivity() {
     private fun handleIntent(intent: Intent?) {
         if (intent?.getBooleanExtra(EXTRA_CONFIRM_STOP, false) == true) {
             confirmStop.value = true
+        }
+        if (intent?.getBooleanExtra(QuickNoteReminder.EXTRA_OPEN_QUICK_NOTE, false) == true) {
+            // Consume the extra so a recreate (rotation, sign-out) doesn't reopen it.
+            intent?.removeExtra(QuickNoteReminder.EXTRA_OPEN_QUICK_NOTE)
+            QuickNoteReminder.dismiss(this)
+            QuickNoteLaunch.request()
         }
     }
 
