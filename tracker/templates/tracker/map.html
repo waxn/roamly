@@ -45,16 +45,13 @@
     border: 1px solid var(--border);
     border-radius:var(--r-auto, 0);
     padding: 12px 10px;
-    overflow-y: auto;
-    overflow-x: hidden;
+    box-sizing: border-box;
+    overflow: hidden;
     pointer-events: all;
     display: flex;
     flex-direction: column;
     gap: 12px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.22);
-    transition: opacity 0.18s ease, transform 0.22s ease, max-width 0.22s ease, padding 0.18s ease;
-    scrollbar-width: thin;
-    scrollbar-color: var(--border) transparent;
 }
 .sidebar-section {
     display: flex;
@@ -299,9 +296,24 @@
     transition: transform 0.18s ease, margin 0.18s ease;
 }
 [aria-expanded="true"] > .group-chev { transform: rotate(-135deg); margin-bottom: -2px; }
-.sidebar-body { display: flex; flex-direction: column; gap: 12px; }
+/* The body is the scroller, so its scrollbar can't push the head sideways,
+   and folding keeps the panel's width: the head's chevron stays under the
+   pointer. The negative margins put the scrollbar on the panel's edge. */
+.sidebar-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    margin: 0 -10px -12px;
+    padding: 0 10px 12px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
 .map-sidebar.collapsed .sidebar-body { display: none; }
-.map-sidebar.collapsed .sidebar-content { width: auto; min-width: 150px; padding: 9px 10px; }
+.map-sidebar.collapsed .sidebar-content { padding-bottom: 10px; }
 
 .sidebar-group {
     display: flex;
@@ -524,9 +536,10 @@
     .map-top-center { left: auto; right: 12px; transform: none; align-items: flex-end; }
     .day-notes { align-items: flex-end; }
     .day-notes-panel { left: auto; right: 0; transform: none; }
-    .day-notes-pill { max-width: calc(100vw - 210px); }
+    .day-notes-pill { max-width: calc(100vw - 256px); }
 }
 @media (max-width: 600px) {
+    .map-sidebar.collapsed .sidebar-content { width: auto; min-width: 150px; }
     .dn-pill-text { display: none; }
     .dn-pill-short { display: inline; }
     .day-notes-pill { max-width: none; }
