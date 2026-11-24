@@ -382,7 +382,8 @@
 .range-step:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
 .range-step:disabled { opacity: 0.35; cursor: default; }
 
-/* ── Top-centre column: the day-notes pill, then the load-more prompt ── */
+/* ── Top-centre column: the day-notes pill (and the load-more prompt when
+   Settings → Appearance → Map layout puts it up top) ── */
 .map-top-center {
     position: absolute;
     top: 12px;
@@ -565,12 +566,31 @@
     .day-notes-pill { max-width: none; }
 }
 
-/* map info — bottom left */
-.map-info {
+/* Bottom-left row: the point-count line, then the load-more prompt beside it
+   (by default; Settings → Appearance → Map layout can put it back up top).
+   One row, so it is no taller than the count line alone was and a long
+   sidebar still clears it. Leaves room on the right for the zoom buttons. */
+.map-bottom-left {
     position: absolute;
     bottom: 12px;
     left: 12px;
     z-index: 10;
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+    max-width: calc(100% - 80px);
+    pointer-events: none;
+}
+.map-bottom-left > * { pointer-events: auto; box-sizing: border-box; }
+.map-bottom-left .map-info { flex: 0 1 auto; min-width: 0; }
+.map-bottom-left .map-detail-controls { flex: 0 0 auto; }
+@media (max-width: 600px) {
+    .map-bottom-left #map-detail-hint { display: none; }
+    .map-bottom-left .map-detail-controls { padding-left: 3px; }
+}
+
+/* map info — bottom left */
+.map-info {
     background: var(--bg-glass);
 
 
@@ -583,40 +603,47 @@
     font-weight: 700;
     
     color: var(--text-muted);
-    max-width: calc(100% - 80px);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-/* load-more prompt — in the top-centre column, under the notes pill */
+/* Load-more prompt: a quiet glass chip like the point-count line beside it,
+   with an outlined button, so it reads as an option rather than a call to
+   action. Shown by map-core.js once zoomed in with points on screen. */
 .map-detail-controls {
     display: none;
     align-items: center;
     gap: 8px;
-    background: var(--bg-card);
+    background: var(--bg-glass);
     border: 1px solid var(--border);
     border-radius:var(--r-auto, 0);
-    padding: 8px 10px;
-    font-size: 0.75rem;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    padding: 3px 3px 3px 12px;
+    font-size: 0.7rem;
     font-family: var(--font-body);
     font-weight: 700;
-    
     color: var(--text-muted);
+    white-space: nowrap;
 }
+#map-detail-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .map-detail-controls button {
+    flex: 0 0 auto;
     border: 1px solid var(--border);
-    background: var(--primary);
-    color: #fff;
+    background: transparent;
+    color: var(--text);
     border-radius:var(--r-auto, 0);
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     font-family: var(--font-body);
     font-weight: 700;
-    
-    padding: 5px 10px;
+    padding: 3px 9px;
     cursor: pointer;
+    transition: border-color 0.12s, color 0.12s;
 }
+.map-detail-controls button:hover:not([disabled]) { border-color: var(--primary); color: var(--primary); }
 .map-detail-controls button[disabled] { opacity: 0.6; cursor: default; }
+/* The replay bar sits just above the corner; the prompt can wait until it closes. */
+#map-container:has(.replay-panel.active) .map-bottom-left .map-detail-controls { display: none !important; }
 
 /* Zoom / compass and the attribution "i": MapLibre ships them white. Every
    components facet restyles the zoom group already, so this only draws
@@ -1190,8 +1217,8 @@
 
     <!-- "What I did today": a pill along the top that follows the map's range:
          one day shows that day's note, a few days to a month show how many
-         notes they hold, and longer ranges hide it. The load-more prompt
-         shares this column so the two never overlap. -->
+         notes they hold, and longer ranges hide it. When Map layout puts the
+         load-more prompt up top it joins this column, so the two never overlap. -->
     <div class="map-top-center" id="map-top-center">
         <div class="day-notes" id="day-notes">
             <button class="day-notes-pill" id="day-notes-pill" type="button" aria-expanded="false" aria-controls="day-notes-panel">
@@ -1218,10 +1245,6 @@
                 </div>
                 <ul class="dn-list" id="day-notes-list"></ul>
             </div>
-        </div>
-        <div class="map-detail-controls" id="map-detail-controls">
-            <span id="map-detail-hint"></span>
-            <button id="map-load-more-btn" type="button">load all points</button>
         </div>
     </div>
 
@@ -1266,7 +1289,13 @@
     </div>
 
     <div id="map-loading-bar"></div>
-    <div class="map-info" id="map-info">loading...</div>
+    <div class="map-bottom-left" id="map-bottom-left">
+        <div class="map-info" id="map-info">loading...</div>
+        <div class="map-detail-controls" id="map-detail-controls">
+            <span id="map-detail-hint"></span>
+            <button id="map-load-more-btn" type="button">load all points</button>
+        </div>
+    </div>
     <div id="map"></div>
     <canvas id="fog-canvas"></canvas>
 </div>
@@ -2808,6 +2837,16 @@ addplaceSaveBtn.addEventListener('click', async () => {
 document.getElementById('addplace-cancel').addEventListener('click', closeAddPlace);
 
 // ═══════════════════════════════════════════════════════════════════
+// Load-more prompt position — Settings → Appearance → Map layout
+// (roamly_load_more_pos): the bottom-left corner by default, or "top" under
+// the notes pill where it used to live.
+(function () {
+    let pos = 'corner';
+    try { pos = localStorage.getItem('roamly_load_more_pos') || 'corner'; } catch (e) {}
+    if (pos === 'top') $id('map-top-center').appendChild($id('map-detail-controls'));
+    function $id(id) { return document.getElementById(id); }
+})();
+
 // Sidebar folding — the whole panel, and each group inside it.
 // Open/closed is remembered per browser; phones keep their own panel state
 // so folding it there doesn't fold it on the desktop. A group's count is

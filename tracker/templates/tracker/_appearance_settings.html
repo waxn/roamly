@@ -66,6 +66,22 @@
     </div>
 </div>
 
+<div class="card settings-span-12" id="ap-map-layout-card">
+    <div class="card-header">Map Layout</div>
+    <div class="pref-grid">
+        <div class="pref-form-group">
+            <label class="pref-label">
+                Load Points Button
+                <div class="info-icon" data-tooltip="Where the map's &quot;load all points&quot; prompt sits once you zoom in. Saved in this browser.">?</div>
+            </label>
+            <select id="load-more-pos" class="form-control" onchange="savePref('roamly_load_more_pos', this.value)">
+                <option value="corner">Bottom-left corner (default)</option>
+                <option value="top">Top, under the day notes</option>
+            </select>
+        </div>
+    </div>
+</div>
+
 <div class="card settings-span-12 ap-preview" id="ap-preview-card">
     <div class="card-header">Preview</div>
     <p style="color:var(--text-muted);font-size:0.88rem;margin-bottom:1rem">The pieces every page is made of, on made-up data.</p>

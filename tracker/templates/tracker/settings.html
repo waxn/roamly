@@ -2904,6 +2904,7 @@ function savePref(key, value) {
     localStorage.setItem(key, value);
 }
 document.getElementById('default-time-range').value = localStorage.getItem('roamly_default_time_range') || '24';
+document.getElementById('load-more-pos').value = localStorage.getItem('roamly_load_more_pos') || 'corner';
 document.getElementById('speed-gradient').value = localStorage.getItem('roamly_speed_gradient') || 'on';
 document.getElementById('connect-lines').value = localStorage.getItem('roamly_connect_lines') || 'off';
 document.getElementById('dwell-blobs').value = localStorage.getItem('roamly_dwell_blobs') || 'on';
@@ -4103,7 +4104,7 @@ loadHwTrackers();
         appearance: {
             label: 'Appearance',
             description: 'Pick a preset or build your own look from palettes, components, shapes, type, backgrounds and extras.',
-            cards: ['Presets', 'Mix and Match', 'Preview']
+            cards: ['Presets', 'Mix and Match', 'Map Layout', 'Preview']
         },
         sharing: {
             label: 'Sharing',

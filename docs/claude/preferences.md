@@ -30,6 +30,7 @@ All stored in `localStorage` with `roamly_` prefix:
 | `roamly_show_inferred` | on / off | on (filled-gap layer on the main map) |
 | `roamly_transport_modes` | comma list of walk / cycle / vehicle / plane / still / none | unset = every mode (map sidebar **transport** filter; `none` = unclassified; removed again once every mode is back on) |
 | `roamly_map_sidebar` | JSON `{display, track, extra, panel, panel_narrow}` of booleans | unset = map display open, track + extra data closed, panel open (folded at ≤768px) — see map.md Sidebar layout |
+| `roamly_load_more_pos` | corner / top | corner (where the map's "load all points" prompt sits: bottom-left beside the point count, or top-centre under the notes pill; Settings → Appearance → Map layout) |
 | `roamly_note_draft` | JSON `{date, text}` | unset (unsaved quick-note draft on the map; cleared on save) |
 | `roamly_hide_suspect` | on / off | on ("hide outliers" — drops `flag='suspect'` points from the map) |
 | `roamly_fog` | on / off | off |
