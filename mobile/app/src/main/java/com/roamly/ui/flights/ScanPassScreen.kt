@@ -26,7 +26,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.FlashlightOff
@@ -263,7 +264,7 @@ private fun CameraPreview(onPass: (PassDecoder.Found) -> Unit) {
         // A guide frame in the middle third, where passes tend to be held.
         Box(
             Modifier.align(Alignment.Center).fillMaxWidth(0.82f).height(220.dp)
-                .border(2.dp, Color.White.copy(alpha = 0.8f), RoundedCornerShape(14.dp))
+                .border(2.dp, Color.White.copy(alpha = 0.8f), SquircleShape(SquircleRadius.control))
         )
         IconButton(
             onClick = { torch = !torch; controller.enableTorch(torch) },

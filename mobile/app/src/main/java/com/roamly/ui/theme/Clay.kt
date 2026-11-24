@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.roamly.ui.theme.SquircleShape
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -55,7 +55,7 @@ fun Modifier.claySoftShadow(
 @Composable
 fun ClaySurface(
     modifier: Modifier = Modifier,
-    cornerRadius: Dp = 10.dp,
+    cornerRadius: Dp = SquircleRadius.panel,
     depth: Dp = 0.dp,
     gradient: List<Color>? = null,
     highlight: Boolean = true,
@@ -63,7 +63,7 @@ fun ClaySurface(
 ) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(cornerRadius),
+        shape = SquircleShape(cornerRadius),
         color = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
@@ -81,13 +81,13 @@ fun ClaySurface(
 @Composable
 fun ClayCard(
     modifier: Modifier = Modifier,
-    cornerRadius: Dp = 10.dp,
+    cornerRadius: Dp = SquircleRadius.panel,
     depth: Dp = 0.dp,
     contentPadding: Dp = 16.dp,
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val shape = RoundedCornerShape(cornerRadius)
+    val shape = SquircleShape(cornerRadius)
     val border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
     if (onClick != null) {
         Surface(
@@ -129,7 +129,7 @@ fun ClayButton(
     modifier: Modifier = Modifier,
     gradient: List<Color>? = null,
     enabled: Boolean = true,
-    cornerRadius: Dp = 10.dp,
+    cornerRadius: Dp = SquircleRadius.control,
     contentColor: Color = Color.Unspecified,
     content: @Composable RowScope.() -> Unit,
 ) {
@@ -149,7 +149,7 @@ fun ClayButton(
         onClick = onClick,
         modifier = modifier,
         enabled = enabled,
-        shape = RoundedCornerShape(cornerRadius),
+        shape = SquircleShape(cornerRadius),
         colors = colors,
         elevation = ButtonDefaults.buttonElevation(
             defaultElevation = 0.dp,
@@ -169,7 +169,7 @@ fun ClayOutlinedButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    cornerRadius: Dp = 10.dp,
+    cornerRadius: Dp = SquircleRadius.control,
     contentColor: Color = Color.Unspecified,
     content: @Composable RowScope.() -> Unit,
 ) {
@@ -177,7 +177,7 @@ fun ClayOutlinedButton(
         onClick = onClick,
         modifier = modifier,
         enabled = enabled,
-        shape = RoundedCornerShape(cornerRadius),
+        shape = SquircleShape(cornerRadius),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         colors = ButtonDefaults.outlinedButtonColors(
             contentColor = if (contentColor != Color.Unspecified) contentColor else MaterialTheme.colorScheme.onSurface,
@@ -237,7 +237,7 @@ fun ClayIconBadge(
     modifier: Modifier = Modifier,
     gradient: List<Color>? = null,
     size: Dp = 44.dp,
-    cornerRadius: Dp = 10.dp,
+    cornerRadius: Dp = SquircleRadius.control,
     iconTint: Color = Color.Unspecified,
     contentDescription: String? = null,
 ) {
@@ -256,7 +256,7 @@ fun ClayIconBadge(
     Box(
         modifier = modifier
             .size(size)
-            .clip(RoundedCornerShape(cornerRadius))
+            .clip(SquircleShape(cornerRadius))
             .background(containerColor),
         contentAlignment = Alignment.Center,
     ) {
@@ -282,7 +282,7 @@ fun ClaySectionHeader(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ClayIconBadge(icon = icon, gradient = gradient, size = 32.dp, cornerRadius = 8.dp)
+        ClayIconBadge(icon = icon, gradient = gradient, size = 32.dp, cornerRadius = SquircleRadius.tag)
         Spacer(Modifier.width(10.dp))
         Text(
             title,

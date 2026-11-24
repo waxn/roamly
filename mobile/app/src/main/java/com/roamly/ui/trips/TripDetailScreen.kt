@@ -19,7 +19,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowBack
@@ -139,7 +140,7 @@ fun TripDetailScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(26.dp))
+                                    .clip(SquircleShape(SquircleRadius.dialog))
                                     .background(MaterialTheme.colorScheme.primaryContainer)
                                     .padding(20.dp)
                             ) {
@@ -173,7 +174,7 @@ fun TripDetailScreen(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clip(RoundedCornerShape(16.dp))
+                                        .clip(SquircleShape(SquircleRadius.panel))
                                         .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
                                         .clickable { showFullMap = true }
                                         .padding(16.dp),
@@ -266,7 +267,7 @@ fun TripDetailScreen(
                                 modifier = Modifier.fillMaxWidth().padding(top = 48.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
-                                ClayIconBadge(Icons.Rounded.ChatBubbleOutline, size = 56.dp, cornerRadius = 20.dp)
+                                ClayIconBadge(Icons.Rounded.ChatBubbleOutline, size = 56.dp, cornerRadius = SquircleRadius.panel)
                                 Spacer(Modifier.height(12.dp))
                                 Text("No updates yet", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
                                 Text("Tap + to add an update or milestone", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -297,7 +298,7 @@ fun TripDetailScreen(
                 .align(Alignment.BottomEnd)
                 .padding(end = 20.dp, bottom = 24.dp)
                 .size(60.dp)
-                .clip(RoundedCornerShape(22.dp))
+                .clip(SquircleShape(SquircleRadius.panel))
                 .background(MaterialTheme.colorScheme.primary)
                 .clickable { viewModel.showAddTypeDialog() },
             contentAlignment = Alignment.Center,
@@ -473,7 +474,7 @@ private fun ClayBackButton(onBack: () -> Unit) {
     Box(
         modifier = Modifier
             .size(42.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(SquircleShape(SquircleRadius.control))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
             .clickable(onClick = onBack),
         contentAlignment = Alignment.Center,
@@ -543,7 +544,7 @@ private fun BlurbCard(
         Spacer(Modifier.height(6.dp))
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onToggleComments).padding(vertical = 4.dp, horizontal = 2.dp),
+            modifier = Modifier.clip(SquircleShape(SquircleRadius.control)).clickable(onClick = onToggleComments).padding(vertical = 4.dp, horizontal = 2.dp),
         ) {
             Icon(Icons.Rounded.ChatBubbleOutline, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(4.dp))
@@ -564,7 +565,7 @@ private fun BlurbCard(
                     OutlinedTextField(
                         value = commentText, onValueChange = { commentText = it },
                         placeholder = { Text("Add a comment…", style = MaterialTheme.typography.bodySmall) },
-                        modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.weight(1f), singleLine = true, shape = SquircleShape(SquircleRadius.control),
                         textStyle = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(Modifier.width(4.dp))
@@ -609,7 +610,7 @@ private fun MilestoneCard(event: TimelineEvent) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
+            .clip(SquircleShape(SquircleRadius.panel))
             .background(MaterialTheme.colorScheme.secondaryContainer)
             .padding(16.dp)
     ) {
@@ -709,7 +710,7 @@ private fun TripFullMapScreen(trip: TripResponse, onBack: () -> Unit) {
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
                 .padding(12.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(SquircleShape(SquircleRadius.control))
                 .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
                 .clickable(onClick = onBack)
                 .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -725,12 +726,12 @@ private fun TripFullMapScreen(trip: TripResponse, onBack: () -> Unit) {
             modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Box(modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))) {
+            Box(modifier = Modifier.clip(SquircleShape(SquircleRadius.control)).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))) {
                 IconButton(onClick = { mapView.controller.zoomIn() }, modifier = Modifier.size(40.dp)) {
                     Icon(Icons.Rounded.Add, "Zoom in", modifier = Modifier.size(18.dp))
                 }
             }
-            Box(modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))) {
+            Box(modifier = Modifier.clip(SquircleShape(SquircleRadius.control)).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))) {
                 IconButton(onClick = { mapView.controller.zoomOut() }, modifier = Modifier.size(40.dp)) {
                     Icon(Icons.Rounded.Remove, "Zoom out", modifier = Modifier.size(18.dp))
                 }

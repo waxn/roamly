@@ -16,7 +16,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Edit
@@ -358,7 +359,7 @@ private fun Reactions(p: TripPostDto, onReact: (String) -> Unit) {
             val n = p.reactions[e] ?: 0
             val on = e in p.myReactions
             val border = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-            Row(Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, border, RoundedCornerShape(6.dp))
+            Row(Modifier.clip(SquircleShape(SquircleRadius.tag)).border(1.dp, border, SquircleShape(SquircleRadius.tag))
                 .background(if (on) MaterialTheme.colorScheme.primary.copy(alpha = 0.13f) else Color.Transparent)
                 .clickable { onReact(e) }.padding(horizontal = 9.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically) {

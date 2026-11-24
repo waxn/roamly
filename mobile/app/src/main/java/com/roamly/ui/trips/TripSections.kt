@@ -17,7 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.DirectionsCar
@@ -54,7 +55,7 @@ import com.roamly.ui.theme.ClayTextButton
 @Composable
 fun SectionHeader(title: String) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
-        Box(Modifier.width(4.dp).height(20.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.primary))
+        Box(Modifier.width(4.dp).height(20.dp).clip(SquircleShape(2.dp)).background(MaterialTheme.colorScheme.primary))
         Spacer(Modifier.width(8.dp))
         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
     }
@@ -65,7 +66,7 @@ fun DayLogEntryCard(note: DayNote, serverUrl: String, onEdit: (() -> Unit)? = nu
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(SquircleShape(SquircleRadius.control))
             .background(MaterialTheme.colorScheme.surface)
             .padding(14.dp),
     ) {
@@ -134,7 +135,7 @@ fun ItineraryStopCard(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(SquircleShape(SquircleRadius.control))
             .background(MaterialTheme.colorScheme.surface)
             .padding(14.dp),
     ) {
@@ -212,7 +213,7 @@ fun StopEditorDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth().padding(16.dp)
-                .clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.background).padding(18.dp)
+                .clip(SquircleShape(SquircleRadius.panel)).background(MaterialTheme.colorScheme.background).padding(18.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -226,7 +227,7 @@ fun StopEditorDialog(
             // Transport dropdown
             Box {
                 Row(
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                    modifier = Modifier.fillMaxWidth().clip(SquircleShape(SquircleRadius.control))
                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                         .clickable { transportOpen = true }.padding(horizontal = 12.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -325,7 +326,7 @@ fun BlurbCreateDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth().padding(16.dp)
-                .clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.background).padding(18.dp)
+                .clip(SquircleShape(SquircleRadius.panel)).background(MaterialTheme.colorScheme.background).padding(18.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -350,7 +351,7 @@ fun BlurbCreateDialog(
             // Category dropdown
             Box {
                 Row(
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                    modifier = Modifier.fillMaxWidth().clip(SquircleShape(SquircleRadius.control))
                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                         .clickable { catOpen = true }.padding(horizontal = 12.dp, vertical = 14.dp),
                 ) {
@@ -395,7 +396,7 @@ fun InviteSheet(
     androidx.compose.ui.window.Dialog(onDismissRequest = onClose, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(16.dp)
-                .clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.background).padding(18.dp)
+                .clip(SquircleShape(SquircleRadius.panel)).background(MaterialTheme.colorScheme.background).padding(18.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -406,7 +407,7 @@ fun InviteSheet(
                 androidx.compose.material3.CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
             } else {
                 Text(inviteUrl, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)).padding(12.dp))
+                    modifier = Modifier.fillMaxWidth().clip(SquircleShape(SquircleRadius.control)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)).padding(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     androidx.compose.material3.OutlinedButton(onClick = {
                         clipboard.setText(androidx.compose.ui.text.AnnotatedString(inviteUrl))
@@ -467,7 +468,7 @@ fun DayNoteEditorDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
-                .clip(RoundedCornerShape(20.dp))
+                .clip(SquircleShape(SquircleRadius.panel))
                 .background(MaterialTheme.colorScheme.background)
                 .padding(18.dp)
                 .verticalScroll(androidx.compose.foundation.rememberScrollState()),
@@ -499,7 +500,7 @@ fun DayNoteEditorDialog(
                             AsyncImage(
                                 model = mediaUrl(serverUrl, m.thumb ?: m.url),
                                 contentDescription = null,
-                                modifier = Modifier.size(80.dp).clip(RoundedCornerShape(10.dp)),
+                                modifier = Modifier.size(80.dp).clip(SquircleShape(SquircleRadius.control)),
                                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                             )
                             IconButton(onClick = { onDeletePhoto(m.id) }, modifier = Modifier.align(Alignment.TopEnd).size(24.dp)) {
@@ -540,7 +541,7 @@ private fun PlacePickerRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
+                .clip(SquircleShape(SquircleRadius.control))
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 .clickable { expanded = true }
                 .padding(horizontal = 12.dp, vertical = 12.dp),

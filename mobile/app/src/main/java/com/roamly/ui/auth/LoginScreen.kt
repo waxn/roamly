@@ -17,7 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -90,7 +91,7 @@ fun LoginScreen(
             Box(
                 modifier = Modifier
                     .size(96.dp)
-                    .clip(RoundedCornerShape(24.dp))
+                    .clip(SquircleShape(SquircleRadius.dialog))
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
@@ -116,7 +117,7 @@ fun LoginScreen(
 
             Spacer(Modifier.height(28.dp))
 
-            ClaySurface(modifier = Modifier.fillMaxWidth(), cornerRadius = 28.dp) {
+            ClaySurface(modifier = Modifier.fillMaxWidth(), cornerRadius = SquircleRadius.dialog) {
                 Column(modifier = Modifier.padding(22.dp)) {
                     if (state.needsTotp) {
                         Text(
@@ -356,7 +357,7 @@ private fun ClayField(
         visualTransformation = visualTransformation,
         trailingIcon = trailingIcon,
         singleLine = true,
-        shape = RoundedCornerShape(16.dp),
+        shape = SquircleShape(SquircleRadius.panel),
         modifier = Modifier.fillMaxWidth(),
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -372,7 +373,7 @@ private fun BrandBlob(modifier: Modifier, gradient: List<Color>, size: androidx.
     Box(
         modifier = modifier
             .size(size)
-            .clip(RoundedCornerShape(50))
+            .clip(SquircleShape(50))
             .background(
                 Brush.radialGradient(
                     listOf(gradient.first().copy(alpha = 0.20f), Color.Transparent)

@@ -13,7 +13,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Place
@@ -108,9 +109,9 @@ fun StoryBlock(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(SquircleShape(SquircleRadius.control))
                     .background(accent.copy(alpha = 0.1f))
-                    .border(1.dp, accent.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                    .border(1.dp, accent.copy(alpha = 0.3f), SquircleShape(SquircleRadius.control))
                     .padding(14.dp),
             ) {
                 Text(c.str("emoji") ?: "📍", fontSize = 20.sp)
@@ -128,7 +129,7 @@ fun StoryBlock(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(120.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(SquircleShape(SquircleRadius.control))
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                     .clickable { onMapEmbedTap() },
                 contentAlignment = Alignment.Center,
@@ -156,9 +157,9 @@ fun StoryBlock(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(SquircleShape(SquircleRadius.control))
                         .background(MaterialTheme.colorScheme.surface)
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, SquircleShape(SquircleRadius.control))
                         .padding(14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -191,7 +192,7 @@ fun StoryBlock(
                         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                             Box(
                                 modifier = Modifier.padding(top = 6.dp, end = 10.dp).size(8.dp)
-                                    .clip(RoundedCornerShape(4.dp)).background(MaterialTheme.colorScheme.primary),
+                                    .clip(SquircleShape(4.dp)).background(MaterialTheme.colorScheme.primary),
                             )
                             Column {
                                 ev.str("date")?.takeIf { it.isNotBlank() }?.let {

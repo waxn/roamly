@@ -13,7 +13,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Send
@@ -124,7 +125,7 @@ fun AskScreen(
                 onValueChange = viewModel::setInput,
                 modifier = Modifier.weight(1f),
                 placeholder = { Text("Ask something…") },
-                shape = RoundedCornerShape(16.dp),
+                shape = SquircleShape(SquircleRadius.panel),
                 enabled = !state.sending,
             )
             IconButton(
@@ -143,7 +144,7 @@ private fun ChatBubble(msg: ChatMessage, onOpenMapDate: (String) -> Unit) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
         Surface(
             color = if (isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-            shape = RoundedCornerShape(
+            shape = SquircleShape(
                 topStart = 16.dp, topEnd = 16.dp,
                 bottomStart = if (isUser) 16.dp else 4.dp,
                 bottomEnd = if (isUser) 4.dp else 16.dp,
@@ -224,7 +225,7 @@ private fun TypingBubble() {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant,
-            shape = RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp),
+            shape = SquircleShape(SquircleRadius.panel, SquircleRadius.panel, SquircleRadius.panel, 4.dp),
         ) {
             Box(modifier = Modifier.padding(14.dp)) {
                 CircularProgressIndicator(modifier = Modifier.padding(2.dp), strokeWidth = 2.dp)

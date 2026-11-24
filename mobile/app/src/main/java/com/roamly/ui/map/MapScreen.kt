@@ -36,7 +36,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.FiberManualRecord
@@ -309,7 +310,7 @@ fun MapScreen(
         ) {
             Surface(
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                shape = RoundedCornerShape(14.dp),
+                shape = SquircleShape(SquircleRadius.control),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -349,7 +350,7 @@ fun MapScreen(
                 .statusBarsPadding()
                 .padding(top = 12.dp, end = 12.dp),
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-            shape = RoundedCornerShape(14.dp),
+            shape = SquircleShape(SquircleRadius.control),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -376,7 +377,7 @@ fun MapScreen(
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()
                     .padding(top = 64.dp, end = 12.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(SquircleShape(SquircleRadius.control))
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -416,7 +417,7 @@ fun MapScreen(
                     else locationPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                 },
             color = MaterialTheme.colorScheme.primaryContainer,
-            shape = RoundedCornerShape(16.dp),
+            shape = SquircleShape(SquircleRadius.panel),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         ) {
             Row(
@@ -440,7 +441,7 @@ fun MapScreen(
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 16.dp)
-                    .clip(RoundedCornerShape(18.dp))
+                    .clip(SquircleShape(SquircleRadius.panel))
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.97f))
                     .padding(horizontal = 20.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -456,7 +457,7 @@ fun MapScreen(
             Surface(
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 60.dp, start = 16.dp, end = 16.dp),
                 color = MaterialTheme.colorScheme.errorContainer,
-                shape = RoundedCornerShape(12.dp),
+                shape = SquircleShape(SquircleRadius.control),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
             ) {
                 Text(it, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(12.dp))
@@ -765,7 +766,7 @@ private fun speedLabel(mps: Double): String {
 private fun ZoomFab(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(SquircleShape(SquircleRadius.control))
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
     ) {
         IconButton(onClick = onClick, modifier = Modifier.size(36.dp)) {
@@ -911,7 +912,7 @@ private fun DayRow(day: NearHereDay, onClick: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-        shape = RoundedCornerShape(12.dp),
+        shape = SquircleShape(SquircleRadius.control),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),

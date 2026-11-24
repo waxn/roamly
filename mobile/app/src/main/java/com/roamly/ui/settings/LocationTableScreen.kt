@@ -17,7 +17,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDownward
@@ -191,7 +192,7 @@ private fun PickerChip(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
+                .clip(SquircleShape(SquircleRadius.control))
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 .clickable { expanded = true }
                 .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -219,7 +220,7 @@ private fun SortChip(
     Box {
         Row(
             modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
+                .clip(SquircleShape(SquircleRadius.control))
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 .clickable { expanded = true }
                 .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -265,7 +266,7 @@ private fun LocationRowCard(row: LocationTableRow, onDelete: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(SquircleShape(SquircleRadius.control))
             .background(MaterialTheme.colorScheme.surface)
             .padding(14.dp),
     ) {

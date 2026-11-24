@@ -1,7 +1,7 @@
 package com.roamly.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.roamly.ui.theme.SquircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
@@ -111,13 +111,14 @@ private val LightColors = lightColorScheme(
     onTertiaryContainer  = Color(0xFF4A2F46),
 )
 
-// Radii — crisp plates, not pillowy M3 defaults. Mirrors the web's --radius-* tightening.
+// Corners — the web's default Squircle shape: superellipse corners at its
+// radius roles (SquircleRadius), so app and site read as one design.
 private val RoamlyShapes = Shapes(
-    extraSmall = RoundedCornerShape(6.dp),
-    small      = RoundedCornerShape(8.dp),
-    medium     = RoundedCornerShape(10.dp),
-    large      = RoundedCornerShape(12.dp),
-    extraLarge = RoundedCornerShape(14.dp),
+    extraSmall = SquircleShape(SquircleRadius.tag),      // text fields, menus
+    small      = SquircleShape(SquircleRadius.tag),      // chips (the web's tags)
+    medium     = SquircleShape(SquircleRadius.panel),    // cards (the web's panels)
+    large      = SquircleShape(SquircleRadius.panel),
+    extraLarge = SquircleShape(SquircleRadius.dialog),   // dialogs, bottom sheets
 )
 
 private val RoamlyTypography = Typography().run {

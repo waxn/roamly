@@ -12,7 +12,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -839,7 +840,7 @@ private fun TrackingHero(isTracking: Boolean, onToggle: () -> Unit) {
                 if (isTracking) Icons.Rounded.MyLocation else Icons.Rounded.LocationDisabled,
                 gradient = if (isTracking) clay.secondaryGradient else listOf(MaterialTheme.colorScheme.onSurfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant),
                 size = 52.dp,
-                cornerRadius = 18.dp,
+                cornerRadius = SquircleRadius.panel,
             )
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
@@ -935,7 +936,7 @@ private fun ChipSelector(
             val selected = i == selectedIndex
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(SquircleShape(SquircleRadius.control))
                     .background(
                         if (selected) MaterialTheme.colorScheme.primaryContainer
                         else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
@@ -954,7 +955,7 @@ private fun ChipSelector(
         if (customLabel != null && onLongEdit != null) {
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(SquircleShape(SquircleRadius.control))
                     .background(MaterialTheme.colorScheme.primaryContainer)
                     .clickable { onLongEdit() }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -965,7 +966,7 @@ private fun ChipSelector(
         if (onLongEdit != null) {
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(SquircleShape(SquircleRadius.control))
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                     .clickable { onLongEdit() }
                     .padding(10.dp),
@@ -989,7 +990,7 @@ private fun AdvancedNumberField(label: String, value: Int, hint: String, onApply
         label = { Text(label) },
         supportingText = { Text(hint) },
         singleLine = true,
-        shape = RoundedCornerShape(14.dp),
+        shape = SquircleShape(SquircleRadius.control),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = Modifier.fillMaxWidth(),
     )
@@ -1077,7 +1078,7 @@ private fun NoteRow(icon: ImageVector, title: String, subtitle: String) {
 @Composable
 private fun EditableRow(icon: ImageVector, label: String, value: String, mono: Boolean = false, onClick: () -> Unit) {
     Row(
-        modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(vertical = 2.dp),
+        modifier = Modifier.clip(SquircleShape(SquircleRadius.control)).clickable(onClick = onClick).padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))

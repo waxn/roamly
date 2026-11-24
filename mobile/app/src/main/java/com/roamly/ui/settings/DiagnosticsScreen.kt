@@ -20,7 +20,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
@@ -167,7 +168,7 @@ fun DiagnosticsScreen(
                                 val selected = selectedHours == h
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(10.dp))
+                                        .clip(SquircleShape(SquircleRadius.control))
                                         .background(
                                             if (selected) MaterialTheme.colorScheme.primaryContainer
                                             else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
@@ -280,7 +281,7 @@ fun DiagnosticsScreen(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("Gaps between points", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                                     Box(
-                                        modifier = Modifier.clip(RoundedCornerShape(999.dp))
+                                        modifier = Modifier.clip(SquircleShape(999.dp))
                                             .background(gapHealth.second.copy(alpha = 0.15f))
                                             .padding(horizontal = 8.dp, vertical = 3.dp),
                                     ) {
@@ -485,7 +486,7 @@ private fun CoverageChart(coverage: List<Double>) {
 @Composable
 private fun LegendDot(color: Color, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(modifier = Modifier.size(8.dp).clip(RoundedCornerShape(2.dp)).background(color))
+        Box(modifier = Modifier.size(8.dp).clip(SquircleShape(2.dp)).background(color))
         Spacer(Modifier.width(3.dp))
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }

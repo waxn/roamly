@@ -14,7 +14,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -63,7 +64,7 @@ fun QuickNotePill(state: QuickNotesUiState, onClick: () -> Unit, modifier: Modif
     Surface(
         modifier = modifier.clickable(onClick = onClick),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-        shape = RoundedCornerShape(14.dp),
+        shape = SquircleShape(SquircleRadius.control),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
     ) {
         Row(
@@ -230,7 +231,7 @@ private fun NoteRow(
     var expanded by rememberSaveable(note.date) { mutableStateOf(false) }
     Surface(
         color = if (isEditing) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(12.dp),
+        shape = SquircleShape(SquircleRadius.control),
         border = BorderStroke(1.dp, if (isEditing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
         modifier = Modifier.fillMaxWidth().animateContentSize().clickable { expanded = !expanded },
     ) {

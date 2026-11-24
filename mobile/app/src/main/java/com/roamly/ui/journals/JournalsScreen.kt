@@ -22,7 +22,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -237,7 +238,7 @@ private fun DayCell(day: Int, entry: JournalListItem?, isToday: Boolean, onClick
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(SquircleShape(SquircleRadius.control))
             .then(
                 if (hasEntry) Modifier.background(MaterialTheme.colorScheme.tertiaryContainer)
                 else if (isToday) Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
@@ -275,12 +276,12 @@ private fun RecentRow(entry: JournalListItem, cover: String?, onClick: () -> Uni
                 AsyncImage(
                     model = cover,
                     contentDescription = null,
-                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)),
+                    modifier = Modifier.size(48.dp).clip(SquircleShape(SquircleRadius.control)),
                     contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                 )
             } else {
                 Box(
-                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(12.dp))
+                    modifier = Modifier.size(48.dp).clip(SquircleShape(SquircleRadius.control))
                         .background(MaterialTheme.colorScheme.tertiaryContainer),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -417,7 +418,7 @@ private fun EntryEditor(editor: JournalEditorState, viewModel: JournalsViewModel
                                 AsyncImage(
                                     model = viewModel.mediaUrl(photo.thumbnail ?: photo.url),
                                     contentDescription = null,
-                                    modifier = Modifier.size(96.dp).clip(RoundedCornerShape(14.dp)),
+                                    modifier = Modifier.size(96.dp).clip(SquircleShape(SquircleRadius.control)),
                                     contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                                 )
                                 IconButton(
@@ -454,7 +455,7 @@ private fun EmojiChip(emoji: String, selected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .size(44.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(SquircleShape(SquircleRadius.control))
             .background(
                 if (selected) MaterialTheme.colorScheme.tertiaryContainer
                 else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
@@ -511,7 +512,7 @@ private fun TrackCard(track: JournalTrack, onExpand: (() -> Unit)? = null) {
     }
 
     ClayCard(contentPadding = 0.dp, onClick = onExpand) {
-        Box(modifier = Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(16.dp))) {
+        Box(modifier = Modifier.fillMaxWidth().height(200.dp).clip(SquircleShape(SquircleRadius.panel))) {
             AndroidView(factory = { (mapView.parent as? android.view.ViewGroup)?.removeView(mapView); mapView }, modifier = Modifier.fillMaxSize())
 
             // Stats overlay at the bottom (semi-transparent scrim)
@@ -537,7 +538,7 @@ private fun TrackCard(track: JournalTrack, onExpand: (() -> Unit)? = null) {
                 Row(
                     modifier = Modifier.align(Alignment.TopStart)
                         .padding(8.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(SquircleShape(SquircleRadius.tag))
                         .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,

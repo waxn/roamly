@@ -22,7 +22,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.CalendarMonth
@@ -154,7 +155,7 @@ private fun SummaryCard(stats: StatsResponse) {
 private fun StatBlock(value: String, label: String, icon: ImageVector, containerColor: Color, contentColor: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
-            modifier = Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(containerColor),
+            modifier = Modifier.size(40.dp).clip(SquircleShape(SquircleRadius.control)).background(containerColor),
             contentAlignment = Alignment.Center,
         ) { Icon(icon, null, tint = contentColor, modifier = Modifier.size(20.dp)) }
         Spacer(Modifier.height(6.dp))
@@ -189,7 +190,7 @@ private fun PeriodBlock(label: String, current: PeriodStats, previous: PeriodSta
     }
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(SquircleShape(SquircleRadius.control))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
             .padding(10.dp)
     ) {
@@ -233,7 +234,7 @@ private fun MonthlyBars(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height((frac * 76).dp.coerceAtLeast(3.dp))
-                                .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                                .clip(SquircleShape(topStart = 4.dp, topEnd = 4.dp))
                                 .background(
                                     if (isSelected) MaterialTheme.colorScheme.primary
                                     else MaterialTheme.colorScheme.primaryContainer
@@ -338,7 +339,7 @@ private fun CountryRow(country: CountryVisit) {
     ClayCard(contentPadding = 0.dp) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(14.dp)) {
             Box(
-                modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp))
+                modifier = Modifier.size(36.dp).clip(SquircleShape(SquircleRadius.control))
                     .background(MaterialTheme.colorScheme.secondaryContainer),
                 contentAlignment = Alignment.Center,
             ) { Icon(Icons.Rounded.Public, null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(18.dp)) }
@@ -357,7 +358,7 @@ private fun CityRow(city: CityVisit) {
     ClayCard(contentPadding = 0.dp) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(14.dp)) {
             Box(
-                modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp))
+                modifier = Modifier.size(36.dp).clip(SquircleShape(SquircleRadius.control))
                     .background(MaterialTheme.colorScheme.tertiaryContainer),
                 contentAlignment = Alignment.Center,
             ) { Icon(Icons.Rounded.Place, null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(18.dp)) }
@@ -390,7 +391,7 @@ private fun SkeletonStats() {
 private fun SkeletonCard(height: androidx.compose.ui.unit.Dp, alpha: Float) {
     Box(
         modifier = Modifier.fillMaxWidth().height(height)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(SquircleShape(SquircleRadius.panel))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
     )
 }

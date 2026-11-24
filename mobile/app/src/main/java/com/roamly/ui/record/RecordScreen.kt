@@ -3,7 +3,8 @@ package com.roamly.ui.record
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.MyLocation
@@ -266,7 +267,7 @@ private fun LiveTrackMap(track: List<TrackPoint>, modifier: Modifier = Modifier)
     }
 
     ClayCard(contentPadding = 0.dp, modifier = modifier.fillMaxWidth()) {
-        Box(modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp))) {
+        Box(modifier = Modifier.fillMaxSize().clip(SquircleShape(SquircleRadius.control))) {
             androidx.compose.ui.viewinterop.AndroidView(
                 factory = { mapView },
                 modifier = Modifier.fillMaxSize(),

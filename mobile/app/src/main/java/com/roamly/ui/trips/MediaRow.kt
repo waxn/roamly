@@ -12,7 +12,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -65,7 +66,7 @@ fun MediaThumbnailRow(
             Box(
                 modifier = Modifier
                     .size(thumbSize.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(SquircleShape(SquircleRadius.control))
                     .background(Color(0x22000000))
                     .clickable {
                         if (m.type == "video") {
@@ -85,7 +86,7 @@ fun MediaThumbnailRow(
                 )
                 if (m.type == "video") {
                     Box(
-                        modifier = Modifier.size(32.dp).clip(RoundedCornerShape(16.dp)).background(Color(0x99000000)),
+                        modifier = Modifier.size(32.dp).clip(SquircleShape(SquircleRadius.panel)).background(Color(0x99000000)),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(Icons.Rounded.PlayArrow, "Play", tint = Color.White, modifier = Modifier.size(22.dp))

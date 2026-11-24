@@ -16,7 +16,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ChevronRight
@@ -99,7 +100,7 @@ fun GroupsScreen(
                 .align(Alignment.BottomEnd)
                 .padding(end = 20.dp, bottom = 24.dp)
                 .size(60.dp)
-                .clip(RoundedCornerShape(22.dp))
+                .clip(SquircleShape(SquircleRadius.panel))
                 .background(MaterialTheme.colorScheme.primary)
                 .clickable { tripsViewModel.showCreateDialog() },
             contentAlignment = Alignment.Center,
@@ -134,7 +135,7 @@ private fun EmptyState(icon: androidx.compose.ui.graphics.vector.ImageVector, ti
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        ClayIconBadge(icon, size = 64.dp, cornerRadius = 22.dp)
+        ClayIconBadge(icon, size = 64.dp, cornerRadius = SquircleRadius.panel)
         Spacer(Modifier.height(16.dp))
         Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground)
         Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -145,7 +146,7 @@ private fun EmptyState(icon: androidx.compose.ui.graphics.vector.ImageVector, ti
 private fun TripCard(trip: TripResponse, gradient: List<Color>, onClick: () -> Unit, onDelete: () -> Unit) {
     ClayCard(onClick = onClick, contentPadding = 16.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            ClayIconBadge(Icons.Rounded.Route, gradient = gradient, size = 46.dp, cornerRadius = 16.dp)
+            ClayIconBadge(Icons.Rounded.Route, gradient = gradient, size = 46.dp, cornerRadius = SquircleRadius.panel)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(trip.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
