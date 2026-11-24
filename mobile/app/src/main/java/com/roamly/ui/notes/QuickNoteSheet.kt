@@ -54,8 +54,9 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /**
- * The map's "what I did today" pill. Shows today's note (first line) once
- * there is one, and how many other days in the map's range have a note.
+ * The map's "what I did today" pill. It follows the map's range: a one-day
+ * range shows that day's note (first line), a longer one up to a month says
+ * how many daily notes it holds. MapScreen hides it for longer ranges.
  */
 @Composable
 fun QuickNotePill(state: QuickNotesUiState, onClick: () -> Unit, modifier: Modifier = Modifier) {
@@ -71,23 +72,34 @@ fun QuickNotePill(state: QuickNotesUiState, onClick: () -> Unit, modifier: Modif
         ) {
             Icon(Icons.Rounded.EditNote, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(6.dp))
-            val note = state.todayNote.trim().substringBefore('\n')
-            if (note.isNotEmpty()) {
-                Text("Today · ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                Text(
-                    note,
+            val day = state.day
+            val note = state.dayNote.trim().substringBefore('\n')
+            when {
+                day != null && note.isNotEmpty() -> {
+                    Text("${dayLabel(day, state.today)} · ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        note,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
+                day != null -> Text(
+                    "What did you do ${askDay(day, state.today)}?",
                     style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            } else {
-                Text("What did you do today?", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (state.otherCount > 0) {
-                Spacer(Modifier.width(8.dp))
-                Text("+${state.otherCount}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else -> {
+                    val n = state.notes.size
+                    Text(
+                        when (n) { 0 -> "No daily notes"; 1 -> "1 daily note"; else -> "$n daily notes" },
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = if (n > 0) FontWeight.SemiBold else null,
+                        color = if (n > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }
@@ -148,7 +160,9 @@ fun QuickNoteSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (!editingToday) TextButton(onClick = { onEdit(state.today) }) { Text("Back to today") }
+                if (state.editing != state.focus) TextButton(onClick = { onEdit(state.focus) }) {
+                    Text(if (state.focus == state.today) "Back to today" else "Back to ${dayLabel(state.focus, state.today)}")
+                }
             }
 
             OutlinedTextField(
@@ -243,6 +257,13 @@ private fun NoteRow(
 }
 
 private fun parseDay(s: String): LocalDate? = runCatching { LocalDate.parse(s) }.getOrNull()
+
+/** "today", "yesterday" or "on Nov 20", for "What did you do …?". */
+private fun askDay(d: LocalDate, today: LocalDate): String = when (d) {
+    today -> "today"
+    today.minusDays(1) -> "yesterday"
+    else -> "on ${dayLabel(d, today)}"
+}
 
 internal fun dayLabel(d: LocalDate, today: LocalDate, long: Boolean = false): String = when (d) {
     today -> "Today"

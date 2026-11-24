@@ -16,7 +16,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 import javax.inject.Inject
+
+/** Ranges longer than this hide the map's notes pill. */
+internal const val NOTES_MAX_DAYS = 31L
 
 data class QuickNotesUiState(
     val today: LocalDate = LocalDate.now(),
@@ -32,11 +36,23 @@ data class QuickNotesUiState(
     val statusIsError: Boolean = false,
     /** The map's range as calendar days; null = all time. */
     val range: Pair<LocalDate, LocalDate>? = null,
+    /** Set when the range is about one day (6h, 24h, or a stepped-to day): that day. */
+    val day: LocalDate? = null,
     val notes: List<QuickNote> = emptyList(),
 ) {
     val dirty: Boolean get() = draft.trim() != saved
-    /** Other days in the range with a note: the pill's "+n". */
-    val otherCount: Int get() = notes.count { it.date != today.toString() }
+    /** No pill for all time or anything longer than a month. */
+    val hidden: Boolean get() = range == null ||
+        ChronoUnit.DAYS.between(range.first, range.second) + 1 > NOTES_MAX_DAYS
+    /** The day the composer opens on: the range's day, else today when the range
+     *  reaches it, else the range's last day. */
+    val focus: LocalDate get() = day ?: range?.let { (start, end) ->
+        if (!today.isBefore(start) && !today.isAfter(end)) today else end
+    } ?: today
+    /** The note for [day], for the pill. */
+    val dayNote: String get() = day?.let { d ->
+        if (d == today) todayNote else notes.firstOrNull { it.date == d.toString() }?.note
+    }.orEmpty()
 }
 
 /**
@@ -59,20 +75,39 @@ class QuickNotesViewModel @Inject constructor(
     private var rangeJob: Job? = null
     private var rangeSet = false
 
-    /** Called by the map whenever its time range changes. */
-    fun setRange(range: Pair<LocalDate, LocalDate>?) {
-        if (rangeSet && range == _state.value.range) return
+    /**
+     * Called by the map whenever its time range changes. [day] is the one day
+     * the range is about, when it is about one. Unsaved typing stays on its
+     * day; otherwise the composer follows the range.
+     */
+    fun setRange(range: Pair<LocalDate, LocalDate>?, day: LocalDate? = null) {
+        val cur = _state.value
+        if (rangeSet && range == cur.range && day == cur.day) return
         rangeSet = true
-        _state.update { it.copy(range = range) }
+        val inRange = { d: String -> range != null && d >= range.first.toString() && d <= range.second.toString() }
+        _state.update { s ->
+            val next = s.copy(range = range, day = day, notes = s.notes.filter { inRange(it.date) })
+            if (s.dirty) next else next.withEditing(next.focus)
+        }
         rangeJob?.cancel()
         rangeJob = viewModelScope.launch {
             val r = repo.quickNotes(range?.first?.toString(), range?.second?.toString())
             if (r is Result.Success) {
+                // The answer covers every day in the range, so a day missing from it has no note.
+                if (range != null) known.keys.removeAll { inRange(it) }
                 r.data.notes.forEach { known[it.date] = it.note }
-                _state.update { it.copy(notes = r.data.notes) }
+                _state.update { s ->
+                    val next = s.copy(notes = r.data.notes)
+                    if (s.dirty || s.editing != s.focus) next else next.withEditing(s.editing)
+                }
             }
         }
         refreshToday()
+    }
+
+    private fun QuickNotesUiState.withEditing(date: LocalDate): QuickNotesUiState {
+        val note = known[date.toString()].orEmpty()
+        return copy(editing = date, draft = note, saved = note, status = null, statusIsError = false)
     }
 
     /** Re-read today's note; also rolls "today" over after midnight. */
@@ -104,8 +139,7 @@ class QuickNotesViewModel @Inject constructor(
     }
 
     fun edit(date: LocalDate) {
-        val note = known[date.toString()].orEmpty()
-        _state.update { it.copy(editing = date, draft = note, saved = note, status = null, statusIsError = false) }
+        _state.update { it.withEditing(date) }
     }
 
     fun onDraftChange(v: String) {

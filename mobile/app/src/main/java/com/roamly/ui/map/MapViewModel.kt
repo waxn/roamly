@@ -111,6 +111,14 @@ data class MapUiState(
             else -> now.minusHours((timePeriod.hours ?: 0).toLong()).toLocalDate() to now.toLocalDate()
         }
 
+    /** The one day the range is about, when it is about one: the hour periods
+     *  are today, a stepped-to (or picked) single day is that day. */
+    fun noteDay(today: LocalDate = LocalDate.now()): LocalDate? = when (timePeriod) {
+        TimePeriod.H6, TimePeriod.H24 -> today
+        TimePeriod.CUSTOM -> customDateRange?.takeIf { it.start == it.end }?.start
+        else -> null
+    }
+
     val canStepBack: Boolean get() = timePeriod != TimePeriod.ALL &&
         (timePeriod != TimePeriod.CUSTOM || customDateRange != null)
     val canStepForward: Boolean get() = timePeriod == TimePeriod.CUSTOM &&

@@ -131,9 +131,10 @@ fun MapScreen(
     var focusNoteComposer by remember { mutableStateOf(false) }
     val notesState = notesViewModel?.uiState?.collectAsState()?.value
 
-    // The notes list follows the map's range, so ‹ › walk the notes with the track.
+    // The notes pill follows the map's range, so ‹ › walk the notes with the track.
     val rangeDays = state.rangeDays()
-    LaunchedEffect(notesViewModel, rangeDays) { notesViewModel?.setRange(rangeDays) }
+    val noteDay = state.noteDay()
+    LaunchedEffect(notesViewModel, rangeDays, noteDay) { notesViewModel?.setRange(rangeDays, noteDay) }
     // The evening reminder was tapped: open straight into writing.
     val noteLaunch by QuickNoteLaunch.requested.collectAsState()
     LaunchedEffect(noteLaunch, notesViewModel) {
@@ -332,7 +333,7 @@ fun MapScreen(
                     RangeStep(Icons.Rounded.ChevronRight, "Next range", enabled = state.canStepForward) { viewModel.stepRange(1) }
                 }
             }
-            if (notesState != null) {
+            if (notesState != null && !notesState.hidden) {
                 QuickNotePill(state = notesState, onClick = {
                     notesViewModel?.refreshToday()
                     focusNoteComposer = false
