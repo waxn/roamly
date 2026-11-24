@@ -245,10 +245,9 @@
 }
 .tp-chip:hover:not(.active) { color: var(--text); border-color: var(--text-muted); }
 .tp-chip.active { background: var(--primary); border-color: var(--primary); color: #fff; }
-#transport-toggle .tool-btn-badge::after {
-    content: '▾'; display: inline-block; margin-left: 6px; transition: transform 0.18s;
-}
-.transport-layer.open #transport-toggle .tool-btn-badge::after { transform: rotate(180deg); }
+#transport-toggle { gap: 8px; }
+#transport-toggle .tool-btn-badge { margin-left: auto; }
+#transport-toggle .group-chev { margin: 0 1px 0 0; }
 
 /* ── Sidebar head + groups ──
    The head folds the whole panel away (phones start folded). Each group
@@ -285,17 +284,38 @@
     text-transform: none;
     white-space: nowrap;
 }
-.group-chev {
+/* One chevron for the whole panel: the panel and group heads, the range
+   steppers and the dropdown arrows all draw this same 7px stroke. A rotated
+   corner sits off-centre in its box, so each direction nudges it back by
+   28% of its size toward the point it is aiming away from. */
+.group-chev,
+.range-chev,
+.sidebar-content .rly-select-arrow::before {
+    content: '';
+    display: block;
     flex: 0 0 auto;
-    width: 6px;
-    height: 6px;
-    margin: 0 2px 3px;
-    border-right: 1.5px solid currentColor;
-    border-bottom: 1.5px solid currentColor;
-    transform: rotate(45deg);
-    transition: transform 0.18s ease, margin 0.18s ease;
+    box-sizing: border-box;
+    width: 7px;
+    height: 7px;
+    border-right: 1.6px solid currentColor;
+    border-bottom: 1.6px solid currentColor;
 }
-[aria-expanded="true"] > .group-chev { transform: rotate(-135deg); margin-bottom: -2px; }
+.group-chev {
+    margin: 0 3px;
+    transform: translateY(-28%) rotate(45deg);
+    transition: transform 0.18s ease;
+}
+[aria-expanded="true"] > .group-chev { transform: translateY(28%) rotate(-135deg); }
+.range-chev.prev { transform: translateX(28%) rotate(135deg); }
+.range-chev.next { transform: translateX(-28%) rotate(-45deg); }
+.sidebar-content .rly-select-arrow {
+    width: 13px;
+    height: 13px;
+    align-items: center;
+    justify-content: center;
+}
+.sidebar-content .rly-select-arrow svg { display: none; }
+.sidebar-content .rly-select-arrow::before { transform: translateY(-28%) rotate(45deg); }
 /* The body is the scroller, so its scrollbar can't push the head sideways,
    and folding keeps the panel's width: the head's chevron stays under the
    pointer. The negative margins put the scrollbar on the panel's edge. */
@@ -346,16 +366,16 @@
 .range-row { display: flex; gap: 4px; align-items: stretch; }
 .range-row select { flex: 1 1 auto; min-width: 0; }
 .range-step {
-    flex: 0 0 28px;
+    flex: 0 0 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
     padding: 0;
     background: rgba(0, 0, 0, 0.18);
     border: 1px solid var(--border);
     border-radius: var(--r-auto, 0);
     color: var(--text);
-    font-size: 1.05rem;
-    font-family: var(--font-body);
-    font-weight: 700;
-    line-height: 1;
     cursor: pointer;
     transition: border-color 0.12s, color 0.12s;
 }
@@ -956,7 +976,7 @@
                 <div class="sidebar-section">
                     <div class="sidebar-label">time range</div>
                     <div class="range-row">
-                        <button class="range-step" id="range-prev" type="button" aria-label="Previous range">&lsaquo;</button>
+                        <button class="range-step" id="range-prev" type="button" aria-label="Previous range"><span class="range-chev prev" aria-hidden="true"></span></button>
                         <select id="time-range">
                             <option value="1">Last hour</option>
                             <option value="6">Last 6 hours</option>
@@ -966,7 +986,7 @@
                             <option value="720">Last 30 days</option>
                             <option value="all">All time</option>
                         </select>
-                        <button class="range-step" id="range-next" type="button" aria-label="Next range">&rsaquo;</button>
+                        <button class="range-step" id="range-next" type="button" aria-label="Next range"><span class="range-chev next" aria-hidden="true"></span></button>
                     </div>
                     <div class="sidebar-date-row">
                         <input type="date" id="start-date" title="Start day — leave the end blank to show the selected time range from this day">
@@ -1043,6 +1063,7 @@
                                     <button class="tool-btn" id="transport-toggle" type="button" aria-expanded="false" aria-controls="transport-panel">
                                         transport
                                         <span class="tool-btn-badge" id="transport-note"></span>
+                                        <span class="group-chev" aria-hidden="true"></span>
                                     </button>
                                     <div class="transport-panel" id="transport-panel">
                                         <div class="transport-chips" role="group" aria-label="Transport modes shown">
