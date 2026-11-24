@@ -14,6 +14,8 @@ import android.graphics.Paint
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.draw.rotate
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -47,7 +49,6 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.DateRange
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Remove
@@ -329,7 +330,7 @@ fun MapScreen(
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(state.periodLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
-                        Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Chevron(down = true, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     RangeStep(Icons.Rounded.ChevronRight, "Next range", enabled = state.canStepForward) { viewModel.stepRange(1) }
                 }
@@ -379,6 +380,7 @@ fun MapScreen(
                     .padding(top = 64.dp, end = 12.dp)
                     .clip(SquircleShape(SquircleRadius.control))
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
+                    .border(1.dp, MaterialTheme.colorScheme.outline, SquircleShape(SquircleRadius.control))
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -670,14 +672,26 @@ private fun MapOptionsSheet(
 
 @Composable
 private fun RangeStep(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, enabled: Boolean, onClick: () -> Unit) {
-    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(width = 34.dp, height = 36.dp)) {
+    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(width = 36.dp, height = 40.dp)) {
         Icon(
-            icon, contentDescription = desc, modifier = Modifier.size(20.dp),
+            icon, contentDescription = desc, modifier = Modifier.size(CHEVRON_SIZE),
             tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
         )
     }
 }
 
+/** Every arrow on the map's controls is this one chevron at one size, as on the web. */
+private val CHEVRON_SIZE = 20.dp
+
+/** The shared chevron pointing down, or up when [down] is false, turning between the two. */
+@Composable
+private fun Chevron(down: Boolean, tint: ComposeColor, modifier: Modifier = Modifier) {
+    val angle by animateFloatAsState(if (down) 90f else -90f, label = "chevron")
+    Icon(
+        Icons.Rounded.ChevronRight, contentDescription = null, tint = tint,
+        modifier = modifier.size(CHEVRON_SIZE).rotate(angle),
+    )
+}
 @Composable
 private fun OptionsSectionLabel(text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -764,13 +778,14 @@ private fun speedLabel(mps: Double): String {
 
 @Composable
 private fun ZoomFab(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .clip(SquircleShape(SquircleRadius.control))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
+    // Same outlined plate as the time pill and the refresh/options group.
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+        shape = SquircleShape(SquircleRadius.control),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
     ) {
-        IconButton(onClick = onClick, modifier = Modifier.size(36.dp)) {
-            Icon(icon, contentDescription = desc, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
+        IconButton(onClick = onClick, modifier = Modifier.size(38.dp)) {
+            Icon(icon, contentDescription = desc, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
         }
     }
 }
