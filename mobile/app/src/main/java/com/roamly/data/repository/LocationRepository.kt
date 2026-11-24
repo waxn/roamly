@@ -1,6 +1,9 @@
 package com.roamly.data.repository
 
 import com.roamly.data.api.DiagnosticsResponse
+import com.roamly.data.api.FogResponse
+import com.roamly.data.api.InferredResponse
+import com.roamly.data.api.MapPlacesResponse
 import com.roamly.data.api.LocationTableResponse
 import com.roamly.data.api.LocationsResponse
 import com.roamly.data.api.RoamlyApi
@@ -56,6 +59,21 @@ class LocationRepository @Inject constructor(private val api: RoamlyApi) {
         else
             api.getLocations(all = 1, limit = limit, minLat = minLat, maxLat = maxLat, minLng = minLng, maxLng = maxLng)
     }
+
+    suspend fun getFog(): Result<FogResponse> = safeApiCall { api.getFog() }
+
+    /** Filled-gap lines for the map's range: [hours], or a [startDate]..[endDate]
+     *  day range, or neither for all time. */
+    suspend fun getInferred(hours: Int? = null, startDate: String? = null, endDate: String? = null): Result<InferredResponse> =
+        safeApiCall {
+            when {
+                startDate != null && endDate != null -> api.getInferred(startDate = startDate, endDate = endDate)
+                hours != null -> api.getInferred(hours = hours)
+                else -> api.getInferred(all = 1)
+            }
+        }
+
+    suspend fun getMapPlaces(): Result<MapPlacesResponse> = safeApiCall { api.getMapPlaces() }
 
     suspend fun getTrack(hours: Int? = null, startDate: String? = null, endDate: String? = null): Result<TrackResponse> =
         safeApiCall {

@@ -14,8 +14,15 @@ import android.graphics.Paint
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import com.roamly.data.prefs.MapLayers
 import androidx.compose.ui.draw.rotate
+import androidx.compose.material3.Switch
+import androidx.compose.material.icons.rounded.Timeline
+import androidx.compose.material.icons.rounded.Place
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -156,8 +163,12 @@ fun MapScreen(
             Configuration.getInstance().userAgentValue = "Roamly/1.0"
             Configuration.getInstance().osmdroidBasePath = appContext.cacheDir
             Configuration.getInstance().osmdroidTileCache = java.io.File(appContext.cacheDir, "osmdroid_tiles").apply { mkdirs() }
+            val density = appContext.resources.displayMetrics.density
+            val fog = FogOverlay().apply { isEnabled = false }
+            val inferred = InferredOverlay(density).apply { isEnabled = false }
             val heatmap = HeatmapOverlay()
             val points = PointsOverlay()
+            val places = PlacesOverlay(density).apply { isEnabled = false }
             val mv = MapView(appContext).apply {
                 setDestroyMode(false)
                 setTileSource(org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK)
@@ -166,15 +177,33 @@ fun MapScreen(
                 zoomController.setVisibility(org.osmdroid.views.CustomZoomButtonsController.Visibility.NEVER)
                 controller.setZoom(10.0)
                 controller.setCenter(GeoPoint(20.0, 0.0))
+                // Fog under the track so the dots stay readable; places on top.
+                overlays.add(fog)
+                overlays.add(inferred)
                 overlays.add(heatmap)
                 overlays.add(points)
+                overlays.add(places)
             }
-            MapHolder(mv, heatmap, points).also { viewModel.mapHolder = it }
+            MapHolder(mv, heatmap, points, fog, inferred, places).also { viewModel.mapHolder = it }
         }
     }
     val mapView = holder.mapView
     val heatmapOverlay = holder.heatmap
     val pointsOverlay = holder.points
+
+    // Map options layers: data and on/off follow the view model's state.
+    LaunchedEffect(holder, state.fogCells, state.fogPerDeg) {
+        holder.fog.setCells(state.fogCells, state.fogPerDeg)
+        mapView.invalidate()
+    }
+    LaunchedEffect(holder, state.inferred) { holder.inferred.setBatches(state.inferred); mapView.invalidate() }
+    LaunchedEffect(holder, state.places) { holder.places.setPlaces(state.places); mapView.invalidate() }
+    LaunchedEffect(holder, state.layers.fog, state.layers.filledGaps, state.layers.places) {
+        holder.fog.isEnabled = state.layers.fog
+        holder.inferred.isEnabled = state.layers.filledGaps
+        holder.places.isEnabled = state.layers.places
+        mapView.invalidate()
+    }
 
     // Apply the selected basemap (and re-apply when the Mapbox token arrives or
     // the selection changes).
@@ -242,9 +271,15 @@ fun MapScreen(
     // allocated per point across the full accumulated set, a bbox over all of
     // them, and a camera jump undoing wherever the user had panned to. It is a
     // property of the loaded data, so it belongs with the data.
+    // The track draws the filtered points (outliers, transport, hide track);
+    // the auto-fit below still frames everything loaded.
+    val visible = remember(state.locations, state.layers) { state.visibleLocations() }
+    LaunchedEffect(visible) {
+        heatmapOverlay.setPoints(visible)
+        pointsOverlay.setPoints(visible)
+        mapView.invalidate()
+    }
     LaunchedEffect(state.locations) {
-        heatmapOverlay.setPoints(state.locations)
-        pointsOverlay.setPoints(state.locations)
         if (!viewModel.didAutoFit && state.focus == null && state.locations.isNotEmpty()) {
             // Min/max in one pass rather than materialising a GeoPoint list just
             // to hand it to BoundingBox.fromGeoPoints.
@@ -520,6 +555,7 @@ fun MapScreen(
             onDismiss = { showOptions = false },
             onPeriod = viewModel::setTimePeriod,
             onBasemap = viewModel::setBasemap,
+            onLayers = viewModel::updateLayers,
         )
     }
 
@@ -594,9 +630,12 @@ fun MapScreen(
 }
 
 /**
- * Map options — time range and basemap in one place, replacing the separate
- * top-bar dropdowns. Any selection closes the sheet, since the map it changes
- * is behind the scrim.
+ * Map options, grouped like the web map's sidebar: the time range on top (any
+ * pick closes the sheet, since the map it changes is behind the scrim), then
+ * three folding groups whose heads say how many of their toggles are on —
+ * **map display** (basemap, fog of war), **track** (transport filter, filled
+ * gaps, hide outliers, hide track) and **extra data** (my places). Toggles keep
+ * the sheet open so several can be set at once.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -605,9 +644,11 @@ private fun MapOptionsSheet(
     onDismiss: () -> Unit,
     onPeriod: (TimePeriod) -> Unit,
     onBasemap: (String) -> Unit,
+    onLayers: ((MapLayers) -> MapLayers) -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
+    val layers = state.layers
     // Animate the sheet out, then act — dropping it from composition outright
     // would make it disappear without the exit transition.
     val closeThen: (() -> Unit) -> Unit = { action ->
@@ -621,6 +662,7 @@ private fun MapOptionsSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp)
                 .navigationBarsPadding()
                 .padding(bottom = 16.dp),
@@ -646,27 +688,131 @@ private fun MapOptionsSheet(
                 }
             }
 
-            Spacer(Modifier.height(4.dp))
-            OptionsSectionLabel("Basemap")
-            val basemaps = buildList {
-                add("Streets"); add("Satellite"); add("Dark")
-                if (state.mapboxToken.isNotBlank()) {
-                    add("Mapbox Streets"); add("Mapbox Outdoors"); add("Mapbox Satellite")
+            OptionsGroup(
+                title = "Map display", icon = Icons.Rounded.Layers, on = layers.displayOn,
+                open = layers.openDisplay, onToggle = { onLayers { it.copy(openDisplay = !it.openDisplay) } },
+            ) {
+                OptionsSubLabel("Basemap")
+                val basemaps = buildList {
+                    add("Streets"); add("Satellite"); add("Dark")
+                    if (state.mapboxToken.isNotBlank()) {
+                        add("Mapbox Streets"); add("Mapbox Outdoors"); add("Mapbox Satellite")
+                    }
+                }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    basemaps.forEach { name ->
+                        FilterChip(
+                            selected = name == state.basemap,
+                            onClick = { onBasemap(name) },
+                            label = { Text(name) },
+                            leadingIcon = if (name == state.basemap) {
+                                { Icon(Icons.Rounded.Check, null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
+                            } else null,
+                        )
+                    }
+                }
+                LayerSwitch("Fog of war", "Dim everywhere you've never been", layers.fog) {
+                    onLayers { it.copy(fog = !it.fog) }
                 }
             }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                basemaps.forEach { name ->
-                    FilterChip(
-                        selected = name == state.basemap,
-                        onClick = { closeThen { onBasemap(name) } },
-                        label = { Text(name) },
-                        leadingIcon = if (name == state.basemap) {
-                            { Icon(Icons.Rounded.Check, null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
-                        } else null,
-                    )
+
+            OptionsGroup(
+                title = "Track", icon = Icons.Rounded.Timeline, on = layers.trackOn,
+                open = layers.openTrack, onToggle = { onLayers { it.copy(openTrack = !it.openTrack) } },
+            ) {
+                OptionsSubLabel("Transport")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MapLayers.TRANSPORT_MODES.forEach { mode ->
+                        val on = mode in layers.modes
+                        FilterChip(
+                            selected = on,
+                            onClick = { onLayers { l -> l.copy(modes = if (on) l.modes - mode else l.modes + mode) } },
+                            label = { Text(TRANSPORT_LABELS[mode] ?: mode) },
+                        )
+                    }
+                }
+                LayerSwitch("Filled gaps", "Points the map editor filled in, drawn dashed", layers.filledGaps) {
+                    onLayers { it.copy(filledGaps = !it.filledGaps) }
+                }
+                LayerSwitch("Hide outliers", "Leave out fixes the quality scan flagged", layers.hideSuspect) {
+                    onLayers { it.copy(hideSuspect = !it.hideSuspect) }
+                }
+                LayerSwitch("Hide track", "Show only the other layers", layers.hideTrack) {
+                    onLayers { it.copy(hideTrack = !it.hideTrack) }
+                }
+            }
+
+            OptionsGroup(
+                title = "Extra data", icon = Icons.Rounded.Place, on = layers.extraOn,
+                open = layers.openExtra, onToggle = { onLayers { it.copy(openExtra = !it.openExtra) } },
+            ) {
+                LayerSwitch("My places", "Your saved places and their radius", layers.places) {
+                    onLayers { it.copy(places = !it.places) }
                 }
             }
         }
+    }
+}
+
+private val TRANSPORT_LABELS = mapOf(
+    "walk" to "Walk", "cycle" to "Cycle", "vehicle" to "Vehicle",
+    "plane" to "Plane", "still" to "Still", "none" to "Unclassified",
+)
+
+/** A folding group of map options; the head says how many toggles inside are on. */
+@Composable
+private fun OptionsGroup(
+    title: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    on: Int,
+    open: Boolean,
+    onToggle: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    Column {
+        HorizontalDivider()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToggle)
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(8.dp))
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            if (on > 0) {
+                Text("$on on", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+            }
+            Chevron(down = !open, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        AnimatedVisibility(visible = open) {
+            Column(
+                modifier = Modifier.padding(bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) { content() }
+        }
+    }
+}
+
+@Composable
+private fun OptionsSubLabel(text: String) {
+    Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@Composable
+private fun LayerSwitch(title: String, hint: String, checked: Boolean, onToggle: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(checked = checked, onCheckedChange = { onToggle() })
     }
 }
 
@@ -692,6 +838,7 @@ private fun Chevron(down: Boolean, tint: ComposeColor, modifier: Modifier = Modi
         modifier = modifier.size(CHEVRON_SIZE).rotate(angle),
     )
 }
+
 @Composable
 private fun OptionsSectionLabel(text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1018,6 +1165,9 @@ internal class MapHolder(
     val mapView: MapView,
     val heatmap: HeatmapOverlay,
     val points: PointsOverlay,
+    val fog: FogOverlay,
+    val inferred: InferredOverlay,
+    val places: PlacesOverlay,
 ) {
     fun detach() { runCatching { mapView.onDetach() } }
 }
@@ -1036,7 +1186,7 @@ internal class MapHolder(
  * a projection, and allocates nothing — so the per-frame cost now scales with
  * what is actually on screen rather than with everything ever loaded.
  */
-private class ViewportCull(mapView: MapView, padDegrees: Double) {
+internal class ViewportCull(mapView: MapView, padDegrees: Double) {
     private val minLat: Double
     private val maxLat: Double
     private val minLng: Double
@@ -1075,7 +1225,7 @@ private class ViewportCull(mapView: MapView, padDegrees: Double) {
 }
 
 /** Rough degrees-of-latitude for a pixel count at the given zoom. */
-private fun pixelsToDegrees(px: Float, zoom: Double): Double {
+internal fun pixelsToDegrees(px: Float, zoom: Double): Double {
     val worldPx = 256.0 * Math.pow(2.0, zoom)
     return (px / worldPx) * 360.0
 }

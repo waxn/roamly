@@ -37,4 +37,8 @@ data class SyncedLocation(
     val state: String?,
     val country: String?,
     val countryCode: String?,
+    /** Server quality flag ('suspect' = hidden by the map's "hide outliers"). */
+    val flag: String? = null,
+    /** Detected transport mode, blank/null before detection ran. */
+    val transportMode: String? = null,
 )

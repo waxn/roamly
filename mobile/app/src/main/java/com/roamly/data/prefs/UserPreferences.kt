@@ -43,6 +43,8 @@ class UserPreferences @Inject constructor(
         // Selected map basemap (label shared with the web map, e.g. "Streets",
         // "Satellite", "Dark", "Mapbox Streets"). Per-device UI choice.
         private val KEY_MAP_BASEMAP = stringPreferencesKey("map_basemap")
+        // Map options sheet toggles (fog, filled gaps, outliers, transport…), MapLayers.encode().
+        private val KEY_MAP_LAYERS = stringPreferencesKey("map_layers")
         // Cached "is AI Ask configured on the server" flag, so the bottom nav
         // can decide whether to show the Ask tab before the refresh completes.
         private val KEY_ASK_ENABLED = booleanPreferencesKey("ask_enabled")
@@ -132,6 +134,7 @@ class UserPreferences @Inject constructor(
     val darkMode:   Flow<Boolean?> = context.dataStore.data.map { it[KEY_DARK_MODE] }
     val mapboxToken: Flow<String>  = context.dataStore.data.map { it[KEY_MAPBOX_TOKEN] ?: "" }
     val mapBasemap:  Flow<String>  = context.dataStore.data.map { it[KEY_MAP_BASEMAP] ?: "Streets" }
+    val mapLayers:   Flow<MapLayers> = context.dataStore.data.map { MapLayers.decode(it[KEY_MAP_LAYERS]) }
     val askEnabled:  Flow<Boolean> = context.dataStore.data.map { it[KEY_ASK_ENABLED] ?: false }
 
     // ── Tracking ───────────────────────────────────────────────────────────
@@ -278,6 +281,10 @@ class UserPreferences @Inject constructor(
 
     suspend fun setMapBasemap(name: String) {
         context.dataStore.edit { it[KEY_MAP_BASEMAP] = name }
+    }
+
+    suspend fun setMapLayers(layers: MapLayers) {
+        context.dataStore.edit { it[KEY_MAP_LAYERS] = layers.encode() }
     }
 
     suspend fun setAskEnabled(enabled: Boolean) {

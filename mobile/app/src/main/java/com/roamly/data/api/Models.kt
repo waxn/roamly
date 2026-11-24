@@ -21,6 +21,10 @@ data class LocationPoint(
      *  device rather than repeating it per point, so this is filled in by the
      *  caller (LocationStore / MapViewModel), never by Gson. */
     val deviceId: String? = null,
+    /** 'suspect' when the quality scan flagged the fix (map "hide outliers"). */
+    val flag: String? = null,
+    /** walk / cycle / vehicle / plane / still, or blank before detection ran. */
+    @SerializedName("transport_mode") val transportMode: String? = null,
 )
 
 data class DeviceLocations(
@@ -1150,3 +1154,33 @@ data class OtherDayRecording(val date: String = "", val days: Int = 0, val messa
 
 /** GET /api/flights/lookup/ — AeroDataBox legs, in FlightDto's shape (UTC times). */
 data class FlightLookupResponse(val legs: List<FlightDto> = emptyList(), val error: String? = null)
+
+// --- Map layers (fog of war, filled gaps, my places) ---
+
+/** Every ~110 m cell ever visited, as flat `[gy, gx, gy, gx, …]` grid indices
+ *  (`round(lat * perDeg)`, `round(lng * perDeg)`). Whole history, cached 1 h. */
+data class FogResponse(
+    val cells: List<Int> = emptyList(),
+    @SerializedName("per_deg") val perDeg: Int = 1000,
+)
+
+/** Points the map editor filled in, one dashed line per edit. */
+data class InferredResponse(val batches: List<InferredBatch> = emptyList())
+
+data class InferredBatch(
+    val id: Int = 0,
+    @SerializedName("device_id") val deviceId: String = "",
+    /** `[lng, lat]` pairs, in time order. */
+    val coords: List<List<Double>> = emptyList(),
+)
+
+data class MapPlacesResponse(val places: List<MapPlace> = emptyList())
+
+data class MapPlace(
+    val id: Int = 0,
+    val name: String = "",
+    val lat: Double = 0.0,
+    val lng: Double = 0.0,
+    @SerializedName("radius_m") val radiusM: Double = 150.0,
+    val color: String = "",
+)

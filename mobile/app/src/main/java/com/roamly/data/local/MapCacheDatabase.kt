@@ -32,7 +32,9 @@ import com.roamly.tracking.SyncedLocationDao
  * The capture queue, by contrast, holds points that exist *nowhere else* until
  * they upload, which is why that database now carries real migrations only.
  */
-@Database(entities = [SyncedLocation::class], version = 1, exportSchema = false)
+// v2 added flag + transportMode (the map's outlier and transport filters);
+// the destructive fallback below just re-syncs the cache to fill them.
+@Database(entities = [SyncedLocation::class], version = 2, exportSchema = false)
 abstract class MapCacheDatabase : RoomDatabase() {
     abstract fun syncedLocationDao(): SyncedLocationDao
 

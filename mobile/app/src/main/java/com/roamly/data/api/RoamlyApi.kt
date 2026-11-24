@@ -133,6 +133,20 @@ interface RoamlyApi {
     @DELETE("api/locations/{id}/delete/")
     suspend fun deleteLocation(@Path("id") id: Int): Response<ResponseBody>
 
+    @GET("api/fog/")
+    suspend fun getFog(): Response<FogResponse>
+
+    @GET("api/inferred/")
+    suspend fun getInferred(
+        @Query("hours") hours: Int? = null,
+        @Query("start_date") startDate: String? = null,
+        @Query("end_date") endDate: String? = null,
+        @Query("all") all: Int? = null,
+    ): Response<InferredResponse>
+
+    @GET("api/places/")
+    suspend fun getMapPlaces(): Response<MapPlacesResponse>
+
     @GET("api/track/")
     suspend fun getTrack(
         @Query("hours") hours: Int? = null,

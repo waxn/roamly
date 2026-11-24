@@ -2,10 +2,13 @@ package com.roamly.ui.map
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.roamly.data.api.InferredBatch
 import com.roamly.data.api.LocationPoint
+import com.roamly.data.api.MapPlace
 import com.roamly.data.api.LocationsResponse
 import com.roamly.data.api.StatsResponse
 import com.roamly.data.local.LocationStore
+import com.roamly.data.prefs.MapLayers
 import com.roamly.data.prefs.UserPreferences
 import com.roamly.data.repository.LocationRepository
 import com.roamly.data.repository.Result
@@ -98,7 +101,24 @@ data class MapUiState(
     val basemap: String = "Streets",
     // device_id → display name, so a tapped point can name the phone that recorded it.
     val deviceNames: Map<String, String> = emptyMap(),
+    /** Map options toggles (fog, filled gaps, outliers, transport, places). */
+    val layers: MapLayers = MapLayers(),
+    /** Fog-of-war cells as flat `[gy, gx, …]`; null until loaded. Whole history. */
+    val fogCells: IntArray? = null,
+    val fogPerDeg: Int = 1000,
+    /** Filled-gap lines for the current range. */
+    val inferred: List<InferredBatch> = emptyList(),
+    val places: List<MapPlace> = emptyList(),
 ) {
+    /** The points the track layers draw: hide-track, outlier and transport filters applied. */
+    fun visibleLocations(): List<LocationPoint> = when {
+        layers.hideTrack -> emptyList()
+        !layers.hideSuspect && !layers.modeFilterActive -> locations
+        else -> locations.filter { p ->
+            (!layers.hideSuspect || p.flag != "suspect") && layers.showsMode(p.transportMode)
+        }
+    }
+
     val periodLabel: String get() = if (timePeriod == TimePeriod.CUSTOM && customDateRange != null)
         customDateRange.label else timePeriod.label
 
@@ -205,6 +225,14 @@ class MapViewModel @Inject constructor(
                 _uiState.update { it.copy(basemap = name) }
             }
         }
+        // Map options toggles: read once (updateLayers keeps state and prefs in
+        // step from then on), then fetch whatever the switched-on layers need.
+        viewModelScope.launch {
+            val saved = userPreferences.mapLayers.first()
+            _uiState.update { it.copy(layers = saved) }
+            userPreferences.serverUrl.first { !it.isNullOrBlank() }
+            loadLayerData()
+        }
 
         // Device names, so the point-detail dialog can say which phone logged it.
         viewModelScope.launch {
@@ -223,6 +251,63 @@ class MapViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    /** Flip map options toggles. Applied at once, persisted per device, and any
+     *  layer data a newly switched-on toggle needs is fetched. */
+    fun updateLayers(change: (MapLayers) -> MapLayers) {
+        val next = change(_uiState.value.layers)
+        _uiState.update { it.copy(layers = next) }
+        viewModelScope.launch { userPreferences.setMapLayers(next) }
+        viewModelScope.launch { loadLayerData() }
+    }
+
+    private var fogLoaded = false
+    private var placesLoaded = false
+    /** The range the filled-gap lines on screen were fetched for. */
+    private var inferredKey: String? = null
+
+    private suspend fun loadLayerData() {
+        val layers = _uiState.value.layers
+        if (layers.fog && !fogLoaded) {
+            fogLoaded = true
+            when (val r = locationRepository.getFog()) {
+                is Result.Success -> _uiState.update {
+                    it.copy(fogCells = r.data.cells.toIntArray(), fogPerDeg = r.data.perDeg)
+                }
+                is Result.Error -> fogLoaded = false
+            }
+        }
+        if (layers.places && !placesLoaded) {
+            placesLoaded = true
+            when (val r = locationRepository.getMapPlaces()) {
+                is Result.Success -> _uiState.update { it.copy(places = r.data.places) }
+                is Result.Error -> placesLoaded = false
+            }
+        }
+        if (layers.filledGaps) loadInferred()
+    }
+
+    /** Filled gaps follow the time range, like the track. */
+    private suspend fun loadInferred() {
+        val s = _uiState.value
+        val custom = s.customDateRange.takeIf { s.timePeriod == TimePeriod.CUSTOM }
+        val key = custom?.let { "${it.start}:${it.end}" } ?: "h:${s.timePeriod.hours}"
+        if (key == inferredKey) return
+        inferredKey = key
+        val r = if (custom != null) {
+            locationRepository.getInferred(startDate = custom.start.toString(), endDate = custom.end.toString())
+        } else {
+            locationRepository.getInferred(hours = s.timePeriod.hours)
+        }
+        when (r) {
+            is Result.Success -> if (inferredKey == key) _uiState.update { it.copy(inferred = r.data.batches) }
+            is Result.Error -> if (inferredKey == key) inferredKey = null
+        }
+    }
+
+    private fun onRangeChanged() {
+        viewModelScope.launch { if (_uiState.value.layers.filledGaps) loadInferred() }
     }
 
     /** Change the map basemap. Persisted so the choice survives app restarts;
@@ -278,6 +363,7 @@ class MapViewModel @Inject constructor(
         // Clear any existing focus so the auto-fit in MapScreen fires on the new dataset
         _uiState.update { it.copy(timePeriod = period, customDateRange = null, focus = null) }
         loadData(showSpinnerIfEmpty = true)
+        onRangeChanged()
         viewModelScope.launch { loadStats() }
     }
 
@@ -293,6 +379,7 @@ class MapViewModel @Inject constructor(
         // Clear focus so MapScreen's LaunchedEffect auto-fits the viewport to the new data
         _uiState.update { it.copy(timePeriod = TimePeriod.CUSTOM, customDateRange = range, showDateRangePicker = false, focus = null) }
         loadData(showSpinnerIfEmpty = true)
+        onRangeChanged()
     }
 
     /**
@@ -310,6 +397,11 @@ class MapViewModel @Inject constructor(
             lastQueried = null
             loadDataNow(showSpinnerIfEmpty = false)
             loadStats()
+            // Places and filled gaps may have changed on the web; fog is whole-history
+            // and cached server-side for an hour, so it stays.
+            placesLoaded = false
+            inferredKey = null
+            loadLayerData()
             _uiState.update { it.copy(isRefreshing = false) }
         }
     }

@@ -209,7 +209,7 @@ class LocationStore @Inject constructor(
         id = id, lat = lat, lng = lng, timestamp = timestampIso,
         altitude = altitude, accuracy = accuracy, speed = speed, battery = battery,
         city = city, state = state, country = country, countryCode = countryCode,
-        deviceId = deviceId,
+        deviceId = deviceId, flag = flag, transportMode = transportMode,
     )
 
     private fun LocationPoint.toRow(deviceId: String): SyncedLocation? {
@@ -218,7 +218,7 @@ class LocationStore @Inject constructor(
             id = id, lat = lat, lng = lng, timestampMs = ms, timestampIso = timestamp,
             deviceId = deviceId, altitude = altitude, accuracy = accuracy, speed = speed,
             battery = battery, city = city, state = state, country = country,
-            countryCode = countryCode,
+            countryCode = countryCode, flag = flag, transportMode = transportMode,
         )
     }
 
