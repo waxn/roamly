@@ -11,8 +11,10 @@ separate layer of CSS (and sometimes JS) under tracker/static/tracker/styles/:
   extras      small behaviours       extras.css/.js        html[data-fx~=…]
   size, motion                       facets.css            html[data-size|motion]
 
-A preset is just a named set of facet values (Field Journal = all defaults,
-which loads nothing at all). Presets never touch size or motion, which are
+A preset is just a named set of facet values. Field Journal is the default:
+every facet `field` except the shape, which is `squircle`, so the default
+look sets `data-shape` and loads facets.css. An appearance saved before
+squircle became the default keeps the square `field` shape it stored. Presets never touch size or motion, which are
 personal comfort settings rather than part of a look.
 
 Pure Python on purpose (no Django imports): the context processor maps the
@@ -51,12 +53,12 @@ COMPONENTS = [
 ]
 
 SHAPES = [
-    ('field', 'Field', 'Square plates, as designed'),
+    ('field', 'Field', 'Square plates, the original Field Journal look'),
     ('sharp', 'Sharp', 'Everything square, pills included'),
     ('crisp', 'Crisp', 'A hint of rounding'),
     ('soft', 'Soft', 'Gently rounded'),
     ('round', 'Round', 'Big friendly corners'),
-    ('squircle', 'Squircle', 'Superellipse corners, like a phone icon'),
+    ('squircle', 'Squircle', 'Superellipse corners, like a phone icon (the default)'),
 ]
 
 TYPES = [
@@ -121,7 +123,7 @@ MOTIONS = [('full', 'Full'), ('calm', 'Calm')]
 
 PRESETS = [
     ('field', 'Field Journal', 'The original. Topographic ink, trail-blaze orange.',
-     dict(palette='field', components='field', shape='field', type='field', bg='field', fx=[])),
+     dict(palette='field', components='field', shape='squircle', type='field', bg='field', fx=[])),
     ('lantern', 'Lantern', 'The field notebook after dark: lamplight, stitched leather, rubber stamps.',
      dict(palette='lantern', components='lantern', shape='crisp', type='field', bg='lantern',
           fx=['lamp', 'compass', 'kicker', 'stamp', 'ink'])),

@@ -1,5 +1,5 @@
 """Settings → Appearance: the facet registry, its files, validation and the
-account API. Field Journal must stay the default and load nothing."""
+account API. Field Journal is the default, with the Squircle shape."""
 import json
 import re
 
@@ -65,6 +65,14 @@ def test_sanitize_drops_unknowns_and_keeps_one_per_group():
     assert out['fx'] == ['countup', 'goo']   # flap and countup share a group; the later wins
     assert 'junk' not in out
     assert ap.sanitize('not a dict') == ap.sanitize({})
+
+
+def test_default_is_field_journal_with_squircle_corners():
+    assert ap.DEFAULT['shape'] == 'squircle' and ap.DEFAULT['components'] == 'field'
+    assert ap.matching_preset(ap.sanitize({})) == 'field'
+    # An appearance saved before the switch keeps its square corners.
+    old = {'palette': 'field', 'components': 'field', 'shape': 'field', 'type': 'field', 'bg': 'field', 'fx': []}
+    assert ap.sanitize(old)['shape'] == 'field'
 
 
 def test_preset_then_overrides():

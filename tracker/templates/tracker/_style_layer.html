@@ -3,9 +3,11 @@
 
   A look is a set of facets, each its own layer: palette, components, shape,
   type, background, extras, plus text size and motion. Every facet that is not
-  the Field Journal default sets one attribute on <html> (data-palette,
+  Field Journal's own value sets one attribute on <html> (data-palette,
   data-style, data-shape, data-type, data-bg, data-fx, data-size, data-motion)
-  and pulls in its file. Plain Field Journal sets nothing and loads nothing.
+  and pulls in its file. The default look is Field Journal with the Squircle
+  shape, so it sets data-shape="squircle" and loads facets.css; only the
+  square "field" shape (kept by appearances saved before that) loads nothing.
 
   Files are document.write()n here in <head>, so they are parser-inserted and
   render-blocking: no flash of the default look on load.
