@@ -1,54 +1,52 @@
 package com.roamly.ui.stats
 
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.foundation.Canvas
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import com.roamly.ui.theme.SquircleRadius
-import com.roamly.ui.theme.SquircleShape
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.BarChart
-import androidx.compose.material.icons.rounded.CalendarMonth
-import androidx.compose.material.icons.rounded.Flag
-import androidx.compose.material.icons.rounded.LocationCity
-import androidx.compose.material.icons.rounded.Place
-import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.TrendingDown
 import androidx.compose.material.icons.rounded.TrendingFlat
 import androidx.compose.material.icons.rounded.TrendingUp
 import androidx.compose.material3.CircularProgressIndicator
-import com.roamly.ui.theme.ClayCard
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.roamly.data.api.CityVisit
@@ -56,342 +54,255 @@ import com.roamly.data.api.CountryVisit
 import com.roamly.data.api.PeriodStats
 import com.roamly.data.api.StatsResponse
 import com.roamly.data.api.YearlyOverviewResponse
-import com.roamly.ui.theme.Clay
+import com.roamly.ui.kit.ErrorNote
+import com.roamly.ui.kit.Eyebrow
+import com.roamly.ui.kit.Feel
+import com.roamly.ui.kit.Panel
+import com.roamly.ui.kit.PushedScreen
+import com.roamly.ui.kit.SectionTitle
+import com.roamly.ui.kit.Skeleton
+import com.roamly.ui.kit.StatBlock
+import com.roamly.ui.kit.dockAwareBottom
+import com.roamly.ui.kit.tappable
+import com.roamly.ui.theme.Atlas
+import com.roamly.ui.theme.AtlasType
+import com.roamly.ui.theme.SquircleRadius
+import com.roamly.ui.theme.SquircleShape
+import java.time.Month
+import java.time.format.TextStyle
+import java.util.Locale
 import kotlin.math.max
 
+/** Your numbers: the totals, this period against the last, the year by month, places ranked. */
 @Composable
 fun StatsScreen(
     viewModel: StatsViewModel = hiltViewModel(),
     onNavigateToMap: ((String) -> Unit)? = null,
+    onBack: (() -> Unit)? = null,
 ) {
     val state by viewModel.uiState.collectAsState()
-
-    Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
+    PushedScreen(title = "Stats", onBack = onBack) {
+        if (state.isLoading && state.stats == null) {
+            Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Skeleton(Modifier.fillMaxWidth().height(180.dp), SquircleShape(SquircleRadius.panel))
+                Skeleton(Modifier.fillMaxWidth().height(110.dp), SquircleShape(SquircleRadius.panel))
+                Skeleton(Modifier.fillMaxWidth().height(170.dp), SquircleShape(SquircleRadius.panel))
+            }
+            return@PushedScreen
+        }
+        val countryMax = remember(state.topCountries) { state.topCountries.maxOfOrNull { it.locationCount } ?: 1 }
+        LazyColumn(
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = dockAwareBottom()),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Icon(Icons.Rounded.BarChart, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
-            Spacer(Modifier.width(10.dp))
-            Text("Stats", style = MaterialTheme.typography.headlineSmall)
-        }
-
-        Box(modifier = Modifier.fillMaxSize()) {
-            if (state.isLoading && state.stats == null) {
-                SkeletonStats()
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp, 0.dp, 16.dp, 100.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    state.stats?.let { item { SummaryCard(it) } }
-                    state.yearly?.let { item { YearlyOverview(it) } }
-                    state.yearly?.let { yearly ->
-                        item {
-                            MonthlyBars(
-                                yearly = yearly,
-                                selectedMonth = state.selectedMonth,
-                                onMonthClick = viewModel::selectMonth,
-                            )
+            state.error?.let { item { ErrorNote(it, onRetry = viewModel::load) } }
+            state.stats?.let { item { Hero(it) } }
+            state.yearly?.let { y ->
+                item { Periods(y) }
+                item {
+                    Monthly(y, state.selectedMonth, viewModel::selectMonth)
+                }
+                item {
+                    AnimatedVisibility(state.selectedMonth != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                        state.selectedMonth?.let { m ->
+                            Drilldown(m, y.year, state.monthDrilldown, state.drilldownLoading) { onNavigateToMap?.invoke(it) }
                         }
-                        if (state.selectedMonth != null) {
-                            item {
-                                MonthDrilldown(
-                                    month = state.selectedMonth!!,
-                                    year = yearly.year,
-                                    data = state.monthDrilldown,
-                                    loading = state.drilldownLoading,
-                                    onDayClick = { dateStr -> onNavigateToMap?.invoke(dateStr) },
-                                )
-                            }
-                        }
-                    }
-
-                    if (state.topCountries.isNotEmpty()) {
-                        item { SectionHeader("Countries", Icons.Rounded.Public) }
-                        items(state.topCountries) { CountryRow(it) }
-                    }
-                    if (state.topCities.isNotEmpty()) {
-                        item { SectionHeader("Cities", Icons.Rounded.LocationCity) }
-                        items(state.topCities) { CityRow(it) }
                     }
                 }
             }
-            state.error?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp))
+            if (state.topCountries.isNotEmpty()) {
+                item { SectionTitle("Countries · ${state.topCountries.size}", Modifier.padding(top = 10.dp)) }
+                itemsIndexed(state.topCountries) { i, cv -> CountryRow(i + 1, cv, countryMax) }
+            }
+            if (state.topCities.isNotEmpty()) {
+                item { SectionTitle("Cities", Modifier.padding(top = 10.dp)) }
+                itemsIndexed(state.topCities) { i, cv -> CityRow(i + 1, cv) }
             }
         }
     }
 }
 
 @Composable
-private fun SummaryCard(stats: StatsResponse) {
-    ClayCard(contentPadding = 0.dp) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Overview", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(12.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                StatBlock("${stats.totalPoints}", "points", Icons.Rounded.Flag, MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
-                StatBlock("${stats.countries}", "countries", Icons.Rounded.Public, MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
-                StatBlock("${stats.cities}", "cities", Icons.Rounded.LocationCity, MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
-                StatBlock("${stats.states}", "states", Icons.Rounded.Place, MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (stats.firstLocation != null) {
-                Spacer(Modifier.height(12.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.CalendarMonth, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("tracking since ${stats.firstLocation.take(10)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun StatBlock(value: String, label: String, icon: ImageVector, containerColor: Color, contentColor: Color) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+private fun Hero(stats: StatsResponse) {
+    val c = Atlas.colors
+    Panel(Modifier.fillMaxWidth(), padding = PaddingValues(0.dp)) {
         Box(
-            modifier = Modifier.size(40.dp).clip(SquircleShape(SquircleRadius.control)).background(containerColor),
-            contentAlignment = Alignment.Center,
-        ) { Icon(icon, null, tint = contentColor, modifier = Modifier.size(20.dp)) }
-        Spacer(Modifier.height(6.dp))
-        Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-private fun YearlyOverview(yearly: YearlyOverviewResponse) {
-    ClayCard(contentPadding = 0.dp) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("${yearly.year} overview", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(12.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PeriodBlock("This week",  yearly.thisWeek,  yearly.lastWeek,  Modifier.weight(1f))
-                PeriodBlock("This month", yearly.thisMonth, yearly.lastMonth, Modifier.weight(1f))
-                PeriodBlock("This year",  yearly.thisYear,  yearly.lastYear,  Modifier.weight(1f))
+            Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(c.accent.copy(alpha = 0.22f), c.violet.copy(alpha = 0.10f), c.surface)))
+                .padding(20.dp),
+        ) {
+            Column {
+                Eyebrow(stats.firstLocation?.let { "Since ${it.take(10)}" } ?: "All time")
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text("${stats.countries}", style = MaterialTheme.typography.displayLarge, color = c.text)
+                    Spacer(Modifier.width(10.dp))
+                    Text(if (stats.countries == 1) "country" else "countries", style = MaterialTheme.typography.titleLarge, color = c.textMuted, modifier = Modifier.padding(bottom = 10.dp))
+                }
+                Spacer(Modifier.height(16.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    StatBlock("%,d".format(stats.cities), "cities", small = true)
+                    StatBlock("%,d".format(stats.states), "regions", small = true)
+                    StatBlock("%,d".format(stats.totalPoints), "points", small = true)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun PeriodBlock(label: String, current: PeriodStats, previous: PeriodStats, modifier: Modifier = Modifier) {
-    val delta = current.points - previous.points
-    val pct = if (previous.points > 0) (delta.toFloat() / previous.points * 100f) else null
-    val (deltaColor, deltaIcon) = when {
-        delta > 0 -> Clay.colors.success to Icons.Rounded.TrendingUp
-        delta < 0 -> MaterialTheme.colorScheme.error to Icons.Rounded.TrendingDown
-        else -> MaterialTheme.colorScheme.onSurfaceVariant to Icons.Rounded.TrendingFlat
+private fun Periods(y: YearlyOverviewResponse) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Period("Week", y.thisWeek, y.lastWeek, Modifier.weight(1f))
+        Period("Month", y.thisMonth, y.lastMonth, Modifier.weight(1f))
+        Period("Year", y.thisYear, y.lastYear, Modifier.weight(1f))
     }
-    Column(
-        modifier = modifier
-            .clip(SquircleShape(SquircleRadius.control))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-            .padding(10.dp)
-    ) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@Composable
+private fun Period(label: String, current: PeriodStats, previous: PeriodStats, modifier: Modifier) {
+    val c = Atlas.colors
+    val delta = current.points - previous.points
+    val pct = if (previous.points > 0) delta * 100f / previous.points else null
+    val (tone, icon) = when {
+        delta > 0 -> c.success to Icons.Rounded.TrendingUp
+        delta < 0 -> c.danger to Icons.Rounded.TrendingDown
+        else -> c.textMuted to Icons.Rounded.TrendingFlat
+    }
+    Panel(modifier, padding = PaddingValues(14.dp)) {
+        Text("THIS ${label.uppercase()}", style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+        Spacer(Modifier.height(6.dp))
+        Text(compact(current.points), style = AtlasType.figureSmall, color = c.text)
         Spacer(Modifier.height(4.dp))
-        Text("${current.points}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(deltaIcon, null, tint = deltaColor, modifier = Modifier.size(12.dp))
-            Spacer(Modifier.width(2.dp))
-            Text(pct?.let { "%+.0f%%".format(it) } ?: if (delta == 0) "—" else "+$delta", style = MaterialTheme.typography.labelSmall, color = deltaColor)
+            Icon(icon, null, tint = tone, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(3.dp))
+            Text(pct?.let { "%+.0f%%".format(it) } ?: if (delta == 0) "—" else "new", style = MaterialTheme.typography.labelMedium, color = tone)
         }
     }
 }
 
 @Composable
-private fun MonthlyBars(
-    yearly: YearlyOverviewResponse,
-    selectedMonth: Int?,
-    onMonthClick: (Int) -> Unit,
-) {
-    val buckets = yearly.monthlyBreakdown
+private fun Monthly(y: YearlyOverviewResponse, selected: Int?, onPick: (Int) -> Unit) {
+    val c = Atlas.colors
+    val buckets = y.monthlyBreakdown
     if (buckets.isEmpty()) return
     val maxV = max(1, buckets.maxOf { it.points })
-    ClayCard(contentPadding = 0.dp) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("${yearly.year} — monthly activity", style = MaterialTheme.typography.titleSmall)
-            Text("tap a month for daily breakdown", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(12.dp))
-            Row(modifier = Modifier.fillMaxWidth().height(100.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                buckets.forEach { b ->
-                    val frac = b.points.toFloat() / maxV
-                    val isSelected = b.month == selectedMonth
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { onMonthClick(b.month) },
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Bottom,
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height((frac * 76).dp.coerceAtLeast(3.dp))
-                                .clip(SquircleShape(topStart = 4.dp, topEnd = 4.dp))
-                                .background(
-                                    if (isSelected) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.primaryContainer
-                                )
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            monthAbbrev(b.month),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MonthDrilldown(
-    month: Int,
-    year: Int,
-    data: List<DayCount>,
-    loading: Boolean,
-    onDayClick: (String) -> Unit,
-) {
-    val monthName = java.time.Month.of(month).getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.getDefault())
-    ClayCard(contentPadding = 0.dp) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("$monthName $year — daily", style = MaterialTheme.typography.titleSmall)
-            Text("tap a day to view it on the map", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(10.dp))
-            if (loading) {
-                Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                }
-            } else {
-                val maxV = max(1, data.maxOfOrNull { it.points } ?: 1)
-                val chartH = 72.dp
-                val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
-                val barColor = MaterialTheme.colorScheme.secondary
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    // Canvas: grid lines + bars
-                    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxWidth().height(chartH)) {
-                        val w = size.width; val h = size.height
-                        val n = data.size.coerceAtLeast(1)
-                        val barW = w / n; val gap = barW * 0.15f
-                        listOf(0.25f, 0.5f, 0.75f, 1f).forEach { pct ->
-                            val y = h * (1f - pct)
-                            drawLine(gridColor, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(w, y), 1f)
-                        }
-                        data.forEachIndexed { i, d ->
-                            val bH = (d.points.toFloat() / maxV * h).coerceAtLeast(if (d.points > 0) 2f else 0f)
-                            drawRect(barColor, androidx.compose.ui.geometry.Offset(i * barW + gap / 2f, h - bH), androidx.compose.ui.geometry.Size(barW - gap, bH))
-                        }
-                    }
-                    // Transparent tap targets on top of Canvas
-                    Row(modifier = Modifier.fillMaxWidth().height(chartH)) {
-                        data.forEach { d ->
-                            Box(modifier = Modifier.weight(1f).fillMaxSize().clickable(enabled = d.points > 0) {
-                                onDayClick("%04d-%02d-%02d".format(year, month, d.day))
-                            })
-                        }
-                    }
-                }
-                // Day labels row — separate so they never push bars
-                Row(modifier = Modifier.fillMaxWidth().padding(top = 2.dp)) {
-                    data.forEach { d ->
-                        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                            if (d.day == 1 || d.day % 7 == 0) {
-                                Text(
-                                    "${d.day}",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontSize = androidx.compose.ui.unit.TextUnit(7f, androidx.compose.ui.unit.TextUnitType.Sp)
-                                    ),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun monthAbbrev(month: Int): String = listOf("J","F","M","A","M","J","J","A","S","O","N","D").getOrElse(month - 1) { "" }
-
-@Composable
-private fun SectionHeader(title: String, icon: ImageVector) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp, start = 4.dp)) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(8.dp))
-        Text(title, style = MaterialTheme.typography.titleSmall)
-    }
-}
-
-@Composable
-private fun CountryRow(country: CountryVisit) {
-    ClayCard(contentPadding = 0.dp) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(14.dp)) {
-            Box(
-                modifier = Modifier.size(36.dp).clip(SquircleShape(SquircleRadius.control))
-                    .background(MaterialTheme.colorScheme.secondaryContainer),
-                contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Rounded.Public, null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(18.dp)) }
-            Spacer(Modifier.width(12.dp))
+    // Bars grow in on first show.
+    val grow = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { grow.animateTo(1f, tween(700)) }
+    Panel(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(country.country, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                Text("${country.cityCount} cities", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${y.year} by month", style = MaterialTheme.typography.titleMedium, color = c.text)
+                Text("Tap a month for its days", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
             }
-            Text("${country.locationCount} pts", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        }
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth().height(130.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            buckets.forEach { b ->
+                val on = b.month == selected
+                val frac by animateFloatAsState(b.points.toFloat() / maxV * grow.value, label = "bar")
+                val color by animateColorAsState(if (on) c.accent else if (selected == null) c.accent.copy(alpha = 0.55f) else c.surfaceHighest, label = "barC")
+                Column(
+                    Modifier.weight(1f).fillMaxHeight().clip(SquircleShape(8.dp)).tappable(feel = Feel.Select, pressedScale = 0.9f) { onPick(b.month) },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Bottom,
+                ) {
+                    Box(Modifier.fillMaxWidth().weight(1f, fill = true), contentAlignment = Alignment.BottomCenter) {
+                        Box(Modifier.fillMaxWidth().fillMaxHeight(frac.coerceAtLeast(0.03f)).clip(SquircleShape(6.dp)).background(color))
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        Month.of(b.month).getDisplayName(TextStyle.NARROW, Locale.getDefault()),
+                        style = MaterialTheme.typography.labelSmall, color = if (on) c.accent else c.textFaint,
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun CityRow(city: CityVisit) {
-    ClayCard(contentPadding = 0.dp) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(14.dp)) {
-            Box(
-                modifier = Modifier.size(36.dp).clip(SquircleShape(SquircleRadius.control))
-                    .background(MaterialTheme.colorScheme.tertiaryContainer),
-                contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Rounded.Place, null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(18.dp)) }
-            Spacer(Modifier.width(12.dp))
+private fun Drilldown(month: Int, year: Int, data: List<DayCount>, loading: Boolean, onDay: (String) -> Unit) {
+    val c = Atlas.colors
+    val name = Month.of(month).getDisplayName(TextStyle.FULL, Locale.getDefault())
+    Panel(Modifier.fillMaxWidth()) {
+        Text("$name $year", style = MaterialTheme.typography.titleMedium, color = c.text)
+        Text("Tap a day to see it on the map", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+        Spacer(Modifier.height(14.dp))
+        if (loading) {
+            Box(Modifier.fillMaxWidth().height(90.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp, color = c.accent) }
+            return@Panel
+        }
+        val maxV = max(1, data.maxOfOrNull { it.points } ?: 1)
+        Box(Modifier.fillMaxWidth().height(90.dp)) {
+            val grid = c.line
+            val bar = c.cyan
+            Canvas(Modifier.fillMaxSize()) {
+                val n = data.size.coerceAtLeast(1)
+                val w = size.width / n
+                listOf(0.25f, 0.5f, 0.75f, 1f).forEach { p -> drawLine(grid, Offset(0f, size.height * (1 - p)), Offset(size.width, size.height * (1 - p)), 1f) }
+                data.forEachIndexed { i, d ->
+                    val h = (d.points.toFloat() / maxV * size.height).coerceAtLeast(if (d.points > 0) 3f else 0f)
+                    drawRoundRect(bar, Offset(i * w + w * 0.15f, size.height - h), Size(w * 0.7f, h), CornerRadius(w * 0.35f))
+                }
+            }
+            Row(Modifier.fillMaxSize()) {
+                data.forEach { d ->
+                    Box(Modifier.weight(1f).fillMaxHeight().then(
+                        if (d.points > 0) Modifier.tappable(feel = Feel.Tick, pressedScale = 0.9f) { onDay("%04d-%02d-%02d".format(year, month, d.day)) } else Modifier
+                    ))
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+            data.forEach { d ->
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    if (d.day == 1 || d.day % 7 == 0) Text("${d.day}", style = MaterialTheme.typography.labelSmall, color = c.textFaint, maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CountryRow(rank: Int, country: CountryVisit, maxPoints: Int) {
+    val c = Atlas.colors
+    Panel(Modifier.fillMaxWidth(), padding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("%02d".format(rank), style = AtlasType.mono, color = c.textFaint, modifier = Modifier.width(30.dp))
             Column(Modifier.weight(1f)) {
-                Text(city.city, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text(country.country, style = MaterialTheme.typography.titleSmall, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${country.cityCount} cities", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+            }
+            Text(compact(country.locationCount), style = MaterialTheme.typography.labelLarge, color = c.accent)
+        }
+        Spacer(Modifier.height(10.dp))
+        Box(Modifier.padding(start = 30.dp).fillMaxWidth().height(4.dp).clip(SquircleShape(50)).background(c.surfaceHigh)) {
+            Box(Modifier.fillMaxWidth(country.locationCount.toFloat() / maxPoints).fillMaxHeight().clip(SquircleShape(50)).background(c.accent))
+        }
+    }
+}
+
+@Composable
+private fun CityRow(rank: Int, city: CityVisit) {
+    val c = Atlas.colors
+    Panel(Modifier.fillMaxWidth(), padding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("%02d".format(rank), style = AtlasType.mono, color = c.textFaint, modifier = Modifier.width(30.dp))
+            Column(Modifier.weight(1f)) {
+                Text(city.city, style = MaterialTheme.typography.titleSmall, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val sub = listOfNotNull(city.state, city.country).joinToString(", ")
-                if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.bodySmall, color = c.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Text("${city.visitCount} visits", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("${city.visitCount} visits", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
         }
     }
 }
 
-// ── Skeleton ──────────────────────────────────────────────────────────────────
-
-@Composable
-private fun SkeletonStats() {
-    val transition = rememberInfiniteTransition(label = "skeleton")
-    val alpha by transition.animateFloat(
-        initialValue = 0.3f, targetValue = 0.7f,
-        animationSpec = infiniteRepeatable(tween(900), repeatMode = RepeatMode.Reverse), label = "a",
-    )
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SkeletonCard(140.dp, alpha); SkeletonCard(120.dp, alpha); SkeletonCard(160.dp, alpha)
-    }
-}
-
-@Composable
-private fun SkeletonCard(height: androidx.compose.ui.unit.Dp, alpha: Float) {
-    Box(
-        modifier = Modifier.fillMaxWidth().height(height)
-            .clip(SquircleShape(SquircleRadius.panel))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
-    )
+/** 12,345 → "12.3k"; small numbers stay exact. */
+private fun compact(n: Int): String = when {
+    n >= 1_000_000 -> "%.1fM".format(n / 1_000_000f)
+    n >= 10_000 -> "%.1fk".format(n / 1_000f)
+    else -> "%,d".format(n)
 }

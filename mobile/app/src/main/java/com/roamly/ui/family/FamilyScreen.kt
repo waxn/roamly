@@ -1,219 +1,135 @@
 package com.roamly.ui.family
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.MailOutline
+import androidx.compose.material.icons.rounded.SwapHoriz
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.roamly.ui.theme.Clay
-import com.roamly.ui.theme.ClayButton
-import com.roamly.ui.theme.ClayCard
-import com.roamly.ui.theme.ClayOutlinedButton
-import com.roamly.ui.theme.ClayTextButton
-
-private enum class FamilyTab(val label: String) { MAP("Map"), PLACES("Places"), CIRCLE("Circle") }
+import com.roamly.data.api.FamilyCircleDetailResponse
+import com.roamly.ui.kit.AtlasButton
+import com.roamly.ui.kit.AtlasField
+import com.roamly.ui.kit.AtlasSheet
+import com.roamly.ui.kit.EmptyState
+import com.roamly.ui.kit.Feel
+import com.roamly.ui.kit.IconAction
+import com.roamly.ui.kit.ListRow
+import com.roamly.ui.kit.PushedScreen
+import com.roamly.ui.kit.SegmentedSwitch
+import com.roamly.ui.theme.Atlas
 
 /**
- * Entry point for Family Circle, reached from Settings in both Simple and
- * Advanced Mode (no dedicated bottom-nav slot — the bar is full at six, same
- * reasoning as the Record screen). A segmented tab hosts Map / Places /
- * Circle internally, the same pattern SearchTabScreen already uses for
- * Ask/Search, rather than adding more top-level nav routes.
+ * Family Circle, reached from the You tab in both Simple and Advanced Mode:
+ * Map / Places / Circle behind one switch, plus a circle picker when the
+ * account is in more than one.
  */
 @Composable
 fun FamilyScreen(onBack: () -> Unit, viewModel: FamilyViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
-    var tab by remember { mutableStateOf(FamilyTab.MAP) }
-    var showCreateDialog by remember { mutableStateOf(false) }
-    var showCirclePicker by remember { mutableStateOf(false) }
+    val c = Atlas.colors
+    var tab by rememberSaveable { mutableIntStateOf(0) }
+    var showCreate by remember { mutableStateOf(false) }
+    var showPicker by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize()) {
-        FamilyTopBar(
-            title = state.selectedCircle?.name ?: "Family Circle",
-            onBack = onBack,
-        ) {
-            if (state.circles.size > 1) {
-                IconButton(onClick = { showCirclePicker = true }) {
-                    Icon(Icons.Rounded.SwapHoriz, "Switch circle")
-                }
-            }
-        }
-
+    PushedScreen(
+        title = state.selectedCircle?.name ?: "Family Circle",
+        onBack = onBack,
+        subtitle = state.selectedCircle?.let { "${it.members.size} member${if (it.members.size == 1) "" else "s"}" },
+        actions = {
+            if (state.circles.size > 1) IconAction(Icons.Rounded.SwapHoriz, "Switch circle", { showPicker = true })
+        },
+    ) {
         when {
-            state.loading && state.circles.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            }
-            state.circles.isEmpty() -> {
-                EmptyCircleState(onCreate = { showCreateDialog = true })
-            }
-            state.selectedCircle?.let { !isMemberAccepted(it) } == true -> {
-                PendingInviteState(circleName = state.selectedCircle?.name ?: "")
-            }
+            state.loading && state.circles.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = c.accent) }
+            state.circles.isEmpty() -> EmptyState(
+                Icons.Rounded.Groups, "No Family Circle yet",
+                body = "Create a circle to see where your people are and get a nudge when someone arrives at or leaves a place.",
+                tint = c.amber, action = "Create a circle", onAction = { showCreate = true },
+            )
+            state.selectedCircle?.accepted == false -> EmptyState(
+                Icons.Rounded.MailOutline, "Invite pending",
+                body = "Open the invite link you received to join “${state.selectedCircle?.name.orEmpty()}” — it explains what sharing your location means before you accept.",
+                tint = c.textMuted,
+            )
             else -> {
-                SecondaryTabRow(selectedTabIndex = tab.ordinal) {
-                    FamilyTab.entries.forEach { t ->
-                        Tab(
-                            selected = tab == t,
-                            onClick = { tab = t },
-                            text = { Text(t.label) },
-                        )
+                SegmentedSwitch(listOf("Map", "Places", "Circle"), tab, { tab = it }, Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp))
+                Box(Modifier.weight(1f).padding(top = 6.dp)) {
+                    AnimatedContent(tab, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "familyTab") { t ->
+                        when (t) {
+                            0 -> FamilyMapContent(state = state, onRefresh = viewModel::refreshLocations)
+                            1 -> FamilyPlacesContent(viewModel = viewModel, state = state)
+                            else -> FamilyCircleContent(viewModel = viewModel, state = state, onCreateAnother = { showCreate = true })
+                        }
                     }
                 }
-                when (tab) {
-                    FamilyTab.MAP -> FamilyMapContent(state = state, onRefresh = viewModel::refreshLocations)
-                    FamilyTab.PLACES -> FamilyPlacesContent(viewModel = viewModel, state = state)
-                    FamilyTab.CIRCLE -> FamilyCircleContent(viewModel = viewModel, state = state, onCreateAnother = { showCreateDialog = true })
-                }
             }
         }
     }
 
-    if (showCreateDialog) {
-        CreateCircleDialog(
-            onDismiss = { showCreateDialog = false },
-            onCreate = { name ->
-                viewModel.createCircle(name) { _, _ -> showCreateDialog = false }
-            },
-        )
+    if (showCreate) {
+        var name by remember { mutableStateOf("") }
+        var busy by remember { mutableStateOf(false) }
+        AtlasSheet(onDismiss = { showCreate = false }, title = "New Family Circle") {
+            Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                AtlasField(name, { name = it }, label = "Name", placeholder = "Our family")
+                AtlasButton("Create circle", {
+                    busy = true
+                    viewModel.createCircle(name.trim()) { _, _ -> busy = false; showCreate = false }
+                }, Modifier.fillMaxWidth(), enabled = name.isNotBlank(), loading = busy, feel = Feel.Confirm)
+            }
+        }
     }
-
-    if (showCirclePicker) {
-        CirclePickerDialog(
-            circles = state.circles,
-            onDismiss = { showCirclePicker = false },
-            onPick = { id -> viewModel.selectCircle(id); showCirclePicker = false },
-            onCreateNew = { showCirclePicker = false; showCreateDialog = true },
-        )
-    }
-}
-
-/** Back arrow + title, matching HealthScreen/HealthWorkoutsScreen's header row.
- *  Deliberately not Material3's TopAppBar: nothing else in this app uses it,
- *  and it's still an experimental API that would need an opt-in at every call
- *  site for a row this simple. */
-@Composable
-internal fun FamilyTopBar(
-    title: String,
-    onBack: () -> Unit,
-    actions: @Composable RowScope.() -> Unit = {},
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().statusBarsPadding()
-            .padding(horizontal = 8.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "Back") }
-        Text(
-            title,
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.weight(1f),
-        )
-        actions()
-    }
-}
-
-private fun isMemberAccepted(circle: com.roamly.data.api.FamilyCircleDetailResponse): Boolean = circle.accepted
-
-@Composable
-private fun EmptyCircleState(onCreate: () -> Unit) {
-    Column(
-        Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Icon(Icons.Rounded.People, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.height(16.dp))
-        Text("No Family Circle yet", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Create a circle to see where family members are and get notified when someone arrives at or leaves a place.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-        )
-        Spacer(Modifier.height(20.dp))
-        ClayButton(onClick = onCreate, gradient = Clay.colors.secondaryGradient) {
-            Text("Create a circle")
+    if (showPicker) {
+        CirclePicker(state.circles, state.selectedCircleId, { showPicker = false }, { id -> viewModel.selectCircle(id); showPicker = false }) {
+            showPicker = false; showCreate = true
         }
     }
 }
 
 @Composable
-private fun PendingInviteState(circleName: String) {
-    Column(
-        Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Icon(Icons.Rounded.MailOutline, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(12.dp))
-        Text("Invite pending", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Open the invite link you received to join \"$circleName\" — it explains what sharing your location means before you accept.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-        )
-    }
-}
-
-@Composable
-private fun CreateCircleDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
-    var name by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("New Family Circle") },
-        text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("Name") },
-                placeholder = { Text("e.g. \"Our Family\"") },
-                singleLine = true,
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { if (name.isNotBlank()) onCreate(name.trim()) }, enabled = name.isNotBlank()) {
-                Text("Create")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-@Composable
-private fun CirclePickerDialog(
-    circles: List<com.roamly.data.api.FamilyCircleDetailResponse>,
+private fun CirclePicker(
+    circles: List<FamilyCircleDetailResponse>,
+    selected: Int?,
     onDismiss: () -> Unit,
     onPick: (Int) -> Unit,
     onCreateNew: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Switch circle") },
-        text = {
-            LazyColumn {
-                items(circles) { c ->
-                    ListItem(
-                        headlineContent = { Text(c.name) },
-                        supportingContent = if (!c.accepted) { { Text("Invite pending") } } else null,
-                        modifier = Modifier.clickable { onPick(c.id) },
-                    )
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onCreateNew) { Text("New circle") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-    )
+    val c = Atlas.colors
+    AtlasSheet(onDismiss = onDismiss, title = "Switch circle") {
+        circles.forEach { circle ->
+            ListRow(
+                circle.name,
+                subtitle = if (!circle.accepted) "Invite pending" else "${circle.members.size} members",
+                icon = Icons.Rounded.Groups, iconTint = c.amber,
+                onClick = { onPick(circle.id) }, showChevron = false,
+                trailing = if (circle.id == selected) ({ Icon(Icons.Rounded.Check, null, tint = c.accent) }) else null,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            )
+        }
+        ListRow("New circle", icon = Icons.Rounded.Add, iconTint = c.accent, onClick = onCreateNew, modifier = Modifier.padding(horizontal = 8.dp))
+    }
 }
