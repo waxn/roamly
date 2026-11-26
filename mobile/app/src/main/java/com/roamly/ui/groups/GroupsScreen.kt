@@ -87,7 +87,7 @@ fun GroupsScreen(
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = dockAwareBottom(96.dp)),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                items(state.trips, key = { it.id }) { trip ->
+                items(state.trips.distinctBy { it.id }, key = { it.id }) { trip ->
                     TripCard(trip, onClick = { onTripClick(trip.id) }, onLongClick = { pendingDelete = trip })
                 }
             }
@@ -170,12 +170,14 @@ private fun Meta(icon: androidx.compose.ui.graphics.vector.ImageVector, text: St
     }
 }
 
-private fun parseDay(iso: String): LocalDate? = runCatching {
-    OffsetDateTime.parse(iso).atZoneSameInstant(ZoneId.systemDefault()).toLocalDate()
-}.getOrElse { runCatching { LocalDate.parse(iso.take(10)) }.getOrNull() }
+private fun parseDay(iso: String?): LocalDate? {
+    if (iso.isNullOrBlank()) return null
+    return runCatching { OffsetDateTime.parse(iso).atZoneSameInstant(ZoneId.systemDefault()).toLocalDate() }
+        .getOrElse { runCatching { LocalDate.parse(iso.take(10)) }.getOrNull() }
+}
 
 /** "12 – 18 MAR 2025 · 7 DAYS" */
-internal fun tripDates(startIso: String, endIso: String): String {
+internal fun tripDates(startIso: String?, endIso: String?): String {
     val s = parseDay(startIso) ?: return ""
     val e = parseDay(endIso) ?: s
     val days = ChronoUnit.DAYS.between(s, e) + 1

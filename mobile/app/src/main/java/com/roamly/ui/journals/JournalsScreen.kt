@@ -126,7 +126,7 @@ fun JournalsScreen(
             item { MonthCalendar(state, onPrev = viewModel::prevMonth, onNext = viewModel::nextMonth, onDay = viewModel::openEditor) }
             if (state.recent.isNotEmpty()) {
                 item { SectionTitle("Recent", Modifier.padding(top = 4.dp)) }
-                items(state.recent.take(30), key = { it.date }) { entry ->
+                items(state.recent.distinctBy { it.date }.take(30), key = { it.date }) { entry ->
                     EntryRow(entry, cover = viewModel.mediaUrl(entry.cover)) {
                         runCatching { LocalDate.parse(entry.date) }.getOrNull()?.let(viewModel::openEditor)
                     }
