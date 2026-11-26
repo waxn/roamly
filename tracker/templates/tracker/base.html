@@ -891,16 +891,54 @@
         }
 
         /* ── Loading ── */
+        /* The Roamly mark, animated: the dashed orbit ring spins around a
+           pin that gently bobs. Both layers are masks so they take the
+           current text/primary colour; themes can still resize via
+           width/height. The !importants beat the per-style spinner skins
+           (borders, conic rings, ASCII glyphs) so every style shows the logo. */
         .spinner {
             display: inline-block;
-            width: 1.25rem;
-            height: 1.25rem;
-            border: 2.5px solid var(--border);
-            border-top-color: var(--primary);
-            border-radius: 50%;
-            animation: spin 0.6s linear infinite;
+            position: relative;
+            width: 1.5rem;
+            height: 1.5rem;
+            vertical-align: middle;
+            flex: 0 0 auto;
+            border: 0 !important;
+            border-radius: 0 !important;
+            background: none !important;
+            box-shadow: none !important;
+            -webkit-mask: none !important;
+            mask: none !important;
+            animation: none !important;
+            color: var(--primary);
+        }
+        .spinner::before, .spinner::after {
+            content: "" !important;
+            position: absolute;
+            inset: 0;
+            display: block;
+            background: currentColor !important;
+            -webkit-mask: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-8 -8 216 216'%3E%3Cg fill='none' stroke='%23000' stroke-linecap='round' stroke-linejoin='round' stroke-width='8'%3E%3Cpath d='m185.9 102.2c0 11.2-9.5 22.6-15 33.5-5.4 10.9-9.1 23.3-17.5 31.8-8.4 8.5-21.2 17.3-32.8 19.2-11.6 1.8-25.7-3.9-36.7-8.1-11.1-4.4-20-10.9-29.5-17.7-9.5-6.8-21-13.2-27.5-23-6.5-9.8-11.8-24.1-11.3-35.8.5-11.7 7.8-24.5 14.1-34.4 6.4-9.9 15.2-17.2 24-25.2 8.8-8 17.5-18.5 28.7-22.9 11.2-4.3 26.9-6.3 38.3-3 11.5 3.3 22.3 14 30.6 22.7 8.4 8.7 13.7 18.9 19.5 29.3 5.7 10.5 15 22.4 15 33.5z' opacity='.45'/%3E%3Cpath d='m155.5 100.8c0 40.2-43.4 65.4-78.2 45.2-34.8-20.1-34.8-70.4 0-90.5 7.9-4.6 16.9-7 26.1-7' stroke-dasharray='11 9'/%3E%3Cpolyline points='164.4 105.5 147.7 93.9 164.4 82.4' transform='matrix(0 1.044 -1.044 0 253.8 -70.1)'/%3E%3C/g%3E%3C/svg%3E");
+            mask: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-8 -8 216 216'%3E%3Cg fill='none' stroke='%23000' stroke-linecap='round' stroke-linejoin='round' stroke-width='8'%3E%3Cpath d='m185.9 102.2c0 11.2-9.5 22.6-15 33.5-5.4 10.9-9.1 23.3-17.5 31.8-8.4 8.5-21.2 17.3-32.8 19.2-11.6 1.8-25.7-3.9-36.7-8.1-11.1-4.4-20-10.9-29.5-17.7-9.5-6.8-21-13.2-27.5-23-6.5-9.8-11.8-24.1-11.3-35.8.5-11.7 7.8-24.5 14.1-34.4 6.4-9.9 15.2-17.2 24-25.2 8.8-8 17.5-18.5 28.7-22.9 11.2-4.3 26.9-6.3 38.3-3 11.5 3.3 22.3 14 30.6 22.7 8.4 8.7 13.7 18.9 19.5 29.3 5.7 10.5 15 22.4 15 33.5z' opacity='.45'/%3E%3Cpath d='m155.5 100.8c0 40.2-43.4 65.4-78.2 45.2-34.8-20.1-34.8-70.4 0-90.5 7.9-4.6 16.9-7 26.1-7' stroke-dasharray='11 9'/%3E%3Cpolyline points='164.4 105.5 147.7 93.9 164.4 82.4' transform='matrix(0 1.044 -1.044 0 253.8 -70.1)'/%3E%3C/g%3E%3C/svg%3E");
+            animation: spin 1.1s linear infinite;
+            border: 0;
+            font-size: 0;
+        }
+        .spinner::after {
+            -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-8 -8 216 216'%3E%3Cg fill='%23000' stroke='%23000'%3E%3Cpath d='M100 83.2c-5.8 0-9.4 6.5-6.5 11.7 2.9 5.2 10.1 5.2 13 0 .7-1.2 1-2.5 1-3.9 0-4.3-3.4-7.8-7.5-7.8zm0 11.7c-2.9 0-4.7-3.2-3.2-5.8 1.4-2.6 5-2.6 6.5 0 .3.6.5 1.3.5 1.9 0 2.1-1.7 3.9-3.7 3.9z' stroke-width='4'/%3E%3Cpath d='M117.8 73.8C104.1 60.3 80.7 66.5 75.6 85c-1.8 6.8-.7 14.1 3.2 20L96.4 131.5c1.7 2.6 5.5 2.6 7.2 0L121.1 105c6.5-9.9 5.1-22.8-3.3-31.2zm-.6 28.7L100 128.6 82.8 102.5c-5.3-8-4.2-18.7 2.7-25.4 8-7.9 21-7.9 29.1 0 6.8 6.7 7.9 17.4 2.6 25.4z' stroke-width='6'/%3E%3C/g%3E%3C/svg%3E");
+            mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-8 -8 216 216'%3E%3Cg fill='%23000' stroke='%23000'%3E%3Cpath d='M100 83.2c-5.8 0-9.4 6.5-6.5 11.7 2.9 5.2 10.1 5.2 13 0 .7-1.2 1-2.5 1-3.9 0-4.3-3.4-7.8-7.5-7.8zm0 11.7c-2.9 0-4.7-3.2-3.2-5.8 1.4-2.6 5-2.6 6.5 0 .3.6.5 1.3.5 1.9 0 2.1-1.7 3.9-3.7 3.9z' stroke-width='4'/%3E%3Cpath d='M117.8 73.8C104.1 60.3 80.7 66.5 75.6 85c-1.8 6.8-.7 14.1 3.2 20L96.4 131.5c1.7 2.6 5.5 2.6 7.2 0L121.1 105c6.5-9.9 5.1-22.8-3.3-31.2zm-.6 28.7L100 128.6 82.8 102.5c-5.3-8-4.2-18.7 2.7-25.4 8-7.9 21-7.9 29.1 0 6.8 6.7 7.9 17.4 2.6 25.4z' stroke-width='6'/%3E%3C/g%3E%3C/svg%3E");
+            animation: spin-pin 1.1s ease-in-out infinite;
+            transform-origin: 50% 70%;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes spin-pin {
+            0%, 100% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-8%) scale(1.08); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .spinner::before { animation-duration: 3s; }
+            .spinner::after { animation: none; }
+        }
 
         /* ── Skeleton loaders ──
            A reusable shimmer placeholder. Use `.skeleton` on any block to give
