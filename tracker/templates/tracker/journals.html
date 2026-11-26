@@ -195,6 +195,23 @@
 .j-entry-foot { display: flex; gap: 0.6rem; margin-top: 0.3rem; font-size: 0.7rem; color: var(--text-dim); font-weight: 700; }
 .j-empty-state { text-align: center; color: var(--text-muted); padding: 1.5rem 0.5rem; font-size: 0.85rem; }
 
+/* ── Entries feed: grouped by month, laid out as a grid of cards ── */
+.j-feed-wrap { margin-top: 2rem; }
+.j-feed-month {
+    font-family: var(--font-display); font-size: 1.05rem; font-weight: 800; text-transform: none;
+    margin: 1.6rem 0 0.8rem; color: var(--text);
+    display: flex; align-items: baseline; gap: 0.6rem;
+}
+.j-feed-month:first-child { margin-top: 0; }
+.j-feed-month small { font-family: var(--font-mono); font-size: 0.7rem; font-weight: 600; color: var(--text-dim); letter-spacing: 0.04em; }
+.j-feed { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 0.9rem; }
+.j-feed .j-entry-card { flex-direction: column; gap: 0; padding: 0; overflow: hidden; }
+.j-feed .j-entry-cover { width: 100%; height: 120px; border-radius: 0; box-shadow: none; font-size: 2.2rem; }
+.j-feed .j-entry-cover.no-photo { height: 64px; }
+.j-feed .j-entry-meta { padding: 0.75rem 0.9rem 0.85rem; }
+.j-feed .j-entry-title.pending { color: var(--text-dim); font-style: italic; font-weight: 600; }
+.j-feed-more { display: block; margin: 1.4rem auto 0; }
+
 /* ── Search ── */
 .j-search-wrap { position: relative; margin-bottom: 0.8rem; }
 .j-search-input {
@@ -534,23 +551,27 @@
                 <div class="j-search-count" id="j-search-count"></div>
                 <div class="j-recent" id="j-search-list"></div>
             </div>
-            <div class="card" id="j-recent-card">
-                <div class="j-side-title">recent entries</div>
-                <div class="j-recent" id="j-recent" aria-busy="true">
-                    {% for i in "1234" %}
-                    <div class="j-entry-card" aria-hidden="true" style="pointer-events:none;">
-                        <div class="skeleton" style="width:54px;height:54px;flex-shrink:0;"></div>
-                        <div class="j-entry-meta">
-                            <div class="skeleton skel-line sm" style="width:40%;margin-bottom:0.5rem;"></div>
-                            <div class="skeleton skel-line" style="width:70%;margin-bottom:0.5rem;"></div>
-                            <div class="skeleton skel-line sm" style="width:55%;"></div>
-                        </div>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
         </div>
     </div>
+
+    <!-- Entries, month by month -->
+    <section class="j-feed-wrap" id="j-recent-card" aria-labelledby="j-feed-title">
+        <div class="j-side-title" id="j-feed-title">your entries</div>
+        <div id="j-recent" aria-busy="true">
+            <div class="j-feed">
+                {% for i in "1234" %}
+                <div class="j-entry-card" aria-hidden="true" style="pointer-events:none;">
+                    <div class="skeleton" style="width:100%;height:120px;"></div>
+                    <div class="j-entry-meta">
+                        <div class="skeleton skel-line sm" style="width:40%;margin-bottom:0.5rem;"></div>
+                        <div class="skeleton skel-line" style="width:70%;margin-bottom:0.5rem;"></div>
+                        <div class="skeleton skel-line sm" style="width:55%;"></div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </section>
 </div>
 
 <!-- AI recap: closed on every page load, and nothing in it is kept -->
@@ -721,40 +742,95 @@ function renderGrid() {
     document.getElementById('j-grid').innerHTML = html;
 }
 
-// ── Recent entries ──
+// ── Entries feed ──
+let feedEntries = [];
+let feedShown = 12;
+const FEED_STEP = 12;
+let titleBackfillDone = false;
+
+function entryCardHtml(e) {
+    const cover = e.cover
+        ? `<div class="j-entry-cover" style="background-image:url('${e.cover}')"></div>`
+        : `<div class="j-entry-cover no-photo">${e.mood||'📓'}</div>`;
+    const foot = [];
+    if (e.word_count) foot.push(`${e.word_count} words`);
+    if (e.photo_count) foot.push(`${e.photo_count} 📷`);
+    if (e.location_name) foot.push(`📍 ${e.location_name}`);
+    const quick = (e.quick_note || '').trim().split('\n')[0];
+    const titleHtml = e.title
+        ? `<div class="j-entry-title">${escapeHtml(e.title)}</div>`
+        : `<div class="j-entry-title pending" data-title-for="${e.date}">${(quick || e.snippet) ? 'untitled' : 'empty day'}</div>`;
+    return `<div class="j-entry-card" role="button" tabindex="0" onclick="openEntry('${e.date}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openEntry('${e.date}');}" aria-label="Open journal entry for ${e.date}">
+        ${cover}
+        <div class="j-entry-meta">
+            <div class="j-entry-date">${fmtLong(e.date)}</div>
+            ${titleHtml}
+            ${quick ? `<div class="j-entry-quick">${escapeHtml(quick)}</div>` : ''}
+            ${e.snippet && e.snippet !== quick ? `<div class="j-entry-snippet">${escapeHtml(e.snippet)}</div>` : ''}
+            ${foot.length ? `<div class="j-entry-foot">${foot.map(escapeHtml).join(' · ')}</div>` : ''}
+        </div>
+    </div>`;
+}
+
+function renderFeed() {
+    const el = document.getElementById('j-recent');
+    el.removeAttribute('aria-busy');
+    if (!feedEntries.length) {
+        el.innerHTML = `<div class="j-empty-state">no entries yet — start with today ✍️</div>`;
+        return;
+    }
+    const shown = feedEntries.slice(0, feedShown);
+    let html = '', month = null, open = false;
+    shown.forEach(e => {
+        const m = e.date.slice(0, 7);
+        if (m !== month) {
+            if (open) html += '</div>';
+            const [y, mo] = m.split('-').map(Number);
+            const count = feedEntries.filter(x => x.date.startsWith(m)).length;
+            html += `<div class="j-feed-month">${MONTHS[mo-1]} ${y}<small>${count} ${count === 1 ? 'entry' : 'entries'}</small></div><div class="j-feed">`;
+            month = m; open = true;
+        }
+        html += entryCardHtml(e);
+    });
+    if (open) html += '</div>';
+    if (feedEntries.length > feedShown) {
+        html += `<button type="button" class="btn btn-outline j-feed-more" onclick="feedShown+=FEED_STEP;renderFeed();">show older entries</button>`;
+    }
+    el.innerHTML = html;
+}
+
 function loadRecent() {
     fetch('/api/journals/').then(r=>{ if(!r.ok) throw new Error('recent entries failed'); return r.json(); }).then(data=>{
-        const el = document.getElementById('j-recent');
-        el.removeAttribute('aria-busy');
-        if (!data.entries.length) {
-            el.innerHTML = `<div class="j-empty-state">no entries yet — start with today ✍️</div>`;
-            return;
-        }
-        const entries = data.entries.slice(0, 12).map(e => ({...e, word_count: e.word_count}));
-        el.innerHTML = entries.map(e=>{
-            const cover = e.cover
-                ? `<div class="j-entry-cover" style="background-image:url('${e.cover}')"></div>`
-                : `<div class="j-entry-cover">${e.mood||'📓'}</div>`;
-            const foot = [];
-            if (e.word_count) foot.push(`${e.word_count} words`);
-            if (e.photo_count) foot.push(`${e.photo_count} 📷`);
-            if (e.location_name) foot.push(`📍 ${e.location_name}`);
-            return `<div class="j-entry-card" role="button" tabindex="0" onclick="openEntry('${e.date}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openEntry('${e.date}');}" aria-label="Open journal entry for ${e.date}">
-                ${cover}
-                <div class="j-entry-meta">
-                    <div class="j-entry-date">${fmtLong(e.date)}</div>
-                    <div class="j-entry-title">${e.title ? escapeHtml(e.title) : 'untitled'}</div>
-                    ${e.quick_note ? `<div class="j-entry-quick">${escapeHtml(e.quick_note.trim().split('\n')[0])}</div>` : ''}
-                    ${e.snippet && e.snippet !== (e.quick_note || '').trim().split('\n')[0] ? `<div class="j-entry-snippet">${escapeHtml(e.snippet)}</div>` : ''}
-                    ${foot.length ? `<div class="j-entry-foot">${foot.map(escapeHtml).join(' · ')}</div>` : ''}
-                </div>
-            </div>`;
-        }).join('');
+        feedEntries = data.entries;
+        renderFeed();
+        backfillTitles();
     }).catch(()=>{
         const el = document.getElementById('j-recent');
         el.removeAttribute('aria-busy');
         el.innerHTML = '<div class="j-empty-state" style="color:var(--danger);">Failed to load entries. <a href="#" onclick="loadRecent();return false;">Retry</a></div>';
     });
+}
+
+// Untitled days with something written get an AI title, a few at a time, once per
+// page load. Only runs when the account switched "AI title" on (it sends text out).
+function backfillTitles() {
+    if (titleBackfillDone || !journalSettings || !journalSettings.ai_available || !journalSettings.auto_title) return;
+    if (!feedEntries.some(e => !e.title && (e.snippet || (e.quick_note || '').trim()))) return;
+    titleBackfillDone = true;
+    const round = () => fetch('/api/journals/title-missing/', {method:'POST', headers:{'X-CSRFToken':csrfToken}})
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+            if (!d) return;
+            const dates = Object.keys(d.titled || {});
+            dates.forEach(ds => {
+                const e = feedEntries.find(x => x.date === ds);
+                if (e) e.title = d.titled[ds];
+                if (monthEntries[ds]) monthEntries[ds].title = d.titled[ds];
+            });
+            if (dates.length) renderFeed();
+            if (dates.length && d.remaining > 0) round();
+        }).catch(()=>{});
+    round();
 }
 
 function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -764,24 +840,7 @@ function renderEntryCards(entries, container) {
         container.innerHTML = `<div class="j-empty-state">no matches found</div>`;
         return;
     }
-    container.innerHTML = entries.map(e=>{
-        const cover = e.cover
-            ? `<div class="j-entry-cover" style="background-image:url('${e.cover}')"></div>`
-            : `<div class="j-entry-cover">${e.mood||'📓'}</div>`;
-        const foot = [];
-        if (e.photo_count) foot.push(`${e.photo_count} 📷`);
-        if (e.location_name) foot.push(`📍 ${e.location_name}`);
-        return `<div class="j-entry-card" role="button" tabindex="0" onclick="openEntry('${e.date}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openEntry('${e.date}');}" aria-label="Open journal entry for ${e.date}">
-            ${cover}
-            <div class="j-entry-meta">
-                <div class="j-entry-date">${fmtLong(e.date)}</div>
-                <div class="j-entry-title">${e.title ? escapeHtml(e.title) : 'untitled'}</div>
-                ${e.quick_note ? `<div class="j-entry-quick">${escapeHtml(e.quick_note.trim().split('\n')[0])}</div>` : ''}
-                ${e.snippet && e.snippet !== (e.quick_note || '').trim().split('\n')[0] ? `<div class="j-entry-snippet">${escapeHtml(e.snippet)}</div>` : ''}
-                ${foot.length ? `<div class="j-entry-foot">${foot.map(escapeHtml).join(' · ')}</div>` : ''}
-            </div>
-        </div>`;
-    }).join('');
+    container.innerHTML = entries.map(entryCardHtml).join('');
 }
 
 // ── AI recap ──
@@ -982,7 +1041,7 @@ function closeEntry() {
     const needsAi = journalSettings && journalSettings.ai_available &&
         ((journalSettings.auto_title && !document.getElementById('j-title').value.trim()) ||
          (journalSettings.auto_mood && !currentMood)) &&
-        document.getElementById('j-body').value.trim();
+        (document.getElementById('j-body').value.trim() || (document.getElementById('j-quick') && document.getElementById('j-quick').value.trim()));
     const saved = flushSave();
     document.getElementById('j-modal-overlay').classList.remove('open');
     document.body.style.overflow = '';
@@ -1054,7 +1113,7 @@ function saveJournalSetting(box) {
         method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken},
         body: JSON.stringify({[box.dataset.setting]: box.checked}),
     }).then(r=>{ if (!r.ok) throw new Error('settings'); return r.json(); }).then(s=>{
-        journalSettings = s; renderJournalSettings();
+        journalSettings = s; renderJournalSettings(); backfillTitles();
     }).catch(()=>{
         box.checked = !box.checked;
         if (window.roamlyToast) window.roamlyToast('Could not save that setting.', {type:'error'});
@@ -1071,7 +1130,7 @@ document.addEventListener('click', e=>{
     if (!cog.contains(e.target)) { cog.classList.remove('open'); cogBtn.setAttribute('aria-expanded', 'false'); }
 });
 fetch('/api/journals/settings/').then(r=>r.ok ? r.json() : null).then(s=>{
-    if (s) { journalSettings = s; renderJournalSettings(); }
+    if (s) { journalSettings = s; renderJournalSettings(); backfillTitles(); }
 }).catch(()=>{});
 
 const dateBtn = document.getElementById('j-edit-date');
